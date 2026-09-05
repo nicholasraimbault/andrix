@@ -1,10 +1,12 @@
 # Andrix
 
-Andrix makes Android a general-purpose mobile computer: one native
+Andrix aims to make Android a general-purpose mobile computer: one native
 Android/Bionic system with an owner-controlled Unix environment.
 
 Before acting, read [current work](plans/current.md); read its linked milestone
-when relevant.
+when relevant. If `dev/operator-current.md` exists, read it for private local
+paths and access context. That ignored operator file is not public project
+source or a replacement for the verified public work state.
 
 ## Values
 
@@ -32,5 +34,12 @@ integration or discard.
 Ground claims in the exact revision, artifact or running system. Surface a
 defeated premise rather than force the intended result. Keep private signing
 keys outside Git and communication channels.
+
+For owner-directed automated work, use the owner's configured GitHub-linked
+noreply identity. Do not substitute invented agent or localhost identities;
+if it is missing, confirm the correct account before committing. Other
+contributors should use their own identity, not impersonate the project owner.
+
+Use `master` as this repository's default branch; do not rename it to `main`.
 
 Use Git history only to trace an earlier decision.

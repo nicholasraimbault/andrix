@@ -1,0 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
+package {
+    default_applicable_licenses: ["vendor_andrix_license"],
+}
+
+license {
+    name: "vendor_andrix_license",
+    visibility: [":__subpackages__"],
+    license_kinds: ["SPDX-license-identifier-Apache-2.0"],
+    license_text: ["LICENSE"],
+}

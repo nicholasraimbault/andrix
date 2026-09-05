@@ -1,7 +1,9 @@
 # Architecture
 
-This is the accepted system design. Live implementation and proof state belong
-in [`plans/current.md`](../plans/current.md).
+This is the accepted system design: requirements for the system being built,
+not a claim that the current prototype implements or proves them. There is no
+supported Andrix release yet. Live implementation and proof state belong in
+[`plans/current.md`](../plans/current.md).
 
 ## Foundation
 

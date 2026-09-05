@@ -5,8 +5,29 @@ keys/*.avbpubkey
 keys/.keygen.*/
 !keys/README.md
 
-# Local build crumbs if someone unpacks an APEX here
+# Machine-local operator configuration is not public project source.
+/dev/
+/.codex/
+/.omp/
+
+# Local build outputs, runtime captures and credentials are never source.
 out/
+/evidence/
+/artifacts/
 *.apex
 *.capex
+*.apk
+*.img
+*.bundle
+*.key
+*.pem
+*.pcap
+*.pcapng
+*.pk8
+*.p12
+*.pfx
+*.jks
+*.keystore
+.env
+.env.*
 .DS_Store
