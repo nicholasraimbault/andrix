@@ -108,7 +108,10 @@ no Lineage dependency or source shortcut.
 **Input:** reviewed SRC-0.
 
 1. Record `repo status`, the pinned manifest hash, Andrix HEAD/tree/status, host
-   architecture, and output path state.
+   architecture, and output path state. For the r1 build, use `OUT_DIR=out`
+   relative to the source root. The pinned Siso executor requires a
+   source-root-relative configuration path; the initial absolute output-path
+   invocation failed even though its generated configuration existed.
 2. Source `build/envsetup.sh`; run product discovery and require only
    `andrix_cf_arm64_only_phone` from the Andrix overlay.
 3. For `android-17.0.0_r1`, run
@@ -195,6 +198,14 @@ Use an explicitly authorized disposable ordinary app to show its ARM64 JNI libra
 uses the same Android linker/Bionic ABI while `execve` from writable app-private
 storage remains denied. Do not use a privileged app, shell-domain proxy, or
 policy relaxation.
+
+An optional [in-tree fixture](../tests/p5-ordinary-app/README.md) is available;
+its implementation/build is not a P5 pass. It is not a product package. Review
+its exact APK, non-platform proof signer and JNI ELF before installation on the
+authorized fixture. Its valid-executable control is the exact P3 image's system
+shell, not a replacement for P2/P4 `andrix-hello`. Preserve the real app UID,
+SELinux/mapping observations, successful read-only control, byte-identical
+private copy and specific `execve` EACCES result.
 
 ## P6-A17 — existence review and stop
 

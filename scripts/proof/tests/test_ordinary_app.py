@@ -204,6 +204,32 @@ class ParserTests(HostOnly):
             with self.subTest(badging=badging, xml=xml), self.assertRaises(p5.Failure):
                 p5.check_apk_metadata(badging, xml)
 
+    def test_pinned_aapt2_metadata_format(self):
+        # Text captured from the real r1-built APK/pinned aapt2, not a boot test.
+        fixtures = Path(__file__).resolve().parent / "fixtures"
+        badging = (fixtures / "p5-aapt2-r1-badging.txt").read_text()
+        manifest = (fixtures / "p5-aapt2-r1-manifest.txt").read_text()
+        p5.check_apk_metadata(badging, manifest)
+        for bad, xml in (
+                (badging.replace("minSdkVersion:'37'", "minSdkVersion:'36'"), manifest),
+                (badging.replace("minSdkVersion:'37'\n", ""), manifest),
+                (badging + "sdkVersion:'37'\n", manifest),
+                (badging + "minSdkVersion:'37'\n", manifest),
+                (badging + "targetSdkVersion:'37'\n", manifest),
+                (badging, manifest.replace("testOnly(0x01010272)=true", "testOnly(0x01010272)=false")),
+                (badging, manifest + " A: http://schemas.android.com/apk/res/android:testOnly(0x01010272)=true\n"),
+                (badging, manifest + ' A: http://schemas.android.com/apk/res/android:sharedUserId(0x0101000b)="android.uid.system"\n'),
+                (badging, manifest + ' A: http://schemas.android.com/apk/res/android:permission(0x01010006)="android.permission.INTERNET"\n'),
+        ):
+            with self.subTest(badging=bad, manifest=xml), self.assertRaises(p5.Failure):
+                p5.check_apk_metadata(bad, xml)
+
+    def test_minimum_sdk_metadata_is_unambiguous(self):
+        for badging in (BADGING + "sdkVersion:'37'\n", BADGING + "minSdkVersion:'37'\n",
+                        BADGING.replace("sdkVersion:'37'\n", "")):
+            with self.subTest(badging=badging), self.assertRaises(p5.Failure):
+                p5.check_apk_metadata(badging, XMLTREE)
+
     def test_apk_archive_has_only_one_arm64_jni_payload(self):
         expected = "lib/arm64-v8a/libandrix_p5_probe.so"
         for libraries, valid in (([expected], True), ([], False),
