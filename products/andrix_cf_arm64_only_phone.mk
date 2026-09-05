@@ -6,7 +6,8 @@ $(call inherit-product, vendor/andrix/andrix.mk)
 PRODUCT_PACKAGES += \
     andrix-cuttlefish-network.rc \
     AndrixCuttlefishNetworkStackOverlay \
-    AndrixCuttlefishConnectivityOverlay
+    AndrixCuttlefishConnectivityOverlay \
+    AndrixCuttlefishFrameworkOverlay
 
 PRODUCT_NAME := andrix_cf_arm64_only_phone
 PRODUCT_DEVICE := andrix_cf_arm64_only
