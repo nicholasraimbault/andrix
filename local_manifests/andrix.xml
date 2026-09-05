@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- This is intentionally not an installation manifest: the repository has no
+     public remote to sync yet. For local Phase 1 work, place this checkout at
+     vendor/andrix (a symlink is sufficient). Add a pinned <project> only after a
+     real remote exists; an empty manifest is not build provenance. -->
+<manifest>
+</manifest>

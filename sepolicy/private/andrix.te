@@ -1,0 +1,12 @@
+# Phase 1: shell may exec andrix-hello. Do not grant untrusted_app exec on app_data.
+
+type andrix_file, system_file_type, file_type;
+type andrix_exec, system_file_type, file_type, exec_type;
+type andrix_lib, system_file_type, file_type;
+
+allow shell andrix_file:dir { getattr search open read };
+allow shell andrix_exec:dir { getattr search open read };
+allow shell andrix_exec:file { execute execute_no_trans read open getattr map };
+allow shell andrix_lib:file { read open getattr map execute };
+
+allow init andrix_file:dir { getattr search mounton };

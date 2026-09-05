@@ -1,0 +1,3 @@
+(/.*)?           u:object_r:andrix_file:s0
+/bin(/.*)?       u:object_r:andrix_exec:s0
+/lib64(/.*)?     u:object_r:andrix_lib:s0

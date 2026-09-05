@@ -1,0 +1,31 @@
+linker_config {
+    name: "dev.andrix.usr.linker.config",
+    src: "linker.config.json",
+    installable: false,
+}
+
+cc_binary {
+    name: "andrix-hello",
+    stem: "andrix-hello",
+    srcs: ["andrix_hello.c"],
+    ldflags: [
+        "-Wl,-z,max-page-size=16384",
+        "-Wl,-z,common-page-size=16384",
+    ],
+    compile_multilib: "64",
+    min_sdk_version: "37",
+    apex_available: ["dev.andrix.usr"],
+}
+
+apex {
+    name: "dev.andrix.usr",
+    manifest: "apex_manifest.json",
+    file_contexts: "file_contexts",
+    key: "dev.andrix.usr.key",
+    certificate: ":dev.andrix.usr.certificate",
+    system_ext_specific: true,
+    updatable: true,
+    min_sdk_version: "37",
+    binaries: ["andrix-hello"],
+    prebuilts: ["dev.andrix.usr.linker.config"],
+}

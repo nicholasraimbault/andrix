@@ -1,0 +1,10 @@
+apex_key {
+    name: "dev.andrix.usr.key",
+    public_key: "dev.andrix.usr.avbpubkey",
+    private_key: "dev.andrix.usr.pem",
+}
+
+android_app_certificate {
+    name: "dev.andrix.usr.certificate",
+    certificate: "dev.andrix.usr",
+}
