@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.andrix.proof.p5"
+    android:versionCode="1"
+    android:versionName="1">
+    <uses-sdk android:minSdkVersion="37" android:targetSdkVersion="37" />
+    <!-- No permissions, shared UID, components other than self-instrumentation,
+         platform signing, privileged installation, or product inclusion. -->
+    <application android:label="Disposable Andrix P5 proof"
+        android:allowBackup="false" android:testOnly="true"
+        android:usesCleartextTraffic="false" />
+    <instrumentation android:name="dev.andrix.proof.p5.P5Instrumentation"
+        android:targetPackage="dev.andrix.proof.p5"
+        android:functionalTest="true" android:handleProfiling="false" />
+</manifest>
