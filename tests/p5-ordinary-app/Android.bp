@@ -1,0 +1,35 @@
+// Optional, explicitly built/installed proof fixture; never a product package.
+android_test {
+    name: "AndrixP5OrdinaryApp",
+    manifest: "AndroidManifest.xml",
+    srcs: ["src/**/*.java"],
+    sdk_version: "37",
+    min_sdk_version: "37",
+    target_sdk_version: "37",
+    compile_multilib: "64",
+    // sdk_version selects the JNI library's NDK (not platform) variant.
+    jni_libs: ["libandrix_p5_probe"],
+    use_embedded_native_libs: true,
+    // Existing local disposable proof signer, NOT the platform certificate.
+    certificate: ":dev.andrix.usr.certificate",
+    auto_gen_config: false,
+}
+
+cc_library_shared {
+    name: "libandrix_p5_probe",
+    srcs: ["jni/probe.c"],
+    sdk_version: "37",
+    min_sdk_version: "37",
+    stl: "none",
+    installable: false, // JNI payload only; never install a system library.
+    compile_multilib: "64",
+    enabled: false,
+    arch: {
+        arm64: { enabled: true },
+    },
+    cflags: ["-std=c11", "-Wall", "-Wextra", "-Werror"],
+    ldflags: [
+        "-Wl,-z,max-page-size=16384",
+        "-Wl,-z,common-page-size=16384",
+    ],
+}
