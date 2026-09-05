@@ -1,0 +1,12 @@
+# APEX / AVB private material — public halves may be committed after gen-apex-keys
+keys/*.pem
+keys/*.pk8
+keys/*.avbpubkey
+keys/.keygen.*/
+!keys/README.md
+
+# Local build crumbs if someone unpacks an APEX here
+out/
+*.apex
+*.capex
+.DS_Store

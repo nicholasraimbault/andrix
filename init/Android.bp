@@ -1,0 +1,6 @@
+prebuilt_etc {
+    name: "andrix.rc",
+    src: "andrix.rc",
+    sub_dir: "init",
+    system_ext_specific: true,
+}

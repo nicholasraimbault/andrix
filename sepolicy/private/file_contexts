@@ -1,0 +1,6 @@
+/apex/dev.andrix.usr(/.*)?           u:object_r:andrix_file:s0
+/apex/dev.andrix.usr/bin(/.*)?       u:object_r:andrix_exec:s0
+/apex/dev.andrix.usr/lib64(/.*)?     u:object_r:andrix_lib:s0
+/usr(/.*)?                           u:object_r:andrix_file:s0
+/usr/bin(/.*)?                       u:object_r:andrix_exec:s0
+/usr/lib64(/.*)?                     u:object_r:andrix_lib:s0

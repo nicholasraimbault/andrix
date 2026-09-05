@@ -1,0 +1,4 @@
+# /usr is created in the built root image by vendor/andrix/andrix.mk. Do not try
+# to create it here: / is already read-only when apexd reports ready.
+on property:apexd.status=ready
+    mount none /apex/dev.andrix.usr /usr bind rec
