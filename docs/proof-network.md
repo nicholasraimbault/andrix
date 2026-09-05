@@ -51,11 +51,18 @@ strings also cover exception/legacy fallback paths. An empty fallback array
 would still select Google defaults. Only supported `config_*` hooks are changed,
 never the non-overlayable `default_*` resources.
 
-Host-only tests check these inputs, not overlay resolution. RRO/image compilation,
-packaged resources and idmap/overlay precedence checks remain pending. Runtime
-proof must confirm the effective URLs (including fallback/MCC paths), successful
-HTTP(S) 204 responses and normal certificate validation, with external egress
-capture. Configured source URLs are not a no-Google network pass.
+Both RROs compile in the pinned product with SDK/min/target 37, and their APK
+signatures and packaged resource values were inspected. Host `idmap2` mapped
+all six hooks against the built target APKs using the `product` policy, with
+normal overlayability checks enabled. A public-policy-only negative check
+rejected the NetworkStack overlay. These are static checks, not activation or
+precedence observations on Android.
+
+The existing image bytes are unchanged by this module-only build: the new RROs
+are not yet baked into a rebuilt image. Full image integration and runtime proof
+must confirm effective URLs (including fallback/MCC paths), successful HTTP(S)
+204 responses and normal certificate validation, with external egress capture.
+Configured source URLs are not a no-Google network pass.
 
 ## Other endpoint controls: mapped, not yet configured
 
@@ -95,8 +102,11 @@ The owner selected **self-hosting `probe.andrix.org` with a certificate trusted
 by the existing Android store**. The configured paths must serve HTTP(S) 204
 responses, without redirects or a response body. A public-CA certificate has
 been issued through DNS-01 and its hostname/chain verified with OpenSSL against
-the trust anchors extracted from the built r1 Conscrypt APEX. This is not an
-Android-client handshake or runtime proof. Endpoint addressing/deployment and
+the trust anchors extracted from the built r1 Conscrypt APEX. An ephemeral
+loopback fixture also returned empty HTTP and HTTPS 204 responses; its TLS
+client used that CA bundle, rejected a wrong hostname, and kept normal TLS
+verification enabled. All test listeners were closed. This is not an Android-
+client handshake or a deployed endpoint. Endpoint addressing/deployment and
 image validation remain pending; they are not supplied by these RROs. This does
 not select DNS/NTP upstreams or a third-party connectivity backend, nor require
 a general public Andrix service.

@@ -59,20 +59,33 @@ handling. Its rebuilt image was inspected; the proof APEX is unchanged. The
 runtime effect of that action is not yet proved. No AOSP source, SELinux rule,
 trust store or signature-verification change was made for that control.
 
-All **48 host-only regression tests** pass. Wrong-certificate and corrupted-
+The Cuttlefish HTTP(S) probe RROs also compile, with SDK/min/target 37. Their
+signatures, exact packaged endpoints and host-generated idmaps were verified
+against the built NetworkStack/Connectivity resource APKs with overlayability
+checks enabled. This was a module-only build: existing image bytes are unchanged
+and do not yet contain these RROs.
+
+A public-CA certificate for `probe.andrix.org` was issued using DNS-01. Host
+verification against the built Conscrypt APEX's CA bundle passed, as did empty
+HTTP/HTTPS 204 responses and a wrong-hostname rejection in a temporary loopback
+fixture. No public endpoint is deployed; this is not Android runtime validation.
+
+All **52 host-only regression tests** pass. Wrong-certificate and corrupted-
 payload checks fail closed. Host-preflight probes do not certify a runtime host.
-Private signing keys and raw evidence remain outside published Git.
+Private signing keys, certificate keys and raw evidence remain outside Git.
 
 ## Next gates
 
 1. Finish valid no-Google configuration and static component/endpoint review.
-   Google connectivity and time defaults remain. The inherited RKP property
-   text remains in the product image, with the new early-init override; do not
+   Existing images still have Google connectivity/time defaults; the new probe
+   RROs require image integration. DNS/NTP and other conditional endpoints still
+   need disposition. The inherited RKP property text remains in the product
+   image, with the early-init override; do not
    mistake text removal for effective configuration or source supply for
    runtime compliance. See the [network preparation map](../docs/proof-network.md).
-2. Configure an owned-domain HTTPS probe with a publicly trusted certificate.
-   `probe.andrix.org` is proposed; DNS, endpoint deployment and issuance remain
-   pending. No private CA or TLS-disable option has been selected.
+2. Deploy the controlled `probe.andrix.org` endpoint using the issued certificate.
+   Endpoint DNS/routing, hosting and Android-client validation remain pending.
+   No private CA or TLS-disable option has been selected.
 3. Freeze reviewed images, matching host package, proof APK and capture/launch
    procedure before beginning paid runtime testing. Qualify an ARM64 Linux/KVM
    fixture with controlled external egress before the first Android boot.
