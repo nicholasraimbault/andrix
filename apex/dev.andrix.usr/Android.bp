@@ -8,6 +8,8 @@ cc_binary {
     name: "andrix-hello",
     stem: "andrix-hello",
     srcs: ["andrix_hello.c"],
+    // This C-only proof needs Bionic, not a packaged C++ runtime.
+    stl: "none",
     ldflags: [
         "-Wl,-z,max-page-size=16384",
         "-Wl,-z,common-page-size=16384",
