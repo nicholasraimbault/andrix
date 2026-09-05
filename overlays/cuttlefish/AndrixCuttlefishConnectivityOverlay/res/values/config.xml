@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<resources>
+    <!-- Supported ConnectivityService legacy-API hook; do not patch its default. -->
+    <string name="config_networkCaptivePortalServerUrl" translatable="false">http://probe.andrix.org/generate_204</string>
+</resources>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.andrix.cuttlefish.connectivity.overlay">
+    <!-- Maximum static priority for this product's explicit probe endpoints. -->
+    <overlay android:targetPackage="com.android.connectivity.resources"
+        android:targetName="ServiceConnectivityResourcesConfig"
+        android:isStatic="true"
+        android:priority="999" />
+    <application android:hasCode="false" />
+</manifest>

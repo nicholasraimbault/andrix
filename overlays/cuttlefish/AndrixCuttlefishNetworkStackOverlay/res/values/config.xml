@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<resources>
+    <!-- Keep strings as well as arrays: NetworkMonitor has string fallback paths. -->
+    <string name="config_captive_portal_http_url" translatable="false">http://probe.andrix.org/generate_204</string>
+    <string name="config_captive_portal_https_url" translatable="false">https://probe.andrix.org/generate_204</string>
+    <string-array name="config_captive_portal_http_urls" translatable="false">
+        <item>http://probe.andrix.org/generate_204</item>
+    </string-array>
+    <string-array name="config_captive_portal_https_urls" translatable="false">
+        <item>https://probe.andrix.org/generate_204</item>
+    </string-array>
+    <!-- An empty fallback array selects upstream defaults, not "no fallback". -->
+    <string-array name="config_captive_portal_fallback_urls" translatable="false">
+        <item>http://probe.andrix.org/generate_204</item>
+    </string-array>
+</resources>

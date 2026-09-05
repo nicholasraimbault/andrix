@@ -1,6 +1,6 @@
 # Phase 1 network preparation
 
-Scope: the exact `android-17.0.0_r1` Cuttlefish proof, not a public-service
+Scope: the exact `android-17.0.0_r1` Cuttlefish proof, not a DNS/NTP upstream
 selection or production trust policy. Live results are in
 [current work](../plans/current.md). No runtime no-Google claim follows from
 this source review or the host tests.
@@ -31,19 +31,42 @@ The pinned source supports this state:
 These are source/control checks, not evidence that the new boot actions have
 run. Android image/APEX verification and app execution policy remain intact.
 
+## Implemented in source: Cuttlefish HTTP(S) probe URLs
+
+Only `products/andrix_cf_arm64_only_phone.mk` includes the two RROs under
+[`overlays/cuttlefish`](../overlays/cuttlefish). They are not included by the
+generic `andrix.mk` or intended as a future-phone default. Both use the pinned
+platform's built public SDK (`sdk_version: "current"`, API 37 in the selected
+release), the repository license and `product_specific: true`, with static
+manifest priority 999 (the maximum). They add no custom signing configuration, AOSP patch,
+SELinux rule or trust change.
+
+| Module / pinned target | Configured resources |
+| --- | --- |
+| `AndrixCuttlefishNetworkStackOverlay` / `com.android.networkstack`, `NetworkStackConfig` | `config_captive_portal_http_url` and the singleton `config_captive_portal_http_urls` array use `http://probe.andrix.org/generate_204`. `config_captive_portal_https_url` and the singleton `config_captive_portal_https_urls` array use `https://probe.andrix.org/generate_204`. The nonempty `config_captive_portal_fallback_urls` array uses the same HTTP URL. |
+| `AndrixCuttlefishConnectivityOverlay` / `com.android.connectivity.resources`, `ServiceConnectivityResourcesConfig` | `config_networkCaptivePortalServerUrl` uses the same HTTP URL for the ConnectivityService legacy API; this hook wins over Settings and the Java Google constant. |
+
+NetworkMonitor's nonempty arrays take precedence over provider/additional URLs;
+strings also cover exception/legacy fallback paths. An empty fallback array
+would still select Google defaults. Only supported `config_*` hooks are changed,
+never the non-overlayable `default_*` resources.
+
+Host-only tests check these inputs, not overlay resolution. RRO/image compilation,
+packaged resources and idmap/overlay precedence checks remain pending. Runtime
+proof must confirm the effective URLs (including fallback/MCC paths), successful
+HTTP(S) 204 responses and normal certificate validation, with external egress
+capture. Configured source URLs are not a no-Google network pass.
+
 ## Other endpoint controls: mapped, not yet configured
 
 | Consumer | Pinned control and requirement |
 | --- | --- |
-| NetworkStack `NetworkMonitor` | RRO targeting `com.android.networkstack`, `NetworkStackConfig`. Set non-empty `config_captive_portal_http_url`, `config_captive_portal_https_url`, both `*_urls` arrays, and `config_captive_portal_fallback_urls`. Arrays take precedence over provider/additional URLs; strings also cover exception/legacy fallback paths. Empty fallback configuration still selects Google defaults. |
-| ConnectivityService legacy API | RRO targeting `com.android.connectivity.resources`, `ServiceConnectivityResourcesConfig`, with non-empty `config_networkCaptivePortalServerUrl`. The existing hook wins over Settings and the Java Google constant; a code patch is not needed for that URL. |
 | Network time | Framework `config_ntpServers` must contain valid `ntp://host[:port]` entries. Empty lists throw; malformed URIs are not an acceptable way to disable traffic. The exact overlay/idmap mechanism still needs a compiled test. |
 | DHCP/default DNS | NetworkStack's `config_default_dns_servers` is a DHCP fallback hook, not a reason to choose a public resolver. Configure and inspect the actual fixture's offered DNS servers. The legacy framework resource `config_default_dns_server=8.8.8.8` alone does not establish an active consumer in this revision. |
 | Cuttlefish host | Review actual launch configuration, including RIL/network DNS and usage-statistics controls, before launch. Host package provenance does not imply safe defaults. |
 
-The NetworkStack `default_*` resources are deliberately not overlayable.
-Change the supported `config_*` hooks, not those defaults. MCC-specific Google
-defaults also need to be excluded by effective configuration. Do not use
+No DNS or NTP upstream is selected by the probe overlays. MCC-specific Google
+defaults still need to be excluded by effective configuration. Do not use
 firewall rejection, invalid URLs or disabled HTTPS validation to force a pass.
 
 ## Distinguish hardcoded addresses from actual traffic
@@ -68,24 +91,21 @@ required. This table is not a blanket clearance of unexamined paths.
 
 ## Owned-domain HTTPS probe: provisioning pending
 
-A self-contained fixture can provide private DNS, NTP and HTTP(S) 204 responses.
-The HTTPS service must have a chain and hostname the Android client actually
-validates. The owner confirmed control of `andrix.dev` and `andrix.org`.
-`probe.andrix.org` is the proposed dedicated hostname; DNS, endpoint deployment
-and certificate issuance have not yet been configured.
+The owner selected **self-hosting `probe.andrix.org` with a certificate trusted
+by the existing Android store**. The configured paths must serve HTTP(S) 204
+responses, without redirects or a response body. A public-CA certificate has
+been issued through DNS-01 and its hostname/chain verified with OpenSSL against
+the trust anchors extracted from the built r1 Conscrypt APEX. This is not an
+Android-client handshake or runtime proof. Endpoint addressing/deployment and
+image validation remain pending; they are not supplied by these RROs. This does
+not select DNS/NTP upstreams or a third-party connectivity backend, nor require
+a general public Andrix service.
 
-Use an **owner-controlled probe hostname with a certificate trusted by the
-existing Android store**. Its DNS can direct the lab guest to the controlled
-fixture; it need not become a public Andrix service or a third-party
-connectivity backend. Domain ownership alone is not a deployed or validated
-HTTPS endpoint.
-
-If that is unavailable, an alternative requiring explicit approval is a
-**lab-only CA restricted to NetworkStack's fixture domain** through its network
-security configuration. That would require a narrowly related APK manifest/
-resource change, not a global CA addition, trust-all client, TLS-disable flag,
-or a decision about official/owner release signing. Private keys must remain
-outside Git and communication channels; no such key has been generated here.
+The HTTPS service must present a chain and hostname the Android client actually
+validates. Domain ownership alone is not a deployed or validated endpoint. No
+private CA, network security configuration override or TLS-disable option is
+selected. Credentials and certificate private keys stay with the operator,
+outside Git and communication channels.
 
 Do not casually place a CA under `/system/etc/security/cacerts`: r1 Conscrypt
 and Network Security Config normally choose the nonempty
