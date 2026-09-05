@@ -73,20 +73,30 @@ def check_apk_metadata(badging, xmltree):
     lines = badging.splitlines()
     packages = [line for line in lines if line.startswith("package:")]
     require(len(packages) == 1 and shlex.split(packages[0])[1] == "name=" + PACKAGE, "wrong APK package")
-    for prefix in ("sdkVersion", "targetSdkVersion"):
-        require([line for line in lines if line.startswith(prefix + ":")] == [prefix + ":'37'"], "APK SDK must be exactly 37")
+    # r1 aapt2 calls this minSdkVersion; older tools called it sdkVersion.
+    # Accept either spelling, but never missing, duplicate or conflicting rows.
+    minimum = [line for line in lines if line.startswith(("sdkVersion:", "minSdkVersion:"))]
+    require(len(minimum) == 1 and minimum[0] in ("sdkVersion:'37'", "minSdkVersion:'37'"),
+            "APK minimum SDK must be exactly 37")
+    require([line for line in lines if line.startswith("targetSdkVersion:")]
+            == ["targetSdkVersion:'37'"], "APK target SDK must be exactly 37")
     abis = [shlex.split(line) for line in lines if line.startswith("native-code:")]
     require(abis == [["native-code:", "arm64-v8a"]], "APK ABI must be only arm64-v8a")
     require(not any(line.startswith("uses-permission") for line in lines), "APK requests permissions")
     # Reject extra components/permission declarations and shared identity. The
     # supplied APK's source/signing provenance still needs the operator's review.
+    # New aapt2 prints the namespace URI on attribute names. Normalize only
+    # that anchored prefix, not attribute values or arbitrary namespaces.
+    xmltree = re.sub(r"(?m)^(\s*A: )http://schemas\.android\.com/apk/res/android:",
+                     r"\1android:", xmltree)
     elements = re.findall(r"^\s*E: ([^\s(]+)", xmltree, re.MULTILINE)
     require(sorted(elements) == ["application", "instrumentation", "manifest", "uses-sdk"], "unexpected manifest elements")
     require(not re.search(r"A: android:(?:sharedUser\w*|permission)\b", xmltree), "shared UID/permission in manifest")
     for attribute, value in (("targetPackage", PACKAGE), ("name", PACKAGE + ".P5Instrumentation")):
         matches = re.findall(r"A: android:" + attribute + r'(?:\(0x[0-9a-f]+\))?="([^"]*)"', xmltree)
         require(matches == [value], "incorrect self-instrumentation " + attribute)
-    require(len(re.findall(r"A: android:testOnly\(0x[0-9a-f]+\)=\(type 0x12\)0xffffffff\b", xmltree)) == 1, "APK is not testOnly")
+    test_only = re.findall(r"^\s*A: android:testOnly\(0x[0-9a-f]+\)=(.*)$", xmltree, re.MULTILINE)
+    require(test_only in (["true"], ["(type 0x12)0xffffffff"]), "APK is not unambiguously testOnly")
 
 
 def unique_object(pairs):
