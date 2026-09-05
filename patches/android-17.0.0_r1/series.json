@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "aosp_tag": "android-17.0.0_r1",
+  "manifest_commit": "5bc9a7ce1cd78dd53613bbfd0ebf506e1e4adb0f",
+  "projects": [
+    {
+      "path": "packages/modules/DnsResolver",
+      "base_commit": "0aeaf9d222ec761b9e0443a01c7a06590b9d1b4f",
+      "files": [
+        {
+          "path": "DnsTlsTransport.cpp",
+          "base_sha256": "e9dc2c354aa50684bdc1266904450f377a2ba713f630836d66ba26661459283e",
+          "patched_sha256": "5a7e2bd55b434feba649bed8da5c9f95f89483d9467ea99dad89ebf2fc65556f"
+        },
+        {
+          "path": "tests/dns_responder/dns_tls_frontend.cpp",
+          "base_sha256": "94c094fdb4affa8536217d374dd9caebc4a0b4a453b2cecddea1781c07090a68",
+          "patched_sha256": "b1c2dd8915fa4c628cd0b2c9a92c3a35c9b4264ded9d153b5f5e638ffac7a8e2"
+        }
+      ]
+    },
+    {
+      "path": "packages/modules/NetworkStack",
+      "base_commit": "928a826ae4887ce0e5d3c7209870e238cacbf548",
+      "files": [
+        {
+          "path": "src/com/android/networkstack/util/DnsUtils.java",
+          "base_sha256": "b4ae3812323bbf4d81853e28af20663e4af64903d9cb591f0543f2c263d1e142",
+          "patched_sha256": "e9d3e8801db3e478cb741794d3ef3762186689626d1c700d3f1ee742c812ce48"
+        }
+      ]
+    },
+    {
+      "path": "packages/modules/Connectivity",
+      "base_commit": "347fbd34b368d19f0d87e908ea101eed3601a731",
+      "files": [
+        {
+          "path": "service/src/com/android/server/connectivity/NetworkDiagnostics.java",
+          "base_sha256": "41d11e919892c06d53c1b1f2f5a8d6b1d3c34e32db8a02d629119552d943024a",
+          "patched_sha256": "9414d0cb90cb53c1aa95173f709fec2ed7a74674c7654257cd30f7efb6ccaa8d"
+        },
+        {
+          "path": "Tethering/src/com/android/networkstack/tethering/TetheringConfiguration.java",
+          "base_sha256": "b5a9045939b13f77a9d303fa858aa91dca1c7cbafdb158ceee9efd8f55de0a07",
+          "patched_sha256": "37e7427d9b62b4915c5199b40754022a6fc76d1880f7ba661f0a7c48365ddf81"
+        },
+        {
+          "path": "networksecurity/service/src/com/android/server/net/ct/Config.java",
+          "base_sha256": "cb50ecdf78c439668478cf47b8fd764a3aa51eb9156b24a092280b673a45833f",
+          "patched_sha256": "820df422f226451d2f2e2d25b33cdb7767dbf380d4c75eeaa8c181e5dde520ff"
+        }
+      ]
+    }
+  ],
+  "patch": "network-endpoints.patch",
+  "patch_sha256": "ee88edf52807214e2ca2016212177ac9e40c30c236859930a9958d0692fdeabc"
+}

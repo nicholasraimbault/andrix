@@ -1,0 +1,145 @@
+diff --git a/packages/modules/DnsResolver/DnsTlsTransport.cpp b/packages/modules/DnsResolver/DnsTlsTransport.cpp
+--- a/packages/modules/DnsResolver/DnsTlsTransport.cpp
++++ b/packages/modules/DnsResolver/DnsTlsTransport.cpp
+@@ -43,7 +43,7 @@
+ 
+ namespace {
+ 
+-// Make a DNS query for the hostname "<random>-dnsotls-ds.metric.gstatic.com".
++// Make a DNS query for the hostname "<random>-dnsotls-ds.probe.andrix.org".
+ std::vector<uint8_t> makeDnsQuery() {
+     static constexpr char kDnsSafeChars[] =
+             "0123456789"
+@@ -65,9 +65,10 @@
+             0,      0,       // [8-9]   NSCOUNT (number of name server records)
+             0,      0,       // [10-11] ARCOUNT (number of additional records)
+             17,     c(rnd[2]), c(rnd[3]), c(rnd[4]), c(rnd[5]), c(rnd[6]), c(rnd[7]), '-', 'd', 'n',
+-            's',    'o',       't',       'l',       's',       '-',       'd',       's', 6,   'm',
+-            'e',    't',       'r',       'i',       'c',       7,         'g',       's', 't', 'a',
+-            't',    'i',       'c',       3,         'c',       'o',       'm',
++            's',    'o',       't',       'l',       's',       '-',       'd',       's',
++            5, 'p', 'r', 'o', 'b', 'e',
++            6, 'a', 'n', 'd', 'r', 'i', 'x',
++            3, 'o', 'r', 'g',
+             0,                  // null terminator of FQDN (root TLD)
+             0,      ns_t_aaaa,  // QTYPE
+             0,      ns_c_in     // QCLASS
+diff --git a/packages/modules/DnsResolver/tests/dns_responder/dns_tls_frontend.cpp b/packages/modules/DnsResolver/tests/dns_responder/dns_tls_frontend.cpp
+--- a/packages/modules/DnsResolver/tests/dns_responder/dns_tls_frontend.cpp
++++ b/packages/modules/DnsResolver/tests/dns_responder/dns_tls_frontend.cpp
+@@ -259,7 +259,7 @@
+             DNSHeader dnsHdr;
+             dnsHdr.read((char*)query, (char*)query + qlen);
+             for (const auto& question : dnsHdr.questions) {
+-                if (question.qname.name.find("dnsotls-ds.metric.gstatic.com") !=
++                if (question.qname.name.find("dnsotls-ds.probe.andrix.org") !=
+                     std::string::npos) {
+                     isDotProbe = true;
+                     break;
+diff --git a/packages/modules/NetworkStack/src/com/android/networkstack/util/DnsUtils.java b/packages/modules/NetworkStack/src/com/android/networkstack/util/DnsUtils.java
+--- a/packages/modules/NetworkStack/src/com/android/networkstack/util/DnsUtils.java
++++ b/packages/modules/NetworkStack/src/com/android/networkstack/util/DnsUtils.java
+@@ -49,8 +49,8 @@
+     // Decide what queries to make depending on what IP addresses are on the system.
+     public static final int TYPE_ADDRCONFIG = -1;
+     // A one time host name suffix of private dns probe.
+-    // q.v. system/netd/server/dns/DnsTlsTransport.cpp
+-    public static final String PRIVATE_DNS_PROBE_HOST_SUFFIX = "-dnsotls-ds.metric.gstatic.com";
++    // q.v. packages/modules/DnsResolver/DnsTlsTransport.cpp
++    public static final String PRIVATE_DNS_PROBE_HOST_SUFFIX = "-dnsotls-ds.probe.andrix.org";
+     private static final String TAG = DnsUtils.class.getSimpleName();
+     private static final boolean DBG = Log.isLoggable(TAG, Log.DEBUG);
+ 
+diff --git a/packages/modules/Connectivity/service/src/com/android/server/connectivity/NetworkDiagnostics.java b/packages/modules/Connectivity/service/src/com/android/server/connectivity/NetworkDiagnostics.java
+--- a/packages/modules/Connectivity/service/src/com/android/server/connectivity/NetworkDiagnostics.java
++++ b/packages/modules/Connectivity/service/src/com/android/server/connectivity/NetworkDiagnostics.java
+@@ -30,7 +30,6 @@
+ import android.annotation.NonNull;
+ import android.annotation.Nullable;
+ import android.annotation.TargetApi;
+-import android.net.InetAddresses;
+ import android.net.LinkAddress;
+ import android.net.LinkProperties;
+ import android.net.Network;
+@@ -109,10 +108,6 @@
+ public class NetworkDiagnostics {
+     private static final String TAG = "NetworkDiagnostics";
+ 
+-    private static final InetAddress TEST_DNS4 = InetAddresses.parseNumericAddress("8.8.8.8");
+-    private static final InetAddress TEST_DNS6 = InetAddresses.parseNumericAddress(
+-            "2001:4860:4860::8888");
+-
+     // For brevity elsewhere.
+     private static final long now() {
+         return SystemClock.elapsedRealtime();
+@@ -202,21 +197,7 @@
+         mStartTime = now();
+         mDeadlineTime = mStartTime + mTimeoutMs;
+ 
+-        // Hardcode measurements to TEST_DNS4 and TEST_DNS6 in order to test off-link connectivity.
+-        // We are free to modify mLinkProperties with impunity because ConnectivityService passes us
+-        // a copy and not the original object. It's easier to do it this way because we don't need
+-        // to check whether the LinkProperties already contains these DNS servers because
+-        // LinkProperties#addDnsServer checks for duplicates.
+-        if (mLinkProperties.isReachable(TEST_DNS4)) {
+-            mLinkProperties.addDnsServer(TEST_DNS4);
+-        }
+-        // TODO: we could use mLinkProperties.isReachable(TEST_DNS6) here, because we won't set any
+-        // DNS servers for which isReachable() is false, but since this is diagnostic code, be extra
+-        // careful.
+-        if (mLinkProperties.hasGlobalIpv6Address() && mLinkProperties.hasIpv6DefaultRoute()) {
+-            mLinkProperties.addDnsServer(TEST_DNS6);
+-        }
+-
++        // Diagnose the supplied gateways and DNS servers without adding independent resolvers.
+         for (RouteInfo route : mLinkProperties.getRoutes()) {
+             if (route.getType() == RouteInfo.RTN_UNICAST && route.hasGateway()) {
+                 final InetAddress gateway = getAddressWithScopeIdIfNecessary(route.getGateway());
+@@ -753,9 +734,9 @@
+                 0, 0,  // [10-11] ARCOUNT (number of additional records)
+                 17, rnd[0], rnd[1], rnd[2], rnd[3], rnd[4], rnd[5],
+                         '-', 'a', 'n', 'd', 'r', 'o', 'i', 'd', '-', 'd', 's',
+-                6, 'm', 'e', 't', 'r', 'i', 'c',
+-                7, 'g', 's', 't', 'a', 't', 'i', 'c',
+-                3, 'c', 'o', 'm',
++                5, 'p', 'r', 'o', 'b', 'e',
++                6, 'a', 'n', 'd', 'r', 'i', 'x',
++                3, 'o', 'r', 'g',
+                 0,  // null terminator of FQDN (root TLD)
+                 0, (byte) mQueryType,  // QTYPE
+                 0, 1  // QCLASS, set to 1 = IN (Internet)
+@@ -766,7 +747,7 @@
+                 String sixRandomDigits, SocketAddress sockAddr) {
+             mMeasurement.description += " src{" + socketAddressToString(sockAddr) + "}"
+                     + " qtype{" + mQueryType + "}"
+-                    + " qname{" + sixRandomDigits + "-android-ds.metric.gstatic.com}";
++                    + " qname{" + sixRandomDigits + "-android-ds.probe.andrix.org}";
+         }
+     }
+ 
+diff --git a/packages/modules/Connectivity/Tethering/src/com/android/networkstack/tethering/TetheringConfiguration.java b/packages/modules/Connectivity/Tethering/src/com/android/networkstack/tethering/TetheringConfiguration.java
+--- a/packages/modules/Connectivity/Tethering/src/com/android/networkstack/tethering/TetheringConfiguration.java
++++ b/packages/modules/Connectivity/Tethering/src/com/android/networkstack/tethering/TetheringConfiguration.java
+@@ -80,7 +80,9 @@
+         "192.168.48.2", "192.168.48.254", "192.168.49.2", "192.168.49.254",
+     };
+ 
+-    private static final String[] DEFAULT_IPV4_DNS = {"8.8.4.4", "8.8.8.8"};
++    // Use DNS supplied by the upstream network. If it supplies none, do not
++    // silently forward tethered clients' queries to an independent resolver.
++    private static final String[] DEFAULT_IPV4_DNS = {};
+ 
+     @VisibleForTesting
+     public static final int TETHER_USB_RNDIS_FUNCTION = 0;
+diff --git a/packages/modules/Connectivity/networksecurity/service/src/com/android/server/net/ct/Config.java b/packages/modules/Connectivity/networksecurity/service/src/com/android/server/net/ct/Config.java
+--- a/packages/modules/Connectivity/networksecurity/service/src/com/android/server/net/ct/Config.java
++++ b/packages/modules/Connectivity/networksecurity/service/src/com/android/server/net/ct/Config.java
+@@ -25,7 +25,7 @@
+ 
+     // CT paths
+     static final String CT_ROOT_DIRECTORY_PATH = "/data/misc/keychain/ct/";
+-    static final String URL_PREFIX = "https://www.gstatic.com/android/certificate_transparency/";
++    static final String URL_PREFIX = "https://probe.andrix.org/certificate_transparency/";
+     static final String URL_PUBLIC_KEY = URL_PREFIX + "log_list.pub";
+ 
+     // Phenotype flags
