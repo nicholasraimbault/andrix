@@ -53,7 +53,15 @@ if ! apksigner_output=$("$apksigner_bin" verify --verbose --print-certs "$apex" 
   exit 1
 fi
 echo "$apksigner_output"
-actual_cert_sha=$(awk -F': ' '/Signer #1 certificate SHA-256 digest:/ { print $2; exit }' <<<"$apksigner_output" | tr '[:upper:]' '[:lower:]')
+reported_signers=$(awk -F': ' '/^Number of signers:/ { print $2 }' <<<"$apksigner_output")
+if [[ "$reported_signers" != "1" ]]; then
+  echo "FAIL: expected exactly one APEX container signer" >&2
+  exit 1
+fi
+# AOSP 17 names the single signer by scheme (e.g. "V3.0 Signer:"). Older
+# apksigner used "Signer #1". Reject missing or multiple certificate records;
+# do not confuse the certificate digest with its public-key or source stamp.
+actual_cert_sha=$(awk -F': ' '/^(Signer #1 |V[0-9]+(\.[0-9]+)* Signer: )certificate SHA-256 digest:/ { print $NF }' <<<"$apksigner_output" | tr '[:upper:]' '[:lower:]')
 expected_cert_sha=$(openssl x509 -in "$container_cert" -outform DER | sha256sum | awk '{ print $1 }')
 if [[ -z "$actual_cert_sha" || "$actual_cert_sha" != "$expected_cert_sha" ]]; then
   echo "FAIL: APEX container certificate differs from the Andrix certificate" >&2
