@@ -65,6 +65,8 @@ def fake_adb(root, case, args):
             "ro.product.cpu.abilist": "arm64-v8a",
             "ro.product.cpu.abilist64": "arm64-v8a",
             "ro.product.cpu.abilist32": "",
+            "remote_provisioning.hostname": "",
+            "remote_provisioning.tee.rkp_only": "false",
         }
         properties.update(case.get("properties", {}))
         if args[2] not in properties:

@@ -128,6 +128,17 @@ class DeviceCommandFlowUnitTests(unittest.TestCase):
             self.assertTrue(command.startswith(remote))
         self.assertEqual(sum(call[:2] == ["readelf", "-hW"] for call in self.calls), 3)
 
+    def test_remote_provisioning_must_be_locally_disabled(self):
+        for properties in (
+                {"remote_provisioning.hostname": "preprod-remoteprovisioning.googleapis.com"},
+                {"remote_provisioning.hostname": "unapproved.example"},
+                {"remote_provisioning.tee.rkp_only": "true"},
+                {"remote_provisioning.tee.rkp_only": ""}):
+            with self.subTest(properties=properties):
+                self.assert_failure(self.run_case(properties=properties),
+                                    "not configured for local keys only")
+                self.assertFalse(any(call[0] in ("pull", "exec-out") for call in self.adb_calls))
+
     def test_active_updated_plus_inactive_factory_does_not_cross_match(self):
         # The old grep concatenated these rows: active=true came from the
         # updated row, factory=true and the only preinstalled path from the

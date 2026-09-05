@@ -4,3 +4,10 @@ prebuilt_etc {
     sub_dir: "init",
     system_ext_specific: true,
 }
+
+prebuilt_etc {
+    name: "andrix-cuttlefish-network.rc",
+    src: "andrix-cuttlefish-network.rc",
+    sub_dir: "init",
+    system_ext_specific: true,
+}
