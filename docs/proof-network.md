@@ -66,17 +66,19 @@ firewall rejection, invalid URLs or disabled HTTPS validation to force a pass.
 Full component/endpoint review and external destination capture remain
 required. This table is not a blanket clearance of unexamined paths.
 
-## Decision needed: valid HTTPS probe trust
+## Owned-domain HTTPS probe: provisioning pending
 
 A self-contained fixture can provide private DNS, NTP and HTTP(S) 204 responses.
-But the HTTPS service must have a chain and hostname the Android client
-actually validates. No owner-controlled hostname/certificate or new trust
-policy has yet been selected.
+The HTTPS service must have a chain and hostname the Android client actually
+validates. The owner confirmed control of `andrix.dev` and `andrix.org`.
+`probe.andrix.org` is the proposed dedicated hostname; DNS, endpoint deployment
+and certificate issuance have not yet been configured.
 
-The least invasive choice is an **owner-controlled probe hostname with a
-certificate trusted by the existing Android store**. Its DNS can direct the
-lab guest to the controlled fixture; it need not become a public Andrix
-service or a third-party connectivity backend.
+Use an **owner-controlled probe hostname with a certificate trusted by the
+existing Android store**. Its DNS can direct the lab guest to the controlled
+fixture; it need not become a public Andrix service or a third-party
+connectivity backend. Domain ownership alone is not a deployed or validated
+HTTPS endpoint.
 
 If that is unavailable, an alternative requiring explicit approval is a
 **lab-only CA restricted to NetworkStack's fixture domain** through its network
@@ -92,5 +94,6 @@ activates the system fallback. Do not strip Google-named trust anchors: trust
 anchors are not network destinations, and non-Google sites may use those
 chains. Existing TLS verification must be preserved.
 
-Until the endpoint/trust choice is explicit, do not invent public providers,
-add a CA, disable validation, or call the image ready for paid runtime testing.
+Until the owned-domain endpoint and certificate are provisioned and validated,
+do not invent public providers, add a CA, disable validation, or call the image
+ready for paid runtime testing.
