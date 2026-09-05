@@ -48,13 +48,47 @@ certificate files.
   headers, nonzero Content-Length, Transfer-Encoding, Expect and Upgrade are
   rejected. Every connection closes after one response, without processing a
   body or pipelined requests. A 204 has no Content-Length or body.
-- No request/peer logging, persistence, file serving, upload, proxy or workers.
+- No request/peer logging, persistence, arbitrary file serving, upload, proxy or workers.
   Stdout reports only bound listener endpoints after **both** are listening;
   these addresses are not hostname/certificate checks or Android readiness.
   Errors suppress exception text and credential paths. Startup failure closes
   all created listeners. SIGINT/SIGTERM stop cleanly and restore handlers;
   an active connection may take its remaining five-second deadline to close.
   Exit 0 means orderly stop, 1 setup/service failure, 2 invalid CLI/network args.
+
+## Optional signed Certificate Transparency snapshot
+
+The r1 Certificate Transparency updater also needs its signed public log-list
+files. The Andrix endpoint adaptation preserves that client, its allowed signing
+keys and signature verification, but points it at this controlled service.
+`--ct-data-dir DIRECTORY` enables **HTTPS-only** responses for exactly five paths
+under `/certificate_transparency/`: `log_list.pub`, `v2/log_list.json`,
+`v2/log_list.sig`, `v3/log_list.ctfb` and `v3/log_list.sig`. There is no upstream
+proxy or network fetch. HTTP, unknown paths, query strings and traversal do not
+expose these files. The 204 endpoint remains unchanged.
+
+Obtain the five public inputs separately from the recorded AOSP CT data source
+`https://www.gstatic.com/android/certificate_transparency/`, preserving fetch
+metadata. This is staged public data supply, never a relay of device requests.
+Extract `res/raw/ct_public_keys.pem` from the exact target's
+`ServiceConnectivityResources.apk`, then validate/stage outside Git:
+
+```sh
+python3 scripts/proof/stage_ct_data.py \
+  --source-dir /operator-managed/ct-download \
+  --allowed-keys /operator-managed/ct_public_keys.pem \
+  --output-dir /operator-managed/ct-verified
+```
+
+The staging tool performs no network access. It requires the fetched signing
+key to match the supplied target allowlist, verifies both signatures with
+OpenSSL, checks the JSON log-list timestamp against the pinned 70-day freshness
+policy, and creates an exact five-file SHA-256 manifest. The service validates
+the manifest, digests, bounded sizes and freshness before binding; bytes are
+loaded once, not re-read from arbitrary client paths. Restage/restart before
+expiry. This is not Android CT parser/runtime proof, and does not alter Android
+trust policy or re-sign upstream data. Do not substitute an arbitrary allowlist.
+The snapshot and private certificate keys stay outside public source.
 
 ## Deployment and proof still owned by the primary/operator
 
