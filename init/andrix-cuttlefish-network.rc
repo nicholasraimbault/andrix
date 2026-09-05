@@ -1,0 +1,8 @@
+# Cuttlefish proof only: do not enroll this virtual device with a remote
+# attestation service. AOSP keystore2 and rkpd explicitly support no hostname
+# when RKP-only mode is false; ordinary local key generation remains available.
+# early-init runs after boot properties are loaded and before core/framework
+# consumers. Do not turn off verification or add a privileged proxy service.
+on early-init
+    setprop remote_provisioning.tee.rkp_only false
+    setprop remote_provisioning.hostname ""

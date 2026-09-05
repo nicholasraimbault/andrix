@@ -57,6 +57,13 @@ if [[ "$actual_abilist" != "arm64-v8a" || "$actual_abilist64" != "arm64-v8a" || 
   exit 1
 fi
 
+rkp_host=$(adb shell getprop remote_provisioning.hostname | tr -d '\r')
+rkp_only=$(adb shell getprop remote_provisioning.tee.rkp_only | tr -d '\r')
+if [[ -n "$rkp_host" || "$rkp_only" != "false" ]]; then
+  echo "FAIL: Cuttlefish remote provisioning is not configured for local keys only" >&2
+  exit 1
+fi
+
 if ! adb pull /apex/apex-info-list.xml "$tmp/apex-info-list.xml" >/dev/null 2>&1; then
   echo "FAIL: cannot pull /apex/apex-info-list.xml" >&2
   exit 1
@@ -219,6 +226,7 @@ fi
 
 echo "PASS: fingerprint=$actual_fingerprint"
 echo "PASS: product ABI list is exactly arm64-v8a with no 32-bit ABI"
+echo "PASS: remote provisioning has no server and is not required for local keys"
 echo "PASS: APEX=$preinstalled_path SHA256=$device_apex_sha active factory"
 echo "PASS: andrix-hello SHA256=$expected_elf_sha same mounted inode=$usr_stat exact output=andrix"
 echo "PASS: /usr is a read-only mount; /etc is Android; SELinux enforcing"
