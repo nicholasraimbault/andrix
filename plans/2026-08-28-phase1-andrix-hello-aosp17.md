@@ -111,11 +111,17 @@ no Lineage dependency or source shortcut.
    architecture, and output path state.
 2. Source `build/envsetup.sh`; run product discovery and require only
    `andrix_cf_arm64_only_phone` from the Andrix overlay.
-3. Run `lunch andrix_cf_arm64_only_phone-trunk_staging-userdebug` and record
+3. For `android-17.0.0_r1`, run
+   `lunch andrix_cf_arm64_only_phone-cp2a-userdebug` and record
    `PLATFORM_VERSION` (17), platform SDK (37), `TARGET_PRODUCT`,
    `TARGET_DEVICE` (`andrix_cf_arm64_only`), `TARGET_ARCH` (`arm64`),
-   `TARGET_CPU_ABI` (`arm64-v8a`), empty secondary architecture/ABI,
-   `TARGET_RELEASE`, and `PRODUCT_OUT`.
+   `TARGET_CPU_ABI` (`arm64-v8a`), empty secondary architecture/ABI, and
+   `PRODUCT_OUT`. Record `TARGET_RELEASE` (`cp2a`) from the lunch environment
+   and generated release-config arguments, not Make's deliberately blanked
+   dumpvar. The first r1 execution defeated the prepared `trunk_staging`
+   choice: it reports `Baklava`, not `17`. `cp2a` is the stable release config
+   in the same pinned tag; this is not source-tag advancement or a platform
+   version override.
 4. Prove the direct AOSP Cuttlefish product, BoardConfig, release config, Soong
    graph inputs, init inputs, and SELinux directories resolve.
 5. Prove there is no registered or buildable Andrix Caiman product.
