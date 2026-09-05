@@ -3,7 +3,9 @@
 """HTTP(S) 204 listeners for a private host fixture, not Android readiness."""
 import argparse
 from contextlib import ExitStack, contextmanager
+import hashlib
 import ipaddress
+import json
 from pathlib import Path
 import re
 import select
@@ -20,11 +22,55 @@ CONNECTION_SECONDS = 5.0  # One total deadline: handshake, headers AND response.
 BACKLOG = 8  # Kernel-clamped pending queue per listener; only one active client.
 POLL_SECONDS = 0.2
 TOKEN = re.compile(rb"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
-REASONS = {204: "No Content", 400: "Bad Request", 404: "Not Found",
+REASONS = {200: "OK", 204: "No Content", 400: "Bad Request", 404: "Not Found",
            405: "Method Not Allowed", 431: "Request Header Fields Too Large"}
+CT_FILES = ("log_list.pub", "v2/log_list.json", "v2/log_list.sig",
+            "v3/log_list.ctfb", "v3/log_list.sig")
+MAX_CT_FILE_BYTES = 1024 * 1024
 
 
-def request_status(head):
+def load_ct_assets(directory):
+    """Load only five staged public CT files with an exact digest manifest.
+
+    Verify their signatures against the built Android allowlist before staging.
+    Android independently retains that signature/allowlist verification. This
+    service never fetches data from upstream or changes client trust.
+    """
+    root = Path(directory).resolve()
+    manifest_path = root / "manifest.json"
+    if not manifest_path.is_file() or manifest_path.is_symlink():
+        raise ValueError("invalid CT bundle manifest path")
+    with manifest_path.open("rb") as stream:
+        encoded = stream.read(16385)
+    if len(encoded) > 16384:
+        raise ValueError("oversized CT bundle manifest")
+    manifest = json.loads(encoded)
+    if (not isinstance(manifest, dict) or manifest.get("schema") != 1
+            or not isinstance(manifest.get("files"), dict)
+            or set(manifest["files"]) != set(CT_FILES)):
+        raise ValueError("unexpected CT bundle manifest")
+    now_ms = int(time.time() * 1000)
+    timestamp, expiry = manifest.get("log_list_timestamp_ms"), manifest.get("valid_until_ms")
+    if (type(timestamp) is not int or type(expiry) is not int
+            or expiry != timestamp + 70 * 24 * 60 * 60 * 1000
+            or not timestamp <= now_ms <= expiry):
+        raise ValueError("CT snapshot expired or future-dated")
+    assets = {}
+    for name in CT_FILES:
+        path = root / name
+        if not path.is_file() or not path.resolve().is_relative_to(root):
+            raise ValueError("invalid CT data path")
+        with path.open("rb") as stream:
+            data = stream.read(MAX_CT_FILE_BYTES + 1)
+        if not 0 < len(data) <= MAX_CT_FILE_BYTES:
+            raise ValueError("invalid CT data size")
+        if hashlib.sha256(data).hexdigest() != manifest["files"][name]:
+            raise ValueError("CT data digest mismatch")
+        assets[("/certificate_transparency/" + name).encode("ascii")] = data
+    return assets
+
+
+def request_status(head, extra_paths=()):
     """Classify a bounded HTTP/1.x header block; never interpret a URL or body."""
     if len(head) > MAX_HEADER_BYTES:
         return 431
@@ -59,19 +105,21 @@ def request_status(head):
         return 400
     if method != b"GET":
         return 405
-    if target != b"/generate_204":
-        return 404
-    return 204
+    if target == b"/generate_204":
+        return 204
+    return 200 if target in extra_paths else 404
 
 
-def response_bytes(status):
+def response_bytes(status, payload=b""):
     lines = ["HTTP/1.1 %d %s" % (status, REASONS[status]), "Connection: close"]
     # HTTP forbids Content-Length on 204, even when zero. All errors are empty too.
     if status != 204:
-        lines.append("Content-Length: 0")
+        lines.append("Content-Length: %d" % len(payload))
+    if status == 200:
+        lines.extend(["Content-Type: application/octet-stream", "Cache-Control: no-store"])
     if status == 405:
         lines.append("Allow: GET")
-    return ("\r\n".join(lines) + "\r\n\r\n").encode("ascii")
+    return ("\r\n".join(lines) + "\r\n\r\n").encode("ascii") + payload
 
 
 class _HeaderTooLarge(Exception):
@@ -100,13 +148,15 @@ def _read_head(connection, deadline):
         data.extend(chunk)
 
 
-def handle_connection(connection, tls_context=None):
+def handle_connection(connection, tls_context=None, assets=None):
     """Own and close one accepted socket; optional TLS is applied before HTTP.
 
     Kept separate from listeners for credential-free, in-memory host tests.
     Timeout, EOF and TLS/socket failures close silently, never log requests.
     """
     deadline = time.monotonic() + CONNECTION_SECONDS
+    assets = assets if tls_context is not None and assets else {}
+    payload = b""
     try:
         with ExitStack() as cleanup:
             cleanup.callback(connection.close)
@@ -121,11 +171,13 @@ def handle_connection(connection, tls_context=None):
                 head = _read_head(connection, deadline)
                 if head is None:
                     return
-                status = request_status(head)
+                status = request_status(head, assets)
+                if status == 200:
+                    payload = assets[head.split(b" ", 2)[1]]
             except _HeaderTooLarge:
                 status = 431
             connection.settimeout(_remaining(deadline))
-            connection.sendall(response_bytes(status))
+            connection.sendall(response_bytes(status, payload))
     except OSError:  # Includes SSL errors and total-deadline/socket timeouts.
         pass
 
@@ -199,7 +251,7 @@ def open_listeners(bind, http_port, https_port, tls_context):
         yield listeners
 
 
-def serve(listeners, stopping):
+def serve(listeners, stopping, assets=None):
     """Serial, bounded service; no worker threads, keep-alive or outbound sockets."""
     contexts = dict(listeners)
     while not stopping():
@@ -211,7 +263,10 @@ def serve(listeners, stopping):
                 connection, _ = listener.accept()
             except (BlockingIOError, ConnectionAbortedError):
                 continue
-            handle_connection(connection, contexts[listener])
+            if assets:
+                handle_connection(connection, contexts[listener], assets)
+            else:
+                handle_connection(connection, contexts[listener])
 
 
 class _ArgumentParser(argparse.ArgumentParser):
@@ -229,6 +284,8 @@ def main(argv=None):
     parser.add_argument("--https-port", default="8443", help="Distinct HTTPS port (default: 8443).")
     parser.add_argument("--cert", required=True, metavar="FILE", help="PEM certificate/fullchain FILE.")
     parser.add_argument("--private-key", required=True, metavar="FILE", help="Unencrypted PEM key FILE.")
+    parser.add_argument("--ct-data-dir", metavar="DIRECTORY",
+                        help="Optional preverified signed CT snapshot and manifest; HTTPS only.")
     args = parser.parse_args(argv)
     try:
         bind, http_port, https_port = validate_network(args.bind, args.http_port, args.https_port)
@@ -248,6 +305,8 @@ def main(argv=None):
             previous[signum] = signal.signal(signum, stop)
         stage = "TLS setup (check certificate/fullchain and matching unencrypted key FILEs)"
         context = load_tls_context(args.cert, args.private_key)
+        stage = "CT snapshot validation"
+        assets = load_ct_assets(args.ct_data_dir) if args.ct_data_dir else None
         if stopping:
             return 0
         stage = "listener startup"
@@ -258,7 +317,10 @@ def main(argv=None):
                       "  http://%s:%d/generate_204\n  https://%s:%d/generate_204"
                       % (host, http_port, host, https_port), flush=True)
                 stage = "serving"
-                serve(listeners, lambda: stopping)
+                if assets:
+                    serve(listeners, lambda: stopping, assets)
+                else:
+                    serve(listeners, lambda: stopping)
         return 0
     except (OSError, ValueError):
         # No exception text, credential paths, request data or peer addresses.
