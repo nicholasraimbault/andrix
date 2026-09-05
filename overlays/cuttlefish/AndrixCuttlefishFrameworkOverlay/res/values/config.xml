@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<resources>
+    <!-- The controlled fixture must provide real NTP on UDP 123 at this name.
+         HTTPS 204 alone is not time service. Keep Android's SNTP client intact. -->
+    <string-array name="config_ntpServers" translatable="false">
+        <item>ntp://probe.andrix.org</item>
+    </string-array>
+</resources>

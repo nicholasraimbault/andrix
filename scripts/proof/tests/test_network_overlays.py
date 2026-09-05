@@ -17,6 +17,13 @@ ANDROID = "{http://schemas.android.com/apk/res/android}"
 HTTP = "http://probe.andrix.org/generate_204"
 HTTPS = "https://probe.andrix.org/generate_204"
 OVERLAYS = {
+    "AndrixCuttlefishFrameworkOverlay": {
+        "package": "dev.andrix.cuttlefish.framework.overlay",
+        "targetPackage": "android",
+        "resources": {
+            ("string-array", "config_ntpServers"): ("ntp://probe.andrix.org",),
+        },
+    },
     "AndrixCuttlefishNetworkStackOverlay": {
         "package": "dev.andrix.cuttlefish.networkstack.overlay",
         "targetPackage": "com.android.networkstack",
@@ -81,12 +88,14 @@ class NetworkOverlayInputsTests(unittest.TestCase):
                 self.assertEqual(manifest.tag, "manifest")
                 self.assertEqual(manifest.get("package"), expected["package"])
                 self.assertCountEqual([child.tag for child in manifest], ["overlay", "application"])
-                self.assertEqual(manifest.find("overlay").attrib, {
+                overlay_attributes = {
                     ANDROID + "targetPackage": expected["targetPackage"],
-                    ANDROID + "targetName": expected["targetName"],
                     ANDROID + "isStatic": "true",
                     ANDROID + "priority": "999",
-                })
+                }
+                if "targetName" in expected:
+                    overlay_attributes[ANDROID + "targetName"] = expected["targetName"]
+                self.assertEqual(manifest.find("overlay").attrib, overlay_attributes)
                 self.assertEqual(manifest.find("application").attrib, {ANDROID + "hasCode": "false"})
 
     def test_exact_nonempty_config_hooks_without_qualified_or_default_resources(self):

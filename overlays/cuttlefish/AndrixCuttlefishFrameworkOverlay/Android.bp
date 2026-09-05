@@ -1,0 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+package {
+    default_applicable_licenses: ["vendor_andrix_license"],
+}
+
+runtime_resource_overlay {
+    name: "AndrixCuttlefishFrameworkOverlay",
+    sdk_version: "current",
+    product_specific: true,
+}
