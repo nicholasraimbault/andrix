@@ -19,7 +19,7 @@ if [[ -z "$expected_fingerprint" ]]; then
   echo "FAIL: set ANDRIX_EXPECTED_FINGERPRINT to the built image fingerprint" >&2
   exit 1
 fi
-for command in adb sha256sum; do
+for command in adb cmp python3 sha256sum; do
   if ! command -v "$command" >/dev/null; then
     echo "FAIL: $command not found" >&2
     exit 1
@@ -61,17 +61,33 @@ if ! adb pull /apex/apex-info-list.xml "$tmp/apex-info-list.xml" >/dev/null 2>&1
   echo "FAIL: cannot pull /apex/apex-info-list.xml" >&2
   exit 1
 fi
-apex_entry=$(grep 'moduleName="dev.andrix.usr"' "$tmp/apex-info-list.xml" || true)
-if [[ -z "$apex_entry" || "$apex_entry" != *'isActive="true"'* || "$apex_entry" != *'isFactory="true"'* ]]; then
-  echo "FAIL: dev.andrix.usr is not an active factory APEX" >&2
-  echo "${apex_entry:-<no apex-info entry>}" >&2
-  exit 1
-fi
-preinstalled_path=$(sed -n 's/.*preinstalledModulePath="\([^"]*\)".*/\1/p' <<<"$apex_entry")
-if [[ -z "$preinstalled_path" ]]; then
-  echo "FAIL: dev.andrix.usr has no preinstalledModulePath" >&2
-  exit 1
-fi
+preinstalled_path=$(python3 - "$tmp/apex-info-list.xml" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+try:
+    root = ET.parse(sys.argv[1]).getroot()
+except (OSError, ET.ParseError) as exc:
+    sys.exit(f"FAIL: cannot parse apex-info-list.xml: {exc}")
+if root.tag != "apex-info-list":
+    sys.exit("FAIL: unexpected apex-info-list.xml root")
+active = [row for row in root.findall("apex-info")
+          if row.get("moduleName") == "dev.andrix.usr"
+          and row.get("isActive") == "true"]
+if len(active) != 1:
+    sys.exit(f"FAIL: expected exactly one active dev.andrix.usr APEX entry, found {len(active)}")
+row = active[0]
+if row.get("isFactory") != "true":
+    sys.exit("FAIL: dev.andrix.usr is not an active factory APEX")
+path = row.get("preinstalledModulePath", "")
+if not path.strip():
+    sys.exit("FAIL: active dev.andrix.usr has no preinstalledModulePath")
+# Do not let command substitution silently trim a path containing newlines.
+if "\n" in path or "\r" in path:
+    sys.exit("FAIL: invalid preinstalledModulePath")
+print(path)
+PY
+)
 if ! adb pull "$preinstalled_path" "$tmp/device.apex" >/dev/null 2>&1; then
   echo "FAIL: cannot pull factory APEX at $preinstalled_path" >&2
   exit 1
@@ -115,22 +131,68 @@ if [[ ",$mount_options," != *,ro,* ]]; then
   exit 1
 fi
 
-usr_output=$(adb shell /usr/bin/andrix-hello | tr -d '\r')
-apex_output=$(adb shell /apex/dev.andrix.usr/bin/andrix-hello | tr -d '\r')
-if [[ "$usr_output" != "andrix" || "$apex_output" != "andrix" ]]; then
-  echo "FAIL: exact andrix-hello output mismatch: usr='$usr_output' apex='$apex_output'" >&2
-  exit 1
-fi
+printf 'andrix\n' >"$tmp/expected-output"
+for remote in /usr/bin/andrix-hello /apex/dev.andrix.usr/bin/andrix-hello; do
+  output="$tmp/${remote//\//_}.stdout"
+  # exec-out need not forward the remote exit status. Append a failure marker
+  # on nonzero exit so even otherwise-correct stdout cannot pass the comparison.
+  if ! adb exec-out "$remote || { printf '\\nFAIL: andrix-hello exited nonzero\\n'; exit 1; }" >"$output"; then
+    echo "FAIL: adb exec-out failed for $remote" >&2
+    exit 1
+  fi
+  if ! cmp -s "$tmp/expected-output" "$output"; then
+    echo "FAIL: exact andrix-hello output mismatch for $remote (want bytes andrix\\n)" >&2
+    exit 1
+  fi
+done
 
 etc_target=$(adb shell readlink /etc | tr -d '\r')
 if [[ "$etc_target" != "/system/etc" ]]; then
   echo "FAIL: /etc is not Android's /system/etc symlink: '$etc_target'" >&2
   exit 1
 fi
-if adb shell 'test -e /etc/debian_version -o -e /etc/os-release'; then
-  echo "FAIL: /etc contains a foreign distro identity" >&2
+# An explicit response distinguishes absence from an adb/probe failure.
+if ! etc_identity=$(adb shell 'if test -e /etc/debian_version; then echo debian; elif test -e /etc/os-release; then echo os-release; else echo absent; fi' | tr -d '\r'); then
+  echo "FAIL: cannot inspect /etc distro identity" >&2
   exit 1
 fi
+case "$etc_identity" in
+  debian)
+    echo "FAIL: /etc contains a foreign distro identity (debian_version)" >&2
+    exit 1
+    ;;
+  os-release)
+    if ! adb pull /etc/os-release "$tmp/os-release" >/dev/null 2>&1; then
+      echo "FAIL: cannot pull /etc/os-release" >&2
+      exit 1
+    fi
+    # Parse only ID; never source device-controlled shell text on the host.
+    python3 - "$tmp/os-release" <<'PY'
+import shlex
+import sys
+
+ids = []
+try:
+    with open(sys.argv[1], encoding="utf-8") as source:
+        for line in source:
+            key, separator, value = line.strip().partition("=")
+            if key == "ID":
+                tokens = shlex.split(value, comments=True)
+                if not separator or len(tokens) != 1:
+                    raise ValueError("invalid ID assignment")
+                ids.append(tokens[0])
+except (OSError, UnicodeError, ValueError) as exc:
+    sys.exit(f"FAIL: cannot parse /etc/os-release: {exc}")
+if ids != ["android"]:
+    sys.exit("FAIL: /etc/os-release must contain exactly one ID=android")
+PY
+    ;;
+  absent) ;;
+  *)
+    echo "FAIL: unexpected /etc identity probe response: '$etc_identity'" >&2
+    exit 1
+    ;;
+esac
 
 enforcing=$(adb shell getenforce | tr -d '\r')
 if [[ "$enforcing" != "Enforcing" ]]; then
@@ -142,10 +204,16 @@ if [[ ! "$page_size" =~ ^[0-9]+$ ]]; then
   echo "FAIL: could not record kernel page size" >&2
   exit 1
 fi
-avc=$(adb logcat -b all -d 2>/dev/null | grep -E 'avc:.*(andrix|/usr|dev\.andrix\.usr)' || true)
-if [[ -n "$avc" ]]; then
+if ! adb logcat -b all -d >"$tmp/logcat"; then
+  echo "FAIL: cannot retrieve device logs" >&2
+  exit 1
+fi
+if grep -E 'avc:.*(andrix|/usr|dev\.andrix\.usr)' "$tmp/logcat" >"$tmp/avc"; then
   echo "FAIL: relevant SELinux denials found" >&2
-  echo "$avc" >&2
+  cat "$tmp/avc" >&2
+  exit 1
+elif [[ "$?" -ne 1 ]]; then
+  echo "FAIL: cannot search device logs for relevant SELinux denials" >&2
   exit 1
 fi
 
