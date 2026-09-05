@@ -1,3 +1,6 @@
 (/.*)?           u:object_r:andrix_file:s0
 /bin(/.*)?       u:object_r:andrix_exec:s0
+# Android's linkerconfig reads this immutable APEX metadata and its directory.
+/etc            u:object_r:system_file:s0
+/etc/linker\.config\.pb u:object_r:system_file:s0
 /lib64(/.*)?     u:object_r:andrix_lib:s0
