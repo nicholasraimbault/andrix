@@ -26,8 +26,9 @@ bytes; it does not independently attest the APK's source or signing provenance.
 
 The valid-executable control is the **exact P3 image's** `/system/bin/sh`,
 not a replacement for P2/P4 `andrix-hello` or an owner-userland design. Supply
-the P3 artifact that this path resolves to (normally `system/bin/mksh`), not a
-new device pull used as its own oracle. The host and app both compare its SHA-256.
+the P3 artifact that this path resolves to, not a new device pull used as its
+own oracle. The current r1 image stores the ELF directly as `system/bin/sh`.
+The host and app both compare its SHA-256.
 
 ## Authorized runtime fixture only
 
@@ -41,7 +42,7 @@ export ANDROID_SERIAL='EXPLICIT_AUTHORIZED_INSTANCE'
 export ANDRIX_EXPECTED_FINGERPRINT='EXACT_P3_IMAGE_FINGERPRINT'
 python3 scripts/proof/ordinary_app.py \
   --apk /absolute/build/output/AndrixP5OrdinaryApp.apk \
-  --system-sh /absolute/P3/product/system/bin/mksh \
+  --system-sh /absolute/extracted-P3/system/bin/sh \
   --aapt2 /absolute/pinned/build/host/bin/aapt2 \
   --evidence /absolute/outside/source/NEW-p5-evidence
 ```

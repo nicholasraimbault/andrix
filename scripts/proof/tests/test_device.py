@@ -55,9 +55,10 @@ class DeviceCommandFlowUnitTests(unittest.TestCase):
         self.apex = self.work / "oracle.apex.fixture"
         self.elf = self.work / "oracle.elf.fixture"
         self.apex.write_bytes(b"HOST UNIT FIXTURE ONLY: not an APEX\n")
-        self.elf.write_bytes(b"HOST UNIT FIXTURE ONLY: not an ELF\n")
+        # Exercise binary-safe retrieval, not merely line-oriented text output.
+        self.elf.write_bytes(b"HOST UNIT FIXTURE ONLY: not an ELF\n\x00\x01\x7f\x80\xff\r\n\n")
         source = (HERE / "fake_tools.py").read_text(encoding="utf-8").split("\n", 1)[1]
-        for name in ("adb", "readelf", "unit-fixture-hello"):
+        for name in ("adb", "readelf", "unit-fixture-cat", "unit-fixture-hello"):
             tool = self.bin / name
             tool.write_text(f"#!{sys.executable}\n" + source, encoding="utf-8")
             tool.chmod(0o700)
@@ -121,12 +122,63 @@ class DeviceCommandFlowUnitTests(unittest.TestCase):
     def test_successful_command_flow(self):
         self.assert_pass(self.run_case())
         pulls = [call[1] for call in self.adb_calls if call[0] == "pull"]
-        self.assertEqual(pulls, ["/apex/apex-info-list.xml", FACTORY, USR, APEX])
+        self.assertEqual(pulls, ["/apex/apex-info-list.xml", FACTORY])
         executions = [call[1] for call in self.adb_calls if call[0] == "exec-out"]
-        self.assertEqual(len(executions), 2)
-        for remote, command in zip((USR, APEX), executions):
-            self.assertTrue(command.startswith(remote))
+        self.assertEqual(len(executions), 4)
+        for prefix, command in zip((f"cat {USR}", f"cat {APEX}", USR, APEX), executions):
+            self.assertTrue(command == prefix or command.startswith(prefix + " "), command)
+        self.assertEqual([call[1] for call in self.calls if call[0] == "unit-fixture-cat"], [USR, APEX])
+        self.assertEqual([call[1] for call in self.calls if call[0] == "unit-fixture-hello"], [USR, APEX])
         self.assertEqual(sum(call[:2] == ["readelf", "-hW"] for call in self.calls), 3)
+
+    def test_apex_metadata_and_container_pull_failures_stop_before_payload_reads(self):
+        for remote in ("/apex/apex-info-list.xml", FACTORY):
+            with self.subTest(remote=remote):
+                result = self.run_case(pull_failures=[remote])
+                self.assert_failure(result, "cannot pull")
+                self.assertIn(remote, result.stderr)
+                self.assertFalse(any(call[0] == "exec-out" for call in self.adb_calls))
+
+    def test_payload_read_nonzero_adb_status_even_with_exact_bytes(self):
+        payload = self.elf.read_bytes()
+        for remote in (USR, APEX):
+            for output in (b"", payload[:len(payload) // 2], payload):
+                with self.subTest(remote=remote, output=output):
+                    result = self.run_case(payload_reads={remote: {
+                        "stdout_hex": output.hex(), "adb_status": 9,
+                    }})
+                    self.assert_failure(result, f"cannot read {remote} via adb exec-out")
+                    self.assertFalse(any(call[0] == "unit-fixture-hello" for call in self.calls))
+
+    def test_payload_read_nonzero_remote_status_even_with_exact_bytes_and_adb_success(self):
+        payload = self.elf.read_bytes()
+        for remote in (USR, APEX):
+            for output in (b"", payload[:len(payload) // 2], payload):
+                with self.subTest(remote=remote, output=output):
+                    # The fake runs the real shell guard, but discards its status.
+                    # Complete bytes + failed cat must not become a passing hash.
+                    result = self.run_case(payload_reads={remote: {
+                        "stdout_hex": output.hex(), "exit_status": 7, "adb_status": 0,
+                    }})
+                    self.assert_failure(result, f"{remote} differs from bin/andrix-hello")
+                    self.assertIn(["unit-fixture-cat", remote], self.calls)
+                    self.assertFalse(any(call[0] == "unit-fixture-hello" for call in self.calls))
+
+    def test_payload_reads_require_exact_bytes_for_each_path(self):
+        payload = self.elf.read_bytes()
+        outputs = (
+            b"", payload[:len(payload) // 2],                  # Empty/partial read.
+            bytes([payload[0] ^ 1]) + payload[1:],             # Wrong, same size.
+            payload + b"\x00",                                # Extra bytes.
+            payload.replace(b"\r\n", b"\n"), payload.rstrip(b"\n"),
+            payload.replace(b"\x00", b""),                     # Lossy text handling.
+        )
+        for remote in (USR, APEX):
+            for output in outputs:
+                with self.subTest(remote=remote, output=output):
+                    result = self.run_case(payload_reads={remote: {"stdout_hex": output.hex()}})
+                    self.assert_failure(result, f"{remote} differs from bin/andrix-hello")
+                    self.assertFalse(any(call[0] == "unit-fixture-hello" for call in self.calls))
 
     def test_remote_provisioning_must_be_locally_disabled(self):
         for properties in (

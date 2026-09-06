@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""HOST UNIT FIXTURES ONLY: fake adb/readelf/hello, not device or artifact evidence.
+"""HOST UNIT FIXTURES ONLY: fake adb/readelf/cat/hello, not device or artifact evidence.
 
 The test runner copies this into its temporary bin directory under each tool
 name. Unknown commands fail; nothing delegates to real adb or real readelf.
@@ -50,10 +50,6 @@ def fake_adb(root, case, args):
             shutil.copyfile(root / "oracle.apex.fixture", local)
             if case.get("bad_apex_hash"):
                 local.write_bytes(b"HOST UNIT FIXTURE: mismatched dummy APEX\n")
-        elif remote in (USR, APEX):
-            shutil.copyfile(root / "oracle.elf.fixture", local)
-            if case.get("bad_elf_hash") == remote:
-                local.write_bytes(b"HOST UNIT FIXTURE: mismatched dummy ELF\n")
         elif remote == "/etc/os-release" and case.get("os_release") is not None:
             local.write_text(case["os_release"], encoding="utf-8")
         else:
@@ -83,18 +79,27 @@ def fake_adb(root, case, args):
         return 0
     if args[:1] == ["exec-out"] and len(args) == 2:
         command = args[1]
-        remote = next((path for path in (USR, APEX)
-                       if command == path or command.startswith(path + " ")), None)
-        if remote is None:
+        for remote in (USR, APEX):
+            if command == f"cat {remote}" or command.startswith(f"cat {remote} "):
+                prefix = f"cat {remote}"
+                tool = "unit-fixture-cat"
+                response = case.get("payload_reads", {}).get(remote, {})
+                break
+            if command == remote or command.startswith(remote + " "):
+                prefix = remote
+                tool = "unit-fixture-hello"
+                response = case.get("hello", {}).get(remote, {})
+                break
+        else:
             fail(f"unexpected exec-out: {args!r}")
-        # Execute only the host fixture in place of the absolute device path.
+        # Execute only the host fixture in place of cat/the absolute device path.
         # Deliberately discard the shell's status, like exec-out without shell-v2
-        # exit reporting. This tests the production script's remote failure guard,
-        # rather than pretending adb always forwards the executable exit code.
-        replacement = shlex.quote(str(root / "bin" / "unit-fixture-hello"))
-        command = replacement + " " + shlex.quote(remote) + command[len(remote):]
+        # exit reporting. This tests the production script's remote failure guards,
+        # rather than pretending adb always forwards the read/executable exit code.
+        replacement = shlex.quote(str(root / "bin" / tool))
+        command = replacement + " " + shlex.quote(remote) + command[len(prefix):]
         subprocess.run([case["host_bash"], "-c", command], check=False)
-        return case.get("hello", {}).get(remote, {}).get("adb_status", 0)
+        return response.get("adb_status", 0)
     if args == ["shell", "readlink", "/etc"]:
         print(case.get("etc_target", "/system/etc"))
         return 0
@@ -122,7 +127,7 @@ def fake_readelf(root, args):
     if len(args) != 2 or not confined_file(root, args[-1]).is_file():
         fail(f"unexpected readelf input: {args!r}")
     # These strings only let the command-flow test reach the device checks.
-    # The input is a labelled text file, emphatically NOT an ELF or ABI oracle.
+    # The input is a labelled dummy file, emphatically NOT an ELF or ABI oracle.
     if args[0] == "-hW":
         print("  Machine:                           AArch64")
     elif args[0] == "-lW":
@@ -146,6 +151,13 @@ def main():
         return fake_adb(root, case, args)
     if tool == "readelf":
         return fake_readelf(root, args)
+    if tool == "unit-fixture-cat" and args in ([USR], [APEX]):
+        payload_read = case.get("payload_reads", {}).get(args[0], {})
+        payload = (root / "oracle.elf.fixture").read_bytes()
+        if case.get("bad_elf_hash") == args[0]:
+            payload = b"HOST UNIT FIXTURE: mismatched dummy ELF\n"
+        sys.stdout.buffer.write(bytes.fromhex(payload_read.get("stdout_hex", payload.hex())))
+        return payload_read.get("exit_status", 0)
     if tool == "unit-fixture-hello" and args in ([USR], [APEX]):
         hello = case.get("hello", {}).get(args[0], {})
         sys.stdout.buffer.write(bytes.fromhex(hello.get("stdout_hex", b"andrix\n".hex())))

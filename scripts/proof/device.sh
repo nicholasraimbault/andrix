@@ -107,8 +107,12 @@ fi
 
 for remote in /usr/bin/andrix-hello /apex/dev.andrix.usr/bin/andrix-hello; do
   localf="$tmp/$(tr / _ <<<"$remote")"
-  if ! adb pull "$remote" "$localf" >/dev/null 2>&1; then
-    echo "FAIL: cannot pull $remote" >&2
+  # Read these fixed payload paths in the shell context: adbd's sync service
+  # (adb pull) need not be allowed to read andrix_exec files. Keep bytes raw.
+  # exec-out need not forward cat's exit status. Append a failure marker so
+  # even a complete payload followed by a read failure fails the hash check.
+  if ! adb exec-out "cat $remote || { printf '\\nFAIL: payload read failed\\n'; exit 1; }" >"$localf"; then
+    echo "FAIL: cannot read $remote via adb exec-out" >&2
     exit 1
   fi
   "$root/scripts/proof/host_elf.sh" "$localf"
