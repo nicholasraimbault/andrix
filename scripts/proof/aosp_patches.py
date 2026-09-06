@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Check/apply the pinned, narrowly scoped Andrix AOSP endpoint patch.
+"""Check/apply the pinned, narrowly scoped Andrix AOSP product adaptation.
 
 Default is read-only. --apply changes only the declared source files, not Git
 HEADs/indexes, and requires a fresh evidence directory outside source trees.
@@ -116,7 +116,7 @@ def apply(aosp, evidence, series_file=SERIES):
     (evidence / "command.json").write_text(json.dumps(sys.argv) + "\n")
     try:
         if before["state"] == "base":
-            # One git-apply transaction covers the whole six-file patch. There
+            # One git-apply transaction covers the whole declared patch. There
             # is no --reject/--3way/fuzz/force or modification of project HEADs.
             run(aosp, "apply", "--whitespace=error", str(patch.resolve()))
         after, _ = inspect(aosp, series_file)

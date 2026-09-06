@@ -50,8 +50,19 @@
           "patched_sha256": "820df422f226451d2f2e2d25b33cdb7767dbf380d4c75eeaa8c181e5dde520ff"
         }
       ]
+    },
+    {
+      "path": "build/make",
+      "base_commit": "5ce6f787337d0223710bf7d4a16dbe6d2a35f777",
+      "files": [
+        {
+          "path": "target/product/handheld_product.mk",
+          "base_sha256": "a450148917a5d5affd30d7b75f1bffb56a6b78678ba6bd4ed4472fae9da21c7a",
+          "patched_sha256": "fa45a3ff2a17b389ae13c9f10579812f5c79a27b12572cf0cacd14fee157d105"
+        }
+      ]
     }
   ],
   "patch": "network-endpoints.patch",
-  "patch_sha256": "ee88edf52807214e2ca2016212177ac9e40c30c236859930a9958d0692fdeabc"
+  "patch_sha256": "98d944e92657551622878139dc3e2e95b09aea779c03bf12d8fab73b57e46e09"
 }
