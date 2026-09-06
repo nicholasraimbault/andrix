@@ -18,8 +18,11 @@ package identities/public certificate pins, and set `use_remoteexec=false`.
 ThinLTO rejects an explicit `concurrent_links` override; the first failure is
 retained and the corrected generation uses Chromium's memory/CPU-derived pools,
 not an LTO/CFI disable. GN generation passed with unused arguments rejected.
-The compiler is invoked for the three declared targets with eight local jobs
-and `--offline`; a start or graph-generation pass is not an APK build pass.
+The three-target compiler invocation with eight local jobs and `--offline`
+completed successfully on 2026-09-06 at 19:31:30 UTC. The three original APK
+outputs are frozen. Unsupported filter-rule diagnostics and experimental
+package-name expectation differences remain recorded for artifact review;
+compiler success does not qualify the APKs or provider behavior.
 
 The [artifact checker](../../scripts/proof/webview_artifacts.md) verifies
 container signatures, actual manifest/static-library relationships and ARM64

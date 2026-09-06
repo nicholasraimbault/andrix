@@ -10,9 +10,10 @@ The current milestone is to prove a tiny `andrix-hello` executable in a signed
 APEX exposed through read-only `/usr` on an ARM64-only direct-AOSP-17
 Cuttlefish image.
 The image and signed APEX build, and host-side artifact checks pass.
-**The image has not yet been booted for this proof.** Runtime `/usr`, ordinary-app
-isolation and no-Google network behavior remain unproved. Known network defaults
-still need cleanup.
+An [offline QEMU/TCG smoke test](plans/2026-09-06-qemu-smoke.md) has booted the
+ARM64 image on x86-64 and passed the signed APEX, read-only `/usr` and ordinary-app
+execution-boundary checks with SELinux enforcing. **Native ARM64/KVM and
+no-Google network validation remain unproved.** Endpoint review is still open.
 
 This is source and proof tooling, **not a supported OS release or a phone
 installation image**. There is no buildable Pixel product in this repository.

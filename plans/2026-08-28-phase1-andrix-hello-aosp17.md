@@ -16,6 +16,10 @@ the direct AOSP `aosp_cf_arm64_only_phone` source. Pixel 9 Pro (`caiman`) remain
 an intended later target but has no current product recipe or buildability
 claim. It requires an explicit pinned device, vendor and kernel decision.
 
+An additional [offline QEMU/TCG smoke test](2026-09-06-qemu-smoke.md) was
+separately authorized and completed. Its emulated device/app checks do not
+replace this milestone's native ARM64/KVM and connected-network gates.
+
 ## Direct AOSP source boundary
 
 The manifest provider is exactly:

@@ -3,9 +3,12 @@
 **Active milestone:** [Phase 1 — prove `andrix-hello` under `/usr` on direct
 AOSP 17](2026-08-28-phase1-andrix-hello-aosp17.md).
 
-**Experimental and unbooted.** Host builds and artifact checks have succeeded;
-there is no runtime `/usr`, ordinary-app boundary or no-Google network proof.
-No supported release or phone-installation image is available.
+**Experimental; first emulated runtime checks passed.** The ARM64 image has
+booted in an [offline QEMU/TCG smoke test](2026-09-06-qemu-smoke.md) on x86-64.
+Signed APEX activation, read-only `/usr` and the ordinary-app execution boundary
+passed there with SELinux enforcing. Native ARM64/KVM and no-Google network
+validation remain unproved. No supported release or phone-installation image
+is available.
 
 ## Pinned source
 
@@ -30,7 +33,7 @@ The source/artifact work predates public publication. Original revision pins
 and unedited evidence are retained privately; the publication revision mapping
 is described in [source provenance](../docs/source-provenance.md).
 
-## Verified host-side results
+## Verified results
 
 | Gate | Result |
 | --- | --- |
@@ -39,7 +42,8 @@ is described in [source provenance](../docs/source-provenance.md).
 | P1 | Non-flattened, updatable system-ext APEX and init module build; AOSP init/APEX/linkerconfig/SELinux build checks pass. |
 | P2 | APK-container and AVB-payload signatures verify; embedded key matches; exact packaged ELF inspected. |
 | P3 | Adapted full image and matching ARM64 host package build. Three baked overlays and key image contents pass offline checks; packaged-app endpoint review remains open. |
-| P5 preparation | Optional ordinary-app APK builds and passes static signer/manifest/JNI checks. It has not been installed or executed. |
+| P5 preparation | Optional ordinary-app APK builds and passes static signer/manifest/JNI checks. |
+| Additional offline emulated test | QEMU/TCG boot completed; device/APEX/`/usr` checks passed; ordinary ARM64/Bionic app control succeeded and byte-identical private-copy `execve` returned EACCES. Test package removal verified. Not native ARM64 or no-Google qualification. |
 
 The APEX contains only `apex_manifest.pb`, `etc/linker.config.pb` and
 `bin/andrix-hello`. Its AArch64 PIE requests `/system/bin/linker64`, needs Android
@@ -86,7 +90,9 @@ and launcher runtime/visual behavior is unproved. No substitute search backend
 was selected. The WebView APK is also unchanged.
 
 All 28 image files, both host packages and proof packages are separately frozen
-and hashed outside source. This is not runtime activation or complete P3 clearance.
+and hashed outside source. The additional offline emulated run subsequently
+verified activation of this exact APEX and both executable paths, but did not
+clear the remaining P3/network or native-host gates.
 
 The public-CA certificate for `probe.andrix.org` verifies against the built
 Conscrypt CA bundle. The bounded service passed real loopback HTTP/HTTPS 204,
@@ -95,12 +101,21 @@ and clean signal shutdown checks. The CT files retain the original signature
 and match the resource APK's unchanged key allowlist; no live upstream proxy
 is needed. No public endpoint is deployed, and this is not Android validation.
 
-All **142 host-only regression tests** pass, covering artifact/app checks,
+All **146 host-only regression tests** pass, covering artifact/app checks,
 overlays, patch guards, probe/CT handling and fixture configuration. Wrong-certificate and corrupted-
 payload checks fail closed. Native/Java extracted-function tests also checked
 DNS wire names, record types and nonce behavior without network traffic.
 Host preflight/config/parser checks do not qualify a real runtime host. Private
 signing/certificate keys and raw evidence remain outside published Git.
+
+The [emulated test record](2026-09-06-qemu-smoke.md) preserves the first runtime
+inspection failure: `adbd` could not traverse the `andrix_exec` directory for
+`adb pull`, while Android's `shell` context could read and execute the payload.
+The device checker now uses guarded raw `exec-out` reads without changing policy
+or rooting adbd. Exact bytes/inodes and enforcing SELinux were verified. Earlier
+failed-read and expected app-negative-test audit records remain preserved; the
+repaired device check passed in a separate recorded log window. The offline VM
+was stopped and its packet capture retained, not presented as a no-Google pass.
 
 ## Next gates
 
@@ -121,8 +136,10 @@ signing/certificate keys and raw evidence remain outside published Git.
    are recorded, and GN generation passed with CFI/ThinLTO retained. The
    [three-APK artifact checker](../scripts/proof/webview_artifacts.md) passed
    synthetic and real-tool fixture checks, not checks of Vanadium outputs.
-   Compilation/actual APK qualification is still in progress; no new provider
-   has been substituted into the product. Production signing/update ownership,
+   Compilation completed successfully on 2026-09-06 at 19:31:30 UTC. All three
+   original APK outputs are frozen; actual signer/manifest/native-payload and
+   ConfigInfo qualification remains pending. No new provider has been substituted
+   into the product. Production signing/update ownership,
    network defaults, Safe Browsing callback semantics and runtime qualification
    remain unresolved. See the
    [network review](../docs/proof-network.md) for implemented controls and limits.
@@ -133,9 +150,11 @@ signing/certificate keys and raw evidence remain outside published Git.
 3. Complete P3 review before paid runtime testing, then qualify the explicitly
    authorized ARM64 Linux/KVM fixture and matching host package. No rental,
    network administration or boot is authorized by a successful build alone.
-4. Perform P4/P5 runtime checks and P6 existence review. Do not substitute an
-   x86 image, software-emulated ARM, stock/pushed replacement artifacts or a
-   physical phone port. Do not disable verification or relax SELinux/app policy.
+4. Perform the native P4/P5 checks and P6 existence review. The separately
+   authorized offline QEMU/TCG result is useful functional evidence, not a
+   substitute for these native/network gates. Do not substitute an x86 image,
+   stock/pushed replacement artifacts or a physical phone port. Do not disable
+   verification or relax SELinux/app policy.
 
 Caiman, package composition, owner writable layout, tools, daemons, agents,
 UI and a package manager remain outside this first proof. The accepted

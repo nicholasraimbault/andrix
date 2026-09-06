@@ -5,6 +5,10 @@ authority and not a qualified-host result. Use only after the exact image's P3
 review and the owner's bounded runtime authorization. Do not expose the build/
 signing host as an Internet service or copy Android signing keys to the fixture.
 
+The separately authorized [offline QEMU smoke](../plans/2026-09-06-qemu-smoke.md)
+used CPU emulation and a network-disconnected namespace. Its successful
+functional checks are not qualification of the connected native fixture below.
+
 ## Isolation, services and observations
 
 Use a fresh native ARM64 Linux/KVM host and a dedicated runtime identity,
