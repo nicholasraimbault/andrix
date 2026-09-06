@@ -45,7 +45,7 @@ This does not prove runtime activation, MCC selection or precedence.
 ## Necessary pinned source adaptations
 
 Some remaining destinations have no configuration hook. The narrowly scoped
-[six-file patch](../patches/android-17.0.0_r1/README.md) records exact base project
+[seven-file patch](../patches/android-17.0.0_r1/README.md) records exact base project
 commits, source digests and applied digests. `aosp_patches.py` verifies them and
 records explicit working-tree changes without moving any AOSP project HEAD.
 The baseline manifest **plus this patch**, not a pristine manifest alone,
@@ -101,21 +101,33 @@ with the offline checks. Android execution remains unproved.
   blacklist Google addresses, or synthesize successful Google DNS/HTTP responses
   to force a pass. The controlled resolver must log real attempted queries.
 
-## Packaged-app review still open
+## Bundled search omission and remaining app review
 
-A broader image scan also found Google URL literals in bundled apps. They are
+QuickSearchBox is now omitted from the Andrix Cuttlefish package graph, installed
+inventory and actual product image. The owning inherited Makefile excludes it
+only for `andrix_cf_arm64_only_phone`; the stock and other product package sets
+are preserved by a pinned-leaf Make regression test. No app stub, search-server
+replacement or post-boot uninstall was introduced.
+
+Launcher3's source permits no active search provider: `OSEManager` handles a
+missing/disabled package and its fallback resource is empty. The existing widget
+fallback can show unavailable search and a blank-browser intent; no new search
+UI was built. Launcher and WebView APKs remain byte-identical to the prior
+candidate. Runtime/visual behavior still needs the actual boot proof.
+
+A broader image scan also found Google URL literals in other bundled apps. They are
 not all background requests: help links, map intents, XML metadata namespaces
 and user-selected diagnostics differ from automatic service connections.
 The following still require complete source/condition/control disposition:
 
-- `QuickSearchBox` contains Google search/suggestion endpoints and a regional
-  search-domain check. It is an inherited product package, not a chosen Andrix
-  search backend.
 - The bundled WebView is the tag's prebuilt `145.0.7632.218`. Its variations
   service contains Google seed URLs; the matching Chromium source describes
   scheduling after WebView requests a seed. Its presence is not proof of a
   boot-time request, but WebView use cannot be silently declared safe or disabled
-  to avoid the review. No alternate WebView/source substitution was made.
+  to avoid the review. The [pinned Vanadium and same-base Chromium review](webview-review.md)
+  distinguishes source-only seed controls from a candidate AOSP component-default
+  mechanism. No alternate WebView, component-state change or source substitution
+  was made.
 - Device diagnostics, IMS entitlement, dynamic-system installation, captive
   portal fallback and other manual/conditional links need attribution to the
   selected proof profile. No blanket no-Google clearance follows from removing

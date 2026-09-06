@@ -18,8 +18,8 @@ No supported release or phone-installation image is available.
   No Lineage dependency, force sync or source substitution was used. The first
   checkout failures were retained and recovered with a bounded serial retry.
 - The new candidate additionally applies the explicit, digest-checked
-  [network endpoint adaptation](../patches/android-17.0.0_r1/README.md): six
-  working-tree files in three AOSP projects. Their HEADs remain pinned, but the
+  [network/product adaptation](../patches/android-17.0.0_r1/README.md): seven
+  working-tree files in four AOSP projects. Their HEADs remain pinned, but the
   manifest alone does not describe this build; the declared patch is required.
 - Product: `andrix_cf_arm64_only_phone-cp2a-userdebug`, Android 17 REL/API 37,
   device `andrix_cf_arm64_only`, sole ABI `arm64-v8a`.
@@ -63,12 +63,12 @@ handling. Its rebuilt image was inspected; the proof APEX is unchanged. The
 runtime effect of that action is not yet proved. No AOSP source, SELinux rule,
 trust store or signature-verification change was made for that control.
 
-The new complete candidate built successfully in 12:26 with overlay producer
-`52eb1c22ffc81aecc086696070142c8c8cb5bbcc` and the recorded endpoint patch. Its
+The current complete candidate built successfully in 9:29 with overlay producer
+`9eb0bd462d63c86c37fe4cfddad764ab379e7d48` and the recorded network/product patch. Its
 expected fingerprint is:
 
 ```text
-Andrix/andrix_cf_arm64_only_phone/andrix_cf_arm64_only:17/CP2A.260605.016/andrix.r1.52eb1c2:userdebug/test-keys
+Andrix/andrix_cf_arm64_only_phone/andrix_cf_arm64_only:17/CP2A.260605.016/andrix.r1.9eb0bd4:userdebug/test-keys
 ```
 
 All three HTTP(S)/NTP RROs are now in the actual product image, with
@@ -78,6 +78,13 @@ enabled. NetworkStack and connectivity-service dex contain the adapted DNS/CT
 names. The actual system-ext image contains the exact signed P2 APEX and init
 files; `/usr` and Android's `/etc` link remain. The APEX, proof ELF, optional P5
 APK and ARM64 host tarball are byte-identical to the previously checked ones.
+QuickSearchBox is absent from the resolved package list, installed inventory
+and extracted product image. The omission is scoped to Andrix Cuttlefish; a
+pinned-Makefile regression test preserves other products' package membership.
+Launcher3 handles a missing provider in its source; its APK remains unchanged,
+and launcher runtime/visual behavior is unproved. No substitute search backend
+was selected. The WebView APK is also unchanged.
+
 All 28 image files, both host packages and proof packages are separately frozen
 and hashed outside source. This is not runtime activation or complete P3 clearance.
 
@@ -88,7 +95,7 @@ and clean signal shutdown checks. The CT files retain the original signature
 and match the resource APK's unchanged key allowlist; no live upstream proxy
 is needed. No public endpoint is deployed, and this is not Android validation.
 
-All **110 host-only regression tests** pass, covering artifact/app checks,
+All **111 host-only regression tests** pass, covering artifact/app checks,
 overlays, patch guards, probe/CT handling and fixture configuration. Wrong-certificate and corrupted-
 payload checks fail closed. Native/Java extracted-function tests also checked
 DNS wire names, record types and nonce behavior without network traffic.
@@ -97,10 +104,12 @@ signing/certificate keys and raw evidence remain outside published Git.
 
 ## Next gates
 
-1. Complete the remaining packaged-app endpoint review, especially inherited
-   QuickSearchBox and the pinned prebuilt WebView's variations behavior. Literal
-   presence is not automatically a connection, but neither is it clearance.
-   Do not disable TLS/WebView or substitute source to force a pass. See the
+1. Complete the remaining WebView and conditional-app endpoint review. The
+   [pinned Vanadium/Chromium comparison](../docs/webview-review.md) identifies
+   source-level seed controls but not an applicable patch for the current
+   prebuilt. AOSP scan-time component defaults offer a narrower candidate to
+   validate; no WebView/provider, component state or TLS change has been applied.
+   Literal presence is not a connection or clearance. See the
    [network review](../docs/proof-network.md) for implemented controls and limits.
 2. Finalize the real fixture's DNS/RIL/DHCP/RDNSS, qualified NTP source, routing,
    TLS/CT service and external-capture bindings. Config renderers and the
