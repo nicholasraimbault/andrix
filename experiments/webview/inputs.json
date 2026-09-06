@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "scope": "isolated ARM64 WebView build experiment, not product integration",
+  "vanadium": {
+    "url": "https://github.com/GrapheneOS/Vanadium.git",
+    "commit": "fdcc1b50ce6fb34c87b2fb11978f9f3ce76fe226"
+  },
+  "chromium": {
+    "url": "https://chromium.googlesource.com/chromium/src.git",
+    "tag": "152.0.7977.84",
+    "commit": "4334922f44c77b1208072c4deac29db3af39bbea"
+  },
+  "depot_tools": {
+    "url": "https://chromium.googlesource.com/chromium/tools/depot_tools.git",
+    "commit": "81577f19a8497ba7e41afac322e8f03553a863ec",
+    "automatic_repository_updates": false,
+    "metrics_collection": false
+  },
+  "targets": [
+    "trichrome_webview_64_apk",
+    "trichrome_library_64_apk",
+    "vanadium_config_apk"
+  ],
+  "packages": {
+    "webview": "dev.andrix.experiment.webview",
+    "library": "dev.andrix.experiment.trichromelibrary",
+    "config": "dev.andrix.experiment.webviewconfig",
+    "unused_browser_argument": "dev.andrix.experiment.browser"
+  },
+  "data_policy": "Stage and hash filter-list hook inputs separately; no implicit live hook fetch or missing-list substitution",
+  "signing_policy": "Separate local disposable experiment signer; public digest bound in GN inputs; not platform or release signing",
+  "experimental_signer_certificate_sha256": "6c292164d3710a4fd44b91d90fd3a2c894fe4c6945dd41f52493ffb19389b5b3",
+  "filter_list_snapshot": {
+    "url_count": 23,
+    "output_count": 21,
+    "manifest_sha256": "b1f66653f3972789b0560dcff3db6d1e48e7b92bb48d1748c6b595d7cab35ebd",
+    "storage": "private engineering evidence, raw and combined bytes retained"
+  }
+}
