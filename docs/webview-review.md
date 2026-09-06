@@ -5,6 +5,11 @@ The current milestone still uses the exact AOSP r1 prebuilt `com.android.webview
 **145.0.7632.218**. No Vanadium APK, GrapheneOS inheritance, different Chromium
 version, TLS-disable flag or modified trust store has been introduced.
 
+The subsequent [Vanadium integration assessment](vanadium-assessment.md)
+examines the full patch set, actual AOSP provider rules, reflective fallback
+checks and packaging/update responsibilities. It finds a credible WebView-only
+prototype route, not a validated provider or authorization to replace this APK.
+
 ## What Vanadium demonstrates
 
 Reference: [GrapheneOS/Vanadium at

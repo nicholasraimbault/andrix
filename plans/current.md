@@ -111,7 +111,13 @@ signing/certificate keys and raw evidence remain outside published Git.
    mechanism and ordinary failed-bind path, but exposed an unchecked scheduling
    exception in fast recovery. The trial is not in the product: no WebView APK,
    component state, renderer or TLS change has been applied. A safe control for
-   both normal and recovery paths remains unresolved. See the
+   both normal and recovery paths remains unresolved. The full
+   [Vanadium assessment](../docs/vanadium-assessment.md) finds a credible
+   WebView-only prototype route without a GrapheneOS platform import: normal
+   product-policy provider mapping and reflective fallbacks passed host checks.
+   Source/signing/update ownership, network defaults, Safe Browsing callback
+   semantics and runtime qualification remain decisions/checks, not approvals.
+   No Vanadium build or provider substitution occurred. See the
    [network review](../docs/proof-network.md) for implemented controls and limits.
 2. Finalize the real fixture's DNS/RIL/DHCP/RDNSS, qualified NTP source, routing,
    TLS/CT service and external-capture bindings. Config renderers and the
