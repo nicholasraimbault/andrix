@@ -60,7 +60,7 @@ not Vanadium's newer base:
 Those source references guide examination of the pinned APK; they do not by
 themselves prove binary behavior, supported flag delivery or all entry points.
 
-## Narrower AOSP mechanism worth validating
+## Component-default trial: mechanism works, recovery gap remains
 
 The exact r1 `SystemConfig.readComponentOverrides()` accepts per-component
 `enabled=false` configuration. `ScanPackageUtils.configurePackageComponents()`
@@ -69,16 +69,51 @@ package scanning. Product/system-ext sysconfig directories are read. This is
 separate from resource overlays and does not require rewriting a WebView APK.
 
 The actual 145 manifest declares separate variations seed server/fetcher,
-safe-mode variations provider, metrics/minidump upload, and component-update
-services. This provides a candidate path for configuring **specific optional
-background components**, while retaining the provider and rendering services.
-It has **not** been selected or applied yet. Before relying on it, check all
-normal/fast-mode callers, disabled-service/provider error handling, fresh/update
-behavior and what data each component carries. Do not blanket-disable WebView,
-safety/component updates, TLS, or the whole service process.
+safe-mode variations provider, metrics/minidump upload and component-update
+services. A host-only source trial exercised two candidate disabled sets:
 
-The next decision should be based on that same-base control review and eventual
-properly authorized rendering/network tests. A source-only Vanadium-style gate
-would instead require an explicit compatible WebView build/provider decision;
-it cannot be applied to the existing prebuilt by an RRO. The current
-GrapheneOS-reference-only/source boundary remains in force.
+| Trial | Source-level result |
+| --- | --- |
+| `AwVariationsSeedFetcher` only | The ordinary seed server still asks JobScheduler to schedule it. The disabled service is not found, causing an uncaught `IllegalArgumentException` in the scheduling path. |
+| `AwVariationsSeedFetcher` + `VariationsSeedServer` | The ordinary loader takes its handled failed-bind path and schedules no seed job. Fast/safe-mode activation can still call the disabled fetcher and propagate the same exception. |
+
+The test used extracted r1 `SystemConfig.readComponentOverrides`,
+`ScanPackageUtils.configurePackageComponents`, `PackageUserStateUtils.isEnabled`
+and JobScheduler request validation, plus the matching Chromium fast-action/
+recovery-dispatch methods. DOM, package-manager/context and fresh scheduling
+adapters supplied the surrounding host environment. The XML/default-state
+mechanism affected only the selected components; renderer, general recovery,
+local seed provider and component-update defaults stayed enabled. Explicit
+user-enabled state still overrides a parsed default.
+
+This is **not Android runtime or rendering proof**. It tests source-method
+behavior with named adapters, not real Binder, PackageManager or JobScheduler
+services. It also does not establish the absence of native download paths.
+
+### Why the simple disabled set is not accepted as a complete solution
+
+`VariationsSeedHolder.SeedWriter` schedules before writing a seed, with no catch
+for JobScheduler's exception. Disabling the server as well avoids that ordinary
+entry point. However, `NonEmbeddedFastVariationsSeedSafeModeAction.onActivate()`
+also schedules directly; neither it nor the shared recovery dispatcher catches
+that exception. The registered component-reset action precedes the fast action;
+do not misreport that earlier action as skipped. The fast activation still
+fails to complete normally, and source review identifies startup/persisted-state
+risks that require further validation.
+
+Disabling the safe-mode seed content provider would not fix scheduling: it
+serves local bytes, not downloads. Disabling general `SafeModeService` or security
+component updates to hide this gap would violate the intended scope. Their
+other functions must remain available. A fresh Cuttlefish image without Play
+may not activate fast mode, but that is not a general safety or privacy proof.
+
+**No component override is included in the default product, and the WebView APK
+is unchanged.** The trial XML and source harness are retained with private
+engineering evidence, not silently shipped as a working no-Google feature.
+
+A complete solution needs a graceful control for both ordinary and fast seed
+paths, then authorized rendering/network tests and separate review of reporting/
+component-update behavior. A source-level gate or guarded scheduling change
+would require an explicit compatible WebView build/provider decision; it cannot
+be inserted into the current prebuilt by an RRO. No GrapheneOS/Vanadium adoption,
+APK replacement or trust-policy change is authorized by this trial.

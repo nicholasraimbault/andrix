@@ -125,9 +125,10 @@ The following still require complete source/condition/control disposition:
   scheduling after WebView requests a seed. Its presence is not proof of a
   boot-time request, but WebView use cannot be silently declared safe or disabled
   to avoid the review. The [pinned Vanadium and same-base Chromium review](webview-review.md)
-  distinguishes source-only seed controls from a candidate AOSP component-default
-  mechanism. No alternate WebView, component-state change or source substitution
-  was made.
+  distinguishes source-only seed controls from the AOSP component-default trial.
+  That host-source trial found a fast-recovery scheduling exception, so its
+  disabled set is not in the product. No alternate WebView, component-state
+  change, trust change or source substitution was made.
 - Device diagnostics, IMS entitlement, dynamic-system installation, captive
   portal fallback and other manual/conditional links need attribution to the
   selected proof profile. No blanket no-Google clearance follows from removing

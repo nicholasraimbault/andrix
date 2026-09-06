@@ -107,9 +107,11 @@ signing/certificate keys and raw evidence remain outside published Git.
 1. Complete the remaining WebView and conditional-app endpoint review. The
    [pinned Vanadium/Chromium comparison](../docs/webview-review.md) identifies
    source-level seed controls but not an applicable patch for the current
-   prebuilt. AOSP scan-time component defaults offer a narrower candidate to
-   validate; no WebView/provider, component state or TLS change has been applied.
-   Literal presence is not a connection or clearance. See the
+   prebuilt. A host-only component-default trial confirmed the parsing/scanning
+   mechanism and ordinary failed-bind path, but exposed an unchecked scheduling
+   exception in fast recovery. The trial is not in the product: no WebView APK,
+   component state, renderer or TLS change has been applied. A safe control for
+   both normal and recovery paths remains unresolved. See the
    [network review](../docs/proof-network.md) for implemented controls and limits.
 2. Finalize the real fixture's DNS/RIL/DHCP/RDNSS, qualified NTP source, routing,
    TLS/CT service and external-capture bindings. Config renderers and the
