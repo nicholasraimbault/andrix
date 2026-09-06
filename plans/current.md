@@ -95,7 +95,7 @@ and clean signal shutdown checks. The CT files retain the original signature
 and match the resource APK's unchanged key allowlist; no live upstream proxy
 is needed. No public endpoint is deployed, and this is not Android validation.
 
-All **111 host-only regression tests** pass, covering artifact/app checks,
+All **142 host-only regression tests** pass, covering artifact/app checks,
 overlays, patch guards, probe/CT handling and fixture configuration. Wrong-certificate and corrupted-
 payload checks fail closed. Native/Java extracted-function tests also checked
 DNS wire names, record types and nonce behavior without network traffic.
@@ -117,8 +117,12 @@ signing/certificate keys and raw evidence remain outside published Git.
    product-policy provider mapping and reflective fallbacks passed host checks.
    The owner has now authorized an [isolated WebView-only build experiment](2026-09-06-webview-build-experiment.md),
    with explicit Chromium/Vanadium/tool pins and separate outputs. Source
-   acquisition/preparation is in progress; no Vanadium APK has yet been built
-   or substituted into the product. Production signing/update ownership,
+   preparation is complete: all 314 upstream patches and frozen filter inputs
+   are recorded, and GN generation passed with CFI/ThinLTO retained. The
+   [three-APK artifact checker](../scripts/proof/webview_artifacts.md) passed
+   synthetic and real-tool fixture checks, not checks of Vanadium outputs.
+   Compilation/actual APK qualification is still in progress; no new provider
+   has been substituted into the product. Production signing/update ownership,
    network defaults, Safe Browsing callback semantics and runtime qualification
    remain unresolved. See the
    [network review](../docs/proof-network.md) for implemented controls and limits.
