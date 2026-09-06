@@ -43,7 +43,10 @@ Stop before initialization unless `ANDRIX_AOSP_TAG` is the exact tag authorized
 for that source operation. LineageOS is not a manifest, framework, product, device,
 build, update, or release dependency. LineageOS and GrapheneOS may appear only
 as separately pinned and attributed references; they must not enter the active
-Repo manifest or product inheritance.
+Repo manifest or product inheritance. The subsequently authorized
+[isolated Vanadium WebView build experiment](2026-09-06-webview-build-experiment.md)
+permits a separate source/build tree only. It does not replace the current
+WebView prebuilt or change this product's source boundary.
 
 ## Fixed architecture and security constraints
 

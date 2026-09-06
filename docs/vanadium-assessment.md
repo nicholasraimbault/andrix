@@ -176,12 +176,13 @@ for any distributed derivative. Do not relabel Vanadium as Andrix Apache-2.0
 code. The license is an integration obligation, not evidence that the whole
 Andrix OS must change its architecture or original-code license.
 
-## Recommended next decision
+## Follow-up decision
 
-Authorize, if desired, **one isolated WebView-only build feasibility experiment**
-using a named Vanadium/Chromium pin and declared derivative differences. That is
-an explicit exception to the current prebuilt/reference-only milestone boundary,
-not permission to import GrapheneOS or replace the default image immediately.
+The owner subsequently authorized **one isolated WebView-only build feasibility
+experiment** using named Vanadium/Chromium/tool pins and declared derivative
+identities. Its scope is recorded in the [experiment plan](../plans/2026-09-06-webview-build-experiment.md).
+This is an explicit exception to the earlier reference-only boundary, not
+permission to import GrapheneOS or replace the default image immediately.
 
 Before any promotion: establish exact APK/signature/library/config identities;
 verify provider selection with normal policy; prove rendering/JS, valid TLS and

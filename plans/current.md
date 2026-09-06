@@ -115,9 +115,12 @@ signing/certificate keys and raw evidence remain outside published Git.
    [Vanadium assessment](../docs/vanadium-assessment.md) finds a credible
    WebView-only prototype route without a GrapheneOS platform import: normal
    product-policy provider mapping and reflective fallbacks passed host checks.
-   Source/signing/update ownership, network defaults, Safe Browsing callback
-   semantics and runtime qualification remain decisions/checks, not approvals.
-   No Vanadium build or provider substitution occurred. See the
+   The owner has now authorized an [isolated WebView-only build experiment](2026-09-06-webview-build-experiment.md),
+   with explicit Chromium/Vanadium/tool pins and separate outputs. Source
+   acquisition/preparation is in progress; no Vanadium APK has yet been built
+   or substituted into the product. Production signing/update ownership,
+   network defaults, Safe Browsing callback semantics and runtime qualification
+   remain unresolved. See the
    [network review](../docs/proof-network.md) for implemented controls and limits.
 2. Finalize the real fixture's DNS/RIL/DHCP/RDNSS, qualified NTP source, routing,
    TLS/CT service and external-capture bindings. Config renderers and the
