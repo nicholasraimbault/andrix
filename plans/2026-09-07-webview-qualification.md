@@ -1,5 +1,8 @@
 # Vanadium trust, recovery and package-session qualification
 
+**Executed: focused trust/recovery checks passed; three-package rollback failed.**
+See [observed results](#observed-results--2026-09-07) and the remaining gate below.
+
 Continue testing the existing signed Vanadium152 integration. The working
 `09d890f` image and original APKs remain frozen. No production promotion, new
 browser choice, security-policy relaxation, public host listener or paid resource
@@ -82,3 +85,79 @@ behavior separately, including the normal local-network permission dialog when
 using the private HTTPS fixture. Safe Browsing remains unavailable, not a claimed
 protection. Preserve first failures and stop/clean disposable state explicitly.
 All results remain bounded by this provider, image, workload and emulated host.
+
+## Observed results — 2026-09-07
+
+**Partial qualification; rollback is a real blocker.** The ordinary positive
+image remains producer `09d890f`; the negative image uses the same source and the
+explicit Config-certificate override above. Test APK producers were `378bc61`
+and the observer repair `42f140e`. Neither changed the frozen provider/library.
+
+| Check | Actual result |
+| --- | --- |
+| Compiled Config trust | PASS. Normal WebView initialization read the exact compiled 32-byte certificate pin and parsed trusted Config 206. The negative factory Config had a different real signer, `hasSigningCertificate=false`, and both parser fields remained null; the actual parser logged refusal. No mocked PackageManager or changed pin. |
+| Cross-UID SafeMode authority | PASS. Permitted bind/getter/query controls worked; `setSafeMode()` alone threw the expected trusted-app SecurityException. The caller had a distinct UID even though its certificate matched. |
+| Fast recovery | PASS for this action. Same-UID instrumentation activated only `fast_variations_seed`, observed enabled alias/actions/timestamp and no job 83, then cleared state normally. An ordinary app passed JS 42, HTTPS 204 and cancel-only hostname rejection while the action was active, with visibly approved normal permission flow. |
+| Persisted-job retirement | PASS after a normal Android reboot. The marked same-UID job survived; real JobScheduler execution recorded START, `onStartJob returned false`, and `cancel() called by app` with the provider UID/job 83. Subsequent observation found no pending job. This synthetic job does not prove this disabled build naturally schedules one. |
+| Atomic wrong-signer update | PASS negative. The three-child session failed with `INSTALL_FAILED_UPDATE_INCOMPATIBLE` for Config. All three installed versions stayed unchanged, including the static-library inventory. |
+| Manifest-only generationB | PASS installation/initialization. WebView/library 797708534 and Config 207 installed together; old library 797708434 remained. Exact updated WebView/Config hashes matched; the selected provider had relros 1/1 and initialization parsed trusted Config 207. Not a real Chromium-version migration or an updated-JS/TLS test. |
+| Three-child rollback | **FAIL.** No available rollback; no forced downgrade substituted. |
+
+### Why the rollback failed
+
+At 12:04:38 UTC the actual r1 `RollbackManager` logged:
+
+```text
+dev.andrix.experiment.trichromelibrary is not installed
+```
+
+The library was present in the preceding `--match-libraries` inventory.
+`RollbackManagerServiceImpl.enableRollbackForPackageSession()` nevertheless
+received `NameNotFoundException` from its package lookup. Its `getPackageInfo()`
+uses `MATCH_ANY_USER`, then `MATCH_APEX`, not the static-library match flag. The
+historical rollback record contained only WebView and Config and was deleted
+with **“Failed to enable rollback for all packages in session.”** The ordinary
+`pm rollback-app` then reported no available rollback. Installation success and
+`--enable-rollback` did **not** guarantee recoverability.
+
+Next, assess a separately staged immutable/versioned library prerequisite and a
+rollback-managed atomic WebView/Config consumer session. Verify old-library
+retention, dependency resolution, failed-commit behavior and real rollback before
+adopting that strategy. It is a candidate test design, not a tested solution or a
+production signing/update decision. All-path recovery, hardened-runtime claims
+and actual-version data/schema migration remain open.
+
+### Preserved test/fixture failures and limits
+
+- The first config observer hit Chromium's filtered public classloader. The
+  repair uses its permitted support-glue entry and public Class metadata to find
+  the *existing* defining loader; no private Android/delegate field or duplicate
+  DEX loader is used. Read-only internal inspection remains white-box, not a
+  supported app API. The original ClassNotFoundException remains.
+- The ordinary-probe host runner mistook a substring package-name match for a
+  pre-existing probe. Exact package-token parsing repaired the observer; neither
+  app nor Android permissions changed. A separate input-command timeout and its
+  operator-created broken-pipe diagnostic are retained.
+- An attempted host-level Cuttlefish resume changed data policy from the
+  generated instance image to the seed image. Assembly logged deletion of the
+  instance userdata and a composite-disk mismatch. The absent old job/package
+  was **not** an Android-persistence failure or a retirement pass. A newly marked
+  job was then tested through normal `adb reboot`, without reassembly.
+- The resumed VM reached its controller deadline (status 124) before one positive
+  install command reached ADB. PID/namespace guards rejected it. The actual
+  positive update used a separately booted fresh image, not that failed attempt.
+- The long baseline capture had **73,363 packets and 167 kernel-reported drops**.
+  No Google destination appeared in classified packets, but lost packets cannot
+  be classified. The short negative/update windows did not establish guest
+  Internet connectivity; update inspection saw only loopback IPv4. Their fixture
+  protocols/uplink worked, but that is not guest connectivity. Negative capture:
+  9,462 packets/zero drops; update capture: 28,495 packets/976 drops. **No new
+  no-Google qualification is claimed from these runs.** The earlier public-CT
+  result is unchanged. Safe Browsing remains false/unavailable.
+
+Primary verification: **212 host-proof tests plus 11 fixture source tests**,
+actual r1 public AIDL/Java compilation, Soong APK builds, signed artifact/image
+checks and the emulated checks above. The implementation worker ran no tests;
+its output was independently reviewed. The r1 D8 API37 warning remains in build
+logs; SDK targets were not lowered. All task VMs/services are stopped. Test APKs,
+raw captures, credentials and signing keys remain outside public source.

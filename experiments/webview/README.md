@@ -33,6 +33,10 @@ those fixtures are deliberately not WebView providers. Both the original signed
 APK set and the six-file policy derivative passed the scoped actual-APK checks.
 The real Trichrome ABI marker is recorded separately from loadable ELF code.
 `policy-inputs.json` pins the derivative source changes; `candidate.json` pins the
-signed candidate APKs. Compiled ConfigInfo consumption, complete hardening and
-runtime behavior remain separate checks. No static result alone authorizes a
-supported provider release.
+signed candidate APKs. Later [runtime qualification](../../plans/2026-09-07-webview-qualification.md)
+observed the actual compiled Config pin/version and wrong-signer rejection,
+focused SafeMode/job recovery, and a manifest-only package update. Android could
+not retain a rollback record for the three-package session because its rollback
+lookup reported the static library not installed. Complete hardening, broader
+recovery and real-version migration remain separate gates. Neither those scoped
+results nor a static check authorize a supported provider release.

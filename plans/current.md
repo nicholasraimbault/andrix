@@ -140,9 +140,22 @@ public CT delivery, with zero kernel-reported drops. IPv6 was local/loopback onl
 Both VM and fixture stopped cleanly. **This is bounded connected evidence, not a
 complete no-Google or native-runtime qualification.**
 
-1. Complete remaining WebView config-signer negative, recovery, coordinated
-   update and rollback checks. Default builds retain WebView 145; the signed 152
-   provider remains an explicit experiment, not a production promotion.
+The subsequent [Vanadium qualification](2026-09-07-webview-qualification.md)
+verified the compiled Config signer gate with real trusted/untrusted factory
+packages, cross-UID SafeMode rejection, fast-mode activation/deactivation and
+persisted-job retirement after an Android reboot. The manifest-only three-APK
+update installed and loaded Config 207, but **rollback failed**: r1's
+RollbackManager reported the static TrichromeLibrary not installed and discarded
+the whole rollback record. These are bounded API/state results, not new privacy
+qualification: the long capture dropped 167 packets, and the short negative/update
+windows did not establish guest Internet connectivity.
+
+1. Resolve the static-library/cohort rollback design and test it without a
+   forced downgrade or verification bypass. A separately staged immutable library
+   plus an atomic WebView/Config consumer update is a candidate, not yet a tested
+   solution. Continue broader recovery/hardening and actual-version migration
+   checks. Vanadium152 is already the tested default provider; only the recipe
+   remains opt-in, with unflagged builds retaining145. No production promotion.
 2. Qualify conditional/manual app and other carrier/network paths. DSU and
    attestation snapshot delivery is not replaced by CT-data proof. IPv6 Internet
    and every supported endpoint profile remain untested.
