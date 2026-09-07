@@ -136,3 +136,9 @@ and signature verification remain enabled. The first fixture startup also
 preserved dnsmasq's denied `setgroups` call; its normal no-daemon mode runs under
 the same unprivileged host UID inside the sandbox rather than weakening the
 kernel's user-namespace restriction.
+
+## Follow-up
+
+The revised image and permission flow were executed; see the
+[second connected result and CT delivery blocker](2026-09-07-connected-candidate.md).
+The first failures above remain historical evidence, not the latest test result.

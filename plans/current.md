@@ -120,50 +120,37 @@ failed-read and expected app-negative-test audit records remain preserved; the
 repaired device check passed in a separate recorded log window. The offline VM
 was stopped and its packet capture retained, not presented as a no-Google pass.
 
-## Next gates
+## Connected candidate and next gates
 
-1. Complete the remaining WebView and conditional-app endpoint review. The
-   [pinned Vanadium/Chromium comparison](../docs/webview-review.md) identifies
-   source-level seed controls but not an applicable patch for the current
-   prebuilt. A host-only component-default trial confirmed the parsing/scanning
-   mechanism and ordinary failed-bind path, but exposed an unchecked scheduling
-   exception in fast recovery. The trial is not in the product: no WebView APK,
-   component state, renderer or TLS change has been applied. A safe control for
-   both normal and recovery paths remains unresolved. The full
-   [Vanadium assessment](../docs/vanadium-assessment.md) finds a credible
-   WebView-only prototype route without a GrapheneOS platform import: normal
-   product-policy provider mapping and reflective fallbacks passed host checks.
-   The owner has now authorized an [isolated WebView-only build experiment](2026-09-06-webview-build-experiment.md),
-   with explicit Chromium/Vanadium/tool pins and separate outputs. Source
-   preparation is complete: all 314 upstream patches and frozen filter inputs
-   are recorded, and GN generation passed with CFI/ThinLTO retained. The
-   [three-APK artifact checker](../scripts/proof/webview_artifacts.md) passed
-   synthetic and real-tool fixture checks, not checks of Vanadium outputs.
-   Compilation completed successfully on 2026-09-06 at 19:31:30 UTC. All three
-   original APK outputs are frozen. The original signed set and a six-file
-   source-policy derivative passed scoped APK signer/manifest/static-library/
-   ARM64 packaging checks. An [opt-in connected candidate](2026-09-06-no-google-candidate.md)
-   now has provider imports and a normal product-policy RRO; default builds
-   retain WebView 145. The first opt-in image booted and selected WebView 152,
-   but exposed wallpaper `g.co` verification traffic and a missing ordinary-app
-   local-network permission. The preserved first window is not a no-Google pass;
-   the next fixes and runtime/config-consumption checks remain pending, along
-   with production signing/update ownership,
-   network defaults, Safe Browsing callback semantics and runtime qualification
-   remain unresolved. See the
-   [network review](../docs/proof-network.md) for implemented controls and limits.
-2. Finalize the real fixture's DNS/RIL/DHCP/RDNSS, qualified NTP source, routing,
-   TLS/CT service and external-capture bindings. Config renderers and the
-   [capture-before-boot procedure](../docs/runtime-fixture.md) are prepared;
-   deployment and Android-client validation remain pending.
-3. Complete P3 review before paid runtime testing, then qualify the explicitly
-   authorized ARM64 Linux/KVM fixture and matching host package. No rental,
-   network administration or boot is authorized by a successful build alone.
-4. Perform the native P4/P5 checks and P6 existence review. The separately
-   authorized offline QEMU/TCG result is useful functional evidence, not a
-   substitute for these native/network gates. Do not substitute an x86 image,
-   stock/pushed replacement artifacts or a physical phone port. Do not disable
-   verification or relax SELinux/app policy.
+The [second connected candidate](2026-09-07-connected-candidate.md), producer
+`e65e656`, booted with the signed WebView 152 package selected normally. P4/P5
+passed; the revised ordinary WebView probe passed JavaScript, real HTTPS 204,
+normal local-network permission approval and wrong-host TLS rejection. Safe
+Browsing initialization truthfully returned false. The 45,111-packet window
+observed only owned guest service destinations, local multicast and the explicit
+public TCP control, with zero kernel-reported drops. Both VM and fixture stopped
+cleanly. **This is not a complete no-Google pass.**
+
+1. Resolve CT update delivery. The enabled CT service's alarm ran, but Android's
+   DownloadProvider retries/timeouts prevented fetching even the public key from
+   the private fixture. Its missing local-network permission is relevant evidence,
+   not a proven root cause. A protected-broadcast trigger was denied; no root or
+   permission workaround was used. Establish a successful delivery path without
+   weakening Android, with an explicit deployment choice before creating a public
+   HTTPS fixture outside the build/signing host.
+2. Complete remaining runtime/config-trust, recovery, update and rollback checks.
+   The three-APK checker and exact image imports passed. The compiled ConfigInfo
+   digest and fail-closed PackageManager gate were inspected; full negative/runtime
+   coverage is still separate. Normal SafeMode and security services remain.
+   Default builds retain WebView 145; the new provider is an explicit candidate
+   opt-in, not a production signing/update decision.
+3. Keep qualifying actual network profiles, rather than infer them from config
+   renderers. Connected IPv4, owned DNS/DoT/NTP/TLS, host security-data expiry and
+   the owner DSU catalogue have observations. IPv6 Internet, other carrier
+   configurations and every conditional app path are not thereby cleared.
+4. Complete P3 before a supported runtime/release claim, then native ARM64/KVM,
+   native P4/P5 and P6. Use available hardware; no new rental, purchase, phone port,
+   substituted artifact or relaxed Android policy follows from emulated success.
 
 Caiman, package composition, owner writable layout, tools, daemons, agents,
 UI and a package manager remain outside this first proof. The accepted

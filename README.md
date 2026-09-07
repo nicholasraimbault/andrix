@@ -12,8 +12,11 @@ Cuttlefish image.
 The image and signed APEX build, and host-side artifact checks pass.
 An [offline QEMU/TCG smoke test](plans/2026-09-06-qemu-smoke.md) has booted the
 ARM64 image on x86-64 and passed the signed APEX, read-only `/usr` and ordinary-app
-execution-boundary checks with SELinux enforcing. **Native ARM64/KVM and
-no-Google network validation remain unproved.** Endpoint review is still open.
+execution-boundary checks with SELinux enforcing. A subsequent
+[connected candidate](plans/2026-09-07-connected-candidate.md) runs WebView 152
+and passed its JavaScript/HTTPS/hostname-rejection tests. Its measured window
+observed no Google guest destination, but CT update downloads still fail.
+**Native ARM64/KVM and complete no-Google qualification remain open.**
 
 This is source and proof tooling, **not a supported OS release or a phone
 installation image**. There is no buildable Pixel product in this repository.
