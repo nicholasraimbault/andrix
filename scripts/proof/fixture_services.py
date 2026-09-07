@@ -51,6 +51,8 @@ server:
     tls-service-key: "{key}"
     local-zone: "probe.andrix.org." redirect
     local-data: "probe.andrix.org. 60 IN A {address}"
+    # Keep nonce/probe answers private, but recurse for the public CT site.
+    local-zone: "ct.probe.andrix.org." always_transparent
 '''
     # No public forwarder is silently selected. Unbound uses normal recursive
     # resolution for non-local names, which remains visible to external capture.

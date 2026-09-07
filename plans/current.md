@@ -104,7 +104,7 @@ and clean signal shutdown checks. The CT files retain the original signature
 and match the resource APK's unchanged key allowlist; no live upstream proxy
 is needed. No public endpoint is deployed, and this is not Android validation.
 
-All **190 host-only regression tests** pass, covering artifact/app checks,
+All **191 host-only regression tests** pass, covering artifact/app checks,
 overlays, patch guards, probe/CT handling and fixture configuration. Wrong-certificate and corrupted-
 payload checks fail closed. Native/Java extracted-function tests also checked
 DNS wire names, record types and nonce behavior without network traffic.
@@ -136,8 +136,11 @@ cleanly. **This is not a complete no-Google pass.**
    the private fixture. Its missing local-network permission is relevant evidence,
    not a proven root cause. A protected-broadcast trigger was denied; no root or
    permission workaround was used. Establish a successful delivery path without
-   weakening Android, with an explicit deployment choice before creating a public
-   HTTPS fixture outside the build/signing host.
+   weakening Android. The owner authorized the [public CT Pages fixture](2026-09-07-public-ct-fixture.md)
+   at `ct.probe.andrix.org`; its branch/site/DNS are configured and private/public
+   resolver separation is tested. GitHub certificate provisioning and successful
+   HTTPS publication verification remain pending. No Android image was changed
+   by publication, and no private key or public host listener was added.
 2. Complete remaining runtime/config-trust, recovery, update and rollback checks.
    The three-APK checker and exact image imports passed. The compiled ConfigInfo
    digest and fail-closed PackageManager gate were inspected; full negative/runtime
