@@ -26,7 +26,10 @@ Before compile/run, confirm against the frozen snapshots and actual DEX:
   and public binding/query access below match the actual provider manifest.
 - `WV.xr.a` is static `byte[]` containing the config certificate SHA-256;
   `WV.op1.b` is static `Future`, `WV.op1.c` static `WV.mp1`, and `WV.mp1.b` an
-  instance `long`. Classes are defined by the public WebView class loader.
+  instance `long`. The public WebView loader filters non-support-library names. The fixture loads
+  only the permitted `SupportLibReflectionUtil` glue entry, then uses public
+  `Class.getClassLoader()` to obtain its actual defining provider loader. No
+  private Android/delegate field is read and no duplicate DEX loader is created.
 - Actual job ID is **83**, not a source-only/pruned scheduling constant. Confirm
   the real `onStartJob` only cancels 83 and returns false. No private method or
   pruned `scheduleJob`/VisibleForTesting hook is invoked by this fixture.
@@ -214,3 +217,7 @@ identity and remove only the acknowledged disposable test package. **Uninstallin
 the test APK does not clear provider state.** No provider `pm clear`, blind
 uninstall, preference deletion, global job cancellation or signer change is a
 cleanup substitute. Retain failures and host observations outside source.
+
+The initial runtime config observer attempted WV.xr directly through the filtered
+public loader and failed with ClassNotFoundException. That failure is preserved;
+only the observer follows the source-confirmed glue-class loader path now.

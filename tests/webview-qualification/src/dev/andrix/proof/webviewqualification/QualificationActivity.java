@@ -36,14 +36,24 @@ public final class QualificationActivity extends Activity {
             Pins.selectedProvider(session, "before_initialization");
             webView = new WebView(this);
             setContentView(webView);
-            // Public Android API; subsequent reflection is ONLY into this
-            // third-party provider loader, never boot/platform classes.
-            ClassLoader loader = WebView.getWebViewClassLoader();
+            // Chromium's public entry is a filtered support-library loader.
+            // Load only its permitted glue entry, then inspect that Class's
+            // defining loader through public java.lang.Class metadata. This
+            // neither reads Android private fields nor creates a duplicate DEX
+            // loader with different static state. Internal reads remain pinned
+            // third-party white-box observations, not an application API promise.
+            ClassLoader supportLoader = WebView.getWebViewClassLoader();
+            Arguments.check(supportLoader != null, "No public support-library class loader");
+            Class<?> glue = Class.forName(
+                    "org.chromium.support_lib_glue.SupportLibReflectionUtil", false, supportLoader);
+            ClassLoader loader = glue.getClassLoader();
             Pins.selectedProvider(session, "after_initialization");
             session.requireRunning();
-            Arguments.check(loader != null, "No public WebView class loader");
+            Arguments.check(loader != null, "No defining provider class loader");
             session.record("webview_initialized", "uid", android.os.Process.myUid(),
-                    "loader_class", loader.getClass().getName(), "page_loaded", false);
+                    "public_loader_class", supportLoader.getClass().getName(),
+                    "glue_entry", glue.getName(), "loader_class", loader.getClass().getName(),
+                    "page_loaded", false);
             session.initialized.complete(loader);
         } catch (Throwable error) {
             session.fail("webview_initialization", error);
