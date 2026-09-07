@@ -37,6 +37,11 @@ signed candidate APKs. Later [runtime qualification](../../plans/2026-09-07-webv
 observed the actual compiled Config pin/version and wrong-signer rejection,
 focused SafeMode/job recovery, and a manifest-only package update. Android could
 not retain a rollback record for the three-package session because its rollback
-lookup reported the static library not installed. Complete hardening, broader
-recovery and real-version migration remain separate gates. Neither those scoped
+lookup reported the static library not installed. The subsequent
+[split-cohort test](../../plans/2026-09-07-webview-cohort-rollback.md) successfully
+staged versioned libraries separately and rolled back the atomic WebView/Config
+pair, including to a non-factory version. A missing old library still breaks bare
+rollback; normal installation of its identical signed APK enabled a successful
+retry. Automatic dependency retention, complete hardening, broader recovery and
+real-version migration remain separate gates. Neither those scoped
 results nor a static check authorize a supported provider release.

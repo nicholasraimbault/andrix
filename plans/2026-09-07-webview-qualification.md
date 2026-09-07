@@ -2,6 +2,9 @@
 
 **Executed: focused trust/recovery checks passed; three-package rollback failed.**
 See [observed results](#observed-results--2026-09-07) and the remaining gate below.
+The later [split-cohort test](2026-09-07-webview-cohort-rollback.md) demonstrates
+consumer rollback with an explicit library prerequisite and exposes the separate
+unused-dependency retention limit. It does not reclassify this three-child failure.
 
 Continue testing the existing signed Vanadium152 integration. The working
 `09d890f` image and original APKs remain frozen. No production promotion, new

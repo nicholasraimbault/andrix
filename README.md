@@ -17,9 +17,11 @@ execution-boundary checks with SELinux enforcing. A subsequent
 passed JavaScript/HTTPS/hostname-rejection tests, and downloaded, verified and
 installed signed CT log lists from the owned public endpoint. No Google guest
 destination was observed in its measured workload.
-A [later Vanadium qualification](plans/2026-09-07-webview-qualification.md) passed
-configuration-signer rejection and focused recovery checks, but exposed a
-three-package rollback blocker.
+[Vanadium qualification](plans/2026-09-07-webview-qualification.md) passed
+configuration-signer rejection and focused recovery checks. A
+[split-cohort rehearsal](plans/2026-09-07-webview-cohort-rollback.md) now restores
+consumer updates through Android's rollback API, provided the matching library
+is retained or restored first. Automatic dependency retention remains open.
 **Native ARM64/KVM and complete no-Google qualification remain open.**
 
 This is source and proof tooling, **not a supported OS release or a phone

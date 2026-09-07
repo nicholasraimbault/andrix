@@ -150,12 +150,22 @@ the whole rollback record. These are bounded API/state results, not new privacy
 qualification: the long capture dropped 167 packets, and the short negative/update
 windows did not establish guest Internet connectivity.
 
-1. Resolve the static-library/cohort rollback design and test it without a
-   forced downgrade or verification bypass. A separately staged immutable library
-   plus an atomic WebView/Config consumer update is a candidate, not yet a tested
-   solution. Continue broader recovery/hardening and actual-version migration
-   checks. Vanadium152 is already the tested default provider; only the recipe
-   remains opt-in, with unflagged builds retaining145. No production promotion.
+The [split-cohort follow-up](2026-09-07-webview-cohort-rollback.md) then staged
+immutable libraries separately and obtained real atomic WebView/Config rollbacks
+to both factory and non-factory versions. Deliberate removal of an unused old
+library was allowed despite an available rollback; rollback failed closed without
+partially changing consumers. Reinstalling the identical signed prerequisite
+made the normal rollback succeed. Post-repair ordinary JS/HTTPS/hostname checks
+passed. This connected workload captured 85,812 packets with zero reported drops
+and no observed Google guest destination; it is still not universal qualification.
+
+1. Provide and qualify durable authenticated dependency availability for the
+   whole rollback lifetime, including unattended/Watchdog recovery and pruning.
+   The owner-mediated preparation/repair sequence works; a bare rollback record
+   does not pin its library graph. No production updater or retention mechanism
+   was introduced. Continue broader recovery/hardening and actual-version
+   migration checks. Vanadium152 is already the tested default provider; only
+   the recipe remains opt-in, with unflagged builds retaining145. No promotion.
 2. Qualify conditional/manual app and other carrier/network paths. DSU and
    attestation snapshot delivery is not replaced by CT-data proof. IPv6 Internet
    and every supported endpoint profile remain untested.
