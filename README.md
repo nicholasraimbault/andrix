@@ -21,7 +21,9 @@ destination was observed in its measured workload.
 configuration-signer rejection and focused recovery checks. A
 [split-cohort rehearsal](plans/2026-09-07-webview-cohort-rollback.md) now restores
 consumer updates through Android's rollback API, provided the matching library
-is retained or restored first. Automatic dependency retention remains open.
+is retained or restored first. The [retention extension](plans/2026-09-07-rollback-retention.md)
+now preserves dependencies through pruning/reboot and has demonstrated automatic
+PackageWatchdog recovery; broader lifecycle qualification remains open.
 **Native ARM64/KVM and complete no-Google qualification remain open.**
 
 This is source and proof tooling, **not a supported OS release or a phone

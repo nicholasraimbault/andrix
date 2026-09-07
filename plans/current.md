@@ -6,9 +6,9 @@ AOSP 17](2026-08-28-phase1-andrix-hello-aosp17.md).
 **Experimental; first emulated runtime checks passed.** The ARM64 image has
 booted in an [offline QEMU/TCG smoke test](2026-09-06-qemu-smoke.md) on x86-64.
 Signed APEX activation, read-only `/usr` and the ordinary-app execution boundary
-passed there with SELinux enforcing. Native ARM64/KVM and no-Google network
-validation remain unproved. No supported release or phone-installation image
-is available.
+passed there with SELinux enforcing. Native ARM64/KVM and complete no-Google
+network qualification remain unproved. No supported release or phone-installation
+image is available.
 
 ## Pinned source
 
@@ -161,13 +161,24 @@ made the normal rollback succeed. Post-repair ordinary JS/HTTPS/hostname checks
 passed. This connected workload captured 85,812 packets with zero reported drops
 and no observed Google guest destination; it is still not universal qualification.
 
-1. Provide and qualify durable authenticated dependency availability for the
-   whole rollback lifetime, including unattended/Watchdog recovery and pruning.
-   The owner-mediated preparation/repair sequence works; a bare rollback record
-   does not pin its library graph. A five-file framework retention extension is
-   now implemented for qualification; it is not yet a runtime-proved or production
-   updater/retention claim. Continue broader recovery/hardening and actual-version
-   migration checks. Vanadium152 is already the tested default provider; only
+The [retention image and recovery test](2026-09-07-rollback-retention.md), producer
+`f5ff864`, then preserved unused B through normal deletion attempts, real pruning
+and an Android reboot. Five distinct real process crashes triggered PackageWatchdog
+itself: caller `android`, rollback177674029, success at 2026-09-07T19:34:33.949Z;
+exact non-factory B/207 and Config initialization were independently rechecked.
+Completed pins released on a later normal C update. Final ordinary C consent,
+JS/HTTPS/hostname checks passed; Safe Browsing remains false. Capture: 145,260 packets,
+zero drops showed only owned/public-CT/local guest destinations. Failed fault drivers,
+the rejected expiry-setup downgrade and unqualified lifecycle edges remain explicit.
+Both probes were removed; VM/services stopped with exit 0 and the lease was released.
+
+1. Finish remaining dependency-lifecycle qualification. The five-file framework
+   extension passed exact-version retention, real live/startup pruning, reboot
+   persistence, actual PackageWatchdog restoration and completed-pin release.
+   Qualify expiry/staged/interrupted-I/O boundaries; expiry setup's ordinary
+   downgrade was correctly rejected, not bypassed. No production updater or
+   signing policy was selected. Continue broader recovery/hardening and
+   actual-version migration checks. Vanadium152 is already the tested default provider; only
    the recipe remains opt-in, with unflagged builds retaining145. No promotion.
 2. Qualify conditional/manual app and other carrier/network paths. DSU and
    attestation snapshot delivery is not replaced by CT-data proof. IPv6 Internet
