@@ -7,7 +7,8 @@ PRODUCT_PACKAGES += \
     andrix-cuttlefish-network.rc \
     AndrixCuttlefishNetworkStackOverlay \
     AndrixCuttlefishConnectivityOverlay \
-    AndrixCuttlefishFrameworkOverlay
+    AndrixCuttlefishFrameworkOverlay \
+    AndrixCuttlefishDsuOverlay
 
 # Explicit candidate opt-in. The default product remains independently buildable
 # without private/local WebView APK inputs. The owning AOSP media_product.mk

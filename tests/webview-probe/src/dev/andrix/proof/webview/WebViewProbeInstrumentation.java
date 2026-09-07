@@ -1,5 +1,6 @@
 package dev.andrix.proof.webview;
 
+import android.Manifest;
 import android.app.Activity;
 import android.app.Instrumentation;
 import android.content.Intent;
@@ -10,6 +11,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Process;
 
+import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -56,12 +58,14 @@ public final class WebViewProbeInstrumentation extends Instrumentation {
                     || !"dev.andrix.proof.webview".equals(info.packageName)
                     || !info.packageName.equals(getContext().getPackageName())
                     || app.minSdkVersion != 37 || app.targetSdkVersion != 37
-                    || info.requestedPermissions == null || info.requestedPermissions.length != 1
-                    || !"android.permission.INTERNET".equals(info.requestedPermissions[0])) {
+                    || info.requestedPermissions == null || info.requestedPermissions.length != 2
+                    || !Arrays.asList(info.requestedPermissions).contains(Manifest.permission.INTERNET)
+                    || !Arrays.asList(info.requestedPermissions).contains(
+                            Manifest.permission.ACCESS_LOCAL_NETWORK)) {
                 throw new IllegalStateException("Not the expected ordinary self-instrumented SDK-37 app");
             }
             activeSession = session;
-            session.post("initialization", () -> {
+            session.post("local_network_permission", () -> {
                 if (!session.failed.get() && !session.closing) {
                     getTargetContext().startActivity(new Intent(getTargetContext(), ProbeActivity.class)
                             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
@@ -69,7 +73,8 @@ public final class WebViewProbeInstrumentation extends Instrumentation {
             });
             // All waiting is on Instrumentation's runner thread, never the UI thread.
             for (String stage : new String[] {
-                    "initialization", "safe_browsing", "javascript_fetch", "wrong_host_tls"}) {
+                    "local_network_permission", "initialization", "safe_browsing",
+                    "javascript_fetch", "wrong_host_tls"}) {
                 if (!session.awaitStage(stage)) {
                     break;
                 }

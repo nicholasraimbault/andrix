@@ -60,11 +60,22 @@ class WebViewCandidateInputsTests(unittest.TestCase):
             self.assertIn('name: "'+name+'"', bp)
         self.assertEqual(len(re.findall(r'\bpresigned:\s*true', bp)), 3)
         self.assertEqual(len(re.findall(r'\bpreprocessed:\s*true', bp)), 3)
-        self.assertEqual(len(re.findall(r'\benabled:\s*false', bp)), 3)
+        self.assertEqual(len(re.findall(r'^    enabled:\s*false', bp, re.MULTILINE)), 3)
         self.assertNotRegex(bp, r'\bskip_preprocessed_apk_checks:\s*true')
         self.assertIn('libwebviewchromium_loader', bp)
         self.assertIn('libwebviewchromium_plat_support', bp)
         self.assertIn('SPDX-license-identifier-GPL-2.0-only', bp)
+
+    def test_only_no_dex_imports_skip_dex_precompilation(self):
+        bp = (EXPERIMENT/'Android.bp').read_text()
+        modules = re.findall(r'andrix_webview_app_import\s*\{(.*?)^\}', bp, re.S | re.M)
+        self.assertEqual(len(modules), 3)
+        for module in modules:
+            name = re.search(r'\bname:\s*"([^"]+)"', module).group(1)
+            disabled = bool(re.search(r'dex_preopt:\s*\{\s*enabled:\s*false', module))
+            self.assertEqual(disabled, name in {
+                'AndrixExperimentalTrichromeLibrary', 'AndrixExperimentalWebViewConfig'})
+            self.assertNotRegex(module, r'skip_preprocessed_apk_checks:\s*true')
 
     def test_source_policy_manifest_matches_its_patch(self):
         manifest = json.loads((EXPERIMENT/'policy-inputs.json').read_text())

@@ -17,6 +17,13 @@ ANDROID = "{http://schemas.android.com/apk/res/android}"
 HTTP = "http://probe.andrix.org/generate_204"
 HTTPS = "https://probe.andrix.org/generate_204"
 OVERLAYS = {
+    "AndrixCuttlefishDsuOverlay": {
+        "package": "dev.andrix.cuttlefish.dsu.overlay",
+        "targetPackage": "com.android.dynsystem",
+        "resources": {
+            ("string", "key_revocation_list_url"): "https://probe.andrix.org/security/gsi-keyblacklist.json",
+        },
+    },
     "AndrixCuttlefishFrameworkOverlay": {
         "package": "dev.andrix.cuttlefish.framework.overlay",
         "targetPackage": "android",

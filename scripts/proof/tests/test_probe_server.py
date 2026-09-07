@@ -149,7 +149,7 @@ class ResponseTests(IsolatedTests):
         self.assertEqual(connection.sent, [probe.response_bytes(204)])
 
     def test_all_error_responses_are_empty_and_never_redirect(self):
-        for status in (400, 404, 405, 431):
+        for status in (400, 404, 405, 431, 503):
             with self.subTest(status=status):
                 head, body = probe.response_bytes(status).split(b"\r\n\r\n")
                 self.assertTrue(head.startswith(b"HTTP/1.1 %d " % status))
@@ -353,6 +353,18 @@ class LifecycleTests(IsolatedTests):
         self.assertEqual((a.closes, b.closes, wrapped.closes), (1, 1, 1))
         self.select.assert_called_once_with([first, second], [], [], probe.POLL_SECONDS)
 
+    def test_loop_passes_optional_security_bundle_without_changing_listener_contexts(self):
+        first, second = mock.Mock(), mock.Mock()
+        first.accept.return_value = (mock.sentinel.http, ("ignored", 1))
+        second.accept.return_value = (mock.sentinel.https, ("ignored", 2))
+        self.select.side_effect = [([first, second], [], [])]
+        with mock.patch.object(probe, "handle_connection") as handle:
+            probe.serve([(first, None), (second, mock.sentinel.tls)], lambda: handle.call_count == 2,
+                        mock.sentinel.ct, mock.sentinel.security)
+        self.assertEqual(handle.call_args_list,
+                         [mock.call(mock.sentinel.http, None, mock.sentinel.ct, mock.sentinel.security),
+                          mock.call(mock.sentinel.https, mock.sentinel.tls, mock.sentinel.ct, mock.sentinel.security)])
+
     def test_accept_race_is_harmless_and_stop_after_poll_prevents_accept(self):
         for error in (BlockingIOError(), ConnectionAbortedError()):
             with self.subTest(error=error):
@@ -393,6 +405,34 @@ class LifecycleTests(IsolatedTests):
         self.assertNotIn(CLI[3], error)
         self.sockets.assert_not_called()
         self.assertEqual(self.signals.call_count, 4)  # Install and restore both.
+
+    def test_security_bundle_failure_is_redacted_and_precedes_listeners(self):
+        self.allow_tls()
+        with mock.patch.object(probe, "load_security_assets", side_effect=ValueError("private input path")) as load:
+            result, output, error = self.run_main(["--security-data-dir", "/explicit-fixture/security"])
+        self.assertEqual((result, output, error), (1, "", "probe_server: security snapshot validation failed\n"))
+        load.assert_called_once_with("/explicit-fixture/security")
+        self.sockets.assert_not_called()
+        self.select.assert_not_called()
+        self.assertEqual(self.signals.call_count, 4)
+
+    def test_optional_bundles_are_loaded_before_bind_and_passed_separately(self):
+        self.allow_tls()
+        first, second = self.allow_listeners()
+        with mock.patch.object(probe, "load_ct_assets", return_value=mock.sentinel.ct) as ct, \
+                mock.patch.object(probe, "load_security_assets", return_value=mock.sentinel.security) as security, \
+                mock.patch.object(probe, "serve") as serve:
+            def loaded_before_bind(*unused):
+                ct.assert_called_once_with("/explicit-fixture/ct")
+                security.assert_called_once_with("/explicit-fixture/security")
+            first.bind.side_effect = loaded_before_bind
+            result, output, error = self.run_main(["--ct-data-dir", "/explicit-fixture/ct",
+                                                  "--security-data-dir", "/explicit-fixture/security"])
+        self.assertEqual((result, error), (0, ""))
+        self.assertIn("Android/client TLS validation unproved", output)
+        self.assertEqual(serve.call_args.args[2:], (mock.sentinel.ct, mock.sentinel.security))
+        first.close.assert_called_once_with()
+        second.close.assert_called_once_with()
 
     def test_startup_and_serving_errors_close_listeners_and_redact_details(self):
         self.allow_tls()

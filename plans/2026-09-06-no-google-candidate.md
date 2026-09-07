@@ -93,3 +93,46 @@ Explicit Contacts/Dialer browsing intents differ from background clients, but
 must be documented rather than silently called harmless. These findings and the
 online workload results bound any eventual no-Google claim; no blanket pass is
 recorded here.
+
+## First connected candidate: observed result
+
+The `4e1793d` opt-in image completed building on September 7 and booted in the
+isolated connected QEMU fixture. Image extraction matched all three imported
+APK hashes exactly; the provider RRO passed normal product idmap policy and
+failed its public-only negative. WebView 152 was selected, with relro 1/1,
+without a post-boot provider switch. The APEX/`/usr` check and the ordinary-app
+system-shell/private-copy execution test passed again, with SELinux enforcing.
+
+The real fixture passed UDP DNS, hostname-verified DoT, recursive DNSSEC and its
+invalid-signature negative, synchronized NTP, HTTP(S) 204, wrong-host TLS and
+byte-identical CT serving checks. Android observed a validated cellular network,
+validated opportunistic DoT to the fixture, and a successful owned NTP result.
+Actual carrier configuration had empty entitlement/FCM sender and IMS
+provisioning false. These are observations of this Cuttlefish profile, not other
+SIMs or native phones.
+
+**This first connected window fails the no-Google goal:** its resolver recorded
+a `g.co` request from the guest. `pm get-app-links` and the exact wallpaper
+manifest traced this to Google's automatically verified wallpaper short-link.
+The next source adaptation removes that one filter, not WallpaperPicker or the
+domain-verification service. The complete 39,814-packet capture was retained;
+tcpdump reported zero kernel drops. Host fixture traffic is separate from guest
+origin traffic and must not be conflated with a device request.
+
+The ordinary WebView probe initialized the expected provider and observed
+Safe Browsing callback **false**, but its fetch failed with
+`ERR_LOCAL_NETWORK_PERMISSION_MISSING`. Chromium traced that error to platform
+local-network permission handling. The test was cleaned up and uninstalled.
+The revised optional fixture requests Android 17's dangerous
+`ACCESS_LOCAL_NETWORK` through the ordinary runtime permission dialog before
+WebView use, in addition to `INTERNET`; no shell grant, adopted permission,
+LNA-disable flag or TLS bypass is used. This revised flow still needs a new
+runtime test. Its earlier failure is not erased or reclassified as a TLS pass.
+
+The first image-build attempt failed because the native-only library and
+resource-only config APKs have no `classes.dex`. Only those two imports now skip
+inapplicable DEX precompilation. WebView DEX compilation, preprocessed APK checks
+and signature verification remain enabled. The first fixture startup also
+preserved dnsmasq's denied `setgroups` call; its normal no-daemon mode runs under
+the same unprivileged host UID inside the sandbox rather than weakening the
+kernel's user-namespace restriction.

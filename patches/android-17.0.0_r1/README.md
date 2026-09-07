@@ -1,7 +1,8 @@
 # Pinned network and product adaptation
 
-These eight-file changes are limited to network endpoints with **no** supported
-resource/configuration hook and product-scoped package selection in the exact
+These twelve-file changes are limited to network endpoints with **no** supported
+resource/configuration hook, inherited Google app-link registration and
+product-scoped package selection in the exact
 `android-17.0.0_r1` source. They are not a substitute source distribution or an
 unrelated platform fork.
 The official manifest/project HEADs remain at their pinned release commits;
@@ -11,6 +12,20 @@ no longer describes an image built with this adaptation.
 
 ## Changes and preserved behavior
 
+- WallpaperPicker2 no longer registers Google's `g.co/wallpaper` verified link.
+  The first connected candidate actually triggered a `g.co` lookup through
+  domain verification. Only that Google intent filter is removed; wallpaper
+  activities, local entry points and Android's verifier remain unchanged.
+- Settings' default DSU catalogue is owned; its existing persistent owner URL
+  override remains available. The experimental catalogue explicitly has no
+  released Andrix GSI images. DSU installation, AVB and revocation checks are
+  retained. Its revocation-list resource uses a normal product RRO, not a patch.
+- The attestation library's status URL uses the owned public-data snapshot.
+  Certificate-chain/status processing remains unchanged: no skipped revocation
+  or invented validity. Public revocation data is not a signed CT bundle; the
+  source fetch, byte identity and freshness must be recorded separately.
+- Contacts directions use the existing `geo:` helper instead of selecting
+  Google Maps HTTPS. Address encoding and owner-selected map handling remain.
 - The media-product leaf keeps the stock `webview` unless both the exact Andrix
   Cuttlefish product and `ANDRIX_WEBVIEW_EXPERIMENT=true` are selected. The opt-in
   supplies the separately signed experimental provider/library/config packages;

@@ -178,3 +178,56 @@ index be88284af7..329055bded 100644
 -
 +
  # Allowlist for packages included in media_product.mk
+diff --git a/packages/apps/WallpaperPicker2/AndroidManifest.xml b/packages/apps/WallpaperPicker2/AndroidManifest.xml
+index c4ae266c2..4863ab72f 100755
+--- a/packages/apps/WallpaperPicker2/AndroidManifest.xml
++++ b/packages/apps/WallpaperPicker2/AndroidManifest.xml
+@@ -102,11 +102,3 @@
+         android:exported="true">
+-        <intent-filter android:autoVerify="true">
+-            <action android:name="android.intent.action.VIEW" />
+-            <category android:name="android.intent.category.DEFAULT" />
+-            <category android:name="android.intent.category.BROWSABLE" />
+-            <data
+-                android:host="g.co"
+-                android:pathPrefix="/wallpaper"
+-                android:scheme="https" />
+-        </intent-filter>
++        <!-- No Google wallpaper short-link registration; local picker entry points remain. -->
+     </activity>
+diff --git a/packages/apps/Settings/src/com/android/settings/development/DSULoader.java b/packages/apps/Settings/src/com/android/settings/development/DSULoader.java
+index fede67a776..4bd44d192e 100644
+--- a/packages/apps/Settings/src/com/android/settings/development/DSULoader.java
++++ b/packages/apps/Settings/src/com/android/settings/development/DSULoader.java
+@@ -69,5 +69,5 @@ public class DSULoader extends ListActivity {
+     private static final String PROPERTY_KEY_SPL = "ro.build.version.security_patch";
+     private static final String DSU_LIST =
+-            "https://dl.google.com/developers/android/gsi/gsi-src.json";
++            "https://probe.andrix.org/system-images/catalog.json";
+-
++
+     private static final int TIMEOUT_MS = 10 * 1000;
+diff --git a/external/android-key-attestation/server/src/main/java/com/google/android/attestation/CertificateRevocationStatus.java b/external/android-key-attestation/server/src/main/java/com/google/android/attestation/CertificateRevocationStatus.java
+index d31b2d8..4e64680 100644
+--- a/external/android-key-attestation/server/src/main/java/com/google/android/attestation/CertificateRevocationStatus.java
++++ b/external/android-key-attestation/server/src/main/java/com/google/android/attestation/CertificateRevocationStatus.java
+@@ -36,5 +36,5 @@ import java.util.HashMap;
+ public class CertificateRevocationStatus {
+-
++
+-  private static final String STATUS_URL = "https://android.googleapis.com/attestation/status";
++  private static final String STATUS_URL = "https://probe.andrix.org/security/attestation-status.json";
+   public final Status status;
+   public final Reason reason;
+diff --git a/packages/apps/Contacts/src/com/android/contacts/util/StructuredPostalUtils.java b/packages/apps/Contacts/src/com/android/contacts/util/StructuredPostalUtils.java
+index 6e46176ca..599b20e5f 100644
+--- a/packages/apps/Contacts/src/com/android/contacts/util/StructuredPostalUtils.java
++++ b/packages/apps/Contacts/src/com/android/contacts/util/StructuredPostalUtils.java
+@@ -37,5 +37,5 @@ public class StructuredPostalUtils {
+-
++
+     public static Uri getPostalAddressDirectionsUri(String postalAddress) {
+-        return Uri.parse("https://maps.google.com/maps?daddr=" + Uri.encode(postalAddress));
++        return getPostalAddressUri(postalAddress);
+     }
+ }

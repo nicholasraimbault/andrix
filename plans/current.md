@@ -22,8 +22,10 @@ is available.
   checkout failures were retained and recovered with a bounded serial retry.
 - The frozen `9eb0bd4` image used the recorded seven-file adaptation. Current
   source extends the digest-checked [network/product adaptation](../patches/android-17.0.0_r1/README.md)
-  to eight files in the same four projects for the opt-in WebView candidate.
-  Their HEADs remain pinned; the manifest alone does not describe an adapted
+  to twelve files in eight projects after the first connected WebView candidate.
+  The new files address wallpaper app-link verification, DSU/attestation
+  endpoints and owner-selected maps. Their HEADs remain pinned; the manifest
+  alone does not describe an adapted
   build, and the exact patch revision plus candidate opt-in must be recorded.
 - Product: `andrix_cf_arm64_only_phone-cp2a-userdebug`, Android 17 REL/API 37,
   device `andrix_cf_arm64_only`, sole ABI `arm64-v8a`.
@@ -102,7 +104,7 @@ and clean signal shutdown checks. The CT files retain the original signature
 and match the resource APK's unchanged key allowlist; no live upstream proxy
 is needed. No public endpoint is deployed, and this is not Android validation.
 
-All **160 host-only regression tests** pass, covering artifact/app checks,
+All **190 host-only regression tests** pass, covering artifact/app checks,
 overlays, patch guards, probe/CT handling and fixture configuration. Wrong-certificate and corrupted-
 payload checks fail closed. Native/Java extracted-function tests also checked
 DNS wire names, record types and nonce behavior without network traffic.
@@ -142,8 +144,11 @@ was stopped and its packet capture retained, not presented as a no-Google pass.
    source-policy derivative passed scoped APK signer/manifest/static-library/
    ARM64 packaging checks. An [opt-in connected candidate](2026-09-06-no-google-candidate.md)
    now has provider imports and a normal product-policy RRO; default builds
-   retain WebView 145. The candidate's image/runtime/config-consumption checks
-   remain pending, as do production signing/update ownership,
+   retain WebView 145. The first opt-in image booted and selected WebView 152,
+   but exposed wallpaper `g.co` verification traffic and a missing ordinary-app
+   local-network permission. The preserved first window is not a no-Google pass;
+   the next fixes and runtime/config-consumption checks remain pending, along
+   with production signing/update ownership,
    network defaults, Safe Browsing callback semantics and runtime qualification
    remain unresolved. See the
    [network review](../docs/proof-network.md) for implemented controls and limits.

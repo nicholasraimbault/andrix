@@ -5,6 +5,8 @@
     android:versionName="1">
     <uses-sdk android:minSdkVersion="37" android:targetSdkVersion="37" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Public runtime grant for the owned private-network fixture only. -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
     <!-- Self-instrumentation only: no shared UID, privileged installation,
          exported activity, platform signing, or product inclusion. -->
     <application android:label="Disposable Andrix WebView probe"

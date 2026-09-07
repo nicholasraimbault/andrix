@@ -23,7 +23,8 @@ BACKLOG = 8  # Kernel-clamped pending queue per listener; only one active client
 POLL_SECONDS = 0.2
 TOKEN = re.compile(rb"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
 REASONS = {200: "OK", 204: "No Content", 400: "Bad Request", 404: "Not Found",
-           405: "Method Not Allowed", 431: "Request Header Fields Too Large"}
+           405: "Method Not Allowed", 431: "Request Header Fields Too Large",
+           503: "Service Unavailable"}
 CT_FILES = ("log_list.pub", "v2/log_list.json", "v2/log_list.sig",
             "v3/log_list.ctfb", "v3/log_list.sig")
 MAX_CT_FILE_BYTES = 1024 * 1024
@@ -68,6 +69,21 @@ def load_ct_assets(directory):
             raise ValueError("CT data digest mismatch")
         assets[("/certificate_transparency/" + name).encode("ascii")] = data
     return assets
+
+
+def load_security_assets(directory):
+    # Keep the base/CT service standalone when this optional feature is unused.
+    # Support direct script launch as well as package/import-based host tests.
+    if __package__:
+        from .security_data import load_assets
+    else:
+        try:
+            from security_data import load_assets
+        except ModuleNotFoundError as error:
+            if error.name != "security_data":
+                raise
+            from scripts.proof.security_data import load_assets
+    return load_assets(directory)
 
 
 def request_status(head, extra_paths=()):
@@ -117,6 +133,8 @@ def response_bytes(status, payload=b""):
         lines.append("Content-Length: %d" % len(payload))
     if status == 200:
         lines.extend(["Content-Type: application/octet-stream", "Cache-Control: no-store"])
+    if status == 503:
+        lines.append("Cache-Control: no-store")
     if status == 405:
         lines.append("Allow: GET")
     return ("\r\n".join(lines) + "\r\n\r\n").encode("ascii") + payload
@@ -148,7 +166,7 @@ def _read_head(connection, deadline):
         data.extend(chunk)
 
 
-def handle_connection(connection, tls_context=None, assets=None):
+def handle_connection(connection, tls_context=None, assets=None, security_assets=None):
     """Own and close one accepted socket; optional TLS is applied before HTTP.
 
     Kept separate from listeners for credential-free, in-memory host tests.
@@ -156,7 +174,10 @@ def handle_connection(connection, tls_context=None, assets=None):
     """
     deadline = time.monotonic() + CONNECTION_SECONDS
     assets = assets if tls_context is not None and assets else {}
+    security_assets = security_assets if tls_context is not None else None
+    security_paths = security_assets.paths if security_assets is not None else ()
     payload = b""
+    security_target = None
     try:
         with ExitStack() as cleanup:
             cleanup.callback(connection.close)
@@ -171,12 +192,23 @@ def handle_connection(connection, tls_context=None, assets=None):
                 head = _read_head(connection, deadline)
                 if head is None:
                     return
-                status = request_status(head, assets)
+                status = request_status(head, tuple(assets) + security_paths)
                 if status == 200:
-                    payload = assets[head.split(b" ", 2)[1]]
+                    target = head.split(b" ", 2)[1]
+                    if target in security_paths:
+                        security_target = target
+                    else:
+                        payload = assets[target]
             except _HeaderTooLarge:
                 status = 431
             connection.settimeout(_remaining(deadline))
+            if security_target is not None:
+                # Check after handshake/header reads, immediately before response
+                # selection. Never turn stale data into an empty successful list.
+                try:
+                    payload = security_assets.payload(security_target)
+                except ValueError:
+                    status, payload = 503, b""
             connection.sendall(response_bytes(status, payload))
     except OSError:  # Includes SSL errors and total-deadline/socket timeouts.
         pass
@@ -251,7 +283,7 @@ def open_listeners(bind, http_port, https_port, tls_context):
         yield listeners
 
 
-def serve(listeners, stopping, assets=None):
+def serve(listeners, stopping, assets=None, security_assets=None):
     """Serial, bounded service; no worker threads, keep-alive or outbound sockets."""
     contexts = dict(listeners)
     while not stopping():
@@ -263,7 +295,9 @@ def serve(listeners, stopping, assets=None):
                 connection, _ = listener.accept()
             except (BlockingIOError, ConnectionAbortedError):
                 continue
-            if assets:
+            if security_assets is not None:
+                handle_connection(connection, contexts[listener], assets, security_assets)
+            elif assets:
                 handle_connection(connection, contexts[listener], assets)
             else:
                 handle_connection(connection, contexts[listener])
@@ -286,6 +320,8 @@ def main(argv=None):
     parser.add_argument("--private-key", required=True, metavar="FILE", help="Unencrypted PEM key FILE.")
     parser.add_argument("--ct-data-dir", metavar="DIRECTORY",
                         help="Optional preverified signed CT snapshot and manifest; HTTPS only.")
+    parser.add_argument("--security-data-dir", metavar="DIRECTORY",
+                        help="Optional bounded public security snapshots and explicit owner catalog; HTTPS only.")
     args = parser.parse_args(argv)
     try:
         bind, http_port, https_port = validate_network(args.bind, args.http_port, args.https_port)
@@ -307,6 +343,8 @@ def main(argv=None):
         context = load_tls_context(args.cert, args.private_key)
         stage = "CT snapshot validation"
         assets = load_ct_assets(args.ct_data_dir) if args.ct_data_dir else None
+        stage = "security snapshot validation"
+        security_assets = load_security_assets(args.security_data_dir) if args.security_data_dir else None
         if stopping:
             return 0
         stage = "listener startup"
@@ -317,12 +355,15 @@ def main(argv=None):
                       "  http://%s:%d/generate_204\n  https://%s:%d/generate_204"
                       % (host, http_port, host, https_port), flush=True)
                 stage = "serving"
-                if assets:
+                if security_assets is not None:
+                    serve(listeners, lambda: stopping, assets, security_assets)
+                elif assets:
                     serve(listeners, lambda: stopping, assets)
                 else:
                     serve(listeners, lambda: stopping)
         return 0
-    except (OSError, ValueError):
+    except (ImportError, OSError, ValueError):
+        # Includes a missing optional security_data helper in a runtime copy.
         # No exception text, credential paths, request data or peer addresses.
         print("probe_server: %s failed" % stage, file=sys.stderr)
         return 1
