@@ -90,6 +90,39 @@ expiry. This is not Android CT parser/runtime proof, and does not alter Android
 trust policy or re-sign upstream data. Do not substitute an arbitrary allowlist.
 The snapshot and private certificate keys stay outside public source.
 
+## Optional bounded security snapshots and owner catalog
+
+`--security-data-dir DIRECTORY` adds exactly three **HTTPS-only** GET paths:
+
+- `/security/gsi-keyblacklist.json`
+- `/security/attestation-status.json`
+- `/system-images/catalog.json`
+
+Use the offline [`security_data.py` stager](security_data.md) with explicit raw
+files, per-file source/fetch/expiry metadata, TLS-source acknowledgment and owner
+acknowledgment of an explicitly supplied empty experimental catalog. Deploy its
+`security_data.py` alongside a runtime copy of this service. These are public
+source-observed TLS snapshots and an owner catalog, **not signed CT data**.
+The narrow GSI/attestation/catalog schemas and pending exact-source qualification
+are documented there; no nonempty GSI/catalog support is silently inferred.
+
+The optional loader rejects malformed, mismatched, future-dated or expired
+bundles before any listener opens. It loads only the manifest-bound three fixed
+files, not arbitrary directory contents. All raw bytes are retained; requests
+cannot select filesystem paths or refresh data. HTTP and nonexact paths get 404.
+Each security response rechecks its own expiry after TLS/header reads and before
+response selection. Expiry returns an empty **503 with `Cache-Control: no-store`**,
+never a stale 200 or empty-list success. A monotonic bound prevents clock rollback
+from extending service; an observed invalid file stays unavailable until restart.
+Lifetime is at most 24 hours from the explicit fetch/supply time, and may be
+shorter. Explicit source fetch, restaging and restart remain operator actions.
+
+The 204 endpoint, existing signed CT handling, connection/TLS limits and normal
+client hostname/trust verification are unchanged. No proxy, redirect, invented
+image URL, revocation bypass or signature/allowlist/trust change is introduced.
+A catalog with no installable images is only for the acknowledged unreleased
+Andrix GSI experiment, not a shipping update service or an installation success.
+
 ## Deployment and proof still owned by the primary/operator
 
 The configured Android URLs use `probe.andrix.org` on ports **80 and 443**.
@@ -106,11 +139,13 @@ separate operator work. Host tests or a listening/valid-certificate service
 are **not P4, Android readiness or no-Google runtime proof**. See the existing
 [network preparation map](../../docs/proof-network.md).
 
-Credential-free host regression tests use in-memory sockets and mocked
-TLS/signals/files only; they perform no network or existing-key access:
+Credential-free host regression tests use in-memory sockets, mocked TLS/signals
+and synthetic public temporary files; they perform no network or existing-key access:
 
 ```sh
 python3 -B -m unittest discover -s scripts/proof/tests -p test_probe_server.py
+python3 -B -m unittest discover -s scripts/proof/tests -p test_security_data.py
+python3 -B -m unittest discover -s scripts/proof/tests -p test_ct_data.py
 ```
 
 These verify response policy and lifecycle logic, not real TLS, OS signal/socket

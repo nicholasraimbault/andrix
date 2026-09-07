@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.andrix.cuttlefish.dsu.overlay">
+    <!-- Normal preinstalled-product policy; revocation checks remain enabled. -->
+    <overlay android:targetPackage="com.android.dynsystem"
+        android:isStatic="true" android:priority="999" />
+    <application android:hasCode="false" />
+</manifest>

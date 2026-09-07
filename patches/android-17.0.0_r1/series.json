@@ -66,8 +66,52 @@
           "patched_sha256": "6608f0a9102923becf76ac0a92f509c9efe1aa1329858f59e0328efc52503919"
         }
       ]
+    },
+    {
+      "path": "packages/apps/WallpaperPicker2",
+      "base_commit": "41c4c1b61bb84259de8a192613a95cde9c2737df",
+      "files": [
+        {
+          "path": "AndroidManifest.xml",
+          "base_sha256": "e668c0fb45ee4ae4ea520ac5df385b38b4e0649c95b36a1bca8661866e670fcc",
+          "patched_sha256": "895068e6211fa376ffbbb08048903b67b9be0dbc2a30575f99e9718257d5b23e"
+        }
+      ]
+    },
+    {
+      "path": "packages/apps/Settings",
+      "base_commit": "213829fb67f5e070029e0513a088f31bc8f5c1ed",
+      "files": [
+        {
+          "path": "src/com/android/settings/development/DSULoader.java",
+          "base_sha256": "f45f8a8858d6554cdef738dc5c6e79294ff64a881811a257dee04023cf276784",
+          "patched_sha256": "0e02e1e7ea0a8c85519eaa46cdd98884c8710bc60e8b24ff4b9370422dea6309"
+        }
+      ]
+    },
+    {
+      "path": "external/android-key-attestation",
+      "base_commit": "87b8030626b04e16a7efbe2e15c673e2548eef52",
+      "files": [
+        {
+          "path": "server/src/main/java/com/google/android/attestation/CertificateRevocationStatus.java",
+          "base_sha256": "c4c54c654154ca08131e79df0d23a3d5653b882018cc204508abd8c6b508bdcc",
+          "patched_sha256": "0832d2156ba4e0d16e9e99626ef299e78ddb47e29023e879aaecb911390390ce"
+        }
+      ]
+    },
+    {
+      "path": "packages/apps/Contacts",
+      "base_commit": "1a2802e9035d540660f9793143cca254b7f92220",
+      "files": [
+        {
+          "path": "src/com/android/contacts/util/StructuredPostalUtils.java",
+          "base_sha256": "f16f52b423c30ed12c514c58dcae439d5a5d6f403e199af4d97c847b0ba75f01",
+          "patched_sha256": "31d1e4b7e53990131cd96d7082bf9a8b3f6a1529d1eb79e0a9cc770a880be0ce"
+        }
+      ]
     }
   ],
   "patch": "network-endpoints.patch",
-  "patch_sha256": "24c970fe5739a593ec9cc1f01c2f7235025003ebd93867aa3698aff139e416d0"
+  "patch_sha256": "23c14dd69ec345dac29138cca7ba1cc779f9fd514c6036689e3e564d930101be"
 }
