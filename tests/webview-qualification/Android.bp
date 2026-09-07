@@ -1,0 +1,22 @@
+// Optional, explicitly built/installed test fixture. Never add to PRODUCT_PACKAGES.
+license {
+    name: "andrix_webview_qualification_aidl_license",
+    visibility: [":__subpackages__"],
+    license_kinds: ["SPDX-license-identifier-BSD"],
+    license_text: ["aidl/LICENSE"],
+}
+
+android_test {
+    name: "AndrixWebViewQualification",
+    licenses: ["vendor_andrix_license", "andrix_webview_qualification_aidl_license"],
+    manifest: "AndroidManifest.xml",
+    // The pinned public upstream AIDL and its typed adapter are included.
+    // prepare_contract.py is an explicit source-maintenance helper, not a downloader.
+    srcs: ["src/**/*.java", "aidl/**/*.aidl"],
+    aidl: { local_include_dirs: ["aidl"] },
+    sdk_version: "current", // Exact r1 public current API is 37.
+    min_sdk_version: "37",
+    target_sdk_version: "37",
+    certificate: ":dev.andrix.usr.certificate",
+    auto_gen_config: false,
+}

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.andrix.proof.webviewqualification"
+    android:versionCode="1" android:versionName="1">
+    <uses-sdk android:minSdkVersion="37" android:targetSdkVersion="37" />
+    <!-- Visibility only: no requested permissions or shared UID. -->
+    <queries>
+        <package android:name="dev.andrix.experiment.webview" />
+        <package android:name="dev.andrix.experiment.webviewconfig" />
+    </queries>
+    <application android:label="Disposable Andrix WebView qualification"
+        android:testOnly="true" android:allowBackup="false"
+        android:hardwareAccelerated="true" android:usesCleartextTraffic="false">
+        <activity android:name=".QualificationActivity" android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+    </application>
+    <instrumentation android:name=".SelfInstrumentation"
+        android:targetPackage="dev.andrix.proof.webviewqualification"
+        android:functionalTest="true" android:handleProfiling="false" />
+    <!-- Deliberate white-box provider UID; installation must have the same
+         disposable signer as the provider. This is NOT ordinary-app authority. -->
+    <instrumentation android:name=".ProviderInstrumentation"
+        android:targetPackage="dev.andrix.experiment.webview"
+        android:functionalTest="true" android:handleProfiling="false" />
+</manifest>
