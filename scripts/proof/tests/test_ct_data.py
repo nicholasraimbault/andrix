@@ -6,6 +6,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -124,6 +125,34 @@ class CtDataTests(unittest.TestCase):
         response=server.response_bytes(200,b'public')
         self.assertIn(b'Content-Length: 6\r\n',response)
         self.assertTrue(response.endswith(b'\r\n\r\npublic'))
+
+
+class CtEndpointInputsTests(unittest.TestCase):
+    def test_public_prefix_is_the_only_ct_config_change(self):
+        root = HERE.parents[1]
+        directory = root/'patches/android-17.0.0_r1'
+        series = json.loads((directory/'series.json').read_text())
+        project = next(p for p in series['projects'] if p['path']=='packages/modules/Connectivity')
+        name = 'networksecurity/service/src/com/android/server/net/ct/Config.java'
+        record = next(f for f in project['files'] if f['path']==name)
+        original = (Path(__file__).parent/'fixtures/aosp17-ct-config.java').read_bytes()
+        self.assertEqual(hashlib.sha256(original).hexdigest(), record['base_sha256'])
+        full_path = project['path']+'/'+name
+        with tempfile.TemporaryDirectory() as directory_name:
+            path = Path(directory_name)/full_path
+            path.parent.mkdir(parents=True)
+            path.write_bytes(original)
+            for options in (['--check'], []):
+                subprocess.run(['git', 'apply', *options, '--whitespace=error',
+                    '--include='+full_path, str(directory/series['patch'])],
+                    cwd=directory_name, check=True, capture_output=True)
+            actual = path.read_bytes()
+        expected = original.replace(
+            b'https://www.gstatic.com/android/certificate_transparency/',
+            b'https://ct.probe.andrix.org/certificate_transparency/')
+        self.assertNotEqual(original, expected)
+        self.assertEqual(actual, expected)
+        self.assertEqual(hashlib.sha256(actual).hexdigest(), record['patched_sha256'])
 
 
 if __name__ == '__main__':

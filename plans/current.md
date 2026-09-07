@@ -104,7 +104,7 @@ and clean signal shutdown checks. The CT files retain the original signature
 and match the resource APK's unchanged key allowlist; no live upstream proxy
 is needed. No public endpoint is deployed, and this is not Android validation.
 
-All **191 host-only regression tests** pass, covering artifact/app checks,
+All **192 host-only regression tests** pass, covering artifact/app checks,
 overlays, patch guards, probe/CT handling and fixture configuration. Wrong-certificate and corrupted-
 payload checks fail closed. Native/Java extracted-function tests also checked
 DNS wire names, record types and nonce behavior without network traffic.
@@ -143,6 +143,9 @@ cleanly. **This is not a complete no-Google pass.**
    passed. The frozen image still requests the old private prefix; publication
    is not Android download/install proof. No image, private key, permission or
    public listener on the build/signing host was changed by publication.
+   The owner has authorized the [next Android comparison](2026-09-07-public-ct-runtime.md):
+   current source changes only the CT prefix to the public host; a new image
+   and fresh captured boot are being prepared. No installation pass is assumed.
 2. Complete remaining runtime/config-trust, recovery, update and rollback checks.
    The three-APK checker and exact image imports passed. The compiled ConfigInfo
    digest and fail-closed PackageManager gate were inspected; full negative/runtime
