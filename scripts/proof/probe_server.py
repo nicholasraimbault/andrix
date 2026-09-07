@@ -51,11 +51,29 @@ def load_ct_assets(directory):
             or set(manifest["files"]) != set(CT_FILES)):
         raise ValueError("unexpected CT bundle manifest")
     now_ms = int(time.time() * 1000)
-    timestamp, expiry = manifest.get("log_list_timestamp_ms"), manifest.get("valid_until_ms")
-    if (type(timestamp) is not int or type(expiry) is not int
-            or expiry != timestamp + 70 * 24 * 60 * 60 * 1000
-            or not timestamp <= now_ms <= expiry):
-        raise ValueError("CT snapshot expired or future-dated")
+    snapshots = [manifest]  # Legacy schema-1 manifests carry only v2 metadata.
+    if "formats" in manifest:
+        formats = manifest["formats"]
+        if (not isinstance(formats, dict) or set(formats) != {"v2", "v3"}
+                or any(not isinstance(item, dict)
+                       or not isinstance(item.get("version"), str) or not item["version"]
+                       for item in formats.values())):
+            raise ValueError("unexpected CT format metadata")
+        snapshots = [formats["v2"], formats["v3"]]
+    for snapshot in snapshots:
+        timestamp, expiry = snapshot.get("log_list_timestamp_ms"), snapshot.get("valid_until_ms")
+        if (type(timestamp) is not int or type(expiry) is not int
+                or expiry != timestamp + 70 * 24 * 60 * 60 * 1000
+                or not timestamp <= now_ms <= expiry):
+            raise ValueError("CT snapshot expired or future-dated")
+    if "formats" in manifest:
+        # Preserve the legacy v2 aliases while allowing v3 to expire first.
+        if (type(manifest.get("log_list_timestamp_ms")) is not int
+                or type(manifest.get("valid_until_ms")) is not int
+                or manifest["log_list_timestamp_ms"] != formats["v2"]["log_list_timestamp_ms"]
+                or manifest.get("version") != formats["v2"]["version"]
+                or manifest["valid_until_ms"] != min(item["valid_until_ms"] for item in snapshots)):
+            raise ValueError("inconsistent CT format metadata")
     assets = {}
     for name in CT_FILES:
         path = root / name

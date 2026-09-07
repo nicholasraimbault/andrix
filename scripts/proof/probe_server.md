@@ -80,15 +80,18 @@ python3 scripts/proof/stage_ct_data.py \
   --output-dir /operator-managed/ct-verified
 ```
 
-The staging tool performs no network access. It requires the fetched signing
-key to match the supplied target allowlist, verifies both signatures with
-OpenSSL, checks the JSON log-list timestamp against the pinned 70-day freshness
-policy, and creates an exact five-file SHA-256 manifest. The service validates
-the manifest, digests, bounded sizes and freshness before binding; bytes are
-loaded once, not re-read from arbitrary client paths. Restage/restart before
-expiry. This is not Android CT parser/runtime proof, and does not alter Android
-trust policy or re-sign upstream data. Do not substitute an arbitrary allowlist.
-The snapshot and private certificate keys stay outside public source.
+The [staging tool](stage_ct_data.md) performs no network access. It requires the
+fetched signing key to match the supplied target allowlist, verifies both
+signatures with OpenSSL, then checks v2 JSON and v3 FlatBuffer metadata and each
+format's timestamp against the pinned 70-day freshness policy. Its exact
+five-file SHA-256 manifest records both versions/timestamps and the earliest
+expiry; legacy top-level version/timestamp fields refer only to v2. The service
+validates the manifest, digests, bounded sizes and freshness before binding;
+bytes are loaded once, not re-read from arbitrary client paths. Restage/restart
+before the earliest expiry. This is not Android CT parser/runtime proof, and
+does not alter Android trust policy or re-sign upstream data. Do not substitute
+an arbitrary allowlist. The snapshot and private certificate keys stay outside
+public source.
 
 ## Optional bounded security snapshots and owner catalog
 
