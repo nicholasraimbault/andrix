@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "files": {
+    "log_list.pub": "f08b9203afc7ddb2407058b73ad9db5c28123375fe6a1d98056be1e763a33390",
+    "v2/log_list.json": "29ffe7c6ca8eda4e6e96ebe8507e8e99549427f1c4979b747a344cd439d53683",
+    "v2/log_list.sig": "6658fe18eed5628a58aae27373ec58fa4dba5b00c8382032f7157ebbbbed92a1",
+    "v3/log_list.ctfb": "8f20aa979abe8a213ed2ce1bd2326b2afee6510600c05936ab7b69963b8708d8",
+    "v3/log_list.sig": "cf3f9414449a1984676e0a43de878ff1d6bb125acb1d7ee5b014574bbcf0a752"
+  },
+  "allowed_keys_sha256": "57eb0883c0713d7ab091589f3b5e7a0381efb0c7720a3689f86645643a507f81",
+  "log_list_timestamp_ms": 1787664926000,
+  "valid_until_ms": 1793712926000,
+  "version": "89.30",
+  "verified_at_ms": 1788756760824,
+  "upstream": "https://www.gstatic.com/android/certificate_transparency/",
+  "network_access_during_verification": false
+}
