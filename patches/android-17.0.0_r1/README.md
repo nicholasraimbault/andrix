@@ -1,16 +1,28 @@
-# Pinned network and product adaptation
+# Pinned Andrix AOSP adaptation
 
-These twelve-file changes are limited to network endpoints with **no** supported
-resource/configuration hook, inherited Google app-link registration and
-product-scoped package selection in the exact
-`android-17.0.0_r1` source. They are not a substitute source distribution or an
-unrelated platform fork.
+The current seventeen-file adaptation spans nine pinned projects in exact
+`android-17.0.0_r1`. The original twelve files cover owned network endpoints,
+inherited Google app-link registration and product-scoped package selection.
+Five framework files additionally retain static-library dependencies needed by
+Android rollback records. No supported resource hook covers that lifecycle bug.
+These are not a substitute source distribution or an unrelated platform fork.
 The official manifest/project HEADs remain at their pinned release commits;
 `series.json` records each base commit and before/after file digest. The patch
 and applied diff must accompany build provenance. A pristine manifest alone
 no longer describes an image built with this adaptation.
 
 ## Changes and preserved behavior
+
+- Rollback captures the old installed APK's exact static-library names/versions,
+  stores them in the existing atomic rollback metadata and publishes an immutable
+  internal snapshot. PM's normal uninstall/unused-library guard rejects removing
+  a required version while its rollback is enabling, available or restoring.
+  Startup load/publication precedes staged application and boot pruning; PM never
+  waits on the rollback worker. State changes, completion, expiry and deletion
+  refresh the snapshot. Metadata-write failures cannot advertise a newly enabled
+  or available rollback. Signature/installation verification is unchanged, no
+  fake client or privileged shim is added, and ordinary pruning remains enabled.
+  See the [retention implementation/gates](../../plans/2026-09-07-rollback-retention.md).
 
 - WallpaperPicker2 no longer registers Google's `g.co/wallpaper` verified link.
   The first connected candidate actually triggered a `g.co` lookup through

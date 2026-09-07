@@ -110,8 +110,39 @@
           "patched_sha256": "31d1e4b7e53990131cd96d7082bf9a8b3f6a1529d1eb79e0a9cc770a880be0ce"
         }
       ]
+    },
+    {
+      "path": "frameworks/base",
+      "base_commit": "94b4c163b7dfe5ce3607f7bb8456f9573f7de57d",
+      "files": [
+        {
+          "path": "services/core/java/com/android/server/rollback/Rollback.java",
+          "base_sha256": "164e05c94af53b5fd3eb5a3b3a9f9c914afa8b5d5123c4b2ddacc8ba05b9fe98",
+          "patched_sha256": "7559db497394c82d0d3b5503ae95e7e87600fe386c8bfb3b44f2140807114fc6"
+        },
+        {
+          "path": "services/core/java/com/android/server/rollback/RollbackStore.java",
+          "base_sha256": "3638a6c30511010d3e4491ad586678a865cfb814144eda55cd45928db248ca62",
+          "patched_sha256": "e23e3c82402eaba3ced0d9d215c0bd6840a2cdf39c6977752ec2dddd4f96d239"
+        },
+        {
+          "path": "services/core/java/com/android/server/rollback/RollbackManagerServiceImpl.java",
+          "base_sha256": "de61660579d2b44ce2706bd4aab14daa1906a72f54abed1d46ba26f0a52b8161",
+          "patched_sha256": "bcdcb399404fd3ee0e1c6d425a192ff5f31ea0546563c925ec10ac54f512cafe"
+        },
+        {
+          "path": "services/core/java/com/android/server/rollback/RollbackManagerInternal.java",
+          "base_sha256": "6b65ba46670f7ad8fe2e5173d20ff68e6612cc6831b23092a7278e2c44ea69fd",
+          "patched_sha256": "01e09a7c4ea83703091bbd404a33f80dd8bc5211c022399d7f386c231fe63c45"
+        },
+        {
+          "path": "services/core/java/com/android/server/pm/DeletePackageHelper.java",
+          "base_sha256": "fc4ca92ae647d8d26af35c465c6878a19ed4553156b0f6973b9fcd110cef6654",
+          "patched_sha256": "d8422d5d62d8302240d55c24449010bcaa92f84935865408fce0a8d3de16a613"
+        }
+      ]
     }
   ],
   "patch": "network-endpoints.patch",
-  "patch_sha256": "b580f5256ffd164fd5140792d243a6843dd0346d91bfe8aec1ee557f57089344"
+  "patch_sha256": "e03c69e1a4ccfcfe90992dc4119adc38a5da98ee2bb37d25067f9d43126c2b13"
 }
