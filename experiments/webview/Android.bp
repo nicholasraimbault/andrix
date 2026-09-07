@@ -49,6 +49,8 @@ andrix_webview_app_import {
     product_specific: true,
     presigned: true,
     preprocessed: true,
+    // Native-only static library APK: there is no classes.dex to precompile.
+    dex_preopt: { enabled: false },
 }
 
 andrix_webview_app_import {
@@ -62,4 +64,6 @@ andrix_webview_app_import {
     product_specific: true,
     presigned: true,
     preprocessed: true,
+    // Upstream intentionally builds this data APK with omit_dex=true.
+    dex_preopt: { enabled: false },
 }
