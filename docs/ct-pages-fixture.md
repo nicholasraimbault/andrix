@@ -4,7 +4,9 @@ The owner authorized static GitHub Pages publication at
 `ct.probe.andrix.org` for the next Certificate Transparency delivery comparison.
 This is **test data hosting**, not an Android release or a complete no-Google
 qualification. It adds no public listener on the build/signing host and uses
-none of its private signing or probe TLS keys.
+none of its private signing or probe TLS keys. The
+[publication record](../plans/2026-09-07-public-ct-fixture.md) includes successful
+HTTPS/body/signature verification and the preserved initial provisioning failures.
 
 ## Deployment contract
 
