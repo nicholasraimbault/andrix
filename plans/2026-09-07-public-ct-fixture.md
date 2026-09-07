@@ -29,12 +29,16 @@ followed. An explicit same-domain configuration request returned HTTP 204.
 
 ## Verification state
 
-Publication is not yet fully qualified over HTTPS. HTTP routing returned the
-expected public-key bytes, but initial HTTPS attempts rejected the certificate's
-hostname. GitHub's HTTPS-enforcement API explicitly reported that the certificate
-did not yet exist. Those failures are retained, not treated as successful TLS.
-A bounded verifier uses the built Android CA bundle and requires exact HTTPS 200
-bodies, original hashes and no redirects before recording publication success.
+**HTTPS publication passed on 2026-09-07 at 06:06 UTC.** All five canonical URLs
+returned direct HTTPS 200 responses and exact staged body hashes. The downloaded
+files then passed the original v2/v3 signature, Android key-allowlist and 70-day
+freshness checks. TLS 1.3 verified the hostname against the built Android CA
+bundle. GitHub reports HTTPS enforcement enabled; HTTP requests redirect to the
+same path on HTTPS.
+
+Initial HTTP routing returned the expected public-key bytes, but strict HTTPS
+checks rejected the certificate's hostname and GitHub reported that the requested
+certificate did not yet exist. Those failures are retained, not called TLS passes.
 
 The real rootless Unbound fixture was exercised with the new more-specific
 `always_transparent` zone. The private probe and nonce resolved to the fixture;
@@ -47,10 +51,18 @@ See the [deployment/update contract](../docs/ct-pages-fixture.md). The frozen
 subsequent endpoint/image comparison and full no-Google qualification remain
 open; publishing this site alone does not change the guest.
 
-The bounded readiness window made 25 strict HTTPS attempts, followed by one
-post-rebuild check; hostname verification still failed. A single explicit Pages
-rebuild after public DNS qualification succeeded without changing the snapshot.
-GitHub continued reporting no certificate, so HTTPS enforcement was not bypassed
-or claimed enabled. Recheck issuance and enforce/verify HTTPS before the Android
-comparison; no repeated domain removal/re-addition or provider substitution was
-used. The temporary resolver fixture is stopped after preserving its evidence.
+The initial bounded window made 25 strict HTTPS attempts and a post-rebuild
+check without success. After a successful unchanged-snapshot rebuild still left
+no certificate, the primary consulted GitHub's official certificate-provisioning
+troubleshooting guide and performed **one** documented removal/re-save of this
+exact custom domain. The same branch/site/domain was restored immediately; no
+DNS, payload, key or trust setting changed. A subsequent check observed the
+approved certificate, verified all five HTTPS files, and enabled HTTPS enforcement.
+The earlier sealed pending checkpoint remains intact.
+
+Observed TLS leaf SHA-256:
+`166c9bb61c6e778399373981fee21e92cba699b7685ee871c0fc84011d4cba8a`.
+The TLS-observed leaf expires 2026-12-06 at 05:04:10 UTC. This is GitHub-managed
+certificate material, not a copied Andrix private key. The temporary resolver
+fixture stopped with exit 0; no local readiness monitor, VM or task worktree
+remains. The deployment branch and scoped DNS record intentionally remain live.

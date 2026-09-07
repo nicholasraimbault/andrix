@@ -137,10 +137,12 @@ cleanly. **This is not a complete no-Google pass.**
    not a proven root cause. A protected-broadcast trigger was denied; no root or
    permission workaround was used. Establish a successful delivery path without
    weakening Android. The owner authorized the [public CT Pages fixture](2026-09-07-public-ct-fixture.md)
-   at `ct.probe.andrix.org`; its branch/site/DNS are configured and private/public
-   resolver separation is tested. GitHub certificate provisioning and successful
-   HTTPS publication verification remain pending. No Android image was changed
-   by publication, and no private key or public host listener was added.
+   at `ct.probe.andrix.org`. HTTPS is now enforced: all five downloaded bodies
+   matched and passed the original signatures, key allowlist and age checks,
+   using the built Android CA bundle. Real private/public resolver separation
+   passed. The frozen image still requests the old private prefix; publication
+   is not Android download/install proof. No image, private key, permission or
+   public listener on the build/signing host was changed by publication.
 2. Complete remaining runtime/config-trust, recovery, update and rollback checks.
    The three-APK checker and exact image imports passed. The compiled ConfigInfo
    digest and fail-closed PackageManager gate were inspected; full negative/runtime
