@@ -37,9 +37,26 @@ application-level literal `WebViewLibrary` metadata, one static-library
 namespace/version/certificate pin matching the library declaration and signer,
 and the named native payload's presence in the library APK. ZIP paths, native
 ABI badging and ELF class/endianness/machine/type headers must agree on ARM64
-ET_DYN shared-library payloads; Java/resource-only APKs may have no native entries. Recognizable ELF or `.so`
-payloads outside `lib/arm64-v8a/` are rejected. Binary manifest/native payload
-hashes, tool launcher hashes/version output and checker source hashes are saved.
+ET_DYN shared-library payloads; Java/resource-only APKs may have no native
+entries. Recognizable ELF or `.so` payloads outside `lib/arm64-v8a/` are rejected.
+Binary manifest/native payload hashes, tool launcher hashes/version output and
+checker source hashes are saved.
+
+The sole non-ELF exception is the **exact zero-byte regular ZIP entry
+`lib/arm64-v8a/libplaceholder.so` in the WebView APK role only**. In the
+[pinned Chromium 152 experiment](../../plans/2026-09-06-webview-build-experiment.md),
+`build/android/gyp/apkbuilder.py` writes `native_lib_placeholders` as empty ZIP
+entries (lines 501–507 in the patched experiment tree); Trichrome WebView uses
+the static-library APK for real native code. The checker records this entry's
+path, size and SHA-256 under `archive.abi_markers`, never `native_libraries`.
+`native_abis` includes `arm64-v8a` for this marker, so badging must still agree.
+The marker is forbidden in Library/Config roles, at other paths/ABIs, as a
+directory or with any contents (even a valid ELF). Arbitrary empty `.so` files
+remain rejected. The low-level `check_archive(apk)` stays strict; the exception
+requires explicit `role="webview"`. All actual native payloads still require
+ELF64 little-endian AArch64 ET_DYN v1 headers, never ET_EXEC. An ABI marker
+cannot satisfy the `WebViewLibrary` payload requirement in the TrichromeLibrary
+APK.
 
 This intentionally supports the single-signer, unsplit, positive-int32-version
 experiment, not arbitrary Android packaging. Both legacy `Signer #1` and AOSP
@@ -66,7 +83,8 @@ is used as proof. This also does not qualify ELF linking/alignment/CFI/MTE,
 sandboxing, provider integration, updates/rollback, rendering, runtime config,
 TLS/CT or no-Google behavior; it grants no installation or promotion authority.
 
-Host-only synthetic tests (all subprocesses mocked; no real APK signatures):
+Host-only synthetic tests (including a marker-only WebView plus a native
+TrichromeLibrary fixture; all subprocesses mocked, no real APK signatures):
 
 ```sh
 python3 -B -m unittest discover -s scripts/proof/tests -p test_webview_artifacts.py
@@ -76,4 +94,7 @@ The primary also exercised pinned real aapt2/apksigner output using three tiny
 signed manifest fixtures and a cross-compiled ARM64 shared library. Those are
 verifier fixtures, **not Vanadium or usable WebView providers**. The first
 version-query stderr rejection was preserved before the narrow parser repair.
-Actual experiment APKs still require their own inspection.
+The first signed Trichrome152 output check also retained FAIL on WebView's exact
+empty ARM64 `libplaceholder.so`; the ABI-marker exception does not retroactively
+change that result. The repaired checker still requires a fresh evidence run on
+the actual experiment APKs, not a fixture-based qualification.

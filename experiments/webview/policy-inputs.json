@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "vanadium_commit": "fdcc1b50ce6fb34c87b2fb11978f9f3ce76fe226",
+  "chromium_tag": "152.0.7977.84",
+  "patched_upstream_head": "bdda4392dd00cd743ee7fa44410f444d80dbca3a",
+  "patch": "andrix-policy.patch",
+  "patch_sha256": "2197586c31ddea043f62fd271cdaee2555ddf2c74fd511f96cea787920db06cc",
+  "files": [
+    {
+      "path": "android_webview/nonembedded/java/src/org/chromium/android_webview/services/AwVariationsSeedFetcher.java",
+      "before_sha256": "eaae69dce1b8d8e568f198bd43019334ef435e33cb67ecf21e65da4186e58202",
+      "after_sha256": "023a600ba0f8f6d886f3233e5ebf4bbfb8b8526d0f9fb303d629eefc0f15b981"
+    },
+    {
+      "path": "android_webview/nonembedded/BUILD.gn",
+      "before_sha256": "b90e55d75ae4687f976e1697af7284a6ca63651b1c248feb5726b29fb0c8abe0",
+      "after_sha256": "c9d4c0078fb50cf7d752c2a158829aa21d97e46f0e9ec0fff60e4b6a70a93326"
+    },
+    {
+      "path": "vanadium/chromium_src/net/downstream/conn_checks/android/conn_checks_util.h",
+      "before_sha256": "e674a57c7e7a8de7f73007723c4bc86d770bd6467b7e5853761130395d3bdcb8",
+      "after_sha256": "8a3e6cc10e4b39adc8517f489236404884a657cad4dcbe6661989c5060f763e3"
+    },
+    {
+      "path": "vanadium/chromium_src/android_webview/browser_java_ext_deps.gni",
+      "before_sha256": "8d7ea1acb845350f459f26903e16d4f922c903021dd95ea8ade1fbfcb6d8a180",
+      "after_sha256": "fa0b29011f828fd9541613db32edc95033ed913dbf3323c405ae7b4ecdf66d8c"
+    },
+    {
+      "path": "android_webview/java/src/org/chromium/android_webview/AwContentsStatics.java",
+      "before_sha256": "d326674abe926983dcf76c2b25c74e79ac699b6fa8d1f60cf12b0b5a7ed81d3e",
+      "after_sha256": "f286d06478dc1afa89e9e5384b2b7c1af9046049e132ec83164038c69de783d5"
+    },
+    {
+      "path": "vanadium/android_config/proto/host/java/src/app/vanadium/config/host/ConfigGeneratorImpl.kt",
+      "before_sha256": "70e3f74522a3bfb064ae78ed6f6c30f9f6cc017d2fafc97263ae3e89d37c615c",
+      "after_sha256": "c7545cd2b5a653565c0baa0a7fb2e27e8510c420a383902a8d33ce224d770394"
+    }
+  ],
+  "scope": "Experimental WebView candidate. Preserve upstream field-trial-off policy in job paths; owned DNS probe; package its Java JNI dependency; remove false Safe Browsing success shortcuts. No general SafeMode/updater/TLS/SELinux disable."
+}

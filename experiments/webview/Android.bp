@@ -1,0 +1,65 @@
+// Build recipes are original Andrix code. Imported APKs retain upstream licenses.
+package {
+    default_applicable_licenses: ["vendor_andrix_license"],
+}
+
+license {
+    name: "andrix_experimental_vanadium_license",
+    visibility: [":__subpackages__"],
+    license_kinds: [
+        "SPDX-license-identifier-GPL-2.0-only",
+        "SPDX-license-identifier-BSD",
+        "SPDX-license-identifier-Apache-2.0",
+        "SPDX-license-identifier-FTL",
+    ],
+    license_text: ["licenses/*"],
+}
+
+soong_config_module_type {
+    name: "andrix_webview_app_import",
+    module_type: "android_app_import",
+    config_namespace: "andrix",
+    bool_variables: ["webview_experiment"],
+    properties: ["enabled"],
+}
+
+andrix_webview_app_import {
+    name: "AndrixExperimentalWebView",
+    licenses: ["andrix_experimental_vanadium_license"],
+    enabled: false,
+    soong_config_variables: {
+        webview_experiment: { enabled: true },
+    },
+    apk: "prebuilts/TrichromeWebView64.apk",
+    product_specific: true,
+    presigned: true,
+    preprocessed: true,
+    optional_uses_libs: ["androidx.window.extensions", "android.ext.adservices"],
+    required: ["libwebviewchromium_loader", "libwebviewchromium_plat_support"],
+}
+
+andrix_webview_app_import {
+    name: "AndrixExperimentalTrichromeLibrary",
+    licenses: ["andrix_experimental_vanadium_license"],
+    enabled: false,
+    soong_config_variables: {
+        webview_experiment: { enabled: true },
+    },
+    apk: "prebuilts/TrichromeLibrary64.apk",
+    product_specific: true,
+    presigned: true,
+    preprocessed: true,
+}
+
+andrix_webview_app_import {
+    name: "AndrixExperimentalWebViewConfig",
+    licenses: ["andrix_experimental_vanadium_license"],
+    enabled: false,
+    soong_config_variables: {
+        webview_experiment: { enabled: true },
+    },
+    apk: "prebuilts/VanadiumConfig.apk",
+    product_specific: true,
+    presigned: true,
+    preprocessed: true,
+}

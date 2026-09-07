@@ -59,10 +59,15 @@
           "path": "target/product/handheld_product.mk",
           "base_sha256": "a450148917a5d5affd30d7b75f1bffb56a6b78678ba6bd4ed4472fae9da21c7a",
           "patched_sha256": "fa45a3ff2a17b389ae13c9f10579812f5c79a27b12572cf0cacd14fee157d105"
+        },
+        {
+          "path": "target/product/media_product.mk",
+          "base_sha256": "eb0b0368767d620bcf11a926f9800894162e757d8d40d2f9f20e403692e16e44",
+          "patched_sha256": "6608f0a9102923becf76ac0a92f509c9efe1aa1329858f59e0328efc52503919"
         }
       ]
     }
   ],
   "patch": "network-endpoints.patch",
-  "patch_sha256": "98d944e92657551622878139dc3e2e95b09aea779c03bf12d8fab73b57e46e09"
+  "patch_sha256": "24c970fe5739a593ec9cc1f01c2f7235025003ebd93867aa3698aff139e416d0"
 }
