@@ -141,6 +141,13 @@ class SourceBoundaryTests(unittest.TestCase):
                         negative.index('safe.requireSetterDenied()'))
         self.assertNotIn('new Jobs', negative)
 
+    def test_provider_loader_comes_from_permitted_glue_class(self):
+        activity = (JAVA / 'QualificationActivity.java').read_text()
+        self.assertIn('"org.chromium.support_lib_glue.SupportLibReflectionUtil", false, supportLoader', activity)
+        self.assertIn('ClassLoader loader = glue.getClassLoader();', activity)
+        self.assertNotIn('getDeclaredField(', activity)
+        self.assertNotIn('new DexClassLoader', activity)
+
     def test_reflection_is_read_only_and_narrow(self):
         config = (JAVA / 'ConfigCheck.java').read_text()
         for cls in ('WV.xr', 'WV.op1', 'WV.mp1'):
