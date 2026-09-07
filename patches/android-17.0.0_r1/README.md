@@ -59,10 +59,11 @@ no longer describes an image built with this adaptation.
 
 - Certificate Transparency keeps its enabled service, downloaded-key allowlist,
   RSA signature verification and log-list handling. Only its download prefix
-  changes to `https://probe.andrix.org/certificate_transparency/`. The fixture
-  serves a separately staged, signature-verified copy of the public data; it
-  does not proxy device requests upstream. No CT checks, signing keys or trust
-  anchors are disabled/replaced. See the [fixture documentation](../../scripts/proof/probe_server.md).
+  changes to `https://ct.probe.andrix.org/certificate_transparency/`. The
+  [public Pages fixture](../../docs/ct-pages-fixture.md) serves the same staged,
+  signature-verified data without a live upstream proxy. The earlier private
+  prefix and its DownloadProvider failures remain recorded. No CT checks,
+  signing keys, permissions or trust anchors are disabled/replaced.
 
 The owned DNS zone/fixture must answer the nonce names appropriately, including
 positive records when testing strict Private DNS. Replacing a qname is not

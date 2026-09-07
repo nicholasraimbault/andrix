@@ -47,7 +47,7 @@
         {
           "path": "networksecurity/service/src/com/android/server/net/ct/Config.java",
           "base_sha256": "cb50ecdf78c439668478cf47b8fd764a3aa51eb9156b24a092280b673a45833f",
-          "patched_sha256": "820df422f226451d2f2e2d25b33cdb7767dbf380d4c75eeaa8c181e5dde520ff"
+          "patched_sha256": "139903d5facb601f87e0e168b0c884ea6366e5c9f42ebf26de186d963ae46182"
         }
       ]
     },
@@ -113,5 +113,5 @@
     }
   ],
   "patch": "network-endpoints.patch",
-  "patch_sha256": "23c14dd69ec345dac29138cca7ba1cc779f9fd514c6036689e3e564d930101be"
+  "patch_sha256": "b580f5256ffd164fd5140792d243a6843dd0346d91bfe8aec1ee557f57089344"
 }
