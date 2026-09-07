@@ -42,6 +42,9 @@ lookup reported the static library not installed. The subsequent
 staged versioned libraries separately and rolled back the atomic WebView/Config
 pair, including to a non-factory version. A missing old library still breaks bare
 rollback; normal installation of its identical signed APK enabled a successful
-retry. Automatic dependency retention, complete hardening, broader recovery and
-real-version migration remain separate gates. Neither those scoped
+retry. The subsequent [framework retention extension](../../plans/2026-09-07-rollback-retention.md)
+passed unused-library protection, live/startup pruning, reboot persistence,
+automatic PackageWatchdog restoration and completed-pin release. Expiry/staged/
+interrupted-I/O boundaries, complete hardening, broader recovery and real-version
+migration remain separate gates. Neither those scoped
 results nor a static check authorize a supported provider release.
