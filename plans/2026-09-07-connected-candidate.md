@@ -100,3 +100,9 @@ fixture service / additional owned hostname needs an explicit deployment choice;
 no hosting purchase, account creation or public host listener was made here.
 Native validation, full ConfigInfo negative/runtime coverage, coordinated update
 and rollback testing, and production signing remain separate open gates.
+
+## Follow-up
+
+The [new public-endpoint image](2026-09-07-public-ct-runtime.md) completed actual
+Android CT installation. This earlier private-endpoint result remains a preserved
+failure, not the latest candidate state.

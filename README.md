@@ -13,9 +13,10 @@ The image and signed APEX build, and host-side artifact checks pass.
 An [offline QEMU/TCG smoke test](plans/2026-09-06-qemu-smoke.md) has booted the
 ARM64 image on x86-64 and passed the signed APEX, read-only `/usr` and ordinary-app
 execution-boundary checks with SELinux enforcing. A subsequent
-[connected candidate](plans/2026-09-07-connected-candidate.md) runs WebView 152
-and passed its JavaScript/HTTPS/hostname-rejection tests. Its measured window
-observed no Google guest destination, but CT update downloads still fail.
+[connected candidate](plans/2026-09-07-public-ct-runtime.md) runs WebView 152,
+passed JavaScript/HTTPS/hostname-rejection tests, and downloaded, verified and
+installed signed CT log lists from the owned public endpoint. No Google guest
+destination was observed in its measured workload.
 **Native ARM64/KVM and complete no-Google qualification remain open.**
 
 This is source and proof tooling, **not a supported OS release or a phone

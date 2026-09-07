@@ -44,7 +44,7 @@ is described in [source provenance](../docs/source-provenance.md).
 | P0 | Product/board/init/policy inputs resolve; ARM64-only; no registered Andrix Caiman product. |
 | P1 | Non-flattened, updatable system-ext APEX and init module build; AOSP init/APEX/linkerconfig/SELinux build checks pass. |
 | P2 | APK-container and AVB-payload signatures verify; embedded key matches; exact packaged ELF inspected. |
-| P3 | Adapted full image and matching ARM64 host package build. Three baked overlays and key image contents pass offline checks; packaged-app endpoint review remains open. |
+| P3 | Adapted full image and matching host packages build. Normal product-policy overlays and key image contents pass offline checks; complete packaged-app endpoint review remains open. |
 | P5 preparation | Optional ordinary-app APK builds and passes static signer/manifest/JNI checks. |
 | Additional offline emulated test | QEMU/TCG boot completed; device/APEX/`/usr` checks passed; ordinary ARM64/Bionic app control succeeded and byte-identical private-copy `execve` returned EACCES. Test package removal verified. Not native ARM64 or no-Google qualification. |
 
@@ -70,7 +70,9 @@ handling. Its rebuilt image was inspected; the proof APEX is unchanged. The
 offline emulated run observed the intended property values. No AOSP source, SELinux rule,
 trust store or signature-verification change was made for that control.
 
-The current complete candidate built successfully in 9:29 with overlay producer
+### Earlier stock-provider baseline
+
+The frozen stock-provider candidate built successfully in 9:29 with overlay producer
 `9eb0bd462d63c86c37fe4cfddad764ab379e7d48` and the recorded network/product patch. Its
 expected fingerprint is:
 
@@ -102,9 +104,10 @@ Conscrypt CA bundle. The bounded service passed real loopback HTTP/HTTPS 204,
 wrong-hostname rejection, exact signed CT-file responses, HTTPS-only CT access
 and clean signal shutdown checks. The CT files retain the original signature
 and match the resource APK's unchanged key allowlist; no live upstream proxy
-is needed. No public endpoint is deployed, and this is not Android validation.
+is needed. That initial check was local; the later public CT publication and
+Android installation result are recorded below.
 
-All **192 host-only regression tests** pass, covering artifact/app checks,
+All **212 host-only regression tests** pass, covering artifact/app checks,
 overlays, patch guards, probe/CT handling and fixture configuration. Wrong-certificate and corrupted-
 payload checks fail closed. Native/Java extracted-function tests also checked
 DNS wire names, record types and nonce behavior without network traffic.
@@ -120,45 +123,33 @@ failed-read and expected app-negative-test audit records remain preserved; the
 repaired device check passed in a separate recorded log window. The offline VM
 was stopped and its packet capture retained, not presented as a no-Google pass.
 
-## Connected candidate and next gates
+## Latest connected result and next gates
 
-The [second connected candidate](2026-09-07-connected-candidate.md), producer
-`e65e656`, booted with the signed WebView 152 package selected normally. P4/P5
-passed; the revised ordinary WebView probe passed JavaScript, real HTTPS 204,
-normal local-network permission approval and wrong-host TLS rejection. Safe
-Browsing initialization truthfully returned false. The 45,111-packet window
-observed only owned guest service destinations, local multicast and the explicit
-public TCP control, with zero kernel-reported drops. Both VM and fixture stopped
-cleanly. **This is not a complete no-Google pass.**
+The [public-CT candidate](2026-09-07-public-ct-runtime.md), producer
+`09d890f00e9eca90538287d72e03c4d6f9294885`, built and booted under ARM64 QEMU/TCG.
+All five CT downloads succeeded without retries; Android verified and installed
+v2 89.30 and v3 90.5. Normal shell reads confirmed both current links and exact
+published file hashes. CT permissions, signatures, allowlist and scheduling were
+unchanged. The original private-endpoint and version-assumption failures remain.
 
-1. Resolve CT update delivery. The enabled CT service's alarm ran, but Android's
-   DownloadProvider retries/timeouts prevented fetching even the public key from
-   the private fixture. Its missing local-network permission is relevant evidence,
-   not a proven root cause. A protected-broadcast trigger was denied; no root or
-   permission workaround was used. Establish a successful delivery path without
-   weakening Android. The owner authorized the [public CT Pages fixture](2026-09-07-public-ct-fixture.md)
-   at `ct.probe.andrix.org`. HTTPS is now enforced: all five downloaded bodies
-   matched and passed the original signatures, key allowlist and age checks,
-   using the built Android CA bundle. Real private/public resolver separation
-   passed. The frozen image still requests the old private prefix; publication
-   is not Android download/install proof. No image, private key, permission or
-   public listener on the build/signing host was changed by publication.
-   The owner has authorized the [next Android comparison](2026-09-07-public-ct-runtime.md):
-   current source changes only the CT prefix to the public host; a new image
-   and fresh captured boot are being prepared. No installation pass is assumed.
-2. Complete remaining runtime/config-trust, recovery, update and rollback checks.
-   The three-APK checker and exact image imports passed. The compiled ConfigInfo
-   digest and fail-closed PackageManager gate were inspected; full negative/runtime
-   coverage is still separate. Normal SafeMode and security services remain.
-   Default builds retain WebView 145; the new provider is an explicit candidate
-   opt-in, not a production signing/update decision.
-3. Keep qualifying actual network profiles, rather than infer them from config
-   renderers. Connected IPv4, owned DNS/DoT/NTP/TLS, host security-data expiry and
-   the owner DSU catalogue have observations. IPv6 Internet, other carrier
-   configurations and every conditional app path are not thereby cleared.
-4. Complete P3 before a supported runtime/release claim, then native ARM64/KVM,
-   native P4/P5 and P6. Use available hardware; no new rental, purchase, phone port,
-   substituted artifact or relaxed Android policy follows from emulated success.
+APEX/read-only `/usr`, ordinary-app isolation and the WebView JS/HTTPS/hostname
+negative passed again, including ordinary permission approval and uninstall.
+Safe Browsing initialization remains false/unavailable. The 36,109-packet
+capture observed only owned guest service destinations, local multicast and
+public CT delivery, with zero kernel-reported drops. IPv6 was local/loopback only.
+Both VM and fixture stopped cleanly. **This is bounded connected evidence, not a
+complete no-Google or native-runtime qualification.**
+
+1. Complete remaining WebView config-signer negative, recovery, coordinated
+   update and rollback checks. Default builds retain WebView 145; the signed 152
+   provider remains an explicit experiment, not a production promotion.
+2. Qualify conditional/manual app and other carrier/network paths. DSU and
+   attestation snapshot delivery is not replaced by CT-data proof. IPv6 Internet
+   and every supported endpoint profile remain untested.
+3. Complete P3 before a supported runtime/release claim, then native ARM64/KVM,
+   native P4/P5 and P6 using available hardware. No new rental, purchase, phone
+   port, substituted artifact or relaxed Android policy follows from emulated
+   success. The accepted architecture and signing/update ownership still apply.
 
 Caiman, package composition, owner writable layout, tools, daemons, agents,
 UI and a package manager remain outside this first proof. The accepted

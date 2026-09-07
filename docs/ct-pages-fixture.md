@@ -17,7 +17,7 @@ HTTPS/body/signature verification and the preserved initial provisioning failure
   No wildcard, parent `probe.andrix.org`, apex or `.dev` record change.
 - Deployment root has `CNAME`, `.nojekyll` and `.gitattributes` preventing text
   conversion or content filters. No Git LFS, Jekyll transformation or analytics.
-- Initial data: version 89.30, the same verified public snapshot used in the
+- Initial data: v2 version 89.30 and v3 version 90.5, the same public snapshot used in the
   private fixture. Both original signatures, public key and client allowlist
   remain unchanged. The snapshot is not re-signed or reserialized.
 
@@ -87,3 +87,8 @@ allowlisted signature verification and log-list installation without permission
 grants to the system downloader, protected-broadcast bypasses, direct data
 injection or CT disablement. Public IPv6 availability also does not prove IPv6
 reachability on the earlier IPv4-only fixture profile.
+
+The [new Android comparison](../plans/2026-09-07-public-ct-runtime.md) subsequently
+verified actual v2/v3 installation. Its observer exposed the formats' independent
+versions; old top-level manifest version/timestamp metadata describes v2 only.
+New staging records both formats without changing the signed payloads.
