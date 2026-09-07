@@ -31,6 +31,15 @@ class FixtureServiceConfigTests(unittest.TestCase):
         self.assertNotIn('makestep',ntp)
         self.assertNotIn('google',dns+ntp)
 
+    def test_public_ct_host_is_not_caught_by_private_parent_redirect(self):
+        dns = fixture.render(**self.settings())['unbound.conf']
+        self.assertIn('local-zone: "probe.andrix.org." redirect', dns)
+        self.assertIn('local-data: "probe.andrix.org. 60 IN A 192.168.240.1"', dns)
+        self.assertEqual(dns.count('local-zone: "ct.probe.andrix.org." always_transparent'), 1)
+        self.assertNotIn('local-data: "ct.probe.andrix.org.', dns)
+        self.assertNotIn('github.io', dns)  # Resolve public DNS; do not pin Pages addresses.
+        self.assertNotIn('forward-addr:', dns)
+
     def test_public_or_unspecified_exposure_rejected(self):
         for value in ('0.0.0.0','8.8.8.8','192.0.2.1','127.0.0.1','::'):
             args=self.settings();args['bind']=value
