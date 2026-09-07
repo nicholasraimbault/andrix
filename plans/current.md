@@ -22,9 +22,11 @@ is available.
   checkout failures were retained and recovered with a bounded serial retry.
 - The frozen `9eb0bd4` image used the recorded seven-file adaptation. Current
   source extends the digest-checked [network/product adaptation](../patches/android-17.0.0_r1/README.md)
-  to twelve files in eight projects after the first connected WebView candidate.
-  The new files address wallpaper app-link verification, DSU/attestation
-  endpoints and owner-selected maps. Their HEADs remain pinned; the manifest
+  to twelve files in eight projects for the frozen connected candidates.
+  The current [rollback-retention implementation](2026-09-07-rollback-retention.md)
+  adds five framework files: seventeen files in nine projects under qualification.
+  The earlier additions address wallpaper app-link verification, DSU/attestation
+  endpoints and owner-selected maps. Project HEADs remain pinned; the manifest
   alone does not describe an adapted
   build, and the exact patch revision plus candidate opt-in must be recorded.
 - Product: `andrix_cf_arm64_only_phone-cp2a-userdebug`, Android 17 REL/API 37,
@@ -162,8 +164,9 @@ and no observed Google guest destination; it is still not universal qualificatio
 1. Provide and qualify durable authenticated dependency availability for the
    whole rollback lifetime, including unattended/Watchdog recovery and pruning.
    The owner-mediated preparation/repair sequence works; a bare rollback record
-   does not pin its library graph. No production updater or retention mechanism
-   was introduced. Continue broader recovery/hardening and actual-version
+   does not pin its library graph. A five-file framework retention extension is
+   now implemented for qualification; it is not yet a runtime-proved or production
+   updater/retention claim. Continue broader recovery/hardening and actual-version
    migration checks. Vanadium152 is already the tested default provider; only
    the recipe remains opt-in, with unflagged builds retaining145. No promotion.
 2. Qualify conditional/manual app and other carrier/network paths. DSU and
