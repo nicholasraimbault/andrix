@@ -1,7 +1,7 @@
 # Pinned network and product adaptation
 
-These seven-file changes are limited to network endpoints with **no** supported
-resource/configuration hook and one product-scoped package omission in the exact
+These eight-file changes are limited to network endpoints with **no** supported
+resource/configuration hook and product-scoped package selection in the exact
 `android-17.0.0_r1` source. They are not a substitute source distribution or an
 unrelated platform fork.
 The official manifest/project HEADs remain at their pinned release commits;
@@ -11,6 +11,11 @@ no longer describes an image built with this adaptation.
 
 ## Changes and preserved behavior
 
+- The media-product leaf keeps the stock `webview` unless both the exact Andrix
+  Cuttlefish product and `ANDRIX_WEBVIEW_EXPERIMENT=true` are selected. The opt-in
+  supplies the separately signed experimental provider/library/config packages;
+  no stub, post-boot uninstall or silent provider replacement is used. Without
+  the opt-in, stock provider membership is unchanged.
 - The inherited handheld-product leaf omits `QuickSearchBox` only when
   `TARGET_PRODUCT` is `andrix_cf_arm64_only_phone`. Other products retain it,
   and no replacement search backend, dummy package or post-boot uninstall is
@@ -75,9 +80,12 @@ The helper checks manifest/project revisions, exact source/patch digests,
 contained paths, no staged/untracked/unrelated changes, and `git apply --check`
 before one application transaction. Known applied state is idempotent; partial
 or unexpected state fails closed. When extending a series, first verify and
-archive the previous applied series, reverse only that exact known patch, check
-its pristine state, then apply the new series. Do not bypass the partial-state
-guard or restore over unrelated work. Do not use `--reject`, force-sync, replace
+archive the previous applied series. For a replacement, reverse only that exact
+known patch, check its pristine state, then apply the new series. A strictly
+additive extension may instead modify only new files whose exact base bytes
+were checked, retain every old applied file, then verify the complete expanded
+series. Record that transition; do not bypass the partial-state guard or
+restore over unrelated work. Do not use `--reject`, force-sync, replace
 source revisions, or restore over unknown edits to make it pass. Preserve the
 first failure and inspect any failed post-application state.
 

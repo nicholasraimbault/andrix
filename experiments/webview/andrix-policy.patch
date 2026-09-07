@@ -1,0 +1,134 @@
+--- a/android_webview/nonembedded/java/src/org/chromium/android_webview/services/AwVariationsSeedFetcher.java
++++ b/android_webview/nonembedded/java/src/org/chromium/android_webview/services/AwVariationsSeedFetcher.java
+@@ -30,6 +30,7 @@
+ import org.chromium.base.version_info.Channel;
+ import org.chromium.base.version_info.VersionConstants;
+ import org.chromium.components.background_task_scheduler.TaskIds;
++import org.chromium.components.variations.FieldTrialSeedBuildflags;
+ import org.chromium.components.variations.firstrun.VariationsSeedFetcher;
+ import org.chromium.components.variations.firstrun.VariationsSeedFetcher.SeedFetchInfo;
+ import org.chromium.components.variations.firstrun.VariationsSeedFetcher.SeedInfo;
+@@ -220,6 +221,8 @@
+      * job.
+      */
+     public static void scheduleIfNeeded(boolean requireFastMode) {
++        // Apply the same build policy to ordinary and fast-recovery requests.
++        if (!FieldTrialSeedBuildflags.FIELDTRIAL_SEED_ENABLED) return;
+         JobScheduler scheduler = getScheduler();
+         if (scheduler == null) return;
+         boolean alreadyScheduled = handlePreviouslyScheduledJob(scheduler, requireFastMode);
+@@ -257,6 +260,7 @@
+     @VisibleForTesting
+     public static void scheduleJob(
+             JobScheduler scheduler, boolean requireFastMode, boolean requestPeriodicFastMode) {
++        if (!FieldTrialSeedBuildflags.FIELDTRIAL_SEED_ENABLED) return;
+         Context context = ContextUtils.getApplicationContext();
+         ComponentName thisComponent = new ComponentName(context, AwVariationsSeedFetcher.class);
+         PersistableBundle extras = new PersistableBundle(/* capacity= */ 2);
+@@ -460,6 +464,12 @@
+-
++
+     @Override
+     public boolean onStartJob(JobParameters params) {
++        // Also retire persisted jobs from an older package/configuration.
++        if (!FieldTrialSeedBuildflags.FIELDTRIAL_SEED_ENABLED) {
++            JobScheduler scheduler = getScheduler();
++            if (scheduler != null) scheduler.cancel(JOB_ID);
++            return false;
++        }
+         // If this process has survived since the last run of this job, mFetchTask could still
+         // exist. Either way, (re)create it with the new params.
+         mFetchTask = new FetchTask(params);
+--- a/android_webview/nonembedded/BUILD.gn
++++ b/android_webview/nonembedded/BUILD.gn
+@@ -130,6 +130,7 @@
+     "//components/metrics:metrics_java",
+     "//components/minidump_uploader:minidump_uploader_java",
+     "//components/variations/android:variations_java",
++    "//vanadium/chromium_src/components/variations/common_ext:buildflags_java",
+     "//third_party/android_deps:com_google_code_findbugs_jsr305_java",
+     "//third_party/android_deps:protobuf_lite_runtime_java",
+     "//third_party/androidx:androidx_annotation_annotation_java",
+--- a/vanadium/chromium_src/net/downstream/conn_checks/android/conn_checks_util.h
++++ b/vanadium/chromium_src/net/downstream/conn_checks/android/conn_checks_util.h
+@@ -7,7 +7,7 @@
+ namespace net::android {
+-
++
+ inline constexpr std::string_view kGrapheneOsDohProbeHostname =
+-    "connectivitycheck.grapheneos.network";
++    "probe.andrix.org";
+-
++
+ // Keep in sync with the OS counterpart settings value and name.
+ // GENERATED_JAVA_ENUM_PACKAGE: org.chromium.net.conn_checks
+--- a/vanadium/chromium_src/android_webview/browser_java_ext_deps.gni
++++ b/vanadium/chromium_src/android_webview/browser_java_ext_deps.gni
+@@ -7,6 +7,7 @@
+ # Three lines of code for minimizing conflicts in rebasing changes
+ browser_java_ext_full_path_deps = [
+   "//vanadium/chromium_src/android_webview/common/ext:feature_map_java",
++  "//vanadium/chromium_src/net/downstream/conn_checks/android:conn_checks_util_java",
+ ]
+ # Three lines of code for minimizing conflicts in rebasing changes
+ # Three lines of code for minimizing conflicts in rebasing changes
+--- a/android_webview/java/src/org/chromium/android_webview/AwContentsStatics.java
++++ b/android_webview/java/src/org/chromium/android_webview/AwContentsStatics.java
+@@ -102,11 +102,6 @@
+     }
+-
++
+     public static void setSafeBrowsingAllowlist(List<String> urls, Callback<Boolean> callback) {
+-        if (isSafeBrowsingCallbackStubbed()) {
+-            wrapCallback(callback).onResult(true);
+-            return;
+-        }
+-
+         String[] urlArray = urls.toArray(new String[urls.size()]);
+         if (callback == null) {
+             callback = CallbackUtils.emptyCallback();
+@@ -117,17 +112,7 @@
+     @SuppressWarnings("NoContextGetApplicationContext")
+     public static void initSafeBrowsing(Context context, final Callback<Boolean> callback) {
+         Callback<Boolean> wrapperCallback = wrapCallback(callback);
+-        if (isSafeBrowsingCallbackStubbed()) {
+-            wrapperCallback.onResult(true);
+-            return;
+-        }
+-
+         initSafeBrowsingInner(context, wrapperCallback);
+-    }
+-
+-    private static boolean isSafeBrowsingCallbackStubbed() {
+-        return org.chromium.android_webview.common.AwExtFeatureList
+-                .sWebViewStubSafeBrowsingCallback.isEnabled();
+     }
+-
++
+     public static Callback<Boolean> wrapCallback(final Callback<Boolean> callback) {
+--- a/vanadium/android_config/proto/host/java/src/app/vanadium/config/host/ConfigGeneratorImpl.kt
++++ b/vanadium/android_config/proto/host/java/src/app/vanadium/config/host/ConfigGeneratorImpl.kt
+@@ -482,22 +482,5 @@
+         addAllFlags(enabledJavalessRendererFlags)
+     }
+-
++
+-    configs += config {
+-        setSpec(spec {
+-            specTypesWithVersionBounds(
+-                specTypesList = listOf(SpecType.WEBVIEW),
+-                minVanadiumVersion = VanadiumVersion(major = 7977, minor = 55)
+-            )
+-        })
+-        addAllFlags(
+-            flags(
+-                flag {
+-                    flagName = "WebViewStubSafeBrowsingCallback"
+-                    flagType = FlagType.ENABLED_FEATURE
+-                }
+-            )
+-        )
+-    }
+-
+     return configs
+ }

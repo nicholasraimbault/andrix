@@ -20,10 +20,11 @@ is available.
 - All 1,084 project HEADs matched their release-tag commits at source review.
   No Lineage dependency, force sync or source substitution was used. The first
   checkout failures were retained and recovered with a bounded serial retry.
-- The new candidate additionally applies the explicit, digest-checked
-  [network/product adaptation](../patches/android-17.0.0_r1/README.md): seven
-  working-tree files in four AOSP projects. Their HEADs remain pinned, but the
-  manifest alone does not describe this build; the declared patch is required.
+- The frozen `9eb0bd4` image used the recorded seven-file adaptation. Current
+  source extends the digest-checked [network/product adaptation](../patches/android-17.0.0_r1/README.md)
+  to eight files in the same four projects for the opt-in WebView candidate.
+  Their HEADs remain pinned; the manifest alone does not describe an adapted
+  build, and the exact patch revision plus candidate opt-in must be recorded.
 - Product: `andrix_cf_arm64_only_phone-cp2a-userdebug`, Android 17 REL/API 37,
   device `andrix_cf_arm64_only`, sole ABI `arm64-v8a`.
   The initial recipe's `trunk_staging` selection reported `Baklava`, not `17`;
@@ -64,7 +65,7 @@ not evidence that the bind mount or executable works on a running system.
 The Cuttlefish-only early-init network module now sets RKP-only false and
 clears the remote-provisioning hostname using AOSP's supported no-endpoint
 handling. Its rebuilt image was inspected; the proof APEX is unchanged. The
-runtime effect of that action is not yet proved. No AOSP source, SELinux rule,
+offline emulated run observed the intended property values. No AOSP source, SELinux rule,
 trust store or signature-verification change was made for that control.
 
 The current complete candidate built successfully in 9:29 with overlay producer
@@ -101,7 +102,7 @@ and clean signal shutdown checks. The CT files retain the original signature
 and match the resource APK's unchanged key allowlist; no live upstream proxy
 is needed. No public endpoint is deployed, and this is not Android validation.
 
-All **146 host-only regression tests** pass, covering artifact/app checks,
+All **160 host-only regression tests** pass, covering artifact/app checks,
 overlays, patch guards, probe/CT handling and fixture configuration. Wrong-certificate and corrupted-
 payload checks fail closed. Native/Java extracted-function tests also checked
 DNS wire names, record types and nonce behavior without network traffic.
@@ -137,9 +138,12 @@ was stopped and its packet capture retained, not presented as a no-Google pass.
    [three-APK artifact checker](../scripts/proof/webview_artifacts.md) passed
    synthetic and real-tool fixture checks, not checks of Vanadium outputs.
    Compilation completed successfully on 2026-09-06 at 19:31:30 UTC. All three
-   original APK outputs are frozen; actual signer/manifest/native-payload and
-   ConfigInfo qualification remains pending. No new provider has been substituted
-   into the product. Production signing/update ownership,
+   original APK outputs are frozen. The original signed set and a six-file
+   source-policy derivative passed scoped APK signer/manifest/static-library/
+   ARM64 packaging checks. An [opt-in connected candidate](2026-09-06-no-google-candidate.md)
+   now has provider imports and a normal product-policy RRO; default builds
+   retain WebView 145. The candidate's image/runtime/config-consumption checks
+   remain pending, as do production signing/update ownership,
    network defaults, Safe Browsing callback semantics and runtime qualification
    remain unresolved. See the
    [network review](../docs/proof-network.md) for implemented controls and limits.

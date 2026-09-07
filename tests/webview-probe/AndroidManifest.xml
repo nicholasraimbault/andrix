@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.andrix.proof.webview"
+    android:versionCode="1"
+    android:versionName="1">
+    <uses-sdk android:minSdkVersion="37" android:targetSdkVersion="37" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Self-instrumentation only: no shared UID, privileged installation,
+         exported activity, platform signing, or product inclusion. -->
+    <application android:label="Disposable Andrix WebView probe"
+        android:allowBackup="false" android:testOnly="true"
+        android:hardwareAccelerated="true" android:usesCleartextTraffic="false">
+        <activity android:name=".ProbeActivity" android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+    </application>
+    <instrumentation android:name=".WebViewProbeInstrumentation"
+        android:targetPackage="dev.andrix.proof.webview"
+        android:functionalTest="true" android:handleProfiling="false" />
+</manifest>

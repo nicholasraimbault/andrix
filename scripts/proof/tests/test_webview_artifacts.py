@@ -31,6 +31,7 @@ PACKAGES = {"webview": "dev.example.webview", "library": "dev.example.trichromel
 NAMESPACE = "dev.example.shared"
 LIBRARY = "libfixturemonochrome.so"
 NATIVE = "lib/arm64-v8a/" + LIBRARY
+MARKER = "lib/arm64-v8a/libplaceholder.so"
 ANDROID = "http://schemas.android.com/apk/res/android"
 
 
@@ -337,18 +338,88 @@ class MetadataTests(HostOnly):
             with self.subTest(libraries=libraries), self.assertRaises(w.Failure):
                 w.check_relationships(records, DIGEST)
 
+    def test_relationship_never_counts_an_abi_marker_as_native_payload(self):
+        # Library-role archive checks already forbid this. Independently ensure
+        # relationship checks cannot use an ABI marker, even when named by metadata.
+        records = apk_records()
+        records["webview"]["metadata"]["webview_library"] = "libplaceholder.so"
+        records["library"]["archive"]["abi_markers"] = [{"path": MARKER}]
+        records["library"]["archive"]["native_abis"] = ["arm64-v8a"]
+        with self.assertRaisesRegex(w.Failure, "WebViewLibrary native payload missing"):
+            w.check_relationships(records, DIGEST)
+
 
 class ArchiveTests(HostOnly):
-    def check(self, entries=None):
-        return w.check_archive(io.BytesIO(archive_bytes(entries)))
+    def check(self, entries=None, **kwargs):
+        return w.check_archive(io.BytesIO(archive_bytes(entries)), **kwargs)
 
     def test_header_and_manifest_hashes_are_recorded(self):
         info = self.check()
         self.assertEqual(info["native_abis"], ["arm64-v8a"])
+        self.assertEqual(info["abi_markers"], [])
         self.assertEqual(info["native_libraries"][0]["sha256"], hashlib.sha256(elf_header()).hexdigest())
         self.assertEqual(self.check([("AndroidManifest.xml", struct.pack("<HHI", 3, 8, 8))])["native_abis"], [])
         self.check([("lib/", b""), ("lib/arm64-v8a/", b""),
                     ("AndroidManifest.xml", struct.pack("<HHI", 3, 8, 8)), (NATIVE, elf_header())])
+
+    def test_empty_webview_placeholder_is_an_abi_marker_not_a_native_library(self):
+        manifest = ("AndroidManifest.xml", struct.pack("<HHI", 3, 8, 8))
+        for libraries in ([], [(NATIVE, elf_header())]):
+            with self.subTest(with_payload=bool(libraries)):
+                info = self.check([manifest, (MARKER, b""), *libraries], role="webview")
+                self.assertEqual(info["abi_markers"], [{"path": MARKER, "size_bytes": 0,
+                                                      "sha256": hashlib.sha256(b"").hexdigest()}])
+                self.assertEqual(info["native_libraries"], [
+                    {"path": path, "size_bytes": len(content), "sha256": hashlib.sha256(content).hexdigest()}
+                    for path, content in libraries])
+                self.assertEqual(info["native_abis"], ["arm64-v8a"])
+
+    def test_placeholder_requires_explicit_webview_role(self):
+        entries = [("AndroidManifest.xml", struct.pack("<HHI", 3, 8, 8)), (MARKER, b"")]
+        for options in ({}, {"role": None}, {"role": "library"}, {"role": "config"},
+                        {"role": "WEBVIEW"}, {"role": "unknown"}):
+            with self.subTest(options=options), self.assertRaises(w.Failure):
+                self.check(entries, **options)
+
+    def test_placeholder_must_be_empty_even_if_it_contains_a_valid_elf_header(self):
+        manifest = ("AndroidManifest.xml", struct.pack("<HHI", 3, 8, 8))
+        for role in (None, *w.ROLES):
+            for content in (b"\0", b"not ELF", elf_header()):
+                with self.subTest(role=role, content=content), self.assertRaisesRegex(w.Failure, "ABI marker"):
+                    self.check([manifest, (MARKER, content)], role=role)
+
+    def test_placeholder_requires_exact_path_abi_and_regular_file(self):
+        manifest = ("AndroidManifest.xml", struct.pack("<HHI", 3, 8, 8))
+        for path in ("libplaceholder.so", "assets/libplaceholder.so", "lib/libplaceholder.so",
+                     "lib/arm64-v8a/nested/libplaceholder.so", "lib/armeabi-v7a/libplaceholder.so",
+                     "lib/x86_64/libplaceholder.so", "lib/arm64_v8a/libplaceholder.so",
+                     "lib/arm64-v8a/libPlaceholder.so", "lib/arm64-v8a/./libplaceholder.so",
+                     MARKER + "/"):
+            with self.subTest(path=path), self.assertRaises(w.Failure):
+                self.check([manifest, (path, b"")], role="webview")
+
+    def test_marker_does_not_exempt_other_native_payloads_from_elf_checks(self):
+        manifest = ("AndroidManifest.xml", struct.pack("<HHI", 3, 8, 8))
+        invalid = [b"", b"not ELF", elf_header()[:32]]
+        # ELF32, big-endian, ET_EXEC and x86_64 remain invalid under WebView permission.
+        for offset, value in ((4, 1), (5, 2), (16, 2), (18, 62)):
+            header = bytearray(elf_header())
+            header[offset] = value
+            invalid.append(bytes(header))
+        for content in invalid:
+            with self.subTest(content=content), self.assertRaisesRegex(w.Failure, "not ELF64"):
+                self.check([manifest, (MARKER, b""), (NATIVE, content)], role="webview")
+
+    def test_marker_does_not_bypass_manifest_or_zip_checks(self):
+        manifest = ("AndroidManifest.xml", struct.pack("<HHI", 3, 8, 8))
+        marker = (MARKER, b"")
+        symlink = zipfile.ZipInfo(MARKER)
+        symlink.create_system = 3
+        symlink.external_attr = 0o120777 << 16
+        for entries in ([marker], [("AndroidManifest.xml", b"<manifest/>"), marker],
+                        [manifest, marker, marker], [manifest, (symlink, b"")]):
+            with self.subTest(entries=entries), self.assertRaises(w.Failure):
+                self.check(entries, role="webview")
 
     def test_missing_text_truncated_manifest_duplicate_or_unsafe_paths(self):
         manifest = ("AndroidManifest.xml", struct.pack("<HHI", 3, 8, 8))
@@ -405,7 +476,9 @@ class RunnerTests(HostOnly):
         for role in w.ROLES:
             path = root / (role + "-input.apk")
             entries = [("AndroidManifest.xml", struct.pack("<HHI", 3, 8, 8))]
-            if role != "config":
+            if role == "webview":
+                entries.append((MARKER, b""))
+            elif role == "library":
                 entries.append((NATIVE, elf_header()))
             path.write_bytes(archive_bytes(entries))
             setattr(args, role + "_apk", path)
@@ -472,12 +545,42 @@ class RunnerTests(HostOnly):
             self.assertEqual(record["sha256"], hashlib.sha256(original[role]).hexdigest())
             self.assertEqual(record["signer_certificate_sha256"], DIGEST)
             self.assertEqual(record["metadata"]["package"], PACKAGES[role])
+            self.assertEqual(record["archive"]["abi_markers"],
+                             [{"path": MARKER, "size_bytes": 0, "sha256": hashlib.sha256(b"").hexdigest()}]
+                             if role == "webview" else [])
+            self.assertEqual([entry["path"] for entry in record["archive"]["native_libraries"]],
+                             [NATIVE] if role == "library" else [])
+            self.assertEqual(record["archive"]["native_abis"], ["arm64-v8a"] if role != "config" else [])
         for path in runner.evidence.glob("*.command.json"):
             record = json.loads(path.read_text())
             self.assertEqual(record["returncode"], 0)
             self.assertTrue(Path(str(path).replace(".command.json", ".stdout")).is_file())
             self.assertTrue(Path(str(path).replace(".command.json", ".stderr")).is_file())
         self.assertEqual(json.loads((runner.evidence / "summary.json").read_text()), runner.summary)
+
+    def test_runner_forbids_marker_in_library_and_config(self):
+        for role in ("library", "config"):
+            runner = self.make_runner()
+            entries = [("AndroidManifest.xml", struct.pack("<HHI", 3, 8, 8)), (MARKER, b"")]
+            if role == "library":
+                entries.append((NATIVE, elf_header()))
+            getattr(runner.args, role + "_apk").write_bytes(archive_bytes(entries))
+            with self.subTest(role=role), self.assertRaisesRegex(w.Failure, "ABI marker"):
+                self.run_fake(runner)
+            self.assertEqual(runner.summary["verdict"], "FAIL")
+
+    def test_webview_marker_does_not_replace_library_payload(self):
+        for filename, has_payload in ((LIBRARY, False), ("libplaceholder.so", True), ("libplaceholder.so", False)):
+            runner = self.make_runner()
+            outputs = {("webview", "xmltree"): xmltree("webview").replace(LIBRARY, filename)}
+            if not has_payload:
+                runner.args.library_apk.write_bytes(archive_bytes([
+                    ("AndroidManifest.xml", struct.pack("<HHI", 3, 8, 8))]))
+                outputs[("library", "badging")] = badging("library").replace("native-code: 'arm64-v8a'\n", "")
+            with self.subTest(filename=filename, has_payload=has_payload):
+                with self.assertRaisesRegex(w.Failure, "WebViewLibrary native payload missing"):
+                    self.run_fake(runner, outputs=outputs)
+                self.assertEqual(runner.summary["verdict"], "FAIL")
 
     def test_each_apk_must_have_the_expected_signer(self):
         for role in w.ROLES:

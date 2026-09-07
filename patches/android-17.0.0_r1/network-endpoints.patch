@@ -161,3 +161,20 @@ diff --git a/build/make/target/product/handheld_product.mk b/build/make/target/p
 +ifneq ($(TARGET_PRODUCT),andrix_cf_arm64_only_phone)
 +PRODUCT_PACKAGES += QuickSearchBox
 +endif
+diff --git a/build/make/target/product/media_product.mk b/build/make/target/product/media_product.mk
+index be88284af7..329055bded 100644
+--- a/build/make/target/product/media_product.mk
++++ b/build/make/target/product/media_product.mk
+@@ -22,6 +22,9 @@ $(call inherit-product, $(SRC_TARGET_DIR)/product/base_product.mk)
+-
++
+ # /product packages
++# Preserve the stock provider unless this exact experimental product opts in.
++ifneq ($(TARGET_PRODUCT):$(ANDRIX_WEBVIEW_EXPERIMENT),andrix_cf_arm64_only_phone:true)
+ PRODUCT_PACKAGES += \
+-    webview \
++    webview
++endif
+-
++
+ # Allowlist for packages included in media_product.mk

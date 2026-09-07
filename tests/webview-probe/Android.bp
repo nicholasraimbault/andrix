@@ -1,0 +1,12 @@
+// Optional, explicitly built/installed fixture; never a product package.
+android_test {
+    name: "AndrixWebViewProbe",
+    manifest: "AndroidManifest.xml",
+    srcs: ["src/**/*.java"],
+    sdk_version: "37",
+    min_sdk_version: "37",
+    target_sdk_version: "37",
+    // Existing disposable proof signer, NOT the platform certificate.
+    certificate: ":dev.andrix.usr.certificate",
+    auto_gen_config: false,
+}
