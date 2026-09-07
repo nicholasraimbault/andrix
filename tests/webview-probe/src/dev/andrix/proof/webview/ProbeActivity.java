@@ -1,7 +1,9 @@
 package dev.andrix.proof.webview;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
 import android.net.http.SslError;
 import android.os.Bundle;
 import android.os.Looper;
@@ -21,6 +23,8 @@ import org.json.JSONTokener;
 
 /** UI-thread-only WebView state machine. No JS bridge, external HTML, or TLS overrides. */
 public final class ProbeActivity extends Activity {
+    private static final String PERMISSION = "local_network_permission";
+    private static final int LOCAL_NETWORK_REQUEST = 37;
     private static final String LOCAL = "javascript_fetch";
     private static final String BAD = "wrong_host_tls";
     private static final String REJECTED = "wrong_host_tls_rejected";
@@ -41,8 +45,11 @@ public final class ProbeActivity extends Activity {
 
     private ProbeSession session;
     private WebView webView;
-    private String phase = "initialization";
+    private String phase = PERMISSION;
     private boolean attached;
+    private Integer initialPermissionState;
+    private boolean permissionRequested;
+    private boolean permissionCallbackReceived;
     private boolean webViewCreated;
     private boolean webViewDestroyed;
     private boolean cancellingSsl;
@@ -63,7 +70,7 @@ public final class ProbeActivity extends Activity {
         }
         session.activity = this;
         attached = true;
-        guarded(this::initialize);
+        guarded(this::requestLocalNetworkPermission);
     }
 
     private boolean active() {
@@ -86,6 +93,75 @@ public final class ProbeActivity extends Activity {
         void run() throws Exception;
     }
 
+    private void requestLocalNetworkPermission() {
+        initialPermissionState = checkSelfPermission(Manifest.permission.ACCESS_LOCAL_NETWORK);
+        session.record(PERMISSION, "point", "initial",
+                "permission", Manifest.permission.ACCESS_LOCAL_NETWORK,
+                "initial_state", initialPermissionState, "requested", false);
+        // This disposable run must observe a fresh, ordinary grant, not reuse a pre-grant.
+        require(initialPermissionState == PackageManager.PERMISSION_DENIED,
+                "Fresh probe requires initially denied ACCESS_LOCAL_NETWORK");
+        permissionRequested = true;
+        session.record(PERMISSION, "point", "request",
+                "permission", Manifest.permission.ACCESS_LOCAL_NETWORK,
+                "initial_state", initialPermissionState, "requested", true,
+                "request_code", LOCAL_NETWORK_REQUEST);
+        requestPermissions(new String[] {Manifest.permission.ACCESS_LOCAL_NETWORK},
+                LOCAL_NETWORK_REQUEST);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        if (!attached) {
+            super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+            return;
+        }
+        try {
+            super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+            require(Looper.myLooper() == Looper.getMainLooper(),
+                    "Permission callback is not on UI thread");
+            int finalState = checkSelfPermission(Manifest.permission.ACCESS_LOCAL_NETWORK);
+            boolean expected = active() && PERMISSION.equals(phase)
+                    && permissionRequested && !permissionCallbackReceived;
+            permissionCallbackReceived = true;
+            session.record(PERMISSION, "point", "callback",
+                    "permission", Manifest.permission.ACCESS_LOCAL_NETWORK,
+                    "initial_state", initialPermissionState, "final_state", finalState,
+                    "requested", permissionRequested, "callback_received", true,
+                    "request_code", requestCode,
+                    "permissions", permissions == null ? null : new JSONArray(permissions),
+                    "grant_results", grantResults == null ? null : new JSONArray(grantResults));
+            require(expected, "Unrequested, duplicate, late or out-of-order permission callback");
+            require(requestCode == LOCAL_NETWORK_REQUEST, "Wrong permission request code");
+            require(permissions != null && permissions.length == 1
+                    && Manifest.permission.ACCESS_LOCAL_NETWORK.equals(permissions[0]),
+                    "Cancelled or wrong permission callback: need ACCESS_LOCAL_NETWORK alone");
+            require(grantResults != null && grantResults.length == 1
+                    && grantResults[0] == PackageManager.PERMISSION_GRANTED,
+                    "Local-network permission denied, cancelled or malformed grant result");
+            require(finalState == PackageManager.PERMISSION_GRANTED,
+                    "ACCESS_LOCAL_NETWORK not granted by the platform after callback");
+            session.complete(PERMISSION);
+            phase = "initialization";
+            if (active()) {
+                initialize();
+            }
+        } catch (Throwable error) {
+            session.fail(phase, error);
+        }
+    }
+
+    private void recordFinalPermission() {
+        int finalState = checkSelfPermission(Manifest.permission.ACCESS_LOCAL_NETWORK);
+        session.record(PERMISSION, "point", "final",
+                "permission", Manifest.permission.ACCESS_LOCAL_NETWORK,
+                "initial_state", initialPermissionState, "final_state", finalState,
+                "requested", permissionRequested, "callback_received", permissionCallbackReceived);
+        require(session.failed.get() || (permissionRequested && permissionCallbackReceived
+                && finalState == PackageManager.PERMISSION_GRANTED),
+                "Local-network permission grant missing at cleanup");
+    }
+
     private void recordProvider(String point) {
         PackageInfo provider = WebView.getCurrentWebViewPackage();
         session.record("provider", "point", point,
@@ -97,6 +173,10 @@ public final class ProbeActivity extends Activity {
     }
 
     private void initialize() {
+        require("initialization".equals(phase) && permissionRequested && permissionCallbackReceived
+                && checkSelfPermission(Manifest.permission.ACCESS_LOCAL_NETWORK)
+                        == PackageManager.PERMISSION_GRANTED,
+                "WebView initialization requires the explicit local-network grant");
         recordProvider("before_initialization");
         webView = new WebView(this);
         webViewCreated = true;
@@ -314,6 +394,7 @@ public final class ProbeActivity extends Activity {
             session.fail(phase, new IllegalStateException("Activity destroyed before requested cleanup"));
         }
         releaseWebView();
+        cleanupCall(this::recordFinalPermission);
         cleanupCall(() -> super.onDestroy());
         session.record("cleanup", "activity_attached", true, "on_destroy_called", true,
                 "webview_created", webViewCreated, "webview_destroyed", webViewDestroyed);
