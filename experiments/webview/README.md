@@ -1,8 +1,10 @@
 # Isolated WebView build inputs
 
 The [approved experiment](../../plans/2026-09-06-webview-build-experiment.md)
-builds ARM64-only WebView/shared/config APKs outside the AOSP checkout. It does
-not register, install or release a new provider. `inputs.json` records the
+builds ARM64-only WebView/shared/config APKs outside the AOSP checkout. That build
+alone does not register, install or release a new provider. The subsequently
+[authorized candidate](../../plans/2026-09-06-no-google-candidate.md) adds an
+explicit product opt-in for testing these packages, not a supported release. `inputs.json` records the
 chosen upstream revisions, targets, experimental package identities, public
 signer fingerprint and frozen filter-input manifest hash. Private keys and raw
 build evidence are not repository inputs.
@@ -27,6 +29,10 @@ compiler success does not qualify the APKs or provider behavior.
 The [artifact checker](../../scripts/proof/webview_artifacts.md) verifies
 container signatures, actual manifest/static-library relationships and ARM64
 packaging. Its mocked regressions and a separate real-tool fixture run passed;
-those fixtures are deliberately not WebView providers. Compiled ConfigInfo
-trust, complete ELF/hardening analysis and actual experiment artifacts remain
-separate checks. No static result authorizes provider promotion or runtime use.
+those fixtures are deliberately not WebView providers. Both the original signed
+APK set and the six-file policy derivative passed the scoped actual-APK checks.
+The real Trichrome ABI marker is recorded separately from loadable ELF code.
+`policy-inputs.json` pins the derivative source changes; `candidate.json` pins the
+signed candidate APKs. Compiled ConfigInfo consumption, complete hardening and
+runtime behavior remain separate checks. No static result alone authorizes a
+supported provider release.

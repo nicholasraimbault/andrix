@@ -20,6 +20,7 @@ from ordinary_app import Failure, require, sha256
 
 ANDROID = "http://schemas.android.com/apk/res/android"
 ROLES = ("webview", "library", "config")
+WEBVIEW_ABI_MARKER = "lib/arm64-v8a/libplaceholder.so"
 # Stable Android public attribute IDs. Names alone are not the compiled identity.
 ATTR_IDS = {
     "name": 0x01010003, "value": 0x01010024,
@@ -298,9 +299,13 @@ def check_metadata(badging, xmltree, expected_package, role):
     return info
 
 
-def check_archive(apk):
-    """Stream/CRC-check entries; never extract. Header checks are not ELF qualification."""
-    libraries, manifest, names = [], None, set()
+def check_archive(apk, *, role=None):
+    """Stream/CRC-check entries; never extract. Header checks are not ELF qualification.
+
+    Only an explicit webview role permits Chromium's empty ARM64 ABI marker.
+    """
+    require(role is None or role in ROLES, "unknown APK archive role")
+    libraries, abi_markers, manifest, names = [], [], None, set()
     with zipfile.ZipFile(apk) as archive:
         for entry in archive.infolist():
             name = entry.filename
@@ -315,6 +320,7 @@ def check_archive(apk):
                         or (len(parts) >= 2 and parts[1] == "arm64-v8a"), "non-ARM64/mixed native ABI directory")
             if entry.is_dir():
                 require(entry.file_size == 0, "nonempty ZIP directory")
+                require(parts[-1] != "libplaceholder.so", "ABI marker must be a regular ZIP entry")
                 continue
             digest, header = hashlib.sha256(), b""
             with archive.open(entry) as source:
@@ -327,7 +333,13 @@ def check_archive(apk):
                         and struct.unpack_from("<I", header, 4)[0] == entry.file_size,
                         "AndroidManifest.xml is not a bounded binary XML container")
                 manifest = record
-            if name.startswith("lib/") or name.lower().endswith(".so") or header.startswith(b"\x7fELF"):
+            if parts[-1] == "libplaceholder.so":
+                # Chromium apkbuilder.py writes native_lib_placeholders as empty ZIP entries.
+                require(role == "webview" and name == WEBVIEW_ABI_MARKER
+                        and entry.file_size == 0 and not header,
+                        "ABI marker requires WebView role and exact empty " + WEBVIEW_ABI_MARKER)
+                abi_markers.append(record)
+            elif name.startswith("lib/") or name.lower().endswith(".so") or header.startswith(b"\x7fELF"):
                 require(re.fullmatch(r"lib/arm64-v8a/[A-Za-z0-9_.+-]+\.so", name), "native payload outside ARM64 lib directory")
                 require(len(header) == 64 and header[:7] == b"\x7fELF\x02\x01\x01"
                         and struct.unpack_from("<HHI", header, 16) == (3, 183, 1),
@@ -335,7 +347,8 @@ def check_archive(apk):
                 libraries.append(record)
     require(manifest is not None, "missing binary AndroidManifest.xml")
     return {"manifest": manifest, "native_libraries": sorted(libraries, key=lambda item: item["path"]),
-            "native_abis": ["arm64-v8a"] if libraries else []}
+            "abi_markers": sorted(abi_markers, key=lambda item: item["path"]),
+            "native_abis": ["arm64-v8a"] if libraries or abi_markers else []}
 
 
 def check_relationships(apks, expected):
@@ -345,6 +358,7 @@ def check_relationships(apks, expected):
     require(use["version"] == library["version"], "static-library version mismatch")
     require(use["certificate_sha256"] == apks["library"]["signer_certificate_sha256"] == expected,
             "static-library certificate pin/signer mismatch")
+    # ABI markers are not payloads; only validated native libraries can satisfy this.
     native_path = "lib/arm64-v8a/" + apks["webview"]["metadata"]["webview_library"]
     require(native_path in [entry["path"] for entry in apks["library"]["archive"]["native_libraries"]],
             "WebViewLibrary native payload missing from TrichromeLibrary APK")
@@ -423,7 +437,7 @@ class Runner:
                 apk = Path(record["snapshot_path"])
                 record["signer_certificate_sha256"] = signer_digest(self.command([
                     self.args.apksigner, "verify", "--verbose", "--print-certs", "--Werr", apk]), expected)
-                record["archive"] = check_archive(apk)
+                record["archive"] = check_archive(apk, role=role)
                 record["metadata"] = check_metadata(
                     self.command([self.args.aapt2, "dump", "badging", apk]),
                     self.command([self.args.aapt2, "dump", "xmltree", apk, "--file", "AndroidManifest.xml"]),

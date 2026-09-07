@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "status": "experimental_candidate_not_runtime_qualified",
+  "upstream": "inputs.json",
+  "policy": "policy-inputs.json",
+  "signer_der_sha256": "6c292164d3710a4fd44b91d90fd3a2c894fe4c6945dd41f52493ffb19389b5b3",
+  "apks": [
+    {
+      "name": "TrichromeLibrary64.apk",
+      "sha256": "b847a011309996de7edfd506439072b7f5649a114755240c9fcce6f64bdd9eca",
+      "size": 245808669
+    },
+    {
+      "name": "TrichromeWebView64.apk",
+      "sha256": "a233615084b23ca6b7ce62dd5c1c7f689ac469df3e37e5c4a3386ec17f098c44",
+      "size": 5190748
+    },
+    {
+      "name": "VanadiumConfig.apk",
+      "sha256": "be68cd41258ad786111f48c6624da0304505690ccb4d7cb7c26924e9e15b4fed",
+      "size": 11630751
+    }
+  ]
+}
