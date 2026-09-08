@@ -203,6 +203,15 @@ not real Chromium migrations or production-power-loss qualification.
    port, substituted artifact or relaxed Android policy follows from emulated
    success. The accepted architecture and signing/update ownership still apply.
 
-Caiman, package composition, owner writable layout, tools, daemons, agents,
-UI and a package manager remain outside this first proof. The accepted
-[architecture](../docs/architecture.md) is a requirement, not a shipping claim.
+Owner-requested [read-only caiman preparation](2026-09-08-caiman-readiness.md)
+now records the device-support gap: exact AOSP17r1 has no caimito product tree,
+and Google's fetched driver listing has no Android17 caiman package. A public
+GrapheneOS reference uses the same AOSP tag with separate device-generation and
+caimito6.1 kernel inputs; those are references, not adopted dependencies or a
+flashable Andrix target. Device/vendor/kernel selection and a specific flash
+still require their own decisions.
+
+Caiman implementation, package composition, owner writable layout, tools,
+daemons, agents, UI and a package manager remain outside this first proof.
+The accepted [architecture](../docs/architecture.md) is a requirement, not a
+shipping claim.
