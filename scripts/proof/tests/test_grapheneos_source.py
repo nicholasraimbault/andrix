@@ -4,6 +4,9 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
+import shlex
+import sys
 from pathlib import Path
 import subprocess
 import tempfile
@@ -48,6 +51,7 @@ class SourceTests(unittest.TestCase):
             return 0,((g.MANIFEST_COMMIT if args[-1].endswith('^{commit}') else g.TAG_OBJECT)+'\n').encode()
         if 'verify-tag' in args:return 0,b''
         if args[:1]==('diff',):return 0,b''
+        if args==('config','--null','--name-only','--get-regexp',r'^filter\.'):return 1,b''
         if args[:2]==('config','--get'):return 1,b''
         raise AssertionError((name,args))
 
@@ -70,7 +74,8 @@ class SourceTests(unittest.TestCase):
         self.assertEqual(self.inspect()['verdict'],'FAIL')
 
     def test_tracked_or_staged_dirty(self):
-        for args in [('diff','--name-only','HEAD','--'),('diff','--cached','--name-only','--')]:
+        for args in [('diff','--no-ext-diff','--no-textconv','--name-only','HEAD','--'),
+                     ('diff','--no-ext-diff','--no-textconv','--cached','--name-only','--')]:
             self.overrides={('p/one',args):(0,b'changed.java\n')}
             self.assertEqual(self.inspect()['verdict'],'FAIL')
 
@@ -150,3 +155,142 @@ class GitExecutionTests(unittest.TestCase):
             self.assertEqual(g.run(Path('/tmp/source'),'rev-parse','HEAD'),(0,b'yes'))
             args,kwargs=runner.call_args;self.assertEqual(args[0][:2],['git','--no-optional-locks'])
             self.assertEqual(kwargs['timeout'],120);self.assertIs(kwargs['stdin'],subprocess.DEVNULL)
+            self.assertIn('--no-lazy-fetch',args[0]);self.assertIn('--no-replace-objects',args[0])
+            self.assertIn('core.fsmonitor=false',args[0])
+            self.assertIn('core.hooksPath='+os.devnull,args[0])
+            self.assertEqual(kwargs['env']['GIT_ALLOW_PROTOCOL'],'')
+            self.assertEqual(kwargs['env']['GIT_CONFIG_GLOBAL'],os.devnull)
+
+    def test_inherited_git_environment_is_not_authority(self):
+        with mock.patch.dict(os.environ,{'GIT_DIR':'elsewhere','GIT_CONFIG_COUNT':'1',
+                                        'GIT_CONFIG_PARAMETERS':'injected','GIT_TRACE':'write-here',
+                                        'GIT_ALLOW_PROTOCOL':'ext','GIT_SSH_COMMAND':'callback'}):
+            env=g.git_environment()
+            for name in ['GIT_DIR','GIT_CONFIG_COUNT','GIT_CONFIG_PARAMETERS','GIT_TRACE','GIT_SSH_COMMAND']:
+                self.assertNotIn(name,env)
+            self.assertEqual(env['GIT_ALLOW_PROTOCOL'],'')
+            self.assertEqual(env['GIT_NO_LAZY_FETCH'],'1')
+            self.assertEqual(env['GIT_CONFIG_NOSYSTEM'],'1')
+
+
+class RealGitReadOnlyTests(unittest.TestCase):
+    """Only temporary local Git repositories; no Internet or active source edits."""
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
+        self.work=Path(self.tmp.name);self.repo=self.work/'repo';self.repo.mkdir()
+        self.fixture_git('init','-q')
+        self.fixture_git('config','user.name','nicholasraimbault')
+        self.fixture_git('config','user.email','11843674+nicholasraimbault@users.noreply.github.com')
+        (self.repo/'file.dat').write_bytes(b'committed\n')
+        (self.repo/'.gitattributes').write_text('file.dat filter=sentinel diff=sentinel\n')
+        self.fixture_git('add','.')
+        self.fixture_git('commit','-qm','Local read-only verifier fixture')
+
+    def fixture_git(self,*args):
+        return subprocess.run(['git','-C',str(self.repo),*args],env=g.git_environment(),
+                              check=True,capture_output=True,timeout=20).stdout
+
+    def snapshot(self):
+        # Content snapshots exclude access times, which reads may legitimately
+        # update. No Git command or clean filter is used to compute these hashes.
+        return {p.relative_to(self.repo).as_posix():g.digest(p.read_bytes())
+                for p in self.repo.rglob('*') if p.is_file() and not p.is_symlink()}
+
+    def sentinel(self,name):
+        marker=self.work/(name+'.ran');script=self.work/(name+'.py')
+        script.write_text('from pathlib import Path\nimport sys\n'
+                          'Path(sys.argv[1]).write_text("executed")\n'
+                          'sys.stdin.buffer.read()\n'
+                          'sys.stdout.buffer.write(b"committed\\n")\n')
+        return ' '.join(shlex.quote(str(x)) for x in [sys.executable,script,marker]),marker
+
+    def test_clean_filter_cannot_hide_changes_or_write(self):
+        command,marker=self.sentinel('clean')
+        self.fixture_git('config','filter.sentinel.clean',command)
+        (self.repo/'file.dat').write_bytes(b'changed contents\n')
+        before=self.snapshot()
+        with self.assertRaises(g.SourceError):g.check_tracked_clean(self.repo)
+        self.assertFalse(marker.exists());self.assertEqual(self.snapshot(),before)
+
+    def test_process_filter_fsmonitor_and_diff_commands_do_not_run(self):
+        markers=[]
+        for key in ['filter.sentinel.process','filter.sentinel.smudge',
+                    'diff.sentinel.command','diff.sentinel.textconv','core.fsmonitor']:
+            command,marker=self.sentinel(key.replace('.','-'));markers.append(marker)
+            self.fixture_git('config',key,command)
+        self.fixture_git('config','filter.sentinel.required','true')
+        before=self.snapshot()
+        g.check_tracked_clean(self.repo)
+        self.assertTrue(all(not x.exists() for x in markers))
+        self.assertEqual(self.snapshot(),before)
+        (self.repo/'file.dat').write_bytes(b'changed contents\n');before=self.snapshot()
+        with self.assertRaises(g.SourceError):g.check_tracked_clean(self.repo)
+        self.assertTrue(all(not x.exists() for x in markers))
+        self.assertEqual(self.snapshot(),before)
+
+    def test_unsafe_filter_override_key_fails_before_execution(self):
+        command,marker=self.sentinel('unsafe-name')
+        self.fixture_git('config','filter.unsafe=name.clean',command)
+        before=self.snapshot()
+        with self.assertRaisesRegex(g.SourceError,'Unsupported Git filter configuration key'):
+            g.check_tracked_clean(self.repo)
+        self.assertFalse(marker.exists());self.assertEqual(self.snapshot(),before)
+
+    def test_global_filter_and_git_injection_are_ignored(self):
+        command,marker=self.sentinel('global-filter')
+        config=self.work/'global.gitconfig'
+        subprocess.run(['git','config','--file',str(config),'filter.sentinel.clean',command],
+                       check=True,capture_output=True,timeout=10)
+        (self.repo/'file.dat').write_bytes(b'changed contents\n');before=self.snapshot()
+        with mock.patch.dict(os.environ,{'GIT_CONFIG_GLOBAL':str(config),
+                                        'GIT_CONFIG_COUNT':'1','GIT_CONFIG_KEY_0':'filter.sentinel.clean',
+                                        'GIT_CONFIG_VALUE_0':command}):
+            with self.assertRaises(g.SourceError):g.check_tracked_clean(self.repo)
+        self.assertFalse(marker.exists());self.assertEqual(self.snapshot(),before)
+
+    def test_pointer_is_not_materialization_and_expansion_fails_closed(self):
+        # No external LFS program is installed or invoked by this test.
+        pointer=(b'version https://git-lfs.github.com/spec/v1\n'
+                 b'oid sha256:'+b'0'*64+b'\nsize 42\n')
+        (self.repo/'file.dat').write_bytes(pointer)
+        self.fixture_git('add','file.dat');self.fixture_git('commit','-qm','Pointer fixture')
+        command,marker=self.sentinel('lfs-filter')
+        self.fixture_git('config','filter.sentinel.process',command)
+        self.fixture_git('config','filter.sentinel.required','true')
+        g.check_tracked_clean(self.repo)
+        (self.repo/'file.dat').write_bytes(b'materialized content is not validated here\n')
+        with self.assertRaises(g.SourceError):g.check_tracked_clean(self.repo)
+        self.assertFalse(marker.exists())
+
+    def test_missing_promisor_object_cannot_fetch_even_from_local_remote(self):
+        remote=self.work/'remote.git'
+        subprocess.run(['git','clone','-q','--bare',str(self.repo),str(remote)],
+                       env={**g.git_environment(),'GIT_ALLOW_PROTOCOL':'file'},
+                       check=True,capture_output=True,timeout=20)
+        oid=self.fixture_git('rev-parse','HEAD:file.dat').decode().strip()
+        blob=self.repo/'.git/objects'/oid[:2]/oid[2:];self.assertTrue(blob.exists())
+        self.fixture_git('config','core.repositoryformatversion','1')
+        self.fixture_git('config','extensions.partialClone','origin')
+        self.fixture_git('config','remote.origin.url',str(remote))
+        self.fixture_git('config','remote.origin.promisor','true')
+        self.fixture_git('config','remote.origin.partialCloneFilter','blob:none')
+        blob.unlink();before=self.snapshot()
+        with self.assertRaises(g.SourceError):g.run(self.repo,'cat-file','-p',oid)
+        self.assertEqual(self.snapshot(),before)
+        self.assertFalse(blob.exists());self.assertFalse((self.repo/'.git/FETCH_HEAD').exists())
+        # Positive control: the same fixture really can satisfy a lazy fetch.
+        # This deliberate local-file transfer is outside the verifier call.
+        control=subprocess.run(['git','-C',str(self.repo),'cat-file','-p',oid],
+                               env={**g.git_environment(),'GIT_NO_LAZY_FETCH':'0',
+                                    'GIT_ALLOW_PROTOCOL':'file'},capture_output=True,timeout=20)
+        self.assertEqual(control.returncode,0,control.stderr)
+        self.assertEqual(control.stdout,b'committed\n')
+        self.assertNotEqual(self.snapshot(),before)
+
+    def test_replace_refs_do_not_change_observed_objects(self):
+        original=self.fixture_git('rev-parse','HEAD:file.dat').decode().strip()
+        replacement=subprocess.run(['git','-C',str(self.repo),'hash-object','-w','--stdin'],
+                                   input=b'replacement\n',env=g.git_environment(),check=True,
+                                   capture_output=True,timeout=20).stdout.decode().strip()
+        self.fixture_git('replace',original,replacement)
+        self.assertEqual(g.run(self.repo,'cat-file','-p',original)[1],b'committed\n')

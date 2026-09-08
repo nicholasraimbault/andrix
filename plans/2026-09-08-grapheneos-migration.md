@@ -97,6 +97,19 @@ This is source authentication/revision/cleanliness evidence, not a full untracke
 or prebuilt-materialization audit, a compiler result or runtime qualification.
 The original AOSP tree and eighteen-file adaptation remain separate and unchanged.
 
+A delayed worker caveat prompted a further verifier correction after M2. In a real
+scratch Git repository, the original optional-locking-only profile executed a clean
+filter which wrote a marker and normalized modified bytes into a clean result.
+That defeats an unconditional read-only claim; it does not establish that the
+actual platform check executed such a callback. The corrected helper isolates Git
+configuration, disables external conversions/fsmonitor/hooks and lazy fetching,
+and rejects unsupported filtered forms rather than invoking LFS. Real callback and
+missing-promisor-object controls pass. All **1,108** projects and the signature were
+reverified under that profile; the full host suite now passes **244 tests**. No
+platform source, APEX, architecture or phone changes were needed. The original M1
+and M2 evidence remains sealed; private correction evidence
+`source-verifier-readonly-20260908T202514Z` seals 54 regular files.
+
 The source-sync procedure remains:
 
 - Sync into the isolated tree under the exclusive heavy-work lease with eight

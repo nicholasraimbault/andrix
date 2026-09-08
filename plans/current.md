@@ -8,7 +8,9 @@ four bounded exact-commit fetches and a full local-only sync completed the check
 The minimal ARM64-only `cur`/Android17/API37 product configures successfully, and a
 real official-build opt-in is rejected. Its first signed `/usr` APEX builds and
 passes both signatures, ARM64/Bionic/16KiB ELF checks and corruption negatives.
-No complete migrated image or runtime is qualified yet.
+No complete migrated image or runtime is qualified yet. A subsequent real-Git
+filter control corrected the source verifier's read-only boundary; all 1,108
+projects reverify with callbacks/lazy fetching disabled, and 244 host tests pass.
 glibc/Wayland implementation, production signing and phone flashing remain outside
 this preparation work.
 
