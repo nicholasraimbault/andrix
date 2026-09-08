@@ -8,8 +8,9 @@ environment.
 
 Andrix has adopted a pinned GrapheneOS-derived Android/Pixel base. The active
 [isolated migration trial](plans/2026-09-08-grapheneos-migration.md) has authenticated
-and initialized its first public source manifest; it has not built or booted a
-migrated image yet.
+and verified all 1,108 source-project revisions. Its minimal ARM64 product now
+builds a signed `/usr` APEX which passes signature, ELF and corruption checks.
+It has not qualified a complete migrated image or runtime yet.
 
 The preserved earlier baseline proves a tiny `andrix-hello` executable in a signed
 APEX exposed through read-only `/usr` on an ARM64-only direct-AOSP-17 Cuttlefish

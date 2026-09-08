@@ -59,11 +59,45 @@ used, without replacing account-wide trust files. Private evidence
 `grapheneos-migration-prep-20260908T162101Z` seals 26 review metadata files,
 excluding the authentication Git object store.
 
-**Only the manifest/Repo initialization is complete.** The 1,108-project source sync,
-GrapheneOS build and migrated runtime checks have not run. No AOSP checkout,
-existing Andrix prebuilt, production key or phone was modified by initialization.
+At M0, only manifest/Repo initialization was complete. No AOSP checkout, existing
+Andrix prebuilt, production key or phone was modified by initialization. Subsequent
+source and product-configuration results are recorded below; they do not establish
+a migrated runtime.
 
-## M1 — complete and verify public source
+## M1 — complete and verify public source: passed
+
+All **1,108** project HEADs match the authenticated manifest and passed tracked/
+staged-cleanliness checks. The manifest/tag/Repo pins are unchanged. This generated
+public manifest already omits the earlier AOSP Darwin-only entries; there are no
+three additional exclusions to subtract. `repo list -p` was not sufficient: it
+listed initialized metadata before four worktrees were populated.
+
+The first sync failed before network progress because the inherited temporary
+path exceeded Python multiprocessing's AF_UNIX socket limit. A short task-local
+`TMPDIR` fixed that without changing Repo, pins or sandboxing. The next eight-job
+sync completed 1,104 project HEADs, while four GitHub fetches expanded to full
+branch/tag histories. That owned process group was explicitly interrupted; its
+logs and missing terminal exit status are retained, not reported as a successful
+sync. The exact four commits were then fetched with bounded `--depth=1`,
+`--no-tags`, empty refmap and literal public URLs. All four succeeded. A full
+**local-only** Repo sync then completed with exit 0 in 226.887 seconds.
+Those four histories are shallow; their source revisions were not substituted.
+
+The [source verifier](../scripts/proof/grapheneos_source.md) rechecked the complete
+expected set and real SSH signature: `PASS_PINNED_SOURCE_HEADS`, 1,108/1,108.
+An early incomplete-control returned FAIL with 189 matching projects; a later
+in-progress inspection hit its caller's 180-second deadline and is not a pass.
+The verifier now preserves per-project observations in a line-buffered ledger.
+Its host tests and the product-source tests are included in **236 passing host
+tests**. A cancelled writer delivered no changed files; primary implemented and
+tested the verifier. No independent-review sign-off is claimed.
+
+Private evidence `grapheneos-source-sync-20260908T164326Z` seals 92 regular files.
+This is source authentication/revision/cleanliness evidence, not a full untracked
+or prebuilt-materialization audit, a compiler result or runtime qualification.
+The original AOSP tree and eighteen-file adaptation remain separate and unchanged.
+
+The source-sync procedure remains:
 
 - Sync into the isolated tree under the exclusive heavy-work lease with eight
   jobs and recorded storage/inode checks. Preserve original failures and use
@@ -77,17 +111,70 @@ existing Andrix prebuilt, production key or phone was modified by initialization
 
 ## M2 — attributable baseline and Andrix-minimal integration
 
-- Determine the initial ARM64 test/product configuration; do not silently substitute
-  GrapheneOS's documented x86 SDK emulator for ARM64 or claim Pixel kernel features
-  from Cuttlefish results.
+Prepared product `andrix_gos_cf_arm64_only_phone-cur-userdebug` uses the existing
+ARM64-only virtual board and the product-neutral Andrix APEX/init/`/usr` marker
+layer. It does **not** import the old Cuttlefish network/RKP/provider RRO choices or
+experimental WebView opt-in. Base platform source is unchanged; the separately
+cloned Andrix producer is `be031f983a80dc99ee132f82f7379333ac18c2a3`. Existing lab APEX
+keys were reused locally, without generating production keys or publishing private
+bytes. The tracked key-module file was compared, not overwritten; an initial
+no-overwrite guard stopped an incorrect assumption that it was an absent input.
+
+Real `envsetup`/`lunch` and dumpvars completed with exit 0: Android 17 REL/API 37,
+`arm64-v8a` only, `userdebug`, device `andrix_cf_arm64_only`. The selected shell
+release is `cur`; the pinned release map resolves its parent to `cp2a`. A first
+`TARGET_RELEASE` dumpvar was empty because the exact Make code deliberately clears
+that variable during setup queries; the corrected observer records the shell
+selection and generated release-config files instead. A real
+`OFFICIAL_BUILD=true` configuration attempt failed at the product's explicit guard.
+Those are product-configuration results, not a booted image.
+
+The first `dev.andrix.usr` build then **completed with exit 0**, eight jobs,
+1,271.119 seconds, ending `2026-09-08T19:56:52Z`. The build ran the host APEX,
+linker-config and APEX SELinux checks. The frozen artifact was independently
+checked with tools built from this new tree:
+
+- APEX SHA-256: `96a27a78175991582615743489602e9a94771042f5820181a38f14639769f6aa`.
+- Extracted hello SHA-256: `b0d1c7463bd31ff2e92cc39a9990eccaa9434e7f27c29d5548638ce8e77ab6df`.
+- APK container and AVB payload signatures verify against the existing lab keys.
+- Hello is AArch64 PIE, uses `/system/bin/linker64`, needs Android `libc.so`,
+  `libm.so`, `libdl.so`, and has at least 16 KiB LOAD alignment. Linker metadata exists.
+- A wrong expected container certificate, a corrupted signed container and an
+  independently corrupted payload all failed closed. In the payload negative,
+  the RSA footer remained valid but the data hashtree failed.
+
+The post-build base-source check observed 1,107 clean matching projects and one
+120-second `build/release` Git-diff timeout. That original FAIL remains; a bounded
+single-project recheck with the same contract passed in 3.552 seconds. No tracked
+source change or revision substitution was accepted. The separately cloned Andrix
+producer is clean; the old AOSP adaptation still passes its original digest guard.
+
+Private evidence `grapheneos-minimal-product-20260908T193006Z` seals 68 regular files.
+This establishes a configured minimal product and a signed/verified **APEX**, not a
+complete GrapheneOS-derived image, `/usr` activation, ordinary-app runtime isolation,
+network qualification or a Pixel build/flash. No owner userland/ABI/GUI was added.
+
+The untouched upstream Vanadium inputs in this anchor are **151.0.7922.137.0**,
+version code 792213734, Config 200—not the prior Andrix 152 experiment. The four
+ARM64/Config APK signatures verified against the same upstream certificate;
+version inspection and signatures do not prove provider/runtime behavior. The
+first signer invocation failed to find Java; the existing JDK25 wrapper succeeded,
+with the original failure retained. No old userdata is being downgraded or reused.
+
+Remaining integration gates:
+
+- Build a complete image for the prepared ARM64 test product; do not silently
+  substitute GrapheneOS's documented x86 SDK emulator or claim Pixel kernel
+  features from Cuttlefish results.
 - Establish the selected caiman vendor/firmware/kernel generation, rights and
   generated-file inventory before device builds. No reuse of Cuttlefish's kernel.
 - Keep a small explicit downstream patch set. The assessment's nine clean file
   context checks are not build or semantic approval. Reuse recovery fixes only
   after combined-source review; omit already-superseded QSB/Wallpaper/Contacts
   changes and rebase endpoint/product behavior deliberately.
-- Add the signed `/usr` proof APEX and optional test fixtures first. Do not start
-  general owner packages, glibc or a GUI platform during baseline migration.
+- Activate the verified `/usr` proof APEX in the new image and rerun the optional
+  test fixtures. Do not start general owner packages, glibc or a GUI platform
+  during baseline migration.
 - Reconcile Vanadium source/artifacts, package identities, configuration trust and
   updates. Do not layer duplicate providers or substitute an unchecked APK.
 

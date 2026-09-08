@@ -1,11 +1,16 @@
 # Current work
 
 **Active milestone:** [GrapheneOS-derived base — isolated migration trial](2026-09-08-grapheneos-migration.md).
-The owner adopted the sourcing change after the base assessment. The exact public
-`2026081300` manifest has been locally signature-verified and initialized in a
-separate directory; full source sync, migrated build and runtime qualification
-have not run. glibc/Wayland implementation, production signing and phone flashing
-are not authorized by this preparation step.
+The owner adopted the sourcing change after the base assessment. M1 now verifies
+all 1,108 project HEADs against the authenticated public `2026081300` manifest,
+with tracked/staged source clean. Original sync failures/interruption are retained;
+four bounded exact-commit fetches and a full local-only sync completed the checkout.
+The minimal ARM64-only `cur`/Android17/API37 product configures successfully, and a
+real official-build opt-in is rejected. Its first signed `/usr` APEX builds and
+passes both signatures, ARM64/Bionic/16KiB ELF checks and corruption negatives.
+No complete migrated image or runtime is qualified yet.
+glibc/Wayland implementation, production signing and phone flashing remain outside
+this preparation work.
 
 **Preserved proof baseline:** [Phase 1 on direct AOSP 17](2026-08-28-phase1-andrix-hello-aosp17.md).
 All existing image/runtime results below are from that earlier baseline, not a
@@ -225,8 +230,9 @@ owner has now approved. Public `2026081300` uses the same AOSP tag; nine of eigh
 current file patches pass non-skipped context checks, including all six recovery
 files. Native owner-domain integration, network/update identity and downstream
 maintenance still need real work. The architecture sourcing amendment is recorded;
-only a separate authenticated manifest/Repo initialization has run, not full source
-sync, migrated build or flash. Follow the new migration milestone's gates.
+M1 source verification is complete and the minimal M2 product has configured and
+built its verified signed APEX on that source. No complete migrated image/runtime
+or flash is qualified. Follow the new migration milestone's gates.
 
 Caiman implementation, package composition, owner writable layout, tools,
 daemons, agents, UI and a package manager remain unimplemented by the earlier proof.
