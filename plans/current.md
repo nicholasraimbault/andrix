@@ -211,6 +211,14 @@ caimito6.1 kernel inputs; those are references, not adopted dependencies or a
 flashable Andrix target. Device/vendor/kernel selection and a specific flash
 still require their own decisions.
 
+The owner-requested [GrapheneOS-base assessment](../docs/grapheneos-base-assessment.md)
+recommends a bounded migration trial for the Pixel-first direction. It uses public
+`2026081300` on the same AOSP tag; nine of eighteen current file patches pass
+non-skipped context checks, including all six recovery files. Native owner-domain
+integration, network/update identity and downstream maintenance still need real
+work. No source was imported, no image built and no architecture amendment or
+flash performed. Adoption remains an explicit next decision.
+
 Caiman implementation, package composition, owner writable layout, tools,
 daemons, agents, UI and a package manager remain outside this first proof.
 The accepted [architecture](../docs/architecture.md) is a requirement, not a
