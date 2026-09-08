@@ -35,10 +35,25 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def git_environment():
+    # Do not inherit alternate indexes/object stores, config injection, trace
+    # paths or external command settings. Repository-local configuration is
+    # still needed for Repo's worktree/object-store layout.
+    env = {key: value for key, value in os.environ.items() if not key.startswith('GIT_')}
+    env.update({'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull,
+                'GIT_ATTR_NOSYSTEM': '1', 'GIT_NO_LAZY_FETCH': '1',
+                'GIT_ALLOW_PROTOCOL': '', 'GIT_TERMINAL_PROMPT': '0'})
+    return env
+
+
 def run(cwd, *args, allowed=(0,)):
-    process = subprocess.run(['git', '--no-optional-locks', '-C', str(cwd), *args],
-                             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                             stderr=subprocess.PIPE, timeout=120)
+    process = subprocess.run(['git', '--no-optional-locks', '--no-lazy-fetch',
+                              '--no-replace-objects', '--no-pager', '-C', str(cwd),
+                              '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=' + os.devnull,
+                              '-c', 'core.attributesFile=' + os.devnull,
+                              '-c', 'gc.auto=0', '-c', 'maintenance.auto=false', *args],
+                             env=git_environment(), stdin=subprocess.DEVNULL,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
     if process.returncode not in allowed:
         raise SourceError('Git check failed: ' + process.stderr.decode(errors='replace').strip())
     return process.returncode, process.stdout
@@ -82,11 +97,43 @@ def parse_projects(data):
     return sorted(projects, key=lambda entry: entry['path'])
 
 
+def filter_overrides(path):
+    # Query configuration without invoking a filter. Disable every configured
+    # driver for the following diff operations, including required process
+    # filters. No persistent Git configuration is edited. As with the source
+    # itself, repository configuration must not change during this observation.
+    _, keys = run(path, 'config', '--null', '--name-only', '--get-regexp',
+                  r'^filter\.', allowed=(0, 1))
+    drivers = set()
+    for key in keys.split(b'\0'):
+        if not key:
+            continue
+        try:
+            text = key.decode('utf-8', errors='strict')
+        except UnicodeDecodeError as error:
+            raise SourceError('Unsupported Git filter configuration encoding') from error
+        prefix, separator, _ = text.rpartition('.')
+        if not separator or re.fullmatch(r'filter\.[A-Za-z0-9_.-]+', prefix) is None:
+            # In particular, '=' in a subsection cannot safely be represented
+            # as a command-line -c key=value override. Fail before any diff.
+            raise SourceError('Unsupported Git filter configuration key')
+        drivers.add(prefix)
+    args = []
+    for driver in sorted(drivers):
+        for setting in ('clean=', 'smudge=', 'process=', 'required=false'):
+            args.extend(['-c', driver + '.' + setting])
+    return args
+
+
 def check_tracked_clean(path):
-    for args in [('diff', '--name-only', 'HEAD', '--'),
-                 ('diff', '--cached', '--name-only', '--')]:
-        if run(path, *args)[1]:
-            raise SourceError('Tracked or staged changes in ' + str(path))
+    overrides = filter_overrides(path)
+    for args in [('diff', '--no-ext-diff', '--no-textconv', '--name-only', 'HEAD', '--'),
+                 ('diff', '--no-ext-diff', '--no-textconv', '--cached', '--name-only', '--')]:
+        if run(path, *overrides, *args)[1]:
+            # Expanded LFS content is deliberately not normalized by executing
+            # git-lfs. Unsupported filtered forms fail rather than widening the
+            # read-only check or accepting arbitrary normalized content.
+            raise SourceError('Tracked or staged changes with external filters disabled in ' + str(path))
 
 
 def check_selection(root):
@@ -170,6 +217,8 @@ def inspect(root, allowed_signers, progress=None):
             'manifest_sha256': MANIFEST_SHA256, 'tag_signature_verified': True,
             'trust_bootstrap': 'approved official-HTTPS allowed-signers input, not a phone identity audit',
             'repo_commit': REPO_COMMIT, 'selection': selection,
+            'git_execution_profile': 'isolated config; external conversions/hooks/fsmonitor and lazy fetch disabled',
+            'external_filter_normalization_performed': False,
             'declared_projects': len(projects), 'verified_projects': passed, 'projects': results,
             'untracked_files_audited': False, 'prebuilt_materialization_verified': False,
             'build_proved': False, 'runtime_proved': False}
