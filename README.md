@@ -6,10 +6,14 @@ environment.
 
 ## Status: early development
 
-The current milestone is to prove a tiny `andrix-hello` executable in a signed
-APEX exposed through read-only `/usr` on an ARM64-only direct-AOSP-17
-Cuttlefish image.
-The image and signed APEX build, and host-side artifact checks pass.
+Andrix has adopted a pinned GrapheneOS-derived Android/Pixel base. The active
+[isolated migration trial](plans/2026-09-08-grapheneos-migration.md) has authenticated
+and initialized its first public source manifest; it has not built or booted a
+migrated image yet.
+
+The preserved earlier baseline proves a tiny `andrix-hello` executable in a signed
+APEX exposed through read-only `/usr` on an ARM64-only direct-AOSP-17 Cuttlefish
+image. That image and signed APEX build, and host-side artifact checks pass.
 An [offline QEMU/TCG smoke test](plans/2026-09-06-qemu-smoke.md) has booted the
 ARM64 image on x86-64 and passed the signed APEX, read-only `/usr` and ordinary-app
 execution-boundary checks with SELinux enforcing. A subsequent
@@ -34,13 +38,17 @@ Do not flash a phone or treat the accepted design as verified runtime behavior.
 
 ## Repository scope
 
-This repository is the Andrix overlay placed at `vendor/andrix` in a separately
-pinned AOSP checkout. It does not contain the AOSP source tree, private signing
-keys, build images, credentials or raw lab captures. The current baseline is
-`android-17.0.0_r1`; the milestone records the exact source and proof gates.
+This repository contains the Andrix layer and proof tooling, historically placed
+at `vendor/andrix` in a separately pinned AOSP checkout. The approved migration
+follows an exact public GrapheneOS release while preserving that earlier checkout
+and evidence. This repository does not contain the full platform source tree,
+private signing keys, build images, credentials or raw lab captures. The migration
+anchor is GrapheneOS `2026081300`, based on `android-17.0.0_r1`; the milestone records
+source authentication, integration and proof gates.
 
 - [Current proof state and remaining work](plans/current.md)
-- [Phase 1 milestone](plans/2026-08-28-phase1-andrix-hello-aosp17.md)
+- [Active migration milestone](plans/2026-09-08-grapheneos-migration.md)
+- [Preserved direct-AOSP proof milestone](plans/2026-08-28-phase1-andrix-hello-aosp17.md)
 - [Accepted architecture and requirements](docs/architecture.md)
 - [Network preparation and outstanding controls](docs/proof-network.md)
 - [Contributor/agent context](AGENTS.md)

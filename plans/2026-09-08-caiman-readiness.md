@@ -2,6 +2,11 @@
 
 ## Scope and result
 
+This records the pre-migration inventory. The owner later adopted the
+[GrapheneOS-derived migration trial](2026-09-08-grapheneos-migration.md); no Pixel
+build or flash is implied by that sourcing decision. The observations below
+retain their original read-only scope.
+
 Read-only preparation for the owner's selected first physical development target,
 Pixel 9 Pro (`caiman`). No phone access, unlock, flash, bootloader-state change,
 vendor-package execution, source import, device build or large factory-image
@@ -13,9 +18,10 @@ buildable or flashable Andrix Pixel product.
 
 **Finding:** this is a device-support port, not simply enabling a product already
 present in `android-17.0.0_r1`. A bounded, separately pinned hardware-support layer
-must be selected and reviewed before implementation. Existing milestone rules do
-not authorize importing GrapheneOS/Lineage product inheritance or replacing the
-platform base merely because a reference exists.
+must be selected and reviewed before implementation. At this inventory checkpoint,
+the direct-AOSP milestone did not authorize importing GrapheneOS/Lineage product
+inheritance or replacing the platform base merely because a reference existed.
+The subsequent owner decision is recorded separately.
 
 ## Inspected facts
 

@@ -7,11 +7,19 @@ supported Andrix release yet. Live implementation and proof state belong in
 
 ## Foundation
 
-Andrix is direct AOSP 17 on Android's ACK/GKI kernel with the target modules
-and disclosed firmware required by the hardware. The target is ARM64 with one
-Android userspace and ABI using Bionic and Android's system linker. Android
-retains init, ART, Binder, SELinux, SurfaceFlinger, Package Manager, application
-identities, profiles and the phone runtime.
+Andrix's Android/Pixel platform follows an explicitly pinned public GrapheneOS
+Android 17 release and its reviewed Pixel support inputs, on Android's ACK/GKI
+kernel with the target modules and disclosed firmware required by the hardware.
+The target is ARM64 with one Android userspace and ABI using Bionic and Android's
+system linker. Android retains init, ART, Binder, SELinux, SurfaceFlinger, Package
+Manager, application identities, profiles and the phone runtime.
+
+Andrix maintains a small, attributable downstream layer for owner computing,
+network/release policy and independently verified fixes. The owner adopted this
+sourcing decision after the [base assessment](grapheneos-base-assessment.md);
+implementation proceeds through the [isolated migration trial](../plans/2026-09-08-grapheneos-migration.md).
+The earlier direct-AOSP checkout and proof results remain a separate preserved
+baseline, not evidence that the new base is already built or qualified.
 
 The owner Unix runs as native Android processes in this system. Official images
 and services operate independently of proprietary Google services and send

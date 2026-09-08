@@ -8,12 +8,13 @@ missing Pixel hardware layer on plain AOSP. It lets Andrix concentrate on its
 owner computing environment while following a coherent, maintained Android/Pixel
 platform rather than assembling selected security changes piecemeal.
 
-This is an assessment and proposed direction, **not adoption, a build result,
-security certification or flash approval**. The accepted architecture still says
-direct AOSP until the owner explicitly amends that sourcing decision. Android as
-the phone/APK platform, bounded ordinary owner processes, encrypted home, trusted
-read-only `/usr`, and explicit authority crossings do not need to be abandoned.
-Neither glibc nor Wayland implementation is adopted by changing the upstream base.
+The owner subsequently **adopted this sourcing recommendation**; the accepted
+[architecture](architecture.md) and [isolated migration trial](../plans/2026-09-08-grapheneos-migration.md)
+record that decision. This assessment is still **not a build result, security
+certification or flash approval**. Android as the phone/APK platform, bounded
+ordinary owner processes, encrypted home, trusted read-only `/usr`, and explicit
+authority crossings remain. Neither glibc nor Wayland implementation is adopted
+by changing the upstream base.
 
 ## Evidence and limits
 
@@ -208,9 +209,9 @@ constraints remain deliberate release decisions. The owner's locked daily-driver
 phone stays unchanged until a specific inspected image and restoration plan are
 approved.
 
-## Proposed decision and bounded next milestone
+## Adopted decision and bounded next milestone
 
-Suggested sourcing amendment, **only if adopted by the owner**:
+The owner accepted the following sourcing amendment after this assessment:
 
 > Andrix's Android/Pixel platform follows an explicitly pinned public GrapheneOS
 > release and its reviewed Pixel support inputs. Android platform components stay
@@ -221,7 +222,7 @@ Suggested sourcing amendment, **only if adopted by the owner**:
 The rest of the accepted owner/environment architecture is not replaced by this
 paragraph. A glibc ABI decision and GUI implementation remain separate.
 
-If approved, run one bounded isolated migration trial:
+The approved direction proceeds through a bounded isolated migration trial:
 
 1. Pin and authenticate the public source manifest and device/tool/kernel inputs;
    keep the existing AOSP checkout intact. Resolve vendor-input permissions before

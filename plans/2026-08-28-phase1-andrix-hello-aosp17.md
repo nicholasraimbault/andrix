@@ -1,7 +1,10 @@
 # Phase 1 — prove `andrix-hello` under `/usr` on direct AOSP 17
 
-This prepared milestone is a recipe, not execution authority. Live
-implementation and proof state are recorded in [current work](current.md).
+This is the preserved direct-AOSP proof milestone and its original source
+boundary, not authority for new source changes. The owner subsequently adopted a
+[GrapheneOS-derived migration trial](2026-09-08-grapheneos-migration.md). That decision
+does not rewrite the source pins or results recorded here. Live implementation and
+proof state are recorded in [current work](current.md).
 
 ## Goal and target scope
 

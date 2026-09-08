@@ -1,16 +1,24 @@
 # Current work
 
-**Active milestone:** [Phase 1 — prove `andrix-hello` under `/usr` on direct
-AOSP 17](2026-08-28-phase1-andrix-hello-aosp17.md).
+**Active milestone:** [GrapheneOS-derived base — isolated migration trial](2026-09-08-grapheneos-migration.md).
+The owner adopted the sourcing change after the base assessment. The exact public
+`2026081300` manifest has been locally signature-verified and initialized in a
+separate directory; full source sync, migrated build and runtime qualification
+have not run. glibc/Wayland implementation, production signing and phone flashing
+are not authorized by this preparation step.
 
-**Experimental; first emulated runtime checks passed.** The ARM64 image has
+**Preserved proof baseline:** [Phase 1 on direct AOSP 17](2026-08-28-phase1-andrix-hello-aosp17.md).
+All existing image/runtime results below are from that earlier baseline, not a
+GrapheneOS-derived image.
+
+**Experimental; first emulated runtime checks passed.** The earlier ARM64 image
 booted in an [offline QEMU/TCG smoke test](2026-09-06-qemu-smoke.md) on x86-64.
 Signed APEX activation, read-only `/usr` and the ordinary-app execution boundary
 passed there with SELinux enforcing. Native ARM64/KVM and complete no-Google
 network qualification remain unproved. No supported release or phone-installation
 image is available.
 
-## Pinned source
+## Preserved direct-AOSP source
 
 - Manifest provider: `https://android.googlesource.com/platform/manifest`.
 - Tag: `android-17.0.0_r1`, verified against the published AOSP release key.
@@ -212,14 +220,15 @@ flashable Andrix target. Device/vendor/kernel selection and a specific flash
 still require their own decisions.
 
 The owner-requested [GrapheneOS-base assessment](../docs/grapheneos-base-assessment.md)
-recommends a bounded migration trial for the Pixel-first direction. It uses public
-`2026081300` on the same AOSP tag; nine of eighteen current file patches pass
-non-skipped context checks, including all six recovery files. Native owner-domain
-integration, network/update identity and downstream maintenance still need real
-work. No source was imported, no image built and no architecture amendment or
-flash performed. Adoption remains an explicit next decision.
+recommended a bounded migration trial for the Pixel-first direction, which the
+owner has now approved. Public `2026081300` uses the same AOSP tag; nine of eighteen
+current file patches pass non-skipped context checks, including all six recovery
+files. Native owner-domain integration, network/update identity and downstream
+maintenance still need real work. The architecture sourcing amendment is recorded;
+only a separate authenticated manifest/Repo initialization has run, not full source
+sync, migrated build or flash. Follow the new migration milestone's gates.
 
 Caiman implementation, package composition, owner writable layout, tools,
-daemons, agents, UI and a package manager remain outside this first proof.
+daemons, agents, UI and a package manager remain unimplemented by the earlier proof.
 The accepted [architecture](../docs/architecture.md) is a requirement, not a
 shipping claim.
