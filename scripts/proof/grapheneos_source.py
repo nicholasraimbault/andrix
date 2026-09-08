@@ -7,7 +7,7 @@ selection, project revisions and tracked cleanliness, not prebuilt materializati
 compiler results, runtime or device security. See grapheneos_source.md.
 """
 import argparse
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 import json
 import os
@@ -130,7 +130,7 @@ def check_project(root, project):
         return {**project, 'verdict': 'FAIL', 'failure': str(error)}
 
 
-def inspect(root, allowed_signers):
+def inspect(root, allowed_signers, progress=None):
     root = root.resolve()
     allowed_signers = allowed_signers.resolve()
     if digest(allowed_signers.read_bytes()) != SIGNERS_SHA256:
@@ -155,8 +155,15 @@ def inspect(root, allowed_signers):
     selection = check_selection(root)
     projects = parse_projects(manifest)
     # Read-only checks, bounded to the same eight-job profile as source sync.
+    results = []
     with ThreadPoolExecutor(max_workers=8) as pool:
-        results = list(pool.map(lambda p: check_project(root, p), projects))
+        pending = [pool.submit(check_project, root, project) for project in projects]
+        for future in as_completed(pending):
+            result = future.result()
+            results.append(result)
+            if progress is not None:
+                progress(result)
+    results.sort(key=lambda project: project['path'])
     passed = sum(p['verdict'] == 'PASS' for p in results)
     return {'schema': 1, 'verdict': 'PASS_PINNED_SOURCE_HEADS' if passed == len(projects) else 'FAIL',
             'release': TAG, 'manifest_commit': MANIFEST_COMMIT, 'manifest_tag': TAG_OBJECT,
@@ -183,7 +190,9 @@ def main(argv=None):
             raise SourceError('Evidence directory must be outside source trees')
         evidence.mkdir(mode=0o700, parents=True, exist_ok=False)
         evidence_created = True
-        report = inspect(args.source_root, args.allowed_signers)
+        with (evidence / 'projects.jsonl').open('w', buffering=1) as ledger:
+            report = inspect(args.source_root, args.allowed_signers,
+                             progress=lambda row: ledger.write(json.dumps(row) + '\n'))
         (evidence / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
         print(json.dumps({key: value for key, value in report.items() if key != 'projects'}, indent=2))
         return 0 if report['verdict'] == 'PASS_PINNED_SOURCE_HEADS' else 1
