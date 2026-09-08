@@ -1,6 +1,10 @@
 # Current work
 
 **Active milestone:** [GrapheneOS-derived base — isolated migration trial](2026-09-08-grapheneos-migration.md).
+The owner approved the [complete ARM64 image and first offline boot](2026-09-08-grapheneos-first-boot.md).
+The full image/host-package build is running; no migrated guest has been launched
+or qualified yet. Host observers now have an explicit offline-core profile that
+preserves the old default RKP gate and makes no network-policy claim.
 The owner adopted the sourcing change after the base assessment. M1 now verifies
 all 1,108 project HEADs against the authenticated public `2026081300` manifest,
 with tracked/staged source clean. Original sync failures/interruption are retained;

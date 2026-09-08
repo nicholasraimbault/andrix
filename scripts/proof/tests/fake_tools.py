@@ -67,6 +67,8 @@ def fake_adb(root, case, args):
         properties.update(case.get("properties", {}))
         if args[2] not in properties:
             fail(f"unexpected property: {args!r}")
+        if case.get("property_status", {}).get(args[2], 0):
+            return case["property_status"][args[2]]
         print(properties[args[2]])
         return 0
     if args[:5] == ["shell", "toybox", "stat", "-c", "%d:%i"] and len(args) == 6:

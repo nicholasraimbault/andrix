@@ -23,6 +23,8 @@ HOST_ELF = HERE.parent / "host_elf.sh"
 USR = "/usr/bin/andrix-hello"
 APEX = "/apex/dev.andrix.usr/bin/andrix-hello"
 FACTORY = "/system_ext/apex/dev.andrix.usr.apex"
+GOS_FIXTURE_FP = ("Andrix/andrix_gos_cf_arm64_only_phone/andrix_cf_arm64_only:17/"
+                  "HOST_UNIT_FIXTURE/not-a-runtime:userdebug/test-keys")
 
 
 def apex_row(active="true", factory="true", path=FACTORY):
@@ -317,6 +319,90 @@ class DeviceCommandFlowUnitTests(unittest.TestCase):
         for overrides, message in cases:
             with self.subTest(overrides=overrides):
                 self.assert_failure(self.run_case(**overrides), message)
+
+    def run_offline_core(self, **overrides):
+        self.env["ANDRIX_DEVICE_PROFILE"] = "offline-core"
+        self.env["ANDRIX_EXPECTED_FINGERPRINT"] = GOS_FIXTURE_FP
+        self.env.setdefault("ANDROID_SERIAL", "host-unit-fixture-not-a-device")
+        properties = {
+            "ro.build.fingerprint": GOS_FIXTURE_FP,
+            "ro.product.name": "andrix_gos_cf_arm64_only_phone",
+            "remote_provisioning.hostname": "remoteprovisioning.googleapis.com",
+            "remote_provisioning.tee.rkp_only": "true",
+        }
+        properties.update(overrides.pop("properties", {}))
+        return self.run_case(properties=properties, **overrides)
+
+    def test_unknown_profile_fails_before_device_access(self):
+        self.env["ANDRIX_DEVICE_PROFILE"] = "skip-network"
+        self.assert_failure(self.run_case(), "unknown ANDRIX_DEVICE_PROFILE")
+        self.assertEqual(self.adb_calls, [])
+
+    def test_offline_core_requires_matching_family_and_explicit_serial(self):
+        self.env["ANDRIX_DEVICE_PROFILE"] = "offline-core"
+        self.env["ANDROID_SERIAL"] = "host-unit-fixture-not-a-device"
+        self.assert_failure(self.run_case(), "requires the GrapheneOS ARM64 proof fingerprint")
+        self.assertEqual(self.adb_calls, [])
+        self.env["ANDRIX_EXPECTED_FINGERPRINT"] = GOS_FIXTURE_FP
+        self.env.pop("ANDROID_SERIAL")
+        self.assert_failure(self.run_case(), "explicit ANDROID_SERIAL")
+        self.assertEqual(self.adb_calls, [])
+
+    def test_migration_product_cannot_accidentally_claim_legacy_rkp_policy(self):
+        self.env["ANDRIX_EXPECTED_FINGERPRINT"] = GOS_FIXTURE_FP
+        self.assert_failure(self.run_case(), "requires explicit offline-core scope")
+        self.assertEqual(self.adb_calls, [])
+
+    def test_offline_core_records_rkp_without_policy_pass(self):
+        for host, only in [("remoteprovisioning.googleapis.com", "true"), ("", "false")]:
+            with self.subTest(host=host, only=only):
+                result = self.run_offline_core(properties={
+                    "remote_provisioning.hostname": host,
+                    "remote_provisioning.tee.rkp_only": only,
+                })
+                self.assertEqual(result.returncode, 0, self.diagnostic(result))
+                self.assertIn("PASS: /usr is a read-only mount", result.stdout)
+                self.assertIn("SCOPE: offline-core only; network and RKP policy are not qualified", result.stdout)
+                self.assertIn("INFO: observed RKP", result.stdout)
+                self.assertNotIn("PASS: remote provisioning", result.stdout)
+                self.assertIn(["pull", FACTORY], [call[:2] for call in self.adb_calls])
+
+    def test_offline_core_requires_product_identity(self):
+        result = self.run_offline_core(properties={"ro.product.name": "andrix_cf_arm64_only_phone"})
+        self.assert_failure(result, "offline-core product identity differs")
+        self.assertFalse(any(call[0] in ("pull", "exec-out") for call in self.adb_calls))
+
+    def test_property_read_failures_are_not_observations(self):
+        for prop in ("ro.product.name", "remote_provisioning.hostname", "remote_provisioning.tee.rkp_only"):
+            with self.subTest(prop=prop):
+                result = self.run_offline_core(property_status={prop: 1})
+                self.assert_failure(result, "cannot read")
+                self.assertFalse(any(call[0] in ("pull", "exec-out") for call in self.adb_calls))
+        self.env.pop("ANDRIX_DEVICE_PROFILE")
+        self.env["ANDRIX_EXPECTED_FINGERPRINT"] = "host-unit-fixture/not-a-runtime-fingerprint"
+        self.assert_failure(self.run_case(property_status={"remote_provisioning.hostname": 1}),
+                            "cannot read remote provisioning properties")
+
+    def test_offline_core_keeps_all_core_oracles(self):
+        cases = (
+            ({"properties": {"ro.build.fingerprint": "wrong"}}, "fingerprint does not match"),
+            ({"properties": {"ro.product.cpu.abilist": "arm64-v8a,armeabi-v7a"}}, "not ARM64-only"),
+            ({"bad_apex_hash": True}, "factory APEX differs"),
+            ({"apex_xml": apex_xml(apex_row(factory="false"))}, "not an active factory APEX"),
+            ({"bad_elf_hash": USR}, "differs from bin/andrix-hello"),
+            ({"bad_elf_hash": APEX}, "differs from bin/andrix-hello"),
+            ({"stats": {APEX: "42:5678"}}, "not the same mounted file"),
+            ({"mountinfo": "100 99 7:1 / /usr rw - ext4 /dev/fixture rw"}, "not read-only"),
+            ({"etc_target": "/foreign/etc"}, "not Android's /system/etc symlink"),
+            ({"os_release": "ID=debian\n"}, "/etc/os-release"),
+            ({"enforcing": "Permissive"}, "want Enforcing"),
+            ({"hello": {USR: {"exit_status": 7}}}, "exact andrix-hello output mismatch"),
+            ({"logcat": "avc: denied { execute } path=/usr/bin/andrix-hello\n"}, "relevant SELinux denials"),
+            ({"logcat_status": 1}, "cannot retrieve device logs"),
+        )
+        for overrides, message in cases:
+            with self.subTest(overrides=overrides):
+                self.assert_failure(self.run_offline_core(**overrides), message)
 
 
 if __name__ == "__main__":
