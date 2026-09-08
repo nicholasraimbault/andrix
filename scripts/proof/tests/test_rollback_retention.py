@@ -16,7 +16,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
 NAMES = ('Rollback.java', 'RollbackStore.java', 'RollbackManagerServiceImpl.java',
-         'RollbackManagerInternal.java', 'DeletePackageHelper.java')
+         'RollbackManagerInternal.java', 'DeletePackageHelper.java', 'AtomicFile.java')
 
 
 def sources():
@@ -71,7 +71,9 @@ class RetentionSourceTests(unittest.TestCase):
         self.assertGreaterEqual(rms.count('attachRollbackStateCallbacks();'), 2)
         self.assertIn('awaitResult(() -> {\n            mRollbacks.addAll(mRollbackStore.loadRollbacks());', rms)
         model = self.src['Rollback.java']
-        self.assertIn('mRestoreUserDataInProgress = true;\n            setState(ROLLBACK_STATE_COMMITTED', model)
+        self.assertIn('persistCommitState(ROLLBACK_STATE_COMMITTED, true, parentSessionId', model)
+        self.assertLess(model.index('if (!persistCommitState(ROLLBACK_STATE_COMMITTED, true'),
+                        model.index('parentSession.commit(receiver.getIntentSender())'))
         self.assertIn('notifyStateChanged();', model)
         self.assertIn('getStaticSharedLibraryDependencies()', model)
 
@@ -88,7 +90,7 @@ class RetentionSourceTests(unittest.TestCase):
         self.assertIn('dataJson.has("staticSharedLibraryDependencies")', store)
         self.assertIn('dataJson.getJSONArray("staticSharedLibraryDependencies")', store)
         self.assertNotIn('optJSONArray("staticSharedLibraryDependencies")', store)
-        self.assertIn('file.finishWrite(fos);\n            return true;', store)
+        self.assertIn('file.finishWriteOrThrow(fos);\n            return true;', store)
         self.assertIn('return false;', store)
 
     def test_pm_chokepoint_keeps_exact_version_and_rechecks(self):
@@ -121,6 +123,7 @@ class RetentionSourceTests(unittest.TestCase):
             'public boolean isStaticSharedLibraryRequired(',
             'private void updateStaticSharedLibraryRetention(',
             'private void attachRollbackStateCallbacks(',
+            'private void onRollbackStateChanged(',
             'private Set<VersionedPackage> readStaticSharedLibraryDependencies('))
         parser = method(store, 'static Set<VersionedPackage> staticSharedLibraryDependenciesFromJson(')
         guard = method(pm, 'private boolean isStaticLibraryRequiredForRollback(')
@@ -188,6 +191,9 @@ public class RetentionTrial {
  static final class Manager implements RollbackManagerInternal {
   final Thread owner=Thread.currentThread(); final List<Rollback> mRollbacks=new ArrayList<>();
   volatile Set<VersionedPackage> mRetainedStaticSharedLibraries=Collections.emptySet();
+  final Runnable mRunExpiration=()->{};boolean mRunningExpiration;
+  static class Handler {void removeCallbacks(Runnable r){}void postDelayed(Runnable r,long delay){}}
+  Handler getHandler(){return new Handler();}
   void assertInWorkerThread(){check(Thread.currentThread()==owner);}
   /*MANAGER*/
  }

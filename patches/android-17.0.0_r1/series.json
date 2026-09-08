@@ -118,17 +118,17 @@
         {
           "path": "services/core/java/com/android/server/rollback/Rollback.java",
           "base_sha256": "164e05c94af53b5fd3eb5a3b3a9f9c914afa8b5d5123c4b2ddacc8ba05b9fe98",
-          "patched_sha256": "7559db497394c82d0d3b5503ae95e7e87600fe386c8bfb3b44f2140807114fc6"
+          "patched_sha256": "11d15d61cd7ae12a0fa7f6e778d21b01ed84d93d8e75dc4bb44434b6c79070d5"
         },
         {
           "path": "services/core/java/com/android/server/rollback/RollbackStore.java",
           "base_sha256": "3638a6c30511010d3e4491ad586678a865cfb814144eda55cd45928db248ca62",
-          "patched_sha256": "e23e3c82402eaba3ced0d9d215c0bd6840a2cdf39c6977752ec2dddd4f96d239"
+          "patched_sha256": "c6d0110c40ffdb01e12392ee5c3e0f2d369008ae4a67f2687e98b4c9fe343a09"
         },
         {
           "path": "services/core/java/com/android/server/rollback/RollbackManagerServiceImpl.java",
           "base_sha256": "de61660579d2b44ce2706bd4aab14daa1906a72f54abed1d46ba26f0a52b8161",
-          "patched_sha256": "bcdcb399404fd3ee0e1c6d425a192ff5f31ea0546563c925ec10ac54f512cafe"
+          "patched_sha256": "fc8983cb191b59ab3bfedbd7021a02dd824eec1b437e5634bd41260dd97b67e2"
         },
         {
           "path": "services/core/java/com/android/server/rollback/RollbackManagerInternal.java",
@@ -139,10 +139,15 @@
           "path": "services/core/java/com/android/server/pm/DeletePackageHelper.java",
           "base_sha256": "fc4ca92ae647d8d26af35c465c6878a19ed4553156b0f6973b9fcd110cef6654",
           "patched_sha256": "d8422d5d62d8302240d55c24449010bcaa92f84935865408fce0a8d3de16a613"
+        },
+        {
+          "path": "core/java/android/util/AtomicFile.java",
+          "base_sha256": "f5274d87b59d3aaa53caaa018b4aa807046d58ecd755a717a6a100c714bdd1b9",
+          "patched_sha256": "6add51e5a4c062c2acabe1cbd2bae5a2d87a4e91ac7930ad964ff6a43a1c3721"
         }
       ]
     }
   ],
   "patch": "network-endpoints.patch",
-  "patch_sha256": "e03c69e1a4ccfcfe90992dc4119adc38a5da98ee2bb37d25067f9d43126c2b13"
+  "patch_sha256": "fe96650f06406d2cb2937f3e04dd82739fa0babf425300078e8c6635aefc7cf7"
 }
