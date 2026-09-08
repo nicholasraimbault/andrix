@@ -18,8 +18,9 @@ local manifest/group overrides, then checks each expected project's worktree,
 HEAD and staged/tracked cleanliness. Git optional locking is disabled; project
 checks are bounded to eight concurrent readers. Results go into a **new** evidence
 directory outside the project/source trees; an existing directory is never
-replaced. Inputs and errors can contain private operator paths; keep raw evidence
-outside public Git.
+replaced. A line-buffered `projects.jsonl` records each completed project check;
+an interrupted ledger is not a final PASS. Inputs and errors can contain private
+operator paths; keep raw evidence outside public Git.
 
 This public manifest already omits the old direct-AOSP Darwin `notdefault`
 projects. All **1,108** declarations belong to this M1 selection. Do not subtract
@@ -27,11 +28,12 @@ three from it because an older manifest had those exclusions. The parser rejects
 unexpected include/submanifest or excluded-group structures for this exact
 pinned generation. Advancing the generation requires an explicit pin review.
 
-`repo list -p` alone is not a completeness oracle: it can list only the worktrees
-already present. The primary observed 53 during an early sync and 1,108 with
-`repo list -a -p` / explicit default-Linux selection. This helper derives the whole
-expected set from the authenticated manifest and reports every missing project
-as failure, not as an excluded group.
+`repo list -p` alone is not a completeness oracle: it reflects initialized project
+metadata, not necessarily completed worktrees/HEADs. The primary observed 53 during
+an early sync, then all 1,108 while several large checkouts were still absent.
+`repo list -a -p` / explicit default-Linux selection exposes the intended set.
+This helper derives the whole expected set from the authenticated manifest and
+reports every missing project as failure, not as an excluded group.
 
 `PASS_PINNED_SOURCE_HEADS` means all declared projects match and tracked source is
 clean at observation. It **does not** audit untracked files, materialize/verify

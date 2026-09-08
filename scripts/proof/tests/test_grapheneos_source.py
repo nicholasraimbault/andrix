@@ -3,6 +3,7 @@
 import contextlib
 import importlib.util
 import io
+import json
 from pathlib import Path
 import subprocess
 import tempfile
@@ -130,6 +131,9 @@ class SourceTests(unittest.TestCase):
         evidence=Path(self.tmp.name)/'result';args=['--source-root',str(self.root),'--allowed-signers',str(self.signers),'--evidence-dir',str(evidence)]
         with contextlib.redirect_stdout(io.StringIO()):self.assertEqual(g.main(args),0)
         first=(evidence/'result.json').read_bytes()
+        rows=[json.loads(line) for line in (evidence/'projects.jsonl').read_text().splitlines()]
+        self.assertEqual({row['path'] for row in rows},{'p/one','p/two'})
+        self.assertTrue(all(row['verdict']=='PASS' for row in rows))
         with contextlib.redirect_stderr(io.StringIO()):self.assertEqual(g.main(args),1)
         self.assertEqual((evidence/'result.json').read_bytes(),first)
         bad=Path(self.tmp.name)/'bad';self.signers.write_text('bad')
