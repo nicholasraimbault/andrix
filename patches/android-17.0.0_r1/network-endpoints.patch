@@ -699,7 +699,12 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
 diff --git a/frameworks/base/services/core/java/com/android/server/rollback/RollbackManagerServiceImpl.java b/frameworks/base/services/core/java/com/android/server/rollback/RollbackManagerServiceImpl.java
 --- a/frameworks/base/services/core/java/com/android/server/rollback/RollbackManagerServiceImpl.java
 +++ b/frameworks/base/services/core/java/com/android/server/rollback/RollbackManagerServiceImpl.java
-@@ -40,6 +40,7 @@
+@@ -35,16 +35,17 @@
+ import android.content.pm.PackageManagerInternal;
+ import android.content.pm.ParceledListSlice;
+ import android.content.pm.VersionedPackage;
+ import android.content.pm.parsing.ApkLite;
+ import android.content.pm.parsing.ApkLiteParseUtils;
  import android.content.pm.parsing.result.ParseResult;
  import android.content.pm.parsing.result.ParseTypeImpl;
  import android.content.rollback.IRollbackManager;
@@ -707,7 +712,17 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
  import android.content.rollback.RollbackInfo;
  import android.content.rollback.RollbackManager;
  import android.os.Binder;
-@@ -61,7 +62,6 @@
+ import android.os.Environment;
+ import android.os.Handler;
+ import android.os.HandlerExecutor;
+ import android.os.HandlerThread;
+ import android.os.Process;
+@@ -56,17 +57,16 @@
+ import android.util.ArrayMap;
+ import android.util.Log;
+ import android.util.LongArrayQueue;
+ import android.util.Pair;
+ import android.util.Slog;
  import android.util.SparseBooleanArray;
  import android.util.SparseIntArray;
 
@@ -715,7 +730,17 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
  import com.android.internal.util.DumpUtils;
  import com.android.internal.util.IndentingPrintWriter;
  import com.android.internal.util.Preconditions;
-@@ -84,6 +84,7 @@
+ import com.android.server.LocalServices;
+ import com.android.server.PackageWatchdog;
+ import com.android.server.SystemConfig;
+ import com.android.server.Watchdog;
+ import com.android.server.pm.ApexManager;
+@@ -79,16 +79,17 @@
+ import java.lang.annotation.Retention;
+ import java.lang.annotation.RetentionPolicy;
+ import java.lang.annotation.Target;
+ import java.security.SecureRandom;
+ import java.time.Instant;
  import java.time.temporal.ChronoUnit;
  import java.util.ArrayList;
  import java.util.Arrays;
@@ -723,7 +748,17 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
  import java.util.HashSet;
  import java.util.Iterator;
  import java.util.List;
-@@ -155,6 +156,59 @@
+ import java.util.Map;
+ import java.util.Random;
+ import java.util.Set;
+ import java.util.concurrent.CompletableFuture;
+ import java.util.concurrent.ExecutionException;
+@@ -150,16 +151,69 @@
+     // Set of allocated rollback ids.
+     // Accessed on the handler thread only.
+     private final SparseBooleanArray mAllocatedRollbackIds = new SparseBooleanArray();
+
+     // The list of all rollbacks, including available and committed rollbacks.
      // Accessed on the handler thread only.
      private final List<Rollback> mRollbacks = new ArrayList<>();
 
@@ -783,7 +818,17 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
      private final RollbackStore mRollbackStore;
 
      private final Context mContext;
-@@ -201,8 +255,10 @@
+     private final Handler mHandler;
+     private final Executor mExecutor;
+     private final Installer mInstaller;
+     private final RollbackPackageHealthObserver mPackageHealthObserver;
+     private final AppDataRollbackHelper mAppDataRollbackHelper;
+@@ -196,30 +250,33 @@
+
+         // Kick off and start monitoring the handler thread.
+         HandlerThread handlerThread = new HandlerThread("RollbackManagerServiceHandler");
+         handlerThread.start();
+         mHandler = new Handler(handlerThread.getLooper());
          Watchdog.getInstance().addThread(getHandler(), HANDLER_THREAD_TIMEOUT_DURATION_MILLIS);
          mExecutor = new HandlerExecutor(getHandler());
 
@@ -796,7 +841,12 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
              mRollbacks.addAll(mRollbackStore.loadRollbacks());
              if (!context.getPackageManager().isDeviceUpgrading()) {
                  for (Rollback rollback : mRollbacks) {
-@@ -215,6 +271,7 @@
+                     mAllocatedRollbackIds.put(rollback.info.getRollbackId(), true);
+                 }
+             } else {
+                 // Delete rollbacks when build fingerprint has changed.
+                 for (Rollback rollback : mRollbacks) {
+                     deleteRollback(rollback, "Fingerprint changed");
                  }
                  mRollbacks.clear();
              }
@@ -804,7 +854,17 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
          });
 
          mUserBroadcastReceivers = new ArrayMap<>();
-@@ -500,8 +557,14 @@
+
+         UserManager userManager = mContext.getSystemService(UserManager.class);
+         for (UserHandle user : userManager.getUserHandles(true)) {
+             registerUserCallbacks(user);
+         }
+@@ -495,42 +552,63 @@
+     public void reloadPersistedData() {
+         assertNotInWorkerThread();
+         mContext.enforceCallingOrSelfPermission(
+                 Manifest.permission.TEST_MANAGE_ROLLBACKS,
+                 "reloadPersistedData");
 
          awaitResult(() -> {
              assertInWorkerThread();
@@ -819,7 +879,9 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
          });
      }
 
-@@ -511,7 +574,8 @@
+     @WorkerThread
+     private void expireRollbackForPackageInternal(String packageName, String reason) {
+         assertInWorkerThread();
          Iterator<Rollback> iter = mRollbacks.iterator();
          while (iter.hasNext()) {
              Rollback rollback = iter.next();
@@ -829,24 +891,46 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
                  iter.remove();
                  deleteRollback(rollback, reason);
              }
-@@ -525,7 +589,15 @@
+         }
+     }
+
+     @ExtThread
+     @Override
+     public void expireRollbackForPackage(String packageName) {
+         assertNotInWorkerThread();
          mContext.enforceCallingOrSelfPermission(
                  Manifest.permission.TEST_MANAGE_ROLLBACKS,
                  "expireRollbackForPackage");
 -        awaitResult(() -> expireRollbackForPackageInternal(packageName, "Expired by API"));
-+        awaitResult(() -> {
++        boolean expired = awaitResult(() -> {
 +            for (Rollback rollback : mRollbacks) {
 +                if (rollback.includesPackage(packageName)
 +                        && rollback.isRestoreUserDataInProgress()) {
-+                    throw new IllegalStateException("Rollback restore is still in progress");
++                    return false;
 +                }
 +            }
 +            expireRollbackForPackageInternal(packageName, "Expired by API");
++            return true;
 +        });
++        // awaitResult wraps worker exceptions. Throw the Binder-supported type
++        // here, on the Binder thread, instead of returning an unmarshalable wrapper.
++        if (!expired) {
++            throw new IllegalStateException("Rollback restore is still in progress");
++        }
      }
 
      @ExtThread
-@@ -627,13 +699,19 @@
+     @Override
+     public void blockRollbackManager(long millis) {
+         assertNotInWorkerThread();
+         mContext.enforceCallingOrSelfPermission(
+                 Manifest.permission.TEST_MANAGE_ROLLBACKS,
+@@ -622,53 +700,50 @@
+         getHandler().post(() -> {
+             assertInWorkerThread();
+             updateRollbackLifetimeDurationInMillis();
+             runExpiration();
+
              // Check to see if any rollback-enabled staged sessions or staged
              // rollback sessions been applied.
              List<Rollback> enabling = new ArrayList<>();
@@ -868,7 +952,15 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
                      continue;
                  }
 
-@@ -649,21 +727,12 @@
+                 PackageInstaller.SessionInfo session = mContext.getPackageManager()
+                         .getPackageInstaller().getSessionInfo(rollback.getOriginalSessionId());
+                 if (session == null || session.isStagedSessionFailed()) {
+                     if (rollback.isEnabling()) {
+                         iter.remove();
+                         deleteRollback(rollback, "Session " + rollback.getOriginalSessionId()
+                                 + " not existed or failed");
+                     }
+                     continue;
                  }
 
                  if (session.isStagedSessionApplied()) {
@@ -892,7 +984,17 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
              }
 
              for (String apexPackageName : apexPackageNames) {
-@@ -730,14 +799,86 @@
+                 // We will not receive notifications when an apex is updated,
+                 // so check now in case any rollbacks ought to be expired. The
+                 // onPackagedReplace function is safe to call if the package
+                 // hasn't actually been updated.
+                 onPackageReplaced(apexPackageName);
+@@ -725,37 +800,110 @@
+             fillIn.putExtra(RollbackManager.EXTRA_STATUS, status);
+             fillIn.putExtra(RollbackManager.EXTRA_STATUS_MESSAGE, message);
+             statusReceiver.sendIntent(context, 0, fillIn, null, null);
+         } catch (IntentSender.SendIntentException e) {
+             // Nowhere to send the result back to, so don't bother.
          }
      }
 
@@ -984,7 +1086,12 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
          }
      }
 
-@@ -750,7 +891,8 @@
+     @WorkerThread
+     private void runExpirationDefaultRollbackLifetime() {
+         getHandler().removeCallbacks(mRunExpiration);
+         assertInWorkerThread();
+         Instant now = Instant.now();
+         Instant oldest = null;
          Iterator<Rollback> iter = mRollbacks.iterator();
          while (iter.hasNext()) {
              Rollback rollback = iter.next();
@@ -994,7 +1101,17 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
                  continue;
              }
              Instant rollbackTimestamp = rollback.getTimestamp();
-@@ -779,7 +921,8 @@
+             if (!now.isBefore(rollbackTimestamp.plusMillis(mRollbackLifetimeDurationInMillis))) {
+                 Slog.i(TAG, "runExpiration id=" + rollback.info.getRollbackId());
+                 iter.remove();
+                 deleteRollback(rollback, "Expired by timeout");
+             } else if (oldest == null || oldest.isAfter(rollbackTimestamp)) {
+@@ -774,17 +922,18 @@
+     private void runExpirationCustomRollbackLifetime() {
+         getHandler().removeCallbacks(mRunExpiration);
+         assertInWorkerThread();
+         Instant now = Instant.now();
+         long minDelay = 0;
          Iterator<Rollback> iter = mRollbacks.iterator();
          while (iter.hasNext()) {
              Rollback rollback = iter.next();
@@ -1004,7 +1121,17 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
                  continue;
              }
              long rollbackLifetimeMillis = rollback.getRollbackLifetimeMillis();
-@@ -970,10 +1113,13 @@
+             if (rollbackLifetimeMillis <= 0) {
+                 rollbackLifetimeMillis = mRollbackLifetimeDurationInMillis;
+             }
+
+             Instant rollbackExpiryTimestamp = rollback.getTimestamp()
+@@ -965,34 +1114,91 @@
+                 try {
+                     apkPkgInfo = getPackageInfo(apkInApex);
+                 } catch (PackageManager.NameNotFoundException e) {
+                     // TODO: Support rolling back fresh package installs rather than
+                     // fail here. Test this case.
                      Slog.e(TAG, apkInApex + " is not installed");
                      return false;
                  }
@@ -1019,7 +1146,10 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
              }
          }
 
-@@ -984,10 +1130,64 @@
+         /*
+          * The order is important here! Always enable the embedded apk-in-apex (if any) before
+          * enabling the embedding apex. Otherwise the rollback object might be in an inconsistent
+          * state where an embedding apex is successfully enabled while one of its embedded
           * apk-in-apex failed. Note {@link Rollback#allPackagesEnabled()} won't behave correctly if
           * a rollback object is inconsistent because it doesn't count apk-in-apex.
           */
@@ -1085,7 +1215,17 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
      }
 
      @ExtThread
-@@ -1174,7 +1374,24 @@
+     @Override
+     public void snapshotAndRestoreUserData(String packageName, List<UserHandle> users, int appId,
+             int pccId, long ceDataInode, String seInfo, int token) {
+         assertNotInWorkerThread();
+         snapshotAndRestoreUserData(packageName, UserHandle.fromUserHandles(users), appId, pccId,
+@@ -1169,17 +1375,34 @@
+
+         @Override
+         public void onFinished(int sessionId, boolean success) {
+             assertInWorkerThread();
+             if (LOCAL_LOGV) {
                  Slog.v(TAG, "SessionCallback.onFinished id=" + sessionId + " success=" + success);
              }
 
@@ -1111,7 +1251,17 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
              if (rollback == null || !rollback.isEnabling()
                      || sessionId != rollback.getOriginalSessionId()) {
                  // We only care about the parent session id which will tell us whether the
-@@ -1232,17 +1449,24 @@
+                 // whole session is successful or not.
+                 return;
+             }
+             if (success) {
+                 if (!rollback.isStaged() && completeEnableRollback(rollback)) {
+@@ -1227,27 +1450,34 @@
+         // manager and when we make the rollback available
+         // here. Presumably the window is small enough that
+         // nobody will want to roll back the newly installed
+         // package before we make the rollback available.
+         // TODO: We'll lose the rollback if the
          // device reboots between when the session is
          // committed and this point. Revisit this after
          // adding support for rollback of staged installs.
@@ -1139,7 +1289,17 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
          mPackageHealthObserver.notifyRollbackAvailable(rollback.info);
 
          if (rollback.info.getRollbackImpactLevel() == PackageManager.ROLLBACK_USER_IMPACT_LOW) {
-@@ -1390,7 +1614,9 @@
+             // TODO(zezeozue): Provide API to explicitly start observing instead
+             // of doing this for all rollbacks. If we do this for all rollbacks,
+             // should document in PackageInstaller.SessionParams#setEnableRollback
+             // After enabling and committing any rollback, observe packages and
+             // prepare to rollback if packages crashes too frequently.
+@@ -1385,17 +1615,19 @@
+                     installerPackageName, packageSessionIds, getExtensionVersions());
+         }
+
+         if (Flags.rollbackLifetime()) {
+             rollback.setRollbackLifetimeMillis(parentSession.rollbackLifetimeMillis);
          }
 
 
@@ -1149,7 +1309,17 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
          return rollback;
      }
 
-@@ -1423,6 +1649,22 @@
+     private SparseIntArray getExtensionVersions() {
+         Map<Integer, Integer> allExtensionVersions = SdkExtensions.getAllExtensionVersions();
+         SparseIntArray result = new SparseIntArray(allExtensionVersions.size());
+         for (int extension : allExtensionVersions.keySet()) {
+             result.put(extension, allExtensionVersions.get(extension));
+@@ -1418,14 +1650,30 @@
+                     || rollback.containsSessionId(sessionId)) {
+                 return rollback;
+             }
+         }
+         return null;
      }
 
      @WorkerThread
@@ -1172,6 +1342,9 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
      private void deleteRollback(Rollback rollback, String reason) {
          assertInWorkerThread();
          rollback.delete(mAppDataRollbackHelper, reason);
+         mRollbackStore.saveRollbackToHistory(rollback);
+     }
+ }
 diff --git a/frameworks/base/services/core/java/com/android/server/rollback/RollbackManagerInternal.java b/frameworks/base/services/core/java/com/android/server/rollback/RollbackManagerInternal.java
 --- a/frameworks/base/services/core/java/com/android/server/rollback/RollbackManagerInternal.java
 +++ b/frameworks/base/services/core/java/com/android/server/rollback/RollbackManagerInternal.java

@@ -25,6 +25,10 @@ class CommitStateTests(unittest.TestCase):
         self.assertIn('getInstalledPackageVersion(', reconcile)
         self.assertGreaterEqual(rms.count('|| rollback.isRestoreUserDataInProgress())'), 2)
         self.assertIn('Rollback restore is still in progress', rms)
+        expiry = method(rms, 'public void expireRollbackForPackage(')
+        self.assertIn('boolean expired = awaitResult(', expiry)
+        self.assertIn('if (!expired)', expiry)
+        self.assertLess(expiry.index('if (!expired)'), expiry.index('throw new IllegalStateException'))
         matcher = method(rms, 'private Rollback getRollbackForCommitSession(')
         self.assertIn('sessionId < 0', matcher)
         self.assertIn('rollback.isCommitted() && rollback.isRestoreUserDataInProgress()', matcher)
@@ -47,7 +51,8 @@ class CommitStateTests(unittest.TestCase):
             'boolean restoreAvailableAfterCommitFailure(', 'void discard('))
         bodies = bodies.replace('@RollbackState ', '')
         source = HARNESS.replace('/*STATE*/', bodies).replace('/*RECONCILE*/',
-            method(rms, 'private void reconcileCommittedSession('))
+            method(rms, 'private void reconcileCommittedSession(')).replace('/*EXPIRY*/',
+            method(rms, 'public void expireRollbackForPackage('))
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); (root/'CommitTrial.java').write_text(source)
             built = subprocess.run([javac, '-d', tmp, str(root/'CommitTrial.java')], capture_output=True, text=True, timeout=60)
@@ -91,6 +96,7 @@ public class CommitTrial {
   String mStateDescription="";Info info=new Info();int notifications;
   void assertInWorkerThread(){}void notifyStateChanged(){notifications++;}
   boolean isCommitted(){return mState==3;}boolean isDeleted(){return mState==4;}
+  boolean includesPackage(String name){return name.equals("consumer");}
   boolean isRestoreUserDataInProgress(){return mRestoreUserDataInProgress;}
   /*STATE*/
  }
@@ -107,11 +113,15 @@ public class CommitTrial {
   void abandonSession(int id){abandons.add(id);sessions.remove(id);}
  }
  static class PackageManager {PackageInstaller installer=new PackageInstaller();PackageInstaller getPackageInstaller(){return installer;}}
- static class Context {PackageManager pm=new PackageManager();PackageManager getPackageManager(){return pm;}}
+ static class Context {PackageManager pm=new PackageManager();PackageManager getPackageManager(){return pm;}void enforceCallingOrSelfPermission(String p,String m){}}
+ static class Manifest {static class permission {static final String TEST_MANAGE_ROLLBACKS="test";}}
  static class Manager {
-  Context mContext=new Context();long installed=3;
-  void assertInWorkerThread(){}long getInstalledPackageVersion(String p){return installed;}
+  Context mContext=new Context();long installed=3;List<Rollback> mRollbacks=new ArrayList<>();int expirations;
+  void assertInWorkerThread(){}void assertNotInWorkerThread(){}long getInstalledPackageVersion(String p){return installed;}
+  <T>T awaitResult(java.util.function.Supplier<T> work){try{return work.get();}catch(RuntimeException e){throw new RuntimeException(new java.util.concurrent.ExecutionException(e));}}
+  void expireRollbackForPackageInternal(String name,String reason){expirations++;}
   /*RECONCILE*/
+  /*EXPIRY*/
  }
  static Rollback pending(){RollbackStore.writeOk=true;RollbackStore.backups=true;RollbackStore.deletes=0;RollbackStore.writes=0;Rollback r=new Rollback();check(r.persistCommitState(3,true,222,"",List.of(new VersionedPackage("cause",3))));return r;}
  public static void main(String[] args){
@@ -138,6 +148,10 @@ public class CommitTrial {
   r=pending();manager.installed=2;RollbackStore.writeOk=false;manager.reconcileCommittedSession(r);check(r.isRestoreUserDataInProgress()&&RollbackStore.deletes==0);
   r=pending();int writes=RollbackStore.writes;r.discard();check(!r.completeCommit());check(!r.persistCommitState(1,false,-1,"stale",List.of()));check(RollbackStore.writes==writes&&RollbackStore.deletes==0);
   r=pending();check(r.persistCommitState(3,true,222,"alias",r.info.getCausePackages()));check(r.info.causes.size()==1);
+  manager.mRollbacks.clear();manager.mRollbacks.add(pending());
+  try{manager.expireRollbackForPackage("consumer");throw new AssertionError();}catch(IllegalStateException expected){check(expected.getMessage().equals("Rollback restore is still in progress"));}
+  check(manager.expirations==0);manager.mRollbacks.get(0).mRestoreUserDataInProgress=false;
+  manager.expireRollbackForPackage("consumer");check(manager.expirations==1);
   System.out.println("PASS commit-state source trial (mock Android surroundings)");
  }
 }
