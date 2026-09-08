@@ -103,8 +103,11 @@ project extend the declared adaptation to seventeen files in nine projects:
   hand-maintained reference count. Retained library packages remain ordinary
   clients of their own nested dependencies.
 
-Enable/availability publication now checks atomic metadata-save success. A failed
-commit also persists the restored AVAILABLE state for retry after reboot. No
+The original enable/availability publication checked the store's save boolean.
+The [subsequent lifecycle review](2026-09-08-rollback-lifecycle.md) found that
+AtomicFile logs some commit errors without throwing, so that boolean did not detect
+all failures. The broader write-failure claim is corrected there. The original
+failed-commit path also attempted to persist AVAILABLE for retry after reboot. No
 signature, certificate, Android identity, SELinux, TLS/CT or kernel rule changes.
 The WebView/library/config APKs and `/usr` payload are unchanged inputs.
 

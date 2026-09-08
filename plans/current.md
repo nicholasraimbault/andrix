@@ -24,7 +24,9 @@ image is available.
   source extends the digest-checked [network/product adaptation](../patches/android-17.0.0_r1/README.md)
   to twelve files in eight projects for the frozen connected candidates.
   The current [rollback-retention implementation](2026-09-07-rollback-retention.md)
-  adds five framework files: seventeen files in nine projects under qualification.
+  added five framework files for frozen `f5ff864`. The current
+  [lifecycle correction](2026-09-08-rollback-lifecycle.md) adds checked AtomicFile
+  commits and staged reconciliation: eighteen files in nine projects under qualification.
   The earlier additions address wallpaper app-link verification, DSU/attestation
   endpoints and owner-selected maps. Project HEADs remain pinned; the manifest
   alone does not describe an adapted
@@ -172,7 +174,15 @@ zero drops showed only owned/public-CT/local guest destinations. Failed fault dr
 the rejected expiry-setup downgrade and unqualified lifecycle edges remain explicit.
 Both probes were removed; VM/services stopped with exit 0 and the lease was released.
 
-1. Finish remaining dependency-lifecycle qualification. The five-file framework
+The [lifecycle follow-up](2026-09-08-rollback-lifecycle.md) has now demonstrated
+available-expiry release, ready staged upgrade abandonment across reboot and normal
+staged D→C restoration on frozen `f5ff864`. It also reproduced a defect: expiry of
+an in-flight staged restore released its required library. Source review confirmed
+that AtomicFile's logging-only commit hid some errors and staged READY deleted
+backups too early. Corrections pass 221 host tests; new image/runtime qualification
+is pending. These synthetic generations are not real Chromium migrations.
+
+1. Finish remaining dependency-lifecycle qualification. The earlier framework
    extension passed exact-version retention, real live/startup pruning, reboot
    persistence, actual PackageWatchdog restoration and completed-pin release.
    Qualify expiry/staged/interrupted-I/O boundaries; expiry setup's ordinary

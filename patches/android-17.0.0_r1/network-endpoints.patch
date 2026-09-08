@@ -146,13 +146,14 @@ diff --git a/packages/modules/Connectivity/networksecurity/service/src/com/andro
 diff --git a/build/make/target/product/handheld_product.mk b/build/make/target/product/handheld_product.mk
 --- a/build/make/target/product/handheld_product.mk
 +++ b/build/make/target/product/handheld_product.mk
-@@ -32,5 +32,4 @@
+@@ -31,9 +31,14 @@
+     LatinIME \
      Music \
      preinstalled-packages-platform-handheld-product.xml \
 -    QuickSearchBox \
      SettingsIntelligence \
      frameworks-base-overlays
-@@ -38,2 +37,8 @@
+
  PRODUCT_PACKAGES_DEBUG += \
      frameworks-base-overlays-debug
 +
@@ -162,12 +163,11 @@ diff --git a/build/make/target/product/handheld_product.mk b/build/make/target/p
 +PRODUCT_PACKAGES += QuickSearchBox
 +endif
 diff --git a/build/make/target/product/media_product.mk b/build/make/target/product/media_product.mk
-index be88284af7..329055bded 100644
 --- a/build/make/target/product/media_product.mk
 +++ b/build/make/target/product/media_product.mk
-@@ -22,6 +22,9 @@ $(call inherit-product, $(SRC_TARGET_DIR)/product/base_product.mk)
--
-+
+@@ -21,8 +21,11 @@
+ $(call inherit-product, $(SRC_TARGET_DIR)/product/base_product.mk)
+
  # /product packages
 +# Preserve the stock provider unless this exact experimental product opts in.
 +ifneq ($(TARGET_PRODUCT):$(ANDRIX_WEBVIEW_EXPERIMENT),andrix_cf_arm64_only_phone:true)
@@ -175,14 +175,15 @@ index be88284af7..329055bded 100644
 -    webview \
 +    webview
 +endif
--
-+
+
  # Allowlist for packages included in media_product.mk
+ PRODUCT_PACKAGES += preinstalled-packages-media-product.xml
 diff --git a/packages/apps/WallpaperPicker2/AndroidManifest.xml b/packages/apps/WallpaperPicker2/AndroidManifest.xml
-index c4ae266c2..4863ab72f 100755
 --- a/packages/apps/WallpaperPicker2/AndroidManifest.xml
 +++ b/packages/apps/WallpaperPicker2/AndroidManifest.xml
-@@ -102,11 +102,3 @@
+@@ -100,15 +100,7 @@
+     <activity android:name="com.android.wallpaper.picker.DeepLinkActivity"
+         android:theme="@style/WallpaperTheme.NoBackground"
          android:exported="true">
 -        <intent-filter android:autoVerify="true">
 -            <action android:name="android.intent.action.VIEW" />
@@ -195,37 +196,38 @@ index c4ae266c2..4863ab72f 100755
 -        </intent-filter>
 +        <!-- No Google wallpaper short-link registration; local picker entry points remain. -->
      </activity>
+
+     <activity-alias
 diff --git a/packages/apps/Settings/src/com/android/settings/development/DSULoader.java b/packages/apps/Settings/src/com/android/settings/development/DSULoader.java
-index fede67a776..4bd44d192e 100644
 --- a/packages/apps/Settings/src/com/android/settings/development/DSULoader.java
 +++ b/packages/apps/Settings/src/com/android/settings/development/DSULoader.java
-@@ -69,5 +69,5 @@ public class DSULoader extends ListActivity {
+@@ -68,7 +68,7 @@
+             "persist.sys.fflag.override.settings_dynamic_system.list";
      private static final String PROPERTY_KEY_SPL = "ro.build.version.security_patch";
      private static final String DSU_LIST =
 -            "https://dl.google.com/developers/android/gsi/gsi-src.json";
 +            "https://probe.andrix.org/system-images/catalog.json";
--
-+
+
      private static final int TIMEOUT_MS = 10 * 1000;
+     private List<Object> mDSUList = new ArrayList<Object>();
 diff --git a/external/android-key-attestation/server/src/main/java/com/google/android/attestation/CertificateRevocationStatus.java b/external/android-key-attestation/server/src/main/java/com/google/android/attestation/CertificateRevocationStatus.java
-index d31b2d8..4e64680 100644
 --- a/external/android-key-attestation/server/src/main/java/com/google/android/attestation/CertificateRevocationStatus.java
 +++ b/external/android-key-attestation/server/src/main/java/com/google/android/attestation/CertificateRevocationStatus.java
-@@ -36,5 +36,5 @@ import java.util.HashMap;
+@@ -35,7 +35,7 @@
+  */
  public class CertificateRevocationStatus {
--
-+
+
 -  private static final String STATUS_URL = "https://android.googleapis.com/attestation/status";
 +  private static final String STATUS_URL = "https://probe.andrix.org/security/attestation-status.json";
    public final Status status;
    public final Reason reason;
+   public final String comment;
 diff --git a/packages/apps/Contacts/src/com/android/contacts/util/StructuredPostalUtils.java b/packages/apps/Contacts/src/com/android/contacts/util/StructuredPostalUtils.java
-index 6e46176ca..599b20e5f 100644
 --- a/packages/apps/Contacts/src/com/android/contacts/util/StructuredPostalUtils.java
 +++ b/packages/apps/Contacts/src/com/android/contacts/util/StructuredPostalUtils.java
-@@ -37,5 +37,5 @@ public class StructuredPostalUtils {
--
-+
+@@ -36,6 +36,6 @@
+     }
+
      public static Uri getPostalAddressDirectionsUri(String postalAddress) {
 -        return Uri.parse("https://maps.google.com/maps?daddr=" + Uri.encode(postalAddress));
 +        return getPostalAddressUri(postalAddress);
@@ -242,7 +244,7 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
  import java.util.List;
  import java.util.Objects;
  import java.util.Set;
-@@ -157,6 +158,45 @@
+@@ -157,6 +158,53 @@
       * has not yet been fully applied.
       */
      private boolean mRestoreUserDataInProgress = false;
@@ -251,6 +253,14 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
 +    // a static library, not its declaring package. Captured from the old APKs.
 +    private final Set<VersionedPackage> mStaticSharedLibraryDependencies = new ArraySet<>();
 +    @Nullable private Runnable mStateChangedCallback;
++    private boolean mDiscarded;
++
++    @WorkerThread
++    void discard() {
++        assertInWorkerThread();
++        mDiscarded = true;
++        mStateChangedCallback = null;
++    }
 +
 +    @WorkerThread
 +    void setStateChangedCallback(@NonNull Runnable callback) {
@@ -288,7 +298,7 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
 
      /**
       * The user that performed the install with rollback enabled.
-@@ -382,9 +422,9 @@
+@@ -382,9 +430,9 @@
       * Saves this rollback to persistent storage.
       */
      @WorkerThread
@@ -301,7 +311,7 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
      }
 
      /**
-@@ -495,15 +535,15 @@
+@@ -495,15 +543,89 @@
       * DELETED state.
       */
      @WorkerThread
@@ -317,49 +327,258 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
          mTimestamp = Instant.now();
 -        RollbackStore.saveRollback(this);
 +        return RollbackStore.saveRollback(this);
++    }
++
++    /** Publishes a commit-state transition only after the metadata write succeeds. */
++    @WorkerThread
++    private boolean persistCommitState(@RollbackState int state, boolean restoring,
++            int sessionId, String description, List<VersionedPackage> causes) {
++        assertInWorkerThread();
++        if (mDiscarded) {
++            return false;
++        }
++        // Accept even a caller-owned view of info's cause list without aliasing.
++        final List<VersionedPackage> nextCauses = new ArrayList<>(causes);
++        final int previousState = mState;
++        final boolean previousRestoring = mRestoreUserDataInProgress;
++        final int previousSessionId = info.getCommittedSessionId();
++        final String previousDescription = mStateDescription;
++        final List<VersionedPackage> previousCauses = new ArrayList<>(info.getCausePackages());
++        mState = state;
++        mRestoreUserDataInProgress = restoring;
++        info.setCommittedSessionId(sessionId);
++        mStateDescription = description;
++        info.getCausePackages().clear();
++        info.getCausePackages().addAll(nextCauses);
++        if (!RollbackStore.saveRollback(this)) {
++            mState = previousState;
++            mRestoreUserDataInProgress = previousRestoring;
++            info.setCommittedSessionId(previousSessionId);
++            mStateDescription = previousDescription;
++            info.getCausePackages().clear();
++            info.getCausePackages().addAll(previousCauses);
++            return false;
++        }
++        notifyStateChanged();
++        return true;
++    }
++
++    /** Finish only after the installer has actually applied the rollback. */
++    @WorkerThread
++    boolean completeCommit() {
++        assertInWorkerThread();
++        if (mDiscarded || !isCommitted()) {
++            return false;
++        }
++        if (!mRestoreUserDataInProgress) {
++            // The result receiver and SessionCallback can both observe completion.
++            // Do not turn an already durable success into a second write failure.
++            RollbackStore.deletePackageCodePaths(this);
++            return true;
++        }
++        // Copy because persistCommitState replaces the list owned by info.
++        if (!persistCommitState(ROLLBACK_STATE_COMMITTED, false,
++                info.getCommittedSessionId(), "", new ArrayList<>(info.getCausePackages()))) {
++            return false;
++        }
++        RollbackStore.deletePackageCodePaths(this);
++        return true;
++    }
++
++    /** Return a failed or abandoned attempt to AVAILABLE, retaining its original lifetime. */
++    @WorkerThread
++    boolean restoreAvailableAfterCommitFailure(String reason) {
++        assertInWorkerThread();
++        if (isDeleted()) {
++            return false;
++        }
++        for (PackageRollbackInfo pkg : info.getPackages()) {
++            if (!pkg.isApkInApex()
++                    && RollbackStore.getPackageCodePaths(this, pkg.getPackageName()) == null) {
++                Slog.e(TAG, "Cannot retry rollback with missing backups: " + info.getRollbackId());
++                return false;
++            }
++        }
++        return persistCommitState(ROLLBACK_STATE_AVAILABLE, false, -1, reason,
++                Collections.emptyList());
      }
 
      /**
-@@ -637,6 +677,7 @@
-                         setState(ROLLBACK_STATE_AVAILABLE, "Commit failed");
-                         mRestoreUserDataInProgress = false;
-                         info.setCommittedSessionId(-1);
-+                        RollbackStore.saveRollback(this);
+@@ -541,8 +663,9 @@
+         }
+
+         PackageManager pm = pkgContext.getPackageManager();
++        PackageInstaller packageInstaller = pm.getPackageInstaller();
++        int createdParentSessionId = -1;
+         try {
+-            PackageInstaller packageInstaller = pm.getPackageInstaller();
+             PackageInstaller.SessionParams parentParams = new PackageInstaller.SessionParams(
+                     PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+             parentParams.setRequestDowngrade(true);
+@@ -553,6 +676,7 @@
+             parentParams.setInstallReason(PackageManager.INSTALL_REASON_ROLLBACK);
+
+             int parentSessionId = packageInstaller.createSession(parentParams);
++            createdParentSessionId = parentSessionId;
+             PackageInstaller.Session parentSession = packageInstaller.openSession(
+                     parentSessionId);
+
+@@ -586,14 +710,16 @@
+                     params.setInstallAsApex();
+                 }
+                 int sessionId = packageInstaller.createSession(params);
++                // Attach before opening/writing so a failed preparation can
++                // abandon the complete cohort through its parent session.
++                parentSession.addChildSessionId(sessionId);
+                 PackageInstaller.Session session = packageInstaller.openSession(sessionId);
+                 File[] packageCodePaths = RollbackStore.getPackageCodePaths(
+                         this, pkgRollbackInfo.getPackageName());
+                 if (packageCodePaths == null) {
+-                    sendFailure(context, statusReceiver, RollbackManager.STATUS_FAILURE,
+-                            "Backup copy of package: "
+-                                    + pkgRollbackInfo.getPackageName() + " is inaccessible");
+-                    return;
++                    session.close();
++                    throw new IOException("Backup copy of package: "
++                            + pkgRollbackInfo.getPackageName() + " is inaccessible");
+                 }
+
+                 for (File packageCodePath : packageCodePaths) {
+@@ -618,12 +744,20 @@
+                         }
+                     }
+                 }
+-                parentSession.addChildSessionId(sessionId);
++                session.close();
+             }
+
+             Consumer<Intent> onResult = result -> {
+                 mHandler.post(() -> {
+                     assertInWorkerThread();
++                    if (mDiscarded || info.getCommittedSessionId() != parentSessionId) {
++                        // The service reload or a later attempt owns the current
++                        // record. SessionCallback/reconciliation update that live
++                        // instance; this captured object must not overwrite it.
++                        sendFailure(context, statusReceiver, RollbackManager.STATUS_FAILURE,
++                                "Rollback result observer superseded; query current state");
++                        return;
++                    }
+                     int status = result.getIntExtra(PackageInstaller.EXTRA_STATUS,
+                             PackageInstaller.STATUS_FAILURE);
+                     if (status != PackageInstaller.STATUS_SUCCESS) {
+@@ -634,9 +768,10 @@
+                         // Why would we expect commit not to fail again?
+                         // TODO: Could this cause a rollback to be resurrected
+                         // if it should otherwise have expired by now?
+-                        setState(ROLLBACK_STATE_AVAILABLE, "Commit failed");
+-                        mRestoreUserDataInProgress = false;
+-                        info.setCommittedSessionId(-1);
++                        if (!restoreAvailableAfterCommitFailure("Commit failed")) {
++                            Slog.e(TAG, "Unable to persist failed rollback state: "
++                                    + info.getRollbackId());
++                        }
                          sendFailure(context, statusReceiver,
                                  RollbackManager.STATUS_FAILURE_INSTALL,
                                  "Rollback downgrade install failed: "
-@@ -654,6 +695,9 @@
-                     info.getCausePackages().addAll(causePackages);
-                     RollbackStore.deletePackageCodePaths(this);
-                     RollbackStore.saveRollback(this);
-+                    // Non-staged consumers are installed now; their ordinary PM
-+                    // references take over. Staged restores keep their pins.
-+                    notifyStateChanged();
+@@ -645,15 +780,14 @@
+                         return;
+                     }
+
+-                    if (!isStaged()) {
+-                        // All calls to restoreUserData should have
+-                        // completed by now for a non-staged install.
+-                        mRestoreUserDataInProgress = false;
++                    // Staged success means READY, not APPLIED. Its durable
++                    // in-progress state, causes, pins and APK backups remain
++                    // until the committed session is actually applied.
++                    if (!isStaged() && !completeCommit()) {
++                        sendFailure(context, statusReceiver, RollbackManager.STATUS_FAILURE,
++                                "Packages restored but rollback completion could not be persisted");
++                        return;
+                     }
+-
+-                    info.getCausePackages().addAll(causePackages);
+-                    RollbackStore.deletePackageCodePaths(this);
+-                    RollbackStore.saveRollback(this);
 
                      // Send success.
                      try {
-@@ -678,9 +722,11 @@
+@@ -678,11 +812,46 @@
              };
 
              final LocalIntentReceiver receiver = new LocalIntentReceiver(onResult);
-+            // Publish COMMITTED only with the in-progress flag already set.
-+            // Otherwise a deletion could observe a transient release of the pins.
-+            mRestoreUserDataInProgress = true;
-             setState(ROLLBACK_STATE_COMMITTED, "");
-             info.setCommittedSessionId(parentSessionId);
+-            setState(ROLLBACK_STATE_COMMITTED, "");
+-            info.setCommittedSessionId(parentSessionId);
 -            mRestoreUserDataInProgress = true;
-             parentSession.commit(receiver.getIntentSender());
+-            parentSession.commit(receiver.getIntentSender());
++            // Persist the attempt before the installer can act on it. The
++            // previous AVAILABLE snapshot continues protecting the dependencies
++            // until this transition succeeds; there is no unpinned interval.
++            if (!persistCommitState(ROLLBACK_STATE_COMMITTED, true, parentSessionId, "",
++                    new ArrayList<>(causePackages))) {
++                parentSession.abandon();
++                sendFailure(context, statusReceiver, RollbackManager.STATUS_FAILURE,
++                        "Unable to persist rollback commit request");
++                return;
++            }
++            try {
++                parentSession.commit(receiver.getIntentSender());
++            } catch (RuntimeException e) {
++                // A failed Binder submission can be ambiguous. Only abandon an
++                // attempt the installer still identifies as uncommitted; never
++                // release prerequisites of a session which might apply.
++                try {
++                    PackageInstaller.SessionInfo pending =
++                            packageInstaller.getSessionInfo(parentSessionId);
++                    if (pending != null && !pending.isCommitted()) {
++                        parentSession.abandon();
++                    }
++                } catch (RuntimeException cleanupError) {
++                    Slog.e(TAG, "Unable to resolve failed submission", cleanupError);
++                }
++                // SessionCallback or the scheduled reconciliation checks the
++                // terminal session/package state before offering a retry.
++                Slog.e(TAG, "Rollback submission failed; reconciliation remains scheduled", e);
++                sendFailure(context, statusReceiver, RollbackManager.STATUS_FAILURE,
++                        "Rollback submission failed");
++            }
          } catch (IOException e) {
++            // Checked preparation failures occur before installer submission.
++            if (createdParentSessionId >= 0) {
++                try {
++                    packageInstaller.abandonSession(createdParentSessionId);
++                } catch (RuntimeException cleanupError) {
++                    Slog.e(TAG, "Unable to abandon failed rollback preparation", cleanupError);
++                }
++            }
              Slog.e(TAG, "Rollback failed", e);
-@@ -774,6 +820,7 @@
-     void setRestoreUserDataInProgress(boolean restoreUserDataInProgress) {
-         assertInWorkerThread();
-         mRestoreUserDataInProgress = restoreUserDataInProgress;
-+        notifyStateChanged();
-         RollbackStore.saveRollback(this);
+             sendFailure(context, statusReceiver, RollbackManager.STATUS_FAILURE,
+                     "IOException: " + e.toString());
+@@ -754,6 +923,7 @@
+
+         RollbackStore.deleteRollback(this);
+         setState(ROLLBACK_STATE_DELETED, reason);
++        discard();
      }
 
-@@ -959,6 +1006,13 @@
+     /**
+@@ -771,10 +941,11 @@
+      * rollback because it has just been committed but the rollback has not yet been fully applied.
+      */
+     @WorkerThread
+-    void setRestoreUserDataInProgress(boolean restoreUserDataInProgress) {
+-        assertInWorkerThread();
+-        mRestoreUserDataInProgress = restoreUserDataInProgress;
+-        RollbackStore.saveRollback(this);
++    boolean setRestoreUserDataInProgress(boolean restoreUserDataInProgress) {
++        assertInWorkerThread();
++        return persistCommitState(mState, restoreUserDataInProgress,
++                info.getCommittedSessionId(), mStateDescription,
++                new ArrayList<>(info.getCausePackages()));
+     }
+
+     /**
+@@ -959,6 +1130,13 @@
          ipw.println("-rollbackImpactLevel: " + info.getRollbackImpactLevel());
          ipw.println("-isStaged: " + isStaged());
          ipw.println("-originalSessionId: " + getOriginalSessionId());
@@ -373,7 +592,7 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
          ipw.println("-packages:");
          ipw.increaseIndent();
          for (PackageRollbackInfo pkg : info.getPackages()) {
-@@ -997,5 +1051,6 @@
+@@ -997,5 +1175,6 @@
          assertInWorkerThread();
          mState = state;
          mStateDescription = description;
@@ -417,10 +636,12 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
              dataJson.put("userId", rollback.getUserId());
              dataJson.putOpt("installerPackageName", rollback.getInstallerPackageName());
              dataJson.putOpt(
-@@ -344,16 +354,18 @@
+@@ -343,17 +353,19 @@
+             fos = file.startWrite();
              fos.write(dataJson.toString().getBytes());
              fos.flush();
-             file.finishWrite(fos);
+-            file.finishWrite(fos);
++            file.finishWriteOrThrow(fos);
 +            return true;
          } catch (JSONException | IOException e) {
              Slog.e(TAG, "Unable to save rollback for: " + rollback.info.getRollbackId(), e);
@@ -478,7 +699,15 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
 diff --git a/frameworks/base/services/core/java/com/android/server/rollback/RollbackManagerServiceImpl.java b/frameworks/base/services/core/java/com/android/server/rollback/RollbackManagerServiceImpl.java
 --- a/frameworks/base/services/core/java/com/android/server/rollback/RollbackManagerServiceImpl.java
 +++ b/frameworks/base/services/core/java/com/android/server/rollback/RollbackManagerServiceImpl.java
-@@ -61,7 +61,6 @@
+@@ -40,6 +40,7 @@
+ import android.content.pm.parsing.result.ParseResult;
+ import android.content.pm.parsing.result.ParseTypeImpl;
+ import android.content.rollback.IRollbackManager;
++import android.content.rollback.PackageRollbackInfo;
+ import android.content.rollback.RollbackInfo;
+ import android.content.rollback.RollbackManager;
+ import android.os.Binder;
+@@ -61,7 +62,6 @@
  import android.util.SparseBooleanArray;
  import android.util.SparseIntArray;
 
@@ -486,7 +715,7 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
  import com.android.internal.util.DumpUtils;
  import com.android.internal.util.IndentingPrintWriter;
  import com.android.internal.util.Preconditions;
-@@ -84,6 +83,7 @@
+@@ -84,6 +84,7 @@
  import java.time.temporal.ChronoUnit;
  import java.util.ArrayList;
  import java.util.Arrays;
@@ -494,7 +723,7 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
  import java.util.HashSet;
  import java.util.Iterator;
  import java.util.List;
-@@ -155,6 +155,39 @@
+@@ -155,6 +156,59 @@
      // Accessed on the handler thread only.
      private final List<Rollback> mRollbacks = new ArrayList<>();
 
@@ -522,11 +751,31 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
 +        mRetainedStaticSharedLibraries = Collections.unmodifiableSet(retained);
 +    }
 +
++    // Accessed on the worker only. Expiry deletes must not schedule another pass.
++    private boolean mRunningExpiration;
++
++    @WorkerThread
++    private void onRollbackStateChanged() {
++        updateStaticSharedLibraryRetention();
++        if (mRunningExpiration) {
++            return;
++        }
++        for (Rollback rollback : mRollbacks) {
++            if (rollback.isRestoreUserDataInProgress()) {
++                // Coalesce maintenance while an attempt is pending. Dependency
++                // capture and completed-record deletion alone need no extra pass.
++                getHandler().removeCallbacks(mRunExpiration);
++                getHandler().postDelayed(mRunExpiration, TimeUnit.MINUTES.toMillis(1));
++                break;
++            }
++        }
++    }
++
 +    @WorkerThread
 +    private void attachRollbackStateCallbacks() {
 +        assertInWorkerThread();
 +        for (Rollback rollback : mRollbacks) {
-+            rollback.setStateChangedCallback(this::updateStaticSharedLibraryRetention);
++            rollback.setStateChangedCallback(this::onRollbackStateChanged);
 +        }
 +        updateStaticSharedLibraryRetention();
 +    }
@@ -534,7 +783,7 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
      private final RollbackStore mRollbackStore;
 
      private final Context mContext;
-@@ -201,8 +234,10 @@
+@@ -201,8 +255,10 @@
          Watchdog.getInstance().addThread(getHandler(), HANDLER_THREAD_TIMEOUT_DURATION_MILLIS);
          mExecutor = new HandlerExecutor(getHandler());
 
@@ -547,7 +796,7 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
              mRollbacks.addAll(mRollbackStore.loadRollbacks());
              if (!context.getPackageManager().isDeviceUpgrading()) {
                  for (Rollback rollback : mRollbacks) {
-@@ -215,6 +250,7 @@
+@@ -215,6 +271,7 @@
                  }
                  mRollbacks.clear();
              }
@@ -555,18 +804,207 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
          });
 
          mUserBroadcastReceivers = new ArrayMap<>();
-@@ -500,8 +536,10 @@
+@@ -500,8 +557,14 @@
 
          awaitResult(() -> {
              assertInWorkerThread();
 +            // Keep the previous immutable view until the replacement is loaded.
++            // In-flight result closures must not write through discarded objects.
++            for (Rollback rollback : mRollbacks) {
++                rollback.discard();
++            }
              mRollbacks.clear();
              mRollbacks.addAll(mRollbackStore.loadRollbacks());
 +            attachRollbackStateCallbacks();
          });
      }
 
-@@ -970,10 +1008,13 @@
+@@ -511,7 +574,8 @@
+         Iterator<Rollback> iter = mRollbacks.iterator();
+         while (iter.hasNext()) {
+             Rollback rollback = iter.next();
+-            if (rollback.includesPackage(packageName)) {
++            if (rollback.includesPackage(packageName)
++                    && !rollback.isRestoreUserDataInProgress()) {
+                 iter.remove();
+                 deleteRollback(rollback, reason);
+             }
+@@ -525,7 +589,15 @@
+         mContext.enforceCallingOrSelfPermission(
+                 Manifest.permission.TEST_MANAGE_ROLLBACKS,
+                 "expireRollbackForPackage");
+-        awaitResult(() -> expireRollbackForPackageInternal(packageName, "Expired by API"));
++        awaitResult(() -> {
++            for (Rollback rollback : mRollbacks) {
++                if (rollback.includesPackage(packageName)
++                        && rollback.isRestoreUserDataInProgress()) {
++                    throw new IllegalStateException("Rollback restore is still in progress");
++                }
++            }
++            expireRollbackForPackageInternal(packageName, "Expired by API");
++        });
+     }
+
+     @ExtThread
+@@ -627,13 +699,19 @@
+             // Check to see if any rollback-enabled staged sessions or staged
+             // rollback sessions been applied.
+             List<Rollback> enabling = new ArrayList<>();
+-            List<Rollback> restoreInProgress = new ArrayList<>();
+             Set<String> apexPackageNames = new HashSet<>();
+             Iterator<Rollback> iter = mRollbacks.iterator();
+             while (iter.hasNext()) {
+                 Rollback rollback = iter.next();
++                // A restoring record refers to the DOWNGRADE session, not the
++                // original upgrade which enabled rollback. This also repairs a
++                // non-staged completion whose result was interrupted by reboot.
++                reconcileCommittedSession(rollback);
+                 if (!rollback.isStaged()) {
+-                    // We only care about staged rollbacks here
++                    continue;
++                }
++                apexPackageNames.addAll(rollback.getApexPackageNames());
++                if (!rollback.isEnabling()) {
+                     continue;
+                 }
+
+@@ -649,21 +727,12 @@
+                 }
+
+                 if (session.isStagedSessionApplied()) {
+-                    if (rollback.isEnabling()) {
+-                        enabling.add(rollback);
+-                    } else if (rollback.isRestoreUserDataInProgress()) {
+-                        restoreInProgress.add(rollback);
+-                    }
+-                }
+-                apexPackageNames.addAll(rollback.getApexPackageNames());
++                    enabling.add(rollback);
++                }
+             }
+
+             for (Rollback rollback : enabling) {
+                 makeRollbackAvailable(rollback);
+-            }
+-
+-            for (Rollback rollback : restoreInProgress) {
+-                rollback.setRestoreUserDataInProgress(false);
+             }
+
+             for (String apexPackageName : apexPackageNames) {
+@@ -730,14 +799,86 @@
+         }
+     }
+
++    /** Reconcile only the recorded commit attempt; never infer apply from its upgrade. */
++    @WorkerThread
++    private void reconcileCommittedSession(Rollback rollback) {
++        assertInWorkerThread();
++        if (!rollback.isCommitted() || !rollback.isRestoreUserDataInProgress()) {
++            return;
++        }
++        PackageInstaller installer = mContext.getPackageManager().getPackageInstaller();
++        PackageInstaller.SessionInfo session =
++                installer.getSessionInfo(rollback.info.getCommittedSessionId());
++        if (session != null && session.isStaged() && session.isStagedSessionApplied()) {
++            if (!rollback.completeCommit()) {
++                Slog.e(TAG, "Unable to persist applied rollback " + rollback.info.getRollbackId());
++            }
++            return;
++        }
++        if (session != null && session.isCommitted()
++                && (!session.isStaged() || !session.isStagedSessionFailed())) {
++            // Includes READY staged sessions and non-staged installs still in flight.
++            return;
++        }
++        if (session != null && !session.isCommitted()) {
++            // The durable request preceded installer submission when interrupted.
++            installer.abandonSession(session.getSessionId());
++        }
++        boolean atTarget = true;
++        boolean atOriginal = true;
++        for (PackageRollbackInfo pkg : rollback.info.getPackages()) {
++            long installed = getInstalledPackageVersion(pkg.getPackageName());
++            atTarget &= installed == pkg.getVersionRolledBackTo().getLongVersionCode();
++            // r1 does not record the new apk-in-apex version; its parent APEX
++            // identifies the original generation for failure/retry purposes.
++            if (!pkg.isApkInApex()) {
++                atOriginal &= installed == pkg.getVersionRolledBackFrom().getLongVersionCode();
++            }
++        }
++        if (atTarget) {
++            if (!rollback.completeCommit()) {
++                Slog.e(TAG, "Unable to persist reconciled rollback " + rollback.info.getRollbackId());
++            }
++        } else if (atOriginal) {
++            if (!rollback.restoreAvailableAfterCommitFailure("Commit session failed or absent")) {
++                Slog.e(TAG, "Unable to restore retryable rollback " + rollback.info.getRollbackId());
++            }
++        } else {
++            // Concurrent package changes or inaccessible state are not proof of
++            // either complete generation. Keep the backups/pins; never offer an
++            // unverified retry or pretend the rollback applied.
++            Slog.e(TAG, "Unresolved interrupted rollback " + rollback.info.getRollbackId());
++        }
++    }
++
+     // Check to see if anything needs expiration, and if so, expire it.
+-    // Schedules future expiration as appropriate.
++    // Schedules future expiration and bounded reconciliation retries as appropriate.
+     @WorkerThread
+     private void runExpiration() {
+-        if (Flags.rollbackLifetime()) {
+-            runExpirationCustomRollbackLifetime();
+-        } else {
+-            runExpirationDefaultRollbackLifetime();
++        assertInWorkerThread();
++        if (mRunningExpiration) {
++            return;
++        }
++        mRunningExpiration = true;
++        try {
++            for (Rollback rollback : mRollbacks) {
++                reconcileCommittedSession(rollback);
++            }
++            if (Flags.rollbackLifetime()) {
++                runExpirationCustomRollbackLifetime();
++            } else {
++                runExpirationDefaultRollbackLifetime();
++            }
++            for (Rollback rollback : mRollbacks) {
++                if (rollback.isRestoreUserDataInProgress()) {
++                    // Terminal-session metadata writes may have failed transiently.
++                    // Maintenance does not change the recorded rollback lifetime.
++                    getHandler().postDelayed(mRunExpiration, TimeUnit.MINUTES.toMillis(1));
++                    break;
++                }
++            }
++        } finally {
++            mRunningExpiration = false;
+         }
+     }
+
+@@ -750,7 +891,8 @@
+         Iterator<Rollback> iter = mRollbacks.iterator();
+         while (iter.hasNext()) {
+             Rollback rollback = iter.next();
+-            if (!rollback.isAvailable() && !rollback.isCommitted()) {
++            if ((!rollback.isAvailable() && !rollback.isCommitted())
++                    || rollback.isRestoreUserDataInProgress()) {
+                 continue;
+             }
+             Instant rollbackTimestamp = rollback.getTimestamp();
+@@ -779,7 +921,8 @@
+         Iterator<Rollback> iter = mRollbacks.iterator();
+         while (iter.hasNext()) {
+             Rollback rollback = iter.next();
+-            if (!rollback.isAvailable() && !rollback.isCommitted()) {
++            if ((!rollback.isAvailable() && !rollback.isCommitted())
++                    || rollback.isRestoreUserDataInProgress()) {
+                 continue;
+             }
+             long rollbackLifetimeMillis = rollback.getRollbackLifetimeMillis();
+@@ -970,10 +1113,13 @@
                      Slog.e(TAG, apkInApex + " is not installed");
                      return false;
                  }
@@ -581,7 +1019,7 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
              }
          }
 
-@@ -984,10 +1025,64 @@
+@@ -984,10 +1130,64 @@
           * apk-in-apex failed. Note {@link Rollback#allPackagesEnabled()} won't behave correctly if
           * a rollback object is inconsistent because it doesn't count apk-in-apex.
           */
@@ -647,7 +1085,33 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
      }
 
      @ExtThread
-@@ -1232,17 +1327,24 @@
+@@ -1174,7 +1374,24 @@
+                 Slog.v(TAG, "SessionCallback.onFinished id=" + sessionId + " success=" + success);
+             }
+
+-            Rollback rollback = getRollbackForSession(sessionId);
++            Rollback rollback = getRollbackForCommitSession(sessionId);
++            if (rollback != null) {
++                if (success && !rollback.isStaged()) {
++                    if (!rollback.completeCommit()) {
++                        Slog.e(TAG, "Unable to persist completed commit " + sessionId);
++                    }
++                } else if (!success) {
++                    if (!rollback.restoreAvailableAfterCommitFailure(
++                            "Commit session failed or abandoned")) {
++                        Slog.e(TAG, "Unable to persist failed commit " + sessionId);
++                    }
++                } else {
++                    reconcileCommittedSession(rollback);
++                }
++                runExpiration();
++                return;
++            }
++            rollback = getRollbackForSession(sessionId);
+             if (rollback == null || !rollback.isEnabling()
+                     || sessionId != rollback.getOriginalSessionId()) {
+                 // We only care about the parent session id which will tell us whether the
+@@ -1232,17 +1449,24 @@
          // device reboots between when the session is
          // committed and this point. Revisit this after
          // adding support for rollback of staged installs.
@@ -675,16 +1139,39 @@ diff --git a/frameworks/base/services/core/java/com/android/server/rollback/Roll
          mPackageHealthObserver.notifyRollbackAvailable(rollback.info);
 
          if (rollback.info.getRollbackImpactLevel() == PackageManager.ROLLBACK_USER_IMPACT_LOW) {
-@@ -1390,7 +1492,9 @@
+@@ -1390,7 +1614,9 @@
          }
 
 
-+        rollback.setStateChangedCallback(this::updateStaticSharedLibraryRetention);
++        rollback.setStateChangedCallback(this::onRollbackStateChanged);
          mRollbacks.add(rollback);
 +        updateStaticSharedLibraryRetention();
          return rollback;
      }
 
+@@ -1423,6 +1649,22 @@
+     }
+
+     @WorkerThread
++    @Nullable
++    private Rollback getRollbackForCommitSession(int sessionId) {
++        assertInWorkerThread();
++        if (sessionId < 0) {
++            return null;
++        }
++        for (Rollback rollback : mRollbacks) {
++            if (rollback.isCommitted() && rollback.isRestoreUserDataInProgress()
++                    && rollback.info.getCommittedSessionId() == sessionId) {
++                return rollback;
++            }
++        }
++        return null;
++    }
++
++    @WorkerThread
+     private void deleteRollback(Rollback rollback, String reason) {
+         assertInWorkerThread();
+         rollback.delete(mAppDataRollbackHelper, reason);
 diff --git a/frameworks/base/services/core/java/com/android/server/rollback/RollbackManagerInternal.java b/frameworks/base/services/core/java/com/android/server/rollback/RollbackManagerInternal.java
 --- a/frameworks/base/services/core/java/com/android/server/rollback/RollbackManagerInternal.java
 +++ b/frameworks/base/services/core/java/com/android/server/rollback/RollbackManagerInternal.java
@@ -763,3 +1250,59 @@ diff --git a/frameworks/base/services/core/java/com/android/server/pm/DeletePack
              if (DEBUG_REMOVE) Slog.d(TAG, "deletePackageX: pkg=" + packageName + " user=" + userId);
              try (PackageFreezer freezer = mPm.freezePackageForDelete(packageName, freezeUser,
                      deleteFlags, "deletePackageX", ApplicationExitInfo.REASON_OTHER)) {
+diff --git a/frameworks/base/core/java/android/util/AtomicFile.java b/frameworks/base/core/java/android/util/AtomicFile.java
+--- a/frameworks/base/core/java/android/util/AtomicFile.java
++++ b/frameworks/base/core/java/android/util/AtomicFile.java
+@@ -175,16 +175,52 @@
+             Log.e(LOG_TAG, "Failed to sync file output stream");
+         }
+         try {
+             str.close();
+         } catch (IOException e) {
+             Log.e(LOG_TAG, "Failed to close file output stream", e);
+         }
+         rename(mNewName, mBaseName);
++        if (mCommitEventLogger != null) {
++            mCommitEventLogger.onFinishWrite();
++        }
++    }
++
++    /**
++     * Completes a write, reporting sync, close and replacement failures to the caller.
++     * Unlike {@link #finishWrite}, a failed sync never proceeds to replacement.
++     * The caller must call {@link #failWrite} when this method throws, and must
++     * provide the same external locking required by the other write methods.
++     *
++     * <p>This uses the existing atomic-file layout and file-sync contract; it does
++     * not add a parent-directory sync or guarantee recovery from every power loss.
++     *
++     * @hide
++     */
++    public void finishWriteOrThrow(@NonNull FileOutputStream str) throws IOException {
++        if (str == null) {
++            throw new IOException("Missing atomic-file write stream");
++        }
++        // startWrite's legacy recovery uses the historical logging-only rename.
++        // Do not report a new commit if that recovery could overwrite it on read.
++        if (mLegacyBackupName.exists()) {
++            throw new IOException("Unresolved atomic-file legacy backup " + mLegacyBackupName);
++        }
++        if (!FileUtils.sync(str)) {
++            throw new IOException("Failed to sync atomic-file output stream");
++        }
++        str.close();
++        // Preserve the existing empty-directory compatibility, but check it.
++        if (mBaseName.isDirectory() && !mBaseName.delete()) {
++            throw new IOException("Failed to remove atomic-file target directory " + mBaseName);
++        }
++        if (!mNewName.renameTo(mBaseName)) {
++            throw new IOException("Failed to replace atomic file " + mBaseName);
++        }
+         if (mCommitEventLogger != null) {
+             mCommitEventLogger.onFinishWrite();
+         }
+     }
+
+     /**
+      * Call when you have failed for some reason at writing to the stream
+      * returned by {@link #startWrite()}.  This will close the current

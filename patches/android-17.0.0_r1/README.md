@@ -1,10 +1,10 @@
 # Pinned Andrix AOSP adaptation
 
-The current seventeen-file adaptation spans nine pinned projects in exact
+The current eighteen-file adaptation spans nine pinned projects in exact
 `android-17.0.0_r1`. The original twelve files cover owned network endpoints,
 inherited Google app-link registration and product-scoped package selection.
-Five framework files additionally retain static-library dependencies needed by
-Android rollback records. No supported resource hook covers that lifecycle bug.
+Six framework files additionally retain static-library dependencies needed by
+Android rollback records and check metadata/staged-lifecycle commits. No supported resource hook covers that lifecycle bug.
 These are not a substitute source distribution or an unrelated platform fork.
 The official manifest/project HEADs remain at their pinned release commits;
 `series.json` records each base commit and before/after file digest. The patch
@@ -22,7 +22,10 @@ no longer describes an image built with this adaptation.
   refresh the snapshot. Metadata-write failures cannot advertise a newly enabled
   or available rollback. Signature/installation verification is unchanged, no
   fake client or privileged shim is added, and ordinary pruning remains enabled.
-  See the [retention implementation/gates](../../plans/2026-09-07-rollback-retention.md).
+  The [lifecycle correction](../../plans/2026-09-08-rollback-lifecycle.md) adds a
+  hidden checked AtomicFile commit (legacy API unchanged), persist-before-submit,
+  backup retention through staged apply and in-flight expiry protection. See also
+  the [earlier retention/Watchdog proof](../../plans/2026-09-07-rollback-retention.md).
 
 - WallpaperPicker2 no longer registers Google's `g.co/wallpaper` verified link.
   The first connected candidate actually triggered a `g.co` lookup through
