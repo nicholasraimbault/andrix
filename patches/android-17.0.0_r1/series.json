@@ -128,7 +128,7 @@
         {
           "path": "services/core/java/com/android/server/rollback/RollbackManagerServiceImpl.java",
           "base_sha256": "de61660579d2b44ce2706bd4aab14daa1906a72f54abed1d46ba26f0a52b8161",
-          "patched_sha256": "fc8983cb191b59ab3bfedbd7021a02dd824eec1b437e5634bd41260dd97b67e2"
+          "patched_sha256": "7406f62e93de107496c8baa6112448003c388604f65d5335f891c2f2d6085922"
         },
         {
           "path": "services/core/java/com/android/server/rollback/RollbackManagerInternal.java",
@@ -149,5 +149,5 @@
     }
   ],
   "patch": "network-endpoints.patch",
-  "patch_sha256": "fe96650f06406d2cb2937f3e04dd82739fa0babf425300078e8c6635aefc7cf7"
+  "patch_sha256": "aa8f395c68b347d17f8c3f7a1d6fe2e8dd8c9d5ec4dafb4f6fd29b7e7d7370cb"
 }

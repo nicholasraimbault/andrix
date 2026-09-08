@@ -87,12 +87,20 @@ implemented and tested the correction. Independent read-only reviews were adviso
 
 ## Verification boundaries
 
-The221 host tests pass, including extracted Java bodies with explicit mocked
+The 221 host tests pass, including extracted Java bodies with explicit mocked
 Android surroundings and real host-file checked-commit trials. They cover injected
 sync/close/rename errors, metadata-transition rollback, cause-list aliasing,
 discarded instances, correct session matching, staged/non-staged getter contracts
 and reconciliation states. They are not Android storage-fault, power-cut or image
-execution evidence. Compiler/image and corrected runtime verification follow.
+execution evidence. Producer `4699fcc` subsequently built and its frozen images
+retained the original APKs/APEX and compiled correction identifiers. The live
+non-staged restore passed. Its in-flight expiry guard held the dependency, but
+throwing from the worker produced an unsupported RuntimeException wrapper at
+Binder: `Parcel(Error: ... "Not a data message")`. The original RPC/test failure is
+retained. A narrow follow-up returns a boolean from the worker and throws the
+supported IllegalStateException on the Binder thread. A changed-function test
+reproduces awaitResult's wrapping behavior; state protection and RPC correctness
+are not conflated. Final image/runtime qualification remains separate.
 
 Forward staged consumers' **new**, separately installed library is a distinct
 pending-install dependency, not an old-consumer rollback reference. Its unused
