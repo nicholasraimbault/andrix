@@ -6,6 +6,7 @@ root=$(cd "$(dirname "$0")/../.." && pwd)
 expected_apex=${ANDRIX_EXPECTED_APEX:-}
 expected_elf=${ANDRIX_EXPECTED_PROOF_ELF:-}
 expected_fingerprint=${ANDRIX_EXPECTED_FINGERPRINT:-}
+profile=${ANDRIX_DEVICE_PROFILE:-legacy-local-rkp}
 
 if [[ ! -f "$expected_apex" ]]; then
   echo "FAIL: set ANDRIX_EXPECTED_APEX to the APEX from the built image" >&2
@@ -19,6 +20,31 @@ if [[ -z "$expected_fingerprint" ]]; then
   echo "FAIL: set ANDRIX_EXPECTED_FINGERPRINT to the built image fingerprint" >&2
   exit 1
 fi
+# Keep the old local-keys policy gate as the default. The new profile changes
+# only the claim scope, never the shared APEX/ELF/filesystem/SELinux oracles.
+gos_product=false
+case "$expected_fingerprint" in
+  Andrix/andrix_gos_cf_arm64_only_phone/andrix_cf_arm64_only:17/*) gos_product=true ;;
+esac
+case "$profile" in
+  legacy-local-rkp)
+    if [[ "$gos_product" == true ]]; then
+      echo "FAIL: this GrapheneOS migration product requires explicit offline-core scope" >&2
+      exit 1
+    fi
+    ;;
+  offline-core)
+    if [[ "$gos_product" != true || -z "${ANDROID_SERIAL:-}" ]]; then
+      echo "FAIL: offline-core requires the GrapheneOS ARM64 proof fingerprint and explicit ANDROID_SERIAL" >&2
+      exit 1
+    fi
+    ;;
+  *)
+    echo "FAIL: unknown ANDRIX_DEVICE_PROFILE" >&2
+    exit 1
+    ;;
+esac
+
 for command in adb cmp python3 sha256sum; do
   if ! command -v "$command" >/dev/null; then
     echo "FAIL: $command not found" >&2
@@ -57,9 +83,22 @@ if [[ "$actual_abilist" != "arm64-v8a" || "$actual_abilist64" != "arm64-v8a" || 
   exit 1
 fi
 
-rkp_host=$(adb shell getprop remote_provisioning.hostname | tr -d '\r')
-rkp_only=$(adb shell getprop remote_provisioning.tee.rkp_only | tr -d '\r')
-if [[ -n "$rkp_host" || "$rkp_only" != "false" ]]; then
+if [[ "$profile" == offline-core ]]; then
+  if ! actual_product=$(adb shell getprop ro.product.name | tr -d '\r'); then
+    echo "FAIL: cannot read product identity" >&2
+    exit 1
+  fi
+  if [[ "$actual_product" != andrix_gos_cf_arm64_only_phone ]]; then
+    echo "FAIL: offline-core product identity differs from the GrapheneOS proof product" >&2
+    exit 1
+  fi
+fi
+if ! rkp_host=$(adb shell getprop remote_provisioning.hostname | tr -d '\r') ||
+   ! rkp_only=$(adb shell getprop remote_provisioning.tee.rkp_only | tr -d '\r'); then
+  echo "FAIL: cannot read remote provisioning properties" >&2
+  exit 1
+fi
+if [[ "$profile" == legacy-local-rkp && ( -n "$rkp_host" || "$rkp_only" != "false" ) ]]; then
   echo "FAIL: Cuttlefish remote provisioning is not configured for local keys only" >&2
   exit 1
 fi
@@ -230,7 +269,12 @@ fi
 
 echo "PASS: fingerprint=$actual_fingerprint"
 echo "PASS: product ABI list is exactly arm64-v8a with no 32-bit ABI"
-echo "PASS: remote provisioning has no server and is not required for local keys"
+if [[ "$profile" == legacy-local-rkp ]]; then
+  echo "PASS: remote provisioning has no server and is not required for local keys"
+else
+  echo "SCOPE: offline-core only; network and RKP policy are not qualified"
+  printf 'INFO: observed RKP hostname=%q rkp_only=%q\n' "$rkp_host" "$rkp_only"
+fi
 echo "PASS: APEX=$preinstalled_path SHA256=$device_apex_sha active factory"
 echo "PASS: andrix-hello SHA256=$expected_elf_sha same mounted inode=$usr_stat exact output=andrix"
 echo "PASS: /usr is a read-only mount; /etc is Android; SELinux enforcing"
