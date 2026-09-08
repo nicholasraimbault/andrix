@@ -179,17 +179,22 @@ available-expiry release, ready staged upgrade abandonment across reboot and nor
 staged D→C restoration on frozen `f5ff864`. It also reproduced a defect: expiry of
 an in-flight staged restore released its required library. Source review confirmed
 that AtomicFile's logging-only commit hid some errors and staged READY deleted
-backups too early. Corrections pass 221 host tests; new image/runtime qualification
-is pending. These synthetic generations are not real Chromium migrations.
+backups too early. Corrections pass 221 host tests. Final image `d2ffbd8` then
+passed typed in-flight expiry refusal before/after metadata reload, protected
+library retention, staged restoration, completed-pin release and normal available
+expiry. Final ordinary D consent/JS/HTTPS/hostname checks passed; Safe Browsing
+remains false. Its 87,707-packet/zero-drop capture showed owned/public-CT/local guest
+destinations only. Intermediate malformed Binder errors and other failed observers
+remain preserved. All task VMs/services stopped with exit 0. These synthetic generations are
+not real Chromium migrations or production-power-loss qualification.
 
-1. Finish remaining dependency-lifecycle qualification. The earlier framework
-   extension passed exact-version retention, real live/startup pruning, reboot
-   persistence, actual PackageWatchdog restoration and completed-pin release.
-   Qualify expiry/staged/interrupted-I/O boundaries; expiry setup's ordinary
-   downgrade was correctly rejected, not bypassed. No production updater or
-   signing policy was selected. Continue broader recovery/hardening and
-   actual-version migration checks. Vanadium152 is already the tested default provider; only
-   the recipe remains opt-in, with unflagged builds retaining145. No promotion.
+1. Continue broader recovery/hardening and explicitly pinned real-version
+   migration checks, rather than repeating provider selection. Remaining lifecycle
+   limits include the forward-new-library pending-install window, real Android
+   I/O/power-cut behavior, system-owned rollback cancellation and ambiguous
+   concurrent owner changes. No production updater or signing policy was selected.
+   Vanadium152 is already the tested default provider; only the recipe remains
+   opt-in, with unflagged builds retaining145. No promotion.
 2. Qualify conditional/manual app and other carrier/network paths. DSU and
    attestation snapshot delivery is not replaced by CT-data proof. IPv6 Internet
    and every supported endpoint profile remain untested.

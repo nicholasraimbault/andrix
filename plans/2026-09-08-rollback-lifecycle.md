@@ -49,7 +49,58 @@ the first host observer to fail; the subsequent fetch preserved all fields and
 honored their combined freshness bound. Original CT signatures/data and independent
 format freshness checks remain unchanged.
 
-## Source defects and correction under qualification
+## Corrected runtime result — bounded pass
+
+Final producer `d2ffbd8` built successfully in 845.003 seconds, completing
+2026-09-08T05:45:34Z. The preceding `4699fcc` build took 5,033.178 seconds.
+Both completed images and matching host packages were frozen and rehashed;
+extraction confirmed the original signed WebView/Library/Config APKs and `/usr`
+APEX, plus compiled correction identifiers. An interrupted first freeze preserved
+its partial archive before verified resumption; no partial image was launched.
+
+A fresh final ARM64/TCG guest demonstrated:
+
+- **Typed in-flight expiry refusal:** Binder returned `EX_ILLEGAL_STATE` (`-5`)
+  and the exact “Rollback restore is still in progress” message. The staged
+  restore stayed READY, the record stayed committed/restoring and normal removal
+  of required B remained denied. The same checks passed after explicit metadata
+  reload through the existing test API.
+- **Staged restore and release:** normal Android reboot applied the recorded
+  C→B commit, restoring exact B/207 and trusted Config initialization. Persisted
+  completion released its pin. A later normal forward C update then allowed
+  unused B removal.
+- **Available expiry remains allowed:** a forward D update made D→C available;
+  the same caller/API expired it successfully and unused C could be removed.
+  Final disposable state was D/209 with libraries A/D, not a promoted release.
+- **Ordinary WebView:** normal local-network ALLOW, JS DOM42/HTTPS204,
+  hostname-only TLS cancellation and uninstall passed at the declared D version.
+  The credential-free guest's normal `wm dismiss-keyguard` surfaced the dialog;
+  no credential, lock-policy or permission-grant bypass was used. Safe Browsing
+  remains false. Exact original hello, read-only `/usr`, Android `/etc`, sole
+  ARM64 ABI and enforcing SELinux were reobserved.
+
+The intermediate `4699fcc` image also passed actual non-staged restoration and
+state/reload/reboot/release checks, but its malformed refusal RPC remained a FAIL.
+The final run specifically distinguishes a correct typed refusal from either a
+successful expiry or an unusable Binder reply.
+
+Final capture: **87,707 packets, zero kernel drops**, from
+2026-09-08T05:47:21.831999Z through 06:32:01.144178Z. Guest destinations were the
+owned fixture, public CT delivery and local multicast; namespace IPv6 was local
+only. No unparsed traffic or Google guest destination was observed. This is a
+measured connected workload, not universal no-Google/security-consumer proof.
+The baseline and intermediate captures contained 142,853 and 91,886 packets,
+respectively, both with zero drops; the baseline ordinary probe separately failed
+its 180-second permission deadline and was not relabelled as HTTPS success.
+
+All three VMs and service namespaces stopped with exit 0; the heavy lease was
+released. Private evidence `rollback-lifecycle-20260908T010807Z` seals 8,180 regular
+files; private artifacts, captures, credentials and signing keys are not published.
+Real Android storage-fault/power-cut behavior, parent-directory durability,
+system-owned rollback cancellation, ambiguous concurrent owner changes and the
+forward-new-library window remain explicit limits, not quietly closed gates.
+
+## Source defects and correction
 
 Exact r1 `AtomicFile.finishWrite` logs sync/close/rename errors and returns void.
 The earlier store boolean therefore only detected exceptions from earlier steps,
@@ -100,7 +151,8 @@ Binder: `Parcel(Error: ... "Not a data message")`. The original RPC/test failure
 retained. A narrow follow-up returns a boolean from the worker and throws the
 supported IllegalStateException on the Binder thread. A changed-function test
 reproduces awaitResult's wrapping behavior; state protection and RPC correctness
-are not conflated. Final image/runtime qualification remains separate.
+are not conflated. The final image/runtime result above verified the actual typed
+response separately from those host tests.
 
 Forward staged consumers' **new**, separately installed library is a distinct
 pending-install dependency, not an old-consumer rollback reference. Its unused

@@ -23,7 +23,9 @@ configuration-signer rejection and focused recovery checks. A
 consumer updates through Android's rollback API, provided the matching library
 is retained or restored first. The [retention extension](plans/2026-09-07-rollback-retention.md)
 now preserves dependencies through pruning/reboot and has demonstrated automatic
-PackageWatchdog recovery; broader lifecycle qualification remains open.
+PackageWatchdog recovery. The [lifecycle correction](plans/2026-09-08-rollback-lifecycle.md)
+also passes staged restoration, metadata reload and typed in-flight expiry refusal;
+power-loss, broader lifecycle and real-version migration gates remain open.
 **Native ARM64/KVM and complete no-Google qualification remain open.**
 
 This is source and proof tooling, **not a supported OS release or a phone

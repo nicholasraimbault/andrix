@@ -44,7 +44,10 @@ pair, including to a non-factory version. A missing old library still breaks bar
 rollback; normal installation of its identical signed APK enabled a successful
 retry. The subsequent [framework retention extension](../../plans/2026-09-07-rollback-retention.md)
 passed unused-library protection, live/startup pruning, reboot persistence,
-automatic PackageWatchdog restoration and completed-pin release. Expiry/staged/
-interrupted-I/O boundaries, complete hardening, broader recovery and real-version
+automatic PackageWatchdog restoration and completed-pin release. The
+[lifecycle correction](../../plans/2026-09-08-rollback-lifecycle.md) additionally
+passed available expiry, staged restoration and typed refusal to expire a pending
+restore, including after metadata reload. Android adverse-I/O/power-loss and
+forward-new-library boundaries, complete hardening, broader recovery and real-version
 migration remain separate gates. Neither those scoped
 results nor a static check authorize a supported provider release.
