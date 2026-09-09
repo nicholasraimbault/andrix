@@ -10,6 +10,7 @@ JAVA = PROBE / 'src/dev/andrix/proof/webview'
 ACTIVITY = (JAVA / 'ProbeActivity.java').read_text()
 RUNNER = (JAVA / 'WebViewProbeInstrumentation.java').read_text()
 SESSION = (JAVA / 'ProbeSession.java').read_text()
+PROFILE = (JAVA / 'ProbePlatformProfile.java').read_text()
 
 
 def section(source, start, end):
@@ -48,10 +49,14 @@ class PermissionContractTests(unittest.TestCase):
 
     def test_runner_permission_set_is_exact_and_order_independent(self):
         runner = compact(RUNNER)
-        self.assertIn('info.requestedPermissions==null||info.requestedPermissions.length!=2', runner)
-        for permission in ('INTERNET', 'ACCESS_LOCAL_NETWORK'):
-            self.assertIn('||!Arrays.asList(info.requestedPermissions).contains('
-                          'Manifest.permission.' + permission + ')', runner)
+        self.assertIn('arguments.getString("platform_profile",ProbePlatformProfile.AOSP)', runner)
+        self.assertOrdered(runner,
+                           'platform.validate(Build.FINGERPRINT,Build.PRODUCT,Build.VERSION.SDK_INT,info.requestedPermissions);',
+                           'activeSession=session;', 'session.post("local_network_permission",')
+        self.assertIn('permissions!=null&&permissions.length==expected.length', compact(PROFILE))
+        self.assertIn('Arrays.equals(expected,observed)', compact(PROFILE))
+        self.assertIn('String[]observed=permissions.clone();', compact(PROFILE))
+        self.assertIn('"implicit_sensor_grant_measured", false', RUNNER)
         self.assertNotIn('requestedPermissions[', RUNNER)
 
     def test_permission_is_first_stage_and_only_callback_initializes_webview(self):
