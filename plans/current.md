@@ -16,9 +16,14 @@ APK with no declared permissions. Original failures remain; no operator permissi
 grants, APK changes or platform-policy workarounds were used. **256 host tests pass.**
 
 Limits remain important: this Cuttlefish kernel lacks GrapheneOS SELinux flags and
-48-bit VA, with upstream warnings and Scudo fallback observed. The final screenshot
-was blank, so visual UI/launcher behavior is not qualified. The disconnected
-39,029-packet/zero-drop capture is not a no-Google or connected-service pass.
+48-bit VA, with upstream warnings and Scudo fallback observed. The first trial's
+final screenshot was blank. A [UI follow-up](2026-09-09-grapheneos-ui.md) now observes
+the real welcome screen after waiting for first draw, but longer navigation exposed
+Cuttlefish's incompatible Bluetooth-powered-on boot expectation. A scoped emulator
+configuration correction is prepared; stable UI/launcher qualification remains open.
+The disconnected 39,029-packet/zero-drop capture is not a connected-service pass.
+The [RKP review](../docs/grapheneos-connected-policy-review.md) also identifies an
+owner policy decision before connected provisioning; no exception is adopted.
 All owned guests/captures stopped; the Pixel and old AOSP baseline are unchanged.
 glibc/Wayland implementation, production signing and phone flashing remain outside
 this preparation work.
