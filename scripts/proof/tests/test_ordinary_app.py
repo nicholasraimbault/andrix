@@ -26,6 +26,8 @@ SPEC.loader.exec_module(p5)
 
 UID = 10001
 FINGERPRINT = "host-unit-fixture/NOT-A-BOOTED-IMAGE"
+GOS_FINGERPRINT = ("Andrix/andrix_gos_cf_arm64_only_phone/andrix_cf_arm64_only:17/"
+                   "HOST_UNIT_FIXTURE/andrix.gos.2026081300.1234567:userdebug/test-keys")
 SOURCE_DIR = "/data/app/~~fixture/dev.andrix.proof.p5-fixture/base.apk"
 SHELL_SHA = "a" * 64
 BADGING = """package: name='dev.andrix.proof.p5' versionCode='1' versionName='1'
@@ -102,6 +104,49 @@ class ParserTests(HostOnly):
     def test_valid_synthetic_observations(self):
         report = p5.parse_instrumentation(raw_fixture(report_fixture()).replace("\n", "\r\n"))
         self.validate(report)
+
+    def test_grapheneos_profile_accepts_only_source_injected_permission(self):
+        report = report_fixture()
+        report.update(fingerprint=GOS_FINGERPRINT, permissions=[p5.GOS_IMPLICIT_PERMISSION])
+        p5.validate_report(report, GOS_FINGERPRINT, UID, SOURCE_DIR, SHELL_SHA, 4096,
+                           "grapheneos-2026081300")
+        for permissions in ([], [p5.GOS_IMPLICIT_PERMISSION, p5.GOS_IMPLICIT_PERMISSION],
+                            ["android.permission.INTERNET"],
+                            [p5.GOS_IMPLICIT_PERMISSION, "android.permission.INTERNET"], None):
+            with self.subTest(permissions=permissions), self.assertRaises(p5.Failure):
+                report["permissions"] = permissions
+                p5.validate_report(report, GOS_FINGERPRINT, UID, SOURCE_DIR, SHELL_SHA, 4096,
+                                   "grapheneos-2026081300")
+        legacy = report_fixture()
+        legacy["permissions"] = [p5.GOS_IMPLICIT_PERMISSION]
+        with self.assertRaises(p5.Failure):
+            self.validate(legacy)
+        # The APK declaration check has no permission exception in either mode.
+        with self.assertRaises(p5.Failure):
+            p5.check_apk_metadata(BADGING + "uses-permission: name='android.permission.OTHER_SENSORS'\n", XMLTREE)
+
+    def test_platform_profile_is_explicit_and_generation_bound(self):
+        for profile, fingerprint in (("unknown", FINGERPRINT),
+                                     ("grapheneos-2026081300", FINGERPRINT),
+                                     ("grapheneos-2026081300", GOS_FINGERPRINT.replace("2026081300", "2026090700")),
+                                     ("aosp17", GOS_FINGERPRINT)):
+            with self.subTest(profile=profile, fingerprint=fingerprint), self.assertRaises(p5.Failure):
+                p5.validate_platform_profile(profile, fingerprint)
+        p5.validate_platform_profile("aosp17", FINGERPRINT)
+        p5.validate_platform_profile("grapheneos-2026081300", GOS_FINGERPRINT)
+        self.assertEqual(p5.expected_pm_permissions("aosp17"), [])
+
+    def test_grapheneos_profile_keeps_native_security_oracles(self):
+        for key, value in {"cap_eff": "0000000000000001", "selinux": "u:r:platform_app:s0",
+                           "uid": "2000", "copy_errno": "8", "control_exit": "1",
+                           "copy_mount_noexec": "1", "copy_mode": "0777",
+                           "byte_identity_after": "changed"}.items():
+            with self.subTest(key=key), self.assertRaises(p5.Failure):
+                report = report_fixture()
+                report.update(fingerprint=GOS_FINGERPRINT, permissions=[p5.GOS_IMPLICIT_PERMISSION])
+                report["native"][key] = value
+                p5.validate_report(report, GOS_FINGERPRINT, UID, SOURCE_DIR, SHELL_SHA, 4096,
+                                   "grapheneos-2026081300")
 
     def test_instrumentation_is_unambiguous(self):
         good = raw_fixture(report_fixture())
@@ -301,7 +346,9 @@ class FakeRunner(p5.Runner):
         assert arguments[0] == "shell", arguments
         command = shlex.split(arguments[1])
         if command[0] == "getprop":
-            return {"ro.build.fingerprint": FINGERPRINT, "sys.boot_completed": "1", "ro.build.version.sdk": "37",
+            return {"ro.build.fingerprint": getattr(self, "fake_fingerprint", FINGERPRINT),
+                    "ro.product.name": getattr(self, "fake_product_name", p5.GOS_PRODUCT),
+                    "sys.boot_completed": "1", "ro.build.version.sdk": "37",
                     "ro.product.cpu.abilist": "arm64-v8a", "ro.product.cpu.abilist64": "arm64-v8a",
                     "ro.product.cpu.abilist32": ""}[command[1]]
         if command == ["getenforce"]:
@@ -340,6 +387,8 @@ class FakeRunner(p5.Runner):
         if command == ["am", "instrument", "-w", "-r", "--user", "0", p5.INSTRUMENTATION]:
             self.instrumented = True
             report = report_fixture(self.summary["system_sh_sha256"])
+            report["fingerprint"] = getattr(self, "fake_fingerprint", FINGERPRINT)
+            report["permissions"] = getattr(self, "fake_pm_permissions", [])
             if self.bad_report:
                 report["native"]["copy_errno"] = "8"
             return raw_fixture(report)
@@ -357,8 +406,12 @@ class LifecycleTests(HostOnly):
         shell.write_bytes(elf_fixture())
         evidence = root / "evidence"
         evidence.mkdir()
-        args = argparse.Namespace(apk=apk, system_sh=shell, evidence=evidence, adb="FAKE_ADB", aapt2="FAKE_AAPT2")
-        runner = FakeRunner(args, "HOST-ONLY-NOT-A-SERIAL", FINGERPRINT)
+        profile = settings.pop("platform_profile", "aosp17")
+        fingerprint = settings.pop("fingerprint", FINGERPRINT)
+        args = argparse.Namespace(apk=apk, system_sh=shell, evidence=evidence, adb="FAKE_ADB", aapt2="FAKE_AAPT2",
+                                  platform_profile=profile)
+        runner = FakeRunner(args, "HOST-ONLY-NOT-A-SERIAL", fingerprint)
+        runner.fake_fingerprint = fingerprint
         runner.calls = []
         for key, value in settings.items():
             setattr(runner, key, value)
@@ -377,6 +430,27 @@ class LifecycleTests(HostOnly):
         self.assertEqual(installs[0][:-1], ("install", "-t", "--user", "0"))
         self.assertEqual(runner.calls.count(("uninstall", p5.PACKAGE)), 1)
         self.assertFalse(runner.present)
+
+    def test_grapheneos_install_has_no_extra_grant_or_identity_commands(self):
+        runner = self.make_runner(platform_profile="grapheneos-2026081300", fingerprint=GOS_FINGERPRINT,
+                                  fake_pm_permissions=[p5.GOS_IMPLICIT_PERMISSION])
+        self.run_fake(runner)
+        self.assertEqual(runner.summary["verdict"], "PASS")
+        self.assertIs(runner.summary["apk_manifest_declares_permissions"], False)
+        self.assertEqual(runner.summary["observed_pm_permissions"], [p5.GOS_IMPLICIT_PERMISSION])
+        self.assertIs(runner.summary["runtime_permission_grants_measured"], False)
+        self.assertEqual([call[:-1] for call in runner.calls if call[0] == "install"],
+                         [("install", "-t", "--user", "0")])
+        self.assertFalse(any(any(word in str(part) for word in ("pm grant", "appops set", "run-as"))
+                             for call in runner.calls for part in call))
+        self.assertTrue(runner.summary["uninstall_confirmed"])
+
+    def test_grapheneos_wrong_product_stops_before_install(self):
+        runner = self.make_runner(platform_profile="grapheneos-2026081300", fingerprint=GOS_FINGERPRINT,
+                                  fake_product_name="other", fake_pm_permissions=[p5.GOS_IMPLICIT_PERMISSION])
+        with self.assertRaises(p5.Failure):
+            self.run_fake(runner)
+        self.assertFalse(any(call[0] in ("install", "uninstall") for call in runner.calls))
 
     def test_preexisting_other_user_package_is_never_installed_or_removed(self):
         runner = self.make_runner(existing=True)

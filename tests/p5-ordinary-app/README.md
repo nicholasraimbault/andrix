@@ -86,6 +86,32 @@ or all app APIs. EACCES with DAC/noexec confounds excluded does not by itself
 identify a particular SELinux rule; correlate expected AVCs and pinned policy
 separately. This fixture does not prove runtime networking, P4, or owner execution.
 
+## GrapheneOS migration metadata profile
+
+On the pinned GrapheneOS `2026081300` base, PackageManager adds
+`android.permission.OTHER_SENSORS` implicitly to code-bearing APKs which do not
+declare it. The source is
+`frameworks/base/core/java/com/android/internal/pm/pkg/parsing/ParsingPackageUtils.java`
+at manifest-pinned commit `aab06a8bd44c4c2b58eeec780fde83baa9d43a40`.
+The platform's sensor permission is managed by its ordinary owner policy; this
+fixture does not request, grant, revoke or exercise it.
+
+Use `--platform-profile grapheneos-2026081300` explicitly for the matching
+`andrix_gos_cf_arm64_only_phone` image family. The host requires that generation's
+exact expected fingerprint, the matching product property, and **only** the
+source-defined `OTHER_SENSORS` entry in PackageInfo. The APK declaration check
+still rejects every `uses-permission`, including an explicit sensor declaration.
+The default `aosp17` profile retains its empty-list requirement and cannot be
+silently selected for this GrapheneOS product.
+
+The raw report is preserved. Summaries distinguish APK declarations from
+PackageManager's list and do not claim that runtime grant state was measured or
+that the installed app has zero effective permissions. All UID, signer, data-APK,
+capability, exec, byte-identity, noexec/DAC and cleanup gates remain unchanged.
+This is a source-aware observer contract, not permission adoption or a platform
+policy workaround. An earlier host FAIL must not be relabelled; rerun the unchanged
+APK under the explicitly selected profile.
+
 ## Host-only regression tests
 
 ```sh
