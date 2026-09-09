@@ -15,6 +15,9 @@ import zipfile
 
 PACKAGE = "dev.andrix.proof.p5"
 INSTRUMENTATION = PACKAGE + "/" + PACKAGE + ".P5Instrumentation"
+PLATFORM_PROFILES = ("aosp17", "grapheneos-2026081300")
+GOS_PRODUCT = "andrix_gos_cf_arm64_only_phone"
+GOS_IMPLICIT_PERMISSION = "android.permission.OTHER_SENSORS"
 NATIVE_FIELDS = set("""
 status error_stage error_errno cleanup_errno uid euid gid egid selinux cap_eff mappings page_size
 source_path source_mode source_uid source_size source_dev_inode copy_path copy_dir_mode copy_mode
@@ -31,6 +34,24 @@ class Failure(Exception):
 def require(condition, message):
     if not condition:
         raise Failure(message)
+
+
+def validate_platform_profile(profile, fingerprint):
+    require(profile in PLATFORM_PROFILES, "unknown platform profile")
+    gos_prefix = "Andrix/" + GOS_PRODUCT + "/andrix_cf_arm64_only:17/"
+    if profile == "grapheneos-2026081300":
+        require(re.fullmatch(re.escape(gos_prefix)
+                             + r"[^/\r\n]+/andrix\.gos\.2026081300\.[0-9a-f]{7,40}:userdebug/test-keys",
+                             fingerprint) is not None,
+                "GrapheneOS profile requires the exact pinned ARM64 proof image family")
+    else:
+        require(not fingerprint.startswith(gos_prefix),
+                "GrapheneOS proof image requires an explicit platform profile")
+
+
+def expected_pm_permissions(profile):
+    require(profile in PLATFORM_PROFILES, "unknown platform profile")
+    return [GOS_IMPLICIT_PERMISSION] if profile == "grapheneos-2026081300" else []
 
 
 def sha256(path):
@@ -162,7 +183,7 @@ def check_mappings(raw):
     require(found == {"linker", "bionic"}, "missing executable Android linker/Bionic mapping")
 
 
-def validate_report(report, fingerprint, uid, source_dir, shell_sha, page_size):
+def validate_report(report, fingerprint, uid, source_dir, shell_sha, page_size, platform_profile="aosp17"):
     require(type(report.get("schema")) is int and report["schema"] == 1, "unknown report schema")
     for key in ("package", "instrumentation_package"):
         require(report.get(key) == PACKAGE, "incorrect " + key)
@@ -172,7 +193,9 @@ def validate_report(report, fingerprint, uid, source_dir, shell_sha, page_size):
     flags = report.get("app_flags")
     require(type(flags) is int and flags & (1 | 128) == 0 and flags & 256 != 0, "system/updated-system or non-test app")
     require("shared_user_id" in report and report["shared_user_id"] is None, "shared UID")
-    require(report.get("permissions") == [], "requested app permissions")
+    validate_platform_profile(platform_profile, fingerprint)
+    require(report.get("permissions") == expected_pm_permissions(platform_profile),
+            "unexpected PackageManager permission list for platform profile")
     require(report.get("source_dir") == source_dir and source_dir.startswith("/data/app/"), "not the installed data APK")
     require(report.get("fingerprint") == fingerprint, "app fingerprint mismatch")
     for key in ("sdk", "min_sdk", "target_sdk"):
@@ -213,12 +236,16 @@ def validate_report(report, fingerprint, uid, source_dir, shell_sha, page_size):
 class Runner:
     def __init__(self, args, serial, fingerprint):
         self.args, self.serial, self.fingerprint = args, serial, fingerprint
+        self.platform_profile = getattr(args, "platform_profile", "aosp17")
+        validate_platform_profile(self.platform_profile, fingerprint)
         self.evidence = args.evidence.resolve()
         self.sequence = 0
         self.installed = False
         self.identity = None
         self.baseline = None
         self.summary = {"verdict": "FAIL", "serial": serial, "expected_fingerprint": fingerprint,
+                        "platform_profile": self.platform_profile,
+                        "expected_pm_permissions": expected_pm_permissions(self.platform_profile),
                         "install_attempted": False, "install_confirmed": False,
                         "proof_validated": False, "uninstall_confirmed": False}
 
@@ -258,6 +285,8 @@ class Runner:
         properties = {"ro.build.fingerprint": self.fingerprint, "sys.boot_completed": "1",
                       "ro.build.version.sdk": "37", "ro.product.cpu.abilist": "arm64-v8a",
                       "ro.product.cpu.abilist64": "arm64-v8a", "ro.product.cpu.abilist32": ""}
+        if self.platform_profile == "grapheneos-2026081300":
+            properties["ro.product.name"] = GOS_PRODUCT
         for key, expected in properties.items():
             observed[key] = self.shell("getprop", key)
             require(observed[key] == expected, "target mismatch: " + key)
@@ -314,6 +343,7 @@ class Runner:
             check_apk_archive(apk)
             check_apk_metadata(self.command([self.args.aapt2, "dump", "badging", apk]),
                                self.command([self.args.aapt2, "dump", "xmltree", apk, "--file", "AndroidManifest.xml"]))
+            self.summary["apk_manifest_declares_permissions"] = False
             self.baseline = self.state()
             self.summary["target"] = self.baseline
             self.absent()
@@ -330,8 +360,11 @@ class Runner:
             report = parse_instrumentation(raw)
             (self.evidence / "report.json").write_text(json.dumps(report, indent=2) + "\n")
             self.state()
+            self.summary["observed_pm_permissions"] = report.get("permissions")
+            self.summary["runtime_permission_grants_measured"] = False
             validate_report(report, self.fingerprint, *self.identity,
-                            self.summary["system_sh_sha256"], self.baseline["page_size"])
+                            self.summary["system_sh_sha256"], self.baseline["page_size"],
+                            self.platform_profile)
             self.summary["proof_validated"] = True
         except (Exception, KeyboardInterrupt) as error:
             failure = type(error).__name__ + ": " + str(error)
@@ -366,12 +399,15 @@ def main():
     parser.add_argument("--evidence", required=True, type=Path, help="NEW directory outside this checkout; never overwritten/deleted")
     parser.add_argument("--adb", default="adb")
     parser.add_argument("--aapt2", default="aapt2", help="aapt2 from the pinned build/SDK")
+    parser.add_argument("--platform-profile", choices=PLATFORM_PROFILES, default="aosp17",
+                        help="explicit source-aware PM metadata contract; never changes APK permissions")
     args = parser.parse_args()
     try:
         serial = os.environ.get("ANDROID_SERIAL", "")
         fingerprint = os.environ.get("ANDRIX_EXPECTED_FINGERPRINT", "")
         for name, value in (("ANDROID_SERIAL", serial), ("ANDRIX_EXPECTED_FINGERPRINT", fingerprint)):
             require(value and value == value.strip() and not any(char in value for char in "\r\n\0"), "explicit single-line " + name + " required")
+        validate_platform_profile(args.platform_profile, fingerprint)
         require(args.apk.is_file() and args.apk.suffix == ".apk", "exact APK file required")
         require(args.system_sh.is_file(), "exact P3 system/bin/sh artifact required")
         root = Path(__file__).resolve().parents[2]

@@ -78,11 +78,16 @@ properties are successfully read and reported as **INFO**, not a policy PASS.
 Do not change those properties just to make an old observer pass.
 
 After the core check, run the freshly built ordinary-app fixture through normal
-installation/instrumentation. Require its independent UID, no requested
-permissions/shared UID, non-platform signer, no capabilities, valid system-shell
-control and byte-identical private-copy `execve` rejection with **EACCES**.
+installation/instrumentation. Require its independent UID, no APK-declared
+permissions or shared UID, non-platform signer, no capabilities, valid
+system-shell control and byte-identical private-copy `execve` rejection with **EACCES**.
 No grants, `run-as`, debugger, adopted identity or SELinux change is permitted.
 Verify cleanup and retain the expected denial separately from core boot logs.
+For this base, use the explicitly pinned P5 platform profile: GrapheneOS's parser
+adds `OTHER_SENSORS` to code-bearing apps' PackageManager metadata. The APK still
+declares none; the host accepts only that exact source-defined entry in this
+profile, never an arbitrary permission list. No permission grant/revoke or APK/
+platform change is used. See the [fixture contract](../tests/p5-ordinary-app/README.md#grapheneos-migration-metadata-profile).
 
 Record available GrapheneOS-specific kernel/process protections honestly. The
 Cuttlefish kernel is not the Pixel kernel; absent flags or documented upstream
