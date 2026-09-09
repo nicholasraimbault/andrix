@@ -72,6 +72,15 @@ it does not establish the DRM session's security level, a missing CDM, the exact
 enforcement mechanism or every title/browser combination. No L1 failure is
 inferred, and installing Silvervine cannot be assumed to change that eligibility.
 
+**Owner-reported follow-up:** enabling the browser's normal Desktop site option
+made the movie work in Vanadium, but not in Brave. This narrows the earlier failure:
+the existing Vanadium setup was sufficient for the reported playback in that mode,
+without adding Silvervine. Browser mode mattered in this case; the precise cause
+of Brave's different result remains unknown. This is not an instrumented Andrix
+result, a measured L1/L3 session, a resolution measurement or a guarantee for other
+titles and versions. Preserve both the original mobile-mode failure and this
+successful Vanadium follow-up.
+
 The current [YouTube system-requirements page](https://support.google.com/youtube/answer/78358?hl=en)
 lists Chrome/Firefox/Safari and desktop OS requirements for premium web playback.
 It states that browser HD streaming is unavailable except in Safari; this is a
