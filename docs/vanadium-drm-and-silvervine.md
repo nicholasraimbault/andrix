@@ -1,10 +1,11 @@
 # Vanadium DRM and Silvervine's role
 
-Read-only source/documentation assessment, 2026-09-09. No browser/CDM was run, no
-license or provisioning request was made, and no account, purchase, vendor terms
-or handset operation was used. Silvervine packaging remains a proposal, not an
-adopted dependency. Retaining genuine hardware attestation through GrapheneOS's
-proxy is a separate owner-approved decision.
+Read-only source/documentation assessment, 2026-09-09. The primary review did not
+run a browser/CDM, make a license or provisioning request, or use an account,
+purchase, vendor terms or handset operation. A later owner-reported phone
+observation is separately labelled below. Silvervine packaging remains a proposal,
+not an adopted dependency. Retaining genuine hardware attestation through
+GrapheneOS's proxy is a separate owner-approved decision.
 
 ## Two different integration paths
 
@@ -61,6 +62,15 @@ Ordinary YouTube video playback does not require Silvervine. Protected movie
 playback requires a working browser/platform DRM path, appropriate permission,
 a valid license and acceptance by the service. No actual purchased/rented movie
 playback on Andrix has been qualified.
+
+**Owner-reported observation, 2026-09-09:** on the owner's Pixel running GrapheneOS,
+both Vanadium and Brave rejected a YouTube movie with a message reported as
+"video unavailable watch on the yt app the content isnt avail on your mobile
+browser". This is evidence of the observed mobile-web rejection, not a successful
+Andrix playback test. It points to YouTube's client/content eligibility policy;
+it does not establish the DRM session's security level, a missing CDM, the exact
+enforcement mechanism or every title/browser combination. No L1 failure is
+inferred, and installing Silvervine cannot be assumed to change that eligibility.
 
 The current [YouTube system-requirements page](https://support.google.com/youtube/answer/78358?hl=en)
 lists Chrome/Firefox/Safari and desktop OS requirements for premium web playback.
