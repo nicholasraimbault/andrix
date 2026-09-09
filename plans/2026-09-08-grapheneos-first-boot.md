@@ -1,5 +1,79 @@
 # GrapheneOS-derived ARM64 image and first offline boot
 
+**Completed on 2026-09-09:** full image/host build, frozen artifact checks,
+GrapheneOS-derived guest boot, `/usr` core checks, ordinary-app private-execution
+negative, verified probe removal, and a normal Android reboot/core recheck.
+These are **offline emulated functional results**, not a supported release,
+connected privacy proof, complete GrapheneOS hardening or Pixel qualification.
+
+## Observed results
+
+The eight-job `droid hosttar` build completed with exit 0 in 40,437.946 seconds,
+ending `2026-09-09T08:12:58Z`. All **27 image files** and both matching host packages
+were frozen and rehashed. The old tree's extra `system_other.img` was not generated
+here; no placeholder was invented to force an old count. Actual EROFS contents
+contain the same verified APEX, init entry, `/usr` marker and Android `/etc` link.
+The optional P5 APK was built separately; image and host-archive hashes remained
+unchanged and the APK was not included in the image's package inventory.
+
+| Check | Offline emulated observation |
+| --- | --- |
+| Identity | Expected image fingerprint, incremental `andrix.gos.2026081300.be031f9`, Android 17/API 37, sole ABI `arm64-v8a`. |
+| Runtime | Packaged ARM64 QEMU on x86, `cpu=max`, GICv2, 4 CPUs/4 GiB; actual VM argv checked. |
+| `/usr` | Exact signed factory APEX active; canonical and `/usr` hello bytes/inode agree; exact `andrix\n` output; read-only mount. |
+| Android state | `/etc -> /system/etc`; SELinux enforcing; shell UID 2000; kernel pages 4096. |
+| Ordinary app | UID 10144, `untrusted_app` with MLS categories, zero Linux capabilities; normal system-shell control exits 0; identical private copy gets `execve` **EACCES (13)**, with no DAC/noexec confound. Matching `execute_no_trans` AVC retained. |
+| Permissions | APK declares none. The pinned parser adds `OTHER_SENSORS` to PackageManager metadata; explicit host profile validates exactly that field. No operator permission grants/revocations or APK/platform changes were used; runtime grant state is not claimed measured. |
+| Cleanup/reboot | Probe uninstall verified; normal `adb reboot` changed boot ID; the same core checks passed again without host reassembly/data reset. |
+| Shutdown | Final controller, runner, Cuttlefish stop and capture all exited 0; no task guest remains running. |
+
+The final capture contains **39,029 packets, zero kernel-reported drops**, spanning
+`2026-09-09T14:33:31.459742Z`–`14:56:28.345566Z`. It includes local host-management
+traffic as well as guest-facing traffic. The namespace had no Internet uplink;
+this is **not** DNS, TLS/CT, RKP or no-Google qualification. RKP properties remained
+`preprod-remoteprovisioning.googleapis.com` / `1` and were reported as INFO, not a
+policy pass or proof of the effective provisioning endpoint.
+
+Important limits were observed, not hidden: the Cuttlefish kernel lacks the
+GrapheneOS SELinux-flags attribute. The guest explicitly warned that corresponding
+DCL/ptrace hardening does not work, and that Scudo is used instead of hardened_malloc
+because 48-bit VA is unavailable. No warning or protection was disabled to proceed.
+The final screenshot was black/blank; graphical UI/launcher behavior is **not
+qualified**, and the cause of that frame was not established.
+
+## Preserved failures and observer corrections
+
+- Host-only namespace preparation initially lacked the new `/opt/proof` mountpoint
+  in its read-only rootfs. Creating that directory in the fresh template fixed
+  preparation without broadening mounts or permissions; actual TAP/vsock/tool
+  preflight then passed.
+- The first optional-APK invocation requested invalid target `module-info.json`.
+  The APK-only retry succeeded; the real Make target is `module-info`. No source
+  or signing change was needed.
+- Post-image source verification recorded 1,107 matching clean projects plus a
+  120-second `build/release` diff timeout; the caller deadline also hit near final
+  reporting. Its FAIL/ledger remains. The same-contract single-project recheck
+  passed in 4.728 seconds; no dirty source was accepted.
+- Runtime attempt 1 selected QEMU's `-version` probe as the VM and failed before boot
+  qualification. The controller stopped the guest/capture cleanly. The observer
+  now excludes only that exact known probe, records it, and checks the actual VM;
+  it did not relax CPU, TAP, security or image checks. Closed evidence seals 37 files.
+- Attempt 2 passed core checks, but the original P5 host assumed an empty
+  PackageInfo permission list. The pinned GrapheneOS parser actually injects
+  `OTHER_SENSORS`. Its raw native observations and original overall FAIL remain,
+  with uninstall/cleanup confirmed. A source-gated host profile was added, then
+  the **unchanged APK and images** were rerun in a fresh third window. That complete
+  P5 and normal reboot passed. Closed attempt 2 evidence seals 335 files.
+- First boot performed AOT work, including recompilation after a Trichrome
+  class-loader-context mismatch. Logs and compiler warnings remain; no SDK downgrade,
+  compile-filter bypass or service disabling was used.
+
+The final closed window seals 364 files. The complete private build/runtime evidence
+`grapheneos-first-boot-20260908T205844Z` seals **4,314 regular files** (symlinks excluded);
+keys and runtime credentials remain outside public Git. The image producer is still `be031f9`; host observer changes
+are separately recorded as `ddc0216` then `3039fe8`. **256 host tests pass**, distinct
+from the runtime and cryptographic evidence above.
+
 ## Authorized scope
 
 The owner approved continuing from the [verified source and minimal APEX](2026-09-08-grapheneos-migration.md)

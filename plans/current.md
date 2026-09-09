@@ -1,26 +1,31 @@
 # Current work
 
 **Active milestone:** [GrapheneOS-derived base — isolated migration trial](2026-09-08-grapheneos-migration.md).
-The owner approved the [complete ARM64 image and first offline boot](2026-09-08-grapheneos-first-boot.md).
-The full image/host-package build is running; no migrated guest has been launched
-or qualified yet. Host observers now have an explicit offline-core profile that
-preserves the old default RKP gate and makes no network-policy claim.
-The owner adopted the sourcing change after the base assessment. M1 now verifies
-all 1,108 project HEADs against the authenticated public `2026081300` manifest,
-with tracked/staged source clean. Original sync failures/interruption are retained;
-four bounded exact-commit fetches and a full local-only sync completed the checkout.
-The minimal ARM64-only `cur`/Android17/API37 product configures successfully, and a
-real official-build opt-in is rejected. Its first signed `/usr` APEX builds and
-passes both signatures, ARM64/Bionic/16KiB ELF checks and corruption negatives.
-No complete migrated image or runtime is qualified yet. A subsequent real-Git
-filter control corrected the source verifier's read-only boundary; all 1,108
-projects reverify with callbacks/lazy fetching disabled, and 244 host tests pass.
+The [complete ARM64 image and first offline boot](2026-09-08-grapheneos-first-boot.md)
+now pass bounded functional checks: 27 frozen images and both host packages,
+exact signed `/usr` activation, read-only mount, Android `/etc`, enforcing SELinux,
+ordinary-app private-copy `execve` rejection and verified cleanup, then a normal
+Android reboot with the same core checks passing again. This is QEMU/TCG execution
+on x86, not native or Pixel qualification.
+
+All 1,108 base project revisions remain bound to authenticated public `2026081300`.
+The host source verifier disables external Git callbacks/lazy fetching. The core
+observer makes no RKP/network-policy claim; the P5 observer explicitly accounts
+for GrapheneOS's source-injected `OTHER_SENSORS` metadata while still requiring an
+APK with no declared permissions. Original failures remain; no operator permission
+grants, APK changes or platform-policy workarounds were used. **256 host tests pass.**
+
+Limits remain important: this Cuttlefish kernel lacks GrapheneOS SELinux flags and
+48-bit VA, with upstream warnings and Scudo fallback observed. The final screenshot
+was blank, so visual UI/launcher behavior is not qualified. The disconnected
+39,029-packet/zero-drop capture is not a no-Google or connected-service pass.
+All owned guests/captures stopped; the Pixel and old AOSP baseline are unchanged.
 glibc/Wayland implementation, production signing and phone flashing remain outside
 this preparation work.
 
 **Preserved proof baseline:** [Phase 1 on direct AOSP 17](2026-08-28-phase1-andrix-hello-aosp17.md).
-All existing image/runtime results below are from that earlier baseline, not a
-GrapheneOS-derived image.
+The historical source/runtime ledger below describes that earlier baseline;
+the migrated-image results are recorded separately above.
 
 **Experimental; first emulated runtime checks passed.** The earlier ARM64 image
 booted in an [offline QEMU/TCG smoke test](2026-09-06-qemu-smoke.md) on x86-64.
@@ -236,9 +241,9 @@ owner has now approved. Public `2026081300` uses the same AOSP tag; nine of eigh
 current file patches pass non-skipped context checks, including all six recovery
 files. Native owner-domain integration, network/update identity and downstream
 maintenance still need real work. The architecture sourcing amendment is recorded;
-M1 source verification is complete and the minimal M2 product has configured and
-built its verified signed APEX on that source. No complete migrated image/runtime
-or flash is qualified. Follow the new migration milestone's gates.
+M1 source verification and the bounded M2 offline image/core/P5/reboot trial are
+complete. Connected service policy, full hardening/native/Pixel behavior and release
+or flash approval remain open. Follow the new migration milestone's gates.
 
 Caiman implementation, package composition, owner writable layout, tools,
 daemons, agents, UI and a package manager remain unimplemented by the earlier proof.

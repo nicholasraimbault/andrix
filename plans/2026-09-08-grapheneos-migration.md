@@ -166,6 +166,10 @@ Private evidence `grapheneos-minimal-product-20260908T193006Z` seals 68 regular 
 This establishes a configured minimal product and a signed/verified **APEX**, not a
 complete GrapheneOS-derived image, `/usr` activation, ordinary-app runtime isolation,
 network qualification or a Pixel build/flash. No owner userland/ABI/GUI was added.
+The subsequent [complete image and offline boot trial](2026-09-08-grapheneos-first-boot.md)
+now passes core `/usr`, ordinary-app and normal-reboot checks on the same image
+producer. That separate evidence records missing kernel hardening, a blank final
+screenshot and the still-open network/native/Pixel gates.
 
 The untouched upstream Vanadium inputs in this anchor are **151.0.7922.137.0**,
 version code 792213734, Config 200—not the prior Andrix 152 experiment. The four
@@ -176,18 +180,18 @@ with the original failure retained. No old userdata is being downgraded or reuse
 
 Remaining integration gates:
 
-- Build a complete image for the prepared ARM64 test product; do not silently
-  substitute GrapheneOS's documented x86 SDK emulator or claim Pixel kernel
-  features from Cuttlefish results.
+- The complete ARM64 offline image/core trial is now done. Resolve visual UI and
+  later connected qualification without silently substituting an x86 guest or
+  claiming Pixel kernel features from Cuttlefish results.
 - Establish the selected caiman vendor/firmware/kernel generation, rights and
   generated-file inventory before device builds. No reuse of Cuttlefish's kernel.
 - Keep a small explicit downstream patch set. The assessment's nine clean file
   context checks are not build or semantic approval. Reuse recovery fixes only
   after combined-source review; omit already-superseded QSB/Wallpaper/Contacts
   changes and rebase endpoint/product behavior deliberately.
-- Activate the verified `/usr` proof APEX in the new image and rerun the optional
-  test fixtures. Do not start general owner packages, glibc or a GUI platform
-  during baseline migration.
+- Preserve the now-observed `/usr` activation and ordinary-app negative as
+  regressions on subsequent images. Do not start general owner packages, glibc or
+  a GUI platform during baseline migration.
 - Reconcile Vanadium source/artifacts, package identities, configuration trust and
   updates. Do not layer duplicate providers or substitute an unchecked APK.
 

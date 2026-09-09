@@ -6,11 +6,13 @@ environment.
 
 ## Status: early development
 
-Andrix has adopted a pinned GrapheneOS-derived Android/Pixel base. The active
-[isolated migration trial](plans/2026-09-08-grapheneos-migration.md) has authenticated
-and verified all 1,108 source-project revisions. Its minimal ARM64 product now
-builds a signed `/usr` APEX which passes signature, ELF and corruption checks.
-It has not qualified a complete migrated image or runtime yet.
+Andrix has adopted a pinned GrapheneOS-derived Android/Pixel base. The
+[isolated migration trial](plans/2026-09-08-grapheneos-migration.md) verified all
+1,108 source-project revisions. Its complete ARM64 Cuttlefish image now
+[boots and passes offline `/usr`, ordinary-app execution-boundary and normal reboot checks](plans/2026-09-08-grapheneos-first-boot.md).
+These are emulated functional results: the test kernel lacks some GrapheneOS
+hardening, visual UI/launcher behavior remains unqualified, and there is no
+connected, native or Pixel qualification.
 
 The preserved earlier baseline proves a tiny `andrix-hello` executable in a signed
 APEX exposed through read-only `/usr` on an ARM64-only direct-AOSP-17 Cuttlefish
