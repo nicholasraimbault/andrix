@@ -37,6 +37,11 @@ forwarded device/user data. Open-source AOSP inputs may still come from
 Google-hosted repositories as recorded source supply. User-installed applications
 remain the owner's choice.
 
+Andrix retains genuine hardware-backed attestation as an owner-verification
+capability, with remote key provisioning through GrapheneOS's proxy under this
+networking policy. Attestation does not gate ordinary owner computing or impose
+an external certification requirement on legitimate owner-controlled builds.
+
 ## Authority, identity and state
 
 The human owner is the legitimate authority. Daily processes receive bounded
