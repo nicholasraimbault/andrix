@@ -81,12 +81,16 @@ Accordingly:
 
 This is an explicit owner decision, not permission inferred from GrapheneOS
 adoption. It does not authorize adding telemetry or unrelated data collection.
+The owner subsequently agreed to **retain genuine hardware attestation through
+GrapheneOS's proxy** as the planned path. This preserves an owner-security
+capability without making an external verdict a gate on ordinary owner computing
+or legitimate custom builds. Network and hardware qualification remain open.
 
 ## Consequences and remaining qualification
 
 | Path | Policy disposition |
 | --- | --- |
-| Client uses the genuine GrapheneOS provisioning proxy; its backend uses Google | Permitted design candidate. Verify the actual client endpoint and ensure no automatic direct-Google redirect/fallback path. Google remains the provisioning authority. |
+| Client uses the genuine GrapheneOS provisioning proxy; its backend uses Google | Owner-approved planned attestation path. Verify the actual client endpoint and ensure no automatic direct-Google redirect/fallback path. Google remains the provisioning authority. |
 | A streaming service uses Google for license processing on its backend | Permitted. The browser/CDM's own direct provisioning, update and license connections remain a separate review. |
 | Automatic Silvervine CDM download from `www.google.com` or `edgedl.me.gvt1.com` | Not permitted as an automatic official Andrix path. A non-Google delivery source or offline import would need authenticated inputs and appropriate distribution rights. |
 | Owner explicitly visits Google Search or YouTube | Permitted explicit Google-product use. This does not exempt unrelated OS background traffic. |
@@ -121,4 +125,7 @@ worker delivered no substantive review; primary inspected the recorded sources.
 
 This is the first focused item in the broader connected-policy review. Updater/app
 catalog trust, CT/revocation delivery, DNS/time/connectivity, geolocation and actual
-carrier/eSIM paths still need their own scoped checks.
+carrier/eSIM paths still need their own scoped checks. The separate
+[Vanadium DRM/Silvervine assessment](vanadium-drm-and-silvervine.md) distinguishes
+Android's media path from desktop CDM installation; no playback result is inferred
+from retaining hardware attestation.

@@ -27,9 +27,12 @@ The disconnected 39,029-packet/zero-drop capture is not a connected-service pass
 The owner has [clarified the networking policy](../docs/grapheneos-connected-policy-review.md#accepted-networking-policy):
 no automatic direct Google connections from official Andrix components; Google use
 on a provider's backend and explicit owner use of Google products are allowed.
-A genuine provisioning proxy is therefore a permitted design candidate. Client
-endpoints, redirects/fallbacks and actual connected behavior still need qualification;
-this policy decision is not a runtime pass.
+The owner selected retaining genuine hardware attestation through GrapheneOS's
+proxy. Client endpoints, redirects/fallbacks and actual connected behavior still
+need qualification; this decision is not a runtime pass. The
+[Vanadium DRM/Silvervine review](../docs/vanadium-drm-and-silvervine.md) identifies
+Android MediaDrm as the relevant browser path, not a desktop CDM installer;
+Silvervine integration and purchased-movie playback remain unqualified.
 All owned guests/captures stopped; the Pixel and old AOSP baseline are unchanged.
 glibc/Wayland implementation, production signing and phone flashing remain outside
 this preparation work.
