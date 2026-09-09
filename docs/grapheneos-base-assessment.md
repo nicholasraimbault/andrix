@@ -170,7 +170,11 @@ check actual kernel support rather than silently substituting x86 evidence.
 ## Networking, identity and release responsibilities
 
 GrapheneOS helps substantially, but **GrapheneOS-derived is not an Andrix no-Google
-verdict**. Exact sampled examples:
+verdict**. The later [owner clarification](grapheneos-connected-policy-review.md#accepted-networking-policy)
+allows Google on a provider's backend while prohibiting automatic direct client
+connections to Google-operated services. That changes the policy disposition of
+proxies, not the source observations or the absence of connected evidence here.
+Exact sampled examples:
 
 - `ConnChecksSetting` defaults to GrapheneOS; native/Java checks retain a selectable
   standard Google path. NetworkDiagnostics uses Cloudflare addresses where AOSP

@@ -197,6 +197,14 @@ Remaining integration gates:
 
 ## M3 — trust, networking and runtime gates
 
+The owner's [2026-09-09 networking clarification](../docs/grapheneos-connected-policy-review.md#accepted-networking-policy)
+prohibits automatic direct Google connections from official Andrix components,
+while permitting Google on a non-Google service's backend and explicit owner use
+of Google products. A genuine provisioning proxy can therefore be used without
+inventing replacement attestation authority. Actual client routes, redirects and
+fallbacks still need source/runtime review; no connected pass follows from this
+policy decision.
+
 Before a connected migrated candidate, define honest Andrix identity and the
 updater/app-catalog/service policy. A differently signed fork must not use the
 official GrapheneOS updater as its update service. Endpoint replacements require

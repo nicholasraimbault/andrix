@@ -21,11 +21,21 @@ implementation proceeds through the [isolated migration trial](../plans/2026-09-
 The earlier direct-AOSP checkout and proof results remain a separate preserved
 baseline, not evidence that the new base is already built or qualified.
 
-The owner Unix runs as native Android processes in this system. Official images
-and services operate independently of proprietary Google services and send
-them no device or user data. Open-source AOSP inputs may come from
-Google-hosted repositories as recorded source supply. User-installed
-applications remain the owner's choice.
+The owner Unix runs as native Android processes in this system. Official images,
+bundled apps and services make no automatic direct connections to Google-operated
+services. Connections arising from the owner's explicit use of Google products
+or services, such as visiting Google Search or YouTube, are permitted. Unrelated
+background requests do not acquire that permission merely because the owner uses
+a Google product.
+
+Non-Google services may use Google on their backend. This is a direct-client
+networking requirement, not a claim that Google never processes forwarded data or
+that every service is independent of Google infrastructure. The
+[owner's clarification](grapheneos-connected-policy-review.md#accepted-networking-policy)
+supersedes the earlier prohibition on proprietary Google service dependence and
+forwarded device/user data. Open-source AOSP inputs may still come from
+Google-hosted repositories as recorded source supply. User-installed applications
+remain the owner's choice.
 
 ## Authority, identity and state
 

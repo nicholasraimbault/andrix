@@ -116,8 +116,12 @@ is retained, with no source revision or policy change accepted in its place.
 ## Connected-service review remains separate
 
 The [RKP source review](../docs/grapheneos-connected-policy-review.md) found a real
-policy decision before a connected test: GrapheneOS's private attestation proxy
-uses Google's provisioning service, and the client constructs device-derived
-protocol payloads. A proxy is not automatically compliance with Andrix's literal
-zero-Google-service/data requirement. No exception, fake response, blanket consumer
-disable or architecture change is adopted by this UI work.
+policy question under the requirement in force during this UI work: GrapheneOS's
+private attestation proxy uses Google's provisioning service, and the client
+constructs device-derived payloads. The owner subsequently
+[clarified the architecture](../docs/grapheneos-connected-policy-review.md#accepted-networking-policy)
+to prohibit automatic direct Google connections while allowing provider-side
+Google backends and explicit owner use of Google products. That permits a genuine
+proxy design without claiming zero upstream Google processing. The UI evidence
+remains offline; no connected pass, fake response or blanket consumer disable is
+inferred from the later policy decision.

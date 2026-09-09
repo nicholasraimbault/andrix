@@ -1,10 +1,11 @@
 # Connected-service policy: attestation provisioning
 
-**Read-only findings; no policy exception or connected run adopted here.** The
-accepted architecture still requires official Andrix images/services to operate
-independently of proprietary Google services and send them no device/user data.
-This review identifies a consequential release gate rather than silently changing
-that requirement or disabling a security consumer.
+**Read-only findings; owner clarified the networking policy on 2026-09-09.**
+The [accepted architecture](architecture.md) now prohibits automatic direct
+connections from official Andrix components to Google-operated services, while
+allowing provider-side Google backends and the owner's explicit use of Google
+products. This resolves the earlier policy question about indirect provisioning;
+it is not a connected-runtime pass or an implementation change.
 
 ## What the pinned client does
 
@@ -53,26 +54,60 @@ dependence or zero device-derived protocol data.** Nor is this a finding that
 GrapheneOS secretly embeds Google Play or sends ordinary app contents as telemetry.
 The service and protocol purpose need to be described accurately.
 
-## Decision boundary
+## Accepted networking policy
 
-For Pixel-first Andrix, genuine attestation provisioning cannot simply be treated
-like a static CT-list mirror. It is a per-device cryptographic protocol tied to
-hardware trust roots and a provisioning authority. We have not established a
-supported independently provisioned Pixel replacement or the complete downstream
-privacy properties of the proxy/server implementation.
+The initial review used the earlier literal requirement: no proprietary Google
+service dependence and no direct or forwarded device/user data reaching Google.
+The source findings remain valid under that interpretation. The owner subsequently
+clarified the intended boundary:
 
-Before a connected test that could invoke this path, the owner needs to decide
-whether the literal zero-Google-service/data requirement remains absolute, or
-whether a narrowly documented exception for genuine hardware attestation
-provisioning is acceptable. This is an architecture/policy decision, **not permission
-already inferred from adopting the GrapheneOS source base**.
+> if the service does it backend its ok. i just dont want andrix to ping google
+> unless you literally go to google.com or their other products like youtube.
 
-Until resolved:
+Accordingly:
 
-- Keep UI/core work offline and continue source review.
-- Do not claim the GrapheneOS proxy satisfies Andrix's current strict requirement.
-- Do not forge successful provisioning, spoof identity/certificates, strip required
-  attestation consumers, or globally disable services to manufacture a quiet capture.
+- Official Andrix components must not automatically contact Google-operated
+  services directly. This includes background checks, telemetry and component
+  downloads, not only analytics messages.
+- The owner's explicit use of a Google product or service is allowed. This is not
+  blanket permission for unrelated background Google connections or incidental
+  Google requests from otherwise non-Google activity.
+- A non-Google service may process requests using Google on its backend. Such
+  forwarding is allowed; it must not be described as zero Google involvement or
+  zero data reaching Google.
+- Google-dependent app compatibility is not an Andrix release requirement. Local
+  owner tools do not need mandatory remote attestation, and there is no adopted
+  project to build a replacement certification authority merely for that purpose.
+
+This is an explicit owner decision, not permission inferred from GrapheneOS
+adoption. It does not authorize adding telemetry or unrelated data collection.
+
+## Consequences and remaining qualification
+
+| Path | Policy disposition |
+| --- | --- |
+| Client uses the genuine GrapheneOS provisioning proxy; its backend uses Google | Permitted design candidate. Verify the actual client endpoint and ensure no automatic direct-Google redirect/fallback path. Google remains the provisioning authority. |
+| A streaming service uses Google for license processing on its backend | Permitted. The browser/CDM's own direct provisioning, update and license connections remain a separate review. |
+| Automatic Silvervine CDM download from `www.google.com` or `edgedl.me.gvt1.com` | Not permitted as an automatic official Andrix path. A non-Google delivery source or offline import would need authenticated inputs and appropriate distribution rights. |
+| Owner explicitly visits Google Search or YouTube | Permitted explicit Google-product use. This does not exempt unrelated OS background traffic. |
+
+Genuine Pixel provisioning is a per-device cryptographic protocol, not a static
+CT-list mirror. The clarified policy allows retaining an appropriate proxy path;
+there is no need to invent replacement keys/certificates simply to remove its
+server-side Google relationship. A supported independently provisioned Pixel
+replacement and complete proxy/server privacy properties have not been established
+and are not prerequisites implied by this clarification.
+
+Before connected qualification:
+
+- Reconcile all relevant client endpoints, redirects and fallbacks with the policy.
+  No connected migrated-image qualification is claimed yet.
+- Preserve genuine attestation and local hardware security; do not forge success,
+  spoof identity/certificates or globally disable services to manufacture a quiet
+  capture. Whether a consumer works must be reported honestly.
+- Establish real guest connectivity and service behavior with bounded captures and
+  loss accounting. A Google-IP denylist or offline silence is not a semantic policy
+  proof, nor does a non-Google hostname alone establish the service's operator.
 - Do not accept vendor terms, change production keys, deploy a replacement service
   or touch the handset without the relevant explicit authority.
 

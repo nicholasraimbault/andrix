@@ -24,8 +24,12 @@ Bluetooth remains off, the real boot monitor completes, and the guest stays aliv
 through the longer UI test. Credential-screen capture protection was preserved;
 full onboarding and post-setup launcher qualification remain open.
 The disconnected 39,029-packet/zero-drop capture is not a connected-service pass.
-The [RKP review](../docs/grapheneos-connected-policy-review.md) also identifies an
-owner policy decision before connected provisioning; no exception is adopted.
+The owner has [clarified the networking policy](../docs/grapheneos-connected-policy-review.md#accepted-networking-policy):
+no automatic direct Google connections from official Andrix components; Google use
+on a provider's backend and explicit owner use of Google products are allowed.
+A genuine provisioning proxy is therefore a permitted design candidate. Client
+endpoints, redirects/fallbacks and actual connected behavior still need qualification;
+this policy decision is not a runtime pass.
 All owned guests/captures stopped; the Pixel and old AOSP baseline are unchanged.
 glibc/Wayland implementation, production signing and phone flashing remain outside
 this preparation work.
