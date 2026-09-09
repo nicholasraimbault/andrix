@@ -25,6 +25,30 @@ class GrapheneosProductTests(unittest.TestCase):
         self.assertNotIn('ANDRIX_WEBVIEW_EXPERIMENT',text)
         self.assertNotIn('AndrixCuttlefish',text)
 
+    def test_bluetooth_powered_on_expectation_is_only_scoped_out_for_gos(self):
+        board = ROOT/'board/andrix_cf_arm64_only/BoardConfig.mk'
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            parent = work/'device/google/cuttlefish/vsoc_arm64_only/BoardConfig.mk'
+            parent.parent.mkdir(parents=True)
+            parent.write_text('BOARD_BOOTCONFIG += upstream_marker=preserved\n')
+            makefile = work/'Makefile'
+            makefile.write_text('include '+str(board)+'\nall:\n\t@printf "%s\\n" "$(BOARD_BOOTCONFIG)"\n')
+            for product, expected in [('andrix_gos_cf_arm64_only_phone', True),
+                                      ('andrix_cf_arm64_only_phone', False),
+                                      ('other_product', False)]:
+                result = subprocess.run(['make','--no-print-directory','-f',str(makefile),
+                                         'TARGET_PRODUCT='+product], cwd=work,
+                                        capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('upstream_marker=preserved', result.stdout)
+                self.assertEqual('androidboot.cuttlefish_service_bluetooth_checker=false' in result.stdout,
+                                 expected)
+        text = board.read_text()
+        self.assertNotIn('settings put', text)
+        self.assertNotIn('setprop', text)
+        self.assertNotIn('PRODUCT_PACKAGES', text)
+
     def test_official_build_rejection_is_scoped(self):
         # Real GNU make expansion with an empty inherit-product fixture. This
         # checks the guard, not Android inheritance or compilation.
