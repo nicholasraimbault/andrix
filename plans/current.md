@@ -13,14 +13,16 @@ The host source verifier disables external Git callbacks/lazy fetching. The core
 observer makes no RKP/network-policy claim; the P5 observer explicitly accounts
 for GrapheneOS's source-injected `OTHER_SENSORS` metadata while still requiring an
 APK with no declared permissions. Original failures remain; no operator permission
-grants, APK changes or platform-policy workarounds were used. **256 host tests pass.**
+grants, APK changes or platform-policy workarounds were used. **257 host tests pass.**
 
 Limits remain important: this Cuttlefish kernel lacks GrapheneOS SELinux flags and
 48-bit VA, with upstream warnings and Scudo fallback observed. The first trial's
-final screenshot was blank. A [UI follow-up](2026-09-09-grapheneos-ui.md) now observes
-the real welcome screen after waiting for first draw, but longer navigation exposed
-Cuttlefish's incompatible Bluetooth-powered-on boot expectation. A scoped emulator
-configuration correction is prepared; stable UI/launcher qualification remains open.
+final screenshot was blank. A [UI follow-up](2026-09-09-grapheneos-ui.md) now confirms
+ordinary setup screens and normal navigation after first draw. New producer
+`108d857` scopes out only Cuttlefish's incompatible Bluetooth-powered-on expectation;
+Bluetooth remains off, the real boot monitor completes, and the guest stays alive
+through the longer UI test. Credential-screen capture protection was preserved;
+full onboarding and post-setup launcher qualification remain open.
 The disconnected 39,029-packet/zero-drop capture is not a connected-service pass.
 The [RKP review](../docs/grapheneos-connected-policy-review.md) also identifies an
 owner policy decision before connected provisioning; no exception is adopted.
