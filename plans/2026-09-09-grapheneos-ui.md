@@ -5,7 +5,10 @@ Next/Back navigation works. The emulator-only Bluetooth-powered-on expectation w
 corrected without enabling the radio or removing Bluetooth services. The real
 Cuttlefish boot monitor completed and the guest remained alive for a further
 20 minutes of UI observation. Full setup and post-setup launcher behavior remain
-unqualified; no credential or screenshot-protection bypass was attempted.
+unqualified in that window; no credential or screenshot-protection bypass was
+attempted. A [later diagnostic](2026-09-09-grapheneos-connected-baseline.md#first-diagnostic-window-guest-connectivity-failed)
+completed normal onboarding and displayed the launcher via the private virtual
+console, while failing guest connectivity on a missing APN input.
 
 ## Scope
 

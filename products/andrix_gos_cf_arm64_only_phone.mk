@@ -5,6 +5,12 @@
 $(call inherit-product, device/google/cuttlefish/vsoc_arm64_only/phone/aosp_cf.mk)
 $(call inherit-product, vendor/andrix/andrix.mk)
 
+# GrapheneOS's generic base omits the sample APN database used by Cuttlefish's
+# virtual SIM. Restore that existing AOSP input for this emulator product only;
+# Pixel/vendor carrier configuration remains a separate device integration.
+PRODUCT_COPY_FILES += \
+    device/sample/etc/apns-full-conf.xml:$(TARGET_COPY_OUT_PRODUCT)/etc/apns-conf.xml
+
 # The upstream media_system product includes its Updater for OFFICIAL_BUILD.
 # This development product has no Andrix release channel; it must not claim
 # official upstream release status or use that channel with different keys.

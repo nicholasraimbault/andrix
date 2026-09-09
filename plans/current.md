@@ -3,7 +3,10 @@
 **Active milestone:** [GrapheneOS-derived base — isolated migration trial](2026-09-08-grapheneos-migration.md).
 **Current action:** [connected baseline preparation](2026-09-09-grapheneos-connected-baseline.md).
 Initial source/artifact inventory supports the upstream GrapheneOS endpoint defaults
-and separates the Apps catalog from the absent OS updater. A retained WebView
+and separates the Apps catalog from the absent OS updater. The first diagnostic
+completed normal setup/launcher observation but found no guest Internet: the generic
+base omitted Cuttlefish's sample APN database. A product-only copy correction is
+prepared for a new image; the failed window is retained. A retained WebView
 recovery-to-Google path is a known release-policy gap, not covered by an ordinary
 boot test. The upcoming connected window is diagnostic, not a complete privacy pass.
 
@@ -19,7 +22,7 @@ The host source verifier disables external Git callbacks/lazy fetching. The core
 observer makes no RKP/network-policy claim; the P5 observer explicitly accounts
 for GrapheneOS's source-injected `OTHER_SENSORS` metadata while still requiring an
 APK with no declared permissions. Original failures remain; no operator permission
-grants, APK changes or platform-policy workarounds were used. **261 host tests pass.**
+grants, APK changes or platform-policy workarounds were used. **262 host tests pass.**
 
 Limits remain important: this Cuttlefish kernel lacks GrapheneOS SELinux flags and
 48-bit VA, with upstream warnings and Scudo fallback observed. The first trial's
@@ -27,8 +30,10 @@ final screenshot was blank. A [UI follow-up](2026-09-09-grapheneos-ui.md) now co
 ordinary setup screens and normal navigation after first draw. New producer
 `108d857` scopes out only Cuttlefish's incompatible Bluetooth-powered-on expectation;
 Bluetooth remains off, the real boot monitor completes, and the guest stays alive
-through the longer UI test. Credential-screen capture protection was preserved;
-full onboarding and post-setup launcher qualification remain open.
+through the longer UI test. Credential-screen capture protection was preserved.
+The later diagnostic completed normal onboarding and displayed the launcher and
+Settings through the private virtual console; connected behavior still failed
+on the missing emulator APN input.
 The disconnected 39,029-packet/zero-drop capture is not a connected-service pass.
 The owner has [clarified the networking policy](../docs/grapheneos-connected-policy-review.md#accepted-networking-policy):
 no automatic direct Google connections from official Andrix components; Google use

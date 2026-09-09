@@ -98,7 +98,7 @@ recovery path. A successful window cannot close the known gap.
   Its RKP values are observation-only; it makes no network-policy claim. Admission,
   property-read failures and the shared negative oracles are host-tested alongside
   the unchanged offline/legacy profiles: 30 device tests pass. The full host suite,
-  including the WebView fixture profile below, passes 261 tests. These are not device
+  including the WebView fixture profile and APN product check, passes 262 tests. These are not device
   or network results.
 - The ordinary WebView fixture has an explicit `grapheneos-2026081300` profile,
   matching the earlier P5 distinction between APK declarations and implicit PM
@@ -114,6 +114,42 @@ recovery path. A successful window cannot close the known gap.
 - Stop only owned processes, preserve failed attempts and seal the completed
   window. Native/Pixel hardening, actual hardware RKP, carrier/eSIM, protected
   playback and complete recovery coverage remain separate gates.
+
+## First diagnostic window: guest connectivity failed
+
+The real host DNS/DoT, DNSSEC, NTP, TLS and CT fixture checks passed. The guest
+booted and passed the shared core checks, but **had no active default network**;
+the public ping returned `Network is unreachable`. Cellular evaluation repeatedly
+reported `NO_SUITABLE_DATA_PROFILE`. Both `/system/etc/apns-conf.xml` and
+`/product/etc/apns-conf.xml` were absent. Source comparison confirms the GrapheneOS
+generic base omits the sample APN copies present in the old AOSP product.
+The virtual SIM reported MCC/MNC 311740. Cuttlefish's secondary `eth1` is deliberately
+restricted by its upstream overlay, and normal Wi-Fi enablement found no AP in
+this fixture. No real carrier, radio identity or phone was changed.
+
+Normal setup was completed through the private virtual display and ordinary
+visible Skip/Start actions; the launcher and main Settings screen were observed.
+The initial console observer used the wrong long socket directory, an external
+ADB observer initially lacked its namespace environment, and QEMU lacked PNG
+screendump support. Those failures remain. The working observer used the actual
+short UDS directory and retained QEMU's PPM output, converted to PNG without pixel
+changes. Android's credential-window SECURE flag and screenshot protection were
+not changed; no credential was entered. This is an operator display, not a claim
+that an ordinary app can capture protected content.
+
+The window was stopped as a connectivity failure, before the WebView/P5 probes
+or reboot. Runner/stop and all service/capture cleanup exited 0; the controller and
+orchestration correctly remained FAIL. Capture: 66,172 packets, zero reported drops.
+That is **not a guest-Internet or privacy pass**. The closed window seals 1,169
+regular files; original failures are not relabelled.
+
+The prepared correction restores the existing
+`device/sample/etc/apns-full-conf.xml` as `/product/etc/apns-conf.xml` **only in the
+Andrix GrapheneOS Cuttlefish product**. It does not change Pixel carrier/vendor
+configuration, weaken the restricted Ethernet interface, fake a network response,
+change RKP or override Android permission state. A GNU make host test checks the
+exact copy declaration and its separation from the shared/legacy products. The
+new image and an actual connected retry remain necessary.
 
 ## Initial evidence
 

@@ -49,6 +49,27 @@ class GrapheneosProductTests(unittest.TestCase):
         self.assertNotIn('setprop', text)
         self.assertNotIn('PRODUCT_PACKAGES', text)
 
+    def test_gos_virtual_sim_gets_existing_sample_apn_input(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            makefile = Path(tmp)/'Makefile'
+            makefile.write_text('PRODUCT_COPY_FILES := fixture-marker\n'
+                                'include '+str(PRODUCT)+'\nall:\n'
+                                '\t@printf "%s\\n" "$(PRODUCT_COPY_FILES)"\n')
+            result = subprocess.run(['make', '--no-print-directory', '-f', str(makefile),
+                                     'TARGET_PRODUCT=andrix_gos_cf_arm64_only_phone',
+                                     'TARGET_COPY_OUT_PRODUCT=product'],
+                                    capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.split(), ['fixture-marker',
+                'device/sample/etc/apns-full-conf.xml:product/etc/apns-conf.xml'])
+        # The override is in the dedicated emulator product, not the shared layer
+        # or a replacement of Pixel carrier/vendor configuration.
+        self.assertNotIn('apns-full-conf.xml', (ROOT/'andrix.mk').read_text())
+        self.assertNotIn('apns-full-conf.xml',
+                         (ROOT/'products/andrix_cf_arm64_only_phone.mk').read_text())
+        self.assertNotIn('setprop', PRODUCT.read_text())
+        self.assertNotIn('settings put', PRODUCT.read_text())
+
     def test_official_build_rejection_is_scoped(self):
         # Real GNU make expansion with an empty inherit-product fixture. This
         # checks the guard, not Android inheritance or compilation.
