@@ -320,8 +320,8 @@ class DeviceCommandFlowUnitTests(unittest.TestCase):
             with self.subTest(overrides=overrides):
                 self.assert_failure(self.run_case(**overrides), message)
 
-    def run_offline_core(self, **overrides):
-        self.env["ANDRIX_DEVICE_PROFILE"] = "offline-core"
+    def run_offline_core(self, profile="offline-core", **overrides):
+        self.env["ANDRIX_DEVICE_PROFILE"] = profile
         self.env["ANDRIX_EXPECTED_FINGERPRINT"] = GOS_FIXTURE_FP
         self.env.setdefault("ANDROID_SERIAL", "host-unit-fixture-not-a-device")
         properties = {
@@ -350,7 +350,7 @@ class DeviceCommandFlowUnitTests(unittest.TestCase):
 
     def test_migration_product_cannot_accidentally_claim_legacy_rkp_policy(self):
         self.env["ANDRIX_EXPECTED_FINGERPRINT"] = GOS_FIXTURE_FP
-        self.assert_failure(self.run_case(), "requires explicit offline-core scope")
+        self.assert_failure(self.run_case(), "requires explicit offline-core or grapheneos-core scope")
         self.assertEqual(self.adb_calls, [])
 
     def test_offline_core_records_rkp_without_policy_pass(self):
@@ -366,6 +366,31 @@ class DeviceCommandFlowUnitTests(unittest.TestCase):
                 self.assertIn("INFO: observed RKP", result.stdout)
                 self.assertNotIn("PASS: remote provisioning", result.stdout)
                 self.assertIn(["pull", FACTORY], [call[:2] for call in self.adb_calls])
+
+    def test_grapheneos_core_is_network_neutral_not_a_policy_pass(self):
+        result = self.run_offline_core(profile="grapheneos-core")
+        self.assertEqual(result.returncode, 0, self.diagnostic(result))
+        self.assertIn("PASS: /usr is a read-only mount", result.stdout)
+        self.assertIn("SCOPE: grapheneos-core only; network and RKP policy are not qualified",
+                      result.stdout)
+        self.assertNotIn("PASS: remote provisioning", result.stdout)
+        self.assertNotIn("SCOPE: offline-core", result.stdout)
+
+    def test_grapheneos_core_preserves_admission_and_read_failures(self):
+        self.env["ANDRIX_DEVICE_PROFILE"] = "grapheneos-core"
+        self.assert_failure(self.run_case(), "requires the GrapheneOS ARM64 proof fingerprint")
+        self.assertEqual(self.adb_calls, [])
+        self.env["ANDRIX_EXPECTED_FINGERPRINT"] = GOS_FIXTURE_FP
+        self.assert_failure(self.run_case(), "explicit ANDROID_SERIAL")
+        self.assertEqual(self.adb_calls, [])
+        result = self.run_offline_core(profile="grapheneos-core",
+            properties={"ro.product.name": "andrix_cf_arm64_only_phone"})
+        self.assert_failure(result, "grapheneos-core product identity differs")
+        for prop in ("ro.product.name", "remote_provisioning.hostname", "remote_provisioning.tee.rkp_only"):
+            with self.subTest(prop=prop):
+                self.assert_failure(self.run_offline_core(profile="grapheneos-core",
+                    property_status={prop: 1}), "cannot read")
+                self.assertFalse(any(call[0] in ("pull", "exec-out") for call in self.adb_calls))
 
     def test_offline_core_requires_product_identity(self):
         result = self.run_offline_core(properties={"ro.product.name": "andrix_cf_arm64_only_phone"})
@@ -400,9 +425,10 @@ class DeviceCommandFlowUnitTests(unittest.TestCase):
             ({"logcat": "avc: denied { execute } path=/usr/bin/andrix-hello\n"}, "relevant SELinux denials"),
             ({"logcat_status": 1}, "cannot retrieve device logs"),
         )
-        for overrides, message in cases:
-            with self.subTest(overrides=overrides):
-                self.assert_failure(self.run_offline_core(**overrides), message)
+        for profile in ("offline-core", "grapheneos-core"):
+            for overrides, message in cases:
+                with self.subTest(profile=profile, overrides=overrides):
+                    self.assert_failure(self.run_offline_core(profile=profile, **overrides), message)
 
 
 if __name__ == "__main__":
