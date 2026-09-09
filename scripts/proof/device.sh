@@ -29,13 +29,13 @@ esac
 case "$profile" in
   legacy-local-rkp)
     if [[ "$gos_product" == true ]]; then
-      echo "FAIL: this GrapheneOS migration product requires explicit offline-core scope" >&2
+      echo "FAIL: this GrapheneOS migration product requires explicit offline-core or grapheneos-core scope" >&2
       exit 1
     fi
     ;;
-  offline-core)
+  offline-core|grapheneos-core)
     if [[ "$gos_product" != true || -z "${ANDROID_SERIAL:-}" ]]; then
-      echo "FAIL: offline-core requires the GrapheneOS ARM64 proof fingerprint and explicit ANDROID_SERIAL" >&2
+      echo "FAIL: $profile requires the GrapheneOS ARM64 proof fingerprint and explicit ANDROID_SERIAL" >&2
       exit 1
     fi
     ;;
@@ -83,13 +83,13 @@ if [[ "$actual_abilist" != "arm64-v8a" || "$actual_abilist64" != "arm64-v8a" || 
   exit 1
 fi
 
-if [[ "$profile" == offline-core ]]; then
+if [[ "$profile" != legacy-local-rkp ]]; then
   if ! actual_product=$(adb shell getprop ro.product.name | tr -d '\r'); then
     echo "FAIL: cannot read product identity" >&2
     exit 1
   fi
   if [[ "$actual_product" != andrix_gos_cf_arm64_only_phone ]]; then
-    echo "FAIL: offline-core product identity differs from the GrapheneOS proof product" >&2
+    echo "FAIL: $profile product identity differs from the GrapheneOS proof product" >&2
     exit 1
   fi
 fi
@@ -272,7 +272,7 @@ echo "PASS: product ABI list is exactly arm64-v8a with no 32-bit ABI"
 if [[ "$profile" == legacy-local-rkp ]]; then
   echo "PASS: remote provisioning has no server and is not required for local keys"
 else
-  echo "SCOPE: offline-core only; network and RKP policy are not qualified"
+  echo "SCOPE: $profile only; network and RKP policy are not qualified"
   printf 'INFO: observed RKP hostname=%q rkp_only=%q\n' "$rkp_host" "$rkp_only"
 fi
 echo "PASS: APEX=$preinstalled_path SHA256=$device_apex_sha active factory"

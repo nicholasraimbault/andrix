@@ -1,6 +1,12 @@
 # Current work
 
 **Active milestone:** [GrapheneOS-derived base — isolated migration trial](2026-09-08-grapheneos-migration.md).
+**Current action:** [connected baseline preparation](2026-09-09-grapheneos-connected-baseline.md).
+Initial source/artifact inventory supports the upstream GrapheneOS endpoint defaults
+and separates the Apps catalog from the absent OS updater. A retained WebView
+recovery-to-Google path is a known release-policy gap, not covered by an ordinary
+boot test. The upcoming connected window is diagnostic, not a complete privacy pass.
+
 The [complete ARM64 image and first offline boot](2026-09-08-grapheneos-first-boot.md)
 now pass bounded functional checks: 27 frozen images and both host packages,
 exact signed `/usr` activation, read-only mount, Android `/etc`, enforcing SELinux,
@@ -13,7 +19,7 @@ The host source verifier disables external Git callbacks/lazy fetching. The core
 observer makes no RKP/network-policy claim; the P5 observer explicitly accounts
 for GrapheneOS's source-injected `OTHER_SENSORS` metadata while still requiring an
 APK with no declared permissions. Original failures remain; no operator permission
-grants, APK changes or platform-policy workarounds were used. **257 host tests pass.**
+grants, APK changes or platform-policy workarounds were used. **259 host tests pass.**
 
 Limits remain important: this Cuttlefish kernel lacks GrapheneOS SELinux flags and
 48-bit VA, with upstream warnings and Scudo fallback observed. The first trial's

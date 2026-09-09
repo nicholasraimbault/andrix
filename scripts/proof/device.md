@@ -15,18 +15,18 @@ belong on the runtime host/guest filesystem exposed by the launcher.
 - **`legacy-local-rkp` (default):** preserves the earlier Cuttlefish local-keys
   prerequisite: RKP hostname empty and RKP-only `false`, or failure before any
   APEX/payload reads. Existing parser/negative tests and PASS wording remain.
-- **`offline-core` (explicit):** scoped to the GrapheneOS migration product
+- **`offline-core` and `grapheneos-core` (explicit):** scoped to the GrapheneOS migration product
   `andrix_gos_cf_arm64_only_phone` / `andrix_cf_arm64_only`, Android 17 fingerprint
   family, exact supplied fingerprint equality, matching `ro.product.name`, and
   nonempty `ANDROID_SERIAL`. Unknown profiles and other products fail closed.
   The default profile refuses this migration product, even if RKP properties
   happen to resemble the old local-keys configuration.
 
-The offline profile still requires successful reads of both RKP properties but
-records their values as **INFO**, never an RKP-policy PASS. Empty/false values do
+Both GrapheneOS core profiles require successful reads of both RKP properties but
+record their values as **INFO**, never an RKP-policy PASS. Empty/false values do
 not earn policy credit; a nonempty hostname is not a reason to rewrite the guest
 or block these narrower core observations. The remaining core oracles are the
-same straight-line code in both profiles, not copied or weakened implementations.
+same straight-line code in all profiles, not copied or weakened implementations.
 
 ```sh
 export ANDROID_SERIAL='EXPLICIT_AUTHORIZED_FIXTURE'
@@ -36,11 +36,15 @@ export ANDRIX_EXPECTED_PROOF_ELF='/private/frozen/payload/bin/andrix-hello'
 ANDRIX_DEVICE_PROFILE=offline-core scripts/proof/device.sh
 ```
 
-The profile name declares **claim scope**, not measured network isolation. The
-caller must establish the authorized offline namespace, absence of an uplink and
-capture-before-boot independently. A successful core result says nothing about
-RKP consumers, TLS/CT delivery, guest Internet, no-Google behavior, Safe Browsing,
-phone/carrier support or full upstream GrapheneOS hardening.
+The profile name declares **claim scope**, not measured network isolation. Use
+`offline-core` for the earlier offline procedure, whose caller independently
+establishes the isolated namespace, absence of an uplink and capture-before-boot.
+Use `grapheneos-core` when checking the same core invariants in a separately
+qualified connected fixture. It does not grant network authority or relax any
+oracle; network, service and capture results remain separate evidence.
+A successful core result says nothing about RKP consumers, TLS/CT delivery, guest
+Internet, Google-connection policy, Safe Browsing, phone/carrier support or full
+upstream GrapheneOS hardening.
 
 Keep full logs. Run the core check before the ordinary-app negative test, whose
 expected denials may match the broad relevant-AVC scan. A prior denial or failed
