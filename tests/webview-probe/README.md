@@ -39,6 +39,21 @@ defaults**:
 - `expected_provider`: the exact already-selected, independently qualified
   WebView package name. No provider switch is performed by this APK.
 
+`platform_profile` defaults to `aosp17`. It requires API 37 and exactly the two
+expected PackageManager permission entries; it cannot silently admit the GrapheneOS
+migration product. For that product, explicitly use `grapheneos-2026081300`:
+
+- Exact Andrix GrapheneOS proof product/fingerprint generation and API 37 are gated.
+- The APK still declares only `INTERNET` and `ACCESS_LOCAL_NETWORK`. The pinned
+  GrapheneOS parser injects `OTHER_SENSORS` into PM metadata for code-bearing apps;
+  the profile expects exactly that additional entry, not arbitrary extra permissions.
+- No sensor permission is requested or granted by this fixture, and its runtime
+  grant state is not claimed measured. The separate local-network permission flow
+  below remains unchanged and must still use the normal system prompt.
+- Reports distinguish expected APK declarations, expected implicit PM entries and
+  the actual PM permission list. Host artifact inspection must independently verify
+  the actual APK declarations; a native PM list is not its own manifest oracle.
+
 Both URLs require lowercase ASCII DNS names, at least two labels and an
 alphabetic DNS suffix. IP literals/alternate numeric IP spellings, local or
 reserved `.localhost`, `.local`, `.invalid`, `.test`, `.example` suffixes,
@@ -51,7 +66,7 @@ must establish these before use. Do not substitute third-party browsing URLs.
 
 The runner records app/package UID, flags, permissions, source path, SDK and
 fingerprint. It enforces ordinary self-instrumented app identity, SDK targets
-and the exact order-independent two-permission set. The UI-thread Activity then
+and the exact order-independent PM permission set for the selected platform profile. The UI-thread Activity then
 performs five ordered stages:
 
 1. Before any WebView initialization or network activity, call public
@@ -164,9 +179,11 @@ fixture inputs, never shell-interpolated untrusted input:
 : "${GOOD_URL:?canonical owned HTTPS 204 URL}"
 : "${BAD_URL:?canonical owned wrong-host HTTPS 204 URL}"
 : "${EXPECTED_PROVIDER:?exact qualified provider package}"
+: "${PLATFORM_PROFILE:?aosp17 or grapheneos-2026081300}"
 adb -s "$ANDROID_SERIAL" shell am instrument -w -r --user 0 \
   -e good_url "$GOOD_URL" -e bad_url "$BAD_URL" \
   -e expected_provider "$EXPECTED_PROVIDER" \
+  -e platform_profile "$PLATFORM_PROFILE" \
   dev.andrix.proof.webview/.WebViewProbeInstrumentation
 ```
 

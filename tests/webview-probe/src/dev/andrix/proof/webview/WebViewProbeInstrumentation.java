@@ -1,6 +1,5 @@
 package dev.andrix.proof.webview;
 
-import android.Manifest;
 import android.app.Activity;
 import android.app.Instrumentation;
 import android.content.Intent;
@@ -11,7 +10,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Process;
 
-import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -37,9 +35,12 @@ public final class WebViewProbeInstrumentation extends Instrumentation {
         try {
             session.config = ProbeConfig.parse(arguments.getString("good_url"),
                     arguments.getString("bad_url"), arguments.getString("expected_provider"));
+            ProbePlatformProfile platform = ProbePlatformProfile.parse(
+                    arguments.getString("platform_profile", ProbePlatformProfile.AOSP));
             session.record("arguments", "good_url", session.config.goodUrl,
                     "bad_url", session.config.badUrl, "good_origin", session.config.goodOrigin,
-                    "expected_provider", session.config.expectedProvider);
+                    "expected_provider", session.config.expectedProvider,
+                    "platform_profile", platform.name);
             ApplicationInfo app = getTargetContext().getApplicationInfo();
             PackageInfo info = getTargetContext().getPackageManager().getPackageInfo(
                     getTargetContext().getPackageName(), PackageManager.GET_PERMISSIONS);
@@ -51,19 +52,21 @@ public final class WebViewProbeInstrumentation extends Instrumentation {
                             ? new String[0] : info.requestedPermissions),
                     "sdk", Build.VERSION.SDK_INT, "min_sdk", app.minSdkVersion,
                     "target_sdk", app.targetSdkVersion, "fingerprint", Build.FINGERPRINT,
+                    "platform_product", Build.PRODUCT, "platform_profile", platform.name,
+                    "apk_manifest_permissions_expected", new JSONArray(platform.expectedApkPermissions()),
+                    "pm_implicit_permissions_expected", new JSONArray(platform.expectedImplicitPmPermissions()),
+                    "implicit_sensor_grant_measured", false,
                     "is_64_bit", Process.is64Bit());
             if (Process.myUid() != app.uid || Process.myUid() < 10000
                     || (app.flags & (ApplicationInfo.FLAG_SYSTEM | ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0
                     || info.sharedUserId != null
                     || !"dev.andrix.proof.webview".equals(info.packageName)
                     || !info.packageName.equals(getContext().getPackageName())
-                    || app.minSdkVersion != 37 || app.targetSdkVersion != 37
-                    || info.requestedPermissions == null || info.requestedPermissions.length != 2
-                    || !Arrays.asList(info.requestedPermissions).contains(Manifest.permission.INTERNET)
-                    || !Arrays.asList(info.requestedPermissions).contains(
-                            Manifest.permission.ACCESS_LOCAL_NETWORK)) {
+                    || app.minSdkVersion != 37 || app.targetSdkVersion != 37) {
                 throw new IllegalStateException("Not the expected ordinary self-instrumented SDK-37 app");
             }
+            platform.validate(Build.FINGERPRINT, Build.PRODUCT, Build.VERSION.SDK_INT,
+                    info.requestedPermissions);
             activeSession = session;
             session.post("local_network_permission", () -> {
                 if (!session.failed.get() && !session.closing) {

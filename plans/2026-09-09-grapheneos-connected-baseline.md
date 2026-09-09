@@ -97,8 +97,17 @@ recovery path. A successful window cannot close the known gap.
 - Use explicit `grapheneos-core` for the shared `/usr`/APEX/ABI/SELinux oracles.
   Its RKP values are observation-only; it makes no network-policy claim. Admission,
   property-read failures and the shared negative oracles are host-tested alongside
-  the unchanged offline/legacy profiles: 30 device tests and 259 total host tests
-  pass. These are not device or network results.
+  the unchanged offline/legacy profiles: 30 device tests pass. The full host suite,
+  including the WebView fixture profile below, passes 261 tests. These are not device
+  or network results.
+- The ordinary WebView fixture has an explicit `grapheneos-2026081300` profile,
+  matching the earlier P5 distinction between APK declarations and implicit PM
+  metadata. The APK still declares only INTERNET and ACCESS_LOCAL_NETWORK; only
+  the expected GrapheneOS OTHER_SENSORS PM entry is additionally accepted for the
+  pinned product/generation. Its grant state is not claimed measured. Normal
+  visible local-network permission consent, provider checks, JS/HTTPS and wrong-
+  hostname TLS rejection remain unchanged. The fixture is built separately, not
+  installed as a product app, and is not a Safe Browsing protection proof.
 - Check normal non-Google activity, service delivery and a normal reboot with
   the same data. Any direct Google attempt in those scoped operations is a
   finding/failure, not a reason to hide traffic or expand the explicit-use exception.

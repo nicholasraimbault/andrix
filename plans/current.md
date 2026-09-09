@@ -19,7 +19,7 @@ The host source verifier disables external Git callbacks/lazy fetching. The core
 observer makes no RKP/network-policy claim; the P5 observer explicitly accounts
 for GrapheneOS's source-injected `OTHER_SENSORS` metadata while still requiring an
 APK with no declared permissions. Original failures remain; no operator permission
-grants, APK changes or platform-policy workarounds were used. **259 host tests pass.**
+grants, APK changes or platform-policy workarounds were used. **261 host tests pass.**
 
 Limits remain important: this Cuttlefish kernel lacks GrapheneOS SELinux flags and
 48-bit VA, with upstream warnings and Scudo fallback observed. The first trial's
