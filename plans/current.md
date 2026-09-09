@@ -31,8 +31,9 @@ The owner selected retaining genuine hardware attestation through GrapheneOS's
 proxy. Client endpoints, redirects/fallbacks and actual connected behavior still
 need qualification; this decision is not a runtime pass. The
 [Vanadium DRM/Silvervine review](../docs/vanadium-drm-and-silvervine.md) identifies
-Android MediaDrm as the relevant browser path, not a desktop CDM installer;
-Silvervine integration and purchased-movie playback remain unqualified.
+Android MediaDrm as the relevant browser path, not a desktop CDM installer.
+The owner decided **Andrix does not need Silvervine**; no bundle, port or optional
+package is planned. Actual Andrix purchased-movie playback remains unqualified.
 All owned guests/captures stopped; the Pixel and old AOSP baseline are unchanged.
 glibc/Wayland implementation, production signing and phone flashing remain outside
 this preparation work.

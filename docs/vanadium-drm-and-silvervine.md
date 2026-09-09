@@ -3,9 +3,11 @@
 Read-only source/documentation assessment, 2026-09-09. The primary review did not
 run a browser/CDM, make a license or provisioning request, or use an account,
 purchase, vendor terms or handset operation. A later owner-reported phone
-observation is separately labelled below. Silvervine packaging remains a proposal,
-not an adopted dependency. Retaining genuine hardware attestation through
-GrapheneOS's proxy is a separate owner-approved decision.
+observation is separately labelled below. The owner subsequently decided that
+**Andrix does not need Silvervine**: no bundle, port or optional-package integration
+is planned. The source comparison is retained as rationale. Retaining genuine
+hardware attestation through GrapheneOS's proxy is a separate owner-approved
+decision.
 
 ## Two different integration paths
 
@@ -94,16 +96,15 @@ allowed by the [accepted networking policy](architecture.md). That does not
 permit unrelated automatic Google connections. No identity spoofing, fake
 certificates, DRM bypass or guaranteed resolution is proposed.
 
-## Recommendation, not adoption
+## Accepted scope decision
 
-First qualify Vanadium with Android's native MediaDrm integration. Silvervine's
-existing installer is not needed merely to provide that path. Its media diagnostics
-and capability-reporting ideas may be reusable after adapting them to Android,
-but its current EME probe is not a protected-playback or network-policy proof.
+The owner decided that **Andrix does not need Silvervine**. The earlier suggestion
+of a possible optional package is superseded: no Silvervine bundle, port,
+Andrix-specific package or dependency is planned. Silvervine remains a separate
+project, and owner-installed software remains the owner's choice.
 
-Keep Silvervine as a possible **optional** tool for a future genuinely supported
-desktop-browser environment, if that environment is adopted and compatible CDM
-inputs/rights are established. Do not bundle it into the base, add a second DRM
-provider, choose a new ABI, or modify authenticated `/usr` to solve an unproven
-missing-component problem. Optional packaging can be maintained and supported;
-it need not be an unreviewed workaround.
+Andrix will qualify Vanadium with Android's native MediaDrm integration. Do not
+add a second DRM provider, choose a new ABI or modify authenticated `/usr` to solve
+an unproven missing-component problem. The retained source assessment and the
+owner's successful Vanadium Desktop site observation explain the scope decision;
+neither substitutes for actual Andrix playback or network qualification.

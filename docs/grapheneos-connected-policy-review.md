@@ -92,7 +92,7 @@ or legitimate custom builds. Network and hardware qualification remain open.
 | --- | --- |
 | Client uses the genuine GrapheneOS provisioning proxy; its backend uses Google | Owner-approved planned attestation path. Verify the actual client endpoint and ensure no automatic direct-Google redirect/fallback path. Google remains the provisioning authority. |
 | A streaming service uses Google for license processing on its backend | Permitted. The browser/CDM's own direct provisioning, update and license connections remain a separate review. |
-| Automatic Silvervine CDM download from `www.google.com` or `edgedl.me.gvt1.com` | Not permitted as an automatic official Andrix path. A non-Google delivery source or offline import would need authenticated inputs and appropriate distribution rights. |
+| Automatic CDM download directly from Google, as illustrated by Silvervine's current source | Not permitted as an automatic official Andrix path. Silvervine is now explicitly out of Andrix scope; this remains a delivery-policy example, not a planned integration. |
 | Owner explicitly visits Google Search or YouTube | Permitted explicit Google-product use. This does not exempt unrelated OS background traffic. |
 
 Genuine Pixel provisioning is a per-device cryptographic protocol, not a static
@@ -127,5 +127,6 @@ This is the first focused item in the broader connected-policy review. Updater/a
 catalog trust, CT/revocation delivery, DNS/time/connectivity, geolocation and actual
 carrier/eSIM paths still need their own scoped checks. The separate
 [Vanadium DRM/Silvervine assessment](vanadium-drm-and-silvervine.md) distinguishes
-Android's media path from desktop CDM installation; no playback result is inferred
-from retaining hardware attestation.
+Android's media path from desktop CDM installation and records the owner's
+decision not to integrate Silvervine. No playback result is inferred from retaining
+hardware attestation.
