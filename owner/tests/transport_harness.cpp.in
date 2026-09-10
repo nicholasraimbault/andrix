@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <string>
 #include <iostream>
+#include <mutex>
 
 using namespace andrix;
 uint64_t fake_now = 100;
@@ -23,6 +24,7 @@ struct HostFd {
   void reset(int next = -1) { if (value >= 0) close(value); value = next; }
 };
 struct Pump {
+  std::mutex mutex_;
   AttachmentGate gate_;
   OutputTail output_;
   std::string input_;
@@ -102,5 +104,13 @@ int main() {
   pump.revoke_locked();
   assert(read(next_peer, &byte, 1) == 0);
   assert(pump.master_ >= 0); // detachment did not destroy the underlying PTY
+  assert(socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0, pair) == 0);
+  pump.bridge_.reset(pair[0]);
+  HostFd death_peer;
+  death_peer.reset(pair[1]);
+  assert(pump.gate_.attach(++fake_now, true, true, true));
+  pump.controller_died();
+  assert(pump.stopping_ && pump.bridge_ == -1 && !pump.gate_.live(fake_now));
+  assert(read(death_peer, &byte, 1) == 0);
   std::cout << "real host PTY/stream revocation checks passed; Android unqualified\n";
 }
