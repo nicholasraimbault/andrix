@@ -6,6 +6,10 @@ type andrixd_exec, exec_type, file_type, system_file_type;
 init_daemon_domain(andrixd)
 
 type andrix_owner, domain, coredomain;
+# This is the native owner workload, not a trusted daemon or an ordinary APK.
+# Use Android's existing workload policy class (also used by native shell),
+# without granting untrusted_app_all any new permission or modifying neverallows.
+app_domain(andrix_owner)
 type andrix_owner_entry, exec_type, file_type, system_file_type;
 domain_auto_trans(andrixd, andrix_owner_entry, andrix_owner)
 
@@ -22,6 +26,7 @@ write_logd(andrixd)
 allow andrixd self:process { fork setsockcreate };
 allow andrixd self:unix_stream_socket create_stream_socket_perms;
 allow andrixd andrix_console_socket:unix_stream_socket create_stream_socket_perms;
+allowxperm andrixd andrix_console_socket:unix_stream_socket ioctl unpriv_unix_sock_ioctls;
 allow andrixd andrix_owner:process { sigchld signull };
 allow andrixd andrix_owner:fd use;
 allow andrix_owner andrixd:fd use;
@@ -51,10 +56,12 @@ allow andrix_owner andrix_exec:file { rx_file_perms execute_no_trans };
 allow andrix_owner self:process { fork setpgid getsched setsched signal sigkill sigstop signull };
 net_domain(andrix_owner)
 
-# Intentionally no owner Binder call/find policy: native Unix identity must not
-# gain Android service authority merely because its AID is below app UIDs.
-neverallow andrix_owner *:binder call;
-neverallow andrix_owner service_manager_type:service_manager find;
+# Upstream has generic binder-stats/app-workload grants. Do not rewrite them:
+# the fixed runner blocks all Binder ioctls before any owner-controlled code,
+# so its reserved UID cannot become an ambient Android service client.
+neverallow andrix_owner andrixd:binder call;
+neverallow andrix_owner andrix_session_service:service_manager find;
+neverallow andrix_owner { cgroup cgroup_v2 }:file { write append };
 neverallow andrix_owner andrixd:process { ptrace signal sigkill sigstop setrlimit setsched };
 neverallow andrix_owner andrixd_exec:file { execute execute_no_trans entrypoint };
 neverallow andrixd andrix_home_file:file { execute execute_no_trans entrypoint };
