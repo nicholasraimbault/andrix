@@ -121,6 +121,28 @@ remain necessary.
 4. Negative APK access, ordinary P5 private-exec denial, authenticated read-only
    `/usr`, Android `/etc`, SELinux and reboot checks. Record failures and cleanup.
 
+## Module-stage checkpoint
+
+The seventh module/policy build exited 0 in **194.608 seconds** after the retained
+failures above and a correction to the new assertion's handling of Android's
+existing debug overlay domain. Native coordinator/runner, console, optional
+negative APK, policy compilation, neverallow and compatibility checks completed.
+The D8/R8 API37 warning and existing compatibility-tool warnings remain in the log;
+SDK/security checks were not weakened. **274 host tests passed in 128.542 seconds.**
+
+Queries of the compiled policy confirmed the owner is a native `domain`/
+`coredomain`/`netdomain`, not `appdomain`; the coordinator is separate. The scoped
+home-execution, coordinator protection and cgroup-write assertions passed. An
+intentionally false assertion forbidding the owner's own-home execution failed,
+confirming the query oracle. The existing userdebug `su` permissive domain was
+reported; neither new Andrix domain is permissive and no `su` execution is used.
+These are compiled artifacts, not runtime enforcement proof.
+
+The module-only stage did not regenerate the image's identity files; their stale
+empty contents were recorded, not accepted as an owner identity. Full image
+construction must produce and verify the actual system_ext UID/group records and
+all matching image/host inputs before any launch. No M4 guest has booted yet.
+
 ## Evidence
 
 New private evidence is selected by `out/owner-session/EVIDENCE`; the earlier
