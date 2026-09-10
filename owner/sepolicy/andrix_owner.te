@@ -36,7 +36,7 @@ allow { andrixd andrix_owner } { system_data_file system_userdir_file }:dir sear
 allow { andrixd andrix_owner } andrix_home_file:dir { open read getattr search ioctl };
 allow andrix_owner andrix_home_file:dir create_dir_perms;
 allow andrix_owner andrix_home_file:file { create_file_perms map execute execute_no_trans };
-allow andrix_owner andrix_home_file:lnk_file create_lnk_perms;
+allow andrix_owner andrix_home_file:lnk_file { create read getattr setattr unlink rename };
 allow andrix_owner andrix_home_file:fifo_file create_file_perms;
 allow init andrix_home_file:dir create_dir_perms;
 allow init andrix_home_file:{ dir file lnk_file fifo_file } relabelfrom;
@@ -55,7 +55,7 @@ net_domain(andrix_owner)
 # gain Android service authority merely because its AID is below app UIDs.
 neverallow andrix_owner *:binder call;
 neverallow andrix_owner service_manager_type:service_manager find;
-neverallow andrix_owner andrixd:process { ptrace signal sigkill sigstop };
+neverallow andrix_owner andrixd:process { ptrace signal sigkill sigstop setrlimit setsched };
 neverallow andrix_owner andrixd_exec:file { execute execute_no_trans entrypoint };
 neverallow andrixd andrix_home_file:file { execute execute_no_trans entrypoint };
 neverallow { domain -andrixd -andrix_owner } andrix_owner_entry:file execute;

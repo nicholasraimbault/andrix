@@ -17,6 +17,7 @@
 #include <sys/prctl.h>
 #include <sys/random.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
@@ -84,8 +85,14 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
     unique_fd home(open_ce_home(&error));
     if (home < 0 || !ui_eligible || !user_unlocked)
       return bad_state(error.empty() ? "console is locked or not foreground" : error);
-    if (child_ == 0 && !start_shell_locked(rows, columns, home.release(), &error))
-      return bad_state(error);
+    if (child_ != 0) {
+      struct stat previous{}, current{};
+      if (fstat(home_, &previous) != 0 || fstat(home, &current) != 0 ||
+          previous.st_dev != current.st_dev || previous.st_ino != current.st_ino) {
+        stopping_ = true;
+        return bad_state("home changed while session was running");
+      }
+    }
     int pair[2] = {-1, -1};
     if (setsockcreatecon("u:object_r:andrix_console_socket:s0") != 0)
       return bad_state("cannot label attachment stream");
@@ -99,6 +106,10 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
     uint64_t generation = gate_.attach(now_ms(), true, true, true);
     if (!generation || generation > uint64_t(std::numeric_limits<int64_t>::max()))
       return bad_state("attachment generation exhausted");
+    if (child_ == 0 && !start_shell_locked(rows, columns, home.release(), &error)) {
+      gate_.revoke();
+      return bad_state(error);
+    }
     bridge_ = std::move(server);
     result->generation = generation;
     result->stream = std::move(client);
