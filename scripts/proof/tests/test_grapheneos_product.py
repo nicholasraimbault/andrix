@@ -21,7 +21,8 @@ class GrapheneosProductTests(unittest.TestCase):
         inherited=re.findall(r'\$\(call inherit-product, ([^)]+)\)',text)
         self.assertEqual(inherited,['device/google/cuttlefish/vsoc_arm64_only/phone/aosp_cf.mk',
                                     'vendor/andrix/andrix.mk'])
-        self.assertNotIn('PRODUCT_PACKAGES',text)
+        self.assertIn('ifeq ($(ANDRIX_OWNER_SESSION),true)',text)
+        self.assertIn('PRODUCT_PACKAGES += andrixd andrix-session-runner AndrixTerminal',text)
         self.assertNotIn('ANDRIX_WEBVIEW_EXPERIMENT',text)
         self.assertNotIn('AndrixCuttlefish',text)
 

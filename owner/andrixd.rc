@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: Apache-2.0
+# Existing Android CE preparation, not a forged unlock/property event. Never
+# create the CE parent or a DE substitute when it is unavailable.
+on property:sys.user.0.ce_available=true
+    mkdir /data/misc_ce/0/andrix 0700 system_ext_andrix system_ext_andrix
+    restorecon_recursive /data/misc_ce/0/andrix
+    start andrixd
+
+# The non-root daemon can publish its PID and request fixed-bound application.
+# Init applies fixed limits inside
+# this identity's init-created cgroup. No owner code receives cgroup-control DAC
+# ownership; andrixd verifies the actual limits before registering its Binder API.
+on property:sys.andrix.owner.apply=true
+    write /sys/fs/cgroup/system/uid_7500/pid_${sys.andrix.owner.pid}/memory.max 268435456
+    write /sys/fs/cgroup/system/uid_7500/pid_${sys.andrix.owner.pid}/memory.swap.max 0
+    write /sys/fs/cgroup/system/uid_7500/pid_${sys.andrix.owner.pid}/memory.oom.group 1
+    setprop sys.andrix.owner.apply false
+
+service andrixd /system_ext/bin/andrixd
+    class late_start
+    user system_ext_andrix
+    group system_ext_andrix inet
+    disabled
+    capabilities
+    priority 10
+    oom_score_adjust 700
+    task_profiles SCHED_SP_BACKGROUND
+    rlimit nproc 32 32
+    rlimit nofile 128 128
+    rlimit core 0 0
+    rlimit fsize 67108864 67108864
+    restart_period 5

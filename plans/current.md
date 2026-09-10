@@ -1,9 +1,11 @@
 # Current work
 
 **Active milestone:** [GrapheneOS-derived base — isolated migration trial](2026-09-08-grapheneos-migration.md).
-**Current action:** use the [bounded connected baseline](2026-09-09-grapheneos-connected-baseline.md)
-to prepare the [first owner-environment spike](2026-09-08-grapheneos-migration.md#m4--first-bounded-owner-environment-spike),
-with a focused check of emulator usability. The owner reaffirmed the purpose of
+**Current action:** implement and qualify the [first bounded owner session](2026-09-10-owner-session.md)
+on the [connected baseline](2026-09-09-grapheneos-connected-baseline.md), leaving
+Vanadium unchanged. The opt-in prototype adds a non-root native coordinator,
+primary-user CE home and line-oriented Android console/PTY. Host checks are not
+Android runtime qualification; a new image and real boundary tests are still needed. The owner reaffirmed the purpose of
 adopting GrapheneOS: reuse its maintained Android, phone and security foundation,
 not reimplement that work. Keep upstream components intact where they satisfy
 Andrix's requirements; concentrate the small downstream layer on owner computing.
@@ -31,8 +33,7 @@ Vanadium's tested page stayed blank in the emulator, and the WebView Safe Browsi
 API initialized false. The source finding is not an observed Google download or
 a demonstrated operational defect; the blank viewport is not a finding about
 GrapheneOS on supported Pixels. Neither observation has been declared resolved.
-The original
-no-network window and other failures are retained. Upstream Apps catalog trust is
+The original no-network window and other failures are retained. Upstream Apps catalog trust is
 host-verified and remains separate from the absent OS updater; its native update
 lifecycle and Andrix production OTA infrastructure remain unqualified.
 

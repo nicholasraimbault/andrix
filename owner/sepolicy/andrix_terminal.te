@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+# Only the named, dedicated-cert system_ext console receives this domain.
+type andrix_terminal, domain, coredomain;
+app_domain(andrix_terminal)
+
+type andrix_terminal_data_file, file_type, data_file_type, core_data_file_type, app_data_file_type;
+allow andrix_terminal andrix_terminal_data_file:dir create_dir_perms;
+allow andrix_terminal andrix_terminal_data_file:file create_file_perms;
+
+binder_use(andrix_terminal)
+binder_call(andrix_terminal, andrixd)
+allow andrix_terminal andrix_session_service:service_manager find;
+allow andrix_terminal andrix_console_socket:unix_stream_socket { read write getattr shutdown };
+
+# The UI is not the Unix owner. It has no direct home, executable or PTY access.
+neverallow andrix_terminal andrix_home_file:dir { open read write add_name remove_name };
+neverallow andrix_terminal andrix_home_file:file { open read write execute };
+neverallow andrix_terminal andrixd_devpts:chr_file { read write ioctl };
+neverallow andrix_terminal andrix_owner_entry:file execute;
+neverallow andrix_terminal andrix_owner:process { ptrace signal sigkill sigstop };

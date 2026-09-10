@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: Apache-2.0
+// Experimental primary-user owner session. No Vanadium/framework replacement.
+aidl_interface {
+    name: "andrix_session",
+    unstable: true,
+    srcs: ["aidl/dev/andrix/session/*.aidl"],
+    local_include_dir: "aidl",
+    backend: {
+        cpp: { enabled: false },
+        java: { enabled: true, platform_apis: true },
+        ndk: { enabled: true },
+    },
+}
+
+cc_defaults {
+    name: "andrix_owner_defaults",
+    cpp_std: "c++20",
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+    system_ext_specific: true,
+    srcs: ["native/session_core.cpp", "native/guards.cpp"],
+}
+
+cc_binary {
+    name: "andrixd",
+    defaults: ["andrix_owner_defaults"],
+    srcs: ["native/andrixd.cpp"],
+    shared_libs: ["andrix_session-ndk", "libbase", "libbinder_ndk", "liblog", "libselinux"],
+    init_rc: ["andrixd.rc"],
+}
+
+cc_binary {
+    name: "andrix-session-runner",
+    defaults: ["andrix_owner_defaults"],
+    srcs: ["native/runner.cpp"],
+}
+
+android_app {
+    name: "AndrixTerminal",
+    system_ext_specific: true,
+    privileged: true,
+    platform_apis: true,
+    srcs: ["terminal/src/**/*.java"],
+    manifest: "terminal/AndroidManifest.xml",
+    certificate: ":dev.andrix.usr.certificate",
+    static_libs: ["andrix_session-java"],
+}

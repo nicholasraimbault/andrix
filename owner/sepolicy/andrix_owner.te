@@ -1,0 +1,67 @@
+# SPDX-License-Identifier: Apache-2.0
+# Andrix-owned primary-user coordinator and native execution identities. No
+# untrusted_app/domain attributes are removed and no upstream neverallow changes.
+type andrixd, domain, coredomain;
+type andrixd_exec, exec_type, file_type, system_file_type;
+init_daemon_domain(andrixd)
+
+type andrix_owner, domain, coredomain;
+type andrix_owner_entry, exec_type, file_type, system_file_type;
+domain_auto_trans(andrixd, andrix_owner_entry, andrix_owner)
+
+type andrix_home_file, file_type, data_file_type, core_data_file_type;
+type andrix_session_service, service_manager_type;
+# An explicitly mediated cross-MLS stream, not a readable owner-home object.
+type andrix_console_socket, file_type, mlstrustedobject;
+system_internal_prop(andrix_owner_pid_prop)
+
+binder_use(andrixd)
+add_service(andrixd, andrix_session_service)
+set_prop(andrixd, andrix_owner_pid_prop)
+write_logd(andrixd)
+allow andrixd self:process { fork setsockcreate };
+allow andrixd self:unix_stream_socket create_stream_socket_perms;
+allow andrixd andrix_console_socket:unix_stream_socket create_stream_socket_perms;
+allow andrixd andrix_owner:process { sigchld signull };
+allow andrixd andrix_owner:fd use;
+allow andrix_owner andrixd:fd use;
+
+create_pty(andrixd)
+allow andrix_owner andrixd_devpts:chr_file { open read write getattr ioctl };
+allowxperm andrix_owner andrixd_devpts:chr_file ioctl unpriv_tty_ioctls;
+
+# Search-only traversal of existing Android parents. No misc/system supplementary
+# group, parent directory listing, root capability or general app-data access.
+allow { andrixd andrix_owner } { system_data_file system_userdir_file }:dir search;
+allow { andrixd andrix_owner } andrix_home_file:dir { open read getattr search ioctl };
+allow andrix_owner andrix_home_file:dir create_dir_perms;
+allow andrix_owner andrix_home_file:file { create_file_perms map execute execute_no_trans };
+allow andrix_owner andrix_home_file:lnk_file create_lnk_perms;
+allow andrix_owner andrix_home_file:fifo_file create_file_perms;
+allow init andrix_home_file:dir create_dir_perms;
+allow init andrix_home_file:{ dir file lnk_file fifo_file } relabelfrom;
+allow init andrix_home_file:{ dir file lnk_file fifo_file } relabelto;
+
+# Only trusted read-only executables or explicit owner-home code run in the owner
+# domain. The coordinator does not execute writable home content.
+allow andrix_owner { shell_exec toolbox_exec }:file rx_file_perms;
+allow andrix_owner { shell_exec toolbox_exec }:file execute_no_trans;
+allow andrix_owner { andrix_file andrix_exec }:dir r_dir_perms;
+allow andrix_owner andrix_exec:file { rx_file_perms execute_no_trans };
+allow andrix_owner self:process { fork setpgid getsched setsched signal sigkill sigstop signull };
+net_domain(andrix_owner)
+
+# Intentionally no owner Binder call/find policy: native Unix identity must not
+# gain Android service authority merely because its AID is below app UIDs.
+neverallow andrix_owner *:binder call;
+neverallow andrix_owner service_manager_type:service_manager find;
+neverallow andrix_owner andrixd:process { ptrace signal sigkill sigstop };
+neverallow andrix_owner andrixd_exec:file { execute execute_no_trans entrypoint };
+neverallow andrixd andrix_home_file:file { execute execute_no_trans entrypoint };
+neverallow { domain -andrixd -andrix_owner } andrix_owner_entry:file execute;
+neverallow andrix_owner andrix_owner_entry:file execute_no_trans;
+neverallow { domain -andrixd -init } andrix_owner_pid_prop:property_service set;
+neverallow { domain -andrixd -andrix_terminal } andrix_console_socket:unix_stream_socket { read write };
+neverallow { untrusted_app_all isolated_app_all } andrix_home_file:dir { open read write add_name remove_name };
+neverallow { untrusted_app_all isolated_app_all } andrix_home_file:{ file lnk_file fifo_file } { open read write execute };
+neverallow { andrixd andrix_owner } self:capability_class_set *;

@@ -1,0 +1,2 @@
+# SPDX-License-Identifier: Apache-2.0
+user=_app seinfo=andrix_terminal isPrivApp=true name=dev.andrix.terminal domain=andrix_terminal type=andrix_terminal_data_file levelFrom=all

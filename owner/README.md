@@ -1,0 +1,68 @@
+# Owner-session prototype
+
+Andrix-owned system_ext components on the unchanged GrapheneOS base. Vanadium,
+phone services, platform signer and ordinary-app execution policy are not replaced.
+See the [milestone](../plans/2026-09-10-owner-session.md) for scope and qualification.
+
+**Development opt-in:** `ANDRIX_OWNER_SESSION=true` with the existing
+`andrix_gos_cf_arm64_only_phone-cur-userdebug` product. The baseline without that
+flag does not install the owner service/console or include their UID/policy inputs.
+This is not a production interface or a qualified phone installation.
+
+## Components
+
+- `andrixd`: non-root UID/GID `system_ext_andrix` (7500), dedicated coordinator
+  domain. Registers `andrix.owner.session` only after real identity and resource
+  admission checks. Init owns the aggregate memory limit and complete cgroup cleanup.
+- `andrix-session-runner`: fixed image-owned entry into the separate native owner
+  domain, same Unix UID. Checks its inherited bounds and existing CE home, sets
+  `no_new_privs`, establishes the controlling PTY and execs Android's shell.
+- `AndrixTerminal` (`dev.andrix.terminal`): small privileged system_ext platform-API
+  console, signed with the existing local Andrix lab certificate, **not the platform
+  key**. No shared UID or APK-declared Android permissions. A signer-and-package
+  mapping supplies only this app's control domain; GrapheneOS's implicit PM metadata
+  remains separate from APK declarations. ServiceManager bootstrap uses the explicit
+  system-app non-SDK API flag, not a global hidden-API exemption.
+
+The console is a trusted UI gate. It checks primary-user unlock, keyguard,
+interactive display and foreground focus; the daemon authenticates Binder UID/SID.
+A 1.5-second CLOCK_BOOTTIME lease closes stale attachments. The actual PTY master
+never leaves the daemon: the UI gets a separately labelled stream that can be shut
+down/replaced, and ordinary APKs cannot use that stream even if handed its FD.
+This is a bounded UI-policy mechanism, not cryptographic attestation of keyguard.
+
+The home is `/data/misc_ce/0/andrix`, prepared only following Android's real CE
+preparation event. The daemon never creates a missing/fallback home. Mode/owner,
+no-symlink traversal, fscrypt-v2 policy and present key are checked. The normal
+owner may edit/execute their own home content under the owner domain; the UI and
+coordinator cannot execute it. Relock does not mean CE-key eviction. User-stop/key
+removal must be tested separately; no multi-user support is claimed.
+
+## Bounds and lifecycle
+
+- Init-created cgroup v2 retained; fixed 256 MiB aggregate memory, swap disabled,
+  group OOM killing. The daemon can request application of these fixed bounds
+  only within UID7500's cgroup path. Init applies them; readback must succeed.
+  No global per-app-memcg toggle or cgroup-control ownership is given to owner code.
+- Inherited hard limits: 32 owner tasks, 128 FDs per process, no core dumps and
+  64 MiB per file. The file limit is **not a total storage quota**. Background
+  scheduling, nice floor10 and OOM adjustment700 keep work below phone-critical
+  services; actual behavior and native-device suitability still need qualification.
+- One shell/session in this first prototype; output tail128 KiB with dropped-byte
+  accounting. Console UI buffers are also bounded. Neither is a complete transcript.
+- Detach/lease expiry revokes UI input and keeps the shell/limited output tail.
+  Explicit End, shell exit, key loss or coordinator death ends the session: Android
+  init kills/reaps the entire service cgroup, not only a Unix process group which
+  children could escape with `setsid`. End is a termination request, not storage
+  durability acknowledgement. Reboot ends processes, not the intended home data.
+- No automatic shell start on daemon boot, arbitrary privileged exec API, caller-
+  supplied path/UID/environment, descriptor-based access to the real PTY, root
+  shell, adopted identity or ordinary APK hardening override.
+
+## Verification status
+
+Portable native core and host guard-negative tests exercise actual C++ logic, not
+Android mocks pretending to supply CE storage. Source-contract tests check opt-in
+scope, signer mapping and init bounds. Build, compiled policy, image contents and
+real Android/CE/resource/UI negative tests are separate gates. **Runtime remains
+unqualified until those gates are actually exercised and recorded.**
