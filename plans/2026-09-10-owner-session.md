@@ -158,7 +158,26 @@ components' resource inspection, not cgroup write authority or a skipped check.
 No owner shell/UI/P5/negative probe was reached in that window. Runner, stop and
 capture cleanup exited0; controllerFAIL and all evidence were retained. The
 51-file closed window contains17,093 offline packets with zero reported drops,
-not a privacy or owner-runtime pass. A new image and corrected observer are needed.
+not a privacy or owner-runtime pass.
+
+The corrected `dad4d16` image built in 319.710 seconds. Its fresh offline window
+passed the core check and P5 ordinary-app isolation/uninstall. A disposable PIN
+was set through normal setup; fingerprint/face enrollment was declined visibly.
+After normal reboot, user0 was `RUNNING_LOCKED`, the CE-prepared flag was absent
+and `andrixd` was not running. Normal PIN entry changed Android to
+`RUNNING_UNLOCKED`, published CE availability and started the non-root service,
+which reported successful resource admission. This does not claim an independent
+native cryptographic-key-status measurement.
+
+The console still failed before `ActivityThread.attach`: its new SELinux domain
+lacked the **standard app API service-discovery rule**, producing an `activity`
+lookup denial and startup exception. The next correction supplies the same
+`app_api_service` discovery available to ordinary apps, not system API discovery,
+a platform signature or Android permission grants. No owner shell or dedicated
+owner-access negative was reached. All controllers/runner/stop/capture exited0;
+that cleanup result is not a console PASS. The 2,045-file closed window retains
+81,858 offline packets/zero reported drops and the console failure. Vanadium and
+the existing Android security boundaries remain unchanged.
 
 ## Evidence
 

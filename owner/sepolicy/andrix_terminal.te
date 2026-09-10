@@ -8,6 +8,9 @@ allow andrix_terminal andrix_terminal_data_file:dir create_dir_perms;
 allow andrix_terminal andrix_terminal_data_file:file create_file_perms;
 
 binder_use(andrix_terminal)
+# Standard app API discovery (also granted to untrusted_app_all), needed for
+# ActivityThread/UserManager/keyguard/etc. Android permission checks still apply.
+allow andrix_terminal app_api_service:service_manager find;
 binder_call(andrix_terminal, andrixd)
 allow andrix_terminal andrix_session_service:service_manager find;
 allow andrix_terminal andrix_console_socket:unix_stream_socket { read write getattr shutdown ioctl };
