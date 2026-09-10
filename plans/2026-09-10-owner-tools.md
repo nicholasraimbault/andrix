@@ -131,8 +131,10 @@ checkpoint does not deliver a new running terminal or on-device compiler.
 - Later compiler: compile valid and invalid C/C++, execute the produced ARM64/Bionic
   program, inspect loader/ELF, and exercise representative resource pressure.
 
-New private evidence is selected by `out/owner-tools/EVIDENCE`. The completed
-24,195-file owner-session seal is immutable. Public-source fetches establish
+The preparation evidence selected by `out/owner-tools/EVIDENCE` is sealed across
+119 regular files. It records source revision `c2b23ab`, public-source inputs,
+source observations, portable checks and the raw-stream characterization. The
+completed 24,195-file owner-session seal is untouched. Public-source fetches establish
 pinned bytes via HTTPS, not independent maintainer identity or runtime safety.
 The I16 read-only assessment was cancelled without substantive findings; primary
 inspection supplies the source observations here. Portable implementation checks
