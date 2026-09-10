@@ -89,6 +89,9 @@ class OwnerSessionTests(unittest.TestCase):
         self.assertIn('AIBinder_setRequestingSid(binder.get(), true)', daemon)
         self.assertIn('authorized_console(AIBinder_getCallingUid(), sid)', daemon)
         self.assertNotIn('kill(-1', daemon)
+        policy = (ROOT/'owner/sepolicy/andrix_owner.te').read_text()
+        self.assertIn('allow andrix_owner cgroup_v2:dir { search getattr };', policy)
+        self.assertIn('neverallow andrix_owner { cgroup cgroup_v2 }:file { write append };', policy)
 
     def test_negative_is_optional_same_signer_not_same_identity(self):
         manifest = ET.parse(ROOT/'tests/owner-negative/AndroidManifest.xml').getroot()
