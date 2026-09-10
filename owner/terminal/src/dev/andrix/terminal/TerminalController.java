@@ -112,6 +112,10 @@ final class TerminalController implements TerminalSession.Host {
         if (listener != target) return;
         resumed = false; focused = false; detach(); listener = null;
     }
+    boolean canReadScreen(Listener target) {
+        requireMain();
+        return listener == target && eligible();
+    }
     private boolean eligible() {
         return listener != null && resumed && focused && UserHandle.myUserId() == 0
                 && users.isUserUnlocked() && !keyguard.isDeviceLocked()
