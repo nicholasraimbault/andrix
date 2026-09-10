@@ -71,7 +71,20 @@ Clang prebuilts include modern host toolchains (for example r596125/22.0.2 with
 source/cherry-pick metadata), but they are host tools, not a demonstrated Android
 ARM64 compiler installation.
 
-A subsequent broader inspection found the full modern LLVM project already pinned
+The retained `e02bd6a` owner build selects **clang-r584948b / Clang 22.0.1**:
+`cur` inherits `aosp_current`, which aliases `cp2a`; the pinned
+[`RELEASE_BUILD_CLANG_VERSION` value](https://github.com/GrapheneOS/platform_build_release/blob/fb0e00657d596e48fc45ed86c9eb6a7c4071d72c/flag_values/cp2a/RELEASE_BUILD_CLANG_VERSION.textproto)
+sets that revision. The inspected retained Soong configuration agrees and records
+empty `LLVM_PREBUILTS_BASE`/`LLVM_PREBUILTS_VERSION` overrides. These generated files
+were inspected later, not retroactively claimed as part of the original seal.
+Frozen native binaries have no `.comment`; matching-build-ID unstripped
+`andrixd`/runner counterparts report Clang/LLD 22.0.1, while installed stripped
+counterparts exactly match the frozen hashes. This corroborates selection for
+those modules—not a claim that every prebuilt in the image used that compiler.
+It is also not evidence of a native Android compiler executable. Soong's fallback
+or the newest directory present must not substitute for actual release selection.
+
+A broader inspection also found the full modern LLVM project already pinned
 at `external/opencl/llvm-project` (`37c265b53612ef8085c15455d10ec718590bba00`). Its
 CMake version is 23.0.0git; METADATA's security CPE still says 21.1.0, so that CPE
 must not be treated as the source version. It includes Clang, LLD, compiler-rt and
@@ -134,7 +147,10 @@ checkpoint does not deliver a new running terminal or on-device compiler.
 The preparation evidence selected by `out/owner-tools/EVIDENCE` is sealed across
 119 regular files. It records source revision `c2b23ab`, public-source inputs,
 source observations, portable checks and the raw-stream characterization. The
-completed 24,195-file owner-session seal is untouched. Public-source fetches establish
+completed 24,195-file owner-session seal is untouched. A separate 22-file compiler-
+selection inspection records the public release chain, later generated-config
+observations and native-artifact metadata without rewriting either earlier seal.
+Public-source fetches establish
 pinned bytes via HTTPS, not independent maintainer identity or runtime safety.
 I16 was cancelled before completing its read-only assessment. A delayed initial
 note corroborated the enabled device `vi` and legacy LLVM/Clang source versions;
