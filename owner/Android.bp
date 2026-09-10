@@ -48,5 +48,8 @@ android_app {
     srcs: ["terminal/src/**/*.java", "terminal/protocol/*.java"],
     manifest: "terminal/AndroidManifest.xml",
     certificate: ":dev.andrix.usr.certificate",
+    // GrapheneOS system-app updates require fs-verity. PackageInstaller can set
+    // it up from a verified v4 sidecar supplied with the APK in a normal session.
+    v4_signature: true,
     static_libs: ["andrix_session-java", "AndrixTerminalLibraries"],
 }

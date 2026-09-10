@@ -193,6 +193,7 @@ class OwnerSessionTests(unittest.TestCase):
         self.assertIn('event.getText().clear()', activity)
         self.assertIn('cancelAccessibilityUpdate()', activity)
         self.assertNotIn('announceForAccessibility', activity)
+        self.assertIn('v4_signature: true', (ROOT/'owner/Android.bp').read_text())
 
     def test_native_core_and_host_guard_negatives(self):
         compiler = shutil.which('g++')
