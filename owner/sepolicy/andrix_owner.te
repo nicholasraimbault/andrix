@@ -1,15 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-# Andrix-owned primary-user coordinator and native execution identities. No
-# untrusted_app/domain attributes are removed and no upstream neverallow changes.
-type andrixd, domain, coredomain;
+# Andrix-owned primary-user coordinator and native execution identities.
+# Their private type declarations and exact transition exception are in the
+# digest-guarded opt-in platform bridge. No existing domain is exempted, and
+# ordinary APK permissions/attributes are unchanged.
 type andrixd_exec, exec_type, file_type, system_file_type;
 init_daemon_domain(andrixd)
 
-type andrix_owner, domain, coredomain;
-# This is the native owner workload, not a trusted daemon or an ordinary APK.
-# Use Android's existing workload policy class (also used by native shell),
-# without granting untrusted_app_all any new permission or modifying neverallows.
-app_domain(andrix_owner)
 type andrix_owner_entry, exec_type, file_type, system_file_type;
 domain_auto_trans(andrixd, andrix_owner_entry, andrix_owner)
 

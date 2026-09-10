@@ -1,0 +1,21 @@
+--- a/private/domain.te
++++ b/private/domain.te
+@@ -1,0 +2,9 @@
++
++# Andrix private owner-workload integration. Empty on ordinary upstream builds;
++# no vendor/public policy API and no existing domain changes. The opt-in product
++# supplies andrix_owner_session=true and the matching system_ext implementation.
++ifelse(andrix_owner_session, `true', `
++type andrixd, domain, coredomain;
++type andrix_owner, domain, coredomain;
++app_domain(andrix_owner)
++')
+@@ -1483,0 +1493 @@
++  ifelse(andrix_owner_session, `true', `-andrix_owner')
+@@ -1484,0 +1495,6 @@
++
++# Preserve the launcher restriction for every existing domain. The only new
++# transition exception is from the Andrix coordinator to its owner workload.
++ifelse(andrix_owner_session, `true', `
++neverallow { domain -andrixd } andrix_owner:process { transition dyntransition };
++')
