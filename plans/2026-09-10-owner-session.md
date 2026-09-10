@@ -18,20 +18,22 @@ regressions; ordinary APKs do not acquire owner execution authority.
   do not use root, shell, system, an ordinary app's identity or a shared UID with
   the UI. The initial scope is Android user 0 only.
 - A small init-managed `andrixd` is the coordinator. A distinct owner execution
-  SELinux domain runs its child shell under the same bounded Unix owner UID, using
-  the existing app-workload policy class. A digest-guarded, opt-in private policy
-  bridge declares only these new types and permits only the new coordinator →
-  owner transition; existing domains retain their restrictions. Before owner code, a worker-only inherited syscall restriction
+  SELinux domain runs its child shell under the same bounded Unix owner UID,
+  outside `appdomain`. A digest-guarded, opt-in private policy bridge permits only
+  this new native tier to execute its own home data, denies its cgroup writes and
+  restricts its exec transition to the coordinator. Existing domains retain their
+  restrictions. Before owner code, a worker-only inherited syscall restriction
   rejects Binder ioctls/io_uring and sets no_new_privs; the reserved Unix UID must
   not become ambient Android service authority. This is not an APK identity or a
   relaxation of ordinary-app policy. The coordinator's executable, control state
-  and Binder interface remain outside
-  writable owner code. No capability-based privilege escalation or root shell.
+  and Binder interface remain outside writable owner code. No capability-based privilege escalation or root shell.
 - Create the dedicated home beneath `/data/misc_ce/0` only through Android's real
   CE-preparation event. `UserDataPreparer` sets `sys.user.0.ce_available` after
   preparation; this property is not itself a current keyguard/unlock oracle.
-  Validate directory identity, encryption policy and key availability rather than
-  fall back to DE storage or create an unencrypted substitute.
+  Validate directory identity and encryption policy together with Android's
+  authenticated user-unlocked state; never fall back to DE storage or create an
+  unencrypted substitute. Native code does not claim an independent key-status
+  measurement or use vold-only key-status/management ioctls.
 - A small Android console uses an explicit signer/package-scoped SELinux identity
   to reach the native Binder service. No platform signer or Android shared UID is
   needed for the console. Reuse only the existing local lab certificate for this
@@ -41,8 +43,10 @@ regressions; ordinary APKs do not acquire owner execution authority.
   package, must not gain the service's control identity.
 - The console checks Android user-unlocked, keyguard and foreground/focus state.
   It is part of this small trusted UI/control boundary, not an untrusted lifecycle
-  oracle. A short renewable attachment lease and detach/death handling fail closed
-  if the controller disappears. The first console uses ordinary Android views,
+  oracle. It registers a process-local Binder lifetime. Controller process death
+  ends the native session; a short renewable attachment lease separately revokes
+  UI access on detachment/relock. This prototype does not keep jobs alive after
+  Android reclaims the console process. The first console uses ordinary Android views,
   not WebView, and is line-oriented rather than claiming full VT compatibility.
 - Do not hand out the actual PTY master. The daemon keeps it and mediates a bounded
   stream endpoint, so detaching/locking can revoke UI input while the shell and
@@ -86,18 +90,20 @@ resolved narrowly or recorded as a blocker, without weakening ordinary-app polic
 The first builds retained new-layer failures: a generated shared AIDL library
 would have landed in the generic system partition (changed to static linkage),
 an undefined local policy macro, and policy assertions rejecting daemon-class
-execution of writable home code and unallowlisted socket ioctls. The owner worker
-uses Android's existing app-workload policy class, with local Binder syscall
-restriction instead of attempting to subtract upstream generic grants. Socket
-ioctls use the existing narrow Unix-socket allowlist. The next compilation exposed
-Android's launcher assertion: a new non-zygote launcher cannot create that workload
-without explicit integration. The [one-file private-policy bridge](../patches/grapheneos-2026081300/README.md)
-therefore adds an opt-in exception for the **new Andrix owner target only**, with
-a further assertion allowing only `andrixd` to create it. No existing process is
-exempted or granted new permissions. This revises the initial assumption that
-system_ext rules alone would suffice; it is not a defect in GrapheneOS. No
-framework/browser code or global policy check is disabled. Fresh policy
-compilation and runtime qualification remain necessary.
+execution of writable home code and unallowlisted socket ioctls. An app-workload
+attempt exposed Android's launcher assertion and inherited zygote/run-as dynamic
+transitions. Rather than borrow that identity model, the
+[one-file private-policy bridge](../patches/grapheneos-2026081300/README.md) now defines
+the distinct **native owner tier**: only its own home data may be executable,
+only its coordinator may enter it through exec, and owner cgroup writes are denied.
+The local worker syscall filter prevents ambient Binder authority; socket ioctls
+use the existing narrow allowlist. No existing process is exempted or granted new
+permissions. This revises the initial system_ext-only/app-workload assumptions;
+it is not a defect in GrapheneOS. No framework/browser code or global policy check
+is disabled. Vold retains exclusive key-management/status authority: the prototype
+uses read-only encryption-policy metadata, Android user state and controller death,
+not an invented native unlock oracle. Fresh compilation and runtime qualification
+remain necessary.
 
 ## Checks
 

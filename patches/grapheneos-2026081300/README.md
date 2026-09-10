@@ -1,27 +1,32 @@
-# Opt-in owner-session policy integration
+# Opt-in native owner policy integration
 
 This is **one new, digest-guarded private-policy bridge**, not the preserved old
 18-file AOSP patch series. It applies only to `system/sepolicy` at the pinned
 GrapheneOS `2026081300` revision recorded in `owner-session-policy.json`.
 
-The real policy compiler rejected a direct coordinator → app-workload transition:
-Android reserves those transitions for its existing launchers. The accepted
-Andrix design introduces a separate native owner identity; it must not borrow
-root/shell identity or broaden ordinary APK execution. The bridge makes that new
-boundary explicit rather than disabling neverallow checks.
+The policy compiler correctly rejected trusted-daemon execution of writable data.
+An initial app-workload approach then ran into Android's launcher and inherited
+zygote/run-as rules. Andrix is instead adding the distinct **native owner** tier
+from the accepted architecture—not borrowing an APK, zygote, run-as or shell
+identity. The bridge explicitly defines that new boundary.
 
 Under `andrix_owner_session=true` only, it:
 
-1. Declares the two private Andrix process types; the owner worker receives the
-   existing app-workload policy class. No public/vendor policy API is added.
-2. Excludes **only the new owner target** from the existing launcher assertion.
-3. Adds a separate assertion restricting that target to **only `andrixd`**.
+1. Declares three private Andrix types: coordinator, native owner and own-home data.
+   The owner is **not `appdomain`**. No public/vendor policy API is added.
+2. Excludes only the new owner from the two assertions prohibiting native-domain
+   writable-data execution, then asserts that **only its own home type** may be
+   executable data and no other domain may execute that home type.
+3. Restricts entry to an exec transition from only `andrixd`, with no dynamic
+   transition into the owner domain.
+4. Removes only the new owner from broad non-app cgroup-write rules. Its fixed
+   init-owned resource limits must not be changed or escaped by owner code.
 
-The implementation's exact allow rule remains in Andrix system_ext policy.
-No existing domain is exempted, no existing allow rule is widened, and no ordinary
-APK receives the owner UID/domain, home access or execution rights. With the flag
-off, the new declarations/exception are absent. Vanadium and upstream framework
-code remain unchanged. The worker-only syscall restriction separately prevents
+Exact per-file allow rules remain in Andrix system_ext policy. No existing domain
+is exempted or granted new permissions; ordinary APKs receive no owner identity,
+home access or execution rights. With the flag off, the new declarations and
+exceptions are absent. Vanadium, framework code and vold's key-management/status
+authority remain unchanged. The worker-only syscall restriction separately blocks
 ambient Binder authority from the reserved Unix UID.
 
 Use `scripts/proof/owner_policy.py --source-root SOURCE --action apply --evidence

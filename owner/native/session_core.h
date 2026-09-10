@@ -26,7 +26,8 @@ bool valid_dimensions(int rows, int columns);
 
 // Caller supplies CLOCK_BOOTTIME milliseconds so suspension consumes the lease.
 // This does not establish Android keyguard/CE state: the authenticated console
-// checks UI state, and the daemon separately checks the kernel home/bounds.
+// checks Android user/UI state, and the daemon separately checks home encryption
+// metadata/bounds. This is not a native cryptographic-key-status oracle.
 class AttachmentGate {
  public:
   explicit AttachmentGate(uint64_t generation_seed = 0) : generation_(generation_seed) {}

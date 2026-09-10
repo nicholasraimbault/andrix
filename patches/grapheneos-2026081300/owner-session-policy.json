@@ -4,11 +4,12 @@
   "head": "87a06ed71fd67cff9f77feaa9ae3504edb5d0972",
   "file": "private/domain.te",
   "upstream_sha256": "b6097259d6529f010896778f4802e1556b5c70643c9eab3e793ea91c45d26934",
-  "adapted_sha256": "b2d46e4c82183660baef86dd3b1d2100e855841ff45001bef07609936707871a",
+  "adapted_sha256": "60625d252272b49656f9c101e0f8eefcb7c07b0c892f970c850b42eb5403db2b",
   "patch": "owner-session-policy.patch",
-  "patch_sha256": "1c27b71b9802a2c49107c8ca0645ecdde93367775c830490c6985e56d45b768a",
+  "patch_sha256": "6718bc69125c2c502fb85820f06127906d05acf29cde1d4364aec1c48b699559",
   "activation": "andrix_owner_session=true via explicit GOS Cuttlefish owner opt-in",
   "public_policy_api_changed": false,
   "existing_domain_grants_changed": false,
-  "patch_format": "zero-context unified review record; apply via digest-guarded owner_policy.py"
+  "patch_format": "zero-context unified review record; apply via digest-guarded owner_policy.py",
+  "scope": "new native owner types; only owned CE-home execution; no owner cgroup writes; only coordinator exec transition"
 }

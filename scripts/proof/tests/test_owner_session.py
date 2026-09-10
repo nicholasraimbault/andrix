@@ -142,12 +142,26 @@ class OwnerSessionTests(unittest.TestCase):
             self.assertIn('Android unqualified', ran.stdout)
         policy = (ROOT/'owner/sepolicy/andrix_owner.te').read_text()
         bridge = (ROOT/'scripts/proof/owner_policy.py').read_text()
-        self.assertIn('app_domain(andrix_owner)', bridge)
+        self.assertNotIn('app_domain(andrix_owner)', bridge + policy)
         self.assertNotIn('untrusted_app_domain(andrix_owner)', bridge + policy)
+        self.assertIn('data_file_type -andrix_home_file', bridge)
         self.assertNotIn('type andrix_owner, domain', policy)
         runner = (ROOT/'owner/native/runner.cpp').read_text()
         self.assertLess(runner.index('install_worker_filter()'), runner.index('execve('))
         self.assertNotIn('install_worker_filter', (ROOT/'owner/native/andrixd.cpp').read_text())
+
+    def test_ce_key_authority_and_controller_lifetime_are_not_faked(self):
+        guards = (ROOT/'owner/native/guards.cpp').read_text()
+        self.assertIn('FS_IOC_GET_ENCRYPTION_POLICY_EX', guards)
+        self.assertNotIn('FS_IOC_GET_ENCRYPTION_KEY_STATUS', guards)
+        daemon = (ROOT/'owner/native/andrixd.cpp').read_text()
+        self.assertIn('AIBinder_linkToDeath(lifetime.get(), death_, this)', daemon)
+        self.assertIn('controller_pid_ == AIBinder_getCallingPid()', daemon)
+        self.assertIn('void controller_died()', daemon)
+        activity = (ROOT/'owner/terminal/src/dev/andrix/terminal/ConsoleActivity.java').read_text()
+        self.assertIn('static final Binder PROCESS_LIFETIME = new Binder()', activity)
+        self.assertLess(activity.index('registerController(PROCESS_LIFETIME)'), activity.index('service.attach('))
+        self.assertNotIn('getIntent().get', activity)
 
     def test_native_core_and_host_guard_negatives(self):
         compiler = shutil.which('g++')

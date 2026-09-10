@@ -1,6 +1,6 @@
 --- a/private/domain.te
 +++ b/private/domain.te
-@@ -1,0 +2,9 @@
+@@ -1,0 +2,15 @@
 +
 +# Andrix private owner-workload integration. Empty on ordinary upstream builds;
 +# no vendor/public policy API and no existing domain changes. The opt-in product
@@ -8,14 +8,26 @@
 +ifelse(andrix_owner_session, `true', `
 +type andrixd, domain, coredomain;
 +type andrix_owner, domain, coredomain;
-+app_domain(andrix_owner)
++type andrix_home_file, file_type, data_file_type, core_data_file_type;
++# Native owner work is deliberately separate from the APK/appdomain model.
++# Only its own labelled CE home is executable writable data.
++neverallow andrix_owner { data_file_type -andrix_home_file }:file no_x_file_perms;
++neverallow { domain -andrix_owner } andrix_home_file:file no_x_file_perms;
++neverallow { domain -andrixd } andrix_owner:process transition;
++neverallow domain andrix_owner:process dyntransition;
 +')
-@@ -1483,0 +1493 @@
-+  ifelse(andrix_owner_session, `true', `-andrix_owner')
-@@ -1484,0 +1495,6 @@
+@@ -459,5 +474,5 @@
+-allow { domain -appdomain -rs } cgroup:dir w_dir_perms;
+-allow { domain -appdomain -rs } cgroup:file w_file_perms;
+-
+-allow { domain -appdomain -rs } cgroup_v2:dir w_dir_perms;
+-allow { domain -appdomain -rs } cgroup_v2:file w_file_perms;
++allow { domain -appdomain -rs ifelse(andrix_owner_session, `true', `-andrix_owner') } cgroup:dir w_dir_perms;
++allow { domain -appdomain -rs ifelse(andrix_owner_session, `true', `-andrix_owner') } cgroup:file w_file_perms;
 +
-+# Preserve the launcher restriction for every existing domain. The only new
-+# transition exception is from the Andrix coordinator to its owner workload.
-+ifelse(andrix_owner_session, `true', `
-+neverallow { domain -andrixd } andrix_owner:process { transition dyntransition };
-+')
++allow { domain -appdomain -rs ifelse(andrix_owner_session, `true', `-andrix_owner') } cgroup_v2:dir w_dir_perms;
++allow { domain -appdomain -rs ifelse(andrix_owner_session, `true', `-andrix_owner') } cgroup_v2:file w_file_perms;
+@@ -1961,0 +1977 @@
++    ifelse(andrix_owner_session, `true', `-andrix_owner')
+@@ -2042,0 +2059 @@
++  ifelse(andrix_owner_session, `true', `-andrix_owner')

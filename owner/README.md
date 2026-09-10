@@ -8,7 +8,7 @@ See the [milestone](../plans/2026-09-10-owner-session.md) for scope and qualific
 `andrix_gos_cf_arm64_only_phone-cur-userdebug` product. The baseline without that
 flag does not install the owner service/console or include their UID/policy inputs.
 Apply and check the [single private-policy bridge](../patches/grapheneos-2026081300/README.md)
-before an opt-in build. It defines only the new Andrix transition boundary, guarded
+before an opt-in build. It defines only the new native owner/home boundary, guarded
 off for other products; no public policy API or existing-domain permission change.
 This is not a production interface or a qualified phone installation.
 
@@ -18,10 +18,9 @@ This is not a production interface or a qualified phone installation.
   domain. Registers `andrix.owner.session` only after real identity and resource
   admission checks. Init owns the aggregate memory limit and complete cgroup cleanup.
 - `andrix-session-runner`: fixed image-owned entry into the separate native owner
-  domain, same Unix UID. Android's existing `appdomain` workload policy class
-  permits this owner code, with the explicit new-target launcher bridge rather
-  than a change to existing trusted-daemon or ordinary-APK permissions;
-  that attribute does not make the process an installed APK. Checks inherited
+  domain, same Unix UID. This is not `appdomain` or an installed APK: the explicit
+  private-policy bridge permits native owner execution of only its own home data,
+  without changing existing trusted-daemon or ordinary-APK permissions. Checks inherited
   bounds/home and installs an additional worker-only seccomp filter before exec:
   `no_new_privs`, no Binder ioctl family or io_uring. This prevents the reserved
   UID from becoming an ambient Android service client despite upstream generic
@@ -36,14 +35,18 @@ This is not a production interface or a qualified phone installation.
 
 The console is a trusted UI gate. It checks primary-user unlock, keyguard,
 interactive display and foreground focus; the daemon authenticates Binder UID/SID.
-A 1.5-second CLOCK_BOOTTIME lease closes stale attachments. The actual PTY master
+The console also registers its own process-local Binder lifetime; that process's
+death ends the native session even if the Activity had detached. A 1.5-second
+CLOCK_BOOTTIME lease closes stale UI attachments. The actual PTY master
 never leaves the daemon: the UI gets a separately labelled stream that can be shut
 down/replaced, and ordinary APKs cannot use that stream even if handed its FD.
 This is a bounded UI-policy mechanism, not cryptographic attestation of keyguard.
 
 The home is `/data/misc_ce/0/andrix`, prepared only following Android's real CE
 preparation event. The daemon never creates a missing/fallback home. Mode/owner,
-no-symlink traversal, fscrypt-v2 policy and present key are checked. The normal
+no-symlink traversal and fscrypt-v2 policy are checked, alongside the trusted
+console's actual Android UserManager unlock state. Native code does **not** query
+vold-only key-status ioctls or claim an independent key-status measurement. The normal
 owner may edit/execute their own home content under the owner domain; the UI and
 coordinator cannot execute it. Relock does not mean CE-key eviction. User-stop/key
 removal must be tested separately; no multi-user support is claimed.
@@ -61,10 +64,14 @@ removal must be tested separately; no multi-user support is claimed.
 - One shell/session in this first prototype; output tail128 KiB with dropped-byte
   accounting. Console UI buffers are also bounded. Neither is a complete transcript.
 - Detach/lease expiry revokes UI input and keeps the shell/limited output tail.
-  Explicit End, shell exit, key loss or coordinator death ends the session: Android
+  Explicit End, shell exit, controller/coordinator death or a reported Android
+  `UserManager.isUserUnlocked() == false` state ends the session (not screen relock): Android
   init kills/reaps the entire service cgroup, not only a Unix process group which
   children could escape with `setsid`. End is a termination request, not storage
-  durability acknowledgement. Reboot ends processes, not the intended home data.
+  durability acknowledgement. This first prototype's processes do not outlive the
+  console APK process; Android may reclaim it while cached. Reboot ends processes,
+  not the intended home data. Independent long-lived service/user-stop/key-eviction
+  qualification remains future work, not a claimed feature here.
 - No automatic shell start on daemon boot, arbitrary privileged exec API, caller-
   supplied path/UID/environment, descriptor-based access to the real PTY, root
   shell, adopted identity or ordinary APK hardening override.
