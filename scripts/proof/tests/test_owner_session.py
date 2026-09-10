@@ -85,6 +85,19 @@ class OwnerSessionTests(unittest.TestCase):
         self.assertIn('authorized_console(AIBinder_getCallingUid(), sid)', daemon)
         self.assertNotIn('kill(-1', daemon)
 
+    def test_negative_is_optional_same_signer_not_same_identity(self):
+        manifest = ET.parse(ROOT/'tests/owner-negative/AndroidManifest.xml').getroot()
+        self.assertEqual(manifest.get('package'), 'dev.andrix.proof.ownernegative')
+        self.assertIsNone(manifest.find('uses-permission'))
+        self.assertNotIn('{http://schemas.android.com/apk/res/android}sharedUserId', manifest.attrib)
+        bp = (ROOT/'tests/owner-negative/Android.bp').read_text()
+        self.assertIn('certificate: ":dev.andrix.usr.certificate"', bp)
+        self.assertIn('installable: false', bp)
+        self.assertNotIn('AndrixOwnerNegative', (ROOT/'products/andrix_gos_cf_arm64_only_phone.mk').read_text())
+        source = (ROOT/'tests/owner-negative/src/dev/andrix/proof/ownernegative/OwnerNegative.java').read_text()
+        self.assertIn('NEGATIVES_OBSERVED_REQUIRE_POSITIVE_CONTROL', source)
+        self.assertNotIn('adoptShellPermissionIdentity', source)
+
     def test_native_core_and_host_guard_negatives(self):
         compiler = shutil.which('g++')
         self.assertIsNotNone(compiler, 'a host C++ compiler is required')
