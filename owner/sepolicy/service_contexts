@@ -1,0 +1,2 @@
+# SPDX-License-Identifier: Apache-2.0
+andrix.owner.session    u:object_r:andrix_session_service:s0

@@ -11,6 +11,12 @@ $(call inherit-product, vendor/andrix/andrix.mk)
 PRODUCT_COPY_FILES += \
     device/sample/etc/apns-full-conf.xml:$(TARGET_COPY_OUT_PRODUCT)/etc/apns-conf.xml
 
+# First bounded owner-session prototype. Explicit opt-in keeps the established
+# baseline reproducible while this new Andrix-owned boundary is qualified.
+ifeq ($(ANDRIX_OWNER_SESSION),true)
+PRODUCT_PACKAGES += andrixd andrix-session-runner AndrixTerminal
+endif
+
 # The upstream media_system product includes its Updater for OFFICIAL_BUILD.
 # This development product has no Andrix release channel; it must not claim
 # official upstream release status or use that channel with different keys.

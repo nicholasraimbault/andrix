@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
+/system_ext/bin/andrixd                     u:object_r:andrixd_exec:s0
+/system_ext/bin/andrix-session-runner       u:object_r:andrix_owner_entry:s0
+/data/misc_ce/0/andrix(/.*)?                 u:object_r:andrix_home_file:s0
