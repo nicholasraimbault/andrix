@@ -1,14 +1,21 @@
 # Current work
 
 **Active milestone:** [GrapheneOS-derived base — isolated migration trial](2026-09-08-grapheneos-migration.md).
-**Current action:** [connected baseline preparation](2026-09-09-grapheneos-connected-baseline.md).
-Initial source/artifact inventory supports the upstream GrapheneOS endpoint defaults
-and separates the Apps catalog from the absent OS updater. The first diagnostic
-completed normal setup/launcher observation but found no guest Internet: the generic
-base omitted Cuttlefish's sample APN database. A product-only copy correction is
-prepared for a new image; the failed window is retained. A retained WebView
-recovery-to-Google path is a known release-policy gap, not covered by an ordinary
-boot test. The upcoming connected window is diagnostic, not a complete privacy pass.
+**Current action:** assess the [connected baseline results](2026-09-09-grapheneos-connected-baseline.md)
+and address the remaining Vanadium recovery/rendering gates. Producer `a28d170`
+restores the sample APN input omitted by GrapheneOS's generic base, only for
+Cuttlefish. The corrected diagnostic established real Internet after normal setup;
+core/P5, ordinary WebView consent/JS/TLS, HTTPS time, CT delivery and normal reboot
+passed. The real RKP client reported 12 provisioned keys for Cuttlefish's software
+implementation—not Pixel hardware proof. All owned runtime services stopped.
+
+The 111,280-packet capture had zero reported drops/truncation and no observed
+automatic direct Google connection in the exercised paths. **Not a complete privacy
+or release pass:** the known WebView recovery-to-Google route remains, full Vanadium
+page rendering stayed blank, and Safe Browsing initialized false. The original
+no-network window and other failures are retained. Upstream Apps catalog trust is
+host-verified and remains separate from the absent OS updater; its native update
+lifecycle and Andrix production OTA infrastructure remain unqualified.
 
 The [complete ARM64 image and first offline boot](2026-09-08-grapheneos-first-boot.md)
 now pass bounded functional checks: 27 frozen images and both host packages,
@@ -32,15 +39,15 @@ ordinary setup screens and normal navigation after first draw. New producer
 Bluetooth remains off, the real boot monitor completes, and the guest stays alive
 through the longer UI test. Credential-screen capture protection was preserved.
 The later diagnostic completed normal onboarding and displayed the launcher and
-Settings through the private virtual console; connected behavior still failed
-on the missing emulator APN input.
+Settings through the private virtual console. The APN-corrected retry then
+established connected behavior without shell grants or platform-security overrides.
 The disconnected 39,029-packet/zero-drop capture is not a connected-service pass.
 The owner has [clarified the networking policy](../docs/grapheneos-connected-policy-review.md#accepted-networking-policy):
 no automatic direct Google connections from official Andrix components; Google use
 on a provider's backend and explicit owner use of Google products are allowed.
 The owner selected retaining genuine hardware attestation through GrapheneOS's
-proxy. Client endpoints, redirects/fallbacks and actual connected behavior still
-need qualification; this decision is not a runtime pass. The
+proxy. Bounded client/proxy behavior is now observed, while broader endpoint,
+redirect/fallback and actual Pixel qualification remain open. The
 [Vanadium DRM/Silvervine review](../docs/vanadium-drm-and-silvervine.md) identifies
 Android MediaDrm as the relevant browser path, not a desktop CDM installer.
 The owner decided **Andrix does not need Silvervine**; no bundle, port or optional

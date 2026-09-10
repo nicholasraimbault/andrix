@@ -13,9 +13,11 @@ Andrix has adopted a pinned GrapheneOS-derived Android/Pixel base. The
 A [follow-up](plans/2026-09-09-grapheneos-ui.md) also verifies ordinary setup UI
 rendering/navigation on an emulator-profile correction. These remain emulated
 functional results: the test kernel lacks some GrapheneOS hardening. A later
-[diagnostic](plans/2026-09-09-grapheneos-connected-baseline.md) completed onboarding
-and displayed the launcher, but guest connectivity failed on a missing emulator
-APN input. Connected, native and Pixel qualification remain open.
+[connected diagnostic](plans/2026-09-09-grapheneos-connected-baseline.md) corrected
+the missing emulator APN input and passed core/P5, ordinary WebView TLS, time/CT
+and reboot checks with real Internet. The browser's tested page stayed blank;
+a known WebView recovery endpoint remains outside policy. Complete network-policy,
+native and Pixel qualification remain open.
 
 The preserved earlier baseline proves a tiny `andrix-hello` executable in a signed
 APEX exposed through read-only `/usr` on an ARM64-only direct-AOSP-17 Cuttlefish

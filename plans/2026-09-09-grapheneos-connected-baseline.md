@@ -17,11 +17,14 @@ remain evidence, not results to discard.
 
 ## Reviewed producer and defaults
 
-Start with frozen image/host inputs from `108d8574dcfc9a09bb29977e67d694e82c94d758`;
-no old AOSP platform patch series or experimental 152 APK is silently substituted.
-Keep the source producer separate from the new host observer.
+The first window used frozen image/host inputs from
+`108d8574dcfc9a09bb29977e67d694e82c94d758`. The APN-corrected retry used producer
+`a28d17095493cdfd7147bc957df4e40ea73920ca` and host/probe observer `1fa4fd2`.
+No old AOSP platform patch series or experimental 152 APK was substituted.
+Source producer, observer, runtime package versions and documentation HEAD remain
+separate identities.
 
-| Area | Inspected selection | Qualification still needed |
+| Area | Inspected selection | Initial qualification gap; runtime results below |
 | --- | --- | --- |
 | Connectivity checks | `ConnChecksSetting` defaults 0; `NetworkMonitor` selects GrapheneOS HTTP/HTTPS and GrapheneOS fallback URLs. Compiled NetworkStack resources corroborate those choices. | Runtime effective setting, DNS and real validation. Standard Google values remain a separately selectable path. |
 | Private DNS probes | Native `DnsTlsTransport` and Java `DnsUtils` select `dnscheck.grapheneos.org` by default; disabling connectivity checks does not silently disable DNS validation. | Actual resolver traffic and all guest network DNS configuration. |
@@ -98,8 +101,8 @@ recovery path. A successful window cannot close the known gap.
   Its RKP values are observation-only; it makes no network-policy claim. Admission,
   property-read failures and the shared negative oracles are host-tested alongside
   the unchanged offline/legacy profiles: 30 device tests pass. The full host suite,
-  including the WebView fixture profile and APN product check, passes 262 tests. These are not device
-  or network results.
+  including the WebView fixture profile and APN product check, passes 262 tests.
+  These are not device or network results.
 - The ordinary WebView fixture has an explicit `grapheneos-2026081300` profile,
   matching the earlier P5 distinction between APK declarations and implicit PM
   metadata. The APK still declares only INTERNET and ACCESS_LOCAL_NETWORK; only
@@ -143,13 +146,88 @@ orchestration correctly remained FAIL. Capture: 66,172 packets, zero reported dr
 That is **not a guest-Internet or privacy pass**. The closed window seals 1,169
 regular files; original failures are not relabelled.
 
-The prepared correction restores the existing
+Producer `a28d170` restores the existing
 `device/sample/etc/apns-full-conf.xml` as `/product/etc/apns-conf.xml` **only in the
 Andrix GrapheneOS Cuttlefish product**. It does not change Pixel carrier/vendor
 configuration, weaken the restricted Ethernet interface, fake a network response,
 change RKP or override Android permission state. A GNU make host test checks the
 exact copy declaration and its separation from the shared/legacy products. The
-new image and an actual connected retry remain necessary.
+corrected image and retry results follow.
+
+## Corrected connected window
+
+The eight-job `droid hosttar` build exited 0 in **556.454 seconds**. All 27 images
+and both host packages were frozen/rehashed. The actual product image contains
+byte-identical pinned sample APN data, including the virtual SIM's default profile;
+TelephonyProvider selects that product file through its existing precedence rules.
+The signed `/usr` APEX and image shell remain byte-identical to the earlier verified
+artifacts. No platform source patch or security-setting workaround was needed.
+
+A fresh rootless runtime ran from 2026-09-10T00:06:32Z to 01:07:07Z. Its first host
+DNSSEC check timed out; the preserved bounded second attempt passed before VM
+launch. Guest core checks passed, with real Cuttlefish readiness at 00:26:13Z.
+The initial public ping still failed **before setup completion**: the corrected
+APN now satisfied telephony, but data was disabled during onboarding. Normal visible
+setup completion enabled data; no shell setting or grant did so. The inspected
+SetupWizard `FinishActions` writes normal provisioning completion, which
+`DataSettingsManager` observes to leave its provisioning-data gate. Android
+established and validated network 100, with the controlled resolver and working DoT. This is
+protocol validation under the existing DNS profile, not a new strict-hostname DNS
+policy. A later public ping received both replies; its original failure remains.
+
+| Measurement | Observed result |
+| --- | --- |
+| `/usr`, APEX, Bionic/ABI, `/etc`, SELinux | Shared core oracles passed before and after ordinary `adb reboot`; boot ID changed. |
+| Normal setup | Visible Skip/Start controls completed setup without a PIN, backup restoration or forged provisioning state. Credential screenshot protection was not changed. |
+| WebView ordinary app | Normal visible local-network ALLOW; real JavaScript result 42 and HTTPS 204; wrong-hostname TLS rejected/cancelled. Provider remained Vanadium 151.0.7922.137.0. Installation and removal verified. |
+| Safe Browsing | Initialization callback **false**, despite its setting remaining true; backend protection was not verified. |
+| P5 ordinary app | UID 10145, untrusted-app domain, zero effective Linux capability mask; exact image-shell control succeeded; identical private-copy `execve` failed EACCES with `execute_no_trans` denial. APK declares no permissions; only expected implicit OTHER_SENSORS PM metadata accepted, grant state unmeasured. Removal verified. |
+| Time | Actual successful `https://time.grapheneos.org/generate_204` acquisition, recorded by the Android time service. |
+| CT | Android installed v2 **89.30** and v3 **91.0**. Ordinary shell reads confirmed both current links and exact independently verified file hashes. |
+| RKP | Real client traffic used GrapheneOS's proxy; the client logged **12 provisioned keys** for Cuttlefish's software implementation. Not Pixel hardware-security or backend-server proof. |
+| Widevine | The OS worker reported Widevine unsupported in this guest; no provisioning/playback success is claimed. |
+| Package updates | Apps 36, Vanadium 151 and Config 200 remained at their factory APK versions through reboot. Native Apps catalog/install/rollback lifecycle was not qualified. Browser component traffic did occur separately. |
+| Reboot connectivity | Android again reported an active, validated cellular network and validated private-DNS transport. |
+| Cleanup | Controller, UI session, runner, stop, all fixture services and capture exited 0. No owned runtime remains. |
+
+**Full browser rendering failed this bounded check.** Vanadium's toolbar/menu and
+notification prompt responded, but `https://example.org/` content stayed blank,
+including after a normal second-tab navigation. QMP and Android captures agree;
+the browser window was focused. EGL native-fence errors were logged, but their
+causal role is not established. No renderer/security disable, debugger or page
+state fabrication was used. The successful ordinary WebView probe is not a full
+browser-rendering pass, and neither is protected-playback qualification.
+
+### Capture and claim boundary
+
+Capture started before assembly and covered cleanup: **111,280 packets**, zero
+kernel-reported drops and zero truncated packet records,
+00:06:33.704001Z–01:07:05.067990Z. Guest IPv4 traffic was separated from fixture
+upstream/control traffic. IPv6 observations were local/multicast only; IPv6
+Internet remains unqualified.
+
+Initial TCP streams were reassembled with duplicate/overlap checks. All 52 guest
+TCP connections were accounted for by observed HTTP Host/TLS ClientHello names or
+the owned DoT endpoint. Names included GrapheneOS connectivity/time/CT/RKP,
+`update.vanadium.app`, `dl.vanadium.app`, the owned positive/wrong-host probe and
+`example.org`. The parser retained no incomplete/unparsed initial-stream issue;
+independent synthetic split/overlap/truncation controls also ran. This does not
+turn passive TLS metadata into payload decryption or server-implementation proof.
+
+Twelve component-download requests initially used **HTTP** to `dl.vanadium.app`;
+the capture contains 301 redirects to **HTTPS on the same host**, not Google.
+HTTPS component-update/download connections were also observed. This is not a
+claim that every component installed, or that all initial requests used TLS.
+
+**No automatic direct Google connection was observed in the exercised window.**
+There was real guest Internet, not a denylist/blackhole or an offline-silence pass.
+Provider-side Google processing remains allowed and is not excluded by this result.
+The known WebView recovery route, browser-rendering failure, native Apps lifecycle,
+other settings/carrier consumers and Pixel/hardware paths remain open. Accordingly
+this is **not a complete release-policy qualification**.
+
+The second closed window seals **1,822 regular files**. The first failed window,
+its 1,169-file seal and original source/observer failures remain intact.
 
 ## Initial evidence
 
@@ -164,4 +242,14 @@ Current public CT data fetched through the configured GrapheneOS endpoint verifi
 against the exact image's unchanged allowlist: v2 `89.30`, v3 `91.0`. The actual
 GrapheneOS-tree `flatc` independently decoded v3 metadata; wrong guesses at the
 installed tool path and the first missing-`ANDROID_HOST_OUT` extraction attempt
-are retained. These are host cryptographic/artifact checks, not guest CT delivery.
+are retained. Those initial checks were host cryptographic/artifact evidence;
+the corrected runtime subsequently installed the same verified bytes, as recorded
+above.
+
+Post-build/runtime source verification again authenticated the manifest and
+accounted for all 1,108 exact project HEADs and tracked cleanliness. The first pass
+had 1,107 PASS results and a preserved 120-second `build/release` diff timeout; the
+unchanged single-project check passed in 6.107 seconds on a bounded serial retry.
+No source normalization, reset or persistent Git configuration change was used.
+The complete preparation/result evidence seals **7,217 regular files**, excluding
+symlinks; raw captures, APKs and private operating material stay outside public Git.

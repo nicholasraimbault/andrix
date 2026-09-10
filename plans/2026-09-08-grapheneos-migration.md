@@ -205,9 +205,10 @@ through GrapheneOS's provisioning proxy rather than inventing replacement
 attestation authority. Actual client routes, redirects and fallbacks still need
 source/runtime review; no connected pass follows from this decision.
 
-Before a connected migrated candidate, define honest Andrix identity and the
-updater/app-catalog/service policy. A differently signed fork must not use the
-official GrapheneOS updater as its update service. Endpoint replacements require
+The [connected diagnostic](2026-09-09-grapheneos-connected-baseline.md) now separates
+upstream Apps catalog trust from Andrix OS identity: the official OS Updater is
+absent, and no supported Andrix OTA channel is claimed. A differently signed fork
+must not use the official GrapheneOS updater as its update service. Endpoint replacements require
 valid services and explicit deployment authority, not fake responses or silence.
 Preserve TLS/CT/revocation and review Pixel RKP/eSIM/carrier paths rather than
 blindly copying emulator-specific settings or stripping phone functionality.
@@ -216,6 +217,17 @@ Rebuild/re-run artifact, APEX, app-isolation, network and recovery oracles on th
 new producer. Retain exact inputs, first failures, connected packet capture and
 loss counts. Checked host code, compiler results, cryptography, emulated runtime,
 native hardware and privacy claims remain separate.
+
+Producer `a28d170` restored Cuttlefish's existing sample APN input after the first
+window failed without a data profile. The corrected window passed core/P5,
+ordinary WebView consent/JS/TLS, HTTPS time, exact CT delivery and normal reboot
+with real validated Internet. RKP logged 12 keys for the software implementation;
+no Pixel hardware assurance follows. Its 111,280-packet capture had zero reported
+drops/truncation and no observed automatic direct Google connection in those
+exercised paths. **M3 remains open:** the WebView recovery-to-Google route is not
+fixed, full browser page rendering stayed blank, Safe Browsing initialized false,
+and broader app-update/carrier/native qualification remains. Both windows and
+failures are retained; all owned runtime services stopped.
 
 A specific phone flash requires a signed/recoverable caiman image, current handset
 firmware/rollback constraints, backups and explicit approval. The owner's locked

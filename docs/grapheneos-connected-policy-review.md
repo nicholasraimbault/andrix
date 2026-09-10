@@ -1,6 +1,6 @@
 # Connected-service policy: attestation provisioning
 
-**Read-only findings; owner clarified the networking policy on 2026-09-09.**
+**Initial read-only findings; owner clarified the networking policy on 2026-09-09.**
 The [accepted architecture](architecture.md) now prohibits automatic direct
 connections from official Andrix components to Google-operated services, while
 allowing provider-side Google backends and the owner's explicit use of Google
@@ -102,10 +102,11 @@ server-side Google relationship. A supported independently provisioned Pixel
 replacement and complete proxy/server privacy properties have not been established
 and are not prerequisites implied by this clarification.
 
-Before connected qualification:
+Remaining qualification:
 
 - Reconcile all relevant client endpoints, redirects and fallbacks with the policy.
-  No connected migrated-image qualification is claimed yet.
+  A bounded connected Cuttlefish result is now recorded below; it does not qualify
+  every feature or actual Pixel hardware.
 - Preserve genuine attestation and local hardware security; do not forge success,
   spoof identity/certificates or globally disable services to manufacture a quiet
   capture. Whether a consumer works must be reported honestly.
@@ -117,15 +118,26 @@ Before connected qualification:
 
 ## Evidence limits
 
-These are exact client-source observations plus a separately fetched live official
-FAQ. No RKP request was sent for this review. No Pixel HAL CSR, server-side
-processing, packet/body capture or flag-dependent feedback behavior was observed.
+The initial findings are exact client-source observations plus a separately fetched
+live official FAQ. No RKP request was sent in that read-only review. No Pixel HAL
+CSR, server-side processing or flag-dependent feedback behavior was observed.
 The earlier offline guest cannot prove any connected privacy property. A cancelled
 worker delivered no substantive review; primary inspected the recorded sources.
 
-This is the first focused item in the broader connected-policy review. Updater/app
-catalog trust, CT/revocation delivery, DNS/time/connectivity, geolocation and actual
-carrier/eSIM paths still need their own scoped checks. The separate
+The later [connected baseline](../plans/2026-09-09-grapheneos-connected-baseline.md#corrected-connected-window)
+used the unmodified provisioning client on APN-corrected producer `a28d170`.
+Captured TLS metadata identified `remoteprovisioning.grapheneos.org`; the real
+client logged successful provisioning of 12 keys for Cuttlefish's software
+implementation. No direct Google connection was observed in that exercised
+window. This is not Pixel hardware-backed attestation, inspection of encrypted
+protocol bodies, backend-server assurance or complete fallback qualification.
+The Widevine worker reported unsupported in that emulator, not successful DRM
+provisioning.
+
+The same baseline separately records time, CT delivery, DNS/connectivity, ordinary
+app checks and host catalog authentication. Native app-update/rollback lifecycle,
+revocation consumers, geolocation and actual carrier/eSIM paths still need their
+own scoped checks. The separate
 [Vanadium DRM/Silvervine assessment](vanadium-drm-and-silvervine.md) distinguishes
 Android's media path from desktop CDM installation and records the owner's
 decision not to integrate Silvervine. No playback result is inferred from retaining
