@@ -215,6 +215,27 @@ a networking/privacy pass.
   the outstanding IME, accessibility, adversarial race, resource-pressure or broader
   lifecycle/hardware gates. Long-lived jobs and the C/C++ compiler remain later work.
 
+## Focus/IME/accessibility follow-up under qualification
+
+The next console-only revision restores typing focus when an eligible attachment
+becomes input-capable. Keys toggles the normal keyboard request; holding it opens
+Android's ordinary input-method picker. It neither writes secure settings nor
+requests extra Android permissions. The Ctrl touch modifier also applies to an
+extra key and is then cleared, rather than unexpectedly affecting the next letter.
+
+A first-party accessibility delegate exposes the actual displayed rows, including
+when accessibility is enabled after view creation. Text is bounded to 8,192 UTF-16
+code units, truncation is explicit and surrogate pairs are kept intact. It is a
+viewport description, not a complete transcript or an editable-file API. The bound
+foreground/unlocked UI check still applies; events carry no cached terminal text
+and are coalesced/cancelled on lifecycle loss. No owner-home file access is added.
+
+Qualification may update the console APK normally on the frozen `9e5f816` base:
+same package/lab signer, higher version, no downgrade or verifier bypass. Record
+image, APK and observer producers separately. A retained-data cold boot must permit
+normal PIN unlock before waiting for Cuttlefish's CE-only boot report. Compiler
+packaging remains a separate step; these changes do not add a native compiler.
+
 ## Post-runtime source accounting
 
 The release/source verifier again authenticated all 1,108 declarations. Its original

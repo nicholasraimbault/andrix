@@ -5,16 +5,24 @@ import android.app.Activity;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
+import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowInsets;
+import android.view.accessibility.AccessibilityEvent;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import com.termux.terminal.KeyHandler;
 import com.termux.terminal.TerminalSession;
+import com.termux.terminal.TerminalViewportText;
 import com.termux.view.TerminalView;
 import com.termux.view.TerminalViewClient;
 
@@ -25,6 +33,13 @@ public final class ConsoleActivity extends Activity implements TerminalControlle
     private TextView state;
     private Button end, controlKey;
     private boolean resumed, focused, control;
+    private final Handler accessibilityEvents = new Handler(Looper.getMainLooper());
+    private boolean accessibilityUpdatePending;
+    private final Runnable accessibilityUpdate = () -> {
+        accessibilityUpdatePending = false;
+        if (terminal != null && controller.canReadScreen(this))
+            terminal.sendAccessibilityEvent(AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED);
+    };
 
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -56,6 +71,25 @@ public final class ConsoleActivity extends Activity implements TerminalControlle
         terminal.setTypeface(Typeface.MONOSPACE);
         terminal.setFilterTouchesWhenObscured(true);
         terminal.setFocusableInTouchMode(true);
+        terminal.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+        terminal.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+            @Override public void onInitializeAccessibilityNodeInfo(View view, AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(view, info);
+                // The delegate reads real current viewport state, including when
+                // accessibility was enabled after the view was constructed.
+                info.setScreenReaderFocusable(true);
+                info.setContentDescription(null);
+                info.setText(controller.canReadScreen(ConsoleActivity.this)
+                        ? viewportText() : "Terminal unavailable while locked or not foreground");
+            }
+            @Override public void onPopulateAccessibilityEvent(View view, AccessibilityEvent event) {
+                super.onPopulateAccessibilityEvent(view, event);
+                // Events only signal that content changed. Screen readers query
+                // the guarded node; no delayed event carries cached terminal text.
+                event.getText().clear();
+                event.setContentDescription(null);
+            }
+        });
         layout.addView(terminal, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
         LinearLayout keys = new LinearLayout(this);
         add(keys, "Esc", () -> key(KeyEvent.KEYCODE_ESCAPE));
@@ -65,7 +99,13 @@ public final class ConsoleActivity extends Activity implements TerminalControlle
         add(keys, "↓", () -> key(KeyEvent.KEYCODE_DPAD_DOWN));
         add(keys, "↑", () -> key(KeyEvent.KEYCODE_DPAD_UP));
         add(keys, "→", () -> key(KeyEvent.KEYCODE_DPAD_RIGHT));
-        add(keys, "Keys", this::keyboard);
+        Button keyboard = add(keys, "Keys", this::keyboard);
+        keyboard.setContentDescription("Show or hide keyboard; hold to choose input method");
+        keyboard.setOnLongClickListener(view -> {
+            if (controller.canReadScreen(this))
+                getSystemService(InputMethodManager.class).showInputMethodPicker();
+            return true;
+        });
         layout.addView(keys);
         setContentView(layout);
         terminal.requestFocus();
@@ -82,37 +122,70 @@ public final class ConsoleActivity extends Activity implements TerminalControlle
         return button;
     }
     private void key(int code) {
-        if (terminal.isEnabled()) terminal.handleKeyCode(code, 0);
+        int modifiers = control ? KeyHandler.KEYMOD_CTRL : 0;
+        control = false; controlKey.setText("Ctrl");
+        if (terminal.isEnabled()) terminal.handleKeyCode(code, modifiers);
     }
     private void keyboard() {
-        terminal.requestFocus();
-        getSystemService(InputMethodManager.class).showSoftInput(terminal, InputMethodManager.SHOW_IMPLICIT);
+        if (!controller.canReadScreen(this)) return;
+        InputMethodManager ime = getSystemService(InputMethodManager.class);
+        WindowInsets insets = terminal.getRootWindowInsets();
+        if (insets != null && insets.isVisible(WindowInsets.Type.ime())) {
+            ime.hideSoftInputFromWindow(terminal.getWindowToken(), 0);
+        } else {
+            terminal.requestFocus();
+            ime.showSoftInput(terminal, InputMethodManager.SHOW_IMPLICIT);
+        }
+    }
+    private String viewportText() {
+        TerminalSession current = terminal.getCurrentSession();
+        return current == null ? "" : TerminalViewportText.capture(current.getEmulator(), terminal.getTopRow());
+    }
+    private void notifyScreenReaders() {
+        if (!accessibilityUpdatePending) {
+            accessibilityUpdatePending = true;
+            accessibilityEvents.postDelayed(accessibilityUpdate, 250);
+        }
+    }
+    private void cancelAccessibilityUpdate() {
+        accessibilityEvents.removeCallbacks(accessibilityUpdate);
+        accessibilityUpdatePending = false;
     }
     @Override public void sessionChanged(TerminalSession next) {
         terminal.attachSession(next);
         terminal.setTerminalCursorBlinkerState(false, false);
     }
-    @Override public void screenChanged() { terminal.onScreenUpdated(); }
+    @Override public void screenChanged() {
+        terminal.onScreenUpdated();
+        notifyScreenReaders();
+    }
     @Override public void stateChanged(String message, boolean attached, boolean inputAllowed) {
         state.setText(message);
+        boolean previouslyEnabled = terminal.isEnabled();
         terminal.setEnabled(inputAllowed);
+        // Disabling the view on detach relinquishes focus. Restore it only when
+        // an eligible attachment becomes input-capable, never while locked/gapped.
+        if (inputAllowed && !previouslyEnabled) terminal.requestFocus();
         end.setEnabled(attached && resumed && focused);
         if (!inputAllowed) { control = false; controlKey.setText("Ctrl"); }
+        notifyScreenReaders();
     }
     @Override protected void onResume() {
         super.onResume(); resumed = true; controller.foreground(this, true, focused);
     }
     @Override protected void onPause() {
         resumed = false; controller.foreground(this, false, focused);
+        cancelAccessibilityUpdate();
         terminal.setTerminalCursorBlinkerState(false, false);
         super.onPause();
     }
     @Override public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus); focused = hasFocus;
         if (controller != null) controller.foreground(this, resumed, hasFocus);
+        if (!hasFocus) cancelAccessibilityUpdate();
     }
     @Override protected void onDestroy() {
-        controller.unbind(this); super.onDestroy();
+        controller.unbind(this); cancelAccessibilityUpdate(); super.onDestroy();
     }
 
     @Override public float onScale(float scale) { return 1; } // fixed, bounded initial cell size

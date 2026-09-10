@@ -42,6 +42,40 @@ public final class TerminalSessionAdapterTest extends TestCase {
             catch(IllegalArgumentException expected) { }
         }
     }
+    public void testViewportFollowsVisibleRowsNotEntireHistory() {
+        Host host = new Host(); TerminalSession s = new TerminalSession(host,10,3,8,16);
+        byte[] bytes = "old0\r\nold1\r\nold2\r\nvisible".getBytes(StandardCharsets.UTF_8);
+        s.applyOutput(bytes,0,bytes.length);
+        assertEquals("old1\nold2\nvisible", TerminalViewportText.capture(s.getEmulator(),0));
+        assertEquals("old0\nold1\nold2", TerminalViewportText.capture(s.getEmulator(),-1));
+        assertEquals(TerminalViewportText.capture(s.getEmulator(),-1),
+                TerminalViewportText.capture(s.getEmulator(),Integer.MIN_VALUE));
+        assertEquals(TerminalViewportText.capture(s.getEmulator(),0),
+                TerminalViewportText.capture(s.getEmulator(),Integer.MAX_VALUE));
+    }
+    public void testViewportUnicodeAndExplicitTruncation() {
+        Host host = new Host(); TerminalSession s = new TerminalSession(host,400,50,8,16);
+        byte[] bytes = ("éλ😃" + "😃".repeat(5000)).getBytes(StandardCharsets.UTF_8);
+        for (int i=0;i<bytes.length;i+=4096) s.applyOutput(bytes,i,Math.min(4096,bytes.length-i));
+        String text = TerminalViewportText.capture(s.getEmulator(),0);
+        assertTrue(text.startsWith("éλ😃"));
+        assertTrue(text.endsWith(TerminalViewportText.TRUNCATED));
+        assertTrue(text.length()<=TerminalViewportText.MAX_CHARS);
+        for (int i=0;i<text.length();i++) {
+            char c=text.charAt(i);
+            if(Character.isHighSurrogate(c)) {
+                assertTrue(i+1<text.length() && Character.isLowSurrogate(text.charAt(++i)));
+            } else assertFalse(Character.isLowSurrogate(c));
+        }
+    }
+    public void testViewportBlankAndInvalidDimensions() {
+        Host host = new Host(); TerminalSession s = new TerminalSession(host,10,2,8,16);
+        assertEquals("\n",TerminalViewportText.capture(s.getEmulator(),0));
+        assertEquals("",TerminalViewportText.capture(null,0));
+        s.getEmulator().mRows = 201;
+        try { TerminalViewportText.capture(s.getEmulator(),0); fail("Unbounded viewport"); }
+        catch(IllegalArgumentException expected) { }
+    }
     public void testInputQueueHasAtomicBudgetAndClosesBlockedWriter() throws Exception {
         InputQueue q = new InputQueue(); byte[] data = new byte[InputQueue.CAPACITY];
         assertTrue(q.offer(data,0,data.length));
