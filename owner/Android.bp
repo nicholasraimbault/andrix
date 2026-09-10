@@ -32,7 +32,7 @@ cc_binary {
 cc_binary {
     name: "andrix-session-runner",
     defaults: ["andrix_owner_defaults"],
-    srcs: ["native/runner.cpp"],
+    srcs: ["native/runner.cpp", "native/worker_filter.cpp"],
 }
 
 android_app {

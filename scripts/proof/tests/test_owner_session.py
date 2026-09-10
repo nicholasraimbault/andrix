@@ -98,6 +98,53 @@ class OwnerSessionTests(unittest.TestCase):
         self.assertIn('NEGATIVES_OBSERVED_REQUIRE_POSITIVE_CONTROL', source)
         self.assertNotIn('adoptShellPermissionIdentity', source)
 
+    def test_actual_pump_methods_with_host_pty_and_revocable_streams(self):
+        source = (ROOT/'owner/native/andrixd.cpp').read_text()
+        start = source.index('  void revoke_locked() {')
+        revoke = source[start:source.index('  bool start_shell_locked(', start)]
+        start = source.index('  void transfer_locked() {')
+        pump = source[start:source.index('  std::mutex mutex_;', start)]
+        self.assertEqual(revoke.count('void revoke_locked'), 1)
+        self.assertEqual(pump.count('void transfer_locked'), 1)
+        harness = (ROOT/'owner/tests/transport_harness.cpp.in').read_text()
+        self.assertEqual(harness.count('// PRODUCTION_METHODS'), 1)
+        compiler = shutil.which('g++')
+        self.assertIsNotNone(compiler)
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            cpp = work/'pump.cpp'
+            cpp.write_text(harness.replace('// PRODUCTION_METHODS', revoke + pump))
+            binary = work/'pump'
+            compiled = subprocess.run([compiler, '-std=c++20', '-Wall', '-Wextra', '-Werror',
+                                       '-O2', '-I'+str(ROOT/'owner/native'),
+                                       str(ROOT/'owner/native/session_core.cpp'), str(cpp), '-o', str(binary)],
+                                      capture_output=True, text=True, timeout=60)
+            self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
+            ran = subprocess.run([str(binary)], capture_output=True, text=True, timeout=20)
+            self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+            self.assertIn('Android unqualified', ran.stdout)
+
+    def test_worker_filter_real_host_syscalls_and_exec_inheritance(self):
+        compiler = shutil.which('g++')
+        self.assertIsNotNone(compiler)
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = Path(tmp)/'filter-test'
+            compiled = subprocess.run([compiler, '-std=c++20', '-Wall', '-Wextra', '-Werror',
+                                       '-O2', '-I'+str(ROOT/'owner/native'),
+                                       str(ROOT/'owner/native/worker_filter.cpp'),
+                                       str(ROOT/'owner/tests/worker_filter_test.cpp'), '-o', str(binary)],
+                                      capture_output=True, text=True, timeout=60)
+            self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
+            ran = subprocess.run([str(binary)], capture_output=True, text=True, timeout=20)
+            self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+            self.assertIn('Android unqualified', ran.stdout)
+        policy = (ROOT/'owner/sepolicy/andrix_owner.te').read_text()
+        self.assertIn('app_domain(andrix_owner)', policy)
+        self.assertNotIn('untrusted_app_domain(andrix_owner)', policy)
+        runner = (ROOT/'owner/native/runner.cpp').read_text()
+        self.assertLess(runner.index('install_worker_filter()'), runner.index('execve('))
+        self.assertNotIn('install_worker_filter', (ROOT/'owner/native/andrixd.cpp').read_text())
+
     def test_native_core_and_host_guard_negatives(self):
         compiler = shutil.which('g++')
         self.assertIsNotNone(compiler, 'a host C++ compiler is required')

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "guards.h"
 #include "session_core.h"
+#include "worker_filter.h"
 
 #include <fcntl.h>
 #include <sys/ioctl.h>
@@ -33,9 +34,9 @@ int main(int argc, char**) {
   if (setpriority(PRIO_PROCESS, 0, 10) != 0) fail("background priority");
   auto bounds = andrix::check_resource_bounds(coordinator);
   if (!bounds.empty()) fail(bounds);
-  // The fixed, image-owned runner is the only transition into this domain. Once
-  // here, owner commands cannot gain privilege via set-id/file-cap executables.
-  if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) fail("no_new_privs unavailable");
+  // Before any owner code: no set-id/file-cap privilege gain, direct Binder
+  // transactions or io_uring. Keep this restriction local to the owner worker.
+  if (!andrix::install_worker_filter()) fail("worker syscall restriction unavailable");
   if (setsid() < 0 || ioctl(STDIN_FILENO, TIOCSCTTY, 0) != 0 ||
       tcsetpgrp(STDIN_FILENO, getpgrp()) != 0) fail("controlling PTY setup");
   std::string error;
