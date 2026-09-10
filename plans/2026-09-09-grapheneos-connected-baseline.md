@@ -10,8 +10,8 @@ lease. No new public service, production key, vendor terms or handset action is
 approved here. Silvervine is out of scope.
 
 This is a **diagnostic baseline**, not a promise that every reachable feature
-already satisfies release policy. A known WebView recovery path remains open
-below. No Google-IP denylist, DNS blackhole, fake successful client or disabled
+already satisfies release policy. A WebView recovery source finding needs
+trigger/reachability qualification below. No Google-IP denylist, DNS blackhole, fake successful client or disabled
 security consumer may manufacture a quiet capture. Unexpected traffic and failures
 remain evidence, not results to discard.
 
@@ -67,21 +67,28 @@ that inventory.
   apps, not an Andrix OS/APEX updater. Google-app installation is not exercised or
   required. No signer, package identity or catalog trust is impersonated.
 
-## Known recovery-path gap
+## Recovery-path source finding — operational reachability unqualified
 
 The exact Chromium 151 source contains a SafeMode action which calls
 `AwVariationsSeedFetcher.scheduleIfNeeded(true)`. Vanadium 151's normal initialization
 buildflag guards do not cover that scheduler or `onStartJob`; the frozen WebView
 DEX retains the scheduler and Google variations URLs. This is more than a bare
-URL-string observation, but is **not an observed network request**.
+URL-string observation, but is **not an observed scheduling event or network request**.
+The trigger conditions and surrounding gates under the retained upstream
+configuration still need verification before this is treated as an operational
+policy defect.
 
 The earlier Andrix 152 derivative has explicit scheduler/start-job guards. None
-of that derivative is present in this image. A narrow, attributable source fix and
-appropriate rebuild/requalification are needed before a broad release-policy
-claim. Do not activate the known path against Google merely to get a negative
-packet trace, pretend startup disable covers it, or swap APKs without provenance.
-The first connected window exercises ordinary boot/setup/browsing, not this
-recovery path. A successful window cannot close the known gap.
+of that derivative is present in this image. The separate exact-151 context trial
+shows that a narrow change is mechanically possible, not that a downstream change
+is necessary. No direct Google variations download was observed in the connected
+window. Retain upstream Vanadium while checking the finding; there is no adopted
+browser fork or preselected fix. Do not activate a suspected path against Google
+merely to obtain a negative trace, hide traffic or swap APKs without provenance.
+The ordinary window cannot establish that every recovery path is unreachable,
+just as source inspection alone cannot establish that the suspected fetch occurs.
+This clarification changes the interpretation and work priority, not the sealed
+source or runtime observations.
 
 ## Fixture and measurements
 
@@ -222,7 +229,7 @@ claim that every component installed, or that all initial requests used TLS.
 **No automatic direct Google connection was observed in the exercised window.**
 There was real guest Internet, not a denylist/blackhole or an offline-silence pass.
 Provider-side Google processing remains allowed and is not excluded by this result.
-The known WebView recovery route, browser-rendering failure, native Apps lifecycle,
+The WebView recovery source finding, emulator browser-rendering failure, native Apps lifecycle,
 other settings/carrier consumers and Pixel/hardware paths remain open. Accordingly
 this is **not a complete release-policy qualification**.
 

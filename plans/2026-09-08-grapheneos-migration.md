@@ -190,8 +190,8 @@ Remaining integration gates:
   after combined-source review; omit already-superseded QSB/Wallpaper/Contacts
   changes and rebase endpoint/product behavior deliberately.
 - Preserve the now-observed `/usr` activation and ordinary-app negative as
-  regressions on subsequent images. Do not start general owner packages, glibc or
-  a GUI platform during baseline migration.
+  regressions on subsequent images. The next owner work is the bounded M4 spike,
+  not a general package distribution, glibc or a new GUI platform.
 - Reconcile Vanadium source/artifacts, package identities, configuration trust and
   updates. Do not layer duplicate providers or substitute an unchecked APK.
 
@@ -224,10 +224,14 @@ ordinary WebView consent/JS/TLS, HTTPS time, exact CT delivery and normal reboot
 with real validated Internet. RKP logged 12 keys for the software implementation;
 no Pixel hardware assurance follows. Its 111,280-packet capture had zero reported
 drops/truncation and no observed automatic direct Google connection in those
-exercised paths. **M3 remains open:** the WebView recovery-to-Google route is not
-fixed, full browser page rendering stayed blank, Safe Browsing initialized false,
-and broader app-update/carrier/native qualification remains. Both windows and
-failures are retained; all owned runtime services stopped.
+exercised paths. **Release qualification remains open:** the WebView recovery
+source path needs actual trigger/reachability review, the tested browser viewport
+stayed blank in our emulator, the WebView Safe Browsing API initialized false,
+and broader app-update/carrier/native qualification remains. No direct Google
+variations download was observed; the source finding does not by itself establish
+an operational upstream defect. Both windows and failures are retained; all owned
+runtime services stopped. These limits remain tracked while the bounded functional
+baseline supports preparation of M4; they are not a mandate to redesign upstream.
 
 A specific phone flash requires a signed/recoverable caiman image, current handset
 firmware/rollback constraints, backups and explicit approval. The owner's locked
@@ -236,11 +240,25 @@ confer official GrapheneOS security/attestation status on Andrix.
 
 ## M4 — first bounded owner-environment spike
 
-After the minimal base is qualified, prepare the smallest useful owner workflow:
-stable bounded identity, CE home, terminal/PTYS, native compilation/execution and
+The owner reaffirmed that GrapheneOS supplies the maintained foundation and Andrix
+adds the owner-controlled computing environment. Preserve its hardening, phone
+services, upstream apps and trust relationships where they meet the accepted
+requirements. Changes need a demonstrated owner requirement or integration need;
+an unexercised code path or an emulator-only failure is not by itself a reason to
+fork or replace a maintained component. The direct-Google policy still applies.
+
+With the bounded core/connected baseline now observed, prepare the smallest useful
+owner workflow: **unlock → terminal → edit → compile/run → leave → return later**.
+Use stable bounded identity, CE home, terminal/PTYs, native ARM64/Bionic tools and
 same-owner child debugging. Preserve ordinary-app negative controls, phone-critical
 resource policy and explicit Android crossings. Reject a design requiring broad
 ordinary-app hardening disable or an unbounded privileged terminal.
+
+Keep the emulator usability investigation focused on reproducing and locating our
+integration failure. The WebView source concern requires trigger verification,
+not a preselected downstream fix. No browser fork, general ABI/GUI detour or phone
+deployment is adopted by this prioritization; full release/hardware gates remain
+separate from the owner-workflow prototype.
 
 Exit criterion: maintained Pixel source inputs and a small, reviewable Andrix
 layer suitable for owner computing. Real software migration, future ABI/window

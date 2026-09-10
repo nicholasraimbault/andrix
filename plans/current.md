@@ -1,18 +1,37 @@
 # Current work
 
 **Active milestone:** [GrapheneOS-derived base — isolated migration trial](2026-09-08-grapheneos-migration.md).
-**Current action:** assess the [connected baseline results](2026-09-09-grapheneos-connected-baseline.md)
-and address the remaining Vanadium recovery/rendering gates. Producer `a28d170`
-restores the sample APN input omitted by GrapheneOS's generic base, only for
-Cuttlefish. The corrected diagnostic established real Internet after normal setup;
+**Current action:** use the [bounded connected baseline](2026-09-09-grapheneos-connected-baseline.md)
+to prepare the [first owner-environment spike](2026-09-08-grapheneos-migration.md#m4--first-bounded-owner-environment-spike),
+with a focused check of emulator usability. The owner reaffirmed the purpose of
+adopting GrapheneOS: reuse its maintained Android, phone and security foundation,
+not reimplement that work. Keep upstream components intact where they satisfy
+Andrix's requirements; concentrate the small downstream layer on owner computing.
+There is no adopted Vanadium fork or redesign in this follow-up.
+
+The immediate goal remains **unlock → terminal → edit → compile/run → leave →
+return later**: bounded owner identity, credential-encrypted home, PTY and native
+ARM64/Bionic tools. Diagnose the blank browser viewport as a finding in our custom
+emulator integration, without presuming an upstream defect. Verify the actual
+trigger conditions of the WebView recovery source finding before proposing a
+change. These are targeted checks, not an open-ended browser replacement project;
+remaining release/hardware qualification must not be confused with preparing the
+bounded owner-workflow prototype.
+
+Producer `a28d170` restores the sample APN input omitted by GrapheneOS's generic
+base, only for Cuttlefish. The corrected diagnostic established real Internet after normal setup;
 core/P5, ordinary WebView consent/JS/TLS, HTTPS time, CT delivery and normal reboot
 passed. The real RKP client reported 12 provisioned keys for Cuttlefish's software
 implementation—not Pixel hardware proof. All owned runtime services stopped.
 
 The 111,280-packet capture had zero reported drops/truncation and no observed
 automatic direct Google connection in the exercised paths. **Not a complete privacy
-or release pass:** the known WebView recovery-to-Google route remains, full Vanadium
-page rendering stayed blank, and Safe Browsing initialized false. The original
+or release pass:** conditional WebView recovery networking remains under review,
+Vanadium's tested page stayed blank in the emulator, and the WebView Safe Browsing
+API initialized false. The source finding is not an observed Google download or
+a demonstrated operational defect; the blank viewport is not a finding about
+GrapheneOS on supported Pixels. Neither observation has been declared resolved.
+The original
 no-network window and other failures are retained. Upstream Apps catalog trust is
 host-verified and remains separate from the absent OS updater; its native update
 lifecycle and Andrix production OTA infrastructure remain unqualified.

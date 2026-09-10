@@ -15,9 +15,12 @@ rendering/navigation on an emulator-profile correction. These remain emulated
 functional results: the test kernel lacks some GrapheneOS hardening. A later
 [connected diagnostic](plans/2026-09-09-grapheneos-connected-baseline.md) corrected
 the missing emulator APN input and passed core/P5, ordinary WebView TLS, time/CT
-and reboot checks with real Internet. The browser's tested page stayed blank;
-a known WebView recovery endpoint remains outside policy. Complete network-policy,
-native and Pixel qualification remain open.
+and reboot checks with real Internet. The browser's tested page stayed blank in
+our custom emulator, and conditional WebView networking needs reachability review;
+neither is a demonstrated defect in GrapheneOS on supported Pixels. The next goal
+is the bounded owner terminal/edit/compile workflow on that foundation, not an
+upstream browser redesign. Complete network-policy, native and Pixel qualification
+remain open.
 
 The preserved earlier baseline proves a tiny `andrix-hello` executable in a signed
 APEX exposed through read-only `/usr` on an ARM64-only direct-AOSP-17 Cuttlefish
