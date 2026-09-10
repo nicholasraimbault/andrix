@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<policy>
+    <signer signature="@ANDRIX_OWNER_CONSOLE">
+        <package name="dev.andrix.terminal">
+            <seinfo value="andrix_terminal" />
+        </package>
+    </signer>
+</policy>

@@ -1,0 +1,3 @@
+# SPDX-License-Identifier: Apache-2.0
+sys.andrix.owner.pid    u:object_r:andrix_owner_pid_prop:s0 exact uint
+sys.andrix.owner.apply  u:object_r:andrix_owner_pid_prop:s0 exact bool
