@@ -19,8 +19,9 @@ regressions; ordinary APKs do not acquire owner execution authority.
   the UI. The initial scope is Android user 0 only.
 - A small init-managed `andrixd` is the coordinator. A distinct owner execution
   SELinux domain runs its child shell under the same bounded Unix owner UID, using
-  the existing app-workload policy class rather than changing trusted-daemon
-  neverallows. Before owner code, a worker-only inherited syscall restriction
+  the existing app-workload policy class. A digest-guarded, opt-in private policy
+  bridge declares only these new types and permits only the new coordinator →
+  owner transition; existing domains retain their restrictions. Before owner code, a worker-only inherited syscall restriction
   rejects Binder ioctls/io_uring and sets no_new_privs; the reserved Unix UID must
   not become ambient Android service authority. This is not an APK identity or a
   relaxation of ordinary-app policy. The coordinator's executable, control state
@@ -86,11 +87,17 @@ The first builds retained new-layer failures: a generated shared AIDL library
 would have landed in the generic system partition (changed to static linkage),
 an undefined local policy macro, and policy assertions rejecting daemon-class
 execution of writable home code and unallowlisted socket ioctls. The owner worker
-now uses Android's existing app-workload policy class, with local Binder syscall
+uses Android's existing app-workload policy class, with local Binder syscall
 restriction instead of attempting to subtract upstream generic grants. Socket
-ioctls use the existing narrow Unix-socket allowlist. No upstream policy assertion,
-framework code or Vanadium component is disabled or patched to pass these checks.
-These changes still require fresh compilation/runtime qualification.
+ioctls use the existing narrow Unix-socket allowlist. The next compilation exposed
+Android's launcher assertion: a new non-zygote launcher cannot create that workload
+without explicit integration. The [one-file private-policy bridge](../patches/grapheneos-2026081300/README.md)
+therefore adds an opt-in exception for the **new Andrix owner target only**, with
+a further assertion allowing only `andrixd` to create it. No existing process is
+exempted or granted new permissions. This revises the initial assumption that
+system_ext rules alone would suffice; it is not a defect in GrapheneOS. No
+framework/browser code or global policy check is disabled. Fresh policy
+compilation and runtime qualification remain necessary.
 
 ## Checks
 
@@ -99,7 +106,8 @@ These changes still require fresh compilation/runtime qualification.
    CE/bounds, descriptor lifetime and child setup/reaping failures.
 2. Build native service/runner/console and compile the exact SELinux/product inputs.
    Inspect generated identities, permissions, signer mapping and packaged artifacts.
-   No old platform patch series or Vanadium substitution.
+   Record the one conditional private-policy bridge separately from the unchanged
+   manifest HEAD; no old platform patch series or Vanadium substitution.
 3. Frozen-image emulator proof through normal UI: actual first unlock, native UID/
    domain/capability and resource observations, persistent home, shell/PTY, detach/
    return and relock rejection. Observe CE separately from keyguard. No forged

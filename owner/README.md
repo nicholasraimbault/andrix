@@ -7,6 +7,9 @@ See the [milestone](../plans/2026-09-10-owner-session.md) for scope and qualific
 **Development opt-in:** `ANDRIX_OWNER_SESSION=true` with the existing
 `andrix_gos_cf_arm64_only_phone-cur-userdebug` product. The baseline without that
 flag does not install the owner service/console or include their UID/policy inputs.
+Apply and check the [single private-policy bridge](../patches/grapheneos-2026081300/README.md)
+before an opt-in build. It defines only the new Andrix transition boundary, guarded
+off for other products; no public policy API or existing-domain permission change.
 This is not a production interface or a qualified phone installation.
 
 ## Components
@@ -16,7 +19,8 @@ This is not a production interface or a qualified phone installation.
   admission checks. Init owns the aggregate memory limit and complete cgroup cleanup.
 - `andrix-session-runner`: fixed image-owned entry into the separate native owner
   domain, same Unix UID. Android's existing `appdomain` workload policy class
-  permits this owner code without relaxing trusted-daemon or ordinary-APK rules;
+  permits this owner code, with the explicit new-target launcher bridge rather
+  than a change to existing trusted-daemon or ordinary-APK permissions;
   that attribute does not make the process an installed APK. Checks inherited
   bounds/home and installs an additional worker-only seccomp filter before exec:
   `no_new_privs`, no Binder ioctl family or io_uring. This prevents the reserved

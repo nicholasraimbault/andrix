@@ -21,7 +21,8 @@ class OwnerSessionTests(unittest.TestCase):
             makefile = work/'Makefile'
             makefile.write_text('include '+str(ROOT/'board/andrix_cf_arm64_only/BoardConfig.mk')+
                                 '\nall:\n\t@echo $(TARGET_FS_CONFIG_GEN)\n'
-                                '\t@echo $(SYSTEM_EXT_PRIVATE_SEPOLICY_DIRS)\n')
+                                '\t@echo $(SYSTEM_EXT_PRIVATE_SEPOLICY_DIRS)\n'
+                                '\t@echo $(BOARD_SEPOLICY_M4DEFS)\n')
             for product in ['andrix_gos_cf_arm64_only_phone', 'andrix_cf_arm64_only_phone', 'other']:
                 for opt in ['', 'false', 'true']:
                     result = subprocess.run(['make', '--no-print-directory', '-f', str(makefile),
@@ -32,6 +33,7 @@ class OwnerSessionTests(unittest.TestCase):
                     self.assertIn('upstream-marker', result.stdout)
                     self.assertEqual('vendor/andrix/owner/config.fs' in result.stdout, expected)
                     self.assertEqual('vendor/andrix/owner/sepolicy' in result.stdout, expected)
+                    self.assertEqual('andrix_owner_session=true' in result.stdout, expected)
             makefile.write_text('include '+str(ROOT/'products/andrix_gos_cf_arm64_only_phone.mk')+
                                 '\nall:\n\t@echo $(PRODUCT_PACKAGES)\n')
             for opt in ['', 'false', 'true']:
@@ -139,8 +141,10 @@ class OwnerSessionTests(unittest.TestCase):
             self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
             self.assertIn('Android unqualified', ran.stdout)
         policy = (ROOT/'owner/sepolicy/andrix_owner.te').read_text()
-        self.assertIn('app_domain(andrix_owner)', policy)
-        self.assertNotIn('untrusted_app_domain(andrix_owner)', policy)
+        bridge = (ROOT/'scripts/proof/owner_policy.py').read_text()
+        self.assertIn('app_domain(andrix_owner)', bridge)
+        self.assertNotIn('untrusted_app_domain(andrix_owner)', bridge + policy)
+        self.assertNotIn('type andrix_owner, domain', policy)
         runner = (ROOT/'owner/native/runner.cpp').read_text()
         self.assertLess(runner.index('install_worker_filter()'), runner.index('execve('))
         self.assertNotIn('install_worker_filter', (ROOT/'owner/native/andrixd.cpp').read_text())
