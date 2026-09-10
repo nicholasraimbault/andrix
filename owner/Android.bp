@@ -24,7 +24,8 @@ cc_binary {
     name: "andrixd",
     defaults: ["andrix_owner_defaults"],
     srcs: ["native/andrixd.cpp"],
-    shared_libs: ["andrix_session-ndk", "libbase", "libbinder_ndk", "liblog", "libselinux"],
+    static_libs: ["andrix_session-ndk"],
+    shared_libs: ["libbase", "libbinder_ndk", "liblog", "libselinux"],
     init_rc: ["andrixd.rc"],
 }
 
