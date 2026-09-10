@@ -179,6 +179,21 @@ class OwnerSessionTests(unittest.TestCase):
         self.assertNotIn('getIntent().get', activity + controller)
         self.assertNotIn('shutdownNow()', activity)
 
+    def test_terminal_ui_focus_and_accessibility_keep_foreground_guards(self):
+        activity = (ROOT/'owner/terminal/src/dev/andrix/terminal/ConsoleActivity.java').read_text()
+        controller = (ROOT/'owner/terminal/src/dev/andrix/terminal/TerminalController.java').read_text()
+        self.assertIn('if (inputAllowed && !previouslyEnabled) terminal.requestFocus()', activity)
+        self.assertIn('showInputMethodPicker()', activity)
+        self.assertIn('InputMethodManager.SHOW_IMPLICIT', activity)
+        self.assertNotIn('SHOW_FORCED', activity)
+        self.assertNotIn('Settings.Secure.put', activity)
+        self.assertIn('controller.canReadScreen(ConsoleActivity.this)', activity)
+        self.assertIn('return listener == target && eligible()', controller)
+        self.assertIn('TerminalViewportText.capture', activity)
+        self.assertIn('event.getText().clear()', activity)
+        self.assertIn('cancelAccessibilityUpdate()', activity)
+        self.assertNotIn('announceForAccessibility', activity)
+
     def test_native_core_and_host_guard_negatives(self):
         compiler = shutil.which('g++')
         self.assertIsNotNone(compiler, 'a host C++ compiler is required')
