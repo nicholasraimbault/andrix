@@ -62,8 +62,9 @@ removal must be tested separately; no multi-user support is claimed.
   64 MiB per file. The file limit is **not a total storage quota**. Background
   scheduling, nice floor10 and OOM adjustment700 keep work below phone-critical
   services; actual behavior and native-device suitability still need qualification.
-- One shell/session in this first prototype; output tail128 KiB with dropped-byte
-  accounting. Console UI buffers are also bounded. Neither is a complete transcript.
+- One shell/session in this prototype; the 128 KiB output journal retains bytes
+  until parser acknowledgement and exposes gaps after overflow. Input/UI queues
+  are bounded as well. This is not an unlimited or durable transcript.
 - Detach/lease expiry revokes UI input and keeps the shell/limited output tail.
   Explicit End, shell exit, controller/coordinator death or a reported Android
   `UserManager.isUserUnlocked() == false` state ends the session (not screen relock): Android
@@ -95,7 +96,13 @@ relock revocation, whole-group cleanup and file persistence across reboot/cold
 restart. The full host suite passed 274 tests. Failure/timeout windows are retained;
 see the [milestone](../plans/2026-09-10-owner-session.md) for precise results.
 
-This is still a line-oriented prototype, not a full terminal/editor/compiler.
+The subsequent `9e5f816` candidate demonstrated a native VT view and `vi` edit/save/
+script execution, including return to an unsaved editor buffer, relock, explicit
+output-gap recovery and persistence through reboot. Its input trial used Android
+keyboard events and visible touch controls. Post-Attach focus, full software-IME
+input and accessibility text exposure remain rough/unqualified; there is no native
+C/C++ compiler yet.
+
 Resource-exhaustion tests, all adversarial descriptor/race cases on Android,
 user-stop/key eviction, long-lived services and native phone qualification remain
 open. Neither offline execution nor these lifecycle checks qualify networking
@@ -109,5 +116,6 @@ console process; process death still ends native jobs. A detected output gap blo
 input and requires an explicit End/new session, rather than silently inventing a
 screen or injecting a redraw command. The parser cannot access Android clipboard
 through escape sequences; explicit user selection actions use a separate callback.
-This integration is under build/runtime qualification: host tests are not a new
-Android View/IME/`vi` PASS.
+The first bounded Android VT/`vi` window is recorded in that milestone. It does not
+turn the host checks into full View/IME, accessibility or terminal compatibility
+qualification.

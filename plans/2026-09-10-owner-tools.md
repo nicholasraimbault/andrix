@@ -1,5 +1,10 @@
 # Usable owner terminal and programming tools
 
+**Status:** native VT/editor/script workflow demonstrated in the opt-in emulator
+with producer `9e5f816`. Keyboard-event input and touch control buttons work;
+post-Attach focus ergonomics and full software-IME input remain open. This is not
+yet on-device C/C++ compilation or complete terminal/phone qualification.
+
 ## Goal and scope
 
 Continue from the [demonstrated owner session](2026-09-10-owner-session.md) toward
@@ -133,12 +138,99 @@ adapter and the native Android view/control keys. The parser's automatic clipboa
 callbacks are separate from explicit user selection actions. In-flight Attach is
 cancelled by UI lifecycle/detach epochs; input and worker queues are bounded.
 
-**This integration is under build/runtime qualification.** Its portable tests use
-the actual pump, session adapter and terminal parser, but do not qualify Android
-View/IME, Binder or `vi`. The existing frozen M4 producer remains unchanged until
-a new candidate is built and frozen. No on-device compiler is delivered here.
+The following candidate supplies the first real terminal/editor observations.
+Portable tests remain distinct from Android View/IME and Binder behavior. No
+on-device compiler is delivered here.
+
+## Native terminal/editor window
+
+Source `9e5f816` built the native service/runner, AIDL, terminal libraries and APK
+in **757.876 seconds**. The complete image/host-package build then passed in
+**188.827 seconds**. All 27 images and both host packages were frozen/rehashed;
+actual image inspection retained the same APEX, shell, upstream Apps and Vanadium
+bytes and the exact existing owner-policy bridge. The console is version 2,
+`0.2-terminal`, signed by the same non-platform lab key, with no APK-declared
+permissions or packaged JNI. R8's API37 warning and host memory-stall diagnostics
+remain recorded, not suppressed.
+
+The fresh offline emulator passed core checks and normal setup with a disposable
+PIN. It then demonstrated:
+
+- The native Android terminal rendered a shell in `andrix_owner`, UID/GID 7500,
+  with all five capability masks zero, `NoNewPrivs=1`, `Seccomp=2`, and the actual
+  256 MiB/swap0/group-OOM bounds. `TERM=xterm-256color`, `stty size` returned 26×42,
+  and `/usr/bin/andrix-hello` ran.
+- `vi hello.sh` entered its full-screen buffer. Normal Android keyboard events
+  inserted a script and a visible Esc button left insert mode. The **unsaved**
+  editor buffer survived Detach → Home → return; both shell PID 5097 and editor
+  PID 5407 remained the same. Saving/exiting restored the shell screen.
+- The saved 36-byte script printed `ANDRIX_VI_OK` when executed as owner code.
+  Trusted native `sha256sum` output matched
+  `ba8fd63e37ba190666b437e6a74e3e80f948269f35dde05457562741340a8264`.
+  Readback was observed on the actual terminal display, not by giving the host
+  observer or console APK direct access to the private home.
+- The same-signer/different-package ordinary negative could not obtain the service
+  or open the home; the terminal executed/read the script before and after it.
+  P5 retained the ordinary-app private-execution denial. Both probes were removed.
+- Screen relock detached the UI while Android remained `RUNNING_UNLOCKED` and the
+  same native shell survived. Normal PIN unlock, Attach and terminal focus restored
+  execution of the saved script. A proposed variable control was not established
+  because that earlier input never reached the unfocused view; no variable-persistence
+  claim is based on it.
+- A deliberate 200,000-byte detached-output burst exceeded the journal window.
+  Reattachment showed an explicit gap and blocked input. An attempted command did
+  not create its target file. End/new Attach restored a fresh session and the saved
+  script still ran. No silent screen reset or injected redraw command was used.
+- Normal ActivityManager force-stop of only the console APK removed its native
+  coordinator, shell and a measured descendant in a separate Unix session. A new
+  idle coordinator appeared. No native/root kill workaround was used.
+- A normal reboot changed boot ID and passed core checks again. Before the first
+  PIN unlock, Android was `RUNNING_LOCKED`, with no owner process or CE-prepared
+  flag. Normal unlock started the owner service; the edited script then ran again
+  with the same hash. Explicit End and controller/runner/stop/capture cleanup all
+  returned 0.
+
+The closed window is sealed across **5,157 regular files** and contains 155,397
+offline packets with zero reported drops and zero truncated records. This is not
+a networking/privacy pass.
+
+### Remaining terminal boundaries
+
+- Input was supplied through normal Android keyboard events from shell UID2000,
+  plus visible touch controls. A tap in the terminal was required after Attach to
+  restore typing focus; unfocused input attempts are retained, not counted as
+  executed commands. Fix that ergonomics issue before calling the interface polished.
+- Full software-keyboard presentation and touch typing remain unqualified in this
+  QEMU Virtio Keyboard fixture. The physical-keyboard settings UI was inspected;
+  no settings, input-device, security or sensor state was forged to force a pass.
+- SGR31 and UTF-8 `éλ` rendered correctly in Android's screenshot. The QMP capture
+  showed the red sample as blue; both originals are retained as a fixture color-path
+  discrepancy. No terminal palette or upstream rendering/security change was made
+  to compensate for the observer path.
+- The view's accessibility dump did not expose the terminal text in this run.
+  Screen captures and native process observations remain the evidence; there is
+  no claim of a complete machine-readable transcript or full accessibility support.
+- The final host suite passed 278 tests in 126.892s; the engine/adapter suite passed 151
+  tests (145 upstream, three replay, three adapter/input-queue). These do not replace
+  the outstanding IME, accessibility, adversarial race, resource-pressure or broader
+  lifecycle/hardware gates. Long-lived jobs and the C/C++ compiler remain later work.
+
+## Post-runtime source accounting
+
+The release/source verifier again authenticated all 1,108 declarations. Its original
+result remains FAIL for the intended private SELinux adaptation and a 120-second
+`build/release` timeout. An unchanged same-contract retry passed that project in
+6.023 seconds; the guarded policy receipt matched the exact existing bridge. The
+assessed result is 1,107 unchanged projects plus one exact adaptation, not a claim
+that all tracked source is pristine. No untracked/materialization or phone-security
+assurance follows from this check.
 
 ## Checks and evidence
+
+The terminal-integration set selected by `out/owner-terminal/EVIDENCE` is sealed
+across **8,729 regular files**, with symlinks excluded and the 5,157-file runtime
+sub-seal reverified. Raw APKs, captures, credentials and logs remain outside public
+Git. All owned guests and captures are stopped.
 
 - Portable tests for framed transport, partial writes/reads, replay/ack ordering,
   stale generations, bounded queues, loss notification and daemon death.
@@ -162,5 +254,7 @@ I16 was cancelled before completing its read-only assessment. A delayed initial
 note corroborated the enabled device `vi` and legacy LLVM/Clang source versions;
 primary inspection verified those details. It did not assess the modern OpenCL
 LLVM tree found by the primary. This is partial static corroboration, not a
-completed independent review or a build/runtime result. Portable implementation
-checks are reported above; no new Android runtime PASS is claimed.
+completed independent review or a build/runtime result. The later I17 integration
+review was also cancelled before substantive findings; no independent-review PASS
+is claimed. Primary source inspection, compiled artifacts and the bounded runtime
+observations above remain distinct forms of evidence.

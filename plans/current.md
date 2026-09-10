@@ -1,22 +1,27 @@
 # Current work
 
 **Active milestone:** [GrapheneOS-derived base — isolated migration trial](2026-09-08-grapheneos-migration.md).
-**Current action:** integrate the [usable terminal/editor/toolchain slice](2026-09-10-owner-tools.md)
-on the [demonstrated bounded owner session](2026-09-10-owner-session.md), leaving
-Vanadium unchanged. Pinned reusable terminal libraries and a bounded output journal/
-replay core pass portable checks: 278 repository host tests and 148 terminal-engine
-tests at preparation. The Android console/daemon integration is now implemented
-and **under build/runtime qualification**, not yet a new runtime PASS. The next gate
-is the new candidate and a real `vi` edit/save exercise. The base already supplies
-`vi`; a separately pinned modern LLVM source tree is available for compiler work.
-Frozen producer `e02bd6a` now runs a native UID7500 owner shell through the Android
-console, with a primary-user CE home and ordinary-app isolation. File creation,
-private owner-code execution, detach/return, screen-relock revocation, whole-cgroup
-cleanup and persistence across reboot/cold restart were observed. This remains a
-line-oriented prototype; jobs do not outlive console-process reclamation, and
-resource stress, full VT/editor/compiler delivery and broader lifecycle tests are
-still open. Earlier failures and a timed-out window remain recorded as failures.
-All owned emulator/capture processes are stopped.
+**Current action:** finish focus, software-keyboard and accessibility qualification
+for the [native terminal/editor slice](2026-09-10-owner-tools.md), then deliver the
+on-device compiler. Vanadium remains unchanged.
+
+Frozen producer `9e5f816` now runs a native Android VT view over the bounded owner
+session. In the emulator, `vi` created and saved a script, its unsaved buffer
+survived leaving/returning, and the script executed as native UID7500 and persisted
+through reboot. Ordinary-app negatives/P5, relock revocation, explicit output-gap
+handling, controller-death cleanup and core regressions passed. The 278 host checks
+and 151 terminal parser/adapter tests remain separate from those observations.
+
+This was keyboard-event input plus visible touch control buttons—not full software-
+IME qualification. Attach required a tap to restore terminal focus, and accessibility
+text exposure needs work. No C/C++ compiler is installed yet; modern LLVM source is
+available but still needs native build/packaging/resource qualification. Jobs still
+do not outlive console-process reclamation. Broader resource stress, user-stop/key
+loss, hardware and release/privacy gates remain open.
+
+The [earlier owner foundation](2026-09-10-owner-session.md), its frozen `e02bd6a`
+producer and all retained failures/timeouts remain intact. All owned emulator and
+capture processes are stopped.
 
 The implementation adds one exact, opt-in **private SELinux source adaptation** for
 the new native owner tier; it does not apply the old AOSP patch series or broaden
