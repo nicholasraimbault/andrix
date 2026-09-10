@@ -141,7 +141,24 @@ These are compiled artifacts, not runtime enforcement proof.
 The module-only stage did not regenerate the image's identity files; their stale
 empty contents were recorded, not accepted as an owner identity. Full image
 construction must produce and verify the actual system_ext UID/group records and
-all matching image/host inputs before any launch. No M4 guest has booted yet.
+all matching image/host inputs before any launch.
+
+The first full image (`9e08ea3`) subsequently built in 222.350 seconds; 27 images
+and both host packages were frozen/rehashed. The actual image contains UID/group
+7500 records and unchanged Vanadium/AppStore/APEX/shell bytes. APK review verified
+both version1 console/negative packages under the existing non-platform lab signer;
+initial observer mistakes about the aapt2 field name and zipalign flags remain.
+
+The first offline guest booted, but the host core observer correctly failed with
+exit127 because its stager omitted the required `host_elf.sh` dependency. The guest
+also independently exposed a new-layer omission: `andrixd` entered UID7500 and its
+correct enforcing domain but could not **read** `memory.max`. Its admission check
+therefore did not succeed. The repair adds only read/open/getattr for the new
+components' resource inspection, not cgroup write authority or a skipped check.
+No owner shell/UI/P5/negative probe was reached in that window. Runner, stop and
+capture cleanup exited0; controllerFAIL and all evidence were retained. The
+51-file closed window contains17,093 offline packets with zero reported drops,
+not a privacy or owner-runtime pass. A new image and corrected observer are needed.
 
 ## Evidence
 

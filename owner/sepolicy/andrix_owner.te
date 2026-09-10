@@ -25,6 +25,9 @@ allowxperm andrixd andrix_console_socket:unix_stream_socket ioctl unpriv_unix_so
 allow andrixd andrix_owner:process { sigchld signull };
 allow andrixd andrix_owner:fd use;
 allow andrix_owner andrixd:fd use;
+# Admission reads back the real init-owned limits and membership. No new write
+# permission or DAC ownership is supplied to either component here.
+allow { andrixd andrix_owner } cgroup_v2:file { open read getattr };
 
 create_pty(andrixd)
 allow andrix_owner andrixd_devpts:chr_file { open read write getattr ioctl };
