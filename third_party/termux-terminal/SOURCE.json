@@ -1,0 +1,270 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/termux/termux-app",
+  "commit": "3b66f8799635a4dba4a206563048ff0e6792c487",
+  "tree": "41ecedc1b870ccf8e471088e6cff77b926823ef9",
+  "archive_sha256": "573aafc42c9f8b56029d41dd52c630902a5fe9a4bf5a0e9b7ce1a41dbab758d3",
+  "license_basis": "Apache-2.0 terminal library exception in UPSTREAM-LICENSE.md; Termux application not imported",
+  "upstream_license_sha256": "98a85a2f28a490d632015f0bed29bf0a29f168ae5d1627e50560a71d7bd7c240",
+  "excluded_process_layer": [
+    "terminal-emulator/src/main/java/com/termux/terminal/JNI.java",
+    "terminal-emulator/src/main/java/com/termux/terminal/TerminalSession.java",
+    "terminal-emulator/src/main/jni"
+  ],
+  "files": [
+    {
+      "path": "terminal-emulator/src/main/java/com/termux/terminal/ByteQueue.java",
+      "sha1": "adfdfa86419e1852813c01fefdfc05f7b722e9a9",
+      "sha256": "a331e76e385e77db85c6434b3c4c787ae4aefaab81afc9b76ea42138e7903d9c",
+      "size": 3804
+    },
+    {
+      "path": "terminal-emulator/src/main/java/com/termux/terminal/KeyHandler.java",
+      "sha1": "8ecfb630e42f7c2412b2746dc4af2fbefe5c5517",
+      "sha256": "78688caed123d644f49cdaee2515849b704a6be29e00e6e865179e358b5f1eee",
+      "size": 18070
+    },
+    {
+      "path": "terminal-emulator/src/main/java/com/termux/terminal/Logger.java",
+      "sha1": "d4d502e0e45ae5a72e4bab5d33fcb22f9691d1d7",
+      "sha256": "7ab53c7ee035e9658a60525c93613e6b8126db36abc46f8cdbc5fdf49032a04f",
+      "size": 2477
+    },
+    {
+      "path": "terminal-emulator/src/main/java/com/termux/terminal/TerminalBuffer.java",
+      "sha1": "21d6518785e19313ebae81165449ea0bff83c1fb",
+      "sha256": "cffbc9f96d861627e2e2680c116da8d69b3927f9c0ffa450f270d5f6fe175f1d",
+      "size": 23762
+    },
+    {
+      "path": "terminal-emulator/src/main/java/com/termux/terminal/TerminalColorScheme.java",
+      "sha1": "4088781805858457d632f0f4767a0179c7deb579",
+      "sha256": "a303825f79925387b2a70087b640fdb097c723cfb8e341b7d82c958d73eb4563",
+      "size": 7044
+    },
+    {
+      "path": "terminal-emulator/src/main/java/com/termux/terminal/TerminalColors.java",
+      "sha1": "25135a2fab22da82890afd673730b79a62495c3d",
+      "sha256": "27cc579af682cab7e6a30bdd166630d596e6215d33ab6b50c58dd55d3fb6867a",
+      "size": 3870
+    },
+    {
+      "path": "terminal-emulator/src/main/java/com/termux/terminal/TerminalEmulator.java",
+      "sha1": "b0be6f34405e8f36c2711daf90305f8c0dd56a2c",
+      "sha256": "62613ea9590893336bde270894bab872de89b3b72844db85a929ba167dc7b83d",
+      "size": 131023
+    },
+    {
+      "path": "terminal-emulator/src/main/java/com/termux/terminal/TerminalOutput.java",
+      "sha1": "305082a52dbe1957379774074018f49607a70e43",
+      "sha256": "f844b820e8a344e97bdbf421251daf9312dbf3f69a367b084bd920ed8a4898bc",
+      "size": 1217
+    },
+    {
+      "path": "terminal-emulator/src/main/java/com/termux/terminal/TerminalRow.java",
+      "sha1": "d68dc3262367fcaddb3c4656f16548c2bee641aa",
+      "sha256": "280c12d7f6e750413f8a2748e2827d4f5dbe5932cabd079b3ef4e2e441f01830",
+      "size": 14062
+    },
+    {
+      "path": "terminal-emulator/src/main/java/com/termux/terminal/TerminalSessionClient.java",
+      "sha1": "fbd8e5509a42dbf563aea5539401b03ff17974bf",
+      "sha256": "7db66110b370ffb359c5a3858b49b8376ddbbe530ccfd5b192b317bdb5ae6e3d",
+      "size": 1387
+    },
+    {
+      "path": "terminal-emulator/src/main/java/com/termux/terminal/TextStyle.java",
+      "sha1": "173d6ae94e68777e8fc83bb4492785a45c418a25",
+      "sha256": "234faa9646aca6b04329998106d9b29aac757abdc7e0400f2a3ed90c95a07297",
+      "size": 3623
+    },
+    {
+      "path": "terminal-emulator/src/main/java/com/termux/terminal/WcWidth.java",
+      "sha1": "d71cc277b4e39d3326ef2c7487849fc19cb3278f",
+      "sha256": "68fc84a28813b13e4a1dfec8d9acbd9d7bd2a6cea62fe2f38319d1eca6cca776",
+      "size": 39885
+    },
+    {
+      "path": "terminal-emulator/src/test/java/com/termux/terminal/ApcTest.java",
+      "sha1": "4f6292aaa95fa80ff77ccf81bfaf2b02511501dd",
+      "sha256": "7eb7731e2d9324fa2165af4d5168940d58432d0f30d061e54cc8c6bfc9958467",
+      "size": 1059
+    },
+    {
+      "path": "terminal-emulator/src/test/java/com/termux/terminal/ByteQueueTest.java",
+      "sha1": "44a605bddc3158bbe231070f3b1e01664981b1b0",
+      "sha256": "86673645a832ed66a00b7aca202b7a544027858b22cc2cdc9dbfe2a7095cf37e",
+      "size": 1616
+    },
+    {
+      "path": "terminal-emulator/src/test/java/com/termux/terminal/ControlSequenceIntroducerTest.java",
+      "sha1": "9f123bc1d1c21b9826fd4fd32a9859a4ab89cb23",
+      "sha256": "95ec55f2657b89e02b230b50eb6bdfbe31228daea06b1399d7639e4bed73665d",
+      "size": 6447
+    },
+    {
+      "path": "terminal-emulator/src/test/java/com/termux/terminal/CursorAndScreenTest.java",
+      "sha1": "8a65e66d005af1dbdfba948ff4128c669399d5c8",
+      "sha256": "e554a7a24ab5f01397f6aa2cec2549b2c5f9c47b4afe3de04d33e6fa40052989",
+      "size": 13697
+    },
+    {
+      "path": "terminal-emulator/src/test/java/com/termux/terminal/DecSetTest.java",
+      "sha1": "f31f1fb8330e2f1382996b59d5be82adf32ee935",
+      "sha256": "3174a6edd4fa0892cdd5dba2a65919380cf3c21026771c50fdd78daf106c5db3",
+      "size": 3004
+    },
+    {
+      "path": "terminal-emulator/src/test/java/com/termux/terminal/DeviceControlStringTest.java",
+      "sha1": "f8899355fa92f53d7e8844971f6fab260d8259d9",
+      "sha256": "73f1653c3a870d5625e3dce15155f2c2bedaf34f6b6df1611eed5c21b13ad0ee",
+      "size": 2128
+    },
+    {
+      "path": "terminal-emulator/src/test/java/com/termux/terminal/HistoryTest.java",
+      "sha1": "17f8111205852e664312ea3259003bde9e471071",
+      "sha256": "6fd8cf8691577904718a80ccbebfdf7eb5713c853747385a26ab20e738846cad",
+      "size": 1116
+    },
+    {
+      "path": "terminal-emulator/src/test/java/com/termux/terminal/KeyHandlerTest.java",
+      "sha1": "15b23761a8e4bf643124102bcd21e42f946db5eb",
+      "sha256": "666a1930f99ef796b3b9d7b3095e697066a7ef93387e41e10395538d0316caaa",
+      "size": 13381
+    },
+    {
+      "path": "terminal-emulator/src/test/java/com/termux/terminal/OperatingSystemControlTest.java",
+      "sha1": "13377c08732ae0c7af565c78535f23efa24bd618",
+      "sha256": "cf499c1b945c5b8818520427e33a21ccde7503825a433927495a4b9ec53ee101",
+      "size": 9183
+    },
+    {
+      "path": "terminal-emulator/src/test/java/com/termux/terminal/RectangularAreasTest.java",
+      "sha1": "8709c2c38f2b409e0634d601d0807f0ac789dfc5",
+      "sha256": "ddc73cd7fe9fdd17a609f9db114b71a84755fa8255577a54369cfda3552f381b",
+      "size": 7657
+    },
+    {
+      "path": "terminal-emulator/src/test/java/com/termux/terminal/ResizeTest.java",
+      "sha1": "6c32d663b431151a9d26e7899f2a349b887596d5",
+      "sha256": "b98b533cf0883b8372372cb6ceee3024a9ba49d5cc78b3601ddc9eca7e5ada74",
+      "size": 9306
+    },
+    {
+      "path": "terminal-emulator/src/test/java/com/termux/terminal/ScreenBufferTest.java",
+      "sha1": "9a8f115ef269c89402df1080f2f678a1b7d344ff",
+      "sha256": "07bd3e39c7f9a2c586b11eeec9defdda48a70bd4d7a16f70c022f2158324b1d0",
+      "size": 2916
+    },
+    {
+      "path": "terminal-emulator/src/test/java/com/termux/terminal/ScrollRegionTest.java",
+      "sha1": "039605a144c464ad2549f023b5e11bfcb5dc49ea",
+      "sha256": "baa55a3896e824f49ceea1209dca11594673772ab01e7827fab34ad89b55df95",
+      "size": 7815
+    },
+    {
+      "path": "terminal-emulator/src/test/java/com/termux/terminal/TerminalRowTest.java",
+      "sha1": "043d60876b4fc32de47d35770afe89e6fab05857",
+      "sha256": "8ed2ad25ae865df2157297004f3f80ec0204f7cca78483ade1b63f19021af83c",
+      "size": 16836
+    },
+    {
+      "path": "terminal-emulator/src/test/java/com/termux/terminal/TerminalTest.java",
+      "sha1": "3e1f824265fda0431bc01954c001c0f3cc9891d0",
+      "sha256": "5ca659957f3ddb2caddaca79e19c8735e272034528b4983d0dc5e497ab1cf08a",
+      "size": 14706
+    },
+    {
+      "path": "terminal-emulator/src/test/java/com/termux/terminal/TerminalTestCase.java",
+      "sha1": "4490207932d46c94846840272ea5044ff5b7fe2d",
+      "sha256": "dd90af1538c976b3f5b81c6eb8ffd581ed1af892f0a6119242f75016fb77be45",
+      "size": 11180
+    },
+    {
+      "path": "terminal-emulator/src/test/java/com/termux/terminal/TextStyleTest.java",
+      "sha1": "6ec7a34e3dd39c2b6adeb3d1ed372fca2e87d406",
+      "sha256": "fc015cea35d7bedb1099d8ee640ce0159b8e5f2406011ed7ed0d40e3475684d5",
+      "size": 2539
+    },
+    {
+      "path": "terminal-emulator/src/test/java/com/termux/terminal/UnicodeInputTest.java",
+      "sha1": "2733190a88f8010a0c65d37e711d61655aae4df2",
+      "sha256": "1db2811125113952891af88201effc4c00c73387fb4f9dbe19820f7c17e6d31a",
+      "size": 6428
+    },
+    {
+      "path": "terminal-emulator/src/test/java/com/termux/terminal/WcWidthTest.java",
+      "sha1": "c0d9a0bcadbc8ce3e6f6537000d6a167d4cb4969",
+      "sha256": "d3be57d984a8bc3e15aa3b1c2490b9438da9993df63ab89f06eb0ae76e504324",
+      "size": 2216
+    },
+    {
+      "path": "terminal-view/src/main/java/com/termux/view/GestureAndScaleRecognizer.java",
+      "sha1": "f7fc9d23700905f7e0cdffc13d9b55b63113e23c",
+      "sha256": "0df6451d1187ffe2d4c9aa5496cdcc04c96f75839cc990e70b40afaf0bd6e071",
+      "size": 3704
+    },
+    {
+      "path": "terminal-view/src/main/java/com/termux/view/TerminalRenderer.java",
+      "sha1": "a4bef7d37c12799fd3b4ab7592d629e4eeb45240",
+      "sha256": "3511efd82b87db856404191d584fc2e9526e4da303edbd6a5efff111571f3b74",
+      "size": 12774
+    },
+    {
+      "path": "terminal-view/src/main/java/com/termux/view/TerminalView.java",
+      "sha1": "0b3f515682a392450b5a86d12e1b86b0f960db83",
+      "sha256": "6bd53789240133c3ed98b0e6731d713c46e7f6de3b54a1d1ab6384354065fa59",
+      "size": 68034
+    },
+    {
+      "path": "terminal-view/src/main/java/com/termux/view/TerminalViewClient.java",
+      "sha1": "d6b49b892ca1ab179d20df44a2fdfc2864dc0f09",
+      "sha256": "8f8e647e734e7a888104511979f00084e2e5fc0a887ebbd56c601fd4c314a795",
+      "size": 1998
+    },
+    {
+      "path": "terminal-view/src/main/java/com/termux/view/support/PopupWindowCompatGingerbread.java",
+      "sha1": "24a1797c5eccc7eb597eda46096cdeb459ee0731",
+      "sha256": "00c60e0045aab77c1925331f78ed2946696c11a3dd9bef3b94f0f679d3a9aa59",
+      "size": 2870
+    },
+    {
+      "path": "terminal-view/src/main/java/com/termux/view/textselection/CursorController.java",
+      "sha1": "f0e1cc5e451cf80e6c30cbcfd784828fcfb9c86f",
+      "sha256": "6a7331f375881be9b24d34467900ec84a232ca07feeff69575b3b642abdc3e60",
+      "size": 1471
+    },
+    {
+      "path": "terminal-view/src/main/java/com/termux/view/textselection/TextSelectionCursorController.java",
+      "sha1": "c2cd7c6c0acd2d81cee5299ec636f5977d9287c0",
+      "sha256": "25c723b8026902dadb7e5c0c831e4be3e040a8d68d8e53d3d80985f993e1ca0c",
+      "size": 13903
+    },
+    {
+      "path": "terminal-view/src/main/java/com/termux/view/textselection/TextSelectionHandleView.java",
+      "sha1": "b3caca6720b046512b460c20a546a6178acdfd68",
+      "sha256": "207a0a152e8150e9977006c8f987fb4e87b712baa7e1da69b1c827a55fe8a173",
+      "size": 11639
+    },
+    {
+      "path": "terminal-view/src/main/res/drawable/text_select_handle_left_material.xml",
+      "sha1": "576ff4a968f6abd6da01db87847a312f7e8ae7c6",
+      "sha256": "3ce66a831646933bea6adc67ed8d4b8dfd3bb86b992b1ea789b0ba577add4551",
+      "size": 524
+    },
+    {
+      "path": "terminal-view/src/main/res/drawable/text_select_handle_right_material.xml",
+      "sha1": "d049d3a8a9b6f658ae51f372930d179179d76915",
+      "sha256": "977579c11e9c28ef74af25ab61b8f39f812006e8ac5d2a9c5bf185a2456d522f",
+      "size": 498
+    },
+    {
+      "path": "terminal-view/src/main/res/values/strings.xml",
+      "sha1": "cd03c618ef1b158511f5943673cf7a4ff54bbb8e",
+      "sha256": "c2880e9b490ea42e0816dc2ad1b9bd6b1e75098508afd3681433ba07b14a1bfb",
+      "size": 163
+    }
+  ],
+  "local_changes": [],
+  "Android_integration_qualified": false
+}
