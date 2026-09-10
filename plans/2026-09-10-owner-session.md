@@ -179,6 +179,19 @@ that cleanup result is not a console PASS. The 2,045-file closed window retains
 81,858 offline packets/zero reported drops and the console failure. Vanadium and
 the existing Android security boundaries remain unchanged.
 
+The next image (`d09d607`, build314.011s) rendered the native console and authenticated
+its request to the coordinator. Ordinary shell observations confirmed UID/GID7500,
+all five Linux capability masks zero, memory.max268435456, swap.max0, OOM group1,
+and CPU/blkio background groups. The spawned worker entered the correct native
+owner domain and UID, but its guard failed closed: removing broad cgroup-directory
+write permissions had also removed directory **search**, so `statfs` could not
+inspect the real cgroup. The error reached the console through the actual stream;
+init reaped/restarted the coordinator. The fix restores only search/getattr and
+separates statfs permission errors from a genuinely wrong filesystem type.
+Core/P5/uninstall and cleanup passed; no owner shell or dedicated access-negative
+PASS is claimed. The 1,632-file closed window retains63,556 offline packets/zero
+drops. A further candidate is needed for the shell/workspace proof.
+
 ## Evidence
 
 New private evidence is selected by `out/owner-session/EVIDENCE`; the earlier

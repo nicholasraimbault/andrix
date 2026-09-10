@@ -28,6 +28,9 @@ allow andrix_owner andrixd:fd use;
 # Admission reads back the real init-owned limits and membership. No new write
 # permission or DAC ownership is supplied to either component here.
 allow { andrixd andrix_owner } cgroup_v2:file { open read getattr };
+# Excluding the worker from w_dir_perms also removed its search permission;
+# restore traversal/metadata only, never directory creation or cgroup writes.
+allow andrix_owner cgroup_v2:dir { search getattr };
 
 create_pty(andrixd)
 allow andrix_owner andrixd_devpts:chr_file { open read write getattr ioctl };

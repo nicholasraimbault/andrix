@@ -107,8 +107,9 @@ std::string check_resource_bounds(pid_t coordinator) {
   if (text.find("0::" + relative + "\n") == std::string::npos) return "not in init owner cgroup";
   const std::string path = "/sys/fs/cgroup" + relative;
   struct statfs filesystem{};
-  if (statfs(path.c_str(), &filesystem) != 0 || filesystem.f_type != CGROUP2_SUPER_MAGIC)
-    return "not a real cgroup2 filesystem";
+  if (statfs(path.c_str(), &filesystem) != 0)
+    return std::string("cannot inspect cgroup filesystem: ") + std::strerror(errno);
+  if (filesystem.f_type != CGROUP2_SUPER_MAGIC) return "not a real cgroup2 filesystem";
   for (auto [file, expected] : {std::pair{"memory.max", kMemoryLimit},
                                 {"memory.swap.max", uint64_t{0}}, {"memory.oom.group", uint64_t{1}}}) {
     if (!read_small(path + "/" + file, &text, true) || !number(text, &value) || value != expected)
