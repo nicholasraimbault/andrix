@@ -1,15 +1,24 @@
 # Current work
 
 **Active milestone:** [GrapheneOS-derived base — isolated migration trial](2026-09-08-grapheneos-migration.md).
-**Current action:** implement and qualify the [first bounded owner session](2026-09-10-owner-session.md)
-on the [connected baseline](2026-09-09-grapheneos-connected-baseline.md), leaving
-Vanadium unchanged. The opt-in prototype adds a non-root native coordinator,
-primary-user CE home and line-oriented Android console/PTY. Host checks are not
-Android runtime qualification; a new image and real boundary tests are still needed. The owner reaffirmed the purpose of
-adopting GrapheneOS: reuse its maintained Android, phone and security foundation,
-not reimplement that work. Keep upstream components intact where they satisfy
-Andrix's requirements; concentrate the small downstream layer on owner computing.
-There is no adopted Vanadium fork or redesign in this follow-up.
+**Current action:** prepare the usable terminal/editor/toolchain slice on the
+[demonstrated bounded owner session](2026-09-10-owner-session.md), leaving Vanadium unchanged.
+Frozen producer `e02bd6a` now runs a native UID7500 owner shell through the Android
+console, with a primary-user CE home and ordinary-app isolation. File creation,
+private owner-code execution, detach/return, screen-relock revocation, whole-cgroup
+cleanup and persistence across reboot/cold restart were observed. This remains a
+line-oriented prototype; jobs do not outlive console-process reclamation, and
+resource stress, full VT/editor/compiler delivery and broader lifecycle tests are
+still open. Earlier failures and a timed-out window remain recorded as failures.
+All owned emulator/capture processes are stopped.
+
+The implementation adds one exact, opt-in **private SELinux source adaptation** for
+the new native owner tier; it does not apply the old AOSP patch series or broaden
+ordinary-app authority. Source/compiler/host checks and emulator observations are
+recorded separately. The owner reaffirmed why GrapheneOS was adopted: reuse its
+maintained Android, phone and security foundation, not reimplement it. Keep upstream
+components intact where they satisfy Andrix's requirements and concentrate the small
+downstream layer on owner computing. There is no adopted Vanadium fork or redesign.
 
 The immediate goal remains **unlock → terminal → edit → compile/run → leave →
 return later**: bounded owner identity, credential-encrypted home, PTY and native
@@ -48,8 +57,10 @@ All 1,108 base project revisions remain bound to authenticated public `202608130
 The host source verifier disables external Git callbacks/lazy fetching. The core
 observer makes no RKP/network-policy claim; the P5 observer explicitly accounts
 for GrapheneOS's source-injected `OTHER_SENSORS` metadata while still requiring an
-APK with no declared permissions. Original failures remain; no operator permission
-grants, APK changes or platform-policy workarounds were used. **262 host tests pass.**
+APK with no declared permissions. That earlier baseline used no operator permission
+grants, probe APK changes or platform-policy workarounds; its 262 host checks
+preceded the owner slice. The owner slice now has **274 passing host tests** and
+explicitly records its separate opt-in private-policy adaptation and runtime results.
 
 Limits remain important: this Cuttlefish kernel lacks GrapheneOS SELinux flags and
 48-bit VA, with upstream warnings and Scudo fallback observed. The first trial's

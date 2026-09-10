@@ -1,5 +1,12 @@
 # First bounded owner session
 
+**Status:** the bounded first delivery is demonstrated on frozen producer
+`e02bd6a`: native owner execution, CE home, detach/return, relock revocation,
+ordinary-app negatives, process cleanup and file persistence across reboot/cold
+restart. The timeout/failure windows below remain failures. Full terminal/editor/
+compiler delivery, resource stress and broader lifecycle/hardware qualification
+remain open.
+
 ## Scope
 
 The owner authorized continuing the terminal/workspace slice while leaving Vanadium
@@ -63,9 +70,10 @@ regressions; ordinary APKs do not acquire owner execution authority.
   screen relock and detachment are distinct lifecycle cases; unsupported cases
   must not be quietly presented as qualified multi-user behavior.
 
-These are prototype implementation choices to test against the exact platform,
-not claims of a working owner runtime. Any discovered incompatibility must be
-resolved narrowly or recorded as a blocker, without weakening ordinary-app policy.
+These are prototype implementation choices tested against the exact platform;
+the bounded results below do not qualify every lifecycle or resource-pressure
+case. Incompatibilities must be resolved narrowly or recorded as blockers, without
+weakening ordinary-app policy.
 
 ## Source observations
 
@@ -102,8 +110,8 @@ permissions. This revises the initial system_ext-only/app-workload assumptions;
 it is not a defect in GrapheneOS. No framework/browser code or global policy check
 is disabled. Vold retains exclusive key-management/status authority: the prototype
 uses read-only encryption-policy metadata, Android user state and controller death,
-not an invented native unlock oracle. Fresh compilation and runtime qualification
-remain necessary.
+not an invented native unlock oracle. The following checkpoints distinguish
+source, compiled artifacts and actual runtime observations.
 
 ## Checks
 
@@ -179,9 +187,9 @@ that cleanup result is not a console PASS. The 2,045-file closed window retains
 81,858 offline packets/zero reported drops and the console failure. Vanadium and
 the existing Android security boundaries remain unchanged.
 
-The next image (`d09d607`, build314.011s) rendered the native console and authenticated
-its request to the coordinator. Ordinary shell observations confirmed UID/GID7500,
-all five Linux capability masks zero, memory.max268435456, swap.max0, OOM group1,
+The next image (`d09d607`, build 314.011s) rendered the native console and authenticated
+its request to the coordinator. Ordinary shell observations confirmed UID/GID 7500,
+all five Linux capability masks zero, memory.max=268435456, swap.max=0, OOM group=1,
 and CPU/blkio background groups. The spawned worker entered the correct native
 owner domain and UID, but its guard failed closed: removing broad cgroup-directory
 write permissions had also removed directory **search**, so `statfs` could not
@@ -189,14 +197,104 @@ inspect the real cgroup. The error reached the console through the actual stream
 init reaped/restarted the coordinator. The fix restores only search/getattr and
 separates statfs permission errors from a genuinely wrong filesystem type.
 Core/P5/uninstall and cleanup passed; no owner shell or dedicated access-negative
-PASS is claimed. The 1,632-file closed window retains63,556 offline packets/zero
-drops. A further candidate is needed for the shell/workspace proof.
+PASS is claimed for that candidate. The 1,632-file closed window retains 63,556
+offline packets/zero drops. The next candidate supplied the shell/workspace proof.
+
+## Owner workflow observed on `e02bd6a`
+
+The next image built in **370.909 seconds** and was frozen/rehashed with both host
+packages. The fourth offline window established the main native-owner path:
+
+- The Android console rendered, authenticated to the native Binder service and
+  ran the shell at UID/GID 7500 in `andrix_owner`, not root, shell or an APK identity.
+  Ordinary shell observers confirmed all five capability masks zero and active
+  `NoNewPrivs=1`/`Seccomp=2` on the worker. The coordinator remained separate.
+- `id`, `pwd` and `/usr/bin/andrix-hello` ran. A file was written/read in the CE
+  home. A copy of the exact image `/system/bin/sh` in that writable home executed
+  `OWNER_EXEC_OK`; both SHA-256 hashes matched. This owner capability did not
+  extend to ordinary APKs: P5 still rejected its private copy and was uninstalled.
+- The same-signer, different-package negative remained an ordinary untrusted app,
+  got no owner-service handle and received home EACCES. The real owner console
+  worked before and after that probe; removal was verified. APK declarations and
+  GrapheneOS's implicit OTHER_SENSORS PM metadata remain distinct.
+- Writing the existing memory-limit value from the owner shell was rejected.
+  Read-only kernel observations retained the actual 256 MiB/swap0/group-OOM bounds
+  and background CPU/blkio membership. This is not a stress/OOM or total-storage
+  quota qualification, nor a claim to have exercised every filter rule natively.
+- Detach/return retained the same shell PID 5098 and a shell variable. Output
+  produced while detached was received after reattachment. Screen relock left
+  Android's user state unlocked and the native shell alive, but detached the UI.
+  Input attempted while detached was rejected and did not create its target file;
+  normal PIN return recovered the same shell/variable/file.
+- Some swipe/tap attempts to reach the PIN screen were rejected by the emulator's
+  proximity/falsing path. Those observations remain; ordinary keyboard Enter
+  brought up the PIN prompt. No sensor, falsing or credential protection was
+  disabled. The line-oriented console also exposes carriage-return/wrapping
+  artifacts; it is not yet a full terminal emulator.
+- Explicit End removed the coordinator and descendants. A separate controlled
+  fault test used normal ActivityManager force-stop of **only the console APK**;
+  its Binder death removed the native group, including a measured descendant in
+  a separate Unix session. No native/root kill workaround was used. A new idle
+  coordinator appeared, and files persisted into a subsequent shell session.
+- A normal reboot changed boot ID and passed the shared core checks. Before the
+  first PIN unlock, Android reported `RUNNING_LOCKED`, with no CE-prepared flag or
+  owner process. Normal PIN entry changed that to `RUNNING_UNLOCKED` and started
+  the owner service. Native code did not query vold's key-status interface.
+
+**The overall window is incomplete, not PASS.** It expired at its UI deadline
+before the final file read after reboot was performed. Controller/session remained
+FAIL/124; runner, stop and capture cleaned up with exit 0. The closed 4,499-file
+window retains 161,381 offline packets, zero reported drops and zero truncated
+records. Neither the timeout nor the earlier failures are discarded.
+
+The persistence continuation then used the exact stopped disk state, not fresh
+userdata. The original producer and all closed windows remained immutable.
+Assembler expansion of the sparse super image was independently reproduced and
+matched; assembled base disks and overlays were separately frozen and hashed.
+This was a cold restart of an already assembled instance, not a RAM snapshot.
+
+Its first attempt reached Android's locked-user state and passed core checks but
+timed out because the observer required Cuttlefish's CE-only boot reporter before
+allowing the PIN UI. The reporter's manifest listens for `BOOT_COMPLETED`, not
+`LOCKED_BOOT_COMPLETED`. The 45-file/13,186-packet failure remains. The observer's
+order was corrected: normal PIN unlock first, then the real post-unlock boot
+report remains mandatory. No Android framework or credential behavior changed.
+
+The next bounded continuation **passed**. A normal menu key brought up the PIN
+prompt after other navigation attempts did not; visible keypad entry of the same
+disposable PIN unlocked the existing user. The service started, the actual CVD
+boot report arrived, and the console read the original `OWNER_FILE_V1`, verified
+the same private shell hash and executed `PERSISTED_EXEC_OK`. Its shell variable
+was empty, correctly distinguishing persistent files from a fresh process.
+Core, explicit session End and all runtime/capture cleanup returned 0. The closed
+1,443-file continuation contains 52,553 offline packets, zero reported drops and
+zero truncated records. Together with the earlier observations, this establishes
+the scoped first delivery—not a full terminal, long-lived service, power-loss,
+Pixel-hardening or connected-privacy qualification.
+
+## Final host/source checks
+
+The final full host suite passed **274 tests with no skips in 124.527 seconds**
+using the pinned JDK25 toolchain. The initial default-PATH run skipped four Java
+checks; that result was retained and was not accepted as the complete suite.
+
+The read-only source verifier authenticated the release and checked all 1,108
+projects. Its original result remains FAIL: the expected private SELinux change
+and a 120-second `build/release` timeout. An unchanged, same-contract serial retry
+verified `build/release` in 5.714 seconds. The guarded policy check separately
+verified the exact bridge digest and absence of other tracked changes there.
+The assessed result is **1,107 unchanged projects plus one exact adaptation**, not
+an all-project tracked-clean claim. Untracked files, prebuilt materialization and
+Pixel security remain outside that source check.
 
 ## Evidence
 
-New private evidence is selected by `out/owner-session/EVIDENCE`; the earlier
-7,217-file connected-preparation seal is immutable. Initial I13 review was
-cancelled without substantive findings; primary source inspection supplies this
-plan. The first source-review pipeline hit SIGPIPE through `head`; the failed
-observation and corrected bounded reads are retained. No guest has started for
-this milestone at plan creation.
+Private evidence selected by `out/owner-session/EVIDENCE` is sealed across
+**24,195 regular files**, with symlinks excluded and all six closed-window seals
+reverified. Raw APKs, disks, credentials, captures and logs remain outside public
+Git. The earlier 7,217-file connected-preparation seal is untouched.
+
+The initial I13 and final I15 review attempts were cancelled without substantive
+findings; no independent-review PASS is claimed. Primary source inspection and
+observed artifacts/runtime supply this record. The initial source-review pipeline's
+SIGPIPE through `head` and its corrected bounded reads are also retained.

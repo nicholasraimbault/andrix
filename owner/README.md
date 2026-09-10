@@ -1,7 +1,8 @@
 # Owner-session prototype
 
-Andrix-owned system_ext components on the unchanged GrapheneOS base. Vanadium,
-phone services, platform signer and ordinary-app execution policy are not replaced.
+Andrix-owned system_ext components on GrapheneOS's maintained base, with the
+opt-in private-policy bridge below. Vanadium, phone services, platform signer and
+ordinary-app execution policy are not replaced.
 See the [milestone](../plans/2026-09-10-owner-session.md) for scope and qualification.
 
 **Development opt-in:** `ANDRIX_OWNER_SESSION=true` with the existing
@@ -84,6 +85,18 @@ methods also run against real host PTYs/sockets with an explicit FD/clock adapte
 stale streams close while the PTY survives. Worker-filter tests exercise real
 host syscall denial, retained PTY ioctls and fork/exec inheritance, not Android
 SELinux or ABI qualification. Source-contract tests check opt-in scope, signer
-mapping and init bounds. Build, compiled policy, image contents and
-real Android/CE/resource/UI negative tests are separate gates. **Runtime remains
-unqualified until those gates are actually exercised and recorded.**
+mapping and init bounds. Build, compiled policy, image contents and Android runtime
+results remain separate evidence.
+
+Frozen producer `e02bd6a` has now demonstrated the bounded first delivery in the
+ARM64 Cuttlefish emulator: normal PIN unlock, native UID7500 shell/PTY, CE home
+file creation and private-code execution, ordinary-app negatives, detach/return,
+relock revocation, whole-group cleanup and file persistence across reboot/cold
+restart. The full host suite passed 274 tests. Failure/timeout windows are retained;
+see the [milestone](../plans/2026-09-10-owner-session.md) for precise results.
+
+This is still a line-oriented prototype, not a full terminal/editor/compiler.
+Resource-exhaustion tests, all adversarial descriptor/race cases on Android,
+user-stop/key eviction, long-lived services and native phone qualification remain
+open. Neither offline execution nor these lifecycle checks qualify networking
+privacy, production updates or power-loss durability.
