@@ -102,7 +102,9 @@ class OwnerSessionTests(unittest.TestCase):
 
     def test_actual_pump_methods_with_host_pty_and_revocable_streams(self):
         source = (ROOT/'owner/native/andrixd.cpp').read_text()
+        death_start = source.index('  void controller_died() {')
         start = source.index('  void revoke_locked() {')
+        death = source[death_start:start]
         revoke = source[start:source.index('  bool start_shell_locked(', start)]
         start = source.index('  void transfer_locked() {')
         pump = source[start:source.index('  std::mutex mutex_;', start)]
@@ -115,7 +117,7 @@ class OwnerSessionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             work = Path(tmp)
             cpp = work/'pump.cpp'
-            cpp.write_text(harness.replace('// PRODUCTION_METHODS', revoke + pump))
+            cpp.write_text(harness.replace('// PRODUCTION_METHODS', death + revoke + pump))
             binary = work/'pump'
             compiled = subprocess.run([compiler, '-std=c++20', '-Wall', '-Wextra', '-Werror',
                                        '-O2', '-I'+str(ROOT/'owner/native'),

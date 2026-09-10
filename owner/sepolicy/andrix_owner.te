@@ -61,7 +61,9 @@ neverallow andrix_owner { cgroup cgroup_v2 }:file { write append };
 neverallow andrix_owner andrixd:process { ptrace signal sigkill sigstop setrlimit setsched };
 neverallow andrix_owner andrixd_exec:file { execute execute_no_trans entrypoint };
 neverallow andrixd andrix_home_file:file { execute execute_no_trans entrypoint };
-neverallow { domain -andrixd -andrix_owner } andrix_owner_entry:file execute;
+# Debug overlayfs mediates system-file operations in its existing broad domain;
+# the platform bridge still forbids it from transitioning into the owner domain.
+neverallow { domain -andrixd -andrix_owner userdebug_or_eng(`-overlay_remounter') } andrix_owner_entry:file execute;
 neverallow andrix_owner andrix_owner_entry:file execute_no_trans;
 neverallow { domain -andrixd -init } andrix_owner_pid_prop:property_service set;
 neverallow { domain -andrixd -andrix_terminal } andrix_console_socket:unix_stream_socket { read write };
