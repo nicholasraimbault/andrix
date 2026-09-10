@@ -125,7 +125,7 @@ std::string check_resource_bounds(pid_t coordinator) {
   return {};
 }
 
-bool ce_key_present(int home_fd, std::string* error) {
+bool ce_policy_valid(int home_fd, std::string* error) {
   fscrypt_get_policy_ex_arg policy{};
   policy.policy_size = sizeof(policy.policy);
   if (ioctl(home_fd, FS_IOC_GET_ENCRYPTION_POLICY_EX, &policy) != 0) {
@@ -134,17 +134,6 @@ bool ce_key_present(int home_fd, std::string* error) {
   }
   if (policy.policy.version != FSCRYPT_POLICY_V2 || policy.policy_size != sizeof(fscrypt_policy_v2)) {
     *error = "home lacks a supported fscrypt v2 policy";
-    return false;
-  }
-  fscrypt_get_key_status_arg key{};
-  key.key_spec.type = FSCRYPT_KEY_SPEC_TYPE_IDENTIFIER;
-  std::memcpy(key.key_spec.u.identifier, policy.policy.v2.master_key_identifier, FSCRYPT_KEY_IDENTIFIER_SIZE);
-  if (ioctl(home_fd, FS_IOC_GET_ENCRYPTION_KEY_STATUS, &key) != 0) {
-    *error = std::string("cannot read CE key status: ") + std::strerror(errno);
-    return false;
-  }
-  if (key.status != FSCRYPT_KEY_STATUS_PRESENT) {
-    *error = "CE key is not present";
     return false;
   }
   return true;
@@ -158,7 +147,7 @@ int open_ce_home(std::string* error) {
   }
   struct stat st{};
   if (fstat(fd, &st) != 0 || !S_ISDIR(st.st_mode) || st.st_uid != kOwnerUid ||
-      st.st_gid != kOwnerUid || (st.st_mode & 07777) != 0700 || !ce_key_present(fd, error)) {
+      st.st_gid != kOwnerUid || (st.st_mode & 07777) != 0700 || !ce_policy_valid(fd, error)) {
     if (error->empty()) *error = "CE home identity or mode mismatch";
     close(fd);
     return -1;

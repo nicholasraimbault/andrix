@@ -23,24 +23,41 @@ DECLARATIONS = '''# Rules for all domains.
 ifelse(andrix_owner_session, `true', `
 type andrixd, domain, coredomain;
 type andrix_owner, domain, coredomain;
-app_domain(andrix_owner)
+type andrix_home_file, file_type, data_file_type, core_data_file_type;
+# Native owner work is deliberately separate from the APK/appdomain model.
+# Only its own labelled CE home is executable writable data.
+neverallow andrix_owner { data_file_type -andrix_home_file }:file no_x_file_perms;
+neverallow { domain -andrix_owner } andrix_home_file:file no_x_file_perms;
+neverallow { domain -andrixd } andrix_owner:process transition;
+neverallow domain andrix_owner:process dyntransition;
 ')
 '''
-ORIGINAL_RULE = '''} {
-  appdomain -shell -simpleperf userdebug_or_eng(`-su') -tradeinmode -isolated_app
-}:process { transition dyntransition };
+ORIGINAL_EXEC_PREFIX = '''neverallow {
+    domain
+    -appdomain
+    with_asan(`-asan_extract')
+    -shell
 '''
-BRIDGE_RULE = '''} {
-  appdomain -shell -simpleperf userdebug_or_eng(`-su') -tradeinmode -isolated_app
+BRIDGE_EXEC_PREFIX = '''neverallow {
+    domain
+    -appdomain
+    ifelse(andrix_owner_session, `true', `-andrix_owner')
+    with_asan(`-asan_extract')
+    -shell
+'''
+ORIGINAL_DATA_PREFIX = '''# Protect most domains from executing arbitrary content from /data.
+neverallow {
+  domain
+  -appdomain
+'''
+BRIDGE_DATA_PREFIX = '''# Protect most domains from executing arbitrary content from /data.
+neverallow {
+  domain
+  -appdomain
   ifelse(andrix_owner_session, `true', `-andrix_owner')
-}:process { transition dyntransition };
-
-# Preserve the launcher restriction for every existing domain. The only new
-# transition exception is from the Andrix coordinator to its owner workload.
-ifelse(andrix_owner_session, `true', `
-neverallow { domain -andrixd } andrix_owner:process { transition dyntransition };
-')
 '''
+CGROUP_SUBJECT = '{ domain -appdomain -rs }'
+CGROUP_BRIDGE_SUBJECT = "{ domain -appdomain -rs ifelse(andrix_owner_session, `true', `-andrix_owner') }"
 
 
 def sha(data):
@@ -51,9 +68,17 @@ def patched(original):
     if sha(original) != BEFORE:
         raise ValueError('pinned upstream policy bytes do not match')
     text = original.decode('utf-8')
-    if text.count(PREFIX) != 1 or text.count(ORIGINAL_RULE) != 1:
+    if (text.count(PREFIX) != 1 or text.count(ORIGINAL_EXEC_PREFIX) != 1
+            or text.count(ORIGINAL_DATA_PREFIX) != 1
+            or text.count('allow ' + CGROUP_SUBJECT + ' cgroup') != 4):
         raise ValueError('ambiguous or missing policy bridge context')
-    return text.replace(PREFIX, DECLARATIONS, 1).replace(ORIGINAL_RULE, BRIDGE_RULE, 1).encode()
+    text = text.replace(PREFIX, DECLARATIONS, 1)
+    text = text.replace(ORIGINAL_EXEC_PREFIX, BRIDGE_EXEC_PREFIX, 1)
+    text = text.replace(ORIGINAL_DATA_PREFIX, BRIDGE_DATA_PREFIX, 1)
+    # Remove only this NEW native worker from broad non-app cgroup write grants.
+    text = text.replace('allow ' + CGROUP_SUBJECT + ' cgroup',
+                        'allow ' + CGROUP_BRIDGE_SUBJECT + ' cgroup')
+    return text.encode()
 
 
 def inspect(root):

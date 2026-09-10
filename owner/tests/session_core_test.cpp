@@ -82,6 +82,6 @@ int main() {
   std::string error;
   assert(open_ce_home(&error) == -1 && !error.empty());
   error.clear();
-  assert(!ce_key_present(-1, &error) && !error.empty());
+  assert(!ce_policy_valid(-1, &error) && !error.empty());
   std::cout << "owner core host checks passed; Android runtime unqualified\n";
 }

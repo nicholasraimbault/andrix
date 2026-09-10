@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Andrix-owned primary-user coordinator and native execution identities.
-# Their private type declarations and exact transition exception are in the
+# Their private type declarations and own-home execution boundary are in the
 # digest-guarded opt-in platform bridge. No existing domain is exempted, and
 # ordinary APK permissions/attributes are unchanged.
 type andrixd_exec, exec_type, file_type, system_file_type;
@@ -9,7 +9,6 @@ init_daemon_domain(andrixd)
 type andrix_owner_entry, exec_type, file_type, system_file_type;
 domain_auto_trans(andrixd, andrix_owner_entry, andrix_owner)
 
-type andrix_home_file, file_type, data_file_type, core_data_file_type;
 type andrix_session_service, service_manager_type;
 # An explicitly mediated cross-MLS stream, not a readable owner-home object.
 type andrix_console_socket, file_type, mlstrustedobject;
@@ -35,6 +34,7 @@ allowxperm andrix_owner andrixd_devpts:chr_file ioctl unpriv_tty_ioctls;
 # group, parent directory listing, root capability or general app-data access.
 allow { andrixd andrix_owner } { system_data_file system_userdir_file }:dir search;
 allow { andrixd andrix_owner } andrix_home_file:dir { open read getattr search ioctl };
+allowxperm { andrixd andrix_owner } andrix_home_file:dir ioctl FS_IOC_GET_ENCRYPTION_POLICY_EX;
 allow andrix_owner andrix_home_file:dir create_dir_perms;
 allow andrix_owner andrix_home_file:file { create_file_perms map execute execute_no_trans };
 allow andrix_owner andrix_home_file:lnk_file { create read getattr setattr unlink rename };
@@ -52,7 +52,7 @@ allow andrix_owner andrix_exec:file { rx_file_perms execute_no_trans };
 allow andrix_owner self:process { fork setpgid getsched setsched signal sigkill sigstop signull };
 net_domain(andrix_owner)
 
-# Upstream has generic binder-stats/app-workload grants. Do not rewrite them:
+# Upstream has generic binder-stats grants. Do not rewrite them:
 # the fixed runner blocks all Binder ioctls before any owner-controlled code,
 # so its reserved UID cannot become an ambient Android service client.
 neverallow andrix_owner andrixd:binder call;
