@@ -1,8 +1,13 @@
 # Current work
 
 **Active milestone:** [GrapheneOS-derived base — isolated migration trial](2026-09-08-grapheneos-migration.md).
-**Current action:** prepare the usable terminal/editor/toolchain slice on the
-[demonstrated bounded owner session](2026-09-10-owner-session.md), leaving Vanadium unchanged.
+**Current action:** integrate the [usable terminal/editor/toolchain slice](2026-09-10-owner-tools.md)
+on the [demonstrated bounded owner session](2026-09-10-owner-session.md), leaving
+Vanadium unchanged. Pinned reusable terminal libraries and a bounded output journal/
+replay core pass portable checks: 278 repository host tests and 148 terminal-engine
+tests. They are **not yet wired into the Android console/daemon**; the next gate is
+that integration and a real `vi` edit/save exercise. The base already supplies `vi`
+and a separately pinned modern LLVM source tree is available for compiler work.
 Frozen producer `e02bd6a` now runs a native UID7500 owner shell through the Android
 console, with a primary-user CE home and ordinary-app isolation. File creation,
 private owner-code execution, detach/return, screen-relock revocation, whole-cgroup
@@ -59,8 +64,9 @@ observer makes no RKP/network-policy claim; the P5 observer explicitly accounts
 for GrapheneOS's source-injected `OTHER_SENSORS` metadata while still requiring an
 APK with no declared permissions. That earlier baseline used no operator permission
 grants, probe APK changes or platform-policy workarounds; its 262 host checks
-preceded the owner slice. The owner slice now has **274 passing host tests** and
-explicitly records its separate opt-in private-policy adaptation and runtime results.
+preceded the owner slice. The bounded owner checkpoint passed **274 host tests**
+and explicitly records its separate opt-in private-policy adaptation and runtime
+results; the subsequent terminal preparation checks are described above.
 
 Limits remain important: this Cuttlefish kernel lacks GrapheneOS SELinux flags and
 48-bit VA, with upstream warnings and Scudo fallback observed. The first trial's

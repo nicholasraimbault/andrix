@@ -100,3 +100,8 @@ Resource-exhaustion tests, all adversarial descriptor/race cases on Android,
 user-stop/key eviction, long-lived services and native phone qualification remain
 open. Neither offline execution nor these lifecycle checks qualify networking
 privacy, production updates or power-loss durability.
+
+The [terminal/tools follow-up](../plans/2026-09-10-owner-tools.md) prepares pinned
+terminal libraries and an acknowledged output journal/replay core. Those portable
+components are not yet connected to this prototype's daemon or Android UI; their
+host tests must not be presented as a new running terminal qualification.
