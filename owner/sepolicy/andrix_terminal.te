@@ -10,7 +10,8 @@ allow andrix_terminal andrix_terminal_data_file:file create_file_perms;
 binder_use(andrix_terminal)
 binder_call(andrix_terminal, andrixd)
 allow andrix_terminal andrix_session_service:service_manager find;
-allow andrix_terminal andrix_console_socket:unix_stream_socket { read write getattr shutdown };
+allow andrix_terminal andrix_console_socket:unix_stream_socket { read write getattr shutdown ioctl };
+allowxperm andrix_terminal andrix_console_socket:unix_stream_socket ioctl unpriv_unix_sock_ioctls;
 
 # The UI is not the Unix owner. It has no direct home, executable or PTY access.
 neverallow andrix_terminal andrix_home_file:dir { open read write add_name remove_name };

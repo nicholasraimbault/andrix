@@ -18,8 +18,13 @@ regressions; ordinary APKs do not acquire owner execution authority.
   do not use root, shell, system, an ordinary app's identity or a shared UID with
   the UI. The initial scope is Android user 0 only.
 - A small init-managed `andrixd` is the coordinator. A distinct owner execution
-  SELinux domain runs its child shell under the same bounded Unix owner UID.
-  The coordinator's executable, control state and Binder interface remain outside
+  SELinux domain runs its child shell under the same bounded Unix owner UID, using
+  the existing app-workload policy class rather than changing trusted-daemon
+  neverallows. Before owner code, a worker-only inherited syscall restriction
+  rejects Binder ioctls/io_uring and sets no_new_privs; the reserved Unix UID must
+  not become ambient Android service authority. This is not an APK identity or a
+  relaxation of ordinary-app policy. The coordinator's executable, control state
+  and Binder interface remain outside
   writable owner code. No capability-based privilege escalation or root shell.
 - Create the dedicated home beneath `/data/misc_ce/0` only through Android's real
   CE-preparation event. `UserDataPreparer` sets `sys.user.0.ce_available` after
@@ -76,6 +81,16 @@ resolved narrowly or recorded as a blocker, without weakening ordinary-app polic
   on a platform flag; do not assume an arbitrary privileged APK automatically
   receives it. A foreground console with explicit state checks and a short lease
   avoids inventing a new unlock service or broad signature grants.
+
+The first builds retained new-layer failures: a generated shared AIDL library
+would have landed in the generic system partition (changed to static linkage),
+an undefined local policy macro, and policy assertions rejecting daemon-class
+execution of writable home code and unallowlisted socket ioctls. The owner worker
+now uses Android's existing app-workload policy class, with local Binder syscall
+restriction instead of attempting to subtract upstream generic grants. Socket
+ioctls use the existing narrow Unix-socket allowlist. No upstream policy assertion,
+framework code or Vanadium component is disabled or patched to pass these checks.
+These changes still require fresh compilation/runtime qualification.
 
 ## Checks
 

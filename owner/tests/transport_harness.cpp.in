@@ -1,0 +1,106 @@
+// SPDX-License-Identifier: Apache-2.0
+// Host adapter around exact production pump/revoke method bodies. Real host PTY
+// and Unix sockets; no Android identity, SELinux, CE or Binder success is mocked.
+#include "session_core.h"
+#include <sys/socket.h>
+#include <fcntl.h>
+#include <termios.h>
+#include <unistd.h>
+#include <array>
+#include <cassert>
+#include <cerrno>
+#include <cstdlib>
+#include <string>
+#include <iostream>
+
+using namespace andrix;
+uint64_t fake_now = 100;
+uint64_t now_ms() { return fake_now; }
+struct HostFd {
+  int value = -1;
+  ~HostFd() { reset(); }
+  operator int() const { return value; }
+  void reset(int next = -1) { if (value >= 0) close(value); value = next; }
+};
+struct Pump {
+  AttachmentGate gate_;
+  OutputTail output_;
+  std::string input_;
+  HostFd master_;
+  HostFd bridge_;
+  bool stopping_ = false;
+// PRODUCTION_METHODS
+};
+
+std::string receive(int fd, Pump& pump, size_t expected) {
+  std::string result;
+  for (int i = 0; i < 100 && result.size() < expected; ++i) {
+    pump.transfer_locked();
+    char bytes[512];
+    ssize_t size = read(fd, bytes, sizeof(bytes));
+    if (size > 0) result.append(bytes, size);
+    else assert(size < 0 && (errno == EAGAIN || errno == EINTR));
+    usleep(1000);
+  }
+  return result;
+}
+
+int main() {
+  Pump pump;
+  int master = posix_openpt(O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC);
+  assert(master >= 0 && grantpt(master) == 0 && unlockpt(master) == 0);
+  pump.master_.reset(master);
+  const char* slave_name = ptsname(master);
+  assert(slave_name);
+  HostFd slave;
+  slave.reset(open(slave_name, O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC));
+  assert(slave >= 0);
+  termios term{};
+  assert(tcgetattr(slave, &term) == 0);
+  cfmakeraw(&term);
+  assert(tcsetattr(slave, TCSANOW, &term) == 0);
+  int pair[2];
+  assert(socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0, pair) == 0);
+  pump.bridge_.reset(pair[0]);
+  HostFd peer;
+  peer.reset(pair[1]);
+  auto first = pump.gate_.attach(fake_now, true, true, true);
+  assert(first);
+  assert(write(slave, "hello\n", 6) == 6);
+  assert(receive(peer, pump, 6) == "hello\n");
+  assert(write(peer, "id\n", 3) == 3);
+  assert(receive(slave, pump, 3) == "id\n");
+  assert(!pump.stopping_);
+  pump.input_ = "stale input\n"; // explicitly seed a pending backpressure state
+  fake_now += kLeaseMillis;
+  pump.transfer_locked();
+  assert(pump.bridge_ == -1 && pump.input_.empty());
+  char byte;
+  assert(read(peer, &byte, 1) == 0);
+  errno = 0;
+  assert(send(peer, "x", 1, MSG_NOSIGNAL) == -1 && errno == EPIPE);
+  assert(read(slave, &byte, 1) == -1 && errno == EAGAIN);
+
+  assert(write(slave, "detached", 8) == 8);
+  for (int i = 0; i < 20 && pump.output_.size() < 8; ++i) {
+    pump.transfer_locked();
+    usleep(1000);
+  }
+  assert(pump.output_.peek(16) == "detached");
+  assert(socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0, pair) == 0);
+  pump.bridge_.reset(pair[0]);
+  HostFd next_peer;
+  next_peer.reset(pair[1]);
+  auto second = pump.gate_.attach(++fake_now, true, true, true);
+  assert(second > first);
+  assert(!pump.gate_.detach(first));
+  assert(receive(next_peer, pump, 8) == "detached");
+  assert(send(peer, "x", 1, MSG_NOSIGNAL) == -1 && errno == EPIPE);
+  assert(write(next_peer, "pwd\n", 4) == 4);
+  assert(receive(slave, pump, 4) == "pwd\n");
+  assert(pump.gate_.detach(second));
+  pump.revoke_locked();
+  assert(read(next_peer, &byte, 1) == 0);
+  assert(pump.master_ >= 0); // detachment did not destroy the underlying PTY
+  std::cout << "real host PTY/stream revocation checks passed; Android unqualified\n";
+}

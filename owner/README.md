@@ -15,8 +15,14 @@ This is not a production interface or a qualified phone installation.
   domain. Registers `andrix.owner.session` only after real identity and resource
   admission checks. Init owns the aggregate memory limit and complete cgroup cleanup.
 - `andrix-session-runner`: fixed image-owned entry into the separate native owner
-  domain, same Unix UID. Checks its inherited bounds and existing CE home, sets
-  `no_new_privs`, establishes the controlling PTY and execs Android's shell.
+  domain, same Unix UID. Android's existing `appdomain` workload policy class
+  permits this owner code without relaxing trusted-daemon or ordinary-APK rules;
+  that attribute does not make the process an installed APK. Checks inherited
+  bounds/home and installs an additional worker-only seccomp filter before exec:
+  `no_new_privs`, no Binder ioctl family or io_uring. This prevents the reserved
+  UID from becoming an ambient Android service client despite upstream generic
+  Binder grants. The coordinator/Android are not filtered. Establishes the PTY and
+  execs Android's shell.
 - `AndrixTerminal` (`dev.andrix.terminal`): small privileged system_ext platform-API
   console, signed with the existing local Andrix lab certificate, **not the platform
   key**. No shared UID or APK-declared Android permissions. A signer-and-package
@@ -62,7 +68,11 @@ removal must be tested separately; no multi-user support is claimed.
 ## Verification status
 
 Portable native core and host guard-negative tests exercise actual C++ logic, not
-Android mocks pretending to supply CE storage. Source-contract tests check opt-in
-scope, signer mapping and init bounds. Build, compiled policy, image contents and
+Android mocks pretending to supply CE storage. The actual production stream-pump
+methods also run against real host PTYs/sockets with an explicit FD/clock adapter;
+stale streams close while the PTY survives. Worker-filter tests exercise real
+host syscall denial, retained PTY ioctls and fork/exec inheritance, not Android
+SELinux or ABI qualification. Source-contract tests check opt-in scope, signer
+mapping and init bounds. Build, compiled policy, image contents and
 real Android/CE/resource/UI negative tests are separate gates. **Runtime remains
 unqualified until those gates are actually exercised and recorded.**
