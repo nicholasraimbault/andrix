@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: Apache-2.0
+cc_library_shared {
+    name: "libandrix_owner_negative",
+    srcs: ["probe.cpp"],
+    shared_libs: ["libbinder_ndk"],
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+    stl: "none",
+    installable: false,
+    compile_multilib: "64",
+    enabled: false,
+    arch: { arm64: { enabled: true } },
+    ldflags: ["-Wl,-z,max-page-size=16384", "-Wl,-z,common-page-size=16384"],
+}
+
+android_test {
+    name: "AndrixOwnerNegative",
+    srcs: ["src/**/*.java"],
+    manifest: "AndroidManifest.xml",
+    sdk_version: "current",
+    min_sdk_version: "37",
+    target_sdk_version: "37",
+    compile_multilib: "64",
+    use_embedded_native_libs: true,
+    auto_gen_config: false,
+    certificate: ":dev.andrix.usr.certificate",
+    jni_libs: ["libandrix_owner_negative"],
+    jni_uses_platform_apis: true,
+}
