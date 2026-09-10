@@ -15,7 +15,10 @@ import owner_policy as policy
 
 class OwnerPolicyTests(unittest.TestCase):
     def fixture(self):
-        return (policy.PREFIX + '\nneverallow { domain -zygote\n' + policy.ORIGINAL_RULE).encode()
+        return (policy.PREFIX + '\n' + policy.ORIGINAL_EXEC_PREFIX + '} file_type:file execute;\n'
+                + policy.ORIGINAL_DATA_PREFIX + '} data_file_type:file execute;\n'
+                + ''.join('allow ' + policy.CGROUP_SUBJECT + ' ' + kind + ':' + cls + ' write;\n'
+                          for kind in ['cgroup', 'cgroup_v2'] for cls in ['dir','file'])).encode()
 
     def test_real_pin_and_patch_record(self):
         root = Path(__file__).resolve().parents[3]
@@ -35,18 +38,21 @@ class OwnerPolicyTests(unittest.TestCase):
             args = ['m4'] + (['-Dandrix_owner_session=true'] if enabled else [])
             run = subprocess.run(args, input=data, capture_output=True, timeout=10)
             self.assertEqual(run.returncode, 0, run.stderr)
-            return '\n'.join(line.strip() for line in run.stdout.decode().splitlines()
+            return '\n'.join(' '.join(line.split()) for line in run.stdout.decode().splitlines()
                               if line.strip() and not line.lstrip().startswith('#'))
         self.assertEqual(expand(original, False), expand(adapted, False))
         on = expand(adapted, True)
         self.assertIn('type andrixd, domain, coredomain;', on)
         self.assertIn('type andrix_owner, domain, coredomain;', on)
         self.assertIn('-andrix_owner', on)
-        self.assertIn('neverallow { domain -andrixd } andrix_owner:process', on)
+        self.assertIn('neverallow { domain -andrixd } andrix_owner:process transition', on)
+        self.assertIn('neverallow domain andrix_owner:process dyntransition', on)
+        self.assertIn('neverallow andrix_owner { data_file_type -andrix_home_file }', on)
+        self.assertNotIn('app_domain(andrix_owner)', on)
         self.assertNotIn('-untrusted_app', on)
 
     def test_ambiguous_context_rejected(self):
-        original = self.fixture() + policy.ORIGINAL_RULE.encode()
+        original = self.fixture() + policy.ORIGINAL_DATA_PREFIX.encode()
         with patch.object(policy, 'BEFORE', policy.sha(original)):
             with self.assertRaisesRegex(ValueError, 'ambiguous'):
                 policy.patched(original)

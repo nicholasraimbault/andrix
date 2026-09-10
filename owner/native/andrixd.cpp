@@ -56,7 +56,7 @@ uint64_t epoch_seed() {
 
 bool caller_allowed() {
   const char* sid = AIBinder_getCallingSid();
-  return sid && authorized_console(AIBinder_getCallingUid(), sid);
+  return sid && AIBinder_getCallingPid() > 1 && authorized_console(AIBinder_getCallingUid(), sid);
 }
 
 ScopedAStatus denied() {
@@ -69,7 +69,29 @@ ScopedAStatus bad_state(const std::string& text) {
 
 class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
  public:
-  OwnerSession() : gate_(epoch_seed()) {}
+  OwnerSession() : gate_(epoch_seed()), death_(AIBinder_DeathRecipient_new([](void* cookie) {
+    static_cast<OwnerSession*>(cookie)->controller_died();
+  })) {
+    if (!death_) _exit(125);
+  }
+
+  ScopedAStatus registerController(const ndk::SpAIBinder& lifetime) override {
+    if (!caller_allowed()) return denied();
+    if (!lifetime.get() || !AIBinder_isRemote(lifetime.get()))
+      return ScopedAStatus::fromExceptionCodeWithMessage(EX_ILLEGAL_ARGUMENT, "missing console lifetime");
+    std::lock_guard guard(mutex_);
+    if (stopping_) return bad_state("session is ending");
+    if (controller_.get()) {
+      if (controller_pid_ == AIBinder_getCallingPid() && controller_.get() == lifetime.get())
+        return ScopedAStatus::ok();
+      return bad_state("a different console lifetime is already registered");
+    }
+    if (AIBinder_linkToDeath(lifetime.get(), death_, this) != STATUS_OK)
+      return bad_state("console is no longer alive");
+    controller_ = lifetime;
+    controller_pid_ = AIBinder_getCallingPid();
+    return ScopedAStatus::ok();
+  }
 
   ScopedAStatus attach(int32_t rows, int32_t columns, bool ui_eligible,
                        bool user_unlocked, Attachment* result) override {
@@ -77,8 +99,13 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
     if (!valid_dimensions(rows, columns))
       return ScopedAStatus::fromExceptionCodeWithMessage(EX_ILLEGAL_ARGUMENT, "invalid PTY dimensions");
     std::lock_guard guard(mutex_);
+    if (!controller_matches()) return denied();
     if (stopping_) return bad_state("session is ending");
     revoke_locked();
+    if (!user_unlocked) {
+      stopping_ = child_ != 0;
+      return bad_state("Android user is not unlocked");
+    }
     std::string error;
     auto bounds = check_resource_bounds();
     if (!bounds.empty()) return bad_state(bounds);
@@ -121,9 +148,11 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
     if (!caller_allowed()) return denied();
     std::lock_guard guard(mutex_);
     std::string error;
-    const bool key_ready = home_ >= 0 && ce_key_present(home_, &error);
-    *result = generation > 0 && gate_.renew(generation, now_ms(), ui_eligible,
-                                           user_unlocked && key_ready);
+    if (!controller_matches()) return denied();
+    const bool policy_ready = home_ >= 0 && ce_policy_valid(home_, &error);
+    if (!user_unlocked) stopping_ = true;
+    *result = generation > 0 && !stopping_ && gate_.renew(generation, now_ms(), ui_eligible,
+                                                       user_unlocked && policy_ready);
     if (!gate_.live(now_ms())) revoke_locked();
     return ScopedAStatus::ok();
   }
@@ -133,6 +162,7 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
     if (!valid_dimensions(rows, columns))
       return ScopedAStatus::fromExceptionCodeWithMessage(EX_ILLEGAL_ARGUMENT, "invalid PTY dimensions");
     std::lock_guard guard(mutex_);
+    if (!controller_matches()) return denied();
     if (generation <= 0 || uint64_t(generation) != gate_.generation() || !gate_.live(now_ms()))
       return bad_state("attachment is no longer active");
     winsize size{static_cast<unsigned short>(rows), static_cast<unsigned short>(columns), 0, 0};
@@ -143,6 +173,7 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
   ScopedAStatus detach(int64_t generation) override {
     if (!caller_allowed()) return denied();
     std::lock_guard guard(mutex_);
+    if (!controller_matches()) return denied();
     if (generation > 0 && gate_.detach(generation)) revoke_locked();
     return ScopedAStatus::ok();
   }
@@ -150,6 +181,7 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
   ScopedAStatus endSession(int64_t generation) override {
     if (!caller_allowed()) return denied();
     std::lock_guard guard(mutex_);
+    if (!controller_matches()) return denied();
     if (generation <= 0 || uint64_t(generation) != gate_.generation() || !gate_.live(now_ms()))
       return bad_state("attachment is no longer active");
     revoke_locked();
@@ -160,6 +192,7 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
   ScopedAStatus status(std::string* result) override {
     if (!caller_allowed()) return denied();
     std::lock_guard guard(mutex_);
+    if (!controller_matches()) return denied();
     bool active = gate_.live(now_ms());
     if (!active) revoke_locked();
     *result = "uid=" + std::to_string(getuid()) + " child=" + std::to_string(child_) +
@@ -186,7 +219,7 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
         if (home_ >= 0 && now_ms() - checked_at >= 500) {
           std::string error;
           checked_at = now_ms();
-          if (!ce_key_present(home_, &error)) {
+          if (!ce_policy_valid(home_, &error)) {
             LOG(ERROR) << error;
             stopping_ = true;
             revoke_locked();
@@ -210,6 +243,18 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
   }
 
  private:
+  bool controller_matches() const {
+    return controller_.get() && controller_pid_ == AIBinder_getCallingPid();
+  }
+
+  void controller_died() {
+    std::lock_guard guard(mutex_);
+    // Android reclaims this APK process on user stop. Do not leave its native
+    // session behind after the lifecycle authority disappears.
+    stopping_ = true;
+    revoke_locked();
+  }
+
   void revoke_locked() {
     gate_.revoke();
     if (bridge_ >= 0) shutdown(bridge_, SHUT_RDWR);
@@ -307,6 +352,9 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
   unique_fd bridge_;
   pid_t child_ = 0;
   bool stopping_ = false;
+  ndk::SpAIBinder controller_;
+  pid_t controller_pid_ = 0;
+  AIBinder_DeathRecipient* death_; // fixed process-lifetime recipient, never replaced
 };
 
 }  // namespace

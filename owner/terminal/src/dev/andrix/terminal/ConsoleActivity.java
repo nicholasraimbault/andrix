@@ -5,6 +5,7 @@ import android.app.Activity;
 import android.app.KeyguardManager;
 import android.graphics.Typeface;
 import android.os.Bundle;
+import android.os.Binder;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.PowerManager;
@@ -36,6 +37,7 @@ import java.util.concurrent.TimeUnit;
 /** First line-oriented Android console; not a VT emulator or a privileged shell APK. */
 public final class ConsoleActivity extends Activity {
     private static final String SERVICE = "andrix.owner.session";
+    private static final Binder PROCESS_LIFETIME = new Binder();
     private final ScheduledExecutorService control = Executors.newSingleThreadScheduledExecutor();
     private final ExecutorService reader = Executors.newSingleThreadExecutor();
     private final Object outputLock = new Object();
@@ -123,6 +125,7 @@ public final class ConsoleActivity extends Activity {
             IBinder binder = ServiceManager.checkService(SERVICE);
             if (binder == null) { showState("Owner service unavailable (check CE/resource admission)"); return; }
             IOwnerSession service = IOwnerSession.Stub.asInterface(binder);
+            service.registerController(PROCESS_LIFETIME);
             Attachment attachment = service.attach(24, 80, eligible(), users.isUserUnlocked());
             stream = attachment.stream;
             if (stream == null || attachment.generation <= 0) throw new IOException("invalid attachment");
@@ -146,7 +149,8 @@ public final class ConsoleActivity extends Activity {
         Connection current = connection;
         if (current == null || destroyed) return;
         try {
-            if (!eligible() || !current.service.renew(current.generation, eligible(), users.isUserUnlocked())) {
+            boolean unlocked = users.isUserUnlocked();
+            if (!current.service.renew(current.generation, eligible(), unlocked)) {
                 disconnect(current, true);
                 showState("Detached: UI lock/focus/lease changed; session files are preserved");
             }
