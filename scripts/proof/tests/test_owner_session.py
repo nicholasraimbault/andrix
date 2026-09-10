@@ -127,7 +127,8 @@ class OwnerSessionTests(unittest.TestCase):
             binary = work/'pump'
             compiled = subprocess.run([compiler, '-std=c++20', '-Wall', '-Wextra', '-Werror',
                                        '-O2', '-I'+str(ROOT/'owner/native'),
-                                       str(ROOT/'owner/native/session_core.cpp'), str(cpp), '-o', str(binary)],
+                                       str(ROOT/'owner/native/session_core.cpp'),
+                                       str(ROOT/'owner/native/terminal_protocol.cpp'), str(cpp), '-o', str(binary)],
                                       capture_output=True, text=True, timeout=60)
             self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
             ran = subprocess.run([str(binary)], capture_output=True, text=True, timeout=20)
@@ -167,9 +168,16 @@ class OwnerSessionTests(unittest.TestCase):
         self.assertIn('controller_pid_ == AIBinder_getCallingPid()', daemon)
         self.assertIn('void controller_died()', daemon)
         activity = (ROOT/'owner/terminal/src/dev/andrix/terminal/ConsoleActivity.java').read_text()
-        self.assertIn('static final Binder PROCESS_LIFETIME = new Binder()', activity)
-        self.assertLess(activity.index('registerController(PROCESS_LIFETIME)'), activity.index('service.attach('))
-        self.assertNotIn('getIntent().get', activity)
+        controller = (ROOT/'owner/terminal/src/dev/andrix/terminal/TerminalController.java').read_text()
+        self.assertIn('static final Binder PROCESS_LIFETIME = new Binder()', controller)
+        self.assertLess(controller.index('registerController(PROCESS_LIFETIME)'), controller.index('service.attach('))
+        self.assertIn('uiEpoch != requestEpoch', controller)
+        self.assertIn('cursor.accept(frame, session::applyOutput)', controller)
+        self.assertIn('acknowledgeOutput(current.generation, ack[0])', controller)
+        self.assertIn('new ArrayBlockingQueue<>(1)', controller)
+        self.assertNotIn('InputStreamReader', controller.replace('// fragment independently or retain an InputStreamReader across sockets.', ''))
+        self.assertNotIn('getIntent().get', activity + controller)
+        self.assertNotIn('shutdownNow()', activity)
 
     def test_native_core_and_host_guard_negatives(self):
         compiler = shutil.which('g++')

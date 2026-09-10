@@ -17,7 +17,10 @@ class TerminalLibraryPinsTests(unittest.TestCase):
         self.assertEqual(result['unmodified_files'], 42)
         self.assertEqual(result['commit'], libraries.COMMIT)
         self.assertFalse((libraries.LIBRARIES/'terminal-emulator/src/main/jni').exists())
-        self.assertFalse((libraries.LIBRARIES/'Android.bp').exists())  # not an active Android library yet
+        bp = (libraries.LIBRARIES/'Android.bp').read_text()
+        self.assertIn('name: "AndrixTerminalLibraries"', bp)
+        self.assertIn('":andrix_terminal_adapter_sources"', bp)
+        self.assertNotIn('jni_libs', bp)
 
     def test_changed_blob_and_self_rewritten_manifest_fail(self):
         with tempfile.TemporaryDirectory() as tmp:

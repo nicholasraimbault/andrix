@@ -23,7 +23,7 @@ cc_defaults {
 cc_binary {
     name: "andrixd",
     defaults: ["andrix_owner_defaults"],
-    srcs: ["native/andrixd.cpp"],
+    srcs: ["native/andrixd.cpp", "native/terminal_protocol.cpp"],
     static_libs: ["andrix_session-ndk"],
     shared_libs: ["libbase", "libbinder_ndk", "liblog", "libselinux"],
     init_rc: ["andrixd.rc"],
@@ -35,13 +35,18 @@ cc_binary {
     srcs: ["native/runner.cpp", "native/worker_filter.cpp"],
 }
 
+filegroup {
+    name: "andrix_terminal_adapter_sources",
+    srcs: ["terminal/adapter/*.java"],
+}
+
 android_app {
     name: "AndrixTerminal",
     system_ext_specific: true,
     privileged: true,
     platform_apis: true,
-    srcs: ["terminal/src/**/*.java"],
+    srcs: ["terminal/src/**/*.java", "terminal/protocol/*.java"],
     manifest: "terminal/AndroidManifest.xml",
     certificate: ":dev.andrix.usr.certificate",
-    static_libs: ["andrix_session-java"],
+    static_libs: ["andrix_session-java", "AndrixTerminalLibraries"],
 }

@@ -17,11 +17,12 @@ JNI implementation are deliberately excluded. Andrix must supply the view's
 session API through its existing authenticated native coordinator and revocable
 stream. It must not move execution into the console APK or hand it the PTY master.
 
-These sources are not yet an Android build target. First qualify the portable
-parser and the bounded replay protocol, then integrate an Andrix session adapter
-and native Android view. The active M4 console is unchanged by this import.
-Automatic OSC clipboard requests must not silently acquire Android clipboard
-access; explicit user copy/paste is a separate UI action.
+`Android.bp`/`AndroidManifest.xml` are first-party build glue for the
+`AndrixTerminalLibraries` target. The session adapter lives under `owner/terminal/adapter`,
+not in the pinned source set. Native Android integration is under qualification;
+portable parser checks alone do not establish a working View/IME or owner session.
+The adapter gives escape-triggered output a separate sink that ignores automatic
+OSC clipboard requests; explicit view copy/paste is a different UI action.
 
 Keep upstream files byte-identical, including the existing trailing whitespace in
 `TextSelectionCursorController.java`. First-party whitespace checks and upstream

@@ -1,0 +1,23 @@
+// SPDX-License-Identifier: Apache-2.0
+// Andrix build glue. The pinned upstream sources remain byte-identical.
+package {
+    default_applicable_licenses: ["andrix_termux_terminal_license"],
+}
+license {
+    name: "andrix_termux_terminal_license",
+    license_kinds: ["SPDX-license-identifier-Apache-2.0"],
+    license_text: ["LICENSE", "UPSTREAM-LICENSE.md"],
+}
+android_library {
+    name: "AndrixTerminalLibraries",
+    sdk_version: "current",
+    min_sdk_version: "37",
+    manifest: "AndroidManifest.xml",
+    srcs: [
+        "terminal-emulator/src/main/java/**/*.java",
+        "terminal-view/src/main/java/**/*.java",
+        ":andrix_terminal_adapter_sources",
+    ],
+    resource_dirs: ["terminal-view/src/main/res"],
+    static_libs: ["androidx.annotation_annotation"],
+}
