@@ -136,6 +136,9 @@ The preparation evidence selected by `out/owner-tools/EVIDENCE` is sealed across
 source observations, portable checks and the raw-stream characterization. The
 completed 24,195-file owner-session seal is untouched. Public-source fetches establish
 pinned bytes via HTTPS, not independent maintainer identity or runtime safety.
-The I16 read-only assessment was cancelled without substantive findings; primary
-inspection supplies the source observations here. Portable implementation checks
-are reported above; no new Android runtime PASS is claimed.
+I16 was cancelled before completing its read-only assessment. A delayed initial
+note corroborated the enabled device `vi` and legacy LLVM/Clang source versions;
+primary inspection verified those details. It did not assess the modern OpenCL
+LLVM tree found by the primary. This is partial static corroboration, not a
+completed independent review or a build/runtime result. Portable implementation
+checks are reported above; no new Android runtime PASS is claimed.
