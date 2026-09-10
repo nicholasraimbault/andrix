@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-// Host adapter around exact production pump/revoke method bodies. Real host PTY
-// and Unix sockets; no Android identity, SELinux, CE or Binder success is mocked.
+// Exact production pump/revoke/death methods with host FD/clock adapter. No Binder,
+// Android identities, CE or SELinux permissions are faked into a runtime PASS.
 #include "session_core.h"
+#include "terminal_protocol.h"
 #include <sys/socket.h>
 #include <fcntl.h>
 #include <termios.h>
 #include <unistd.h>
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <cerrno>
@@ -25,8 +27,13 @@ struct HostFd {
 };
 struct Pump {
   std::mutex mutex_;
+  const uint64_t session_id_ = 7;
   AttachmentGate gate_;
-  OutputTail output_;
+  terminal::OutputJournal output_;
+  uint64_t output_cursor_ = 0;
+  std::string frame_;
+  size_t frame_sent_ = 0;
+  uint64_t frame_end_ = 0;
   std::string input_;
   HostFd master_;
   HostFd bridge_;
@@ -39,78 +46,88 @@ std::string receive(int fd, Pump& pump, size_t expected) {
   for (int i = 0; i < 100 && result.size() < expected; ++i) {
     pump.transfer_locked();
     char bytes[512];
-    ssize_t size = read(fd, bytes, sizeof(bytes));
+    ssize_t size = read(fd, bytes, std::min(sizeof(bytes), expected - result.size()));
     if (size > 0) result.append(bytes, size);
     else assert(size < 0 && (errno == EAGAIN || errno == EINTR));
     usleep(1000);
   }
+  assert(result.size() == expected);
   return result;
 }
 
+std::string output(int fd, Pump& p, uint64_t offset, size_t count) {
+  auto header = receive(fd, p, terminal::kHeaderSize);
+  terminal::Header h{};
+  assert(terminal::decode_header(header, &h));
+  assert(h.session == p.session_id_ && h.offset == offset && h.length == count);
+  return receive(fd, p, count);
+}
+
 int main() {
-  Pump pump;
+  Pump p;
   int master = posix_openpt(O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC);
   assert(master >= 0 && grantpt(master) == 0 && unlockpt(master) == 0);
-  pump.master_.reset(master);
-  const char* slave_name = ptsname(master);
-  assert(slave_name);
+  p.master_.reset(master);
   HostFd slave;
-  slave.reset(open(slave_name, O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC));
+  slave.reset(open(ptsname(master), O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC));
   assert(slave >= 0);
   termios term{};
-  assert(tcgetattr(slave, &term) == 0);
-  cfmakeraw(&term);
+  assert(tcgetattr(slave, &term) == 0); cfmakeraw(&term);
   assert(tcsetattr(slave, TCSANOW, &term) == 0);
-  int pair[2];
-  assert(socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0, pair) == 0);
-  pump.bridge_.reset(pair[0]);
+  auto connect = [&](HostFd& peer) {
+    int pair[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0, pair) == 0);
+    p.bridge_.reset(pair[0]); peer.reset(pair[1]);
+    return p.gate_.attach(++fake_now, true, true, true);
+  };
   HostFd peer;
-  peer.reset(pair[1]);
-  auto first = pump.gate_.attach(fake_now, true, true, true);
-  assert(first);
+  auto first = connect(peer); assert(first);
   assert(write(slave, "hello\n", 6) == 6);
-  assert(receive(peer, pump, 6) == "hello\n");
+  assert(output(peer, p, 0, 6) == "hello\n");
+  assert(p.output_.size() == 6); // transport write is not parser acknowledgement
+  assert(!p.output_.acknowledge(7));
   assert(write(peer, "id\n", 3) == 3);
-  assert(receive(slave, pump, 3) == "id\n");
-  assert(!pump.stopping_);
-  pump.input_ = "stale input\n"; // explicitly seed a pending backpressure state
-  fake_now += kLeaseMillis;
-  pump.transfer_locked();
-  assert(pump.bridge_ == -1 && pump.input_.empty());
+  assert(receive(slave, p, 3) == "id\n");
+  assert(!p.stopping_);
+  p.input_ = "stale input\n";
+  fake_now += kLeaseMillis; p.transfer_locked();
+  assert(p.bridge_ == -1 && p.input_.empty() && p.frame_.empty());
   char byte;
   assert(read(peer, &byte, 1) == 0);
-  errno = 0;
   assert(send(peer, "x", 1, MSG_NOSIGNAL) == -1 && errno == EPIPE);
   assert(read(slave, &byte, 1) == -1 && errno == EAGAIN);
+  assert(p.output_.size() == 6);
 
-  assert(write(slave, "detached", 8) == 8);
-  for (int i = 0; i < 20 && pump.output_.size() < 8; ++i) {
-    pump.transfer_locked();
-    usleep(1000);
+  HostFd next;
+  auto second = connect(next); assert(second > first);
+  p.output_cursor_ = 0; // exact resume checkpoint; no ACK arrived for first frame
+  assert(!p.gate_.detach(first));
+  assert(output(next, p, 0, 6) == "hello\n");
+  assert(p.output_.acknowledge(6));
+  assert(p.output_.size() == 0);
+  assert(write(slave, "unread", 6) == 6);
+  for (int i = 0; i < 100 && p.output_.delivered_end() != 12; ++i) {
+    p.transfer_locked(); usleep(1000);
   }
-  assert(pump.output_.peek(16) == "detached");
-  assert(socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0, pair) == 0);
-  pump.bridge_.reset(pair[0]);
-  HostFd next_peer;
-  next_peer.reset(pair[1]);
-  auto second = pump.gate_.attach(++fake_now, true, true, true);
-  assert(second > first);
-  assert(!pump.gate_.detach(first));
-  assert(receive(next_peer, pump, 8) == "detached");
-  assert(send(peer, "x", 1, MSG_NOSIGNAL) == -1 && errno == EPIPE);
-  assert(write(next_peer, "pwd\n", 4) == 4);
-  assert(receive(slave, pump, 4) == "pwd\n");
-  assert(pump.gate_.detach(second));
-  pump.revoke_locked();
-  assert(read(next_peer, &byte, 1) == 0);
-  assert(pump.master_ >= 0); // detachment did not destroy the underlying PTY
-  assert(socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0, pair) == 0);
-  pump.bridge_.reset(pair[0]);
-  HostFd death_peer;
-  death_peer.reset(pair[1]);
-  assert(pump.gate_.attach(++fake_now, true, true, true));
-  pump.controller_died();
-  assert(pump.stopping_ && pump.bridge_ == -1 && !pump.gate_.live(fake_now));
-  assert(read(death_peer, &byte, 1) == 0);
-  std::cout << "real host PTY/stream revocation checks passed; Android unqualified\n";
+  assert(p.output_.delivered_end() == 12 && p.output_.size() == 6);
+  // The entire frame was sent but never read. Closing the receiver used to lose
+  // these bytes. The new pump retains and replays them, with unchanged offsets.
+  next.reset(); p.revoke_locked();
+  connect(next); p.output_cursor_ = 6;
+  assert(output(next, p, 6, 6) == "unread");
+  assert(p.output_.acknowledge(12));
+
+  // Explicit overflow emits an absolute-offset gap, never a silently rebased tail.
+  assert(p.output_.append(std::string(terminal::kJournalLimit + 20, 'g')));
+  p.output_cursor_ = 12;
+  auto gap_header = receive(next, p, terminal::kHeaderSize);
+  terminal::Header h{}; assert(terminal::decode_header(gap_header, &h));
+  assert(h.offset == 32 && h.length == terminal::kFramePayloadLimit);
+  p.revoke_locked();
+  assert(p.master_ >= 0); // detach retains PTY
+  connect(next);
+  p.controller_died();
+  assert(p.stopping_ && p.bridge_ == -1 && !p.gate_.live(fake_now));
+  assert(read(next, &byte, 1) == 0);
+  std::cout << "real host PTY/framed replay/revocation checks passed; Android unqualified\n";
 }

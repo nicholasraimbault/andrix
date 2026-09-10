@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Resource namespace only: no permissions, components or process identity. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.termux.view" />

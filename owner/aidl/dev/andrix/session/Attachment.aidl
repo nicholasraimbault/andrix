@@ -5,5 +5,7 @@ import android.os.ParcelFileDescriptor;
 
 parcelable Attachment {
     long generation;
+    long sessionId;
+    long firstOutputOffset;
     ParcelFileDescriptor stream;
 }

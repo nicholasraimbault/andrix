@@ -53,7 +53,7 @@ int main(int argc, char**) {
   char path[] = "PATH=/usr/bin:/system/bin";
   char home_var[] = "HOME=/data/misc_ce/0/andrix";
   char temporary[] = "TMPDIR=/data/misc_ce/0/andrix/.tmp";
-  char term[] = "TERM=dumb";
+  char term[] = "TERM=xterm-256color";
   char user[] = "USER=system_ext_andrix";
   char login[] = "LOGNAME=system_ext_andrix";
   char shell[] = "SHELL=/system/bin/sh";
