@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="dev.andrix.proof.ownernegative">
+    package="dev.andrix.proof.ownernegative" android:versionCode="1" android:versionName="0.1-prototype">
     <uses-sdk android:minSdkVersion="37" android:targetSdkVersion="37" />
     <application android:label="Andrix owner-boundary negative" android:allowBackup="false"
         android:hasCode="true" android:extractNativeLibs="false" />
