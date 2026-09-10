@@ -10,6 +10,7 @@ SYSTEM_EXT_PRIVATE_SEPOLICY_DIRS += vendor/andrix/sepolicy/private
 ifeq ($(TARGET_PRODUCT),andrix_gos_cf_arm64_only_phone)
 BOARD_BOOTCONFIG += androidboot.cuttlefish_service_bluetooth_checker=false
 ifeq ($(ANDRIX_OWNER_SESSION),true)
+BOARD_SEPOLICY_M4DEFS += andrix_owner_session=true
 TARGET_FS_CONFIG_GEN += vendor/andrix/owner/config.fs
 SYSTEM_EXT_PRIVATE_SEPOLICY_DIRS += vendor/andrix/owner/sepolicy
 endif

@@ -1,0 +1,14 @@
+{
+  "base_release": "2026081300",
+  "project": "system/sepolicy",
+  "head": "87a06ed71fd67cff9f77feaa9ae3504edb5d0972",
+  "file": "private/domain.te",
+  "upstream_sha256": "b6097259d6529f010896778f4802e1556b5c70643c9eab3e793ea91c45d26934",
+  "adapted_sha256": "b2d46e4c82183660baef86dd3b1d2100e855841ff45001bef07609936707871a",
+  "patch": "owner-session-policy.patch",
+  "patch_sha256": "1c27b71b9802a2c49107c8ca0645ecdde93367775c830490c6985e56d45b768a",
+  "activation": "andrix_owner_session=true via explicit GOS Cuttlefish owner opt-in",
+  "public_policy_api_changed": false,
+  "existing_domain_grants_changed": false,
+  "patch_format": "zero-context unified review record; apply via digest-guarded owner_policy.py"
+}
