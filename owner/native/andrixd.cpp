@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "guards.h"
 #include "session_core.h"
+#include "terminal_protocol.h"
 
 #include <aidl/dev/andrix/session/BnOwnerSession.h>
 #include <android/binder_ibinder_platform.h>
@@ -22,6 +23,7 @@
 #include <termios.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <array>
 #include <cerrno>
 #include <chrono>
@@ -69,7 +71,7 @@ ScopedAStatus bad_state(const std::string& text) {
 
 class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
  public:
-  OwnerSession() : gate_(epoch_seed()), death_(AIBinder_DeathRecipient_new([](void* cookie) {
+  OwnerSession() : session_id_(epoch_seed()), gate_(session_id_), death_(AIBinder_DeathRecipient_new([](void* cookie) {
     static_cast<OwnerSession*>(cookie)->controller_died();
   })) {
     if (!death_) _exit(125);
@@ -94,13 +96,19 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
   }
 
   ScopedAStatus attach(int32_t rows, int32_t columns, bool ui_eligible,
-                       bool user_unlocked, Attachment* result) override {
+                       bool user_unlocked, int64_t previous_session, int64_t next_output,
+                       Attachment* result) override {
     if (!caller_allowed()) return denied();
-    if (!valid_dimensions(rows, columns))
+    if (!valid_dimensions(rows, columns) || previous_session < 0 || next_output < 0)
       return ScopedAStatus::fromExceptionCodeWithMessage(EX_ILLEGAL_ARGUMENT, "invalid PTY dimensions");
     std::lock_guard guard(mutex_);
     if (!controller_matches()) return denied();
     if (stopping_) return bad_state("session is ending");
+    if (uint64_t(previous_session) == session_id_ &&
+        uint64_t(next_output) > output_.delivered_end())
+      return bad_state("output offset was never delivered");
+    if (previous_session == 0 && next_output != 0)
+      return bad_state("missing native session for output offset");
     revoke_locked();
     if (!user_unlocked) {
       stopping_ = child_ != 0;
@@ -137,8 +145,15 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
       gate_.revoke();
       return bad_state(error);
     }
+    // A replacement socket replays bytes until the controller confirms they were
+    // parsed. A different daemon/session cannot inherit an old parser checkpoint.
+    const uint64_t resume = uint64_t(previous_session) == session_id_ ? uint64_t(next_output) : 0;
+    if (uint64_t(previous_session) == session_id_ && !output_.acknowledge(resume)) _exit(125);
+    output_cursor_ = std::max(resume, output_.begin());
     bridge_ = std::move(server);
     result->generation = generation;
+    result->sessionId = session_id_;
+    result->firstOutputOffset = output_cursor_;
     result->stream = std::move(client);
     return ScopedAStatus::ok();
   }
@@ -154,6 +169,17 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
     *result = generation > 0 && !stopping_ && gate_.renew(generation, now_ms(), ui_eligible,
                                                        user_unlocked && policy_ready);
     if (!gate_.live(now_ms())) revoke_locked();
+    return ScopedAStatus::ok();
+  }
+
+  ScopedAStatus acknowledgeOutput(int64_t generation, int64_t next_output, bool* result) override {
+    if (!caller_allowed()) return denied();
+    std::lock_guard guard(mutex_);
+    if (!controller_matches()) return denied();
+    *result = false;
+    if (generation <= 0 || uint64_t(generation) != gate_.generation() ||
+        !gate_.live(now_ms()) || next_output < 0) return ScopedAStatus::ok();
+    *result = output_.acknowledge(next_output);
     return ScopedAStatus::ok();
   }
 
@@ -199,6 +225,7 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
               " attached=" + (active ? "true" : "false") +
               " output_buffered=" + std::to_string(output_.size()) +
               " output_dropped=" + std::to_string(output_.dropped()) +
+              " output_ack=" + std::to_string(output_.acknowledged()) +
               " memory_limit=" + std::to_string(kMemoryLimit);
     return ScopedAStatus::ok();
   }
@@ -260,6 +287,9 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
     if (bridge_ >= 0) shutdown(bridge_, SHUT_RDWR);
     bridge_.reset();
     input_.clear();
+    frame_.clear();
+    frame_sent_ = 0;
+    frame_end_ = 0;
   }
 
   bool start_shell_locked(int rows, int columns, int home_fd, std::string* error) {
@@ -315,7 +345,7 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
       // One bounded read each turn; an output flood must not monopolize Binder or
       // prevent lease expiry. EIO is a normal PTY close; waitpid handles lifecycle.
       ssize_t n = read(master_, buffer.data(), buffer.size());
-      if (n > 0) output_.append({buffer.data(), static_cast<size_t>(n)});
+      if (n > 0 && !output_.append({buffer.data(), static_cast<size_t>(n)})) stopping_ = true;
       if (n < 0 && errno != EAGAIN && errno != EINTR && errno != EIO) stopping_ = true;
     }
     if (bridge_ < 0 || !gate_.live(now_ms())) {
@@ -335,17 +365,45 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
       if (n > 0) input_.erase(0, n);
       if (n < 0 && errno != EAGAIN && errno != EINTR) revoke_locked();
     }
-    if (bridge_ >= 0 && output_.size() != 0) {
-      std::string bytes = output_.peek(4096);
-      ssize_t n = send(bridge_, bytes.data(), bytes.size(), MSG_DONTWAIT | MSG_NOSIGNAL);
-      if (n > 0) output_.consume(n);
-      if (n < 0 && errno != EAGAIN && errno != EINTR) revoke_locked();
+    if (bridge_ >= 0) {
+      if (frame_.empty()) {
+        auto pending = output_.read(output_cursor_);
+        if (!pending.valid) { stopping_ = true; revoke_locked(); return; }
+        // A skipped prefix remains visible as an absolute offset jump. Never
+        // silently reset/rebase the terminal parser after journal overflow.
+        output_cursor_ = pending.offset;
+        if (!pending.bytes.empty()) {
+          frame_ = terminal::encode_frame(session_id_, pending.offset, pending.bytes);
+          if (frame_.empty()) { stopping_ = true; revoke_locked(); return; }
+          frame_end_ = pending.offset + pending.bytes.size();
+          frame_sent_ = 0;
+        }
+      }
+      if (!frame_.empty()) {
+        ssize_t n = send(bridge_, frame_.data() + frame_sent_, frame_.size() - frame_sent_,
+                         MSG_DONTWAIT | MSG_NOSIGNAL);
+        if (n > 0) {
+          frame_sent_ += n;
+          if (frame_sent_ == frame_.size()) {
+            if (!output_.delivered(frame_end_)) _exit(125);
+            output_cursor_ = frame_end_;
+            frame_.clear();
+            frame_sent_ = 0;
+          }
+        }
+        if (n < 0 && errno != EAGAIN && errno != EINTR) revoke_locked();
+      }
     }
   }
 
   std::mutex mutex_;
+  const uint64_t session_id_;
   AttachmentGate gate_;
-  OutputTail output_;
+  terminal::OutputJournal output_;
+  uint64_t output_cursor_ = 0;
+  std::string frame_;
+  size_t frame_sent_ = 0;
+  uint64_t frame_end_ = 0;
   std::string input_;
   unique_fd home_;
   unique_fd master_;

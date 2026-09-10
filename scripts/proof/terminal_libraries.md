@@ -15,10 +15,10 @@ process launcher. Updating the pin or adapting upstream code requires a reviewed
 provenance change, not editing hashes merely to get a PASS.
 
 The SDK and JUnit inputs are pinned by digest to the inspected GrapheneOS anchor.
-The unmodified parser's tests run on a host JDK with the explicit adapters under
-`owner/tests/terminal-host`. No Termux JNI/process session or Android authority
-is supplied. The adapter supplies only utility/logging/types; it is not an Android
-view, identity, CE, clipboard, lifecycle or input-permission mock.
+The unmodified parser's tests run on a host JDK with the explicit utility adapters
+under `owner/tests/terminal-host` and the real Andrix process-free session adapter.
+No Termux JNI/process session or Android authority is supplied. These helpers are
+not an Android view, identity, CE, lifecycle or input-permission mock.
 
 Additional tests feed the actual terminal parser through the new output cursor:
 fragmented UTF-8/escape sequences, duplicate frames/title callbacks and gaps.
@@ -28,9 +28,8 @@ real Andrix adapter and runtime check; automatic escape requests must not be
 mistaken for explicit user copy/paste.
 
 `PASS_PORTABLE_TERMINAL_ENGINE_AND_REPLAY` means these portable tests passed.
-It does **not** mean the Android view/IME/session adapter is integrated or qualified,
-the new journal is active in the daemon, or `vi`/a compiler has been exercised in
-this new terminal. Those are subsequent [owner-tools gates](../../plans/2026-09-10-owner-tools.md).
+It does **not** mean the Android view/IME/authority boundary is qualified or that
+`vi`/a compiler has been exercised in the new terminal. Those are subsequent [owner-tools gates](../../plans/2026-09-10-owner-tools.md).
 
 The regular host suite separately compiles/runs the C++ journal/frame encoder and
 Java decoder/cursor, including real Unix-socket replacement and a cross-language

@@ -57,7 +57,8 @@ def verify(root=LIBRARIES):
         blob = hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
         if len(data) != row['size'] or blob != row['sha1'] or digest(path) != row['sha256']:
             raise ValueError('Changed terminal library: '+row['path'])
-    metadata = {'SOURCE.json', 'README.md', 'LICENSE', 'UPSTREAM-LICENSE.md'}
+    metadata = {'SOURCE.json', 'README.md', 'LICENSE', 'UPSTREAM-LICENSE.md',
+                'Android.bp', 'AndroidManifest.xml'}
     actual = {p.relative_to(root).as_posix() for p in root.rglob('*') if p.is_file() or p.is_symlink()}
     if actual != names | metadata or len(names) != 42:
         raise ValueError('Unexpected terminal library inputs')
@@ -82,7 +83,7 @@ def main():
         raise ValueError('Raw evidence must be outside the checkout')
     evidence.mkdir(parents=True, exist_ok=False)
     result = {'verdict': 'FAIL', 'Android_View_or_session_qualified': False,
-              'host_adapters': 'logging, Base64, RGB extraction, annotations, inert session type'}
+              'host_adapters': 'logging, Base64, RGB extraction, annotations; real Andrix session adapter' }
     started = time.monotonic()
     try:
         result['sources'] = verify()
@@ -92,9 +93,11 @@ def main():
         tests = LIBRARIES/'terminal-emulator/src/test/java/com/termux/terminal'
         adapters = ROOT/'owner/tests/terminal-host'
         sources = list(core.glob('*.java')) + list(tests.glob('*.java')) + list(adapters.rglob('*.java'))
-        sources.append(ROOT/'owner/terminal/protocol/OutputProtocol.java')
+        sources.extend((ROOT/'owner/terminal/adapter').glob('*.java'))
+        sources.extend((ROOT/'owner/terminal/protocol').glob('*.java'))
         classes = ['com.termux.terminal.'+p.stem for p in sorted(tests.glob('*Test.java'))]
-        classes.append('com.termux.terminal.TerminalReplayTest')
+        classes.extend(['com.termux.terminal.TerminalReplayTest',
+                        'com.termux.terminal.TerminalSessionAdapterTest'])
         result['upstream_disabled_method_not_counted'] = 'OperatingSystemControlTest.disabledTestSetClipboard'
         with tempfile.TemporaryDirectory() as tmp:
             def run(name, argv):

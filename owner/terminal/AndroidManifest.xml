@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="dev.andrix.terminal" android:versionCode="1" android:versionName="0.1-prototype">
+    package="dev.andrix.terminal" android:versionCode="2" android:versionName="0.2-terminal">
     <uses-sdk android:minSdkVersion="37" android:targetSdkVersion="37" />
     <!-- This system_ext console uses ServiceManager only to bootstrap its own
          local Binder interface. No shared UID or APK-declared permissions;
          GrapheneOS's implicit PM metadata is a separate observation. -->
-    <application android:label="Andrix Console" android:allowBackup="false"
+    <application android:label="Andrix Terminal" android:allowBackup="false"
         android:usesNonSdkApi="true" android:usesCleartextTraffic="false"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity android:name=".ConsoleActivity" android:exported="true"

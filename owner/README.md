@@ -101,7 +101,13 @@ user-stop/key eviction, long-lived services and native phone qualification remai
 open. Neither offline execution nor these lifecycle checks qualify networking
 privacy, production updates or power-loss durability.
 
-The [terminal/tools follow-up](../plans/2026-09-10-owner-tools.md) prepares pinned
-terminal libraries and an acknowledged output journal/replay core. Those portable
-components are not yet connected to this prototype's daemon or Android UI; their
-host tests must not be presented as a new running terminal qualification.
+The [terminal/tools follow-up](../plans/2026-09-10-owner-tools.md) now connects pinned
+VT libraries to the native stream through an Andrix-owned, process-free session
+adapter. Output carries session/offset frames and is retained until acknowledged
+after parsing. Activity recreation keeps the parser/checkpoint within the same
+console process; process death still ends native jobs. A detected output gap blocks
+input and requires an explicit End/new session, rather than silently inventing a
+screen or injecting a redraw command. The parser cannot access Android clipboard
+through escape sequences; explicit user selection actions use a separate callback.
+This integration is under build/runtime qualification: host tests are not a new
+Android View/IME/`vi` PASS.

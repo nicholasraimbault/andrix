@@ -126,11 +126,17 @@ integration tests) with explicit host utility/type adapters. The upstream disabl
 clipboard test is not counted. These are not Android UI, Binder integration or
 permission results.
 
-**The new components are not yet wired into the Android build or active daemon.**
-The demonstrated M4 console/transport and frozen producer remain unchanged. Next
-is the process-lifetime terminal-session adapter, authenticated output ACK/replay
-wiring, native Android view/input integration and the real `vi` exercise. This
-checkpoint does not deliver a new running terminal or on-device compiler.
+That preparation checkpoint did not wire the components into Android. The next
+implementation now connects the framed journal to authenticated AIDL ACK/resume
+operations and supplies a process-lifetime terminal model, a process-free session
+adapter and the native Android view/control keys. The parser's automatic clipboard
+callbacks are separate from explicit user selection actions. In-flight Attach is
+cancelled by UI lifecycle/detach epochs; input and worker queues are bounded.
+
+**This integration is under build/runtime qualification.** Its portable tests use
+the actual pump, session adapter and terminal parser, but do not qualify Android
+View/IME, Binder or `vi`. The existing frozen M4 producer remains unchanged until
+a new candidate is built and frozen. No on-device compiler is delivered here.
 
 ## Checks and evidence
 

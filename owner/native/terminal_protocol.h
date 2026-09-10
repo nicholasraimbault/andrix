@@ -39,7 +39,8 @@ struct Read {
 // A bounded output journal, NOT a complete transcript. Sending does not consume
 // bytes. The UI acknowledges only after applying complete frames to its parser.
 // Overflow advances begin() and is explicit in read(); it never rebases offsets.
-// This core is prepared for the VT frontend, not yet the M4 active transport.
+// The coordinator uses this core for its framed VT stream; host tests alone do
+// not qualify Binder/SELinux or Android UI lifecycle behavior.
 class OutputJournal {
  public:
   explicit OutputJournal(size_t capacity = kJournalLimit,
