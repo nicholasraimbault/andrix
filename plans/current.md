@@ -1,8 +1,10 @@
 # Current work
 
 **Active milestone:** [GrapheneOS-derived base — isolated migration trial](2026-09-08-grapheneos-migration.md).
-**Current action:** expand practical project/build/debug tooling and resource
-qualification from the [working cold-attachment correction](2026-09-11-cold-attachment.md).
+**Current action:** [native project build tools](2026-09-11-native-build-tools.md):
+prepare signed-source GNU Make for incremental owner projects, then qualify its
+native behavior and resource use. Debugger inventory remains a separate step.
+This follows the [working cold-attachment correction](2026-09-11-cold-attachment.md).
 The client now maintains a guarded pending lease during Main preparation, with input
 blocked until identity-checked promotion. First Attach passed without retry after
 both tested boots; normal relock, gap blocking/End, ordinary-app isolation and native

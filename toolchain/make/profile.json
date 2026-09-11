@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "name": "GNU Make",
+  "version": "4.4.1",
+  "archive": {
+    "file": "make-4.4.1.tar.gz",
+    "url": "https://ftp.gnu.org/gnu/make/make-4.4.1.tar.gz",
+    "sha256": "dd16fb1d67bfab79a72f5e8390735c49e3e8e70b4945a15ab1f81ddb78658fb3"
+  },
+  "signature": {
+    "file": "make-4.4.1.tar.gz.sig",
+    "url": "https://ftp.gnu.org/gnu/make/make-4.4.1.tar.gz.sig",
+    "sha256": "b0085e6c3f9a7461e739786a8d28dec9aeb090335bb8818e42b497fdeb73b929"
+  },
+  "keyring": {
+    "file": "gnu-keyring.gpg",
+    "url": "https://ftp.gnu.org/gnu/gnu-keyring.gpg",
+    "sha256": "b136fbe57ade4ee5270ca66c402cae7b50349fd07646b5b3de7962d58d4df608"
+  },
+  "primary_key": "6D4EEB02AD834703510B117680CB727A20C79BB2",
+  "signing_key": "B2508A90102F8AE3B12A0090DEACCAAEDB78137A",
+  "source_license": "GPL-3.0-or-later",
+  "copying_sha256": "e79e9c8a0c85d735ff98185918ec94ed7d175efc377012787aebcf3b80f0d90b",
+  "patch": {
+    "file": "bionic-default-path.patch",
+    "sha256": "53bd692c3d2c7c31d24b3bad68a480e37326438d7414eefd66b03b3d97b1cb9d",
+    "source": "src/job.c",
+    "before_sha256": "c1c32d4bd7fd56d898e952ed094a488edf2d4333a02058a3302d28f5e3f8ca09",
+    "after_sha256": "1da082951f29c15bd613c64abffcbe164a7d34d6215fb68a8fb4171b576365fa"
+  },
+  "target": "aarch64-linux-android37",
+  "sdk_manifest_sha256": "fc5738153df1da8af7dfb86f29a16c64958d53a8204b5e3c6a9df53954fecc19",
+  "bootstrap_project": "prebuilts/clang/host/linux-x86",
+  "bootstrap_revision": "29182889399818f97baa65ea238c80e8117981eb",
+  "bootstrap_directory": "clang-r584948b",
+  "bootstrap_version": "22.0.1",
+  "host_make_project": "prebuilts/build-tools",
+  "host_make_revision": "9b6c8c6a2f582a9d7817fd8275c8014959c60cc4",
+  "host_make_file": "linux-x86/bin/make",
+  "host_make_sha256": "733af3acec51d64b87fae273e221855d4fd93e33573f937fc5b18f2f582ea7d9",
+  "configure": ["--build=x86_64-pc-linux-gnu", "--host=aarch64-linux-android", "--prefix=/usr", "--disable-nls", "--without-guile", "--disable-load"],
+  "cflags": ["-O2", "-g", "-fPIC", "-fstack-protector-strong", "-D_FORTIFY_SOURCE=2", "-ftrivial-auto-var-init=zero", "-mbranch-protection=standard", "-fvisibility=hidden", "-flto=thin", "-fsanitize=cfi-icall"],
+  "ldflags": ["-fuse-ld=lld", "-pie", "-Wl,-z,now,-z,relro,-z,noexecstack,-z,max-page-size=16384,-z,common-page-size=16384,--build-id=sha1"],
+  "default_runtime_cxx": "c++",
+  "parallel_default": "upstream serial; explicit owner -j remains subject to existing resource limits",
+  "needed": ["libc.so", "libdl.so"]
+}
