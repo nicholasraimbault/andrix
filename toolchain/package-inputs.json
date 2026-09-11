@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "source_build": "ff47e9edcebf311df46077706cd279f69f303ac3",
+  "native": {
+    "manifest": "frozen-native-01/manifest.json",
+    "sha256": "a2ed597da03cbad62cee15af69a82021679dc847af217b6c90f48ba381268ae7"
+  },
+  "sdk": {
+    "manifest": "frozen-sdk-02/manifest.json",
+    "sha256": "fc5738153df1da8af7dfb86f29a16c64958d53a8204b5e3c6a9df53954fecc19"
+  },
+  "resources": {
+    "manifest": "frozen-resources/manifest.json",
+    "sha256": "7cf1235f11d256e86923801519fd10c182ee0a2c5a26222edb8fd6c281ee282e"
+  }
+}
