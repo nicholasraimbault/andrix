@@ -21,8 +21,10 @@ editing/script execution plus bounded accessibility viewport text. The emulator'
 keyboard-display preference was explicitly enabled for touch testing alongside its
 physical keyboard and restored afterward. A normal APK+v4-sidecar session satisfied
 GrapheneOS's fs-verity requirement; the initially rejected APK-only attempt remains
-recorded. The build now generates sidecars directly (`6eff213`). The UI follow-up
-passed 279 host checks and 154 parser/adapter checks, separate from the device results.
+recorded. Later full-image testing found that installing the update-only sidecar
+beside the factory APK caused that APK to be rejected; factory and update artifacts
+are now prepared separately. The UI follow-up passed 279 host checks and 154
+parser/adapter checks, separate from the device results.
 
 No C/C++ compiler is installed yet. The new native build completed 3,204 steps and
 passed ELF artifact gates; packaging and Android resource/runtime qualification

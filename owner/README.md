@@ -13,9 +13,15 @@ before an opt-in build. It defines only the new native owner/home boundary, guar
 off for other products; no public policy API or existing-domain permission change.
 This is not a production interface or a qualified phone installation.
 
-The console build requests an APK Signature Scheme v4 sidecar for system-app
-updates. In the emulator, supply both the verified APK and its matching `.idsig`
-through a normal install session using its scoped ADB connection:
+Factory APKs and update APK pairs are different packaging inputs. The console's
+factory build does **not** install a v4 sidecar: the APK is authenticated by the
+read-only system image, not per-file fs-verity. Installing a sidecar there caused
+Package Manager to reject the factory app; that failed window is retained.
+
+Prepare a separate APK Signature Scheme v4 update pair with
+`scripts/proof/terminal_update.py`. In the emulator, supply both the verified APK
+and its matching `.idsig` through a normal install session using its scoped ADB
+connection:
 
 ```sh
 adb install-multiple -r AndrixTerminal.apk AndrixTerminal.apk.idsig

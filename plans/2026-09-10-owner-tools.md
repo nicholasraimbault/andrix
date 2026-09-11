@@ -274,13 +274,16 @@ its sidecar is
 The original failed artifact remains separately frozen. A corrupt-sidecar control
 reported **v4=false** even though `apksigner` exited 0 through the still-valid v3
 signature; the initial exit-code-only assumption was rejected. Per-scheme results,
-not the overall exit alone, are the v4 oracle. The build now requests v4 sidecars
-directly through Soong's `v4_signature` option rather than requiring manual signing
-for later updates. The Soong follow-up `6eff213` passed its APK build in 384.431s,
+not the overall exit alone, are the v4 oracle. The Soong follow-up `6eff213`
+requested v4 sidecars directly and passed its APK build in 384.431s,
 produced a byte-identical copy of the original `ab815409…` APK plus a verified v4
 sidecar, and retained the same signer. This exact build-produced pair was artifact-
 verified, not installed in the already-closed runtime; the tested signing derivative
-above remains separately identified.
+above remains separately identified. Later full-image testing found that the same
+option also installed a sidecar beside the **factory** APK, where per-file fs-verity
+was not set up; Package Manager rejected that app. The factory module now omits the
+sidecar and `terminal_update.py` prepares separate verified update pairs. Neither
+failure justified a certificate-check or SELinux ioctl bypass.
 
 After the successful update:
 
