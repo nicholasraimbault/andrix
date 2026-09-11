@@ -195,6 +195,22 @@ class OwnerSessionTests(unittest.TestCase):
         self.assertNotIn('announceForAccessibility', activity)
         self.assertIn('v4_signature: false', (ROOT/'owner/Android.bp').read_text())
 
+    def test_bounded_non_input_attachment_trace(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            compiled = subprocess.run(['javac', '-d', tmp,
+                str(ROOT/'owner/terminal/protocol/AttachTrace.java'),
+                str(ROOT/'owner/tests/AttachTraceTest.java')], capture_output=True, text=True, timeout=30)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            ran = subprocess.run(['java', '-ea', '-cp', tmp, 'AttachTraceTest'],
+                                 capture_output=True, text=True, timeout=20)
+            self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+            self.assertIn('no Android timing claim', ran.stdout)
+        controller = (ROOT/'owner/terminal/src/dev/andrix/terminal/TerminalController.java').read_text()
+        self.assertIn('if (!Build.IS_DEBUGGABLE) return;', controller)
+        self.assertIn('SystemClock::elapsedRealtime', controller)
+        self.assertIn('"attachment is no longer active".equals(message)', controller)
+        self.assertNotIn('Log.i("AndrixAttach", error', controller)
+
     def test_actual_attach_failure_callback_ignores_stale_ui(self):
         controller = (ROOT/'owner/terminal/src/dev/andrix/terminal/TerminalController.java').read_text()
         start = controller.index('    private void failAttach(')

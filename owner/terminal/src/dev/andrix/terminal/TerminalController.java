@@ -6,20 +6,26 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.os.Binder;
+import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.os.PowerManager;
 import android.os.ServiceManager;
+import android.os.SystemClock;
 import android.os.UserHandle;
 import android.os.UserManager;
 import android.system.Os;
 import android.system.OsConstants;
+import android.util.Log;
 
 import com.termux.terminal.TerminalSession;
 import dev.andrix.session.Attachment;
 import dev.andrix.session.IOwnerSession;
+import dev.andrix.terminal.protocol.AttachTrace;
+import dev.andrix.terminal.protocol.AttachTrace.Event;
+import dev.andrix.terminal.protocol.AttachTrace.Report;
 import dev.andrix.terminal.protocol.InputQueue;
 import dev.andrix.terminal.protocol.OutputProtocol;
 
@@ -122,11 +128,18 @@ final class TerminalController implements TerminalSession.Host {
                 && !keyguard.isKeyguardLocked() && power.isInteractive();
     }
 
+    private static void reportTrace(AttachTrace trace, Report reason) {
+        if (!Build.IS_DEBUGGABLE) return;
+        String line = trace.report(reason);
+        if (line != null) Log.i("AndrixAttach", line);
+    }
+
     void attach() {
         requireMain();
         if (!eligible()) { show("Attach refused: locked or not foreground"); return; }
         if (ending.get() || !attaching.compareAndSet(false, true)) return;
         final long requestEpoch = ++uiEpoch;
+        final AttachTrace trace = new AttachTrace(requestEpoch, SystemClock::elapsedRealtime);
         disconnect(connection);
         // A replacement attachment already closed its old input stream. Publish
         // that synchronously: do not show an enabled, "Attached" view while the
@@ -136,6 +149,7 @@ final class TerminalController implements TerminalSession.Host {
         final Checkpoint resume = checkpoint.get();
         final int requestedRows = rows, requestedColumns = columns;
         control.execute(() -> {
+            trace.mark(Event.CONTROL_BEGIN);
             ParcelFileDescriptor fd = null;
             try {
                 if (uiEpoch != requestEpoch || listener != target || !eligible())
@@ -143,16 +157,23 @@ final class TerminalController implements TerminalSession.Host {
                 IBinder binder = ServiceManager.checkService("andrix.owner.session");
                 if (binder == null) throw new IOException("Owner service unavailable");
                 IOwnerSession service = IOwnerSession.Stub.asInterface(binder);
+                trace.mark(Event.REGISTER_BEGIN);
                 service.registerController(PROCESS_LIFETIME);
+                trace.mark(Event.REGISTER_END);
+                trace.mark(Event.ATTACH_BEGIN);
                 Attachment a = service.attach(requestedRows, requestedColumns, eligible(),
                         users.isUserUnlocked(), resume.session, resume.next);
+                trace.mark(Event.ATTACH_REPLY);
                 fd = a.stream;
                 if (fd == null || a.generation <= 0 || a.sessionId <= 0 || a.firstOutputOffset < 0)
                     throw new IOException("Invalid native attachment");
-                Connection next = new Connection(service, a, fd); fd = null;
+                Connection next = new Connection(service, a, fd, trace); fd = null;
+                trace.mark(Event.FDS_READY);
                 main.post(() -> finishAttach(requestEpoch, target, next));
             } catch (Exception error) {
+                trace.mark(Event.ATTACH_ERROR);
                 if (fd != null) try { fd.close(); } catch (IOException ignored) { }
+                reportTrace(trace, Report.FAILURE);
                 main.post(() -> failAttach(requestEpoch, target, error.getMessage()));
             }
         });
@@ -168,19 +189,25 @@ final class TerminalController implements TerminalSession.Host {
 
     private void finishAttach(long requestEpoch, Listener target, Connection next) {
         requireMain(); attaching.set(false);
+        next.trace.mark(Event.FINISH_BEGIN);
         if (uiEpoch != requestEpoch || listener != target || !eligible()) {
+            next.trace.mark(Event.CANCELLED);
             next.close();
             control.execute(() -> remoteDetach(next));
             return;
         }
         try {
             OutputProtocol.AttachmentState result = cursor.attach(next.session, next.firstOffset);
+            next.trace.mark(Event.CURSOR_READY);
             if (result == OutputProtocol.AttachmentState.NEW_SESSION) {
+                next.trace.mark(Event.TERMINAL_BEGIN);
                 session = new TerminalSession(this, columns, rows, 8, 16);
                 if (listener != null) listener.sessionChanged(session);
+                next.trace.mark(Event.TERMINAL_END);
             }
             checkpoint.set(new Checkpoint(cursor.session(), cursor.nextOffset()));
             connection = next;
+            next.trace.mark(Event.CONNECTION_SET);
             next.inputAllowed = cursor.inputAllowed();
             state = next.inputAllowed ? "Attached — native owner UID7500"
                     : "Output gap: input blocked. End session, then Attach to start fresh.";
@@ -188,8 +215,11 @@ final class TerminalController implements TerminalSession.Host {
             writer.execute(() -> writeInput(next));
             resize(session, rows, columns);
             publish();
+            next.trace.mark(Event.PUBLISHED);
         } catch (IOException | RuntimeException error) {
-            disconnect(next); control.execute(() -> remoteDetach(next));
+            next.trace.mark(Event.FINISH_ERROR);
+            disconnect(next); reportTrace(next.trace, Report.FAILURE);
+            control.execute(() -> remoteDetach(next));
             show("Attachment state failed; End/restart required");
         }
     }
@@ -198,25 +228,33 @@ final class TerminalController implements TerminalSession.Host {
         Connection current = connection;
         if (current == null) return;
         try {
+            current.trace.mark(Event.RENEW_BEGIN);
             if (!current.service.renew(current.generation, eligible(), users.isUserUnlocked())) {
+                current.trace.mark(Event.RENEW_FALSE);
                 if (disconnect(current)) show("Detached: lock, focus or lease changed");
-            }
+                reportTrace(current.trace, Report.FAILURE);
+            } else current.trace.mark(Event.RENEW_OK);
         } catch (Exception error) {
+            current.trace.mark(Event.RENEW_EXCEPTION);
             if (disconnect(current)) show("Detached: owner service unavailable");
+            reportTrace(current.trace, Report.FAILURE);
         }
     }
 
     private void readOutput(Connection current) {
+        current.trace.mark(Event.READER_BEGIN);
         try {
             while (connection == current && !current.closed.get()) {
                 OutputProtocol.Frame frame = OutputProtocol.read(current.input);
-                if (frame == null) break;
+                if (frame == null) { current.trace.mark(Event.READ_EOF); break; }
+                current.trace.mark(Event.FRAME_READ);
                 CountDownLatch applied = new CountDownLatch(1);
                 long[] ack = {-2};
                 main.post(() -> {
                     try {
                         if (connection != current || current.closed.get()) return;
                         ack[0] = cursor.accept(frame, session::applyOutput);
+                        current.trace.mark(Event.FRAME_APPLIED);
                         checkpoint.set(new Checkpoint(cursor.session(), cursor.nextOffset()));
                         if (ack[0] < 0) {
                             current.inputAllowed = false; current.queue.discard();
@@ -234,6 +272,7 @@ final class TerminalController implements TerminalSession.Host {
                         && !current.service.acknowledgeOutput(current.generation, ack[0])) break;
             }
         } catch (Exception ignored) {
+            current.trace.mark(Event.READ_EXCEPTION);
             // EOF/revocation wakes readFully. Incomplete frames were never parsed/acked.
         } finally {
             if (disconnect(current)) show("Detached — reopen and Attach to return");
@@ -306,13 +345,27 @@ final class TerminalController implements TerminalSession.Host {
         rows = newRows; columns = newColumns;
         if (changed) resizeVersion.incrementAndGet();
         if (connection == null || !resizing.compareAndSet(false, true)) return;
+        Connection scheduled = connection;
+        if (scheduled != null) scheduled.trace.mark(Event.RESIZE_QUEUED);
         control.execute(() -> {
             Connection current = connection;
             long version = resizeVersion.get();
             try {
-                if (current != null && eligible()) current.service.resize(current.generation, rows, columns);
+                if (current != null && eligible()) {
+                    current.trace.mark(Event.RESIZE_BEGIN);
+                    current.service.resize(current.generation, rows, columns);
+                    current.trace.mark(Event.RESIZE_OK);
+                }
             } catch (Exception error) {
+                if (current != null) {
+                    // Only fixed categories are recorded: never arbitrary Binder exception text.
+                    String message = error.getMessage();
+                    Event category = "attachment is no longer active".equals(message) ? Event.RESIZE_INACTIVE
+                            : "PTY resize failed".equals(message) ? Event.RESIZE_PTY_ERROR : Event.RESIZE_OTHER_ERROR;
+                    current.trace.mark(category);
+                }
                 if (disconnect(current)) show("Detached: resize failed");
+                if (current != null) reportTrace(current.trace, Report.FAILURE);
             } finally {
                 resizing.set(false);
                 if (version != resizeVersion.get()) main.post(() -> resize(session, rows, columns));
@@ -353,6 +406,7 @@ final class TerminalController implements TerminalSession.Host {
 
     private static final class Connection {
         final IOwnerSession service;
+        final AttachTrace trace;
         final long generation, session, firstOffset;
         final ParcelFileDescriptor stream;
         final InputStream input;
@@ -360,7 +414,8 @@ final class TerminalController implements TerminalSession.Host {
         final InputQueue queue = new InputQueue();
         final AtomicBoolean closed = new AtomicBoolean();
         volatile boolean inputAllowed;
-        Connection(IOwnerSession service, Attachment a, ParcelFileDescriptor fd) throws IOException {
+        Connection(IOwnerSession service, Attachment a, ParcelFileDescriptor fd, AttachTrace trace) throws IOException {
+            this.trace = trace;
             this.service = service; generation = a.generation; session = a.sessionId;
             firstOffset = a.firstOutputOffset; stream = fd;
             ParcelFileDescriptor read = ParcelFileDescriptor.dup(fd.getFileDescriptor());
@@ -377,6 +432,7 @@ final class TerminalController implements TerminalSession.Host {
             try { input.close(); } catch (IOException ignored) { }
             try { output.close(); } catch (IOException ignored) { }
             try { stream.close(); } catch (IOException ignored) { }
+            trace.mark(Event.CLOSED); reportTrace(trace, Report.CLOSED);
         }
     }
 }

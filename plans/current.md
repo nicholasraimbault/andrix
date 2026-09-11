@@ -1,9 +1,10 @@
 # Current work
 
 **Active milestone:** [GrapheneOS-derived base — isolated migration trial](2026-09-08-grapheneos-migration.md).
-**Current action:** diagnose the cold first-Attach/resize failure recorded in the
-[owner project/input follow-up](2026-09-11-owner-project-input.md). Instrument and
-compare cold/warm timing without extending leases or weakening the native boundary.
+**Current action:** [diagnose and fix cold attachment timing](2026-09-11-cold-attachment.md).
+The [project/input follow-up](2026-09-11-owner-project-input.md) retained two failed
+first attachments. A bounded, non-input diagnostic APK will distinguish control/RPC,
+frontend, renewal and resize timing without extending leases or weakening the boundary.
 The multi-file C++ project now builds, accepts header edits, preserves the previous
 executable on build failure, relocates and rebuilds after reboot. The updated console
 and sequential test driver correctly withheld commands during both failed first
