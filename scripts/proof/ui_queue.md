@@ -19,7 +19,7 @@ positive/negative controls. After an input timeout, the remote Android input pro
 may still be injecting events: **do not automatically retry, press Enter or submit
 another batch**. Inspect/settle or stop the window before an explicit recovery.
 
-`text_actions()` produces printable ASCII chunks of at most60 characters, without
+`text_actions()` produces printable ASCII chunks of at most 60 characters, without
 an implicit Enter. It rejects Android input percent escapes, newlines and untested
 non-ASCII input. This is a bounded test route, not an IME/Unicode compatibility claim.
 
@@ -28,3 +28,8 @@ an enabled, focused terminal view. Use that observation before sending terminal
 input instead of assuming that a fixed delay after Attach was sufficient. It does
 not attest keyguard state or native-shell readiness and grants no Android authority.
 Native eligibility, controller lifetime, CE checks and the PTY boundary are unchanged.
+
+In the [native project trial](../../plans/2026-09-11-owner-project-input.md), the
+predicate accepted actual eligible Android views and blocked both cold first-Attach
+failures. No following command/key action was submitted after either failed readiness
+step. Explicit retries worked; this did not fix or hide the underlying resize failure.
