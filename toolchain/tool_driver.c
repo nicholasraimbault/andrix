@@ -36,7 +36,9 @@ int main(int argc, char **argv) {
     }
     args[0] = "/usr/bin/clang";
     args[1] = "--driver-mode=g++";
-    args[2] = "--config=/usr/etc/andrix/cxx.cfg";
+    args[2] = (!strcmp(name, "clang++-shared") || !strcmp(name, "c++-shared"))
+        ? "--config=/usr/etc/andrix/cxx-shared.cfg"
+        : "--config=/usr/etc/andrix/cxx.cfg";
     for (int i = 1; i < argc; ++i) args[(size_t)i + 2] = argv[i];
     execv(args[0], args);
     int status = failed("clang++");
