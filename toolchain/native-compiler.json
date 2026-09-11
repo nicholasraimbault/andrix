@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "status": "experimental-build-profile-not-runtime-qualified",
+  "grapheneos_release": "2026081300",
+  "llvm_project": "external/opencl/llvm-project",
+  "llvm_revision": "37c265b53612ef8085c15455d10ec718590bba00",
+  "llvm_version": "23.0.0git",
+  "bootstrap_project": "prebuilts/clang/host/linux-x86",
+  "bootstrap_revision": "29182889399818f97baa65ea238c80e8117981eb",
+  "bootstrap_directory": "clang-r584948b",
+  "bootstrap_version": "22.0.1",
+  "bionic_revision": "b95b08888b9eb6465c21d5840cce59dc463bfdef",
+  "target": "aarch64-linux-android37",
+  "api": 37,
+  "cxx_runtime_profile": "matching bootstrap Android NDK libc++ (__ndk1), not host/platform libc++",
+  "targets": ["clang", "lld", "llvm-ar", "llvm-ranlib"],
+  "codegen_targets": ["AArch64"],
+  "sdk_scope": "API37 dynamic Bionic executables; static/full SDK support separately qualified",
+  "native_lto": "Thin",
+  "native_cfi": "cfi-icall",
+  "native_network_helpers": false,
+  "public_on_device_compiler_proved": false
+}

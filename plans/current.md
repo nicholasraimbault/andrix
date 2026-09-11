@@ -1,9 +1,11 @@
 # Current work
 
 **Active milestone:** [GrapheneOS-derived base — isolated migration trial](2026-09-08-grapheneos-migration.md).
-**Current action:** build, package and qualify the on-device ARM64/Bionic compiler
-on the [native terminal/editor foundation](2026-09-10-owner-tools.md). Vanadium remains
-unchanged.
+**Current action:** build, package and qualify the [native ARM64/Bionic compiler](2026-09-11-native-compiler.md)
+on the [terminal/editor foundation](2026-09-10-owner-tools.md). The API37 Bionic SDK
+completion target and explicit Android NDK C++ inputs are established; host-generator
+and native compiler build steps are under qualification. No on-device compiler PASS
+is claimed yet. Vanadium remains unchanged.
 
 Frozen producer `9e5f816` now runs a native Android VT view over the bounded owner
 session. In the emulator, `vi` created and saved a script, its unsaved buffer
