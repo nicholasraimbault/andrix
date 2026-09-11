@@ -121,8 +121,10 @@ keyboard events and visible touch controls. A version-3 console update then rest
 automatic focus, demonstrated real on-screen-keyboard editing and exposed bounded
 foreground viewport text through Android accessibility. The touch test explicitly
 requested software input alongside Cuttlefish's physical keyboard and restored that
-preference afterward. There is still no native C/C++ compiler; broad IME/language
-and assistive-service compatibility are not claimed.
+preference afterward. The later [compiler image](../plans/2026-09-11-native-compiler.md)
+demonstrated native C compilation/run and C++ compilation/run with a project-private
+runtime, including after reboot. The default global C++ runtime path remains a known
+limitation; broad IME/language and assistive-service compatibility are not claimed.
 
 Resource-exhaustion tests, all adversarial descriptor/race cases on Android,
 user-stop/key eviction, long-lived services and native phone qualification remain

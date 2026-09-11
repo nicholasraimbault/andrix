@@ -1,8 +1,11 @@
 # Native ARM64/Bionic compiler
 
-**Status:** Clang/LLD/archive tools built as native ARM64/Bionic ELF candidates;
-artifact gates pass. They are not yet packaged in `/usr`, executed on Android or
-proved to compile owner programs there.
+**Status:** native C compilation/execution and C++ compilation/execution with a
+project-private runtime are demonstrated as owner UID7500 in the ARM64 emulator,
+including return after relock and recompilation after reboot. The compiler is in
+authenticated read-only `/usr`. **Default C++ runtime lookup remains unresolved:**
+the global `/usr/lib64` RUNPATH cannot serve home executables in Android's isolated
+system linker namespace. No namespace/security bypass was used.
 
 ## Scope
 
@@ -123,9 +126,99 @@ are not silently relabelled as compiler-rt 23 or a complete sanitizer-runtime se
 compatibility/default-path qualification remains required. C++ default library
 wiring and the immutable SDK/APEX layout still need implementation and testing.
 
+## Compiler package and Android result
+
+The opt-in package adds APEX version 2 with 3,634 pinned payload files grouped into
+184 data directories. Compiler, SDK and library bytes are verified against the
+frozen input manifests; all non-signature APK resources remain separately accounted
+for. `ANDRIX_OWNER_COMPILER=true` requires the owner-session option. An unflagged
+build with no compiler inputs staged passed and reproduced the original APEX bytes.
+No platform Soong patch was applied: a shell-wrapper dependency caused a retained
+APEX check panic, and prebuilt symlink properties did not reach the extracted
+payload. A small native argument dispatcher now supplies the verified C++/cc/ar/
+ranlib aliases without changing identity, environment or sandbox.
+
+The package needs explicitly scoped read/map access to its immutable SDK and C++
+library types. The first image boot also exposed missing `getattr/search` on that
+library directory for the existing shell-side proof. Only those directory rights
+were added beside the existing shell file-access rule. The original runtime stays
+**FAIL**: 47 closed files and 33,904 offline packets; cleanup succeeded.
+
+The next image passed core and normal setup but Package Manager rejected the
+terminal's **factory** APK because a v4 update sidecar had been installed beside
+it. Its attempt to measure per-file fs-verity failed; neither the ioctl policy nor
+certificate check was bypassed. Factory APKs now omit that sidecar, and
+`terminal_update.py` prepares a separately verified APK+v4 update pair outside the
+image tree. It reproduced the exact pair previously accepted by normal installation.
+That second runtime remains **FAIL**, despite zero cleanup exit codes: 1,360 closed
+files and 72,532 offline packets. The failed terminal launch is retained.
+
+Producer `fbcb4ad` built the corrected image, after normal `installclean` removed
+obsolete installed outputs. The actual extracted image contained the factory APK
+without `.idsig`. All 27 images and both matching host packages were frozen and
+rehashed. The compiler APEX remained
+`dfa99149d5a5b562e214dfe566ebe991208194d8a1bf3e73daad3cbedb6b4f40`, with both signatures,
+version 2, exact payload files and native aliases verified. The terminal registered
+normally as a privileged system_ext package. Vanadium and other upstream bundled
+apps retained their image hashes.
+
+### Bounded runtime observations
+
+- **C:** `vi` created `hello.c`; its unsaved buffer survived Activity detach/Home/
+  return with the same native shell and editor. `clang hello.c -o hello` succeeded,
+  and the new executable printed `ANDRIX_C_OK`, returning 0 only for UID7500.
+- **C++:** `clang++ hello.cpp -o hello_cpp` compiled successfully, but that executable
+  could not find `libc++_shared.so` through `/usr/lib64`. Actual linker configuration
+  places `/data` executables in the isolated system namespace, whose permitted paths
+  exclude `/usr`. The failure remains a failure, not a complete default-toolchain PASS.
+- A deliberate owner copy of the exact runtime into the project's `lib/` directory,
+  followed by `-Wl,-rpath,'$ORIGIN/lib'`, worked. The program threw and caught
+  `std::runtime_error`, used iostreams and printed `ANDRIX_CPP_OK uid=7500`.
+  This exercises the accepted package-private-library model, not a namespace opening
+  or an APK executing under another identity. Runtime provisioning/defaults still
+  need a coherent packaged interface; no static-C++ default has been adopted here.
+- Invalid C and C++ source returned 1 and left no output executable. `cc`, `ar` and
+  `ranlib` compiled, archived, indexed, linked and ran a C executable successfully.
+- Native Toybox `readelf` inspected the produced ELF64/ARM64 binaries, Android's
+  `/system/bin/linker64`, dynamic dependencies and the private `$ORIGIN/lib` RUNPATH.
+  The observer was not granted direct access to the owner home.
+- The ordinary same-signer negative and P5 passed and were removed, with real owner
+  program execution before and after the negative. Native UID/GID7500, zero capability
+  masks, NNP/seccomp and the existing limits remained intact.
+- Relock detached the UI; normal PIN return preserved shell 5300, the established
+  `OWNER_KEEP` variable and working C/C++ programs. After a normal reboot, Android
+  was `RUNNING_LOCKED` with no owner service/CE flag before PIN. Normal unlock restored
+  the service; source, executables and private library hashes were unchanged, and
+  both languages compiled and ran again under a new native shell 3620. End removed
+  the prior native processes; all runtime cleanup statuses were 0.
+- The highest sampled cgroup `memory.peak` was **186,712,064 bytes (178.0625 MiB)**,
+  within the unchanged 256 MiB limit. Sampled max/OOM counters were 0. This is not a
+  pressure, power-loss, total-CPU/storage-quota or supported-phone guarantee.
+- Executing home binaries also logged denied linker path probes into shell/test
+  directories. Those AVCs remain recorded; no access to those directories was
+  granted merely to silence probes. Core passed before the workload and after reboot,
+  not a blanket zero-AVC claim for every owner command.
+
+Observed persistence hashes (native output, not host home reads):
+
+| File | SHA-256 |
+| --- | --- |
+| `hello.c` (105 bytes) | `b13431da40db1749738137986cef35a2056f360109cb9646f8a0911bb8e716ac` |
+| `hello.cpp` (248 bytes) | `dfb9a8b8745e1e92286631413922310acf0f132cac5d57286ad103de6c04ffd6` |
+| `hello` | `bb2f2172f620b8334c62b5eb2bb54b4898dfd3f6b12759452744e71bf22911ce` |
+| `hello_cpp_local` | `2bc0cc08d2df9f95246222e5a386e403714e2c60e747015768a1450ee820c36d` |
+| private `libc++_shared.so` | `60382b9a9dd56064a27a5dc0fd12326f6e834e1bfae5df606ebc90fbe8455459` |
+
+The third window retains 6,382 closed regular files and **235,949 offline packets**,
+zero drops/truncated records. All three windows remain separate. The complete
+package/integration set selected by `out/owner-compiler-package/EVIDENCE` is sealed
+across **40,338 regular files**, with all three runtime sub-seals reverified and
+symlinks excluded. All owned jobs and guests are stopped. These are bounded emulator
+results, not phone, networking/privacy or full compiler-feature assurance.
+
 ## Evidence and limits
 
-The new set selected by `out/owner-compiler/EVIDENCE` is sealed across **5,745
+The earlier build-only set selected by `out/owner-compiler/EVIDENCE` is sealed across **5,745
 regular files** (symlinks excluded), including frozen artifacts, SDK/resources,
 source/configuration receipts, tests and retained failures. All prior owner/terminal
 sets remain sealed. All owned build/check/hash jobs are stopped; no guest was
@@ -134,10 +227,19 @@ placement and NDK STL mappings. Primary source/artifact checks establish the cla
 here; neither the completed first research note nor its partial follow-up is an
 independent compiler build/runtime PASS.
 
-The final repository host suite passed **282 tests in 130.380s**, with no skips.
+That build-only checkpoint's repository host suite passed **282 tests in 130.380s**,
+with no skips.
 The compiler source, bootstrap-prebuilt and Bionic projects passed the existing
 read-only source check again; frozen SDK hashes and the exact private owner-policy
 bridge were rechecked. This is scoped input accounting, not a fresh all-1,108-
-project source audit. No native compiler package, on-device compilation or release
-qualification exists yet. Keep host cross-linking, native compiler construction,
-packaging, emulator execution, resource stress and supported-phone assurance distinct.
+project source audit. The subsequent package/runtime step passed **292 host tests in
+132.276s**, with no skips, and rechecked six relevant upstream projects, the exact
+owner-policy bridge and pinned staged compiler bytes. It likewise does not claim a
+fresh all-project audit. Keep host cross-linking, compiler construction, package
+signatures, observed Android behavior and release assurance distinct.
+
+**Next:** resolve default C++ runtime provisioning within the package-private model,
+account for the linker path probes without widening unrelated access, and expand
+representative compiler/resource tests. Full managed package transactions, services
+surviving console-process death, phone deployment and release/privacy gates remain
+separate work.

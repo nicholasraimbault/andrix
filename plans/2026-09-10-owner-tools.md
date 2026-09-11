@@ -3,8 +3,10 @@
 **Status:** native VT/editor/script workflow demonstrated on base image `9e5f816`.
 The version-3 console follow-up also demonstrated automatic typing focus, actual
 software-keyboard touch editing and guarded accessibility viewport text in the
-bounded emulator fixture. On-device C/C++ compilation and broader terminal/phone
-qualification remain open.
+bounded emulator fixture. The [compiler follow-up](2026-09-11-native-compiler.md)
+now demonstrates C and project-private-runtime C++ compilation/execution inside
+Andrix; default C++ runtime provisioning and broader terminal/phone qualification
+remain open.
 
 ## Goal and scope
 
@@ -72,8 +74,9 @@ inject shell commands. Never revive a stale socket or lease to recover output.
 ## Compiler observations and follow-up
 
 The [native compiler milestone](2026-09-11-native-compiler.md) now records the
-separate ARM64/Bionic build and artifact result. These earlier source observations
-remain the basis for its input selection, not evidence of an installed compiler.
+separate ARM64/Bionic build, package and bounded Android result. These earlier
+source observations remain the basis for its input selection, not themselves
+runtime evidence.
 
 The platform's `external/llvm` source declares version 3.9.0; existence of those
 legacy modules is not a supportable modern compiler choice. Current platform

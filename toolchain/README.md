@@ -1,8 +1,9 @@
 # Experimental native compiler inputs
 
 See the [milestone](../plans/2026-09-11-native-compiler.md) for current results and
-boundaries. These files describe a build candidate, not a delivered compiler or an
-on-device compilation PASS.
+boundaries. Native C and C++ with a project-private runtime are demonstrated in the
+emulator. **Default C++ runtime lookup is not complete**; this is not a supported
+release or a full compiler-feature/resource qualification.
 
 `native-compiler.json` pins the compiler source and release-selected bootstrap.
 `AndroidBionic.cmake` prevents accidental GNU/Linux header/library use and names the
@@ -92,6 +93,28 @@ runtime library; it adds no writes, app-data access or Binder authority. No owne
 limit changes, global platform-policy relaxation or fabricated libc++ linker
 scripts are needed.
 
+## Observed C++ runtime boundary
+
+The current config's global `/usr/lib64` RUNPATH did not let a home executable load
+`libc++_shared.so`: Android assigns `/data` executables to an isolated system linker
+namespace without `/usr` in its permitted paths. Compilation succeeded, execution
+failed. Do not open that namespace globally or copy libraries into Android's system
+directories to hide the failure.
+
+An explicit owner-managed project-private runtime worked:
+
+```sh
+mkdir -p lib
+cp /usr/lib64/libc++_shared.so lib/
+clang++ hello.cpp -Wl,-rpath,'$ORIGIN/lib' -o hello_cpp
+./hello_cpp
+```
+
+The actual copied runtime hash matched the authenticated input, and this program
+compiled/ran again after reboot. This is a bounded direct owner-package operation,
+not an implemented package manager, automatic runtime provisioning or a guarantee
+that every project layout works. Refining those defaults is the next step.
+
 ## Retained limits
 
 Clang/LLD source is 23.0.0git; the bootstrap and selected NDK C++ runtime are 22.0.1.
@@ -102,5 +125,6 @@ features the resulting compiler can produce for owner programs.
 
 No automatic HTTP/debug-information fetcher or plugin dependency is needed in this
 first profile. Zlib is explicitly resolved against the API37 target stub, not the
-host. Package placement, C++ default linkage, compiler runtime resources, Android
-execution and resource-pressure behavior remain distinct qualification steps.
+host. Package signatures, C++ default linkage, compiler runtime resources, observed Android
+execution and resource-pressure behavior remain distinct qualification steps. The
+bounded examples fit the current limits; wider pressure tests remain open.

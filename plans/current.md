@@ -1,12 +1,13 @@
 # Current work
 
 **Active milestone:** [GrapheneOS-derived base — isolated migration trial](2026-09-08-grapheneos-migration.md).
-**Current action:** package and qualify the [native ARM64/Bionic compiler](2026-09-11-native-compiler.md)
-in authenticated `/usr` on the [terminal/editor foundation](2026-09-10-owner-tools.md).
-Clang, LLD and archive tools now build as AArch64/Bionic ELF candidates with the
-intended hardening and relative library path. They are not installed or executed
-in Android yet; C++ defaults, SDK/runtime packaging and real on-device compilation
-remain the next gates. Vanadium remains unchanged.
+**Current action:** finish default C++ runtime provisioning for the
+[native ARM64/Bionic compiler](2026-09-11-native-compiler.md), within the accepted
+package-private library model. The compiler is installed in authenticated `/usr`:
+C compilation/execution and C++ compilation/execution with a project-private runtime
+now work as native owner UID7500 in the emulator, including recompilation after
+reboot. The global `/usr/lib64` default C++ runtime lookup failed and remains open;
+Android's linker namespaces were not widened. Vanadium remains unchanged.
 
 Frozen producer `9e5f816` now runs a native Android VT view over the bounded owner
 session. In the emulator, `vi` created and saved a script, its unsaved buffer
@@ -26,12 +27,16 @@ beside the factory APK caused that APK to be rejected; factory and update artifa
 are now prepared separately. The UI follow-up passed 279 host checks and 154
 parser/adapter checks, separate from the device results.
 
-No C/C++ compiler is installed yet. The new native build completed 3,204 steps and
-passed ELF artifact gates; packaging and Android resource/runtime qualification
-remain separate. Broader IME/language combinations,
-full assistive-service interaction, resource stress, user-stop/key loss, hardware
-and release/privacy gates remain open. Jobs still do not outlive console-process
-reclamation.
+The compiler-bearing image `fbcb4ad` passed core, ordinary-app negatives/P5 and the
+bounded native programming trials. Invalid source was rejected, archive aliases
+worked, and source/executable/private-runtime hashes survived reboot. The highest
+sampled owner-group peak was 178.0625 MiB within the unchanged 256 MiB limit, with
+no observed OOM events. This is not general resource-stress qualification. Denied
+linker probes into shell/test directories remain recorded, not silenced by grants.
+
+Broader IME/language combinations, full assistive-service interaction, user-stop/key
+loss, hardware and release/privacy gates remain open. Jobs still do not outlive
+console-process reclamation.
 
 The [earlier owner foundation](2026-09-10-owner-session.md), its frozen `e02bd6a`
 producer and all retained failures/timeouts remain intact. All owned emulator and
