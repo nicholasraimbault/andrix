@@ -1,9 +1,10 @@
 # Usable owner terminal and programming tools
 
-**Status:** native VT/editor/script workflow demonstrated in the opt-in emulator
-with producer `9e5f816`. Keyboard-event input and touch control buttons work;
-post-Attach focus ergonomics and full software-IME input remain open. This is not
-yet on-device C/C++ compilation or complete terminal/phone qualification.
+**Status:** native VT/editor/script workflow demonstrated on base image `9e5f816`.
+The version-3 console follow-up also demonstrated automatic typing focus, actual
+software-keyboard touch editing and guarded accessibility viewport text in the
+bounded emulator fixture. On-device C/C++ compilation and broader terminal/phone
+qualification remain open.
 
 ## Goal and scope
 
@@ -194,7 +195,10 @@ The closed window is sealed across **5,157 regular files** and contains 155,397
 offline packets with zero reported drops and zero truncated records. This is not
 a networking/privacy pass.
 
-### Remaining terminal boundaries
+### Initial terminal-window boundaries
+
+These describe the `9e5f816` window; the later console-only follow-up below records
+which UI gaps were subsequently exercised.
 
 - Input was supplied through normal Android keyboard events from shell UID2000,
   plus visible touch controls. A tap in the terminal was required after Attach to
@@ -215,9 +219,9 @@ a networking/privacy pass.
   the outstanding IME, accessibility, adversarial race, resource-pressure or broader
   lifecycle/hardware gates. Long-lived jobs and the C/C++ compiler remain later work.
 
-## Focus/IME/accessibility follow-up under qualification
+## Focus/IME/accessibility follow-up
 
-The next console-only revision restores typing focus when an eligible attachment
+The console-only revision `b874ea9` restores typing focus when an eligible attachment
 becomes input-capable. Keys toggles the normal keyboard request; holding it opens
 Android's ordinary input-method picker. It neither writes secure settings nor
 requests extra Android permissions. The Ctrl touch modifier also applies to an
@@ -233,13 +237,83 @@ and are coalesced/cancelled on lifecycle loss. No owner-home file access is adde
 Qualification may update the console APK normally on the frozen `9e5f816` base:
 same package/lab signer, higher version, no downgrade or verifier bypass. Record
 image, APK and observer producers separately. A retained-data cold boot must permit
-normal PIN unlock before waiting for Cuttlefish's CE-only boot report. Compiler
-packaging remains a separate step; these changes do not add a native compiler.
+normal PIN unlock before waiting for Cuttlefish's CE-only boot report.
+
+Cuttlefish's QEMU launcher includes a physical keyboard, and Android's
+`InputMethodService` normally hides its input view in that configuration. A bounded
+lab-only test may explicitly set `show_ime_with_hard_keyboard` to request the
+software keyboard alongside that real emulated device. Record the original value,
+real rendering/touch input and restoration. This is a test-fixture display preference,
+not an APK permission, input-device fiction, keyguard override or default-Pixel
+behavior claim. The terminal APK itself must not write that secure setting.
+
+Compiler packaging remains a separate step; these changes do not add a native compiler.
+
+### Observed console update and UI result
+
+The version-3 APK (`0.3-terminal-ui`) built in **386.854 seconds**, with 279 host
+checks and 154 parser/adapter checks passing. The frozen base image and host
+packages remained `9e5f816`; the runtime cold-started a separately hashed copy of
+its stopped disk state and used the existing disposable PIN.
+
+The initial streamed APK-only update was **rejected** because it had no fs-verity.
+GrapheneOS's system-package integrity check was not disabled. A signing derivative
+using the same lab key supplied a verified v4 `.idsig` sidecar, with every
+non-signature ZIP entry unchanged. A normal `adb install-multiple -r` session then
+succeeded. PM reported version 3 with `UPDATED_SYSTEM_APP`, `PRIVILEGED` and
+`SYSTEM_EXT` status. This is a lab update result, not a production update channel.
+
+The installed derivative APK SHA-256 is
+`ec289baed72dd1793aa7d0dd079e742a8a16a89a9c7bfc420d67b02ec49fcac7`;
+its sidecar is
+`1461fc26e4ee3e382abf1f85f28157d30c5d6b3768c4732e9d200697e67825af`.
+The original failed artifact remains separately frozen. A corrupt-sidecar control
+reported **v4=false** even though `apksigner` exited 0 through the still-valid v3
+signature; the initial exit-code-only assumption was rejected. Per-scheme results,
+not the overall exit alone, are the v4 oracle. The build now requests v4 sidecars
+directly through Soong's `v4_signature` option rather than requiring manual signing
+for later updates. The Soong follow-up `6eff213` passed its APK build in 384.431s,
+produced a byte-identical copy of the original `ab815409…` APK plus a verified v4
+sidecar, and retained the same signer. This exact build-produced pair was artifact-
+verified, not installed in the already-closed runtime; the tested signing derivative
+above remains separately identified.
+
+After the successful update:
+
+- Attach accepted keyboard-event input without another tap in the terminal. This
+  also worked after the input-method picker and normal PIN relock/unlock return.
+- The actual software keyboard rendered after the explicitly recorded fixture
+  preference changed from 0 to 1. Visible key taps entered `pwd`, opened `vi touch.sh`,
+  inserted `echo touch`, used the terminal's Esc control and touchscreen Shift-Z
+  twice to save/quit, then entered `sh touch.sh`. The script printed `touch`.
+  This touch-input sequence did not substitute `adb input text` for typing.
+- The PTY changed between 27×42 with the keyboard hidden and 10×42 with it shown.
+  Holding Keys opened Android's real input-method picker; focus loss detached the
+  native attachment, and return recovered the same owner shell.
+- Accessibility queries exposed the real, bounded current viewport, including
+  output after view construction. Clearing the screen removed old history from
+  that viewport description. The active picker and locked-window trees contained
+  no terminal node. This is not a complete TalkBack interaction or cached-node
+  attack assessment; the explicit bounds/surrogate controls also have host tests.
+- Native shell PID 4001, UID7500, zero capability masks and its inherited NNP/seccomp
+  state survived the relock trial. The touch-created 12-byte file's observed hash
+  matched `8d809713302439ce7b96c7e0d193f4477da9c88a4bcf7223097c20d086726128`.
+  The same-signer owner-negative and P5 passed and were removed, with live owner
+  positive controls before and after the negative.
+- The display preference was restored to its original 0 value. Core, End, real
+  post-unlock CVD reporting and all runtime/capture cleanup completed successfully.
+
+The closed window retains **3,995 regular files** and 123,646 offline packets,
+zero reported drops and zero truncated records. The failed install remains FAIL;
+early screenshots named “updated” were still version 2 until the separate successful
+v4 install. The host queue helper was corrected to validate every submitted action,
+not only the last one in a batch. No earlier seal was rewritten.
 
 ## Post-runtime source accounting
 
-The release/source verifier again authenticated all 1,108 declarations. Its original
-result remains FAIL for the intended private SELinux adaptation and a 120-second
+For the `9e5f816` image checkpoint, the release/source verifier again authenticated
+all 1,108 declarations. Its original result remains FAIL for the intended private
+SELinux adaptation and a 120-second
 `build/release` timeout. An unchanged same-contract retry passed that project in
 6.023 seconds; the guarded policy receipt matched the exact existing bridge. The
 assessed result is 1,107 unchanged projects plus one exact adaptation, not a claim
@@ -247,6 +321,13 @@ that all tracked source is pristine. No untracked/materialization or phone-secur
 assurance follows from this check.
 
 ## Checks and evidence
+
+The console-UI follow-up selected by `out/owner-terminal-ui/EVIDENCE` is sealed
+across **4,280 regular files**, including the 3,995-file closed window, original
+failed install/signing observations, frozen base state and separately identified
+APK/sidecar pairs. Its source accounting inherits the frozen image's prior audit;
+the exact private policy bridge was checked again, not relabelled as pristine
+upstream. No fresh all-project source-audit result is claimed for this APK-only step.
 
 The terminal-integration set selected by `out/owner-terminal/EVIDENCE` is sealed
 across **8,729 regular files**, with symlinks excluded and the 5,157-file runtime
@@ -269,8 +350,8 @@ source observations, portable checks and the raw-stream characterization. The
 completed 24,195-file owner-session seal is untouched. A separate 22-file compiler-
 selection inspection records the public release chain, later generated-config
 observations and native-artifact metadata without rewriting either earlier seal.
-Public-source fetches establish
-pinned bytes via HTTPS, not independent maintainer identity or runtime safety.
+Public-source fetches establish pinned bytes via HTTPS, not independent maintainer
+identity or runtime safety.
 I16 was cancelled before completing its read-only assessment. A delayed initial
 note corroborated the enabled device `vi` and legacy LLVM/Clang source versions;
 primary inspection verified those details. It did not assess the modern OpenCL

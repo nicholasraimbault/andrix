@@ -1,9 +1,9 @@
 # Current work
 
 **Active milestone:** [GrapheneOS-derived base — isolated migration trial](2026-09-08-grapheneos-migration.md).
-**Current action:** finish focus, software-keyboard and accessibility qualification
-for the [native terminal/editor slice](2026-09-10-owner-tools.md), then deliver the
-on-device compiler. Vanadium remains unchanged.
+**Current action:** build, package and qualify the on-device ARM64/Bionic compiler
+on the [native terminal/editor foundation](2026-09-10-owner-tools.md). Vanadium remains
+unchanged.
 
 Frozen producer `9e5f816` now runs a native Android VT view over the bounded owner
 session. In the emulator, `vi` created and saved a script, its unsaved buffer
@@ -12,12 +12,20 @@ through reboot. Ordinary-app negatives/P5, relock revocation, explicit output-ga
 handling, controller-death cleanup and core regressions passed. The 278 host checks
 and 151 terminal parser/adapter tests remain separate from those observations.
 
-This was keyboard-event input plus visible touch control buttons—not full software-
-IME qualification. Attach required a tap to restore terminal focus, and accessibility
-text exposure needs work. No C/C++ compiler is installed yet; modern LLVM source is
-available but still needs native build/packaging/resource qualification. Jobs still
-do not outlive console-process reclamation. Broader resource stress, user-stop/key
-loss, hardware and release/privacy gates remain open.
+The version-3 console follow-up (`b874ea9` code on the unchanged `9e5f816` image)
+restored automatic typing focus and demonstrated actual on-screen-keyboard `vi`
+editing/script execution plus bounded accessibility viewport text. The emulator's
+keyboard-display preference was explicitly enabled for touch testing alongside its
+physical keyboard and restored afterward. A normal APK+v4-sidecar session satisfied
+GrapheneOS's fs-verity requirement; the initially rejected APK-only attempt remains
+recorded. The build now generates sidecars directly (`6eff213`). The UI follow-up
+passed 279 host checks and 154 parser/adapter checks, separate from the device results.
+
+No C/C++ compiler is installed yet; modern LLVM source is available but still needs
+native build/packaging/resource qualification. Broader IME/language combinations,
+full assistive-service interaction, resource stress, user-stop/key loss, hardware
+and release/privacy gates remain open. Jobs still do not outlive console-process
+reclamation.
 
 The [earlier owner foundation](2026-09-10-owner-session.md), its frozen `e02bd6a`
 producer and all retained failures/timeouts remain intact. All owned emulator and
