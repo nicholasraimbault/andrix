@@ -12,5 +12,10 @@
   "resources": {
     "manifest": "frozen-resources/manifest.json",
     "sha256": "7cf1235f11d256e86923801519fd10c182ee0a2c5a26222edb8fd6c281ee282e"
+  },
+  "make": {
+    "manifest": "frozen-make-01/manifest.json",
+    "sha256": "5e767132428b5b884d2a190ff125f9c3f70e1af3271fc1469456d9009593eb02",
+    "source_build": "067cb660d92dfa95f5f6724b260736b77c1b0495"
   }
 }
