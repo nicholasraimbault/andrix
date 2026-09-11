@@ -17,6 +17,15 @@ ifeq ($(ANDRIX_OWNER_SESSION),true)
 PRODUCT_PACKAGES += andrixd andrix-session-runner AndrixTerminal
 endif
 
+# Compiler payload is a separate opt-in within the owner environment. Unflagged
+# builds retain the original small APEX and do not require the staged compiler.
+ifeq ($(ANDRIX_OWNER_COMPILER),true)
+ifneq ($(ANDRIX_OWNER_SESSION),true)
+$(error ANDRIX_OWNER_COMPILER requires ANDRIX_OWNER_SESSION=true)
+endif
+$(call soong_config_set_bool,andrix,owner_compiler,true)
+endif
+
 # The upstream media_system product includes its Updater for OFFICIAL_BUILD.
 # This development product has no Andrix release channel; it must not claim
 # official upstream release status or use that channel with different keys.
