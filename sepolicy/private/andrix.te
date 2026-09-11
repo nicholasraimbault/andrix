@@ -7,6 +7,9 @@ type andrix_lib, system_file_type, file_type;
 allow shell andrix_file:dir { getattr search open read };
 allow shell andrix_exec:dir { getattr search open read };
 allow shell andrix_exec:file { execute execute_no_trans read open getattr map };
+# Libraries now exist in this immutable APEX. Complete the existing file-access
+# rule with path traversal/metadata, without directory writes or app-data access.
+allow shell andrix_lib:dir { getattr search };
 allow shell andrix_lib:file { read open getattr map execute };
 
 allow init andrix_file:dir { getattr search mounton };
