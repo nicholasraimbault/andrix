@@ -3,7 +3,9 @@
 **Status:** the native multi-file project workflow passed in the ARM64 emulator,
 including editing, failed-build recovery, relocation and rebuilding after reboot.
 The input queue correctly withheld commands during two failed first attachments.
-**Cold first-Attach/resize timing remains open**, not hidden by a blanket UI PASS.
+Those failures remain part of this version 4 result. The subsequent
+[cold-attachment correction](2026-09-11-cold-attachment.md) passed its own bounded
+Android checks; it does not retroactively turn this window into a blanket UI PASS.
 
 The [C++ defaults](2026-09-11-cxx-defaults.md) already work in the ARM64 emulator.
 This follow-up improves the observed attachment/input timing and exercises a
@@ -123,7 +125,7 @@ the edited header was
 `68b276a7db3778f14280f8b4f133d2114c2e0dcd6a74eed6ad7e0dd12451acd1`.
 These observations came from native commands and the real bounded terminal display.
 
-### First-attachment finding remains open
+### First-attachment finding in this window
 
 The first Attach after **each** boot ended with `Detached: resize failed`; the actual
 terminal node was disabled/unfocused. Readiness actions 0021 and 0263 failed, and the
@@ -140,9 +142,9 @@ namespace/policy weakening, automatic retry or guessed-delay substitute was used
 The pending-state and stale-callback fixes are source/host-checked changes; they do
 not close every startup race.
 
-**Next:** instrument the cold Attach/resize path with bounded, non-input diagnostics,
-compare it with the working warm controls and fix the measured cause. Then broaden
-project/build-tool and resource testing. Long-lived services, package transactions,
+**Follow-up:** the [cold Attach/resize work](2026-09-11-cold-attachment.md) records the
+subsequent diagnostics, pending-lease correction and Android qualification. Broader
+project/build-tool and resource testing follows that work. Long-lived services, package transactions,
 full terminal compatibility and supported-phone/release/privacy qualification remain
 separate work.
 

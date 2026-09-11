@@ -1,17 +1,25 @@
 # Current work
 
 **Active milestone:** [GrapheneOS-derived base — isolated migration trial](2026-09-08-grapheneos-migration.md).
-**Current action:** [diagnose and fix cold attachment timing](2026-09-11-cold-attachment.md).
-The [project/input follow-up](2026-09-11-owner-project-input.md) retained two failed
-first attachments. A bounded, non-input diagnostic APK will distinguish control/RPC,
-frontend, renewal and resize timing without extending leases or weakening the boundary.
-The multi-file C++ project now builds, accepts header edits, preserves the previous
-executable on build failure, relocates and rebuilds after reboot. The updated console
-and sequential test driver correctly withheld commands during both failed first
-attachments; explicit retries and warm controls worked. First-Attach reliability
-is still open, not a blanket terminal PASS.
+**Current action:** expand practical project/build/debug tooling and resource
+qualification from the [working cold-attachment correction](2026-09-11-cold-attachment.md).
+The client now maintains a guarded pending lease during Main preparation, with input
+blocked until identity-checked promotion. First Attach passed without retry after
+both tested boots; normal relock, gap blocking/End, ordinary-app isolation and native
+C++ recompilation passed too. The native 1500ms duration, eligibility/expiry rules,
+policy and limits were unchanged. Arbitrary scheduler stalls are not guaranteed safe
+from expiry, and this is not blanket terminal or supported-phone qualification.
 
-Source/APK `ed060a5` was installed normally with a verified v4 sidecar on frozen image
+Source/APK `a11c19e` (main correction `50987e1`) was installed through the normal v4
+update path on the unchanged frozen `a653644` compiler image. The final host suite
+passed 304 tests. Diagnostic producer `fda6815` and the earlier two failed first
+attachments remain separately recorded.
+
+The [multi-file project trial](2026-09-11-owner-project-input.md) already demonstrated
+header edits, keeping the previous executable on build failure, relocation and
+rebuilding after reboot.
+
+That earlier project trial installed source/APK `ed060a5` with a verified v4 sidecar on frozen image
 `a653644`; no factory sidecar or native/policy change was made. All 301 host tests passed.
 The highest sampled project-build group peak was 226.859375 MiB within 256 MiB, with no
 observed OOM events. This is not pressure or supported-phone qualification. All owned

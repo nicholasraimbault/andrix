@@ -60,6 +60,11 @@ CLOCK_BOOTTIME lease closes stale UI attachments. The actual PTY master
 never leaves the daemon: the UI gets a separately labelled stream that can be shut
 down/replaced, and ordinary APKs cannot use that stream even if handed its FD.
 This is a bounded UI-policy mechanism, not cryptographic attestation of keyguard.
+A received connection has guarded pending ownership while Main prepares its parser;
+the ordinary heartbeat renews pending or active ownership. Pending input stays
+blocked until identity-checked promotion. Cancellation/expiry retires ownership
+before local FD shutdown, and late replies cannot restore it. The lease duration
+is unchanged; this is not a shell-readiness barrier or automatic retry.
 
 The home is `/data/misc_ce/0/andrix`, prepared only following Android's real CE
 preparation event. The daemon never creates a missing/fallback home. Mode/owner,
@@ -127,9 +132,11 @@ including after reboot. The [subsequent C++ defaults](../plans/2026-09-11-cxx-de
 now let ordinary standalone C++ compile/run without a runtime copy, with a separate
 working shared-runtime profile. The [project/input follow-up](../plans/2026-09-11-owner-project-input.md)
 also demonstrates multi-file builds, edited-header rebuilds, failed-build recovery and
-reboot persistence. It records an unresolved cold first-Attach/resize failure;
-explicit retries worked, and the readiness-aware test driver withheld commands in
-the failed state. Broad IME/language and assistive-service compatibility are not claimed.
+reboot persistence. Its cold first-Attach failure led to the
+[pending-lease correction](../plans/2026-09-11-cold-attachment.md), which passed first
+Attach after both tested boots while preserving input gating, expiry and revocation.
+The earlier failures remain recorded. Broad IME/language and assistive-service
+compatibility are not claimed.
 
 Resource-exhaustion tests, all adversarial descriptor/race cases on Android,
 user-stop/key eviction, long-lived services and native phone qualification remain
