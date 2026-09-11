@@ -56,14 +56,17 @@ AArch64/API37 executables; it does not claim static Bionic linking or other CPUs
 
 ## Opt-in APEX package candidate
 
-`package-inputs.json` pins the already frozen native, SDK and resource manifests.
+`package-inputs.json` pins the already frozen native, SDK, resource and
+[GNU Make](make/README.md) manifests. Assemble a new input directory containing the
+unchanged `frozen-native-01`, `frozen-sdk-02`, `frozen-resources` directories and the
+new `frozen-make-01`; do not append to an earlier sealed input set.
 `compiler_package.py` verifies every selected file, stages the payload atomically,
 and checks its public metadata against those inputs. It parses the same manifest
 bytes whose digest is verified. `--generate` is an explicit source-metadata update,
 not permission to accept changed manifest pins or silently rehash foreign inputs.
 
 ```sh
-python3 -B scripts/proof/compiler_package.py --inputs "$FROZEN_COMPILER_INPUTS" \
+python3 -B scripts/proof/compiler_package.py --inputs "$FROZEN_TOOLCHAIN_INPUTS" \
   --stage "$ANDROID/vendor/andrix/toolchain/artifacts"
 ```
 
@@ -74,10 +77,13 @@ are public. Preserve the notice bytes, including upstream whitespace. Individual
 source/header notices and LLVM's exceptions govern the mixed upstream inputs.
 
 `ANDRIX_OWNER_COMPILER=true` requires `ANDRIX_OWNER_SESSION=true` on the GrapheneOS
-Cuttlefish product. This profile supplies APEX version3; unflagged builds retain
-version1 and disabled compiler modules. Version2 and its observations remain in
-the earlier milestone. Real package/runtime checks, not source assertions alone,
-establish whether a new generation works.
+Cuttlefish product. The Make addition selects APEX version4; unflagged builds retain
+version1 and disabled compiler/tool modules. Version3 supplied the demonstrated C++
+defaults; version2 and its runtime lookup failure remain in the earlier milestone.
+The [build-tools milestone](../plans/2026-09-11-native-build-tools.md) records the new
+package's separate qualification. Real extracted-payload/runtime checks, not source
+assertions alone, establish whether a new generation works. GNU Make has its own
+GPL license metadata/notice, not the compiler payload's permissive-license aggregate.
 
 `clang` is the native binary. `clang++` is a small native argument-forwarding wrapper
 that executes it in C++ driver mode with the immutable NDK config. The same small

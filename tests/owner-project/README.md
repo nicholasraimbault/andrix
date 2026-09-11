@@ -25,6 +25,21 @@ Qualification steps:
 5. Repeat normal relock/return and reboot/persistence as relevant; keep ordinary-app
    negatives and live positive controls distinct from the compiler tests.
 
+## Incremental Make follow-up
+
+The Makefile adds ordinary incremental builds with compiler-generated header
+prerequisites. `make`, a no-op `make -q`, header/source edits and `make --trace`
+exercise dependency selection. Archive/link output is first written to a temporary
+file so failed work does not overwrite the last working executable. This is not a
+concurrent-project or package-transaction guarantee.
+
+`make -j2 jobserver-check` exercises recursive jobserver inheritance using two tiny
+shell jobs, not concurrent compiler pressure. `make path-fallback` runs a recipe
+with PATH unexported, checking the platform's default command search. `make defaults`
+shows the actual configured CC/CXX/AR/SHELL values. Runtime limits remain enforced.
+See the [native build-tools milestone](../../plans/2026-09-11-native-build-tools.md)
+for the separate native Make qualification.
+
 The Python host test really builds and runs this fixture using the host's C++
 compiler and libc. That is **not** an Android compiler, identity, or resource pass.
 The [Android trial](../../plans/2026-09-11-owner-project-input.md) records the native

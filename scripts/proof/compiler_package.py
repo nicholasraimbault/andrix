@@ -71,7 +71,7 @@ def regular(root, path, digest, size=None):
 def inputs(input_root):
     input_root=input_root.resolve(); pins=load(TOOLCHAIN/'package-inputs.json')
     manifests={}
-    for name in ['native','sdk','resources']:
+    for name in ['native','sdk','resources','make']:
         manifests[name]=pinned_manifest(input_root,pins[name])
     files={};sources={}
     def add(source,dest,digest,size):
@@ -101,9 +101,23 @@ def inputs(input_root):
     for row in manifests['resources']['files']:
         p=regular(input_root,'frozen-resources/'+row['path'],row['sha256'],row['size'])
         add(p,'etc/andrix/clang/23/'+row['path'],row['sha256'],row['size'])
+    make=manifests['make']
+    if (make['tool']!='GNU Make' or make['version']!='4.4.1'
+            or make['target']!='aarch64-linux-android37'
+            or make['source_build']!=pins['make']['source_build']
+            or make['profile_sha256']!=sha(TOOLCHAIN/'make/profile.json')):
+        raise ValueError('Unreviewed native Make artifact')
+    make_paths={'bin/make':'bin/make','licenses/COPYING':'etc/andrix/make/COPYING',
+                'licenses/SOURCE':'etc/andrix/make/SOURCE'}
+    if {row['path'] for row in make['files']}!=set(make_paths) or len(make['files'])!=3:
+        raise ValueError('Unexpected native Make payload')
+    for row in make['files']:
+        p=regular(input_root,'frozen-make-01/'+row['path'],row['sha256'],row['size'])
+        add(p,make_paths[row['path']],row['sha256'],row['size'])
     for name in ['cxx.cfg','cxx-shared.cfg']:
         p=TOOLCHAIN/name;add(p,'etc/andrix/'+name,sha(p),p.stat().st_size)
-    required=['bin/clang','bin/ld.lld','bin/llvm-ar','lib64/libc++_shared.so',
+    required=['bin/clang','bin/ld.lld','bin/llvm-ar','bin/make','etc/andrix/make/COPYING',
+              'etc/andrix/make/SOURCE','lib64/libc++_shared.so',
               'etc/andrix/sdk/usr/lib/aarch64-linux-android/37/crtbegin_dynamic.o',
               'etc/andrix/sdk/usr/include/c++/v1/iostream',
               'etc/andrix/sdk/usr/lib/aarch64-linux-android/libc++_static.a',
@@ -135,6 +149,12 @@ license {
         "SPDX-license-identifier-Zlib", "legacy_notice", "legacy_unencumbered"],
     license_text: ["licenses/sdk-NOTICE", "licenses/bootstrap-NOTICE", "licenses/llvm-LICENSE"],
 }
+license {
+    name: "andrix_native_make_license",
+    visibility: [":__subpackages__"],
+    license_kinds: ["SPDX-license-identifier-GPL-3.0-or-later"],
+    license_text: ["licenses/make-COPYING"],
+}
 '''
     parts=[preamble]
     for suffix,base,props in [('binary','cc_prebuilt_binary',['enabled']),
@@ -150,6 +170,19 @@ license {
             '    compile_multilib: "64",\n    sdk_version: "37",\n    min_sdk_version: "37",\n    stl: "none",\n'+
             '    apex_available: ["dev.andrix.usr"],\n    shared_libs: ["andrix_compiler_libcxx", "libz"],\n'+
             '    system_shared_libs: ["libc", "libm", "libdl"],\n    strip: { none: true },\n}\n')
+    parts.append('andrix_compiler_binary {\n    name: "andrix_compiler_make",\n'+enabled+'''
+    licenses: ["andrix_native_make_license"],
+    srcs: ["artifacts/root/bin/make"],
+    stem: "make",
+    compile_multilib: "64",
+    sdk_version: "37",
+    min_sdk_version: "37",
+    stl: "none",
+    apex_available: ["dev.andrix.usr"],
+    system_shared_libs: ["libc", "libdl"],
+    strip: { none: true },
+}
+''')
     parts.append('andrix_compiler_library {\n    name: "andrix_compiler_libcxx",\n'+enabled+'''
     srcs: ["artifacts/root/lib64/libc++_shared.so"],
     stem: "libc++_shared",
@@ -177,11 +210,12 @@ license {
     modules=[]
     for directory,paths in sorted(groups.items()):
         name='andrix_compiler_data_'+hashlib.sha256(directory.encode()).hexdigest()[:16];modules.append(name)
-        parts.append('andrix_compiler_data {\n    name: '+json.dumps(name)+',\n'+enabled+
+        license_line='    licenses: ["andrix_native_make_license"],\n' if directory=='etc/andrix/make' else ''
+        parts.append('andrix_compiler_data {\n    name: '+json.dumps(name)+',\n'+enabled+license_line+
             '    relative_install_path: '+json.dumps(directory.removeprefix('etc/'))+',\n'+
             '    installable: false,\n    srcs: [\n'+''.join('        '+json.dumps('artifacts/root/'+p)+',\n' for p in paths)+'    ],\n}\n')
     parts.append('andrix_compiler_apex_defaults {\n    name: "andrix_compiler_apex_payload",\n    soong_config_variables: { owner_compiler: {\n'+
-        '        binaries: ["andrix_compiler_clang", "andrix_compiler_lld", "andrix_compiler_ar", "andrix_compiler_cxx"],\n'+
+        '        binaries: ["andrix_compiler_clang", "andrix_compiler_lld", "andrix_compiler_ar", "andrix_compiler_cxx", "andrix_compiler_make"],\n'+
         '        native_shared_libs: ["andrix_compiler_libcxx"],\n        prebuilts: [\n'+
         ''.join('            '+json.dumps(n)+',\n' for n in modules)+'        ],\n    } },\n}\n')
     return '\n'.join(parts)
@@ -227,6 +261,7 @@ def main():
         (TOOLCHAIN/'licenses').mkdir(exist_ok=True)
         for name in ['sdk-NOTICE','bootstrap-NOTICE','llvm-LICENSE']:
             shutil.copyfile(sources['etc/andrix/licenses/'+name],TOOLCHAIN/'licenses'/name)
+        shutil.copyfile(sources['etc/andrix/make/COPYING'],TOOLCHAIN/'licenses/make-COPYING')
         (TOOLCHAIN/'payload.json').write_text(json.dumps({'schema':1,'files':rows},indent=2)+'\n')
     elif (TOOLCHAIN/'Android.bp').read_text()!=text or load(TOOLCHAIN/'payload.json')!={'schema':1,'files':rows}:
         raise ValueError('Generated public metadata differs; review before regenerating')
