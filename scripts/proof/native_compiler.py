@@ -56,6 +56,8 @@ def main():
     p.add_argument('--sdk', type=Path, required=True)
     p.add_argument('--sdk-manifest-sha256', required=True)
     p.add_argument('--build-root', type=Path, required=True)
+    p.add_argument('--ninja', type=Path, required=True)
+    p.add_argument('--ninja-sha256', required=True)
     p.add_argument('--evidence-dir', type=Path, required=True)
     p.add_argument('--stage', choices=['host-tools', 'native-configure', 'native-build'], required=True)
     args = p.parse_args(); os.umask(0o077)
@@ -74,7 +76,9 @@ def main():
             if checked['verdict']!='PASS':raise ValueError(str(checked))
         src=root/profile['llvm_project']/'llvm'
         bootstrap=root/profile['bootstrap_project']/profile['bootstrap_directory']
-        ninja=root/'prebuilts/build-tools/linux-x86/bin/ninja'
+        ninja=args.ninja.resolve()
+        if compiler_sdk.sha(ninja) != args.ninja_sha256:
+            raise ValueError('Ninja bytes differ from the frozen receipt')
         cmake=Path('/usr/bin/cmake')
         env={key:value for key,value in os.environ.items() if key not in
              ['CC','CXX','CFLAGS','CXXFLAGS','CPPFLAGS','LDFLAGS','LD_LIBRARY_PATH',
