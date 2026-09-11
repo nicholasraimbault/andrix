@@ -19,9 +19,23 @@ cc_binary {
     apex_available: ["dev.andrix.usr"],
 }
 
-apex {
+soong_config_module_type {
+    name: "andrix_usr_apex",
+    module_type: "apex",
+    config_namespace: "andrix",
+    bool_variables: ["owner_compiler"],
+    properties: ["manifest"],
+}
+
+andrix_usr_apex {
     name: "dev.andrix.usr",
-    manifest: "apex_manifest.json",
+    defaults: ["andrix_compiler_apex_payload"],
+    soong_config_variables: {
+        owner_compiler: {
+            manifest: "apex_manifest_compiler.json",
+            conditions_default: { manifest: "apex_manifest.json" },
+        },
+    },
     file_contexts: "file_contexts",
     key: "dev.andrix.usr.key",
     certificate: ":dev.andrix.usr.certificate",
