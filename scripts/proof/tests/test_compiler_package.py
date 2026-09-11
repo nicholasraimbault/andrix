@@ -60,6 +60,9 @@ class CompilerPackageTests(unittest.TestCase):
             row={'path':'etc/andrix/header','sha256':package.sha(src),'size':7};dest=root/'stage'
             package.stage([row],{row['path']:src},dest)
             self.assertEqual((dest/'root'/row['path']).read_bytes(),b'payload')
+            package.verify_stage([row],dest)
+            (dest/'root'/row['path']).write_bytes(b'changed')
+            with self.assertRaises(ValueError):package.verify_stage([row],dest)
             with self.assertRaises(ValueError):package.stage([row],{row['path']:src},dest)
             row['sha256']='0'*64
             with self.assertRaises(ValueError):package.stage([row],{row['path']:src},root/'bad')
@@ -86,7 +89,7 @@ class CompilerPackageTests(unittest.TestCase):
         self.assertNotIn('allow andrix_owner andrix_lib:file { write',policy)
 
     def test_cxx_driver_config_uses_link_only_ndk_mapping(self):
-        cfg=(package.TOOLCHAIN/'cxx.cfg').read_text();wrapper=(package.TOOLCHAIN/'clang_cxx.c').read_text()
+        cfg=(package.TOOLCHAIN/'cxx.cfg').read_text();wrapper=(package.TOOLCHAIN/'tool_driver.c').read_text()
         self.assertIn('-nostdlib++',cfg)
         self.assertIn('$-Wl,-L,<CFGDIR>/../../lib64',cfg)
         self.assertNotIn('$-L<CFGDIR>',cfg)
@@ -102,7 +105,13 @@ class CompilerPackageTests(unittest.TestCase):
 #include <string.h>
 int andrix_wrapper_main(int,char**);
 static int called;
+static const char *alias;
 int andrix_test_execv(const char *path,char *const args[]) {
+ if (alias) {
+  assert(!strcmp(path,!strcmp(alias,"cc")?"/usr/bin/clang":"/usr/bin/llvm-ar"));
+  assert(!strcmp(args[0],alias)); assert(!strcmp(args[1],"path with spaces"));
+  assert(args[2]==0); called=1; errno=ENOENT; return -1;
+ }
  assert(!strcmp(path,"/usr/bin/clang"));
  assert(!strcmp(args[0],path));
  assert(!strcmp(args[1],"--driver-mode=g++"));
@@ -113,11 +122,17 @@ int andrix_test_execv(const char *path,char *const args[]) {
 }
 int main(void) {
  char *a[]={"clang++","space words;not a shell","--config=/owner/custom",0};
- assert(andrix_wrapper_main(3,a)==127); assert(called); return 0;
+ assert(andrix_wrapper_main(3,a)==127); assert(called);
+ const char *names[]={"cc","ar","ranlib","llvm-ranlib"};
+ for (unsigned i=0;i<sizeof(names)/sizeof(names[0]);++i) {
+  alias=names[i]; called=0; char *b[]={(char*)alias,"path with spaces",0};
+  assert(andrix_wrapper_main(2,b)==127); assert(called);
+ }
+ return 0;
 }
 ''')
             subprocess.run(['cc','-Wall','-Wextra','-Werror','-Dmain=andrix_wrapper_main',
-                '-Dexecv=andrix_test_execv','-c',str(package.TOOLCHAIN/'clang_cxx.c'),'-o',str(root/'wrapper.o')],check=True,capture_output=True)
+                '-Dexecv=andrix_test_execv','-c',str(package.TOOLCHAIN/'tool_driver.c'),'-o',str(root/'wrapper.o')],check=True,capture_output=True)
             subprocess.run(['cc','-Wall','-Wextra','-Werror',str(h),str(root/'wrapper.o'),'-o',str(root/'test')],check=True,capture_output=True)
             p=subprocess.run([str(root/'test')],text=True,capture_output=True)
             self.assertEqual(p.returncode,0,p.stderr)

@@ -76,11 +76,15 @@ keep version1 and disabled compiler modules. Real Soong behavior must still be
 checked; source assertions alone are not a baseline or package PASS.
 
 `clang` is the native binary. `clang++` is a small native argument-forwarding wrapper
-that executes it in C++ driver mode with the immutable NDK config. It preserves
-argument boundaries and changes no UID, environment or sandbox. This is not an APK
+that executes it in C++ driver mode with the immutable NDK config. The same small
+native dispatcher supplies `cc`, `ar` and ranlib aliases, preserving the archive
+mode selected by `argv[0]`. It preserves argument boundaries and changes no UID,
+environment or sandbox. This is not an APK
 launcher or a privilege transition. The first shell-wrapper dependency triggered
 a Soong APEX static-executable-check panic; the failed build is retained rather
-than patching or disabling that platform check. The config uses explicit target/common C++
+than patching or disabling that platform check. Prebuilt-binary symlink properties
+were also absent from the extracted APEX, so aliases are attached to the compiled
+dispatcher and verified in the payload instead of assumed from Blueprint text. The config uses explicit target/common C++
 headers and link-only NDK runtime options, retaining `/usr/lib64` as the trusted
 runtime path. Compile-only mode must not add libraries. The owner policy explicitly
 allows reading Andrix-labelled SDK/configuration files and mapping its immutable

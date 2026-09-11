@@ -139,7 +139,7 @@ license {
                               ('apex_defaults','apex_defaults',['binaries','native_shared_libs','prebuilts'])]:
         parts.append('soong_config_module_type {\n    name: "andrix_compiler_'+suffix+'",\n    module_type: '+json.dumps(base)+',\n    config_namespace: "andrix",\n    bool_variables: ["owner_compiler"],\n    properties: '+json.dumps(props)+',\n}\n')
     enabled='    enabled: false,\n    soong_config_variables: { owner_compiler: { enabled: true } },\n'
-    for name,stem,aliases in [('clang','clang',['cc']),('lld','ld.lld',[]),('ar','llvm-ar',['llvm-ranlib','ar','ranlib'])]:
+    for name,stem,aliases in [('clang','clang',[]),('lld','ld.lld',[]),('ar','llvm-ar',[])]:
         parts.append('andrix_compiler_binary {\n    name: "andrix_compiler_'+name+'",\n'+enabled+
             '    srcs: ["artifacts/root/bin/'+stem+'"],\n    stem: '+json.dumps(stem)+',\n    symlinks: '+json.dumps(aliases)+',\n'+
             '    compile_multilib: "64",\n    sdk_version: "37",\n    min_sdk_version: "37",\n    stl: "none",\n'+
@@ -158,9 +158,9 @@ license {
 }
 ''')
     parts.append('andrix_compiler_wrapper {\n    name: "andrix_compiler_cxx",\n'+enabled+'''
-    srcs: ["clang_cxx.c"],
+    srcs: ["tool_driver.c"],
     stem: "clang++",
-    symlinks: ["c++"],
+    symlinks: ["c++", "cc", "ar", "ranlib", "llvm-ranlib"],
     cflags: ["-Wall", "-Wextra", "-Werror"],
     compile_multilib: "64",
     sdk_version: "37",
@@ -199,9 +199,22 @@ def stage(rows,sources,destination):
         raise
 
 
+def verify_stage(rows,destination):
+    if load(destination/'payload.json')!={'schema':1,'files':rows}:
+        raise ValueError('Staged metadata differs')
+    expected={'payload.json'} | {'root/'+r['path'] for r in rows}
+    actual=set()
+    for path in destination.rglob('*'):
+        if path.is_symlink():raise ValueError('Staged symlink')
+        if path.is_file():actual.add(path.relative_to(destination).as_posix())
+    if actual!=expected:raise ValueError('Staged file set differs')
+    for row in rows:regular(destination,'root/'+row['path'],row['sha256'],row['size'])
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--inputs',type=Path,required=True)
-    p.add_argument('--stage',type=Path);p.add_argument('--generate',action='store_true');args=p.parse_args();os.umask(0o077)
+    p.add_argument('--stage',type=Path);p.add_argument('--verify-stage',type=Path)
+    p.add_argument('--generate',action='store_true');args=p.parse_args();os.umask(0o077)
     rows,sources=inputs(args.inputs)
     text=blueprint(rows)
     if args.generate:
@@ -213,6 +226,7 @@ def main():
     elif (TOOLCHAIN/'Android.bp').read_text()!=text or load(TOOLCHAIN/'payload.json')!={'schema':1,'files':rows}:
         raise ValueError('Generated public metadata differs; review before regenerating')
     if args.stage:stage(rows,sources,args.stage.resolve())
+    if args.verify_stage:verify_stage(rows,args.verify_stage.resolve())
     print(json.dumps({'files':len(rows),'data_directories':len({str(PurePosixPath(r['path']).parent) for r in rows if r['path'].startswith('etc/')}),'staged':str(args.stage) if args.stage else None}))
 
 
