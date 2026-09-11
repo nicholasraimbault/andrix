@@ -122,9 +122,11 @@ automatic focus, demonstrated real on-screen-keyboard editing and exposed bounde
 foreground viewport text through Android accessibility. The touch test explicitly
 requested software input alongside Cuttlefish's physical keyboard and restored that
 preference afterward. The later [compiler image](../plans/2026-09-11-native-compiler.md)
-demonstrated native C compilation/run and C++ compilation/run with a project-private
-runtime, including after reboot. The default global C++ runtime path remains a known
-limitation; broad IME/language and assistive-service compatibility are not claimed.
+demonstrated native C compilation/run and C++ with a project-private runtime,
+including after reboot. The [subsequent C++ defaults](../plans/2026-09-11-cxx-defaults.md)
+now let ordinary standalone C++ compile/run without a runtime copy, with a separate
+working shared-runtime profile. Broad IME/language and assistive-service compatibility
+are not claimed.
 
 Resource-exhaustion tests, all adversarial descriptor/race cases on Android,
 user-stop/key eviction, long-lived services and native phone qualification remain

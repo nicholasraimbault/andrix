@@ -2,9 +2,10 @@
 
 See the [compiler milestone](../plans/2026-09-11-native-compiler.md) for the prior
 native C/project-private C++ result and the [C++ defaults follow-up](../plans/2026-09-11-cxx-defaults.md)
-for current qualification. The new standalone default embeds the pinned NDK C++
-runtime; an explicit shared profile retains project-private runtime use. This is
-not a supported release or full compiler-feature/resource qualification.
+for current qualification. The standalone default and explicit shared profile now
+pass bounded Android emulator checks, including relocation and return after reboot.
+The default embeds the pinned NDK C++ runtime; the shared profile uses one private
+runtime. This is not a supported release or full compiler-feature/resource qualification.
 
 `native-compiler.json` pins the compiler source and release-selected bootstrap.
 `AndroidBionic.cmake` prevents accidental GNU/Linux header/library use and names the

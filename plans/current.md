@@ -1,17 +1,22 @@
 # Current work
 
 **Active milestone:** [GrapheneOS-derived base — isolated migration trial](2026-09-08-grapheneos-migration.md).
-**Current action:** qualify the [standalone C++ default](2026-09-11-cxx-defaults.md)
-for the native compiler. The candidate embeds only the pinned NDK C++ runtime into
-standalone outputs while retaining dynamic Bionic and the Android linker; explicit
-shared aliases keep one project-private shared runtime for multi-library projects.
-No hidden library copying or namespace widening is introduced. This new default
-still needs its Android qualification.
+**Current action:** expand representative project-build and resource checks from the
+[demonstrated C++ defaults](2026-09-11-cxx-defaults.md), while improving observed
+startup/input timing. Ordinary `clang++` now compiles and runs standalone programs
+without a runtime copy or extra linker flags. Only the pinned NDK C++ runtime is
+embedded; Bionic and Android's linker remain dynamic. Explicit shared aliases also
+passed a private-runtime DSO/string/exception test and package relocation. Both
+profiles ran after reboot, and the standalone program rebuilt successfully.
+No hidden library copying, namespace widening or owner limit change was needed.
+The new image `a653644` passed the bounded checks with a highest sampled owner-group
+peak of 202.7421875 MiB within 256 MiB and no observed OOM events. This does not
+replace broader pressure/lifecycle or supported-phone qualification.
 
-The [earlier compiler image](2026-09-11-native-compiler.md) already demonstrated C
-and project-private-runtime C++ compilation/execution as owner UID7500, including
-recompilation after reboot. Its global `/usr/lib64` C++ runtime lookup failure remains
-recorded separately. Vanadium remains unchanged.
+The [earlier compiler image](2026-09-11-native-compiler.md) demonstrated C and
+project-private-runtime C++ as owner UID7500. Its global `/usr/lib64` lookup failure
+remains recorded as the version 2 result, not the current standalone default.
+Vanadium remains unchanged.
 
 Frozen producer `9e5f816` now runs a native Android VT view over the bounded owner
 session. In the emulator, `vi` created and saved a script, its unsaved buffer

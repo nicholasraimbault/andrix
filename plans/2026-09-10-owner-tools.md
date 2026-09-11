@@ -5,8 +5,9 @@ The version-3 console follow-up also demonstrated automatic typing focus, actual
 software-keyboard touch editing and guarded accessibility viewport text in the
 bounded emulator fixture. The [compiler follow-up](2026-09-11-native-compiler.md)
 now demonstrates C and project-private-runtime C++ compilation/execution inside
-Andrix; default C++ runtime provisioning and broader terminal/phone qualification
-remain open.
+Andrix. The [defaults follow-up](2026-09-11-cxx-defaults.md) also demonstrates ordinary
+standalone C++ compilation without a runtime copy and an explicit shared profile.
+Broader terminal/phone qualification remains open.
 
 ## Goal and scope
 

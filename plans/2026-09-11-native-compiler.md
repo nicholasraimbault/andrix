@@ -1,11 +1,11 @@
 # Native ARM64/Bionic compiler
 
-**Status:** native C compilation/execution and C++ compilation/execution with a
-project-private runtime are demonstrated as owner UID7500 in the ARM64 emulator,
-including return after relock and recompilation after reboot. The compiler is in
-authenticated read-only `/usr`. **Default C++ runtime lookup remains unresolved:**
-the global `/usr/lib64` RUNPATH cannot serve home executables in Android's isolated
-system linker namespace. No namespace/security bypass was used.
+**Status:** this records the version 2 native C/project-private C++ demonstration,
+including return after relock and recompilation after reboot. Its global C++ runtime
+lookup failed under Android's isolated linker namespace, and that failure remains
+recorded. The [new standalone/shared defaults](2026-09-11-cxx-defaults.md) now pass
+their own bounded Android checks without widening namespaces. The compiler remains
+in authenticated read-only `/usr`.
 
 ## Scope
 
@@ -238,9 +238,9 @@ owner-policy bridge and pinned staged compiler bytes. It likewise does not claim
 fresh all-project audit. Keep host cross-linking, compiler construction, package
 signatures, observed Android behavior and release assurance distinct.
 
-**Next:** the [standalone C++ defaults follow-up](2026-09-11-cxx-defaults.md) qualifies
-embedding the pinned C++ runtime for ordinary executable builds while retaining an
-explicit project-private shared-runtime profile. The observations above used the
+**Next:** the [standalone C++ defaults follow-up](2026-09-11-cxx-defaults.md) records
+the subsequent working default for ordinary executable builds and explicit
+project-private shared-runtime profile. The observations above used the
 previous default and are not retroactive qualification of that change. Also
 account for the linker path probes without widening unrelated access, and expand
 representative compiler/resource tests. Full managed package transactions, services
