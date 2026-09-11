@@ -79,8 +79,11 @@ checked; source assertions alone are not a baseline or package PASS.
 executes it in C++ driver mode with the immutable NDK config. This is not an APK
 launcher or a privilege transition. The config uses explicit target/common C++
 headers and link-only NDK runtime options, retaining `/usr/lib64` as the trusted
-runtime path. Compile-only mode must not add libraries. No owner limit changes,
-Android policy relaxation or fabricated libc++ linker scripts are needed.
+runtime path. Compile-only mode must not add libraries. The owner policy explicitly
+allows reading Andrix-labelled SDK/configuration files and mapping its immutable
+runtime library; it adds no writes, app-data access or Binder authority. No owner
+limit changes, global platform-policy relaxation or fabricated libc++ linker
+scripts are needed.
 
 ## Retained limits
 

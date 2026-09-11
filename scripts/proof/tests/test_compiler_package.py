@@ -78,6 +78,13 @@ class CompilerPackageTests(unittest.TestCase):
                 if owner==compiler=='true':self.assertIn('enabled=true',p.stdout)
                 if compiler=='false':self.assertNotIn('enabled=true',p.stdout)
 
+    def test_owner_readonly_sdk_and_runtime_access_stays_in_andrix_types(self):
+        policy=(package.ROOT/'owner/sepolicy/andrix_owner.te').read_text()
+        self.assertIn('allow andrix_owner andrix_file:file { open read getattr map };',policy)
+        self.assertIn('allow andrix_owner andrix_lib:file { open read getattr map execute };',policy)
+        self.assertNotIn('allow andrix_owner app_data_file',policy)
+        self.assertNotIn('allow andrix_owner andrix_lib:file { write',policy)
+
     def test_cxx_driver_config_uses_link_only_ndk_mapping(self):
         cfg=(package.TOOLCHAIN/'cxx.cfg').read_text();sh=(package.TOOLCHAIN/'clang-cxx.sh').read_text()
         self.assertIn('-nostdlib++',cfg)
