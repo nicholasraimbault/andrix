@@ -1,5 +1,9 @@
 # Native ARM64/Bionic compiler
 
+**Status:** Clang/LLD/archive tools built as native ARM64/Bionic ELF candidates;
+artifact gates pass. They are not yet packaged in `/usr`, executed on Android or
+proved to compile owner programs there.
+
 ## Scope
 
 Extend the [terminal/editor foundation](2026-09-10-owner-tools.md) with a compiler
@@ -72,14 +76,68 @@ host header/library discovery. It does not invent NDK release metadata or anothe
 userspace ABI. Its C++ dependencies are explicit because Soong's NDK dependency
 mapping is not a standalone SDK's driver configuration.
 
+## Build and artifact result
+
+The current-product NDK step passed in 76.018s. The frozen dynamic API37 SDK/C++
+profile contains 3,348 regular files. The initial rejected common-header symlink
+pointed to a **host** `__config_site`; the corrected freezer explicitly omits it
+and supplies the separate Android target configuration first. Its manifest is
+independently pinned and file bytes, extra files, symlinks and path escapes are
+checked before a build.
+
+The first host-generator configuration succeeded, but platform Ninja 1.9 rejected
+a multiple-output depfile rule. That build remains FAIL. A copied, hashed existing
+Ninja 1.12.1 host input from the preserved browser-build workspace supported the
+same graph. No Vanadium source or installed component changed. The corrected
+host-generator step passed in 90.738s; those executables are observed x86-64/GNU
+libstdc++/glibc tools, not Android payloads.
+
+The native configuration passed in 10.989s. All 3,496 recorded compile commands had
+the explicit AArch64/API37 target and declared hardening flags. The native build
+then passed **3,204 steps in 2,217.431s**, retaining ThinLTO and `cfi-icall`. Relative
+resource-install-path CMake policy warnings remain recorded, not suppressed.
+
+Frozen native artifacts:
+
+| Tool | Stripped bytes | SHA-256 |
+| --- | ---: | --- |
+| Clang | 102,273,912 | `36cd2c9d173ca67643757fdcd39ba5184765fe681d51ff5378d730c05e38a559` |
+| LLD | 55,666,088 | `86d0b8edbbec08205909549d6c754888ae36467b1154e5162b0a27837f65f793` |
+| llvm-ar / ranlib | 9,011,176 | `02198cd0c19346931846df0bfb9bfec30912a4a9abca4e564841346e88ecaea0` |
+
+Unstripped counterparts and strip commands are retained. All three pass the
+AArch64, Bionic `/system/bin/linker64`, 16 KiB LOAD alignment, PIE, RELRO/NOW and
+non-executable-stack checks. Their RUNPATH is `$ORIGIN/../lib64`, with dependencies
+limited to `libc++_shared.so`, `libc.so`, `libm.so`, `libdl.so` and `libz.so`.
+CFI-related symbols in unstripped outputs corroborate the flags; this is not a
+runtime CFI attack test. The same ELF gate rejected a real host TableGen binary.
+
+Clang's stripped size exceeds the prototype's 64 MiB per-file write limit. That is
+an artifact-size observation, not a reason to raise owner authority or memory
+limits: the planned authenticated read-only `/usr` deployment avoids copying this
+system tool into the owner home. Runtime memory/process use remains unmeasured.
+
+The generated Clang 23 resource headers and separately identified bootstrap 22
+builtins/unwind archives are also frozen as **candidate packaging inputs**. They
+are not silently relabelled as compiler-rt 23 or a complete sanitizer-runtime set;
+compatibility/default-path qualification remains required. C++ default library
+wiring and the immutable SDK/APEX layout still need implementation and testing.
+
 ## Evidence and limits
 
-New evidence is selected by `out/owner-compiler/EVIDENCE`; all prior owner/terminal
-sets remain sealed. I18 supplied useful read-only corroboration of `m ndk`, CRT
+The new set selected by `out/owner-compiler/EVIDENCE` is sealed across **5,745
+regular files** (symlinks excluded), including frozen artifacts, SDK/resources,
+source/configuration receipts, tests and retained failures. All prior owner/terminal
+sets remain sealed. All owned build/check/hash jobs are stopped; no guest was
+launched for this build step. I18 supplied useful read-only corroboration of `m ndk`, CRT
 placement and NDK STL mappings. Primary source/artifact checks establish the claims
 here; neither the completed first research note nor its partial follow-up is an
 independent compiler build/runtime PASS.
 
-No native compiler package, on-device build or release qualification exists yet.
-Keep host cross-linking, native compiler construction, packaging, emulator execution,
-resource stress and supported-phone assurance distinct.
+The final repository host suite passed **282 tests in 130.380s**, with no skips.
+The compiler source, bootstrap-prebuilt and Bionic projects passed the existing
+read-only source check again; frozen SDK hashes and the exact private owner-policy
+bridge were rechecked. This is scoped input accounting, not a fresh all-1,108-
+project source audit. No native compiler package, on-device compilation or release
+qualification exists yet. Keep host cross-linking, native compiler construction,
+packaging, emulator execution, resource stress and supported-phone assurance distinct.

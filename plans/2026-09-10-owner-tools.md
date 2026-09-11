@@ -69,7 +69,11 @@ is resolved through a clear owner action (a fresh session is always safe). Do no
 invent a universal redraw capability for arbitrary terminal programs or silently
 inject shell commands. Never revive a stale socket or lease to recover output.
 
-## Compiler observations, not a selected package
+## Compiler observations and follow-up
+
+The [native compiler milestone](2026-09-11-native-compiler.md) now records the
+separate ARM64/Bionic build and artifact result. These earlier source observations
+remain the basis for its input selection, not evidence of an installed compiler.
 
 The platform's `external/llvm` source declares version 3.9.0; existence of those
 legacy modules is not a supportable modern compiler choice. Current platform

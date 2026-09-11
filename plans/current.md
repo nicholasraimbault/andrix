@@ -1,11 +1,12 @@
 # Current work
 
 **Active milestone:** [GrapheneOS-derived base — isolated migration trial](2026-09-08-grapheneos-migration.md).
-**Current action:** build, package and qualify the [native ARM64/Bionic compiler](2026-09-11-native-compiler.md)
-on the [terminal/editor foundation](2026-09-10-owner-tools.md). The API37 Bionic SDK
-completion target and explicit Android NDK C++ inputs are established; host-generator
-and native compiler build steps are under qualification. No on-device compiler PASS
-is claimed yet. Vanadium remains unchanged.
+**Current action:** package and qualify the [native ARM64/Bionic compiler](2026-09-11-native-compiler.md)
+in authenticated `/usr` on the [terminal/editor foundation](2026-09-10-owner-tools.md).
+Clang, LLD and archive tools now build as AArch64/Bionic ELF candidates with the
+intended hardening and relative library path. They are not installed or executed
+in Android yet; C++ defaults, SDK/runtime packaging and real on-device compilation
+remain the next gates. Vanadium remains unchanged.
 
 Frozen producer `9e5f816` now runs a native Android VT view over the bounded owner
 session. In the emulator, `vi` created and saved a script, its unsaved buffer
@@ -23,8 +24,9 @@ GrapheneOS's fs-verity requirement; the initially rejected APK-only attempt rema
 recorded. The build now generates sidecars directly (`6eff213`). The UI follow-up
 passed 279 host checks and 154 parser/adapter checks, separate from the device results.
 
-No C/C++ compiler is installed yet; modern LLVM source is available but still needs
-native build/packaging/resource qualification. Broader IME/language combinations,
+No C/C++ compiler is installed yet. The new native build completed 3,204 steps and
+passed ELF artifact gates; packaging and Android resource/runtime qualification
+remain separate. Broader IME/language combinations,
 full assistive-service interaction, resource stress, user-stop/key loss, hardware
 and release/privacy gates remain open. Jobs still do not outlive console-process
 reclamation.
