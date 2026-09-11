@@ -86,13 +86,41 @@ class CompilerPackageTests(unittest.TestCase):
         self.assertNotIn('allow andrix_owner andrix_lib:file { write',policy)
 
     def test_cxx_driver_config_uses_link_only_ndk_mapping(self):
-        cfg=(package.TOOLCHAIN/'cxx.cfg').read_text();sh=(package.TOOLCHAIN/'clang-cxx.sh').read_text()
+        cfg=(package.TOOLCHAIN/'cxx.cfg').read_text();wrapper=(package.TOOLCHAIN/'clang_cxx.c').read_text()
         self.assertIn('-nostdlib++',cfg)
         self.assertIn('$-Wl,-L,<CFGDIR>/../../lib64',cfg)
         self.assertNotIn('$-L<CFGDIR>',cfg)
         self.assertIn('$-lc++_shared',cfg)
-        self.assertIn('exec /usr/bin/clang --driver-mode=g++ --config=/usr/etc/andrix/cxx.cfg "$@"',sh)
-        self.assertNotIn('eval',sh)
+        self.assertIn('execv(args[0], args)',wrapper)
+        self.assertNotIn('system(',wrapper)
+
+    def test_native_wrapper_forwards_exact_arguments_and_error_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);h=root/'test.c'
+            h.write_text('''#include <assert.h>
+#include <errno.h>
+#include <string.h>
+int andrix_wrapper_main(int,char**);
+static int called;
+int andrix_test_execv(const char *path,char *const args[]) {
+ assert(!strcmp(path,"/usr/bin/clang"));
+ assert(!strcmp(args[0],path));
+ assert(!strcmp(args[1],"--driver-mode=g++"));
+ assert(!strcmp(args[2],"--config=/usr/etc/andrix/cxx.cfg"));
+ assert(!strcmp(args[3],"space words;not a shell"));
+ assert(!strcmp(args[4],"--config=/owner/custom"));
+ assert(args[5]==0); called=1; errno=ENOENT; return -1;
+}
+int main(void) {
+ char *a[]={"clang++","space words;not a shell","--config=/owner/custom",0};
+ assert(andrix_wrapper_main(3,a)==127); assert(called); return 0;
+}
+''')
+            subprocess.run(['cc','-Wall','-Wextra','-Werror','-Dmain=andrix_wrapper_main',
+                '-Dexecv=andrix_test_execv','-c',str(package.TOOLCHAIN/'clang_cxx.c'),'-o',str(root/'wrapper.o')],check=True,capture_output=True)
+            subprocess.run(['cc','-Wall','-Wextra','-Werror',str(h),str(root/'wrapper.o'),'-o',str(root/'test')],check=True,capture_output=True)
+            p=subprocess.run([str(root/'test')],text=True,capture_output=True)
+            self.assertEqual(p.returncode,0,p.stderr)
 
 
 if __name__=='__main__':unittest.main()

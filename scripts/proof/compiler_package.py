@@ -135,7 +135,7 @@ license {
     for suffix,base,props in [('binary','cc_prebuilt_binary',['enabled']),
                               ('library','cc_prebuilt_library_shared',['enabled']),
                               ('data','prebuilt_etc',['enabled']),
-                              ('script','sh_binary',['enabled']),
+                              ('wrapper','cc_binary',['enabled']),
                               ('apex_defaults','apex_defaults',['binaries','native_shared_libs','prebuilts'])]:
         parts.append('soong_config_module_type {\n    name: "andrix_compiler_'+suffix+'",\n    module_type: '+json.dumps(base)+',\n    config_namespace: "andrix",\n    bool_variables: ["owner_compiler"],\n    properties: '+json.dumps(props)+',\n}\n')
     enabled='    enabled: false,\n    soong_config_variables: { owner_compiler: { enabled: true } },\n'
@@ -157,11 +157,16 @@ license {
     strip: { none: true },
 }
 ''')
-    parts.append('andrix_compiler_script {\n    name: "andrix_compiler_cxx",\n'+enabled+'''
-    src: "clang-cxx.sh",
-    filename: "clang++",
+    parts.append('andrix_compiler_wrapper {\n    name: "andrix_compiler_cxx",\n'+enabled+'''
+    srcs: ["clang_cxx.c"],
+    stem: "clang++",
     symlinks: ["c++"],
-    installable: false,
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+    compile_multilib: "64",
+    sdk_version: "37",
+    min_sdk_version: "37",
+    stl: "none",
+    apex_available: ["dev.andrix.usr"],
 }
 ''')
     modules=[]

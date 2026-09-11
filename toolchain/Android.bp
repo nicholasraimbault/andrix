@@ -39,8 +39,8 @@ soong_config_module_type {
 }
 
 soong_config_module_type {
-    name: "andrix_compiler_script",
-    module_type: "sh_binary",
+    name: "andrix_compiler_wrapper",
+    module_type: "cc_binary",
     config_namespace: "andrix",
     bool_variables: ["owner_compiler"],
     properties: ["enabled"],
@@ -121,15 +121,20 @@ andrix_compiler_library {
     strip: { none: true },
 }
 
-andrix_compiler_script {
+andrix_compiler_wrapper {
     name: "andrix_compiler_cxx",
     enabled: false,
     soong_config_variables: { owner_compiler: { enabled: true } },
 
-    src: "clang-cxx.sh",
-    filename: "clang++",
+    srcs: ["clang_cxx.c"],
+    stem: "clang++",
     symlinks: ["c++"],
-    installable: false,
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+    compile_multilib: "64",
+    sdk_version: "37",
+    min_sdk_version: "37",
+    stl: "none",
+    apex_available: ["dev.andrix.usr"],
 }
 
 andrix_compiler_data {

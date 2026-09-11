@@ -75,9 +75,12 @@ Cuttlefish product. The compiler option supplies APEX version2; unflagged builds
 keep version1 and disabled compiler modules. Real Soong behavior must still be
 checked; source assertions alone are not a baseline or package PASS.
 
-`clang` is the native binary. `clang++` is an ordinary `/system/bin/sh` wrapper that
-executes it in C++ driver mode with the immutable NDK config. This is not an APK
-launcher or a privilege transition. The config uses explicit target/common C++
+`clang` is the native binary. `clang++` is a small native argument-forwarding wrapper
+that executes it in C++ driver mode with the immutable NDK config. It preserves
+argument boundaries and changes no UID, environment or sandbox. This is not an APK
+launcher or a privilege transition. The first shell-wrapper dependency triggered
+a Soong APEX static-executable-check panic; the failed build is retained rather
+than patching or disabling that platform check. The config uses explicit target/common C++
 headers and link-only NDK runtime options, retaining `/usr/lib64` as the trusted
 runtime path. Compile-only mode must not add libraries. The owner policy explicitly
 allows reading Andrix-labelled SDK/configuration files and mapping its immutable
