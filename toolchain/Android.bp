@@ -13,6 +13,12 @@ license {
         "SPDX-license-identifier-Zlib", "legacy_notice", "legacy_unencumbered"],
     license_text: ["licenses/sdk-NOTICE", "licenses/bootstrap-NOTICE", "licenses/llvm-LICENSE"],
 }
+license {
+    name: "andrix_native_make_license",
+    visibility: [":__subpackages__"],
+    license_kinds: ["SPDX-license-identifier-GPL-3.0-or-later"],
+    license_text: ["licenses/make-COPYING"],
+}
 
 soong_config_module_type {
     name: "andrix_compiler_binary",
@@ -102,6 +108,23 @@ andrix_compiler_binary {
     apex_available: ["dev.andrix.usr"],
     shared_libs: ["andrix_compiler_libcxx", "libz"],
     system_shared_libs: ["libc", "libm", "libdl"],
+    strip: { none: true },
+}
+
+andrix_compiler_binary {
+    name: "andrix_compiler_make",
+    enabled: false,
+    soong_config_variables: { owner_compiler: { enabled: true } },
+
+    licenses: ["andrix_native_make_license"],
+    srcs: ["artifacts/root/bin/make"],
+    stem: "make",
+    compile_multilib: "64",
+    sdk_version: "37",
+    min_sdk_version: "37",
+    stl: "none",
+    apex_available: ["dev.andrix.usr"],
+    system_shared_libs: ["libc", "libdl"],
     strip: { none: true },
 }
 
@@ -564,6 +587,19 @@ andrix_compiler_data {
         "artifacts/root/etc/andrix/licenses/bootstrap-NOTICE",
         "artifacts/root/etc/andrix/licenses/llvm-LICENSE",
         "artifacts/root/etc/andrix/licenses/sdk-NOTICE",
+    ],
+}
+
+andrix_compiler_data {
+    name: "andrix_compiler_data_b5432b92e1c3e7a1",
+    enabled: false,
+    soong_config_variables: { owner_compiler: { enabled: true } },
+    licenses: ["andrix_native_make_license"],
+    relative_install_path: "andrix/make",
+    installable: false,
+    srcs: [
+        "artifacts/root/etc/andrix/make/COPYING",
+        "artifacts/root/etc/andrix/make/SOURCE",
     ],
 }
 
@@ -5623,7 +5659,7 @@ andrix_compiler_data {
 andrix_compiler_apex_defaults {
     name: "andrix_compiler_apex_payload",
     soong_config_variables: { owner_compiler: {
-        binaries: ["andrix_compiler_clang", "andrix_compiler_lld", "andrix_compiler_ar", "andrix_compiler_cxx"],
+        binaries: ["andrix_compiler_clang", "andrix_compiler_lld", "andrix_compiler_ar", "andrix_compiler_cxx", "andrix_compiler_make"],
         native_shared_libs: ["andrix_compiler_libcxx"],
         prebuilts: [
             "andrix_compiler_data_61e2fecb568e5703",
@@ -5640,6 +5676,7 @@ andrix_compiler_apex_defaults {
             "andrix_compiler_data_ce7af5d98690db1f",
             "andrix_compiler_data_891014b27d487131",
             "andrix_compiler_data_0b911bee65a5c2c0",
+            "andrix_compiler_data_b5432b92e1c3e7a1",
             "andrix_compiler_data_d30d112127ce60bd",
             "andrix_compiler_data_d3e681510f16f186",
             "andrix_compiler_data_df438e6a1645c8e9",

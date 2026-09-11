@@ -31,6 +31,15 @@ class CompilerPackageTests(unittest.TestCase):
         for name in ['libc++_static.a','libc++abi.a']:
             self.assertIn('etc/andrix/sdk/usr/lib/aarch64-linux-android/'+name,paths)
         self.assertIn('etc/andrix/cxx-shared.cfg',paths)
+        self.assertIn('bin/make', paths)
+        self.assertIn('etc/andrix/make/COPYING', paths)
+        self.assertIn('etc/andrix/make/SOURCE', paths)
+        self.assertIn('SPDX-license-identifier-GPL-3.0-or-later', bp)
+        make_module = bp[bp.index('    name: "andrix_compiler_make"'):]
+        make_module = make_module[:make_module.index('\n}')]
+        self.assertIn('licenses: ["andrix_native_make_license"]', make_module)
+        self.assertIn('system_shared_libs: ["libc", "libdl"]', make_module)
+        self.assertNotIn('andrix_compiler_libcxx', make_module)
 
     def test_regular_digest_path_and_json_controls(self):
         with tempfile.TemporaryDirectory() as tmp:

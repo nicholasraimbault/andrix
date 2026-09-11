@@ -17,6 +17,11 @@
       "size": 9011176
     },
     {
+      "path": "bin/make",
+      "sha256": "653bce34fb476c68a3db9fca5d1229bce19d5c76718254328d14a8c9eb62df94",
+      "size": 260416
+    },
+    {
       "path": "etc/andrix/clang/23/include/__clang_cuda_builtin_vars.h",
       "sha256": "32d445ec643c5802efbd54d41e4e8bff952436586d992fc0f91258238cb6e115",
       "size": 4892
@@ -1465,6 +1470,16 @@
       "path": "etc/andrix/licenses/sdk-NOTICE",
       "sha256": "0ed879a95b81b7d73beb4bc8ca5d1899ce5e3d65cedecbb9b642fc34d00005e8",
       "size": 472407
+    },
+    {
+      "path": "etc/andrix/make/COPYING",
+      "sha256": "e79e9c8a0c85d735ff98185918ec94ed7d175efc377012787aebcf3b80f0d90b",
+      "size": 35151
+    },
+    {
+      "path": "etc/andrix/make/SOURCE",
+      "sha256": "32beaf48d21cddef4dc6fc28f971087b789bfce78f61ab6f8e6345fc3cd6478b",
+      "size": 394
     },
     {
       "path": "etc/andrix/sdk/usr/include/EGL/Platform.h",
