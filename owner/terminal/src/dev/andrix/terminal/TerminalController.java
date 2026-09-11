@@ -190,6 +190,9 @@ final class TerminalController implements TerminalSession.Host {
                 if (candidate != null) { disconnect(candidate); remoteDetach(candidate); }
                 if (fd != null) try { fd.close(); } catch (IOException ignored) { }
                 reportTrace(trace, Report.FAILURE);
+                // The RPC/FD attempt is finished independently of whether Main
+                // can accept its diagnostic callback. Never strand its reservation.
+                attachments.finish(request);
                 main.post(() -> failAttach(request, requestEpoch, target, error.getMessage()));
             }
         });
