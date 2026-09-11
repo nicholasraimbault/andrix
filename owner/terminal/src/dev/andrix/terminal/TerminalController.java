@@ -128,6 +128,10 @@ final class TerminalController implements TerminalSession.Host {
         if (ending.get() || !attaching.compareAndSet(false, true)) return;
         final long requestEpoch = ++uiEpoch;
         disconnect(connection);
+        // A replacement attachment already closed its old input stream. Publish
+        // that synchronously: do not show an enabled, "Attached" view while the
+        // Binder request is still pending.
+        show("Attaching — input unavailable until connected");
         final Listener target = listener;
         final Checkpoint resume = checkpoint.get();
         final int requestedRows = rows, requestedColumns = columns;
@@ -149,9 +153,17 @@ final class TerminalController implements TerminalSession.Host {
                 main.post(() -> finishAttach(requestEpoch, target, next));
             } catch (Exception error) {
                 if (fd != null) try { fd.close(); } catch (IOException ignored) { }
-                main.post(() -> { attaching.set(false); show("Attach failed: " + error.getMessage()); });
+                main.post(() -> failAttach(requestEpoch, target, error.getMessage()));
             }
         });
+    }
+
+    private void failAttach(long requestEpoch, Listener target, String message) {
+        requireMain(); attaching.set(false);
+        // Completion releases the single pending request, even after cancellation.
+        // Its diagnostic must not overwrite a later detach/rebind/lock state.
+        if (uiEpoch != requestEpoch || listener != target || !eligible()) return;
+        show("Attach failed: " + message);
     }
 
     private void finishAttach(long requestEpoch, Listener target, Connection next) {
