@@ -87,6 +87,9 @@ class CompilerPackageTests(unittest.TestCase):
         self.assertIn('allow andrix_owner andrix_lib:file { open read getattr map execute };',policy)
         self.assertNotIn('allow andrix_owner app_data_file',policy)
         self.assertNotIn('allow andrix_owner andrix_lib:file { write',policy)
+        base=(package.ROOT/'sepolicy/private/andrix.te').read_text()
+        self.assertIn('allow shell andrix_lib:dir { getattr search };',base)
+        self.assertNotIn('allow shell andrix_lib:dir { write',base)
 
     def test_cxx_driver_config_uses_link_only_ndk_mapping(self):
         cfg=(package.TOOLCHAIN/'cxx.cfg').read_text();wrapper=(package.TOOLCHAIN/'tool_driver.c').read_text()
