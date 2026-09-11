@@ -23,6 +23,8 @@ import android.util.Log;
 import com.termux.terminal.TerminalSession;
 import dev.andrix.session.Attachment;
 import dev.andrix.session.IOwnerSession;
+import dev.andrix.terminal.protocol.AttachmentLifecycle;
+import dev.andrix.terminal.protocol.AttachmentLifecycle.Request;
 import dev.andrix.terminal.protocol.AttachTrace;
 import dev.andrix.terminal.protocol.AttachTrace.Event;
 import dev.andrix.terminal.protocol.AttachTrace.Report;
@@ -70,7 +72,7 @@ final class TerminalController implements TerminalSession.Host {
         // queued sessions if an old Binder or stream operation stalls.
         return new ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(1));
     }
-    private final AtomicBoolean attaching = new AtomicBoolean();
+    private final AttachmentLifecycle<Connection> attachments = new AttachmentLifecycle<>();
     private final AtomicBoolean resizing = new AtomicBoolean();
     private final AtomicBoolean ending = new AtomicBoolean();
     private final AtomicLong resizeVersion = new AtomicLong();
@@ -83,7 +85,6 @@ final class TerminalController implements TerminalSession.Host {
     private volatile Listener listener;
     private volatile boolean resumed, focused;
     private volatile long uiEpoch; // main-thread changes cancel in-flight attach intent
-    private volatile Connection connection;
     private volatile int rows = 24, columns = 80;
     private TerminalSession session; // main/parser thread only
     private String state = "Detached — unlock and Attach";
@@ -134,16 +135,20 @@ final class TerminalController implements TerminalSession.Host {
         if (line != null) Log.i("AndrixAttach", line);
     }
 
+    private boolean currentRequest(Request request, long epoch, Listener target) {
+        return attachments.current(request) && uiEpoch == epoch && listener == target;
+    }
+
     void attach() {
         requireMain();
         if (!eligible()) { show("Attach refused: locked or not foreground"); return; }
-        if (ending.get() || !attaching.compareAndSet(false, true)) return;
+        if (ending.get() || attachments.preparing()) return;
         final long requestEpoch = ++uiEpoch;
+        Connection old = attachments.cancel();
+        if (old != null) old.close();
+        final Request request = attachments.begin();
+        if (request == null) throw new IllegalStateException("Concurrent attachment request");
         final AttachTrace trace = new AttachTrace(requestEpoch, SystemClock::elapsedRealtime);
-        disconnect(connection);
-        // A replacement attachment already closed its old input stream. Publish
-        // that synchronously: do not show an enabled, "Attached" view while the
-        // Binder request is still pending.
         show("Attaching — input unavailable until connected");
         final Listener target = listener;
         final Checkpoint resume = checkpoint.get();
@@ -151,8 +156,9 @@ final class TerminalController implements TerminalSession.Host {
         control.execute(() -> {
             trace.mark(Event.CONTROL_BEGIN);
             ParcelFileDescriptor fd = null;
+            Connection candidate = null;
             try {
-                if (uiEpoch != requestEpoch || listener != target || !eligible())
+                if (!currentRequest(request, requestEpoch, target) || !eligible())
                     throw new IOException("UI changed");
                 IBinder binder = ServiceManager.checkService("andrix.owner.session");
                 if (binder == null) throw new IOException("Owner service unavailable");
@@ -160,40 +166,51 @@ final class TerminalController implements TerminalSession.Host {
                 trace.mark(Event.REGISTER_BEGIN);
                 service.registerController(PROCESS_LIFETIME);
                 trace.mark(Event.REGISTER_END);
+                boolean foreground = eligible(), unlocked = users.isUserUnlocked();
                 trace.mark(Event.ATTACH_BEGIN);
-                Attachment a = service.attach(requestedRows, requestedColumns, eligible(),
-                        users.isUserUnlocked(), resume.session, resume.next);
+                Attachment a = service.attach(requestedRows, requestedColumns, foreground,
+                        unlocked, resume.session, resume.next);
                 trace.mark(Event.ATTACH_REPLY);
                 fd = a.stream;
                 if (fd == null || a.generation <= 0 || a.sessionId <= 0 || a.firstOutputOffset < 0)
                     throw new IOException("Invalid native attachment");
-                Connection next = new Connection(service, a, fd, trace); fd = null;
+                candidate = new Connection(service, a, fd, trace, requestEpoch, target); fd = null;
                 trace.mark(Event.FDS_READY);
-                main.post(() -> finishAttach(requestEpoch, target, next));
+                if (!currentRequest(request, requestEpoch, target)
+                        || !attachments.retain(request, candidate)) throw new IOException("UI changed");
+                trace.mark(Event.PENDING_SET);
+                // The lease already exists. Maintain it while Main prepares the
+                // parser; no pending input is admitted and no expired lease revives.
+                if (!renewLease(candidate)) throw new IOException("Attachment expired or UI changed");
+                final Connection next = candidate;
+                if (!main.post(() -> finishAttach(request, requestEpoch, target, next)))
+                    throw new IOException("UI handoff unavailable");
             } catch (Exception error) {
                 trace.mark(Event.ATTACH_ERROR);
+                if (candidate != null) { disconnect(candidate); remoteDetach(candidate); }
                 if (fd != null) try { fd.close(); } catch (IOException ignored) { }
                 reportTrace(trace, Report.FAILURE);
-                main.post(() -> failAttach(requestEpoch, target, error.getMessage()));
+                main.post(() -> failAttach(request, requestEpoch, target, error.getMessage()));
             }
         });
     }
 
-    private void failAttach(long requestEpoch, Listener target, String message) {
-        requireMain(); attaching.set(false);
-        // Completion releases the single pending request, even after cancellation.
-        // Its diagnostic must not overwrite a later detach/rebind/lock state.
+    private void failAttach(Request request, long requestEpoch, Listener target, String message) {
+        requireMain(); attachments.finish(request);
+        // Only the matching request can release preparation ownership. An old
+        // completion cannot release or overwrite a later attachment's state.
         if (uiEpoch != requestEpoch || listener != target || !eligible()) return;
         show("Attach failed: " + message);
     }
 
-    private void finishAttach(long requestEpoch, Listener target, Connection next) {
-        requireMain(); attaching.set(false);
-        next.trace.mark(Event.FINISH_BEGIN);
-        if (uiEpoch != requestEpoch || listener != target || !eligible()) {
+    private void finishAttach(Request request, long requestEpoch, Listener target, Connection next) {
+        requireMain(); next.trace.mark(Event.FINISH_BEGIN);
+        if (!currentRequest(request, requestEpoch, target) || !eligible()
+                || !attachments.pending(request, next)) {
             next.trace.mark(Event.CANCELLED);
-            next.close();
+            disconnect(next); attachments.finish(request);
             control.execute(() -> remoteDetach(next));
+            showFor(next, "Attachment cancelled or expired during preparation");
             return;
         }
         try {
@@ -206,37 +223,52 @@ final class TerminalController implements TerminalSession.Host {
                 next.trace.mark(Event.TERMINAL_END);
             }
             checkpoint.set(new Checkpoint(cursor.session(), cursor.nextOffset()));
-            connection = next;
+            // Renewal/cancellation can retire pending ownership while the UI is
+            // preparing. Promotion and input eligibility are one checked transition.
+            if (!currentRequest(request, requestEpoch, target) || !eligible()
+                    || !attachments.promote(request, next, cursor.inputAllowed()))
+                throw new IOException("Attachment expired or UI changed during preparation");
             next.trace.mark(Event.CONNECTION_SET);
-            next.inputAllowed = cursor.inputAllowed();
-            state = next.inputAllowed ? "Attached — native owner UID7500"
+            state = attachments.inputAllowed(next) ? "Attached — native owner UID7500"
                     : "Output gap: input blocked. End session, then Attach to start fresh.";
             reader.execute(() -> readOutput(next));
             writer.execute(() -> writeInput(next));
             resize(session, rows, columns);
-            publish();
-            next.trace.mark(Event.PUBLISHED);
+            publish(); next.trace.mark(Event.PUBLISHED);
         } catch (IOException | RuntimeException error) {
             next.trace.mark(Event.FINISH_ERROR);
-            disconnect(next); reportTrace(next.trace, Report.FAILURE);
+            disconnect(next); attachments.finish(request); reportTrace(next.trace, Report.FAILURE);
             control.execute(() -> remoteDetach(next));
-            show("Attachment state failed; End/restart required");
+            showFor(next, "Attachment state failed; Attach again (gaps require End)");
         }
     }
 
+    private boolean renewLease(Connection current) throws Exception {
+        if (!attachments.owns(current)) return false;
+        current.trace.mark(Event.RENEW_BEGIN);
+        boolean foreground = uiEpoch == current.epoch && listener == current.owner && eligible();
+        boolean unlocked = users.isUserUnlocked();
+        if (!attachments.owns(current)) return false;
+        if (!foreground) current.trace.mark(Event.RENEW_INELIGIBLE);
+        if (!unlocked) current.trace.mark(Event.RENEW_USER_LOCKED);
+        current.trace.mark(Event.RENEW_CALL);
+        boolean accepted = current.service.renew(current.generation, foreground, unlocked);
+        current.trace.mark(accepted ? Event.RENEW_OK : Event.RENEW_FALSE);
+        // A successful late RPC is not permission to install a cancelled object.
+        return accepted && attachments.owns(current);
+    }
+
     private void heartbeat() {
-        Connection current = connection;
+        Connection current = attachments.lease();
         if (current == null) return;
         try {
-            current.trace.mark(Event.RENEW_BEGIN);
-            if (!current.service.renew(current.generation, eligible(), users.isUserUnlocked())) {
-                current.trace.mark(Event.RENEW_FALSE);
-                if (disconnect(current)) show("Detached: lock, focus or lease changed");
+            if (!renewLease(current)) {
+                if (disconnect(current)) showFor(current, "Detached: lock, focus or lease changed");
                 reportTrace(current.trace, Report.FAILURE);
-            } else current.trace.mark(Event.RENEW_OK);
+            }
         } catch (Exception error) {
             current.trace.mark(Event.RENEW_EXCEPTION);
-            if (disconnect(current)) show("Detached: owner service unavailable");
+            if (disconnect(current)) showFor(current, "Detached: owner service unavailable");
             reportTrace(current.trace, Report.FAILURE);
         }
     }
@@ -244,7 +276,7 @@ final class TerminalController implements TerminalSession.Host {
     private void readOutput(Connection current) {
         current.trace.mark(Event.READER_BEGIN);
         try {
-            while (connection == current && !current.closed.get()) {
+            while (attachments.active() == current && !current.closed.get()) {
                 OutputProtocol.Frame frame = OutputProtocol.read(current.input);
                 if (frame == null) { current.trace.mark(Event.READ_EOF); break; }
                 current.trace.mark(Event.FRAME_READ);
@@ -252,51 +284,51 @@ final class TerminalController implements TerminalSession.Host {
                 long[] ack = {-2};
                 main.post(() -> {
                     try {
-                        if (connection != current || current.closed.get()) return;
+                        if (attachments.active() != current || current.closed.get()) return;
                         ack[0] = cursor.accept(frame, session::applyOutput);
-                        current.trace.mark(Event.FRAME_APPLIED);
+                        if (ack[0] >= 0) current.trace.mark(Event.FRAME_APPLIED);
                         checkpoint.set(new Checkpoint(cursor.session(), cursor.nextOffset()));
                         if (ack[0] < 0) {
-                            current.inputAllowed = false; current.queue.discard();
+                            attachments.blockInput(current); current.queue.discard();
                             show("Output gap: input blocked. End session, then Attach to start fresh.");
                         }
                     } catch (IOException | RuntimeException error) {
-                        current.inputAllowed = false; current.queue.discard();
+                        attachments.blockInput(current); current.queue.discard();
                         show("Terminal state failed: input blocked; End/restart required");
                     } finally { applied.countDown(); }
                 });
                 // Exactly one bounded frame queued on the UI; never silently drop
                 // output to keep up, and never enqueue an unbounded series of posts.
                 if (!applied.await(5, TimeUnit.SECONDS)) break;
-                if (ack[0] >= 0 && connection == current && !current.closed.get()
+                if (ack[0] >= 0 && attachments.active() == current && !current.closed.get()
                         && !current.service.acknowledgeOutput(current.generation, ack[0])) break;
             }
         } catch (Exception ignored) {
             current.trace.mark(Event.READ_EXCEPTION);
             // EOF/revocation wakes readFully. Incomplete frames were never parsed/acked.
         } finally {
-            if (disconnect(current)) show("Detached — reopen and Attach to return");
+            if (disconnect(current)) showFor(current, "Detached — reopen and Attach to return");
         }
     }
 
     private void writeInput(Connection current) {
         try {
             for (byte[] data; (data = current.queue.take()) != null;) {
-                if (connection != current || !current.inputAllowed || !eligible()) continue;
+                if (attachments.active() != current || !attachments.inputAllowed(current) || !eligible()) continue;
                 if (!current.service.renew(current.generation, eligible(), users.isUserUnlocked())) break;
-                if (connection != current || !current.inputAllowed || !eligible()) continue;
+                if (attachments.active() != current || !attachments.inputAllowed(current) || !eligible()) continue;
                 current.output.write(data);
             }
         } catch (Exception ignored) { }
         finally {
-            if (disconnect(current)) show("Detached: input stream closed");
+            if (disconnect(current)) showFor(current, "Detached: input stream closed");
         }
     }
 
     void detach() {
         requireMain(); ++uiEpoch;
-        Connection old = connection;
-        disconnect(old); // shutdown before any potentially stalled Binder operation
+        Connection old = attachments.cancel();
+        if (old != null) old.close(); // shutdown before any potentially stalled Binder operation
         if (old != null) control.execute(() -> remoteDetach(old));
         state = "Detached — reopen and Attach to return"; publish();
     }
@@ -305,31 +337,37 @@ final class TerminalController implements TerminalSession.Host {
     }
     void endSession() {
         requireMain();
-        Connection current = connection;
+        Connection current = attachments.active();
         if (current == null || !eligible() || !ending.compareAndSet(false, true)) return;
         // End remains available after a gap; it never depends on healthy input.
         control.execute(() -> {
             boolean requested = false;
             try { current.service.endSession(current.generation); requested = true; }
-            catch (Exception error) { show("End failed: " + error.getMessage()); }
+            catch (Exception error) { showFor(current, "End failed: " + error.getMessage()); }
             finally {
                 disconnect(current); ending.set(false);
-                if (requested) show("End requested — Attach again after the service restarts");
+                if (requested) showFor(current, "End requested — Attach again after the service restarts");
             }
         });
     }
-    private synchronized boolean disconnect(Connection target) {
+    private boolean disconnect(Connection target) {
         if (target == null) return false;
-        boolean active = connection == target;
-        if (active) connection = null;
-        target.close();
-        return active;
+        boolean owned = attachments.retire(target);
+        target.close(); // never hold the lifecycle lock across shutdown/close
+        return owned;
+    }
+
+    private void showFor(Connection source, String text) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            main.post(() -> showFor(source, text)); return;
+        }
+        if (source.epoch == uiEpoch && source.owner == listener) show(text);
     }
 
     @Override public void send(TerminalSession source, byte[] bytes, int offset, int count) {
         requireMain();
-        Connection current = connection;
-        if (source != session || current == null || !current.inputAllowed || !eligible()) {
+        Connection current = attachments.active();
+        if (source != session || current == null || !attachments.inputAllowed(current) || !eligible()) {
             show("Input refused: Attach while unlocked; gaps require End/restart"); return;
         }
         if (!current.queue.offer(bytes, offset, count)) show("Input queue full; input was not submitted");
@@ -344,11 +382,11 @@ final class TerminalController implements TerminalSession.Host {
         boolean changed = newRows != rows || newColumns != columns;
         rows = newRows; columns = newColumns;
         if (changed) resizeVersion.incrementAndGet();
-        if (connection == null || !resizing.compareAndSet(false, true)) return;
-        Connection scheduled = connection;
+        if (attachments.active() == null || !resizing.compareAndSet(false, true)) return;
+        Connection scheduled = attachments.active();
         if (scheduled != null) scheduled.trace.mark(Event.RESIZE_QUEUED);
         control.execute(() -> {
-            Connection current = connection;
+            Connection current = attachments.active();
             long version = resizeVersion.get();
             try {
                 if (current != null && eligible()) {
@@ -364,7 +402,7 @@ final class TerminalController implements TerminalSession.Host {
                             : "PTY resize failed".equals(message) ? Event.RESIZE_PTY_ERROR : Event.RESIZE_OTHER_ERROR;
                     current.trace.mark(category);
                 }
-                if (disconnect(current)) show("Detached: resize failed");
+                if (disconnect(current)) showFor(current, "Detached: resize failed");
                 if (current != null) reportTrace(current.trace, Report.FAILURE);
             } finally {
                 resizing.set(false);
@@ -383,8 +421,8 @@ final class TerminalController implements TerminalSession.Host {
     }
     @Override public void pasteRequested(TerminalSession source) {
         requireMain();
-        Connection current = connection;
-        if (source != session || current == null || !current.inputAllowed || !eligible()) return;
+        Connection current = attachments.active();
+        if (source != session || current == null || !attachments.inputAllowed(current) || !eligible()) return;
         ClipData clip = clipboard.getPrimaryClip();
         if (clip == null || clip.getItemCount() == 0) return;
         // Plain text only: no URI resolution/provider reads or implicit conversion.
@@ -399,35 +437,42 @@ final class TerminalController implements TerminalSession.Host {
     private void publish() {
         requireMain();
         Listener target = listener;
-        Connection current = connection;
+        Connection current = attachments.active();
         if (target != null) target.stateChanged(state, current != null,
-                current != null && current.inputAllowed && eligible());
+                current != null && attachments.inputAllowed(current) && eligible());
     }
 
     private static final class Connection {
         final IOwnerSession service;
         final AttachTrace trace;
+        final long epoch;
+        final Listener owner;
         final long generation, session, firstOffset;
         final ParcelFileDescriptor stream;
         final InputStream input;
         final OutputStream output;
         final InputQueue queue = new InputQueue();
         final AtomicBoolean closed = new AtomicBoolean();
-        volatile boolean inputAllowed;
-        Connection(IOwnerSession service, Attachment a, ParcelFileDescriptor fd, AttachTrace trace) throws IOException {
-            this.trace = trace;
+        Connection(IOwnerSession service, Attachment a, ParcelFileDescriptor fd, AttachTrace trace,
+                   long epoch, Listener owner) throws IOException {
+            this.trace = trace; this.epoch = epoch; this.owner = owner;
             this.service = service; generation = a.generation; session = a.sessionId;
             firstOffset = a.firstOutputOffset; stream = fd;
             ParcelFileDescriptor read = ParcelFileDescriptor.dup(fd.getFileDescriptor());
-            ParcelFileDescriptor write;
-            try { write = ParcelFileDescriptor.dup(fd.getFileDescriptor()); }
-            catch (IOException error) { read.close(); throw error; }
-            input = new ParcelFileDescriptor.AutoCloseInputStream(read);
-            output = new ParcelFileDescriptor.AutoCloseOutputStream(write);
+            ParcelFileDescriptor write = null;
+            try {
+                write = ParcelFileDescriptor.dup(fd.getFileDescriptor());
+                input = new ParcelFileDescriptor.AutoCloseInputStream(read);
+                output = new ParcelFileDescriptor.AutoCloseOutputStream(write);
+            } catch (IOException | RuntimeException error) {
+                try { read.close(); } catch (IOException ignored) { }
+                if (write != null) try { write.close(); } catch (IOException ignored) { }
+                throw error;
+            }
         }
         void close() {
             if (!closed.compareAndSet(false, true)) return;
-            inputAllowed = false; queue.close();
+            queue.close();
             try { Os.shutdown(stream.getFileDescriptor(), OsConstants.SHUT_RDWR); } catch (Exception ignored) { }
             try { input.close(); } catch (IOException ignored) { }
             try { output.close(); } catch (IOException ignored) { }

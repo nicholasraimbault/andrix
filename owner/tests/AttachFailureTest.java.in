@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// The exact production failure callback with a portable UI-state adapter.
-// This tests stale completion handling, not Android/Binder/foreground authority.
-import java.util.concurrent.atomic.AtomicBoolean;
+// Exact production failure callback with portable UI-state adapters, not Android authority.
+import dev.andrix.terminal.protocol.AttachmentLifecycle;
+import dev.andrix.terminal.protocol.AttachmentLifecycle.Request;
 
 public final class AttachFailureTest {
     private interface Listener { }
-    private final AtomicBoolean attaching = new AtomicBoolean(true);
+    private final AttachmentLifecycle<Object> attachments = new AttachmentLifecycle<>();
     private long uiEpoch = 1;
     private Listener listener = new Listener() { };
     private boolean allowed = true;
@@ -22,24 +22,30 @@ public final class AttachFailureTest {
 
     public static void main(String[] args) {
         AttachFailureTest h = new AttachFailureTest();
-        h.failAttach(1, h.listener, "native failure");
-        assert !h.attaching.get() && h.publications == 1;
+        Request first = h.attachments.begin();
+        h.failAttach(first, 1, h.listener, "native failure");
+        assert !h.attachments.preparing() && h.publications == 1;
         assert h.state.equals("Attach failed: native failure");
 
-        h.attaching.set(true); h.uiEpoch = 2; h.state = "Detached";
-        h.failAttach(1, h.listener, "late failure");
-        assert !h.attaching.get() && h.publications == 1;
+        Request cancelled = h.attachments.begin();
+        h.uiEpoch = 2; h.state = "Detached"; h.attachments.cancel();
+        h.failAttach(cancelled, 1, h.listener, "late failure");
+        assert !h.attachments.preparing() && h.publications == 1;
         assert h.state.equals("Detached");
 
-        h.attaching.set(true);
-        h.failAttach(2, new Listener() { }, "old Activity");
-        assert !h.attaching.get() && h.publications == 1;
+        Request rebound = h.attachments.begin();
+        h.failAttach(rebound, 2, new Listener() { }, "old Activity");
+        assert !h.attachments.preparing() && h.publications == 1;
         assert h.state.equals("Detached");
 
-        h.attaching.set(true); h.allowed = false; h.state = "Locked";
-        h.failAttach(2, h.listener, "ineligible");
-        assert !h.attaching.get() && h.publications == 1;
+        Request locked = h.attachments.begin(); h.allowed = false; h.state = "Locked";
+        h.failAttach(locked, 2, h.listener, "ineligible");
+        assert !h.attachments.preparing() && h.publications == 1;
         assert h.state.equals("Locked");
+
+        Request newer = h.attachments.begin(); h.allowed = true; h.uiEpoch = 3;
+        h.failAttach(locked, 2, h.listener, "duplicate old completion");
+        assert h.attachments.current(newer) && h.publications == 1;
         System.out.println("Actual stale-attachment failure callback passed; Android unqualified");
     }
 }

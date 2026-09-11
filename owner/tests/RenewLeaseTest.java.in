@@ -1,0 +1,92 @@
+// SPDX-License-Identifier: Apache-2.0
+// Exact production renewal/retirement methods with a portable RPC adapter.
+// No Android Binder, identity, CE state or native lease is simulated into a PASS.
+import dev.andrix.terminal.protocol.AttachmentLifecycle;
+import dev.andrix.terminal.protocol.AttachmentLifecycle.Request;
+import dev.andrix.terminal.protocol.AttachTrace;
+import dev.andrix.terminal.protocol.AttachTrace.Event;
+
+public final class RenewLeaseTest {
+    final AttachmentLifecycle<Connection> attachments = new AttachmentLifecycle<>();
+    long uiEpoch = 1;
+    Object listener = new Object();
+    boolean foreground = true;
+    Runnable onEligibility;
+    final Users users = new Users();
+    static final class Users {
+        boolean unlocked = true;
+        boolean isUserUnlocked() { return unlocked; }
+    }
+    static final class Service {
+        int calls;
+        boolean accepted = true, throwsError;
+        Runnable inRpc;
+        boolean renew(long generation, boolean eligible, boolean unlocked) throws Exception {
+            ++calls;
+            if (inRpc != null) inRpc.run();
+            if (throwsError) throw new Exception("test RPC failure");
+            return accepted && eligible && unlocked;
+        }
+    }
+    static final class Connection {
+        final long epoch = 1, generation = 7;
+        final Object owner;
+        final Service service = new Service();
+        final AttachTrace trace = new AttachTrace(1, () -> 0);
+        int closes;
+        Connection(Object owner) { this.owner = owner; }
+        void close() { ++closes; }
+    }
+    boolean eligible() {
+        if (onEligibility != null) onEligibility.run();
+        return foreground;
+    }
+    Connection retained() {
+        Request request = attachments.begin();
+        Connection c = new Connection(listener);
+        assert attachments.retain(request, c);
+        return c;
+    }
+
+// PRODUCTION_RENEWAL
+// PRODUCTION_RETIREMENT
+
+    public static void main(String[] args) throws Exception {
+        RenewLeaseTest good = new RenewLeaseTest(); Connection c = good.retained();
+        assert good.renewLease(c) && c.service.calls == 1;
+        assert good.attachments.active() == null && !good.attachments.inputAllowed(c);
+        assert good.disconnect(c) && c.closes == 1 && !good.attachments.owns(c);
+
+        RenewLeaseTest cancelled = new RenewLeaseTest(); Connection old = cancelled.retained();
+        old.service.inRpc = () -> cancelled.attachments.cancel();
+        assert !cancelled.renewLease(old); // successful late reply cannot restore ownership
+        assert !cancelled.attachments.owns(old) && !cancelled.attachments.inputAllowed(old);
+        assert !cancelled.disconnect(old) && old.closes == 1;
+
+        RenewLeaseTest outsideLock = new RenewLeaseTest(); Connection pending = outsideLock.retained();
+        outsideLock.onEligibility = () -> {
+            Thread cancellation = new Thread(() -> outsideLock.attachments.cancel());
+            cancellation.start();
+            try { cancellation.join(1000); } catch (InterruptedException e) { throw new AssertionError(e); }
+            assert !cancellation.isAlive() : "Lifecycle lock held over eligibility call";
+        };
+        assert !outsideLock.renewLease(pending) && pending.service.calls == 0;
+        outsideLock.disconnect(pending); assert pending.closes == 1;
+
+        for (int mode = 0; mode < 5; ++mode) {
+            RenewLeaseTest h = new RenewLeaseTest(); Connection failed = h.retained();
+            if (mode == 0) failed.service.accepted = false; // expired/native refusal
+            if (mode == 1) h.foreground = false;
+            if (mode == 2) h.users.unlocked = false;
+            if (mode == 3) h.uiEpoch = 2;
+            if (mode == 4) h.listener = new Object();
+            assert !h.renewLease(failed);
+            assert h.disconnect(failed) && failed.closes == 1;
+        }
+        RenewLeaseTest throwing = new RenewLeaseTest(); Connection broken = throwing.retained();
+        broken.service.throwsError = true;
+        try { throwing.renewLease(broken); throw new AssertionError("Expected exception"); }
+        catch (Exception expected) { assert throwing.disconnect(broken) && broken.closes == 1; }
+        System.out.println("Actual renewal/retirement guards passed; Android unqualified");
+    }
+}
