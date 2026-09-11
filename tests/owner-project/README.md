@@ -17,7 +17,7 @@ Qualification steps:
    group resource counters. No observer access to the owner home.
 2. Use `vi` to change `revision` from `v1` to `v2` in `include/stats.h`, rebuild,
    and confirm the changed output. The full rebuild is intentional.
-3. Invalid numeric arguments must return2. Introduce a deliberate compile error:
+3. Invalid numeric arguments must return 2. Introduce a deliberate compile error:
    the build must fail, leave the previous executable unchanged and clean its
    temporary directory. Restore the source and rebuild.
 4. Move the whole project and rebuild/run from its new location. Inspect the
@@ -27,4 +27,5 @@ Qualification steps:
 
 The Python host test really builds and runs this fixture using the host's C++
 compiler and libc. That is **not** an Android compiler, identity, or resource pass.
-Android results belong in the linked milestone, not in fixture source assertions.
+The [Android trial](../../plans/2026-09-11-owner-project-input.md) records the native
+build/edit/failure-recovery/relocation/reboot results separately from those host tests.

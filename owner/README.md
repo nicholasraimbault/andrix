@@ -125,8 +125,11 @@ preference afterward. The later [compiler image](../plans/2026-09-11-native-comp
 demonstrated native C compilation/run and C++ with a project-private runtime,
 including after reboot. The [subsequent C++ defaults](../plans/2026-09-11-cxx-defaults.md)
 now let ordinary standalone C++ compile/run without a runtime copy, with a separate
-working shared-runtime profile. Broad IME/language and assistive-service compatibility
-are not claimed.
+working shared-runtime profile. The [project/input follow-up](../plans/2026-09-11-owner-project-input.md)
+also demonstrates multi-file builds, edited-header rebuilds, failed-build recovery and
+reboot persistence. It records an unresolved cold first-Attach/resize failure;
+explicit retries worked, and the readiness-aware test driver withheld commands in
+the failed state. Broad IME/language and assistive-service compatibility are not claimed.
 
 Resource-exhaustion tests, all adversarial descriptor/race cases on Android,
 user-stop/key eviction, long-lived services and native phone qualification remain

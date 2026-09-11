@@ -1,11 +1,23 @@
 # Current work
 
 **Active milestone:** [GrapheneOS-derived base — isolated migration trial](2026-09-08-grapheneos-migration.md).
-**Current action:** [owner project builds and input readiness](2026-09-11-owner-project-input.md):
-correct pending/stale attachment UI status, use a sequential observable-ready test
-driver, and exercise a repeatable multi-file native project. These follow the
-[demonstrated C++ defaults](2026-09-11-cxx-defaults.md); the new follow-up is not yet
-Android-qualified. Ordinary `clang++` now compiles and runs standalone programs
+**Current action:** diagnose the cold first-Attach/resize failure recorded in the
+[owner project/input follow-up](2026-09-11-owner-project-input.md). Instrument and
+compare cold/warm timing without extending leases or weakening the native boundary.
+The multi-file C++ project now builds, accepts header edits, preserves the previous
+executable on build failure, relocates and rebuilds after reboot. The updated console
+and sequential test driver correctly withheld commands during both failed first
+attachments; explicit retries and warm controls worked. First-Attach reliability
+is still open, not a blanket terminal PASS.
+
+Source/APK `ed060a5` was installed normally with a verified v4 sidecar on frozen image
+`a653644`; no factory sidecar or native/policy change was made. All 301 host tests passed.
+The highest sampled project-build group peak was 226.859375 MiB within 256 MiB, with no
+observed OOM events. This is not pressure or supported-phone qualification. All owned
+emulators and capture processes are stopped.
+
+The [demonstrated C++ defaults](2026-09-11-cxx-defaults.md) remain in place.
+Ordinary `clang++` now compiles and runs standalone programs
 without a runtime copy or extra linker flags. Only the pinned NDK C++ runtime is
 embedded; Bionic and Android's linker remain dynamic. Explicit shared aliases also
 passed a private-runtime DSO/string/exception test and package relocation. Both

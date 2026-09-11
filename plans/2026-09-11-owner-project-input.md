@@ -1,6 +1,9 @@
 # Owner project builds and input readiness
 
-**Status:** implementation and host checks; no new Android result yet.
+**Status:** the native multi-file project workflow passed in the ARM64 emulator,
+including editing, failed-build recovery, relocation and rebuilding after reboot.
+The input queue correctly withheld commands during two failed first attachments.
+**Cold first-Attach/resize timing remains open**, not hidden by a blanket UI PASS.
 
 The [C++ defaults](2026-09-11-cxx-defaults.md) already work in the ARM64 emulator.
 This follow-up improves the observed attachment/input timing and exercises a
@@ -19,7 +22,7 @@ without immediately publishing the disconnected/pending UI state. It could leave
 an enabled-looking “Attached” view during a pending Binder request. An old request's
 failure callback could also replace a newer detach/rebind state. The console now
 publishes “Attaching” synchronously and ignores stale/ineligible failure diagnostics,
-while still releasing its one pending request. Version4 identifies this APK change.
+while still releasing its one pending request. Version 4 identifies this APK change.
 No native protocol, Binder authority, PTY, identity, policy or limit changes are made.
 
 The reusable [finite UI queue](../scripts/proof/ui_queue.md) sends one action at a
@@ -28,8 +31,11 @@ replaces guessed post-Attach delays in the test driver; input invocations are sh
 This is not a production authority check, forced focus/keyboard setting, prompt
 attestation or an implicit retry mechanism.
 
-I21's read-only worker budget expired without findings. No independent review PASS
-or inferred native defect follows from that cancelled assignment.
+I21's read-only worker budget expired without findings. I22 stopped after questioning
+the readiness predicate's view class. Actual retained and new Android hierarchies
+report `android.view.View` for this terminal and satisfied the predicate when enabled,
+focused and attached. Neither cancelled assignment supplies an independent review
+PASS or an established defect.
 
 ## Project exercise
 
@@ -44,7 +50,7 @@ It is deliberately not a new make implementation or package manager.
 - Edit the header in `vi`, rebuild and observe the changed program. Reject invalid
   arguments. Introduce a compile error, verify failure/previous-output preservation,
   restore the source and rebuild. Relocate and rebuild/run the project.
-- Inspect output ELF and group resource counters; retain256MiB,32 tasks,128FDs and
+- Inspect output ELF and group resource counters; retain 256 MiB, 32 tasks, 128 FDs and
   64MiB per-file limits. No global runtime path or unrelated directory grants.
 - Repeat ordinary-app negatives with live positives, relock/return and bounded
   reboot/persistence/cleanup as relevant. Distinguish tests from full resource stress.
@@ -57,6 +63,92 @@ continuation must freeze/re-hash stopped disk/config state, preserve the origina
 runtime, recreate only volatile endpoints and keep normal PIN/CE/boot checks.
 Do not launch mutable build output or rewrite prior seals.
 
-New raw evidence is selected by `out/owner-project-input/EVIDENCE`. Host tests of
-state callbacks, queue sequencing and real host fixture builds are separate from
-Android UI, compiler and isolation qualification.
+## Observed result
+
+Source/APK producer `ed060a5` built the terminal and the upstream host shell in
+**84.972 seconds**. The terminal version 4 update used a separately signed and explicitly
+v4-verified pair through normal PackageInstaller on the unchanged frozen `a653644`
+compiler image/APEX 3. PM retained appId 10101 and SYSTEM_EXT/PRIVILEGED authority and
+reported UPDATED_SYSTEM_APP. No new factory image or sidecar placement is claimed.
+
+The cold continuation froze **139 regular home/config/disk files**, excluding 35
+volatile endpoints/backing files. Image hashes were checked against the prior frozen
+producer; the expanded super image was independently compared with `simg2img` output.
+The original runtime and all earlier seals remained untouched. Normal PIN entry,
+CE availability, core checks and the real Cuttlefish boot reporter were retained.
+
+The current host suite passed **301 tests in 131.407 seconds**, with no skips. Sixteen
+additional real host-mksh PTY cases queued input before fork/controlling-terminal
+setup/exec and did not reproduce byte loss. Those cases use the host ABI and are
+not Android transport proof; no native launch handshake was added on that basis.
+Seven relevant upstream projects, pinned compiler staging and the exact existing
+owner-policy bridge were rechecked. No whole-manifest re-audit is claimed.
+
+### Native project workflow
+
+- The owner imported the reviewed fixture through explicit terminal input; all six
+  functional source hashes checked successfully. The observer did not gain direct
+  owner-home access. The serial three-translation-unit/response-file/archive build
+  completed as native UID7500 in **124.67 seconds** on ARM64 TCG and printed
+  `BUILD_OK v1 count=3 mean=4 rms=4.32049`.
+- `vi` changed the header to `v2`; its unsaved edit survived Detach/Home/return with
+  the same editor 6699 and shell 3526. Saving and rebuilding produced the changed
+  `v2` result. An initial unsupported `r`-command attempt was retained; documented
+  `x`/`i` editing operations were used instead, without an editor/source patch.
+- Invalid input and excessive magnitude returned 2. A deliberate `#error` made the
+  build return 1, kept the previous executable's hash unchanged and removed its
+  temporary directory. Restoring the source and moving the project into a directory
+  containing a space still allowed a successful rebuild/run. Nonconstant math and
+  exception handling were exercised inside Android, not just cross-linked on a host.
+- The resulting 4,390,648-byte executable was ARM64, used `/system/bin/linker64`,
+  needed only Android's libc/libdl/libm, and had no shared-STL dependency or RUNPATH.
+  This is the standalone C++ profile, not static Bionic or a global runtime-path grant.
+- The owner-negative and P5 tests passed as ordinary apps, with actual project
+  positive controls before/after. Both were removed. Relock/PIN return preserved
+  shell 3526 and `KEEP=project_ready`. Reboot changed the boot ID, required normal
+  unlock before the owner service/home were available, and preserved all source and
+  executable hash checks. A new shell 3422 rebuilt and ran the project again.
+- The highest sampled owner-group peak was **237,879,296 bytes (226.859375 MiB)**;
+  sampled OOM-event counters remained 0 within the unchanged 256 MiB limit. This is
+  representative build sampling, not exhaustion/pressure or total CPU/storage-quota
+  proof. Native capabilities remained 0, NNP/seccomp remained active, and the existing
+  task/FD/file limits stayed unchanged.
+- End and normal console force-stop removed native jobs. The saved project still
+  ran after restarting the console. All core, UI-loop, controller, runner, capture
+  and cleanup exit codes were 0; that does **not** mean every UI action succeeded.
+
+The `v2` executable SHA-256 was
+`b002184fbc111d9e609e814f405a0d99df01278a3519c0bbec4bacc88f5fab7c`;
+the edited header was
+`68b276a7db3778f14280f8b4f133d2114c2e0dcd6a74eed6ad7e0dd12451acd1`.
+These observations came from native commands and the real bounded terminal display.
+
+### First-attachment finding remains open
+
+The first Attach after **each** boot ended with `Detached: resize failed`; the actual
+terminal node was disabled/unfocused. Readiness actions 0021 and 0263 failed, and the
+sequential client submitted none of their pending command/key actions. After
+inspection, an explicit second Attach worked and complete input was received.
+Replacement attachments, return from the editor/relock, a warm End/new-native-session
+control and a fresh console process on the already-running platform also worked.
+
+Thus the predicate's class match is not the cause, and the old long-input timeout
+interleaving did not recur. But the successful retries are not first-Attach success.
+The current diagnostic does not establish whether cold scheduling, lease timing,
+frontend setup or another resize path caused the failure. No lease extension,
+namespace/policy weakening, automatic retry or guessed-delay substitute was used.
+The pending-state and stale-callback fixes are source/host-checked changes; they do
+not close every startup race.
+
+**Next:** instrument the cold Attach/resize path with bounded, non-input diagnostics,
+compare it with the working warm controls and fix the measured cause. Then broaden
+project/build-tool and resource testing. Long-lived services, package transactions,
+full terminal compatibility and supported-phone/release/privacy qualification remain
+separate work.
+
+The closed runtime retains **7,874 regular files** and 270,465 offline packets with
+zero reported drops or truncated records. The complete set selected by
+`out/owner-project-input/EVIDENCE` is sealed across **8,173 regular files**, with the
+runtime sub-seal reverified and symlinks excluded. All owned guests and jobs are
+stopped. Old linker probes into denied unrelated shell/test directories remain
+recorded; no access was granted merely to silence them.
