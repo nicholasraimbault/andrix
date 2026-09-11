@@ -195,6 +195,28 @@ class OwnerSessionTests(unittest.TestCase):
         self.assertNotIn('announceForAccessibility', activity)
         self.assertIn('v4_signature: false', (ROOT/'owner/Android.bp').read_text())
 
+    def test_actual_attach_failure_callback_ignores_stale_ui(self):
+        controller = (ROOT/'owner/terminal/src/dev/andrix/terminal/TerminalController.java').read_text()
+        start = controller.index('    private void failAttach(')
+        method = controller[start:controller.index('    private void finishAttach(', start)]
+        harness = (ROOT/'owner/tests/AttachFailureTest.java.in').read_text()
+        self.assertEqual(harness.count('// PRODUCTION_FAILURE_CALLBACK'), 1)
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            source = work/'AttachFailureTest.java'
+            source.write_text(harness.replace('// PRODUCTION_FAILURE_CALLBACK', method))
+            compiled = subprocess.run(['javac', '-d', str(work), str(source)],
+                                      text=True, capture_output=True, timeout=30)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            ran = subprocess.run(['java', '-ea', '-cp', str(work), 'AttachFailureTest'],
+                                 text=True, capture_output=True, timeout=20)
+            self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+            self.assertIn('Android unqualified', ran.stdout)
+        attach = controller[controller.index('    void attach()'):start]
+        self.assertLess(attach.index('disconnect(connection)'), attach.index('show("Attaching'))
+        self.assertLess(attach.index('show("Attaching'), attach.index('control.execute('))
+        self.assertIn('main.post(() -> failAttach(requestEpoch, target, error.getMessage()))', attach)
+
     def test_native_core_and_host_guard_negatives(self):
         compiler = shutil.which('g++')
         self.assertIsNotNone(compiler, 'a host C++ compiler is required')

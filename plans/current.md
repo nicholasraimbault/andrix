@@ -1,9 +1,11 @@
 # Current work
 
 **Active milestone:** [GrapheneOS-derived base — isolated migration trial](2026-09-08-grapheneos-migration.md).
-**Current action:** expand representative project-build and resource checks from the
-[demonstrated C++ defaults](2026-09-11-cxx-defaults.md), while improving observed
-startup/input timing. Ordinary `clang++` now compiles and runs standalone programs
+**Current action:** [owner project builds and input readiness](2026-09-11-owner-project-input.md):
+correct pending/stale attachment UI status, use a sequential observable-ready test
+driver, and exercise a repeatable multi-file native project. These follow the
+[demonstrated C++ defaults](2026-09-11-cxx-defaults.md); the new follow-up is not yet
+Android-qualified. Ordinary `clang++` now compiles and runs standalone programs
 without a runtime copy or extra linker flags. Only the pinned NDK C++ runtime is
 embedded; Bionic and Android's linker remain dynamic. Explicit shared aliases also
 passed a private-runtime DSO/string/exception test and package relocation. Both

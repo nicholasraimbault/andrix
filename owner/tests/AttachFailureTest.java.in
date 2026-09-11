@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: Apache-2.0
+// The exact production failure callback with a portable UI-state adapter.
+// This tests stale completion handling, not Android/Binder/foreground authority.
+import java.util.concurrent.atomic.AtomicBoolean;
+
+public final class AttachFailureTest {
+    private interface Listener { }
+    private final AtomicBoolean attaching = new AtomicBoolean(true);
+    private long uiEpoch = 1;
+    private Listener listener = new Listener() { };
+    private boolean allowed = true;
+    private String state = "Attaching";
+    private int publications;
+    private final Thread main = Thread.currentThread();
+    private void requireMain() {
+        if (Thread.currentThread() != main) throw new AssertionError("Not main");
+    }
+    private boolean eligible() { return allowed; }
+    private void show(String text) { state = text; ++publications; }
+
+// PRODUCTION_FAILURE_CALLBACK
+
+    public static void main(String[] args) {
+        AttachFailureTest h = new AttachFailureTest();
+        h.failAttach(1, h.listener, "native failure");
+        assert !h.attaching.get() && h.publications == 1;
+        assert h.state.equals("Attach failed: native failure");
+
+        h.attaching.set(true); h.uiEpoch = 2; h.state = "Detached";
+        h.failAttach(1, h.listener, "late failure");
+        assert !h.attaching.get() && h.publications == 1;
+        assert h.state.equals("Detached");
+
+        h.attaching.set(true);
+        h.failAttach(2, new Listener() { }, "old Activity");
+        assert !h.attaching.get() && h.publications == 1;
+        assert h.state.equals("Detached");
+
+        h.attaching.set(true); h.allowed = false; h.state = "Locked";
+        h.failAttach(2, h.listener, "ineligible");
+        assert !h.attaching.get() && h.publications == 1;
+        assert h.state.equals("Locked");
+        System.out.println("Actual stale-attachment failure callback passed; Android unqualified");
+    }
+}
