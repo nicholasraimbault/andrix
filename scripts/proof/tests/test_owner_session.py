@@ -236,6 +236,9 @@ class OwnerSessionTests(unittest.TestCase):
         self.assertLess(attach.index('attachments.retain(request, candidate)'), attach.index('renewLease(candidate)'))
         self.assertLess(attach.index('renewLease(candidate)'), attach.index('main.post(() -> finishAttach('))
         self.assertIn('if (candidate != null) { disconnect(candidate); remoteDetach(candidate); }', attach)
+        catch = attach[attach.index('            } catch (Exception error) {'):]
+        self.assertLess(catch.index('disconnect(candidate)'), catch.index('attachments.finish(request)'))
+        self.assertLess(catch.index('attachments.finish(request)'), catch.index('main.post(() -> failAttach('))
         self.assertIn('Connection current = attachments.lease();', controller)
 
     def test_pending_attachment_lifecycle_and_races(self):
