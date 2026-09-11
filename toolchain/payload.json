@@ -1442,9 +1442,14 @@
       "size": 519610
     },
     {
+      "path": "etc/andrix/cxx-shared.cfg",
+      "sha256": "cc2a37a3d6e74bc2415fc674fb38a4c3d174ad9e4f5ec89bdba81a9aed2dcf85",
+      "size": 432
+    },
+    {
       "path": "etc/andrix/cxx.cfg",
-      "sha256": "8a0a8f19b181daa120a8d63b7f38976e0deb322df1696e4c0232e42959a704b6",
-      "size": 430
+      "sha256": "c916629a2713279fdc89c7bb2b16d2b138f1588efbd6899e3cd92c7aeb6f8e10",
+      "size": 655
     },
     {
       "path": "etc/andrix/licenses/bootstrap-NOTICE",
@@ -18165,6 +18170,16 @@
       "path": "etc/andrix/sdk/usr/lib/aarch64-linux-android/37/libz.so",
       "sha256": "1b6be91379b5434f821269cf8826738f58565e8b5ca7650d5b073901384ef11f",
       "size": 43672
+    },
+    {
+      "path": "etc/andrix/sdk/usr/lib/aarch64-linux-android/libc++_static.a",
+      "sha256": "b5503d3e2b52e541f73025feb6a16088290fd8091ac57ce568e02012f01a5251",
+      "size": 24613594
+    },
+    {
+      "path": "etc/andrix/sdk/usr/lib/aarch64-linux-android/libc++abi.a",
+      "sha256": "c0520f2e83ab27bd14c5079bc3b8629d07d234ef4b9f0bbf73647c51cfe7e865",
+      "size": 4930052
     },
     {
       "path": "lib64/libc++_shared.so",

@@ -128,7 +128,7 @@ andrix_compiler_wrapper {
 
     srcs: ["tool_driver.c"],
     stem: "clang++",
-    symlinks: ["c++", "cc", "ar", "ranlib", "llvm-ranlib"],
+    symlinks: ["c++", "clang++-shared", "c++-shared", "cc", "ar", "ranlib", "llvm-ranlib"],
     cflags: ["-Wall", "-Wextra", "-Werror"],
     compile_multilib: "64",
     sdk_version: "37",
@@ -144,6 +144,7 @@ andrix_compiler_data {
     relative_install_path: "andrix",
     installable: false,
     srcs: [
+        "artifacts/root/etc/andrix/cxx-shared.cfg",
         "artifacts/root/etc/andrix/cxx.cfg",
     ],
 }
@@ -5568,6 +5569,18 @@ andrix_compiler_data {
 }
 
 andrix_compiler_data {
+    name: "andrix_compiler_data_c9ba3f5964a38977",
+    enabled: false,
+    soong_config_variables: { owner_compiler: { enabled: true } },
+    relative_install_path: "andrix/sdk/usr/lib/aarch64-linux-android",
+    installable: false,
+    srcs: [
+        "artifacts/root/etc/andrix/sdk/usr/lib/aarch64-linux-android/libc++_static.a",
+        "artifacts/root/etc/andrix/sdk/usr/lib/aarch64-linux-android/libc++abi.a",
+    ],
+}
+
+andrix_compiler_data {
     name: "andrix_compiler_data_c8c69bead95b97a5",
     enabled: false,
     soong_config_variables: { owner_compiler: { enabled: true } },
@@ -5796,6 +5809,7 @@ andrix_compiler_apex_defaults {
             "andrix_compiler_data_c687c0eb27510ee8",
             "andrix_compiler_data_5b2f7f304f62e288",
             "andrix_compiler_data_447fbb138bb973ec",
+            "andrix_compiler_data_c9ba3f5964a38977",
             "andrix_compiler_data_c8c69bead95b97a5",
         ],
     } },
