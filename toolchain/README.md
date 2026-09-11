@@ -1,9 +1,10 @@
 # Experimental native compiler inputs
 
-See the [milestone](../plans/2026-09-11-native-compiler.md) for current results and
-boundaries. Native C and C++ with a project-private runtime are demonstrated in the
-emulator. **Default C++ runtime lookup is not complete**; this is not a supported
-release or a full compiler-feature/resource qualification.
+See the [compiler milestone](../plans/2026-09-11-native-compiler.md) for the prior
+native C/project-private C++ result and the [C++ defaults follow-up](../plans/2026-09-11-cxx-defaults.md)
+for current qualification. The new standalone default embeds the pinned NDK C++
+runtime; an explicit shared profile retains project-private runtime use. This is
+not a supported release or full compiler-feature/resource qualification.
 
 `native-compiler.json` pins the compiler source and release-selected bootstrap.
 `AndroidBionic.cmake` prevents accidental GNU/Linux header/library use and names the
@@ -72,9 +73,10 @@ are public. Preserve the notice bytes, including upstream whitespace. Individual
 source/header notices and LLVM's exceptions govern the mixed upstream inputs.
 
 `ANDRIX_OWNER_COMPILER=true` requires `ANDRIX_OWNER_SESSION=true` on the GrapheneOS
-Cuttlefish product. The compiler option supplies APEX version2; unflagged builds
-keep version1 and disabled compiler modules. Real Soong behavior must still be
-checked; source assertions alone are not a baseline or package PASS.
+Cuttlefish product. This profile supplies APEX version3; unflagged builds retain
+version1 and disabled compiler modules. Version2 and its observations remain in
+the earlier milestone. Real package/runtime checks, not source assertions alone,
+establish whether a new generation works.
 
 `clang` is the native binary. `clang++` is a small native argument-forwarding wrapper
 that executes it in C++ driver mode with the immutable NDK config. The same small
@@ -85,35 +87,52 @@ launcher or a privilege transition. The first shell-wrapper dependency triggered
 a Soong APEX static-executable-check panic; the failed build is retained rather
 than patching or disabling that platform check. Prebuilt-binary symlink properties
 were also absent from the extracted APEX, so aliases are attached to the compiled
-dispatcher and verified in the payload instead of assumed from Blueprint text. The config uses explicit target/common C++
-headers and link-only NDK runtime options, retaining `/usr/lib64` as the trusted
-runtime path. Compile-only mode must not add libraries. The owner policy explicitly
+dispatcher and verified in the payload instead of assumed from Blueprint text.
+The configs use explicit target/common C++ headers and link-only NDK runtime
+inputs. The standalone default embeds libc++/libc++abi but keeps Bionic and the
+Android linker dynamic. The shared aliases select one project-private shared STL.
+Compile-only mode must not add libraries. The owner policy explicitly
 allows reading Andrix-labelled SDK/configuration files and mapping its immutable
 runtime library; it adds no writes, app-data access or Binder authority. No owner
 limit changes, global platform-policy relaxation or fabricated libc++ linker
 scripts are needed.
 
-## Observed C++ runtime boundary
+## C++ profiles and the observed runtime boundary
 
-The current config's global `/usr/lib64` RUNPATH did not let a home executable load
+The earlier version2 config's global `/usr/lib64` RUNPATH did not let a home executable load
 `libc++_shared.so`: Android assigns `/data` executables to an isolated system linker
 namespace without `/usr` in its permitted paths. Compilation succeeded, execution
 failed. Do not open that namespace globally or copy libraries into Android's system
 directories to hide the failure.
 
-An explicit owner-managed project-private runtime worked:
+The recorded version2 workaround copied the runtime into `lib/` and explicitly
+added `$ORIGIN/lib`; it compiled/ran again after reboot. That observation does not
+prove the new profiles before their own qualification.
+
+For a standalone executable, the new default requires no runtime copy:
+
+```sh
+clang++ hello.cpp -o hello
+./hello
+```
+
+Only the NDK C++ runtime is linked from static archives. This is **not** static
+Bionic or a second libc. It avoids hidden project writes and global library-path
+changes. Programs exchanging C++ objects/exceptions across multiple DSOs should
+instead select the shared profile and one private runtime, for example:
 
 ```sh
 mkdir -p lib
 cp /usr/lib64/libc++_shared.so lib/
-clang++ hello.cpp -Wl,-rpath,'$ORIGIN/lib' -o hello_cpp
+clang++-shared hello.cpp -o hello_cpp
 ./hello_cpp
 ```
 
-The actual copied runtime hash matched the authenticated input, and this program
-compiled/ran again after reboot. This is a bounded direct owner-package operation,
-not an implemented package manager, automatic runtime provisioning or a guarantee
-that every project layout works. Refining those defaults is the next step.
+`clang++-shared` and `c++-shared` select `cxx-shared.cfg`; their default RUNPATHs are
+only `$ORIGIN` and `$ORIGIN/lib`, suitable for a private runtime beside a binary/DSO
+or in its `lib/` subdirectory. This is an explicit runtime choice, not a package
+manager or a promise that arbitrary layouts work. The standalone profile does not
+promise interoperability between multiple copies of a static STL in different DSOs.
 
 ## Retained limits
 

@@ -28,6 +28,9 @@ class CompilerPackageTests(unittest.TestCase):
         self.assertIn('etc/andrix/sdk/usr/include/aarch64-linux-android/c++/v1/__config_site',paths)
         self.assertNotIn('etc/andrix/sdk/usr/include/c++/v1/__config_site',paths)
         self.assertNotIn('etc/andrix/sdk/usr/lib/aarch64-linux-android/37/crtbegin_static.o',paths)
+        for name in ['libc++_static.a','libc++abi.a']:
+            self.assertIn('etc/andrix/sdk/usr/lib/aarch64-linux-android/'+name,paths)
+        self.assertIn('etc/andrix/cxx-shared.cfg',paths)
 
     def test_regular_digest_path_and_json_controls(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -94,9 +97,18 @@ class CompilerPackageTests(unittest.TestCase):
     def test_cxx_driver_config_uses_link_only_ndk_mapping(self):
         cfg=(package.TOOLCHAIN/'cxx.cfg').read_text();wrapper=(package.TOOLCHAIN/'tool_driver.c').read_text()
         self.assertIn('-nostdlib++',cfg)
-        self.assertIn('$-Wl,-L,<CFGDIR>/../../lib64',cfg)
-        self.assertNotIn('$-L<CFGDIR>',cfg)
-        self.assertIn('$-lc++_shared',cfg)
+        self.assertIn('$-Wl,--start-group,',cfg)
+        self.assertIn('libc++_static.a',cfg)
+        self.assertIn('libc++abi.a',cfg)
+        self.assertNotIn('-rpath',cfg)
+        self.assertNotIn('$-lc++_shared',cfg)
+        self.assertNotIn('\n-static\n',cfg)
+        shared=(package.TOOLCHAIN/'cxx-shared.cfg').read_text()
+        self.assertIn('$-Wl,-L,<CFGDIR>/../../lib64',shared)
+        self.assertNotIn('$-L<CFGDIR>',shared)
+        self.assertIn('$-lc++_shared',shared)
+        self.assertIn('$-Wl,-rpath,$ORIGIN:$ORIGIN/lib',shared)
+        self.assertNotIn('-rpath,/usr',shared)
         self.assertIn('execv(args[0], args)',wrapper)
         self.assertNotIn('system(',wrapper)
 
@@ -109,6 +121,7 @@ class CompilerPackageTests(unittest.TestCase):
 int andrix_wrapper_main(int,char**);
 static int called;
 static const char *alias;
+static int shared;
 int andrix_test_execv(const char *path,char *const args[]) {
  if (alias) {
   assert(!strcmp(path,!strcmp(alias,"cc")?"/usr/bin/clang":"/usr/bin/llvm-ar"));
@@ -118,7 +131,7 @@ int andrix_test_execv(const char *path,char *const args[]) {
  assert(!strcmp(path,"/usr/bin/clang"));
  assert(!strcmp(args[0],path));
  assert(!strcmp(args[1],"--driver-mode=g++"));
- assert(!strcmp(args[2],"--config=/usr/etc/andrix/cxx.cfg"));
+ assert(!strcmp(args[2],shared ? "--config=/usr/etc/andrix/cxx-shared.cfg" : "--config=/usr/etc/andrix/cxx.cfg"));
  assert(!strcmp(args[3],"space words;not a shell"));
  assert(!strcmp(args[4],"--config=/owner/custom"));
  assert(args[5]==0); called=1; errno=ENOENT; return -1;
@@ -126,6 +139,11 @@ int andrix_test_execv(const char *path,char *const args[]) {
 int main(void) {
  char *a[]={"clang++","space words;not a shell","--config=/owner/custom",0};
  assert(andrix_wrapper_main(3,a)==127); assert(called);
+ for (unsigned i=0;i<2;++i) {
+  shared=1; called=0; a[0]=i ? "c++-shared" : "clang++-shared";
+  assert(andrix_wrapper_main(3,a)==127); assert(called);
+ }
+ shared=0;
  const char *names[]={"cc","ar","ranlib","llvm-ranlib"};
  for (unsigned i=0;i<sizeof(names)/sizeof(names[0]);++i) {
   alias=names[i]; called=0; char *b[]={(char*)alias,"path with spaces",0};

@@ -238,7 +238,10 @@ owner-policy bridge and pinned staged compiler bytes. It likewise does not claim
 fresh all-project audit. Keep host cross-linking, compiler construction, package
 signatures, observed Android behavior and release assurance distinct.
 
-**Next:** resolve default C++ runtime provisioning within the package-private model,
+**Next:** the [standalone C++ defaults follow-up](2026-09-11-cxx-defaults.md) qualifies
+embedding the pinned C++ runtime for ordinary executable builds while retaining an
+explicit project-private shared-runtime profile. The observations above used the
+previous default and are not retroactive qualification of that change. Also
 account for the linker path probes without widening unrelated access, and expand
 representative compiler/resource tests. Full managed package transactions, services
 surviving console-process death, phone deployment and release/privacy gates remain

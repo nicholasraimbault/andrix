@@ -89,20 +89,25 @@ def inputs(input_root):
         elif path.startswith('cxx/include/'):dest='etc/andrix/sdk/usr/include/c++/v1/'+path.removeprefix('cxx/include/')
         elif path.startswith('cxx/target/'):dest='etc/andrix/sdk/usr/include/aarch64-linux-android/c++/v1/'+path.removeprefix('cxx/target/')
         elif path=='cxx/lib/libc++_shared.so':dest='lib64/libc++_shared.so'
+        elif path in ['cxx/lib/libc++_static.a','cxx/lib/libc++abi.a']:
+            dest='etc/andrix/sdk/usr/lib/aarch64-linux-android/'+PurePosixPath(path).name
         elif path.startswith('licenses/'):
             dest={'out/soong/ndk/NOTICE':'etc/andrix/licenses/sdk-NOTICE',
                   'prebuilts/clang/host/linux-x86/clang-r584948b/NOTICE':'etc/andrix/licenses/bootstrap-NOTICE',
                   'external/opencl/llvm-project/LICENSE.TXT':'etc/andrix/licenses/llvm-LICENSE'}[row['input']]
-        # Static C++ archives are retained inputs, but not advertised in this
-        # dynamic C++ runtime profile. Do not invent static Bionic CRTs.
+        # Static C++ is separate from static Bionic. The profile still uses API37
+        # dynamic executable CRTs and Android's system linker/libc.
         if dest:add(p,dest,row['sha256'],row['size'])
     for row in manifests['resources']['files']:
         p=regular(input_root,'frozen-resources/'+row['path'],row['sha256'],row['size'])
         add(p,'etc/andrix/clang/23/'+row['path'],row['sha256'],row['size'])
-    p=TOOLCHAIN/'cxx.cfg';add(p,'etc/andrix/cxx.cfg',sha(p),p.stat().st_size)
+    for name in ['cxx.cfg','cxx-shared.cfg']:
+        p=TOOLCHAIN/name;add(p,'etc/andrix/'+name,sha(p),p.stat().st_size)
     required=['bin/clang','bin/ld.lld','bin/llvm-ar','lib64/libc++_shared.so',
               'etc/andrix/sdk/usr/lib/aarch64-linux-android/37/crtbegin_dynamic.o',
               'etc/andrix/sdk/usr/include/c++/v1/iostream',
+              'etc/andrix/sdk/usr/lib/aarch64-linux-android/libc++_static.a',
+              'etc/andrix/sdk/usr/lib/aarch64-linux-android/libc++abi.a',
               'etc/andrix/sdk/usr/include/aarch64-linux-android/c++/v1/__config_site',
               'etc/andrix/clang/23/lib/linux/libclang_rt.builtins-aarch64-android.a',
               'etc/andrix/clang/23/lib/linux/aarch64/libunwind.a']
@@ -160,7 +165,7 @@ license {
     parts.append('andrix_compiler_wrapper {\n    name: "andrix_compiler_cxx",\n'+enabled+'''
     srcs: ["tool_driver.c"],
     stem: "clang++",
-    symlinks: ["c++", "cc", "ar", "ranlib", "llvm-ranlib"],
+    symlinks: ["c++", "clang++-shared", "c++-shared", "cc", "ar", "ranlib", "llvm-ranlib"],
     cflags: ["-Wall", "-Wextra", "-Werror"],
     compile_multilib: "64",
     sdk_version: "37",

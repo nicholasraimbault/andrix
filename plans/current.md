@@ -1,13 +1,17 @@
 # Current work
 
 **Active milestone:** [GrapheneOS-derived base — isolated migration trial](2026-09-08-grapheneos-migration.md).
-**Current action:** finish default C++ runtime provisioning for the
-[native ARM64/Bionic compiler](2026-09-11-native-compiler.md), within the accepted
-package-private library model. The compiler is installed in authenticated `/usr`:
-C compilation/execution and C++ compilation/execution with a project-private runtime
-now work as native owner UID7500 in the emulator, including recompilation after
-reboot. The global `/usr/lib64` default C++ runtime lookup failed and remains open;
-Android's linker namespaces were not widened. Vanadium remains unchanged.
+**Current action:** qualify the [standalone C++ default](2026-09-11-cxx-defaults.md)
+for the native compiler. The candidate embeds only the pinned NDK C++ runtime into
+standalone outputs while retaining dynamic Bionic and the Android linker; explicit
+shared aliases keep one project-private shared runtime for multi-library projects.
+No hidden library copying or namespace widening is introduced. This new default
+still needs its Android qualification.
+
+The [earlier compiler image](2026-09-11-native-compiler.md) already demonstrated C
+and project-private-runtime C++ compilation/execution as owner UID7500, including
+recompilation after reboot. Its global `/usr/lib64` C++ runtime lookup failure remains
+recorded separately. Vanadium remains unchanged.
 
 Frozen producer `9e5f816` now runs a native Android VT view over the bounded owner
 session. In the emulator, `vi` created and saved a script, its unsaved buffer
