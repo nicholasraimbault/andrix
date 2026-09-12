@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: Apache-2.0
+settings set target.disable-aslr false
+settings show target.disable-aslr
+target create ./debug-c
+breakpoint set --name add
+process launch
+thread backtrace
+frame variable a b
+thread step-over
+frame variable sum
+thread step-out
+process continue
+quit
