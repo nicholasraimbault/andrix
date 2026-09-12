@@ -1,10 +1,12 @@
 # Native LLDB feasibility profile
 
-Native startup, interactive/batch input and target/source metadata now work in the
-bounded Android trial, but **traced execution is not yet qualified**. LLVM23's own
-Android documentation warns that its client is unsupported. The
-[feasibility record](../../plans/2026-09-12-native-debugger.md) separates those results
-from the observed PTY/tracing denials and remaining authority/feature gates.
+**Native C/C++ debugging passed bounded Android qualification**, including launch,
+breakpoints, backtrace, stepping, variables, paused-job return, fresh debugging
+after reboot and boundary controls.
+LLVM23's own Android documentation still warns that its client is unsupported.
+The [qualification record](../../plans/2026-09-12-native-debugger.md) separates the
+successful downstream profile from the retained denied baseline and remaining
+feature, pressure and release gates.
 
 `profile.json` pins the source, bootstrap, SDK and Ninja inputs and records the
 CMake configuration. `AndroidBionic.cmake` retains the existing compiler ABI and
@@ -24,6 +26,7 @@ part of the Android payload. Optional scripting, line-editing/curses, XML/LZMA,
 protocol-server and HTTP dependencies are excluded from this initial profile.
 
 No owner policy, capabilities, global linker path or SDK release metadata is changed
-by this profile. The first packaged image retained exactly the previous policy and
-established the tracing-denial baseline. Follow the milestone's next controls before
-considering owner-specific PTYs or a same-owner-only ptrace addition.
+by this build profile. The first packaged image established the unchanged-policy
+denial baseline. Separate Andrix-owned policy now labels owner-created PTYs and
+allows owner-to-owner tracing only, with compiled and runtime cross-identity controls.
+It does not permit coordinator/app tracing, generic devpts or new capabilities.

@@ -58,10 +58,10 @@ AArch64/API37 executables; it does not claim static Bionic linking or other CPUs
 
 ## Opt-in APEX package candidate
 
-`package-inputs.json` pins the already frozen native, SDK, resource and
-[GNU Make](make/README.md) manifests. Assemble a new input directory containing the
-unchanged `frozen-native-01`, `frozen-sdk-02`, `frozen-resources` directories and the
-new `frozen-make-01`; do not append to an earlier sealed input set.
+`package-inputs.json` pins the frozen native compiler, SDK, resource,
+[GNU Make](make/README.md) and [LLDB](lldb/README.md) manifests. Assemble a new input
+directory containing `frozen-native-01`, `frozen-sdk-02`, `frozen-resources`,
+`frozen-make-01` and `frozen-lldb-01`; do not append to an earlier sealed input set.
 `compiler_package.py` verifies every selected file, stages the payload atomically,
 and checks its public metadata against those inputs. It parses the same manifest
 bytes whose digest is verified. `--generate` is an explicit source-metadata update,
@@ -79,9 +79,11 @@ are public. Preserve the notice bytes, including upstream whitespace. Individual
 source/header notices and LLVM's exceptions govern the mixed upstream inputs.
 
 `ANDRIX_OWNER_COMPILER=true` requires `ANDRIX_OWNER_SESSION=true` on the GrapheneOS
-Cuttlefish product. The Make addition selects APEX version4; unflagged builds retain
-version1 and disabled compiler/tool modules. Version3 supplied the demonstrated C++
-defaults; version2 and its runtime lookup failure remain in the earlier milestone.
+Cuttlefish product. The LLDB addition selects APEX version5; unflagged builds retain
+version1 and disabled compiler/tool modules. Version4 added Make and version3 supplied
+the demonstrated C++ defaults; version2 and its runtime lookup failure remain in the
+earlier milestone. The [debugger milestone](../plans/2026-09-12-native-debugger.md)
+records native C/C++ debugging and the separate owner-only authority checks.
 The [build-tools milestone](../plans/2026-09-11-native-build-tools.md) records the new
 package's separate qualification. Real extracted-payload/runtime checks, not source
 assertions alone, establish whether a new generation works. GNU Make has its own
