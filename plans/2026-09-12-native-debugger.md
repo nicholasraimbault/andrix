@@ -1,7 +1,9 @@
 # Native same-owner debugger feasibility
 
-**Status:** source/build feasibility only; no debugger or new tracing authority is
-adopted or Android-qualified yet.
+**Status:** the patched native configuration includes Android host support; host
+TableGen tools and the bounded child-probe's host controls passed. The first native build reached the frontend link and failed on hidden public SB
+API symbols; a narrow Android API-export annotation is being tested next. No debugger
+or new tracing authority is adopted or Android-qualified yet.
 
 The maintained LLVM23 source explicitly warns that only `lldb-server` is functional
 on Android and that its client is unsupported. Native Android host/local-server
@@ -24,6 +26,14 @@ the target to an old API, or copying CMake's outdated suggestion to allow undefi
 symbols. The LLDB-specific profile rejects unresolved symbols for both frontend and
 shared libraries. Actual compilation commands must include `HostInfoAndroid.cpp`
 and the intended target/sysroot/hardening before a build result is accepted.
+
+The first link failure exposed another concrete mismatch: `LLDB_API` is empty on
+non-Windows targets, so the hidden-by-default build did not export the designated
+public SB API. The next adaptation explicitly exports those existing API classes
+on Android, rather than making all internal symbols visible or removing CFI.
+Separate configuration aligns Clang resources with the existing authenticated
+`/usr/etc/andrix/clang/23` and uses Android's unversioned-SONAME convention. The failed
+library, symbol table, command graph and logs are retained.
 
 Start with the CLI frontend and matching `lldb-server`, without optional Python,
 Lua, libedit/curses, XML/LZMA, protocol-server or HTTP helpers. This is not a promise
@@ -48,5 +58,10 @@ host-only session labelled as phone-native debugging.
 
 The first milestone is a supportable, bounded path or a clearly retained blocker.
 Packaging, Android runtime tests and any later authority change are separate gates.
+The [child-tracing probe](../tests/owner-debugger/README.md) takes no PID argument
+and targets only its own fresh child. Three host tests passed, including genuine
+ptrace read/write/continue under the existing worker filter and a separate
+ptrace-denying seccomp control. These do not prove Android SELinux behavior.
+
 New evidence is selected by `out/owner-debugger/EVIDENCE`. Previous images, compiler
 artifacts, seals, Vanadium, Pixel and accepted architecture remain untouched.

@@ -1,0 +1,12 @@
+--- a/lldb/include/lldb/API/SBDefines.h
++++ b/lldb/include/lldb/API/SBDefines.h
+@@ -24,6 +24,9 @@
+ #else
+ #define LLDB_API __declspec(dllimport)
+ #endif
++#elif defined(__ANDROID__)
++// Keep the existing public SB API exported with hidden-by-default builds.
++#define LLDB_API __attribute__((visibility("default")))
+ #else // defined (_WIN32)
+ #define LLDB_API
+ #endif

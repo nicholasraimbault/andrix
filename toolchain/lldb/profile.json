@@ -63,5 +63,18 @@
   ],
   "native_hardening": "existing ARM64/Bionic ThinLTO+cfi-icall profile plus no-undefined",
   "policy_changed": false,
-  "upstream_android_client_supported": false
+  "upstream_android_client_supported": false,
+  "additional_patches": [
+    {
+      "file": "android-api-visibility.patch",
+      "sha256": "120d0b67f6e7cceab2fa52b1105c85e10a568b66216a18f9e337775d30cc36bd",
+      "source": "lldb/include/lldb/API/SBDefines.h",
+      "before_sha256": "ecc5e34374794a32d7ba043e7ceaa4ba63a02099cb830a087c56450aaee5cb9a",
+      "after_sha256": "7ec9a7768b658fe4d20f89dc3c793ff5e2c0982f0f5e5a68ddb6eb12b495b95b"
+    }
+  ],
+  "native_cmake_options": [
+    "-DCLANG_RESOURCE_DIR=../etc/andrix/clang/23",
+    "-DCMAKE_PLATFORM_NO_VERSIONED_SONAME=ON"
+  ]
 }

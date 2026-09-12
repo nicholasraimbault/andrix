@@ -21,6 +21,14 @@ class NativeDebuggerTests(unittest.TestCase):
         patch = ROOT/'toolchain/lldb'/profile['patch']['file']
         self.assertEqual(hashlib.sha256(patch.read_bytes()).hexdigest(),
                          profile['patch']['sha256'])
+        for item in profile['additional_patches']:
+            patch = ROOT/'toolchain/lldb'/item['file']
+            self.assertEqual(hashlib.sha256(patch.read_bytes()).hexdigest(), item['sha256'])
+        visibility = (ROOT/'toolchain/lldb/android-api-visibility.patch').read_text()
+        self.assertIn('+#define LLDB_API __attribute__((visibility("default")))', visibility)
+        self.assertIn('+#elif defined(__ANDROID__)', visibility)
+        self.assertIn('-DCMAKE_PLATFORM_NO_VERSIONED_SONAME=ON', profile['native_cmake_options'])
+        self.assertIn('-DCLANG_RESOURCE_DIR=../etc/andrix/clang/23', profile['native_cmake_options'])
         cmake = (ROOT/'toolchain/lldb/AndroidBionic.cmake').read_text()
         self.assertIn('include("${CMAKE_CURRENT_LIST_DIR}/../AndroidBionic.cmake")', cmake)
         self.assertEqual(cmake.count('-Wl,--no-undefined'), 2)
