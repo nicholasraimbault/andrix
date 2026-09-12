@@ -19,10 +19,11 @@ client remains upstream-unsupported; this is bounded downstream qualification, n
 full LLDB, JIT, pressure, privacy or phone/release assurance.
 
 **Next:** plan the durable owner-session/service and native-package transaction work.
-The [shared-host storage review](2026-09-12-shared-storage.md) identifies stopped-VM
-RAM backing as the proposed first recovery; no deletion is approved yet. Capacity or
-an approved recovery/archive plan is a gate before another full image/runtime
-generation. Do not discard preserved sources, images or seals to make room.
+The [approved RAM-only cleanup](2026-09-12-shared-storage.md) recovered about 148 GiB,
+restoring roughly 174 GiB of bulk headroom without deleting disks, source or sealed
+evidence. Recheck capacity and coordinate heavy work with Outset before large jobs;
+further deletion or archival removal needs separate approval. Preserve the working
+reserve rather than allowing disposable runtime storage to accumulate again.
 Pixel deployment remains separately gated. This follows the [cold-attachment correction](2026-09-11-cold-attachment.md).
 The client now maintains a guarded pending lease during Main preparation, with input
 blocked until identity-checked promotion. First Attach passed without retry after
