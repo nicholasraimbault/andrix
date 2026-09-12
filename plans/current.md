@@ -1,26 +1,27 @@
 # Current work
 
 **Active milestone:** [GrapheneOS-derived base — isolated migration trial](2026-09-08-grapheneos-migration.md).
-**Current action:** [native same-owner debugger feasibility](2026-09-12-native-debugger.md),
-following the [qualified Make/project-build step](2026-09-11-native-build-tools.md).
-The [unchanged-policy LLDB image trial](2026-09-12-native-debugger.md#unchanged-policy-android-baseline)
-now demonstrates native startup, interactive/batch input, target/source metadata,
-and persistent behavior after reboot. Normal launch hits a new-PTY access denial;
-a separate no-stdio control reaches the measured same-owner ptrace denial. Next is
-reviewing owner-specific PTYs and same-owner tracing, with cross-identity negatives
-before any successful-debugging claim. No policy or capabilities were widened in
-this baseline. LLDB's Android client remains upstream-unsupported, and traced
-execution is not yet qualified. GNU Make 4.4.1
-now runs from authenticated `/usr`: native incremental/no-op/header/source rebuilds,
-failure recovery, recursive jobs, absent-PATH fallback, relocation and rebuilding
-after reboot passed. APEX 4/image `ca6347c` retains the unchanged compiler/SDK profile;
-the unflagged build reproduced the original small APEX exactly. No owner policy or
-resource limits were widened. All owned guests/jobs are stopped.
+**Current checkpoint:** [native owner C/C++ debugging qualified in the emulator](2026-09-12-native-debugger.md#observed-owner-only-debugging-result),
+following the [Make/project-build step](2026-09-11-native-build-tools.md). Image `947ba28`
+demonstrated normal launch, breakpoint hits, arguments, backtrace, step-over/out,
+variable values and completion. The same paused debugger survived Home/return and
+relock; source/binary hashes persisted and a fresh debugger worked after reboot.
+End removed the complete traced workload. Owner-specific PTYs and same-owner tracing passed positive and
+cross-identity controls, including the same-UID coordinator and an ordinary test APK.
+No capabilities, global procfs, generic-devpts, namespace, lease or resource-limit
+changes accompanied those narrowly scoped owner rules. All owned guests/jobs are stopped.
 
-The new native debugger is distinct from the unsuitable host LLDB/static prebuilt
-server. It still cannot debug an inferior under the current owner policy.
-Any debugging addition needs same-owner and cross-identity controls, not borrowed
-root/shell authority. This follows the [cold-attachment correction](2026-09-11-cold-attachment.md).
+The [denied baseline](2026-09-12-native-debugger.md#unchanged-policy-android-baseline)
+remains separate evidence. APEX 5/tool bytes, compiler/SDK/STL/Make/LLDB and factory
+terminal 6 remained byte-identical in the policy trial. GNU Make 4.4.1's earlier
+incremental/no-op/recovery/recursive/relocation/reboot results stand. LLVM's Android
+client remains upstream-unsupported; this is bounded downstream qualification, not
+full LLDB, JIT, pressure, privacy or phone/release assurance.
+
+**Next:** plan the durable owner-session/service and native-package transaction work.
+Storage capacity or an approved archive plan is a gate before another full image/
+runtime generation; do not discard the preserved sources, images or seals to make room.
+Pixel deployment remains separately gated. This follows the [cold-attachment correction](2026-09-11-cold-attachment.md).
 The client now maintains a guarded pending lease during Main preparation, with input
 blocked until identity-checked promotion. First Attach passed without retry after
 both tested boots; normal relock, gap blocking/End, ordinary-app isolation and native

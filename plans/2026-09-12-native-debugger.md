@@ -1,11 +1,11 @@
 # Native same-owner debugger feasibility
 
-**Status:** the native debugger is packaged and its startup, interactive/batch input,
-target metadata and source listing have been observed in Android. Normal launch is
-blocked by new-PTY access; a no-stdio control reaches the separate same-owner ptrace
-denial. These are measured unchanged-policy boundaries, not successful debugging.
-An owner-only PTY/tracing candidate is now prepared below; it is not yet qualified.
-No capability, global procfs or namespace grant is part of that candidate.
+**Status:** native C and C++ debugging now passed bounded Android qualification:
+launch, breakpoint hits, arguments, backtrace, step-over/out, variable values and
+normal completion. Owner-specific PTYs and same-owner tracing passed positive and
+cross-identity controls, plus paused-job return, relock, reboot and active-debugger
+End cleanup. No capability, global procfs, generic devpts or linker-namespace grant
+was added. This is not full LLDB-feature or supported-phone qualification.
 
 The maintained LLVM23 source explicitly warns that only `lldb-server` is functional
 on Android and that its client is unsupported. Native Android host/local-server
@@ -208,6 +208,99 @@ identity, DAC/MAC, dumpability and kernel restrictions remain distinct. Missing 
 or helper failures are not negative-control passes.
 
 The source-only I28 assessment found the intended boundaries in the inspected diff
-and macro, but did not establish full policy compile or runtime behavior. Those gates
-remain required. The upstream Android-client support warning and broader debugger,
-resource, phone and release limitations still apply.
+and macro, but did not itself establish full policy compile or runtime behavior.
+The following primary checks supply the separate bounded result.
+
+## Observed owner-only debugging result
+
+Policy/APK/image producer `947ba28` and fixture producer `acad906` retained the exact
+APEX 5 bytes from the denial image—same LLVM/SDK/Make/LLDB/STL, aliases and notices.
+The owner-only policy and optional test APK built in 600.058 seconds; the subsequent
+`droid hosttar` image build passed in 258.045 seconds. Both APEX signatures and every
+payload byte were rechecked, then 27 images and both matching host packages were
+frozen/rehashed. The actual image's ODM policy matched the compiled review, with
+no factory copy of the ordinary boundary APK and the unchanged factory terminal 6.
+
+Compiled-policy queries found owner-to-owner ptrace only, no owner-to-coordinator/app
+or app/console-to-owner/coordinator tracing, no selected capability grants, and the
+owner-PTY transition and I/O rules. App/console/coordinator access to those PTYs was
+absent; existing shell/app self-ptrace positives remained. The fixed platform bridge,
+worker seccomp/NNP, native lease and resource limits were unchanged.
+
+In a fresh offline ARM64 emulator, using normal Setup/PIN and native UID7500:
+
+- The same-owner SEIZE control succeeded. A newly allocated slave had the actual
+  `andrix_owner_devpts` label, passed bidirectional raw I/O, and rejected TIOCSTI with
+  errno 13. The prior generic-devpts denial was not silenced with a generic grant.
+- The C target launched as process 11054, stopped at `add` in `debug.c:6:15`, displayed
+  arguments 19/23 and an actual backtrace, stepped to `sum=42`, stepped out with return
+  value 42, and continued to `DEBUG_C uid=7500 value=42` and exit 0.
+- Ordinary `clang++` built the C++ target without manual STL copying. Process 11694
+  stopped at `add` in `debug.cpp:8:23`; LLDB inspected `Counter{value=19}` and amount 23,
+  stepped to sum 42, stepped out with return 42 and continued to normal stdout/exit 0.
+  Both script commands returned 0. ASLR disabling was explicitly false, with different
+  mapped addresses in later runs; no global personality/Yama change was made.
+- A separately installed, explicitly debuggable **ordinary test APK** (UID10145,
+  `untrusted_app`) successfully seized its own fresh child. It could not seize the
+  live owner PTY holder or coordinator (errno 1), or read-open the owner PTY (errno 13).
+  No shared UID, declared permission, root or adopted shell authority was used.
+- While that instrumentation remained alive in its bounded ready interval, the
+  owner self-SEIZE positive succeeded but owner attempts against the app returned
+  errno 1. The same-UID coordinator returned errno 13 with a matching
+  `andrix_owner → andrixd` ptrace AVC. Live identities, held PTY, continued app
+  instrumentation and owner positives supply the controls; different-UID DAC
+  rejection is not relabelled as sole MAC proof. The fixture was removed normally.
+- Ordinary owner-negative/P5 probes also passed and were removed, with real C/C++
+  positives. PM implicit permission metadata remains separate from actual grants.
+- An interactive C++ inferior (13768), server 13765 and frontend 13621 survived Home/
+  return and normal relock/PIN unlock. The same stopped inferior stepped and still
+  reported sum 42. Kernel observations showed a tracing stop and the actual tracer
+  PID, all owner UIDs, empty capabilities and NNP/seccomp still active. End removed
+  the complete traced workload, not just the UI; the coordinator returned idle.
+- Reboot ended the old jobs. Before normal PIN unlock, CE/owner availability was
+  absent; first Attach worked afterward without retry. Seven source and three binary
+  hashes persisted. A fresh same-owner SEIZE positive and full C++ debugger script
+  passed again (inferior 3934, sum 42, return/exit 0), while tracing the new same-UID
+  coordinator was still denied. Final End and guest/core/controller/capture cleanup
+  all completed normally.
+
+The highest sampled owner-group peak was **220,553,216 bytes (210.3359375 MiB)** with
+sampled OOM/max-event counters 0 inside the unchanged 256 MiB/32-task/128-FD/64 MiB-file
+bounds. All 494 UI transport actions completed, with no input timeout or Attach retry.
+This does not qualify pressure, total CPU/storage quotas or arbitrary workloads.
+
+The final repository suite passed **318 tests in 145.626 seconds**, with no skips.
+Eight selected source projects, unchanged pinned toolchain/stage, the existing private
+platform bridge and the compiled owner-only policy were rechecked. The closed runtime
+retains **11,240 regular files** and 382,470 offline packets with zero reported drops
+or truncation. The complete new evidence set is sealed across **18,535 regular files**,
+with its runtime sub-seal reverified and symlinks excluded. All owned work is stopped;
+no fresh whole-manifest, connected privacy or supported-phone pass is implied.
+
+### Retained limitations and attempts
+
+- Optional LZMA support remains disabled. LLDB emitted warnings that some Android
+  system-library `.gnu_debugdata` could not be read. This did not prevent the tested
+  owner C/C++ debugging, but full system-library symbolication is not claimed.
+- The new fixture uses a nonzero deterministic file timestamp. The earlier epoch-zero
+  source-listing failure/control remains recorded, not fixed or erased.
+- The first host PTY helper assertion expected EPERM/EACCES but this host returned
+  EIO for TIOCSTI. The corrected helper records EIO as rejection without attributing
+  it to MAC. Android's measured rejection was errno 13.
+- The private APK assessment initially expected an older apksigner output prefix.
+  The retained valid v3/one-signer output was parsed correctly without weakening
+  signature checks. This was a fresh ordinary APK install, not a v4 update claim.
+- The first closure assessment expected textual process contexts without the kernel's
+  trailing NUL byte. Exact SID-plus-NUL checks corrected the assessment; original
+  observations and failure remain, with no policy or runtime change.
+- A writer produced only the shared helper source/header, without completed tests or
+  a commit. The primary inspected and explicitly integrated those files, added the
+  tests and verified behavior; no independent implementation/review PASS is implied.
+- Console-process-death cleanup with a traced inferior was not repeated in this
+  window. Active-debugger End was measured; previous controller-death results remain
+  separate. JIT expressions, scripting, broad attach/dumpability/Yama combinations,
+  full terminal compatibility and phone/release/privacy qualification remain open.
+
+The new evidence set is selected by `out/owner-debugger-policy/EVIDENCE`; earlier
+seals and the denied baseline remain untouched. The upstream Android-client support
+warning still describes upstream support, despite this bounded downstream result.

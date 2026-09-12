@@ -138,7 +138,10 @@ Attach after both tested boots while preserving input gating, expiry and revocat
 The earlier failures remain recorded. The [native Make follow-up](../plans/2026-09-11-native-build-tools.md)
 then demonstrated incremental dependency tracking, no-op builds, failed-build recovery,
 recursive jobs and rebuilding after reboot, using the same bounded owner identity.
-Broad IME/language and assistive-service compatibility are not claimed.
+The [native debugger trial](../plans/2026-09-12-native-debugger.md) added owner-labelled
+PTYs and same-owner tracing, with actual C/C++ breakpoint/step/variable/return checks
+and coordinator/app negatives. No capabilities or general cross-domain tracing were
+added. Broad IME/language and assistive-service compatibility are not claimed.
 
 Resource-exhaustion tests, all adversarial descriptor/race cases on Android,
 user-stop/key eviction, long-lived services and native phone qualification remain
