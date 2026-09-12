@@ -4,7 +4,8 @@
 target metadata and source listing have been observed in Android. Normal launch is
 blocked by new-PTY access; a no-stdio control reaches the separate same-owner ptrace
 denial. These are measured unchanged-policy boundaries, not successful debugging.
-No tracing, capability or namespace grant has been added.
+An owner-only PTY/tracing candidate is now prepared below; it is not yet qualified.
+No capability, global procfs or namespace grant is part of that candidate.
 
 The maintained LLVM23 source explicitly warns that only `lldb-server` is functional
 on Android and that its client is unsupported. Native Android host/local-server
@@ -182,8 +183,31 @@ The complete set selected by `out/owner-debugger-image/EVIDENCE` is sealed acros
 All owned work is stopped; earlier sealed sets, Vanadium, Pixel and accepted
 architecture are unchanged.
 
-**Next gate:** review an owner-specific PTY type and owner-to-owner tracing authority,
-then qualify actual launch/breakpoint/step/variable behavior with coordinator/app
-negatives. Do not grant generic `devpts`, general procfs access, `CAP_SYS_PTRACE` or
-cross-domain tracing to silence failures. The upstream Android-client support warning
-and broader debugger/resource/phone/release limitations still apply.
+## Owner-only tracing and PTY trial
+
+The next candidate uses the stock `create_pty(andrix_owner)` macro. Newly allocated
+owner slaves receive `andrix_owner_devpts`, with the normal unprivileged ioctl list
+and TIOCSTI prohibition. This is not access to generic `devpts`. An explicit
+neverallow keeps Android apps and the console APK from opening/using these slaves.
+The existing inherited coordinator PTY remains separate.
+
+Only `andrix_owner self:process ptrace` is added, with an explicit neverallow from
+the owner to every other domain. This covers the whole single owner Unix domain,
+not just a debugger's child. The coordinator shares UID7500 but has a different MAC
+role; no capability, identity transition, worker-filter, global procfs, namespace or
+resource-limit change is proposed. This scope implements the accepted owner tier,
+not a boundary exemption for an Android app.
+
+Qualification requires actual debugger launch/breakpoint hits/step/backtrace/variable
+inspection and finite cleanup. The new optional ordinary-app fixture supplies a real
+self-tracing positive and rejects owner/coordinator tracing and owner-PTY access;
+a bounded ready interval permits reverse owner-to-app tests. External-PID probes use
+non-stopping SEIZE inside a short-lived tracer, with no memory read or target-directed
+signal; unexpected access is a failure and tracer exit detaches it. Target liveness,
+identity, DAC/MAC, dumpability and kernel restrictions remain distinct. Missing PIDs
+or helper failures are not negative-control passes.
+
+The source-only I28 assessment found the intended boundaries in the inspected diff
+and macro, but did not establish full policy compile or runtime behavior. Those gates
+remain required. The upstream Android-client support warning and broader debugger,
+resource, phone and release limitations still apply.

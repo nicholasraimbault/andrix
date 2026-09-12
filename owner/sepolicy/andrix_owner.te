@@ -35,6 +35,11 @@ allow andrix_owner cgroup_v2:dir { search getattr };
 create_pty(andrixd)
 allow andrix_owner andrixd_devpts:chr_file { open read write getattr ioctl };
 allowxperm andrix_owner andrixd_devpts:chr_file ioctl unpriv_tty_ioctls;
+# Native debuggers and other explicit owner jobs may allocate their own PTYs.
+# Label those slaves for this domain, not generic devpts. The standard macro
+# keeps unprivileged ioctl filtering and the global TIOCSTI prohibition.
+create_pty(andrix_owner)
+neverallow { untrusted_app_all isolated_app_all andrix_terminal } andrix_owner_devpts:chr_file { open read write ioctl };
 
 # Search-only traversal of existing Android parents. No misc/system supplementary
 # group, parent directory listing, root capability or general app-data access.
@@ -61,6 +66,10 @@ allow andrix_owner andrix_lib:file { open read getattr map execute };
 allow andrix_owner { andrix_file andrix_exec andrix_lib }:lnk_file { read getattr };
 allow andrix_owner andrix_exec:file { rx_file_perms execute_no_trans };
 allow andrix_owner self:process { fork setpgid getsched setsched signal sigkill sigstop signull };
+# Debugging stays inside the single owner Unix identity/domain. In particular,
+# the same-UID coordinator has a different MAC role and remains untraceable.
+allow andrix_owner self:process ptrace;
+neverallow andrix_owner { domain -andrix_owner }:process ptrace;
 net_domain(andrix_owner)
 
 # Upstream has generic binder-stats grants. Do not rewrite them:

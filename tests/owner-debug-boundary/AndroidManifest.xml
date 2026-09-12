@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.andrix.proof.debugboundary" android:versionCode="1" android:versionName="0.1-prototype">
+    <uses-sdk android:minSdkVersion="37" android:targetSdkVersion="37" />
+    <application android:label="Andrix debug-boundary probe" android:allowBackup="false"
+        android:debuggable="true" android:hasCode="true" android:extractNativeLibs="false" />
+    <instrumentation android:name=".DebugBoundary" android:targetPackage="dev.andrix.proof.debugboundary"
+        android:functionalTest="true" android:handleProfiling="false" />
+</manifest>

@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -35,6 +36,44 @@ class NativeDebuggerTests(unittest.TestCase):
         for feature in ['SWIG', 'PYTHON', 'LUA', 'LIBEDIT', 'CURSES', 'LIBXML2',
                         'LZMA', 'PROTOCOL_SERVERS']:
             self.assertIn('-DLLDB_ENABLE_'+feature+'=OFF', profile['cmake_options'])
+
+    def test_owner_debug_authority_is_not_cross_domain(self):
+        policy=(ROOT/'owner/sepolicy/andrix_owner.te').read_text()
+        self.assertIn('create_pty(andrix_owner)',policy)
+        self.assertIn('allow andrix_owner self:process ptrace;',policy)
+        self.assertIn('neverallow andrix_owner { domain -andrix_owner }:process ptrace;',policy)
+        self.assertIn('neverallow { andrixd andrix_owner } self:capability_class_set *;',policy)
+        self.assertIn('neverallow { untrusted_app_all isolated_app_all andrix_terminal } andrix_owner_devpts:chr_file',policy)
+        self.assertNotIn('allow andrix_owner devpts:chr_file',policy)
+        self.assertNotIn('allow andrix_owner proc:',policy)
+
+    def test_debug_boundary_apk_is_explicit_ordinary_test(self):
+        base=ROOT/'tests/owner-debug-boundary'
+        manifest=ET.parse(base/'AndroidManifest.xml').getroot()
+        self.assertEqual(manifest.get('package'),'dev.andrix.proof.debugboundary')
+        self.assertIsNone(manifest.find('uses-permission'))
+        self.assertNotIn('{http://schemas.android.com/apk/res/android}sharedUserId',manifest.attrib)
+        self.assertEqual(manifest.find('application').get('{http://schemas.android.com/apk/res/android}debuggable'),'true')
+        source=(base/'src/dev/andrix/proof/debugboundary/DebugBoundary.java').read_text()
+        self.assertIn('REQUIRE_LIVE_OWNER_AND_REVERSE_CONTROLS',source)
+        self.assertIn('SystemClock.sleep(180000)',source)
+        self.assertNotIn('adoptShellPermissionIdentity',source)
+        self.assertNotIn('AndrixDebugBoundary',(ROOT/'products/andrix_gos_cf_arm64_only_phone.mk').read_text())
+
+    @unittest.skipUnless(shutil.which('cc'), 'host C compiler required')
+    def test_native_boundary_cli_has_live_host_positive_controls(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            binary=Path(tmp)/'boundary'
+            subprocess.run(['cc','-O2','-std=c11','-Wall','-Wextra','-Werror',
+                            str(ROOT/'tests/owner-debugger/boundary.c'),
+                            str(ROOT/'tests/owner-debugger/trace_access.c'),'-o',str(binary)],
+                           check=True,capture_output=True,timeout=30)
+            for mode in [['self'],['pty','0']]:
+                result=subprocess.run([str(binary),*mode],capture_output=True,text=True,timeout=20)
+                self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+            for mode in [['deny','1'],['deny','0'],['deny','not-pid'],['pty','301']]:
+                result=subprocess.run([str(binary),*mode],capture_output=True,text=True,timeout=20)
+                self.assertNotEqual(result.returncode,0,result.stdout+result.stderr)
 
     @unittest.skipUnless(shutil.which('cmake'), 'host CMake required')
     def test_exact_android_selection_condition(self):
