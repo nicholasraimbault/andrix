@@ -40,6 +40,40 @@ class CompilerPackageTests(unittest.TestCase):
         self.assertIn('licenses: ["andrix_native_make_license"]', make_module)
         self.assertIn('system_shared_libs: ["libc", "libdl"]', make_module)
         self.assertNotIn('andrix_compiler_libcxx', make_module)
+        for path in ['bin/lldb','bin/lldb-server','lib64/liblldb.so',
+                     'etc/andrix/lldb/LLDB-LICENSE.TXT']:
+            self.assertIn(path,paths)
+        for name in ['lldb','lldb_server','liblldb']:
+            block=bp[bp.index('    name: "andrix_compiler_'+name+'"'):]
+            block=block[:block.index('\n}')]
+            self.assertIn('enabled: false',block)
+            self.assertIn('licenses: ["andrix_native_lldb_license"]',block)
+            self.assertIn('andrix_compiler_libcxx',block)
+            self.assertIn('stl: "none"',block)
+            self.assertNotIn('check_elf_files: false',block)
+
+    def test_lldb_manifest_requires_matching_sdk_runtime_and_exact_files(self):
+        profile_data=(package.TOOLCHAIN/'lldb/profile.json').read_bytes()
+        profile=package.parse(profile_data)
+        pins=package.load(package.TOOLCHAIN/'package-inputs.json')
+        names=['bin/lldb','bin/lldb-server','lib64/liblldb.so',
+               'licenses/LLVM-LICENSE.TXT','licenses/Clang-LICENSE.TXT','licenses/LLDB-LICENSE.TXT']
+        manifest={'tool':'LLVM LLDB','version':profile['version'],'target':profile['target'],
+                  'source_build':pins['lldb']['source_build'],
+                  'profile_sha256':hashlib.sha256(profile_data).hexdigest(),
+                  'source_revision':profile['source_revision'],
+                  'bootstrap_revision':profile['bootstrap_revision'],
+                  'sdk_manifest_sha256':pins['sdk']['sha256'],
+                  'required_existing_shared_STL_sha256':'a'*64,
+                  'files':[{'path':name} for name in names]}
+        self.assertEqual(set(package.lldb_paths(manifest,pins,'a'*64)),set(names))
+        for key in ['version','target','source_build','profile_sha256','source_revision',
+                    'bootstrap_revision','sdk_manifest_sha256','required_existing_shared_STL_sha256']:
+            changed={**manifest,key:'changed'}
+            with self.assertRaises(ValueError):package.lldb_paths(changed,pins,'a'*64)
+        for files in [manifest['files'][:-1],manifest['files']+[{'path':'bin/host-lldb'}],
+                      manifest['files'][:-1]+[manifest['files'][0]]]:
+            with self.assertRaises(ValueError):package.lldb_paths({**manifest,'files':files},pins,'a'*64)
 
     def test_regular_digest_path_and_json_controls(self):
         with tempfile.TemporaryDirectory() as tmp:

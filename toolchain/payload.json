@@ -12,6 +12,16 @@
       "size": 55666088
     },
     {
+      "path": "bin/lldb",
+      "sha256": "cbd0a9e9819b16437bc2276d29f596f22f3621e3ed60384dd6743fc418103480",
+      "size": 454184
+    },
+    {
+      "path": "bin/lldb-server",
+      "sha256": "b681abad5d36d61b1bc4055976d50ca475fd954262bcd8b52b8da314a6252a3a",
+      "size": 4255328
+    },
+    {
       "path": "bin/llvm-ar",
       "sha256": "02198cd0c19346931846df0bfb9bfec30912a4a9abca4e564841346e88ecaea0",
       "size": 9011176
@@ -1470,6 +1480,21 @@
       "path": "etc/andrix/licenses/sdk-NOTICE",
       "sha256": "0ed879a95b81b7d73beb4bc8ca5d1899ce5e3d65cedecbb9b642fc34d00005e8",
       "size": 472407
+    },
+    {
+      "path": "etc/andrix/lldb/Clang-LICENSE.TXT",
+      "sha256": "ebcd9bbf783a73d05c53ba4d586b8d5813dcdf3bbec50265860ccc885e606f47",
+      "size": 15140
+    },
+    {
+      "path": "etc/andrix/lldb/LLDB-LICENSE.TXT",
+      "sha256": "76be4deddeef87f6fa9940f4992a9506c7bb222af60eb3b2a47cf65719528bbe",
+      "size": 15032
+    },
+    {
+      "path": "etc/andrix/lldb/LLVM-LICENSE.TXT",
+      "sha256": "8d85c1057d742e597985c7d4e6320b015a9139385cff4cbae06ffc0ebe89afee",
+      "size": 15141
     },
     {
       "path": "etc/andrix/make/COPYING",
@@ -18200,6 +18225,11 @@
       "path": "lib64/libc++_shared.so",
       "sha256": "60382b9a9dd56064a27a5dc0fd12326f6e834e1bfae5df606ebc90fbe8455459",
       "size": 9551624
+    },
+    {
+      "path": "lib64/liblldb.so",
+      "sha256": "88621483fa3716b79fa26edc899d71ccea6103fe503174b892cd5c88260848f4",
+      "size": 93186568
     }
   ]
 }

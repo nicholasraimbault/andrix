@@ -19,6 +19,14 @@ license {
     license_kinds: ["SPDX-license-identifier-GPL-3.0-or-later"],
     license_text: ["licenses/make-COPYING"],
 }
+license {
+    name: "andrix_native_lldb_license",
+    visibility: [":__subpackages__"],
+    license_kinds: ["SPDX-license-identifier-Apache-2.0", "SPDX-license-identifier-NCSA",
+        "SPDX-license-identifier-BSD"],
+    license_text: ["licenses/lldb-LLVM-LICENSE.TXT", "licenses/lldb-Clang-LICENSE.TXT",
+        "licenses/lldb-LLDB-LICENSE.TXT"],
+}
 
 soong_config_module_type {
     name: "andrix_compiler_binary",
@@ -140,6 +148,58 @@ andrix_compiler_library {
     min_sdk_version: "37",
     stl: "none",
     apex_available: ["dev.andrix.usr"],
+    system_shared_libs: ["libc", "libm", "libdl"],
+    strip: { none: true },
+}
+
+andrix_compiler_binary {
+    name: "andrix_compiler_lldb",
+    enabled: false,
+    soong_config_variables: { owner_compiler: { enabled: true } },
+    licenses: ["andrix_native_lldb_license"],
+    srcs: ["artifacts/root/bin/lldb"],
+    stem: "lldb",
+    compile_multilib: "64",
+    sdk_version: "37",
+    min_sdk_version: "37",
+    stl: "none",
+    apex_available: ["dev.andrix.usr"],
+    shared_libs: ["andrix_compiler_libcxx", "libz", "andrix_compiler_liblldb"],
+    system_shared_libs: ["libc", "libm", "libdl"],
+    strip: { none: true },
+}
+
+andrix_compiler_binary {
+    name: "andrix_compiler_lldb_server",
+    enabled: false,
+    soong_config_variables: { owner_compiler: { enabled: true } },
+    licenses: ["andrix_native_lldb_license"],
+    srcs: ["artifacts/root/bin/lldb-server"],
+    stem: "lldb-server",
+    compile_multilib: "64",
+    sdk_version: "37",
+    min_sdk_version: "37",
+    stl: "none",
+    apex_available: ["dev.andrix.usr"],
+    shared_libs: ["andrix_compiler_libcxx", "libz"],
+    system_shared_libs: ["libc", "libm", "libdl"],
+    strip: { none: true },
+}
+
+andrix_compiler_library {
+    name: "andrix_compiler_liblldb",
+    enabled: false,
+    soong_config_variables: { owner_compiler: { enabled: true } },
+
+    licenses: ["andrix_native_lldb_license"],
+    srcs: ["artifacts/root/lib64/liblldb.so"],
+    stem: "liblldb",
+    compile_multilib: "64",
+    sdk_version: "37",
+    min_sdk_version: "37",
+    stl: "none",
+    apex_available: ["dev.andrix.usr"],
+    shared_libs: ["andrix_compiler_libcxx", "libz"],
     system_shared_libs: ["libc", "libm", "libdl"],
     strip: { none: true },
 }
@@ -587,6 +647,20 @@ andrix_compiler_data {
         "artifacts/root/etc/andrix/licenses/bootstrap-NOTICE",
         "artifacts/root/etc/andrix/licenses/llvm-LICENSE",
         "artifacts/root/etc/andrix/licenses/sdk-NOTICE",
+    ],
+}
+
+andrix_compiler_data {
+    name: "andrix_compiler_data_a7657aee9fe0fe2b",
+    enabled: false,
+    soong_config_variables: { owner_compiler: { enabled: true } },
+    licenses: ["andrix_native_lldb_license"],
+    relative_install_path: "andrix/lldb",
+    installable: false,
+    srcs: [
+        "artifacts/root/etc/andrix/lldb/Clang-LICENSE.TXT",
+        "artifacts/root/etc/andrix/lldb/LLDB-LICENSE.TXT",
+        "artifacts/root/etc/andrix/lldb/LLVM-LICENSE.TXT",
     ],
 }
 
@@ -5659,8 +5733,8 @@ andrix_compiler_data {
 andrix_compiler_apex_defaults {
     name: "andrix_compiler_apex_payload",
     soong_config_variables: { owner_compiler: {
-        binaries: ["andrix_compiler_clang", "andrix_compiler_lld", "andrix_compiler_ar", "andrix_compiler_cxx", "andrix_compiler_make"],
-        native_shared_libs: ["andrix_compiler_libcxx"],
+        binaries: ["andrix_compiler_clang", "andrix_compiler_lld", "andrix_compiler_ar", "andrix_compiler_cxx", "andrix_compiler_make", "andrix_compiler_lldb", "andrix_compiler_lldb_server"],
+        native_shared_libs: ["andrix_compiler_libcxx", "andrix_compiler_liblldb"],
         prebuilts: [
             "andrix_compiler_data_61e2fecb568e5703",
             "andrix_compiler_data_ffb3ec5c4bfceef3",
@@ -5676,6 +5750,7 @@ andrix_compiler_apex_defaults {
             "andrix_compiler_data_ce7af5d98690db1f",
             "andrix_compiler_data_891014b27d487131",
             "andrix_compiler_data_0b911bee65a5c2c0",
+            "andrix_compiler_data_a7657aee9fe0fe2b",
             "andrix_compiler_data_b5432b92e1c3e7a1",
             "andrix_compiler_data_d30d112127ce60bd",
             "andrix_compiler_data_d3e681510f16f186",
