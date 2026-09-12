@@ -1,9 +1,10 @@
 # Native LLDB feasibility profile
 
-This is **not an adopted or Android-runtime-qualified debugger**. LLVM23's own
+Native startup, interactive/batch input and target/source metadata now work in the
+bounded Android trial, but **traced execution is not yet qualified**. LLVM23's own
 Android documentation warns that its client is unsupported. The
-[feasibility record](../../plans/2026-09-12-native-debugger.md) separates observed
-source/build/artifact results from the remaining image/runtime/authority gates.
+[feasibility record](../../plans/2026-09-12-native-debugger.md) separates those results
+from the observed PTY/tracing denials and remaining authority/feature gates.
 
 `profile.json` pins the source, bootstrap, SDK and Ninja inputs and records the
 CMake configuration. `AndroidBionic.cmake` retains the existing compiler ABI and
@@ -23,6 +24,6 @@ part of the Android payload. Optional scripting, line-editing/curses, XML/LZMA,
 protocol-server and HTTP dependencies are excluded from this initial profile.
 
 No owner policy, capabilities, global linker path or SDK release metadata is changed
-by this profile. Follow the milestone before any packaging or runtime claim; in
-particular, basic native startup and an actual tracing-denial baseline come before
-considering a same-owner-only ptrace addition.
+by this profile. The first packaged image retained exactly the previous policy and
+established the tracing-denial baseline. Follow the milestone's next controls before
+considering owner-specific PTYs or a same-owner-only ptrace addition.
