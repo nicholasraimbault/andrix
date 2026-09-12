@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: Apache-2.0
+// Shared only by explicit test binaries; never a product package.
+filegroup {
+    name: "andrix_trace_access_source",
+    srcs: ["trace_access.c"],
+    visibility: ["//vendor/andrix/tests/owner-debug-boundary"],
+}
+cc_library_headers {
+    name: "andrix_trace_access_headers",
+    export_include_dirs: ["."],
+    sdk_version: "37",
+    min_sdk_version: "37",
+    visibility: ["//vendor/andrix/tests/owner-debug-boundary"],
+}
