@@ -17,5 +17,10 @@
     "manifest": "frozen-make-01/manifest.json",
     "sha256": "5e767132428b5b884d2a190ff125f9c3f70e1af3271fc1469456d9009593eb02",
     "source_build": "067cb660d92dfa95f5f6724b260736b77c1b0495"
+  },
+  "lldb": {
+    "manifest": "frozen-lldb-01/manifest.json",
+    "sha256": "c9861597076c2d5746fe4bce6e7a3a946626ccb0ce96447e2e44d08256d2eade",
+    "source_build": "7bdd94d751c7cd3eac953dc6fd1975ec61652120"
   }
 }
