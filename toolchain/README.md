@@ -5,7 +5,9 @@ native C/project-private C++ result and the [C++ defaults follow-up](../plans/20
 for current qualification. The standalone default and explicit shared profile now
 pass bounded Android emulator checks, including relocation and return after reboot.
 The default embeds the pinned NDK C++ runtime; the shared profile uses one private
-runtime. This is not a supported release or full compiler-feature/resource qualification.
+runtime. [Native GNU Make](../plans/2026-09-11-native-build-tools.md) also passed
+incremental project, failure-recovery and reboot checks in the subsequent APEX 4 image.
+This is not a supported release or full compiler-feature/resource qualification.
 
 `native-compiler.json` pins the compiler source and release-selected bootstrap.
 `AndroidBionic.cmake` prevents accidental GNU/Linux header/library use and names the
