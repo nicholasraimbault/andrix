@@ -31,6 +31,9 @@ class LifecycleProbeTests(unittest.TestCase):
         self.assertEqual(service.get(ANDROID+'foregroundServiceType'),'specialUse')
         self.assertEqual(service.get(ANDROID+'stopWithTask'),'false')
         self.assertIsNone(app.find('receiver')) # No auto-start after reboot.
+        blueprint=(BASE/'Android.bp').read_text()
+        self.assertIn('android_test {',blueprint)
+        self.assertNotIn('installable: false',blueprint) # That suppresses application dex.
         self.assertNotIn('AndrixLifecycleProbe',(ROOT/'products/andrix_gos_cf_arm64_only_phone.mk').read_text())
         for path in JAVA.glob('*.java'):
             text=path.read_text()
