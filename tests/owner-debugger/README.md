@@ -17,7 +17,21 @@ Expected results are separate:
 
 The host test runs this under the existing worker seccomp filter and then with an
 additional ptrace-denying filter as an error-handling control. Neither result is an
-Android SELinux test. Native owner execution, live controls, compiled-policy checks
-and cross-identity negatives remain required before any tracing-policy adoption.
+Android SELinux test.
 
-See the [debugger feasibility plan](../../plans/2026-09-12-native-debugger.md).
+`trace_access.c` adds a non-stopping SEIZE probe in a dedicated short-lived tracer.
+It reports the access result and exits, detaching any unexpectedly accepted external
+target without reading its memory or sending it a signal. Target0 creates a fresh
+child of the tracer for a real positive. The caller must retain exclusive child
+reaping ownership with default SIGCHLD; helper failures and ESRCH are not denials.
+
+`boundary.c` exposes that control and a typed-owner-PTY roundtrip/finite-holder test.
+TIOCSTI rejection is recorded with its exact errno; EIO on some hosts is not a MAC
+proof. `debug.c`, `debug.cpp` and the LLDB command files exercise actual C/C++ stops,
+backtrace, arguments, step-over/out and values with normal stdio and ASLR retained.
+The [ordinary app counterpart](../owner-debug-boundary/README.md) supplies separate
+self-positive and cross-identity controls.
+
+The [debugger qualification record](../../plans/2026-09-12-native-debugger.md) now
+contains bounded native positives, live negative controls and lifecycle results.
+Those do not establish every debugger feature, arbitrary attach scenario or workload.
