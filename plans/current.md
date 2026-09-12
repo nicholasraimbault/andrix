@@ -1,10 +1,18 @@
 # Current work
 
 **Active milestone:** [GrapheneOS-derived base — isolated migration trial](2026-09-08-grapheneos-migration.md).
-**Current action:** [native project build tools](2026-09-11-native-build-tools.md):
-prepare signed-source GNU Make for incremental owner projects, then qualify its
-native behavior and resource use. Debugger inventory remains a separate step.
-This follows the [working cold-attachment correction](2026-09-11-cold-attachment.md).
+**Current action:** native same-owner debugger preparation, following the
+[qualified Make/project-build step](2026-09-11-native-build-tools.md). GNU Make 4.4.1
+now runs from authenticated `/usr`: native incremental/no-op/header/source rebuilds,
+failure recovery, recursive jobs, absent-PATH fallback, relocation and rebuilding
+after reboot passed. APEX 4/image `ca6347c` retains the unchanged compiler/SDK profile;
+the unflagged build reproduced the original small APEX exactly. No owner policy or
+resource limits were widened. All owned guests/jobs are stopped.
+
+The debugger remains unqualified: a host LLDB plus static prebuilt server is not a
+phone-native toolchain, and the inspected owner policy currently lacks self-ptrace.
+Any debugging addition needs same-owner and cross-identity controls, not borrowed
+root/shell authority. This follows the [cold-attachment correction](2026-09-11-cold-attachment.md).
 The client now maintains a guarded pending lease during Main preparation, with input
 blocked until identity-checked promotion. First Attach passed without retry after
 both tested boots; normal relock, gap blocking/End, ordinary-app isolation and native

@@ -4,7 +4,9 @@ GNU Make 4.4.1 is selected for serial-by-default incremental owner builds. The
 platform's ARM64 host Make depends on musl and is not a device payload. This profile
 builds a dynamic ARM64/API37 Bionic executable using the pinned Android bootstrap 22
 and existing SDK, with ThinLTO, indirect-call CFI and the recorded compiler/linker
-hardening. Host compilation is not Android execution qualification.
+hardening. The [Android trial](../../plans/2026-09-11-native-build-tools.md) now records
+native incremental/no-op/rebuild, recursive-job, fallback-path and reboot results.
+Host compilation and regression tests remain separate from that qualification.
 
 `profile.json` pins the GNU archive/signature/keyring, exact signer fingerprints,
 Bionic adaptation, SDK and host build inputs. The GNU trust bootstrap is its public
