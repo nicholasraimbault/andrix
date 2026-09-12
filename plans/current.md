@@ -3,19 +3,22 @@
 **Active milestone:** [GrapheneOS-derived base — isolated migration trial](2026-09-08-grapheneos-migration.md).
 **Current action:** [native same-owner debugger feasibility](2026-09-12-native-debugger.md),
 following the [qualified Make/project-build step](2026-09-11-native-build-tools.md).
-The native LLDB frontend/server/private library now build with corrected Android
-source/API selection and strict linking; artifact checks passed. Next is image
-integration and actual native startup/tracing-denial controls, without first widening
-policy. LLDB's Android client is upstream-unsupported: build success is not runtime
-qualification or adoption. GNU Make 4.4.1
+The [unchanged-policy LLDB image trial](2026-09-12-native-debugger.md#unchanged-policy-android-baseline)
+now demonstrates native startup, interactive/batch input, target/source metadata,
+and persistent behavior after reboot. Normal launch hits a new-PTY access denial;
+a separate no-stdio control reaches the measured same-owner ptrace denial. Next is
+reviewing owner-specific PTYs and same-owner tracing, with cross-identity negatives
+before any successful-debugging claim. No policy or capabilities were widened in
+this baseline. LLDB's Android client remains upstream-unsupported, and traced
+execution is not yet qualified. GNU Make 4.4.1
 now runs from authenticated `/usr`: native incremental/no-op/header/source rebuilds,
 failure recovery, recursive jobs, absent-PATH fallback, relocation and rebuilding
 after reboot passed. APEX 4/image `ca6347c` retains the unchanged compiler/SDK profile;
 the unflagged build reproduced the original small APEX exactly. No owner policy or
 resource limits were widened. All owned guests/jobs are stopped.
 
-The debugger remains unqualified: a host LLDB plus static prebuilt server is not a
-phone-native toolchain, and the inspected owner policy currently lacks self-ptrace.
+The new native debugger is distinct from the unsuitable host LLDB/static prebuilt
+server. It still cannot debug an inferior under the current owner policy.
 Any debugging addition needs same-owner and cross-identity controls, not borrowed
 root/shell authority. This follows the [cold-attachment correction](2026-09-11-cold-attachment.md).
 The client now maintains a guarded pending lease during Main preparation, with input

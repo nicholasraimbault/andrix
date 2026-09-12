@@ -1,9 +1,10 @@
 # Native same-owner debugger feasibility
 
-**Status:** the native frontend, matching server and private library now build and
-pass artifact checks with the intended API37/Bionic ABI and hardening. They are not
-yet packaged or executed in Android. No tracing-policy change or debugger adoption
-is claimed.
+**Status:** the native debugger is packaged and its startup, interactive/batch input,
+target metadata and source listing have been observed in Android. Normal launch is
+blocked by new-PTY access; a no-stdio control reaches the separate same-owner ptrace
+denial. These are measured unchanged-policy boundaries, not successful debugging.
+No tracing, capability or namespace grant has been added.
 
 The maintained LLVM23 source explicitly warns that only `lldb-server` is functional
 on Android and that its client is unsupported. Native Android host/local-server
@@ -109,10 +110,80 @@ earlier delayed source observations were checked by the primary; none supplies a
 runtime PASS. Source-inferred transport/CFI concerns remain runtime test requirements,
 not reasons to turn off hardening.
 
-**Next gate:** integrate the frozen trio and required notices without changing the
-current owner tracing policy, then measure native startup and the real tracing-denial
-baseline. Only subsequent observed need and same-owner/cross-identity controls can
-justify a narrow tracing addition. The Android-client support warning still applies.
+Build-only evidence remains selected by `out/owner-debugger/EVIDENCE`; the separate
+integration window below did not append to that seal.
 
-New evidence is selected by `out/owner-debugger/EVIDENCE`. Previous images, compiler
-artifacts, seals, Vanadium, Pixel and accepted architecture remain untouched.
+## Unchanged-policy Android baseline
+
+Package/image producer `1320801` adds the frozen trio and three licence files to the
+existing explicit compiler toolset: **APEX 5, 3,646 files, 187 data directories**.
+The old compiler/SDK/shared-STL/Make pins and payload rows are unchanged. New metadata
+checks the debugger's source/profile/bootstrap/SDK/runtime identities and exact file
+set; private dependency closure and licence bindings are explicit. I26's read-only
+packaging review found no actionable defect, not an independent execution PASS.
+
+With flags unset and staged inputs absent, the unflagged build passed in
+516.756 seconds and reproduced the original small APEX byte-for-byte. The flagged
+`droid hosttar` build passed in 780.194 seconds; both signatures, all pinned payload
+bytes, aliases, the LLDB closure and factory terminal 6 without an `.idsig` sidecar
+were verified. All 27 images and both matching host packages were frozen/rehashed
+before launch. The compiled SELinux policy remained **byte-identical** to the previous
+owner image. The full repository suite passed **313 tests in 143.054 seconds**, no skips.
+
+A fresh offline ARM64 emulator then demonstrated, as native UID7500:
+
+- Normal Setup/PIN/CE/core/Cuttlefish checks and factory console registration. First
+  Attach worked after both boots, with no retry or input-transport failure in this
+  window.
+- `lldb --version` initialized the frontend and exited 0 with 23.0.0git. The matching
+  server's version routine also exited 0. Interactive `version`, target creation and
+  `quit` worked; this is not full line-editor or LLDB feature qualification.
+- Five reviewed source/command files were imported through explicit owner-terminal
+  input, not observer writes to home. The native compiler built the C target and
+  child-tracing probe. The target ran normally with `uid=7500 value=42`.
+- LLDB loaded its AArch64/DWARF metadata and found `add` at `debug.c:4:13`, file address
+  `0x4740`. No breakpoint was hit: the inferior did not start under the debugger.
+- Normal launch exited 1 with `DupDescriptor-open failed: Permission denied`. A matching
+  AVC denied the new slave PTY labelled generic `devpts`; this did **not** establish a
+  need for general access to other processes' terminals.
+- The separate `target.disable-stdio=true` control got past that opening step and
+  exited 1 with `ptrace failed: Permission denied`. The child probe likewise returned 2,
+  errno 13, with UID/EUID7500, NNP1 and seccomp2. Matching owner-to-owner process-ptrace
+  AVCs identified the MAC denial. ASLR disabling was explicitly false in both launch
+  scripts; no global personality/Yama change or borrowed identity was used.
+- Ordinary owner-negative/P5 probes passed and were removed, with actual native C
+  positives before and after. Relock/PIN return preserved shell 5170 and
+  `KEEP=lldb_baseline`. After reboot, normal unlock preceded owner availability;
+  all source/binary hash checks persisted, the target still ran, and fresh shell 3485
+  repeated successful LLDB startup and the same tracing denials.
+- The highest sampled group peak was **147,529,728 bytes (140.6953125 MiB)**, with all
+  sampled OOM-event counters 0 inside the unchanged 256 MiB limit. Worker capabilities
+  remained 0 and NNP/seccomp stayed active. No leftover debugger/server child remained
+  at the inspected idle points; End and controller/core/UI-loop/runner/capture/cleanup
+  exit codes were 0. These are bounded observations, not exhaustion or total quota proof.
+
+### Source-listing timestamp control
+
+The fixture archive assigned epoch-zero modification times for determinism. An extra
+source-listing test displayed no source lines; the named-function batch returned 1.
+Source inspection found LLDB's `SourceManager` treating a zero `TimePoint` as missing.
+The owner then observed the 1970 timestamp, touched only `debug.c` and checked the
+unchanged contents hash. A fresh source-list command displayed the actual source and
+returned 0. Original archive bytes and the failed attempt remain preserved. This is
+an identified timestamp edge, not a source-read permission grant or blanket handling
+of epoch-zero files. Future fixtures should distinguish content pinning from that
+special timestamp.
+
+The closed runtime retains **7,439 regular files**, 278,334 offline packets and no
+reported drops/truncation. All 303 UI transport actions completed, but not every
+native command succeeded—the expected denials and source-listing failure are explicit.
+The complete set selected by `out/owner-debugger-image/EVIDENCE` is sealed across
+**22,011 regular files**, with the runtime sub-seal reverified and symlinks excluded.
+All owned work is stopped; earlier sealed sets, Vanadium, Pixel and accepted
+architecture are unchanged.
+
+**Next gate:** review an owner-specific PTY type and owner-to-owner tracing authority,
+then qualify actual launch/breakpoint/step/variable behavior with coordinator/app
+negatives. Do not grant generic `devpts`, general procfs access, `CAP_SYS_PTRACE` or
+cross-domain tracing to silence failures. The upstream Android-client support warning
+and broader debugger/resource/phone/release limitations still apply.
