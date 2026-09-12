@@ -38,7 +38,8 @@ shell jobs, not concurrent compiler pressure. `make path-fallback` runs a recipe
 with PATH unexported, checking the platform's default command search. `make defaults`
 shows the actual configured CC/CXX/AR/SHELL values. Runtime limits remain enforced.
 See the [native build-tools milestone](../../plans/2026-09-11-native-build-tools.md)
-for the separate native Make qualification.
+for the successful bounded native Make qualification, retained observer retries and
+remaining limits.
 
 The Python host test really builds and runs this fixture using the host's C++
 compiler and libc. That is **not** an Android compiler, identity, or resource pass.
