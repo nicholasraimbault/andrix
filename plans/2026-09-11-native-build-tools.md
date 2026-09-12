@@ -68,7 +68,9 @@ host-side; LLVM23 LLDB source also exists. None is yet qualified as a phone-nati
 same-owner debugger. Frontend/server provenance, runtime dependencies, local transport
 and same-owner ptrace authority need their own observed checks. No root/shell identity
 adoption, cross-app attach authority or debugging of the coordinator is authorized.
-The read-only I25 assignment ended without usable findings; it supplies no review PASS.
+The initial I25 budget ended without a completed review. Later delayed source notes
+were checked in the [debugger feasibility work](2026-09-12-native-debugger.md); neither
+supplies a runtime PASS.
 Primary inspection found the prebuilt server to be an ARM64 static ET_EXEC with an
 Android API30/r29 note, not the desired dynamic API37 frontend/server pair. An actual
 compiled-policy query found no owner-to-owner ptrace allow, while shell/app self-ptrace

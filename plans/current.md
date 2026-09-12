@@ -3,9 +3,11 @@
 **Active milestone:** [GrapheneOS-derived base — isolated migration trial](2026-09-08-grapheneos-migration.md).
 **Current action:** [native same-owner debugger feasibility](2026-09-12-native-debugger.md),
 following the [qualified Make/project-build step](2026-09-11-native-build-tools.md).
-LLDB's Android client is upstream-unsupported; the first gate is a minimal native
-frontend/server build with correct Android source selection and strict linking,
-not adoption or a tracing-permission grant. GNU Make 4.4.1
+The native LLDB frontend/server/private library now build with corrected Android
+source/API selection and strict linking; artifact checks passed. Next is image
+integration and actual native startup/tracing-denial controls, without first widening
+policy. LLDB's Android client is upstream-unsupported: build success is not runtime
+qualification or adoption. GNU Make 4.4.1
 now runs from authenticated `/usr`: native incremental/no-op/header/source rebuilds,
 failure recovery, recursive jobs, absent-PATH fallback, relocation and rebuilding
 after reboot passed. APEX 4/image `ca6347c` retains the unchanged compiler/SDK profile;
