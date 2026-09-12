@@ -75,6 +75,26 @@ class NativeDebuggerTests(unittest.TestCase):
                 result=subprocess.run([str(binary),*mode],capture_output=True,text=True,timeout=20)
                 self.assertNotEqual(result.returncode,0,result.stdout+result.stderr)
 
+    @unittest.skipUnless(shutil.which('cc') and shutil.which('c++'), 'host C/C++ compilers required')
+    def test_debug_fixtures_and_command_scope(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for source,compiler,tag in [('debug.c','cc','DEBUG_C'),('debug.cpp','c++','DEBUG_CXX')]:
+                binary=Path(tmp)/source
+                subprocess.run([compiler,'-O0','-g','-Wall','-Wextra','-Werror',
+                                str(ROOT/'tests/owner-debugger'/source),'-o',str(binary)],
+                               check=True,capture_output=True,timeout=30)
+                result=subprocess.run([str(binary)],capture_output=True,text=True,timeout=15)
+                self.assertEqual(result.returncode,0,result.stderr)
+                self.assertIn(tag+' uid=',result.stdout)
+                self.assertIn('value=42',result.stdout)
+        for name in ['debug-c.lldb','debug-cxx.lldb']:
+            text=(ROOT/'tests/owner-debugger'/name).read_text()
+            self.assertIn('settings set target.disable-aslr false',text)
+            self.assertIn('frame variable sum',text)
+            self.assertIn('thread step-over',text)
+            self.assertNotIn('disable-stdio true',text)
+            self.assertNotIn('expression ',text)
+
     @unittest.skipUnless(shutil.which('cmake'), 'host CMake required')
     def test_exact_android_selection_condition(self):
         patch = (ROOT/'toolchain/lldb/android-host-selection.patch').read_text()
