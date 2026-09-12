@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: Apache-2.0
+// Optional ordinary APK probe, never a product package or owner authority.
+android_app {
+    name: "AndrixLifecycleProbe",
+    srcs: ["src/**/*.java", "src/**/*.aidl"],
+    aidl: { local_include_dirs: ["src"] },
+    manifest: "AndroidManifest.xml",
+    sdk_version: "37",
+    min_sdk_version: "37",
+    target_sdk_version: "37",
+    certificate: ":dev.andrix.usr.certificate",
+    installable: false,
+}
