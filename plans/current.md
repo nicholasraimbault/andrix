@@ -19,8 +19,10 @@ client remains upstream-unsupported; this is bounded downstream qualification, n
 full LLDB, JIT, pressure, privacy or phone/release assurance.
 
 **Next:** plan the durable owner-session/service and native-package transaction work.
-Storage capacity or an approved archive plan is a gate before another full image/
-runtime generation; do not discard the preserved sources, images or seals to make room.
+The [shared-host storage review](2026-09-12-shared-storage.md) identifies stopped-VM
+RAM backing as the proposed first recovery; no deletion is approved yet. Capacity or
+an approved recovery/archive plan is a gate before another full image/runtime
+generation. Do not discard preserved sources, images or seals to make room.
 Pixel deployment remains separately gated. This follows the [cold-attachment correction](2026-09-11-cold-attachment.md).
 The client now maintains a guarded pending lease during Main preparation, with input
 blocked until identity-checked promotion. First Attach passed without retry after
