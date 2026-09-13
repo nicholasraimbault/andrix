@@ -36,6 +36,15 @@ class NativeTmuxProfileTests(unittest.TestCase):
         self.assertIn('neverallow { andrixd andrix_owner } self:capability_class_set *;',text)
         self.assertNotIn('allow andrix_owner app_data_file',text)
 
+    def test_runner_uses_validated_private_tmux_directory(self):
+        source=(ROOT/'owner/native/runner.cpp').read_text()
+        self.assertIn('TMUX_TMPDIR=/data/misc_ce/0/andrix/.tmp',source)
+        self.assertIn('home_var, temporary, tmux_temporary, term',source)
+        self.assertLess(source.index('lstat(".tmp"'),source.index('char tmux_temporary'))
+        self.assertNotIn('TMUX_TMPDIR=/tmp',source)
+        self.assertIn('install_worker_filter()',source)
+        self.assertIn('prctl(PR_SET_PDEATHSIG, SIGKILL)',source)
+
     def test_distinct_source_assurance_and_selected_versions(self):
         p=json.loads((ROOT/'toolchain/tmux/profile.json').read_text())
         self.assertEqual(set(p['packages']),{'tmux','libevent','ncurses'})
