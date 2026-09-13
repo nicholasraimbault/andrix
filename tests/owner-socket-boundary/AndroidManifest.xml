@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.andrix.proof.socketboundary" android:versionCode="1" android:versionName="0.1">
+    <uses-sdk android:minSdkVersion="37" android:targetSdkVersion="37" />
+    <application android:label="Andrix socket boundary" android:allowBackup="false"
+        android:usesCleartextTraffic="false" />
+    <instrumentation android:name=".SocketBoundary"
+        android:targetPackage="dev.andrix.proof.socketboundary" />
+</manifest>

@@ -28,6 +28,14 @@ class NativeTmuxProfileTests(unittest.TestCase):
         self.assertIn('--sysconfdir=/usr/etc/andrix/tmux',p['configure']['tmux'])
         self.assertIn('tmux-256color',p['terminfo_entries'])
 
+    def test_owner_socket_rule_is_not_a_foreign_domain_grant(self):
+        text=(ROOT/'owner/sepolicy/andrix_owner.te').read_text()
+        self.assertIn('allow andrix_owner andrix_home_file:sock_file { create getattr setattr read write unlink };',text)
+        self.assertIn('neverallow { untrusted_app_all isolated_app_all andrix_terminal andrixd } andrix_home_file:sock_file',text)
+        self.assertIn('neverallow { untrusted_app_all isolated_app_all andrix_terminal andrixd } andrix_owner:unix_stream_socket connectto;',text)
+        self.assertIn('neverallow { andrixd andrix_owner } self:capability_class_set *;',text)
+        self.assertNotIn('allow andrix_owner app_data_file',text)
+
     def test_distinct_source_assurance_and_selected_versions(self):
         p=json.loads((ROOT/'toolchain/tmux/profile.json').read_text())
         self.assertEqual(set(p['packages']),{'tmux','libevent','ncurses'})

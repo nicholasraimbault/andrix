@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: Apache-2.0
+// Optional ordinary APK; never a product package or native owner authority.
+android_test {
+    name: "AndrixSocketBoundary",
+    manifest: "AndroidManifest.xml",
+    srcs: ["src/**/*.java"],
+    sdk_version: "37",
+    min_sdk_version: "37",
+    target_sdk_version: "37",
+    compile_multilib: "64",
+    jni_libs: ["libandrix_socket_boundary"],
+    use_embedded_native_libs: true,
+    certificate: ":dev.andrix.usr.certificate",
+    auto_gen_config: false,
+}
+cc_library_shared {
+    name: "libandrix_socket_boundary",
+    srcs: ["probe.c"],
+    sdk_version: "37",
+    min_sdk_version: "37",
+    stl: "none",
+    installable: false,
+    compile_multilib: "64",
+    enabled: false,
+    arch: { arm64: { enabled: true } },
+    cflags: ["-std=c11", "-Wall", "-Wextra", "-Werror"],
+    ldflags: ["-Wl,-z,max-page-size=16384", "-Wl,-z,common-page-size=16384"],
+}

@@ -50,6 +50,12 @@ allow andrix_owner andrix_home_file:dir create_dir_perms;
 allow andrix_owner andrix_home_file:file { create_file_perms map execute execute_no_trans };
 allow andrix_owner andrix_home_file:lnk_file { create read getattr setattr unlink rename };
 allow andrix_owner andrix_home_file:fifo_file create_file_perms;
+# Named Unix IPC stays inside owner CE storage and the single owner domain.
+# Self socket creation/connectto is already provided by upstream domain rules;
+# only the filesystem socket node operations are added here.
+allow andrix_owner andrix_home_file:sock_file { create getattr setattr read write unlink };
+neverallow { untrusted_app_all isolated_app_all andrix_terminal andrixd } andrix_home_file:sock_file { create open read write unlink };
+neverallow { untrusted_app_all isolated_app_all andrix_terminal andrixd } andrix_owner:unix_stream_socket connectto;
 allow init andrix_home_file:dir create_dir_perms;
 allow init andrix_home_file:{ dir file lnk_file fifo_file } relabelfrom;
 allow init andrix_home_file:{ dir file lnk_file fifo_file } relabelto;

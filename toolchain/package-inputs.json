@@ -22,5 +22,10 @@
     "manifest": "frozen-lldb-01/manifest.json",
     "sha256": "c9861597076c2d5746fe4bce6e7a3a946626ccb0ce96447e2e44d08256d2eade",
     "source_build": "7bdd94d751c7cd3eac953dc6fd1975ec61652120"
+  },
+  "tmux": {
+    "manifest": "frozen-tmux-01/manifest.json",
+    "sha256": "90bf6a9791383cdbd4b1f507487e9e301d0d68424cfb88183c45d2e6f17c9a86",
+    "source_build": "9fe8d69bb4b330b47cc44bd71f7eef744b46da36"
   }
 }
