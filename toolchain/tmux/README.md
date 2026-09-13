@@ -31,6 +31,12 @@ terminfo directory is `/usr/etc/andrix/terminfo`. Invoke the pinned build-only B
 as `bison -y` through its private PATH: tmux's follow-up configure search incorrectly
 prepends PATH entries when given an absolute YACC executable name. Optional systemd/cgroup integration, utempter, UTF8Proc,
 jemalloc, sixel and OpenSSL dependencies are disabled in the initial candidate.
+Tmux's socket selection uses `TMUX_TMPDIR`, not the generic `TMPDIR`. The first
+Android trial required the owner to export `TMUX_TMPDIR=$TMPDIR`; the runner source
+now supplies the already validated private CE directory explicitly. That source
+correction still needs its own image qualification. Do not grant generic `/tmp`
+access to compensate for the missing variable.
+
 This does not remove owner control of explicitly executed programs or establish
 full terminal compatibility. The opt-in APEX 6 candidate adds 16 pinned payload files
 (binary, selected terminfo entries, notices and original source archives) without

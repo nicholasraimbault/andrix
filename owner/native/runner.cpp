@@ -53,13 +53,16 @@ int main(int argc, char**) {
   char path[] = "PATH=/usr/bin:/system/bin";
   char home_var[] = "HOME=/data/misc_ce/0/andrix";
   char temporary[] = "TMPDIR=/data/misc_ce/0/andrix/.tmp";
+  // tmux deliberately uses its own variable, not the generic TMPDIR fallback.
+  // Keep its named socket directory in the already validated private CE tree.
+  char tmux_temporary[] = "TMUX_TMPDIR=/data/misc_ce/0/andrix/.tmp";
   char term[] = "TERM=xterm-256color";
   char user[] = "USER=system_ext_andrix";
   char login[] = "LOGNAME=system_ext_andrix";
   char shell[] = "SHELL=/system/bin/sh";
   char prompt[] = "PS1=andrix$ ";
   char lang[] = "LANG=C.UTF-8";
-  char* environment[] = {path, home_var, temporary, term, user, login, shell, prompt, lang, nullptr};
+  char* environment[] = {path, home_var, temporary, tmux_temporary, term, user, login, shell, prompt, lang, nullptr};
   char executable[] = "/system/bin/sh";
   char interactive[] = "-i";
   char* arguments[] = {executable, interactive, nullptr};
