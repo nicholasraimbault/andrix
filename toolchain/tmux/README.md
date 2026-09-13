@@ -1,7 +1,8 @@
 # Native terminal-multiplexer candidate
 
-This native candidate is preparation for an opt-in retained terminal, not Android
-runtime qualification yet. It targets the existing ARM64/Bionic API 37 SDK and
+This native candidate passed [bounded Android runtime controls](../../plans/2026-09-13-retained-terminal.md#observed-native-multiplexer-result)
+with explicit private socket configuration. It is not trusted kept-session authority
+or full terminal qualification. It targets the existing ARM64/Bionic API 37 SDK and
 preserves the compiler profile's hardening. The 1,403,056-byte executable passed
 ELF/command checks with private static libevent/terminfo dependencies; **Bionic remains
 dynamically linked**. Its only runtime libraries are libc/libdl/libm, with no RUNPATH,
@@ -47,7 +48,9 @@ remain distinct from LLVM and GNU Make's obligations. The intended notice bundle
 includes the original source archives as well as their main license files, so
 individual notices and generated-parser exceptions are not discarded.
 
-No capability, generic devpts, cgroup-control or cross-app grant is part of this
-build profile. Native owner-home Unix socket permissions and positive/negative
-runtime controls, reconnect/redraw behavior, inherited filters, resource bounds,
-Android lifecycle authority and complete cleanup are separate integration gates.
+No capability, generic devpts, new cgroup-control or cross-app grant is part of this
+build profile. Narrow owner-home socket rules, ordinary-app negatives, fresh-client
+redraw, inherited filters, bounded debugging and complete End cleanup passed in the
+recorded image. Different-UID app denial is not sole MAC proof. Trusted Android
+lifecycle authority, console-process-death recovery and broader pressure/suspend
+behavior remain separate integration gates.
