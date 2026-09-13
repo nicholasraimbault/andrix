@@ -33,6 +33,13 @@ Two/three sequential queries are not an atomic user-lifecycle transaction and ca
 prove that every short intervening transition was observed. A future native authority
 must address monitor death, stale state, user-stop and key-eviction independently.
 
-This is groundwork for [durable owner work](../../plans/2026-09-12-owner-lifecycle.md),
-not qualification of retained owner jobs, terminal restoration, persistent services,
-SSH or supported-phone behavior.
+The [bounded Android trial](../../plans/2026-09-12-owner-lifecycle.md#bounded-android-result)
+now records those controls, including same-witness return, relock, notification Stop
+and 900.094-second automatic expiry. An explicit Stop can leave an Android-cached
+process even though its service/foreground state is gone; process presence alone is
+not a service-liveness or authority test. An unstarted service record from binding
+also need not mean a witness process exists.
+
+This remains groundwork, not qualification of retained owner jobs, terminal
+restoration, production persistent services, user-stop/key-eviction/suspend behavior,
+SSH or supported-phone operation.
