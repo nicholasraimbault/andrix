@@ -1,0 +1,199 @@
+// SPDX-License-Identifier: Apache-2.0
+// Host facade for exact adapted framework methods, not Android runtime authority.
+import com.android.server.storage.CeStorageAccessTracker;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+class RemoteException extends Exception {
+    private static final long serialVersionUID = 1;
+}
+interface DeathRecipient { void binderDied(); }
+interface IBinder {
+    void linkToDeath(DeathRecipient callback, int flags) throws RemoteException;
+    boolean unlinkToDeath(DeathRecipient callback, int flags);
+    boolean isBinderAlive();
+}
+interface IVold {
+    IBinder asBinder();
+    void setListener(Object listener) throws RemoteException;
+    int[] getUnlockedUsers() throws RemoteException;
+    void lockCeStorage(int user) throws RemoteException;
+    final class Stub {
+        static IVold asInterface(IBinder binder) { return ((FakeBinder) binder).service; }
+    }
+}
+class FakeBinder implements IBinder {
+    final List<DeathRecipient> callbacks = new ArrayList<>();
+    final FakeVold service = new FakeVold(this);
+    boolean alive = true;
+    @Override public void linkToDeath(DeathRecipient callback, int flags) throws RemoteException {
+        if (!alive) throw new RemoteException();
+        callbacks.add(callback);
+    }
+    @Override public boolean unlinkToDeath(DeathRecipient callback, int flags) {
+        return callbacks.remove(callback);
+    }
+    @Override public boolean isBinderAlive() { return alive; }
+    void die() {
+        if (!alive) return;
+        alive = false;
+        for (DeathRecipient callback : new ArrayList<>(callbacks)) callback.binderDied();
+    }
+}
+class FakeVold implements IVold {
+    final FakeBinder binder;
+    Runnable onSet = () -> { }, onRestore = () -> { }, onLock = () -> { };
+    boolean failSet, failLock;
+    int lockCalls;
+    FakeVold(FakeBinder binder) { this.binder = binder; }
+    @Override public IBinder asBinder() { return binder; }
+    @Override public void setListener(Object listener) throws RemoteException {
+        onSet.run(); if (failSet) throw new RemoteException();
+    }
+    @Override public int[] getUnlockedUsers() throws RemoteException {
+        if (!binder.alive) throw new RemoteException();
+        onRestore.run(); return new int[]{0};
+    }
+    @Override public void lockCeStorage(int user) throws RemoteException {
+        ++lockCalls; onLock.run(); if (failLock) throw new RemoteException();
+    }
+}
+class ServiceManager {
+    static IBinder target;
+    static boolean throwLookup;
+    static IBinder getService(String name) {
+        assert name.equals("vold");
+        if (throwLookup) throw new IllegalStateException("lookup failure");
+        return target;
+    }
+}
+class BackgroundThread {
+    static final ArrayDeque<Runnable> pending = new ArrayDeque<>();
+    static BackgroundThread getHandler() { return new BackgroundThread(); }
+    boolean postDelayed(Runnable task, long delay) {
+        assert delay == 1000; pending.add(task); return true;
+    }
+}
+class DateUtils { static final long SECOND_IN_MILLIS = 1000; }
+class EmptyArray { static final int[] INT = new int[0]; }
+class ArrayUtils { static boolean isEmpty(int[] values) { return values == null || values.length == 0; } }
+class UserHandle { static final int USER_SYSTEM = 0; }
+class UserManager {
+    static boolean headless;
+    static boolean isHeadlessSystemUserMode() { return headless; }
+}
+class Slog {
+    static void w(String tag, String message) { }
+    static void w(String tag, String message, Throwable error) { }
+    static void d(String tag, String message) { }
+    static void e(String tag, String message, Throwable error) { }
+    static void wtf(String tag, Throwable error) { }
+}
+class KeyPermission {
+    boolean allowed = true;
+    void lockCeStorage_enforcePermission() { if (!allowed) throw new SecurityException(); }
+}
+
+public final class StorageManagerHookTest extends KeyPermission {
+    private static final String TAG = "host";
+    private final Object mVoldConnectionLock = new Object(), mLock = new Object(), mListener = new Object();
+    private boolean mConnectingVold;
+    private volatile IVold mVold;
+    private int connectedCalls;
+    private final CeStorageAccessTracker mCeAccess = new CeStorageAccessTracker(error -> {
+        throw new AssertionError(error);
+    });
+    private final Cache mCeUnlockedUsers = new Cache();
+    private static final class Cache {
+        final Set<Integer> values = new HashSet<>();
+        void appendAll(int[] ids) { for (int id : ids) values.add(id); }
+        void remove(int id) { values.remove(id); }
+    }
+    private static IBinder voldIdentity(IVold vold) { return vold == null ? null : vold.asBinder(); }
+    private void onDaemonConnected() { ++connectedCalls; }
+    public boolean isCeStorageUnlocked(int id) {
+        synchronized (mLock) { return mCeUnlockedUsers.values.contains(id); }
+    }
+    private static final class Latest implements CeStorageAccessTracker.Listener {
+        CeStorageAccessTracker.Snapshot state;
+        @Override public void onStateChanged(CeStorageAccessTracker.Snapshot next) {
+            if (state == null || next.sequence > state.sequence) state = next;
+        }
+    }
+
+// EXACT_FRAMEWORK_METHODS
+
+    private static StorageManagerHookTest connect(FakeBinder binder) {
+        BackgroundThread.pending.clear(); ServiceManager.target = binder;
+        StorageManagerHookTest test = new StorageManagerHookTest();
+        test.connectVold(); assert test.mVold == binder.service && !test.mConnectingVold;
+        assert test.connectedCalls == 1 && test.isCeStorageUnlocked(0);
+        return test;
+    }
+
+    public static void main(String[] args) {
+        FakeBinder first = new FakeBinder(); StorageManagerHookTest test = connect(first);
+        test.connectVold(); assert first.callbacks.size() == 1; // No duplicate live binding.
+        DeathRecipient oldCallback = first.callbacks.get(0);
+        FakeBinder replacement = new FakeBinder(); ServiceManager.target = replacement;
+        first.die(); assert test.mVold == replacement.service && test.connectedCalls == 2;
+        oldCallback.binderDied(); assert test.mVold == replacement.service;
+
+        // Dead reference before its callback, followed by missing lookup: must retry.
+        replacement.alive = false; ServiceManager.target = null;
+        test.connectVold(); assert test.mVold == null && BackgroundThread.pending.size() == 1;
+        BackgroundThread.pending.clear();
+        ServiceManager.throwLookup = true;
+        try { test.connectVold(); throw new AssertionError("lookup should throw"); }
+        catch (IllegalStateException expected) { assert !test.mConnectingVold; }
+        ServiceManager.throwLookup = false;
+
+        FakeBinder rejected = new FakeBinder(); rejected.service.failSet = true;
+        ServiceManager.target = rejected; test.connectVold();
+        assert test.mVold == null && rejected.callbacks.isEmpty() && BackgroundThread.pending.size() == 1;
+        BackgroundThread.pending.clear();
+        FakeBinder diedBeforePublication = new FakeBinder();
+        diedBeforePublication.service.onSet = diedBeforePublication::die;
+        ServiceManager.target = diedBeforePublication; test.connectVold();
+        assert test.mVold == null && BackgroundThread.pending.size() == 1;
+
+        // Death during connected-observation delivery: the callback sees the
+        // publication but cannot reconnect while mConnectingVold is still true.
+        BackgroundThread.pending.clear();
+        StorageManagerHookTest race = new StorageManagerHookTest(); FakeBinder dying = new FakeBinder();
+        AtomicBoolean once = new AtomicBoolean();
+        race.mCeAccess.register(0, state -> {
+            if (race.mVold == dying.service && once.compareAndSet(false, true)) dying.die();
+        });
+        ServiceManager.target = dying; race.connectVold();
+        assert race.mVold == null && !race.mConnectingVold && BackgroundThread.pending.size() == 1;
+
+        FakeBinder keys = new FakeBinder(); StorageManagerHookTest keyTest = connect(keys);
+        Latest latest = new Latest(); latest.onStateChanged(keyTest.mCeAccess.register(0, latest));
+        assert latest.state.available;
+        keys.service.onLock = () -> { assert !latest.state.available; };
+        keys.service.failLock = true;
+        keyTest.lockCeStorage(0);
+        assert keyTest.isCeStorageUnlocked(0) && !latest.state.available;
+        keys.service.failLock = false; keyTest.lockCeStorage(0);
+        assert !keyTest.isCeStorageUnlocked(0);
+        keyTest.lockCeStorage(0); assert keys.service.lockCalls == 2; // Upstream no-op retained.
+        long sequence = latest.state.sequence;
+        keyTest.allowed = false;
+        try { keyTest.lockCeStorage(0); throw new AssertionError("permission"); }
+        catch (SecurityException expected) { assert latest.state.sequence == sequence; }
+        keyTest.allowed = true; UserManager.headless = true;
+        try { keyTest.lockCeStorage(0); throw new AssertionError("headless"); }
+        catch (IllegalArgumentException expected) { assert latest.state.sequence == sequence; }
+        UserManager.headless = false;
+
+        keys.service.onRestore = () -> {
+            var token = keyTest.mCeAccess.beginRevocation(0, keys);
+            keyTest.mCeAccess.complete(token, true);
+        };
+        keyTest.restoreCeUnlockedUsers(keys.service);
+        assert keyTest.isCeStorageUnlocked(0); // Android cache append is NOT replaced/cleared.
+        assert !latest.state.available; // But the stale positive cannot restore observation authority.
+        System.out.println("Exact framework connection/lock/restore methods passed; Android unqualified");
+    }
+}

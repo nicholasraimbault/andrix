@@ -13,5 +13,8 @@ ifeq ($(ANDRIX_OWNER_SESSION),true)
 BOARD_SEPOLICY_M4DEFS += andrix_owner_session=true
 TARGET_FS_CONFIG_GEN += vendor/andrix/owner/config.fs
 SYSTEM_EXT_PRIVATE_SEPOLICY_DIRS += vendor/andrix/owner/sepolicy
+ifeq ($(ANDRIX_OWNER_LIFECYCLE),true)
+SYSTEM_EXT_PRIVATE_SEPOLICY_DIRS += vendor/andrix/owner/platform/sepolicy
+endif
 endif
 endif

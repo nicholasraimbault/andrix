@@ -1,0 +1,491 @@
+--- a/services/core/java/com/android/server/StorageManagerInternal.java
++++ b/services/core/java/com/android/server/StorageManagerInternal.java
+@@ -25,6 +25,8 @@
+ import android.os.ParcelFileDescriptor;
+ import android.os.storage.StorageManager.StorageFlags;
+ 
++import com.android.server.storage.CeStorageAccessTracker;
++
+ import java.io.IOException;
+ import java.util.List;
+ import java.util.Set;
+@@ -33,6 +35,20 @@
+  * Internal interface to StorageManagerService, only for use within the system server.
+  */
+ public abstract class StorageManagerInternal {
++    /**
++     * Register a system_server-local CE access observer. The immutable initial
++     * snapshot and callbacks carry ordered sequence/revocation generations;
++     * callers reconcile by sequence because callbacks can precede return.
++     * Callbacks run outside the storage data lock and MUST only record/post work:
++     * no Binder downcalls, key operations, waits or cleanup barriers.
++     * This reports platform access metadata, not physical inode-key eviction.
++     */
++    public abstract CeStorageAccessTracker.Snapshot registerCeStorageAccessListener(
++            @UserIdInt int userId, @NonNull CeStorageAccessTracker.Listener listener);
++
++    public abstract void unregisterCeStorageAccessListener(
++            @UserIdInt int userId, @NonNull CeStorageAccessTracker.Listener listener);
++
+     /**
+      * Gets the mount mode to use for a given UID
+      *
+--- a/services/core/java/com/android/server/StorageManagerService.java
++++ b/services/core/java/com/android/server/StorageManagerService.java
+@@ -163,6 +163,7 @@
+ import com.android.server.pm.Installer;
+ import com.android.server.pm.UserManagerInternal;
+ import com.android.server.storage.AppFuseBridge;
++import com.android.server.storage.CeStorageAccessTracker;
+ import com.android.server.storage.ImmutableVolumeInfo;
+ import com.android.server.storage.StorageSessionController;
+ import com.android.server.storage.StorageSessionController.ExternalStorageServiceException;
+@@ -404,6 +405,17 @@
+      * unsolicited events can suddenly appear to update data structures.
+      */
+     private final Object mLock = LockGuard.installNewLock(LockGuard.INDEX_STORAGE);
++
++    // Observation bookkeeping is separate from Android's CE cache and never
++    // changes key operations or waits for native cleanup.
++    private final CeStorageAccessTracker mCeAccess = new CeStorageAccessTracker(
++            error -> Slog.e(TAG, "CE access observer failed", error));
++    private final Object mVoldConnectionLock = new Object();
++    @GuardedBy("mVoldConnectionLock") private boolean mConnectingVold;
++
++    private static IBinder voldIdentity(IVold vold) {
++        return vold == null ? null : vold.asBinder();
++    }
+ 
+     /**
+      * mCeUnlockedUsers affects the return value of {@link UserManager#isUserUnlocked}.  If any
+@@ -1159,58 +1171,69 @@
+         Slog.d(TAG, "Thinking about reset, mBootCompleted=" + mBootCompleted
+                 + ", mDaemonConnected=" + mDaemonConnected);
+         if (mBootCompleted && mDaemonConnected) {
+-            final UserManager userManager = mContext.getSystemService(UserManager.class);
+-            final List<UserInfo> users = userManager.getUsers();
+-
+-            extendWatchdogTimeout("#onReset might be slow");
+-            mStorageSessionController.onReset(mVold, () -> {
+-                mHandler.removeCallbacksAndMessages(null);
+-            });
+-
+-            final int[] systemUnlockedUsers;
+-            synchronized (mLock) {
+-                // make copy as sorting can change order
+-                systemUnlockedUsers = Arrays.copyOf(mSystemUnlockedUsers,
+-                        mSystemUnlockedUsers.length);
+-
+-                mDisks.clear();
+-                mVolumes.clear();
+-
+-                addInternalVolumeLocked();
+-            }
+-
++            final IVold vold = mVold;
++            final CeStorageAccessTracker.Operation observation =
++                    mCeAccess.beginReset(voldIdentity(vold));
++            boolean observedSuccess = false;
+             try {
+-                // Reset vold to tear down existing disks/volumes and start from
+-                // a clean state.  Exception: already-unlocked user storage will
+-                // remain unlocked and is not affected by the reset.
+-                //
+-                // TODO(b/135341433): Remove cautious logging when FUSE is stable
+-                Slog.i(TAG, "Resetting vold...");
+-                mVold.reset();
+-                Slog.i(TAG, "Reset vold");
+-
+-                // Tell vold about all existing and started users
+-                for (UserInfo user : users) {
+-                    if (user.isCloneProfile()) {
+-                        mVold.onUserAdded(user.id, user.serialNumber, user.profileGroupId);
+-                    } else {
+-                        mVold.onUserAdded(user.id, user.serialNumber, -1);
++                final UserManager userManager = mContext.getSystemService(UserManager.class);
++                final List<UserInfo> users = userManager.getUsers();
++
++                extendWatchdogTimeout("#onReset might be slow");
++                mStorageSessionController.onReset(vold, () -> {
++                    mHandler.removeCallbacksAndMessages(null);
++                });
++
++                final int[] systemUnlockedUsers;
++                synchronized (mLock) {
++                    // make copy as sorting can change order
++                    systemUnlockedUsers = Arrays.copyOf(mSystemUnlockedUsers,
++                            mSystemUnlockedUsers.length);
++
++                    mDisks.clear();
++                    mVolumes.clear();
++
++                    addInternalVolumeLocked();
++                }
++
++                try {
++                    // Reset vold to tear down existing disks/volumes and start from
++                    // a clean state.  Exception: already-unlocked user storage will
++                    // remain unlocked and is not affected by the reset.
++                    //
++                    // TODO(b/135341433): Remove cautious logging when FUSE is stable
++                    Slog.i(TAG, "Resetting vold...");
++                    vold.reset();
++                    Slog.i(TAG, "Reset vold");
++
++                    // Tell vold about all existing and started users
++                    for (UserInfo user : users) {
++                        if (user.isCloneProfile()) {
++                            vold.onUserAdded(user.id, user.serialNumber, user.profileGroupId);
++                        } else {
++                            vold.onUserAdded(user.id, user.serialNumber, -1);
++                        }
+                     }
+-                }
+-                for (int userId : systemUnlockedUsers) {
+-                    mVold.onUserStarted(userId);
+-                    mStoraged.onUserStarted(userId);
+-                }
+-                restoreSystemUnlockedUsers(userManager, users, systemUnlockedUsers);
+-                mVold.onSecureKeyguardStateChanged(mSecureKeyguardShowing);
+-                mStorageManagerInternal.onReset(mVold);
+-            } catch (Exception e) {
+-                Slog.wtf(TAG, e);
+-            }
+-        }
+-    }
+-
+-    private void restoreSystemUnlockedUsers(UserManager userManager, List<UserInfo> allUsers,
++                    for (int userId : systemUnlockedUsers) {
++                        vold.onUserStarted(userId);
++                        mStoraged.onUserStarted(userId);
++                    }
++                    restoreSystemUnlockedUsers(vold, userManager, users, systemUnlockedUsers);
++                    vold.onSecureKeyguardStateChanged(mSecureKeyguardShowing);
++                    mStorageManagerInternal.onReset(vold);
++                    observedSuccess = true;
++                } catch (Exception e) {
++                    Slog.wtf(TAG, e);
++                }
++            } finally {
++                final int[] unlocked;
++                synchronized (mLock) { unlocked = mCeUnlockedUsers.all().clone(); }
++                mCeAccess.completeBulk(observation, observedSuccess, unlocked);
++            }
++        }
++    }
++
++    private void restoreSystemUnlockedUsers(IVold vold, UserManager userManager, List<UserInfo> allUsers,
+             int[] systemUnlockedUsers) throws Exception {
+         Arrays.sort(systemUnlockedUsers);
+         UserManager.invalidateIsUserUnlockedCache();
+@@ -1227,7 +1250,7 @@
+                 continue;
+             }
+             Slog.w(TAG, "UNLOCK_USER lost from vold reset, will retry, user:" + userId);
+-            mVold.onUserStarted(userId);
++            vold.onUserStarted(userId);
+             mStoraged.onUserStarted(userId);
+             mHandler.obtainMessage(H_COMPLETE_UNLOCK_USER, userId, /* arg2 (unusued) */ 0)
+                     .sendToTarget();
+@@ -1237,24 +1260,28 @@
+     // If vold knows that some users have their CE storage unlocked already (which can happen after
+     // a "userspace reboot"), then add those users to mCeUnlockedUsers.  Do this right away and
+     // don't wait until PHASE_BOOT_COMPLETED, since the system may unlock users before then.
+-    private void restoreCeUnlockedUsers() {
+-        final int[] userIds;
++    private void restoreCeUnlockedUsers(IVold vold) {
++        final CeStorageAccessTracker.Operation observation =
++                mCeAccess.beginRestore(voldIdentity(vold));
++        int[] userIds = EmptyArray.INT;
++        boolean success = false;
+         try {
+-            userIds = mVold.getUnlockedUsers();
++            userIds = vold.getUnlockedUsers();
++            if (!ArrayUtils.isEmpty(userIds)) {
++                Slog.d(TAG, "CE storage for users " + Arrays.toString(userIds)
++                        + " is already unlocked");
++                synchronized (mLock) {
++                    // Preserve append semantics: restarted vold can know fewer
++                    // unlocked users than system_server. Do not clear this cache.
++                    mCeUnlockedUsers.appendAll(userIds);
++                }
++            }
++            success = true;
+         } catch (Exception e) {
+             Slog.e(TAG, "Failed to get unlocked users from vold", e);
+-            return;
+-        }
+-        if (!ArrayUtils.isEmpty(userIds)) {
+-            Slog.d(TAG, "CE storage for users " + Arrays.toString(userIds)
+-                    + " is already unlocked");
+-            synchronized (mLock) {
+-                // Append rather than replace, just in case we're actually
+-                // reconnecting to vold after it crashed and was restarted, in
+-                // which case things will be the other way around --- we'll know
+-                // about the unlocked users but vold won't.
+-                mCeUnlockedUsers.appendAll(userIds);
+-            }
++        } finally {
++            mCeAccess.completeBulk(observation, success,
++                    userIds == null ? EmptyArray.INT : userIds);
+         }
+     }
+ 
+@@ -2154,40 +2181,69 @@
+     }
+ 
+     private void connectVold() {
+-        IBinder binder = ServiceManager.getService("vold");
+-        if (binder != null) {
+-            try {
+-                binder.linkToDeath(new DeathRecipient() {
+-                    @Override
+-                    public void binderDied() {
++        synchronized (mVoldConnectionLock) {
++            if (mConnectingVold) return;
++            if (mVold != null) {
++                if (mVold.asBinder().isBinderAlive()) return;
++                mCeAccess.died(mVold.asBinder());
++                mVold = null;
++            }
++            mConnectingVold = true;
++        }
++        IVold connected = null;
++        try {
++            final IBinder binder = ServiceManager.getService("vold");
++            final DeathRecipient death = new DeathRecipient() {
++                @Override public void binderDied() {
++                    synchronized (mVoldConnectionLock) {
++                        // A delayed old callback must not clear a replacement binder.
++                        if (mVold == null || mVold.asBinder() != binder) return;
+                         Slog.w(TAG, "vold died; reconnecting");
+                         mVold = null;
+-                        connectVold();
++                        mCeAccess.died(binder);
+                     }
+-                }, 0);
++                    connectVold();
++                }
++            };
++            boolean linked = false;
++            try {
++                if (binder != null) {
++                    binder.linkToDeath(death, 0);
++                    linked = true;
++                    final IVold candidate = IVold.Stub.asInterface(binder);
++                    candidate.setListener(mListener); // No storage/connection lock held.
++                    synchronized (mVoldConnectionLock) {
++                        // Covers death delivered before the candidate was published.
++                        if (binder.isBinderAlive()) {
++                            mVold = candidate;
++                            mCeAccess.connected(binder);
++                            connected = candidate;
++                        }
++                    }
++                } else {
++                    Slog.w(TAG, "vold not found; trying again");
++                }
+             } catch (RemoteException e) {
+-                binder = null;
+-            }
+-        }
+-
+-        if (binder != null) {
+-            mVold = IVold.Stub.asInterface(binder);
+-            try {
+-                mVold.setListener(mListener);
+-            } catch (RemoteException e) {
+-                mVold = null;
+                 Slog.w(TAG, "vold listener rejected; trying again", e);
+-            }
+-        } else {
+-            Slog.w(TAG, "vold not found; trying again");
+-        }
+-
+-        if (mVold == null) {
++            } finally {
++                if (linked && connected == null) binder.unlinkToDeath(death, 0);
++            }
++        } finally {
++            synchronized (mVoldConnectionLock) { mConnectingVold = false; }
++        }
++        final IVold current;
++        synchronized (mVoldConnectionLock) { current = mVold; }
++        if (current == null) {
++            // Death may have run after publication while mConnectingVold was
++            // still true. That callback could not reconnect; this path must.
+             BackgroundThread.getHandler().postDelayed(() -> {
+                 connectVold();
+             }, DateUtils.SECOND_IN_MILLIS);
+-        } else {
+-            restoreCeUnlockedUsers();
++        } else if (current == connected) {
++            restoreCeUnlockedUsers(connected);
++            synchronized (mVoldConnectionLock) {
++                if (mVold != connected) return;
++            }
+             onDaemonConnected();
+         }
+     }
+@@ -3379,27 +3435,26 @@
+     @Override
+     public void lockCeStorage(int userId) {
+         super.lockCeStorage_enforcePermission();
+-
+-        // Never lock the CE storage of a headless system user.
+-        if (userId == UserHandle.USER_SYSTEM
+-                && UserManager.isHeadlessSystemUserMode()) {
++        if (userId == UserHandle.USER_SYSTEM && UserManager.isHeadlessSystemUserMode()) {
+             throw new IllegalArgumentException("Headless system user data cannot be locked..");
+         }
+-
+-        if (!isCeStorageUnlocked(userId)) {
+-            Slog.d(TAG, "User " + userId + "'s CE storage is already locked");
+-            return;
+-        }
+-
++        final IVold vold = mVold;
++        final CeStorageAccessTracker.Operation observation =
++                mCeAccess.beginRevocation(userId, voldIdentity(vold));
++        boolean success = false;
+         try {
+-            mVold.lockCeStorage(userId);
++            if (!isCeStorageUnlocked(userId)) {
++                Slog.d(TAG, "User " + userId + "'s CE storage is already locked");
++                success = true;
++                return;
++            }
++            vold.lockCeStorage(userId);
++            synchronized (mLock) { mCeUnlockedUsers.remove(userId); }
++            success = true;
+         } catch (Exception e) {
+             Slog.wtf(TAG, e);
+-            return;
+-        }
+-
+-        synchronized (mLock) {
+-            mCeUnlockedUsers.remove(userId);
++        } finally {
++            mCeAccess.complete(observation, success);
+         }
+     }
+ 
+@@ -4890,6 +4945,18 @@
+     }
+ 
+     private final class StorageManagerInternalImpl extends StorageManagerInternal {
++        @Override
++        public CeStorageAccessTracker.Snapshot registerCeStorageAccessListener(
++                int userId, CeStorageAccessTracker.Listener listener) {
++            return mCeAccess.register(userId, listener);
++        }
++
++        @Override
++        public void unregisterCeStorageAccessListener(
++                int userId, CeStorageAccessTracker.Listener listener) {
++            mCeAccess.unregister(userId, listener);
++        }
++
+         @GuardedBy("mResetListeners")
+         private final List<StorageManagerInternal.ResetListener> mResetListeners =
+                 new ArrayList<>();
+@@ -5108,27 +5175,35 @@
+ 
+         @Override
+         public void createUserStorageKeys(int userId, boolean ephemeral) {
++            final IVold vold = mVold;
++            final CeStorageAccessTracker.Operation observation =
++                    mCeAccess.beginAvailable(userId, voldIdentity(vold));
++            boolean success = false;
+             try {
+-                mVold.createUserStorageKeys(userId, ephemeral);
+-                // Since the user's CE key was just created, the user's CE storage is now unlocked.
+-                synchronized (mLock) {
+-                    mCeUnlockedUsers.append(userId);
+-                }
++                vold.createUserStorageKeys(userId, ephemeral);
++                synchronized (mLock) { mCeUnlockedUsers.append(userId); }
++                success = true;
+             } catch (Exception e) {
+                 Slog.wtf(TAG, e);
++            } finally {
++                mCeAccess.complete(observation, success);
+             }
+         }
+ 
+         @Override
+         public void destroyUserStorageKeys(int userId) {
++            final IVold vold = mVold;
++            final CeStorageAccessTracker.Operation observation =
++                    mCeAccess.beginRevocation(userId, voldIdentity(vold));
++            boolean success = false;
+             try {
+-                mVold.destroyUserStorageKeys(userId);
+-                // Since the user's CE key was just destroyed, the user's CE storage is now locked.
+-                synchronized (mLock) {
+-                    mCeUnlockedUsers.remove(userId);
+-                }
++                vold.destroyUserStorageKeys(userId);
++                synchronized (mLock) { mCeUnlockedUsers.remove(userId); }
++                success = true;
+             } catch (Exception e) {
+                 Slog.wtf(TAG, e);
++            } finally {
++                mCeAccess.complete(observation, success);
+             }
+         }
+ 
+@@ -5145,10 +5220,20 @@
+         @Override
+         public void destroyUserStorage(
+                 @Nullable String volumeUuid, @UserIdInt int userId, @StorageFlags int flags) {
++            final IVold vold = mVold;
++            // The observation is CE access, not only key state. Directory
++            // destruction is a separate invalidating operation; no cache rewrite.
++            final CeStorageAccessTracker.Operation observation =
++                    (flags & StorageManager.FLAG_STORAGE_CE) != 0
++                    ? mCeAccess.beginRevocation(userId, voldIdentity(vold)) : null;
++            boolean success = false;
+             try {
+-                mVold.destroyUserStorage(volumeUuid, userId, flags);
++                vold.destroyUserStorage(volumeUuid, userId, flags);
++                success = true;
+             } catch (Exception e) {
+                 Slog.wtf(TAG, e);
++            } finally {
++                mCeAccess.complete(observation, success);
+             }
+         }
+ 
+@@ -5177,15 +5262,22 @@
+ 
+         @Override
+         public void unlockCeStorage(@UserIdInt int userId, byte[] secret) {
+-            if (StorageManager.isFileEncrypted()) {
+-                try {
+-                    mVold.unlockCeStorage(userId, secret);
+-                } catch (RemoteException e) {
+-                    e.rethrowAsRuntimeException();
+-                }
+-            }
+-            synchronized (mLock) {
+-                mCeUnlockedUsers.append(userId);
++            final IVold vold = mVold;
++            final CeStorageAccessTracker.Operation observation =
++                    mCeAccess.beginAvailable(userId, voldIdentity(vold));
++            boolean success = false;
++            try {
++                if (StorageManager.isFileEncrypted()) {
++                    try {
++                        vold.unlockCeStorage(userId, secret);
++                    } catch (RemoteException e) {
++                        e.rethrowAsRuntimeException();
++                    }
++                }
++                synchronized (mLock) { mCeUnlockedUsers.append(userId); }
++                success = true;
++            } finally {
++                mCeAccess.complete(observation, success);
+             }
+         }
+ 

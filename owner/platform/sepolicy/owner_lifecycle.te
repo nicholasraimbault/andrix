@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+# Opt-in system_server lifecycle adapter. No APK gets management permissions.
+type andrix_lifecycle_service, service_manager_type, system_server_service;
+add_service(system_server, andrix_lifecycle_service)
+allow andrixd andrix_lifecycle_service:service_manager find;
+binder_call(andrixd, system_server)
+neverallow { andrix_owner andrix_terminal untrusted_app_all isolated_app_all } andrix_lifecycle_service:service_manager find;
+
+# Only this named init service can be controlled by the adapter. Native owner
+# processes retain no control-property or cgroup-write authority.
+system_internal_prop(ctl_andrix_owner_prop)
+set_prop(system_server, ctl_andrix_owner_prop)
+neverallow { domain -init -system_server } ctl_andrix_owner_prop:property_service set;
+
+# Development observer metadata only, never a lifetime or key-control operation.
+userdebug_or_eng(`
+allow shell andrix_lifecycle_service:service_manager find;
+')
