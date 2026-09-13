@@ -21,7 +21,8 @@ class LifecycleCoreTests(unittest.TestCase):
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
             ran=subprocess.run([str(binary)],capture_output=True,text=True,timeout=20)
             self.assertEqual(ran.returncode,0,ran.stdout+ran.stderr)
-            self.assertIn('Android unqualified',ran.stdout)
+            self.assertIn('Lifecycle challenge/delay/replay/expiry model passed',ran.stdout)
+            self.assertIn('Android authority unqualified',ran.stdout)
 
 
 if __name__=='__main__':unittest.main()
