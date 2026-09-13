@@ -1,0 +1,160 @@
+{
+  "target": "aarch64-linux-android37",
+  "sdk_manifest_sha256": "fc5738153df1da8af7dfb86f29a16c64958d53a8204b5e3c6a9df53954fecc19",
+  "bootstrap_project": "prebuilts/clang/host/linux-x86",
+  "bootstrap_revision": "29182889399818f97baa65ea238c80e8117981eb",
+  "bootstrap_directory": "clang-r584948b",
+  "bootstrap_version": "22.0.1",
+  "host_make_project": "prebuilts/build-tools",
+  "host_make_revision": "9b6c8c6a2f582a9d7817fd8275c8014959c60cc4",
+  "host_make_file": "linux-x86/bin/make",
+  "host_make_sha256": "733af3acec51d64b87fae273e221855d4fd93e33573f937fc5b18f2f582ea7d9",
+  "cflags": [
+    "-O2",
+    "-g",
+    "-fPIC",
+    "-fstack-protector-strong",
+    "-D_FORTIFY_SOURCE=2",
+    "-ftrivial-auto-var-init=zero",
+    "-mbranch-protection=standard",
+    "-fvisibility=hidden",
+    "-flto=thin",
+    "-fsanitize=cfi-icall"
+  ],
+  "ldflags": [
+    "-fuse-ld=lld",
+    "-pie",
+    "-Wl,-z,now,-z,relro,-z,noexecstack,-z,max-page-size=16384,-z,common-page-size=16384,--build-id=sha1"
+  ],
+  "schema": 1,
+  "name": "native tmux with private static dependencies",
+  "version": "3.7c",
+  "dynamic_Bionic": true,
+  "dependencies_embedded_not_system_libraries": true,
+  "default_TERM": "tmux-256color",
+  "terminfo_entries": [
+    "dumb",
+    "vt100",
+    "xterm-256color",
+    "screen",
+    "screen-256color",
+    "tmux",
+    "tmux-256color"
+  ],
+  "packages": {
+    "tmux": {
+      "version": "3.7c",
+      "archive": {
+        "file": "tmux-3.7c.tar.gz",
+        "url": "https://github.com/tmux/tmux/releases/download/3.7c/tmux-3.7c.tar.gz",
+        "sha256": "7c60cae9a0e25288e2e24750aafc9e8800fc7fd4555e447e1b29ee4201cfb3bf"
+      },
+      "license": "ISC and original per-file notices",
+      "tag_object": "79072dd1a9f5fb437a5859e362a496fd57ec0981",
+      "commit": "e476c1230b958df0cb12977517d24b3dc931375b",
+      "tag_signed": false,
+      "source_assurance": "official HTTPS release + matching GitHub asset digest; 209 tracked release files match the unsigned tag tree; 11 generated release files separate"
+    },
+    "libevent": {
+      "version": "2.1.13-stable",
+      "archive": {
+        "file": "libevent-2.1.13-stable.tar.gz",
+        "url": "https://github.com/libevent/libevent/releases/download/release-2.1.13-stable/libevent-2.1.13-stable.tar.gz",
+        "sha256": "f7e9383b8c0baa81b687e5b5eecc01beefaf1b19b64151d95ed61647fe7a315c"
+      },
+      "license": "BSD-3-Clause and original per-file notices",
+      "signature": {
+        "file": "libevent-2.1.13-stable.tar.gz.asc",
+        "sha256": "d875a6a702adbd0bb28e99e0add5cd9558514d4167068374a3d1676fa9fb31e0"
+      },
+      "keyring": {
+        "file": "libevent-keyring.gpg",
+        "sha256": "8dcaaf0323960d45303b8d0032f133a44ab22b242528a88b97075a4ef7831376"
+      },
+      "primary_key": "2133BC600AB133E1D826D173FE43009C4607B1FB",
+      "signing_key": "7A02B3521DC75C542BA015456AFEE6D49E92B601",
+      "source_assurance": "official HTTPS release and digest plus verified GPG signature; keyserver-supplied key is not out-of-band maintainer authentication"
+    },
+    "ncurses": {
+      "version": "6.6-20260912",
+      "archive": {
+        "file": "ncurses-6.6-20260912.tgz",
+        "url": "https://invisible-island.net/archives/ncurses/current/ncurses-6.6-20260912.tgz",
+        "sha256": "bc14b72df2511e92ad544e971cd383729220787ebd4985d1c81268d6b7b2cc54"
+      },
+      "license": "X11-style license and original per-file notices",
+      "signature": {
+        "file": "ncurses-6.6-20260912.tgz.asc",
+        "sha256": "84c1611cf0f769a981379570f5c2cea29efb91cae6c9df9e7244578a240b6f48"
+      },
+      "keyring": {
+        "file": "ncurses-keyring.gpg",
+        "sha256": "412557ae6f57b2ac59cf39201c7ed3ee662949c9cd6adef4b9ff662d33e799d3"
+      },
+      "primary_key": "19882D92DDA4C400C22C0D56CC2AF4472167BE03",
+      "signing_key": "19882D92DDA4C400C22C0D56CC2AF4472167BE03",
+      "source_assurance": "official maintainer HTTPS snapshot/key page plus verified GPG signature; not out-of-band key authentication"
+    }
+  },
+  "configure": {
+    "libevent": [
+      "--build=x86_64-pc-linux-gnu",
+      "--host=aarch64-linux-android",
+      "--prefix=/usr",
+      "--disable-shared",
+      "--enable-static",
+      "--disable-openssl",
+      "--disable-samples",
+      "--disable-libevent-regress",
+      "--disable-malloc-replacement",
+      "--disable-debug-mode"
+    ],
+    "ncurses_native": [
+      "--build=x86_64-pc-linux-gnu",
+      "--host=aarch64-linux-android",
+      "--prefix=/usr",
+      "--without-shared",
+      "--without-debug",
+      "--with-normal",
+      "--with-termlib",
+      "--enable-widec",
+      "--without-progs",
+      "--without-tests",
+      "--without-cxx",
+      "--without-cxx-binding",
+      "--without-ada",
+      "--without-gpm",
+      "--disable-db-install",
+      "--enable-pc-files",
+      "--with-pkg-config-libdir=/usr/lib/pkgconfig",
+      "--with-default-terminfo-dir=/usr/share/terminfo",
+      "--with-terminfo-dirs=/usr/share/terminfo"
+    ],
+    "ncurses_host": [
+      "--prefix=/unused-host-tic",
+      "--without-shared",
+      "--without-debug",
+      "--without-tests",
+      "--without-cxx",
+      "--without-cxx-binding",
+      "--without-ada",
+      "--without-gpm",
+      "--disable-db-install"
+    ],
+    "tmux": [
+      "--build=x86_64-pc-linux-gnu",
+      "--host=aarch64-linux-android",
+      "--prefix=/usr",
+      "--sysconfdir=/usr/etc/andrix/tmux",
+      "--with-TERM=tmux-256color",
+      "--disable-static",
+      "--disable-utempter",
+      "--disable-systemd",
+      "--disable-cgroups",
+      "--disable-utf8proc",
+      "--disable-jemalloc",
+      "--disable-sixel",
+      "--disable-asan"
+    ]
+  }
+}
