@@ -20,9 +20,28 @@ cc_defaults {
     srcs: ["native/session_core.cpp", "native/guards.cpp"],
 }
 
+soong_config_module_type {
+    name: "andrix_lifecycle_cc_defaults",
+    module_type: "cc_defaults",
+    config_namespace: "andrix",
+    bool_variables: ["owner_lifecycle"],
+    properties: ["cflags", "srcs", "static_libs"],
+}
+
+andrix_lifecycle_cc_defaults {
+    name: "andrix_lifecycle_build",
+    soong_config_variables: {
+        owner_lifecycle: {
+            cflags: ["-DANDRIX_OWNER_LIFECYCLE=1"],
+            srcs: ["native/platform_lifecycle.cpp", "native/lifecycle_core.cpp"],
+            static_libs: ["andrix_platform_lifecycle-ndk"],
+        },
+    },
+}
+
 cc_binary {
     name: "andrixd",
-    defaults: ["andrix_owner_defaults"],
+    defaults: ["andrix_owner_defaults", "andrix_lifecycle_build"],
     srcs: ["native/andrixd.cpp", "native/terminal_protocol.cpp"],
     static_libs: ["andrix_session-ndk"],
     shared_libs: ["libbase", "libbinder_ndk", "liblog", "libselinux"],

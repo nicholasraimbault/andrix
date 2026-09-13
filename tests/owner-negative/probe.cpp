@@ -13,6 +13,9 @@ Java_dev_andrix_proof_ownernegative_OwnerNegative_nativeProbe(JNIEnv* env, jclas
     AIBinder* service = AServiceManager_checkService("andrix.owner.session");
     const bool found = service != nullptr;
     if (service != nullptr) AIBinder_decStrong(service);
+    AIBinder* lifecycle = AServiceManager_checkService("andrix.owner.lifecycle");
+    const bool lifecycle_found = lifecycle != nullptr;
+    if (lifecycle != nullptr) AIBinder_decStrong(lifecycle);
     errno = 0;
     int home = open("/data/misc_ce/0/andrix", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
     const int home_error = home < 0 ? errno : 0;
@@ -29,8 +32,10 @@ Java_dev_andrix_proof_ownernegative_OwnerNegative_nativeProbe(JNIEnv* env, jclas
     }
     char record[768];
     int length = snprintf(record, sizeof(record),
-        "{\"uid\":%u,\"euid\":%u,\"sid\":\"%s\",\"service_found\":%s,\"home_errno\":%d}",
-        getuid(), geteuid(), sid, found ? "true" : "false", home_error);
+        "{\"uid\":%u,\"euid\":%u,\"sid\":\"%s\",\"service_found\":%s,"
+        "\"lifecycle_service_found\":%s,\"home_errno\":%d}",
+        getuid(), geteuid(), sid, found ? "true" : "false",
+        lifecycle_found ? "true" : "false", home_error);
     if (length < 0 || length >= static_cast<int>(sizeof(record))) return nullptr;
     return env->NewStringUTF(record);
 }

@@ -17,6 +17,20 @@ ifeq ($(ANDRIX_OWNER_SESSION),true)
 PRODUCT_PACKAGES += andrixd andrix-session-runner AndrixTerminal
 endif
 
+# Android-owned lifecycle observation/cleanup integration is separately gated.
+# This does not enable Console-independent Keep; that remains a later native gate.
+ifeq ($(ANDRIX_OWNER_LIFECYCLE),true)
+ifneq ($(ANDRIX_OWNER_SESSION),true)
+$(error ANDRIX_OWNER_LIFECYCLE requires ANDRIX_OWNER_SESSION=true)
+endif
+$(call soong_config_set_bool,andrix,owner_lifecycle,true)
+PRODUCT_PACKAGES += andrix-owner-lifecycle AndrixOwnerLifecycleOverlay
+PRODUCT_SYSTEM_SERVER_JARS_EXTRA += system_ext:andrix-owner-lifecycle
+# Preserve system-server optimization and let the existing build logic trace
+# downstream references from this jar; do not use a broken-order bypass.
+SYSTEM_OPTIMIZE_JAVA := true
+endif
+
 # Compiler payload is a separate opt-in within the owner environment. Unflagged
 # builds retain the original small APEX and do not require the staged compiler.
 ifeq ($(ANDRIX_OWNER_COMPILER),true)

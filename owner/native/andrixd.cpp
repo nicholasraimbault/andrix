@@ -2,6 +2,9 @@
 #include "guards.h"
 #include "session_core.h"
 #include "terminal_protocol.h"
+#ifdef ANDRIX_OWNER_LIFECYCLE
+#include "platform_lifecycle.h"
+#endif
 
 #include <aidl/dev/andrix/session/BnOwnerSession.h>
 #include <android/binder_ibinder_platform.h>
@@ -77,6 +80,14 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
     if (!death_) _exit(125);
   }
 
+  bool start_lifecycle() {
+#ifdef ANDRIX_OWNER_LIFECYCLE
+    return platform_.start();
+#else
+    return true;
+#endif
+  }
+
   ScopedAStatus registerController(const ndk::SpAIBinder& lifetime) override {
     if (!caller_allowed()) return denied();
     if (!lifetime.get() || !AIBinder_isRemote(lifetime.get()))
@@ -104,6 +115,7 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
     std::lock_guard guard(mutex_);
     if (!controller_matches()) return denied();
     if (stopping_) return bad_state("session is ending");
+    if (!lifecycle_ready_locked()) return bad_state("Android lifecycle observation unavailable");
     if (uint64_t(previous_session) == session_id_ &&
         uint64_t(next_output) > output_.delivered_end())
       return bad_state("output offset was never delivered");
@@ -166,7 +178,8 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
     if (!controller_matches()) return denied();
     const bool policy_ready = home_ >= 0 && ce_policy_valid(home_, &error);
     if (!user_unlocked) stopping_ = true;
-    *result = generation > 0 && !stopping_ && gate_.renew(generation, now_ms(), ui_eligible,
+    *result = generation > 0 && !stopping_ && lifecycle_ready_locked() &&
+              gate_.renew(generation, now_ms(), ui_eligible,
                                                        user_unlocked && policy_ready);
     if (!gate_.live(now_ms())) revoke_locked();
     return ScopedAStatus::ok();
@@ -178,7 +191,8 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
     if (!controller_matches()) return denied();
     *result = false;
     if (generation <= 0 || uint64_t(generation) != gate_.generation() ||
-        !gate_.live(now_ms()) || next_output < 0) return ScopedAStatus::ok();
+        !gate_.live(now_ms()) || !lifecycle_ready_locked() || next_output < 0)
+      return ScopedAStatus::ok();
     *result = output_.acknowledge(next_output);
     return ScopedAStatus::ok();
   }
@@ -219,7 +233,7 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
     if (!caller_allowed()) return denied();
     std::lock_guard guard(mutex_);
     if (!controller_matches()) return denied();
-    bool active = gate_.live(now_ms());
+    bool active = gate_.live(now_ms()) && lifecycle_ready_locked();
     if (!active) revoke_locked();
     *result = "uid=" + std::to_string(getuid()) + " child=" + std::to_string(child_) +
               " attached=" + (active ? "true" : "false") +
@@ -236,6 +250,9 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
       {
         std::lock_guard guard(mutex_);
         if (!gate_.live(now_ms())) revoke_locked();
+#ifdef ANDRIX_OWNER_LIFECYCLE
+        if (platform_.failed()) { stopping_ = true; revoke_locked(); }
+#endif
         if (stopping_) {
           // The daemon never grants itself cgroup-control access or kills a guessed
           // process group. Exiting lets Android init kill/reap its entire owned
@@ -270,6 +287,15 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
   }
 
  private:
+  bool lifecycle_ready_locked() {
+#ifdef ANDRIX_OWNER_LIFECYCLE
+    if (platform_.failed()) { stopping_ = true; revoke_locked(); return false; }
+    return platform_.ready();
+#else
+    return true;
+#endif
+  }
+
   bool controller_matches() const {
     return controller_.get() && controller_pid_ == AIBinder_getCallingPid();
   }
@@ -340,6 +366,7 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
   }
 
   void transfer_locked() {
+    if (!lifecycle_ready_locked()) { revoke_locked(); return; }
     std::array<char, 4096> buffer{};
     if (master_ >= 0) {
       // One bounded read each turn; an output flood must not monopolize Binder or
@@ -397,6 +424,9 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
   }
 
   std::mutex mutex_;
+#ifdef ANDRIX_OWNER_LIFECYCLE
+  PlatformLifecycle platform_;
+#endif
   const uint64_t session_id_;
   AttachmentGate gate_;
   terminal::OutputJournal output_;
@@ -449,6 +479,10 @@ int main(int argc, char**) {
   AIBinder_setRequestingSid(binder.get(), true);
   ABinderProcess_setThreadPoolMaxThreadCount(2);
   ABinderProcess_startThreadPool();
+  if (!service->start_lifecycle()) {
+    LOG(ERROR) << "Android lifecycle service unavailable; no owner work admitted";
+    return 125;
+  }
   if (AServiceManager_addService(binder.get(), andrix::kServiceName.data()) != STATUS_OK) return 125;
   LOG(INFO) << "Bounded owner service ready; no session until authenticated foreground attachment";
   service->run();

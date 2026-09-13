@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: Apache-2.0
+// Opt-in system_server adapter; not an APK and not a replacement Android service.
+aidl_interface {
+    name: "andrix_platform_lifecycle",
+    unstable: true,
+    srcs: ["aidl/dev/andrix/lifecycle/*.aidl"],
+    local_include_dir: "aidl",
+    backend: {
+        cpp: { enabled: false },
+        java: { enabled: true, platform_apis: true },
+        ndk: { enabled: true },
+    },
+}
+
+java_library {
+    name: "andrix-owner-lifecycle",
+    system_ext_specific: true,
+    installable: true,
+    srcs: ["java/**/*.java"],
+    libs: ["services.impl"],
+    static_libs: ["andrix_platform_lifecycle-java"],
+    optimize: {
+        enabled: true,
+        optimize: true,
+        shrink: true,
+        ignore_warnings: false,
+        proguard_flags_files: ["proguard.flags"],
+    },
+}

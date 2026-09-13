@@ -1,0 +1,4 @@
+# Loaded by Android's device-specific SystemService class name.
+-keep class dev.andrix.server.OwnerLifecycleService { *; }
+# The local Java/NDK Binder protocol must retain its generated entry points.
+-keep class dev.andrix.lifecycle.** { *; }

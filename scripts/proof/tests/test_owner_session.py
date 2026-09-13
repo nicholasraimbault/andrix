@@ -108,6 +108,8 @@ class OwnerSessionTests(unittest.TestCase):
 
     def test_actual_pump_methods_with_host_pty_and_revocable_streams(self):
         source = (ROOT/'owner/native/andrixd.cpp').read_text()
+        lifecycle_start = source.index('  bool lifecycle_ready_locked() {')
+        lifecycle = source[lifecycle_start:source.index('  bool controller_matches()', lifecycle_start)]
         death_start = source.index('  void controller_died() {')
         start = source.index('  void revoke_locked() {')
         death = source[death_start:start]
@@ -123,17 +125,19 @@ class OwnerSessionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             work = Path(tmp)
             cpp = work/'pump.cpp'
-            cpp.write_text(harness.replace('// PRODUCTION_METHODS', death + revoke + pump))
-            binary = work/'pump'
-            compiled = subprocess.run([compiler, '-std=c++20', '-Wall', '-Wextra', '-Werror',
-                                       '-O2', '-I'+str(ROOT/'owner/native'),
-                                       str(ROOT/'owner/native/session_core.cpp'),
-                                       str(ROOT/'owner/native/terminal_protocol.cpp'), str(cpp), '-o', str(binary)],
-                                      capture_output=True, text=True, timeout=60)
-            self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
-            ran = subprocess.run([str(binary)], capture_output=True, text=True, timeout=20)
-            self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
-            self.assertIn('Android unqualified', ran.stdout)
+            cpp.write_text(harness.replace('// PRODUCTION_METHODS', lifecycle + death + revoke + pump))
+            for enabled in (False, True):
+                binary = work/('pump-lifecycle' if enabled else 'pump-plain')
+                flags = ['-DANDRIX_OWNER_LIFECYCLE=1'] if enabled else []
+                compiled = subprocess.run([compiler, '-std=c++20', '-Wall', '-Wextra', '-Werror',
+                                           '-O2', *flags, '-I'+str(ROOT/'owner/native'),
+                                           str(ROOT/'owner/native/session_core.cpp'),
+                                           str(ROOT/'owner/native/terminal_protocol.cpp'), str(cpp), '-o', str(binary)],
+                                          capture_output=True, text=True, timeout=60)
+                self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
+                ran = subprocess.run([str(binary)], capture_output=True, text=True, timeout=20)
+                self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+                self.assertIn('Android unqualified', ran.stdout)
 
     def test_worker_filter_real_host_syscalls_and_exec_inheritance(self):
         compiler = shutil.which('g++')

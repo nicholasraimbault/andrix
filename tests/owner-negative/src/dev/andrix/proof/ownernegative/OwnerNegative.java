@@ -51,7 +51,9 @@ public final class OwnerNegative extends Instrumentation {
             boolean rejected = report.getInt("uid") == Process.myUid()
                     && report.getInt("euid") == Process.myUid()
                     && report.getString("sid").startsWith("u:r:untrusted_app:")
-                    && !report.getBoolean("service_found") && report.getInt("home_errno") == 13;
+                    && !report.getBoolean("service_found")
+                    && !report.getBoolean("lifecycle_service_found")
+                    && report.getInt("home_errno") == 13;
             report.put("status", rejected ? "NEGATIVES_OBSERVED_REQUIRE_POSITIVE_CONTROL" : "FAIL");
             result.putString("owner_negative", report.toString());
             finish(rejected ? Activity.RESULT_OK : Activity.RESULT_CANCELED, result);

@@ -25,8 +25,15 @@ struct HostFd {
   operator int() const { return value; }
   void reset(int next = -1) { if (value >= 0) close(value); value = next; }
 };
+// Explicit host observation stub, not a forged Android lifecycle authority.
+struct HostPlatform {
+  bool available = true, fault = false;
+  bool ready() { return available; }
+  bool failed() { return fault; }
+};
 struct Pump {
   std::mutex mutex_;
+  HostPlatform platform_;
   const uint64_t session_id_ = 7;
   AttachmentGate gate_;
   terminal::OutputJournal output_;
@@ -129,5 +136,24 @@ int main() {
   p.controller_died();
   assert(p.stopping_ && p.bridge_ == -1 && !p.gate_.live(fake_now));
   assert(read(next, &byte, 1) == 0);
+#ifdef ANDRIX_OWNER_LIFECYCLE
+  Pump blocked;
+  blocked.master_.reset(dup(master));
+  assert(blocked.master_ >= 0);
+  int pair[2];
+  assert(socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0, pair) == 0);
+  blocked.bridge_.reset(pair[0]);
+  HostFd sender; sender.reset(pair[1]);
+  assert(blocked.gate_.attach(++fake_now, true, true, true));
+  assert(write(sender, "blocked", 7) == 7);
+  blocked.platform_.available = false;
+  blocked.input_ = "also blocked";
+  blocked.transfer_locked();
+  assert(blocked.bridge_ == -1 && blocked.input_.empty() && !blocked.stopping_);
+  assert(read(slave, &byte, 1) == -1 && errno == EAGAIN);
+  blocked.platform_.fault = true;
+  blocked.transfer_locked();
+  assert(blocked.stopping_ && !blocked.gate_.live(fake_now));
+#endif
   std::cout << "real host PTY/framed replay/revocation checks passed; Android unqualified\n";
 }

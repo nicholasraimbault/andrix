@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
+ctl.start$andrixd      u:object_r:ctl_andrix_owner_prop:s0
+ctl.stop$andrixd       u:object_r:ctl_andrix_owner_prop:s0
+ctl.restart$andrixd    u:object_r:ctl_andrix_owner_prop:s0

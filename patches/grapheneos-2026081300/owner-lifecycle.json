@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "project": "frameworks/base",
+  "head": "aab06a8bd44c4c2b58eeec780fde83baa9d43a40",
+  "patch_sha256": "d31b199ed6154799569a2065987977eb3322c5828822d31a48db32e66f32d3c5",
+  "files": [
+    {
+      "path": "services/core/java/com/android/server/StorageManagerInternal.java",
+      "upstream_sha256": "94a4b7908b3e3c72c6218bf27e248b0e536f716b6866c4de9dd11071d9d7b527",
+      "candidate_sha256": "93cec4d64e10ba615c4133a698bc686870b9d3cec83865b6a8f0c55d639453b7"
+    },
+    {
+      "path": "services/core/java/com/android/server/StorageManagerService.java",
+      "upstream_sha256": "235a26963a8b58ec1fd8c0020f28385aa93f4971d50a1b085d1d5cc3b625daaf",
+      "candidate_sha256": "f6f6a5ee56576ba565102dea3dbdd12a3fd60ac3574d3d5f968a9dd29bce2129"
+    }
+  ],
+  "added": {
+    "path": "services/core/java/com/android/server/storage/CeStorageAccessTracker.java",
+    "source": "owner/platform/framework/CeStorageAccessTracker.java",
+    "sha256": "3d2a5f7b5a8cc2bc15adec7e8f96bd730a1501bf82ae505bb5dc1db96654aaf2"
+  },
+  "scope": "system_server-local CE access observations; no key-operation/cleanup barrier or APK grant; not runtime-qualified"
+}
