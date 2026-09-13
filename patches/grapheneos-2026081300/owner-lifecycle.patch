@@ -231,7 +231,7 @@
          }
      }
  
-@@ -2154,40 +2181,69 @@
+@@ -2154,40 +2181,78 @@
      }
  
      private void connectVold() {
@@ -277,9 +277,18 @@
 +                    synchronized (mVoldConnectionLock) {
 +                        // Covers death delivered before the candidate was published.
 +                        if (binder.isBinderAlive()) {
-+                            mVold = candidate;
++                            // Key methods read mVold without this connection lock.
++                            // Install observation identity BEFORE exposing the binder,
++                            // or a revocation could start against an untracked backend.
 +                            mCeAccess.connected(binder);
-+                            connected = candidate;
++                            // Local observation callbacks can race death. Do not
++                            // publish a candidate which died during that handoff.
++                            if (binder.isBinderAlive()) {
++                                mVold = candidate;
++                                connected = candidate;
++                            } else {
++                                mCeAccess.died(binder);
++                            }
 +                        }
 +                    }
 +                } else {
@@ -327,7 +336,7 @@
              onDaemonConnected();
          }
      }
-@@ -3379,27 +3435,26 @@
+@@ -3379,27 +3444,26 @@
      @Override
      public void lockCeStorage(int userId) {
          super.lockCeStorage_enforcePermission();
@@ -370,7 +379,7 @@
          }
      }
  
-@@ -4890,6 +4945,18 @@
+@@ -4890,6 +4954,18 @@
      }
  
      private final class StorageManagerInternalImpl extends StorageManagerInternal {
@@ -389,7 +398,7 @@
          @GuardedBy("mResetListeners")
          private final List<StorageManagerInternal.ResetListener> mResetListeners =
                  new ArrayList<>();
-@@ -5108,27 +5175,35 @@
+@@ -5108,27 +5184,35 @@
  
          @Override
          public void createUserStorageKeys(int userId, boolean ephemeral) {
@@ -435,7 +444,7 @@
              }
          }
  
-@@ -5145,10 +5220,20 @@
+@@ -5145,10 +5229,20 @@
          @Override
          public void destroyUserStorage(
                  @Nullable String volumeUuid, @UserIdInt int userId, @StorageFlags int flags) {
@@ -457,7 +466,7 @@
              }
          }
  
-@@ -5177,15 +5262,22 @@
+@@ -5177,15 +5271,22 @@
  
          @Override
          public void unlockCeStorage(@UserIdInt int userId, byte[] secret) {

@@ -79,6 +79,32 @@ public final class CeStorageAccessTrackerTest {
         ready(tracker, 0, replacement); // No live binding: never authorizes.
         assert !latest.state.available;
         tracker.connected(new Object());
+        unmatchedIdentityStillFences();
+    }
+
+    private static void unmatchedIdentityStillFences() {
+        CeStorageAccessTracker tracker = tracker(); Latest latest = new Latest();
+        tracker.register(0, latest);
+        // A lock can snapshot mVold before the tracker learns the new binder.
+        var early = tracker.beginRevocation(0, null);
+        assert !latest.state.available;
+        Object daemon = new Object(); tracker.connected(daemon);
+        var restore = tracker.beginRestore(daemon);
+        tracker.completeBulk(restore, true, new int[]{0});
+        assert !latest.state.available; // In-flight unmatched revocation still fences.
+        tracker.complete(early, true);
+        assert !latest.state.available;
+        restore = tracker.beginRestore(daemon);
+        tracker.completeBulk(restore, true, new int[]{0});
+        assert latest.state.available;
+        var stale = tracker.beginRevocation(0, new Object());
+        var overlapping = tracker.beginRestore(daemon);
+        tracker.completeBulk(overlapping, true, new int[]{0});
+        assert !latest.state.available;
+        tracker.complete(stale, true);
+        overlapping = tracker.beginRestore(daemon);
+        tracker.completeBulk(overlapping, true, new int[]{0});
+        assert latest.state.available;
     }
 
     private static void resetFences() {

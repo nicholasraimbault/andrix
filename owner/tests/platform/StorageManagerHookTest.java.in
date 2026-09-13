@@ -1,11 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // Host facade for exact adapted framework methods, not Android runtime authority.
 import com.android.server.storage.CeStorageAccessTracker;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.util.*;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
+
+@Retention(RetentionPolicy.SOURCE)
+@interface UserIdInt {}
 
 class RemoteException extends Exception {
     private static final long serialVersionUID = 1;
+    RuntimeException rethrowAsRuntimeException() { throw new RuntimeException(this); }
 }
 interface DeathRecipient { void binderDied(); }
 interface IBinder {
@@ -18,6 +28,7 @@ interface IVold {
     void setListener(Object listener) throws RemoteException;
     int[] getUnlockedUsers() throws RemoteException;
     void lockCeStorage(int user) throws RemoteException;
+    void unlockCeStorage(int user, byte[] secret) throws RemoteException;
     default void reset() throws RemoteException { }
     default void onUserAdded(int id,int serial,int group) throws RemoteException { }
     default void onUserStarted(int id) throws RemoteException { }
@@ -46,8 +57,8 @@ class FakeBinder implements IBinder {
 }
 class FakeVold implements IVold {
     final FakeBinder binder;
-    Runnable onSet = () -> { }, onRestore = () -> { }, onLock = () -> { };
-    boolean failSet, failLock;
+    Runnable onSet = () -> { }, onRestore = () -> { }, onLock = () -> { }, onUnlock = () -> { };
+    boolean failSet, failLock, failUnlock;
     boolean loadedKey = true;
     int lockCalls;
     FakeVold(FakeBinder binder) { this.binder = binder; }
@@ -64,6 +75,14 @@ class FakeVold implements IVold {
         ++lockCalls; onLock.run(); if (failLock) throw new RemoteException();
         loadedKey = false;
     }
+    @Override public void unlockCeStorage(int user, byte[] secret) throws RemoteException {
+        if (failUnlock) throw new RemoteException();
+        loadedKey = true; // Vold completed; onUnlock models the pause before SMS cache append.
+        onUnlock.run();
+    }
+}
+class StorageManager {
+    static boolean isFileEncrypted() { return true; }
 }
 class ServiceManager {
     static IBinder target;
@@ -140,12 +159,37 @@ public final class StorageManagerHookTest extends KeyPermission {
     private static final int H_COMPLETE_UNLOCK_USER=1;
     private void extendWatchdogTimeout(String reason) { }
     private void addInternalVolumeLocked() { }
-    private final CeStorageAccessTracker mCeAccess = new CeStorageAccessTracker(error -> {
+    // Scheduling facade only: every observation operation delegates to the real tracker.
+    private static final class HookTracker {
+        final CeStorageAccessTracker real;
+        volatile Runnable afterConnected = () -> { };
+        volatile Runnable afterRevocation = () -> { };
+        HookTracker(Consumer<RuntimeException> errors) { real = new CeStorageAccessTracker(errors); }
+        CeStorageAccessTracker.Snapshot register(int id, CeStorageAccessTracker.Listener listener) {
+            return real.register(id, listener);
+        }
+        void connected(Object identity) { real.connected(identity); afterConnected.run(); }
+        void died(Object identity) { real.died(identity); }
+        CeStorageAccessTracker.Operation beginAvailable(int id, Object identity) {
+            return real.beginAvailable(id, identity);
+        }
+        CeStorageAccessTracker.Operation beginRevocation(int id, Object identity) {
+            var token = real.beginRevocation(id, identity); afterRevocation.run(); return token;
+        }
+        CeStorageAccessTracker.Operation beginRestore(Object identity) { return real.beginRestore(identity); }
+        CeStorageAccessTracker.Operation beginReset(Object identity) { return real.beginReset(identity); }
+        void complete(CeStorageAccessTracker.Operation token, boolean success) { real.complete(token, success); }
+        void completeBulk(CeStorageAccessTracker.Operation token, boolean success, int[] users) {
+            real.completeBulk(token, success, users);
+        }
+    }
+    private final HookTracker mCeAccess = new HookTracker(error -> {
         throw new AssertionError(error);
     });
     private final Cache mCeUnlockedUsers = new Cache();
     private static final class Cache {
         final Set<Integer> values = new HashSet<>();
+        void append(int id) { values.add(id); }
         void appendAll(int[] ids) { for (int id : ids) values.add(id); }
         void remove(int id) { values.remove(id); }
         int[] all() { return values.stream().mapToInt(Integer::intValue).toArray(); }
@@ -172,7 +216,61 @@ public final class StorageManagerHookTest extends KeyPermission {
         return test;
     }
 
-    public static void main(String[] args) {
+    // Identity is installed before mVold is exposed. A lock that still races the
+    // initial restore, including one that captured a null binder, cannot leave
+    // observation available. No preexisting SMS cache is required.
+    private static void publicationDoesNotBypassRevocation() throws Exception {
+        StorageManagerHookTest test = new StorageManagerHookTest();
+        FakeBinder keys = new FakeBinder(); ServiceManager.target = keys;
+        Latest latest = new Latest(); latest.onStateChanged(test.mCeAccess.register(0, latest));
+        assert !test.isCeStorageUnlocked(0);
+        CountDownLatch identity = new CountDownLatch(1), connectMayProceed = new CountDownLatch(1);
+        test.mCeAccess.afterConnected = () -> { identity.countDown(); await(connectMayProceed); };
+        Thread connection = new Thread(test::connectVold);
+        connection.start(); await(identity);
+        assert test.mVold == null : "binder must not be visible before identity handoff returns";
+        connectMayProceed.countDown(); connection.join(6000);
+        assert !connection.isAlive() && test.mVold == keys.service;
+        test.mCeAccess.afterConnected = () -> { };
+        assert latest.state.available && keys.service.loadedKey; // Ordinary first restore.
+
+        StorageManagerHookTest raced = new StorageManagerHookTest();
+        FakeBinder binder = new FakeBinder(); ServiceManager.target = binder;
+        Latest observed = new Latest(); observed.onStateChanged(raced.mCeAccess.register(0, observed));
+        CountDownLatch restoring = new CountDownLatch(1), restoreMayProceed = new CountDownLatch(1);
+        CountDownLatch revoked = new CountDownLatch(1), lockMayProceed = new CountDownLatch(1);
+        AtomicReference<Throwable> problem = new AtomicReference<>();
+        binder.service.onRestore = () -> { restoring.countDown(); await(restoreMayProceed); };
+        raced.mCeAccess.afterRevocation = () -> { revoked.countDown(); await(lockMayProceed); };
+        Thread restore = new Thread(() -> { try { raced.connectVold(); } catch (Throwable e) { problem.set(e); } });
+        Thread locking = new Thread(() -> { try { raced.lockCeStorage(0); } catch (Throwable e) { problem.set(e); } });
+        try {
+            restore.start(); await(restoring);
+            assert raced.mVold == binder.service; // Published only after identity install.
+            locking.start(); await(revoked);
+            restoreMayProceed.countDown(); restore.join(6000);
+            assert !restore.isAlive() && problem.get() == null : String.valueOf(problem.get());
+            lockMayProceed.countDown(); locking.join(6000);
+            assert !locking.isAlive() && problem.get() == null : String.valueOf(problem.get());
+            assert !binder.service.loadedKey && !raced.isCeStorageUnlocked(0);
+            assert !observed.state.available : "restore must not outrank an overlapping lock";
+            raced.resetIfBootedAndConnected();
+            assert !observed.state.available : "reset must not launder the raced cache append";
+        } finally {
+            raced.mCeAccess.afterRevocation = () -> { };
+            binder.service.onRestore = () -> { };
+            restoreMayProceed.countDown(); lockMayProceed.countDown();
+            restore.join(6000);
+            if (locking.getState() != Thread.State.NEW) locking.join(6000);
+        }
+    }
+
+    private static void await(CountDownLatch latch) {
+        try { if (!latch.await(5, TimeUnit.SECONDS)) throw new AssertionError("barrier timeout"); }
+        catch (InterruptedException error) { throw new AssertionError(error); }
+    }
+
+    public static void main(String[] args) throws Exception {
         FakeBinder first = new FakeBinder(); StorageManagerHookTest test = connect(first);
         test.connectVold(); assert first.callbacks.size() == 1; // No duplicate live binding.
         DeathRecipient oldCallback = first.callbacks.get(0);
@@ -198,13 +296,13 @@ public final class StorageManagerHookTest extends KeyPermission {
         ServiceManager.target = diedBeforePublication; test.connectVold();
         assert test.mVold == null && BackgroundThread.pending.size() == 1;
 
-        // Death during connected-observation delivery: the callback sees the
-        // publication but cannot reconnect while mConnectingVold is still true.
+        // Death during connected() now happens before mVold is exposed. The
+        // connection lock is reentrant; the callback must not publish a dead binder.
         BackgroundThread.pending.clear();
         StorageManagerHookTest race = new StorageManagerHookTest(); FakeBinder dying = new FakeBinder();
         AtomicBoolean once = new AtomicBoolean();
         race.mCeAccess.register(0, state -> {
-            if (race.mVold == dying.service && once.compareAndSet(false, true)) dying.die();
+            if (once.compareAndSet(false, true)) dying.die();
         });
         ServiceManager.target = dying; race.connectVold();
         assert race.mVold == null && !race.mConnectingVold && BackgroundThread.pending.size() == 1;
@@ -250,6 +348,18 @@ public final class StorageManagerHookTest extends KeyPermission {
         assert latest.state.available;
         keyTest.resetIfBootedAndConnected();
         assert keys.service.loadedKey && latest.state.available;
+
+        // Unlock success, pause before cache append; concurrent lock revokes;
+        // delayed append must not restore authority through later reset.
+        keys.service.onUnlock = () -> keyTest.lockCeStorage(0);
+        keyTest.unlockCeStorage(0, new byte[]{1});
+        assert keyTest.isCeStorageUnlocked(0) && !keys.service.loadedKey;
+        assert !latest.state.available;
+        keys.service.onUnlock = () -> { };
+        keyTest.resetIfBootedAndConnected();
+        assert !latest.state.available : "stale unlock cache must not restore authority through reset";
+
+        publicationDoesNotBypassRevocation();
         System.out.println("Exact framework connection/lock/restore/reset methods passed; Android unqualified");
     }
 }

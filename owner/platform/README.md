@@ -51,6 +51,9 @@ recording is not a synchronous pre-eviction completion guarantee.
 The tracker tests exercise operation/revocation/backend fencing and listener
 ordering. Reset revalidation requires previously verified availability: raw cache
 entries, including those appended by stale replies, cannot bootstrap authority.
+Tracker identity is installed before the vold binder is published. Revocations are
+counted even for a null or stale captured binder, and connect/death do not drop
+in-flight counts.
 The adapted framework-method fixture includes connection, locking, restoration and
 reset, retains upstream copyright, and is byte-checked by the source guard. It runs
 with explicit host Binder/vold facades. Its stale-restore → lock → delayed
