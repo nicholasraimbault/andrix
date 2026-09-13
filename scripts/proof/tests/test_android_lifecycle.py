@@ -20,7 +20,8 @@ class AndroidLifecycleTests(unittest.TestCase):
         self.assertEqual(len(profile['files']), 2)
         methods = lifecycle.EXTRACTED.read_text()
         for name in ['private void connectVold()', 'private void restoreCeUnlockedUsers(IVold vold)',
-                     'public void lockCeStorage(int userId)']:
+                     'public void lockCeStorage(int userId)', 'private void resetIfBootedAndConnected()',
+                     'private void restoreSystemUnlockedUsers(']:
             self.assertEqual(methods.count(name), 1)
         self.assertIn('Copyright (C) 2007 The Android Open Source Project', methods)
         self.assertIn('mVold.asBinder() != binder', methods)

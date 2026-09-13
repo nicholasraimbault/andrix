@@ -18,6 +18,10 @@ interface IVold {
     void setListener(Object listener) throws RemoteException;
     int[] getUnlockedUsers() throws RemoteException;
     void lockCeStorage(int user) throws RemoteException;
+    default void reset() throws RemoteException { }
+    default void onUserAdded(int id,int serial,int group) throws RemoteException { }
+    default void onUserStarted(int id) throws RemoteException { }
+    default void onSecureKeyguardStateChanged(boolean value) throws RemoteException { }
     final class Stub {
         static IVold asInterface(IBinder binder) { return ((FakeBinder) binder).service; }
     }
@@ -44,6 +48,7 @@ class FakeVold implements IVold {
     final FakeBinder binder;
     Runnable onSet = () -> { }, onRestore = () -> { }, onLock = () -> { };
     boolean failSet, failLock;
+    boolean loadedKey = true;
     int lockCalls;
     FakeVold(FakeBinder binder) { this.binder = binder; }
     @Override public IBinder asBinder() { return binder; }
@@ -52,10 +57,12 @@ class FakeVold implements IVold {
     }
     @Override public int[] getUnlockedUsers() throws RemoteException {
         if (!binder.alive) throw new RemoteException();
-        onRestore.run(); return new int[]{0};
+        int[] snapshot = loadedKey ? new int[]{0} : new int[0];
+        onRestore.run(); return snapshot;
     }
     @Override public void lockCeStorage(int user) throws RemoteException {
         ++lockCalls; onLock.run(); if (failLock) throw new RemoteException();
+        loadedKey = false;
     }
 }
 class ServiceManager {
@@ -81,11 +88,33 @@ class UserHandle { static final int USER_SYSTEM = 0; }
 class UserManager {
     static boolean headless;
     static boolean isHeadlessSystemUserMode() { return headless; }
+    List<UserInfo> getUsers() { return List.of(new UserInfo()); }
+    static void invalidateIsUserUnlockedCache() { }
+    boolean isUserRunning(int id) { return true; }
+    boolean isUserUnlockingOrUnlocked(int id) { return true; }
 }
+class UserInfo {
+    int id=0, serialNumber=0, profileGroupId=-1;
+    boolean isCloneProfile() { return false; }
+}
+class FakeContext {
+    <T> T getSystemService(Class<T> type) { return type.cast(new UserManager()); }
+}
+class FakeStorageSession {
+    void onReset(IVold vold,Runnable callback) { callback.run(); }
+}
+class FakeHandler {
+    void removeCallbacksAndMessages(Object token) { }
+    FakeHandler obtainMessage(int what,int arg1,int arg2) { return this; }
+    void sendToTarget() { }
+}
+class FakeStoraged { void onUserStarted(int id) { } }
+class FakeInternal { void onReset(IVold vold) { } }
 class Slog {
     static void w(String tag, String message) { }
     static void w(String tag, String message, Throwable error) { }
     static void d(String tag, String message) { }
+    static void i(String tag, String message) { }
     static void e(String tag, String message, Throwable error) { }
     static void wtf(String tag, Throwable error) { }
 }
@@ -100,6 +129,17 @@ public final class StorageManagerHookTest extends KeyPermission {
     private boolean mConnectingVold;
     private volatile IVold mVold;
     private int connectedCalls;
+    private boolean mBootCompleted=true, mDaemonConnected=true, mSecureKeyguardShowing;
+    private final FakeContext mContext=new FakeContext();
+    private final FakeStorageSession mStorageSessionController=new FakeStorageSession();
+    private final FakeHandler mHandler=new FakeHandler();
+    private final FakeStoraged mStoraged=new FakeStoraged();
+    private final FakeInternal mStorageManagerInternal=new FakeInternal();
+    private final Map<Integer,Integer> mDisks=new HashMap<>(), mVolumes=new HashMap<>();
+    private final int[] mSystemUnlockedUsers={0};
+    private static final int H_COMPLETE_UNLOCK_USER=1;
+    private void extendWatchdogTimeout(String reason) { }
+    private void addInternalVolumeLocked() { }
     private final CeStorageAccessTracker mCeAccess = new CeStorageAccessTracker(error -> {
         throw new AssertionError(error);
     });
@@ -108,6 +148,7 @@ public final class StorageManagerHookTest extends KeyPermission {
         final Set<Integer> values = new HashSet<>();
         void appendAll(int[] ids) { for (int id : ids) values.add(id); }
         void remove(int id) { values.remove(id); }
+        int[] all() { return values.stream().mapToInt(Integer::intValue).toArray(); }
     }
     private static IBinder voldIdentity(IVold vold) { return vold == null ? null : vold.asBinder(); }
     private void onDaemonConnected() { ++connectedCalls; }
@@ -187,13 +228,28 @@ public final class StorageManagerHookTest extends KeyPermission {
         catch (IllegalArgumentException expected) { assert latest.state.sequence == sequence; }
         UserManager.headless = false;
 
-        keys.service.onRestore = () -> {
-            var token = keyTest.mCeAccess.beginRevocation(0, keys);
-            keyTest.mCeAccess.complete(token, true);
-        };
+        // Model a prior successful unlock, then race an exact locking method
+        // between vold's captured restoration list and its delayed response.
+        keys.service.loadedKey = true;
+        keyTest.mCeUnlockedUsers.appendAll(new int[]{0});
+        keyTest.mCeAccess.complete(keyTest.mCeAccess.beginAvailable(0, keys), true);
+        keys.service.onRestore = () -> keyTest.lockCeStorage(0);
         keyTest.restoreCeUnlockedUsers(keys.service);
-        assert keyTest.isCeStorageUnlocked(0); // Android cache append is NOT replaced/cleared.
-        assert !latest.state.available; // But the stale positive cannot restore observation authority.
-        System.out.println("Exact framework connection/lock/restore methods passed; Android unqualified");
+        assert !keys.service.loadedKey && keyTest.isCeStorageUnlocked(0);
+        assert !latest.state.available; // Initial reply fence works, despite stale cache append.
+        keys.service.onRestore = () -> { };
+        keyTest.resetIfBootedAndConnected(); // Exact adapted reset, not just tracker calls.
+        assert !keys.service.loadedKey && keyTest.isCeStorageUnlocked(0);
+        assert !latest.state.available : "stale cache must not restore authority through reset";
+        keyTest.resetIfBootedAndConnected();
+        assert !latest.state.available : "repeated reset must not launder unknown provenance";
+        // A fresh successful key operation supplies new evidence. Ordinary reset
+        // can then preserve that verified availability, not invent it from cache.
+        keys.service.loadedKey = true;
+        keyTest.mCeAccess.complete(keyTest.mCeAccess.beginAvailable(0, keys), true);
+        assert latest.state.available;
+        keyTest.resetIfBootedAndConnected();
+        assert keys.service.loadedKey && latest.state.available;
+        System.out.println("Exact framework connection/lock/restore/reset methods passed; Android unqualified");
     }
 }

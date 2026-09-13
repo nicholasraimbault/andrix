@@ -3,7 +3,9 @@ package com.android.server.storage;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.Objects;
 import java.util.function.Consumer;
 
@@ -40,12 +42,18 @@ public final class CeStorageAccessTracker {
         private final int userId;
         private final Kind kind;
         private final boolean eligible, counted;
+        private final Set<Integer> resetCandidates;
         private boolean completed;
         private Operation(CeStorageAccessTracker owner, int userId, Kind kind,
                 boolean eligible, boolean counted) {
+            this(owner, userId, kind, eligible, counted, Set.of());
+        }
+        private Operation(CeStorageAccessTracker owner, int userId, Kind kind,
+                boolean eligible, boolean counted, Set<Integer> resetCandidates) {
             this.owner = owner; this.userId = userId; this.kind = kind;
             this.eligible = eligible; this.counted = counted; daemon = owner.daemon;
             backend = owner.backend; revision = owner.revision;
+            this.resetCandidates = Set.copyOf(resetCandidates);
         }
     }
 
@@ -217,6 +225,14 @@ public final class CeStorageAccessTracker {
         final ArrayList<Delivery> events;
         final Operation token;
         synchronized (this) {
+            // A cache entry may have been appended by a stale positive downcall
+            // whose observation completion was fenced out. Raw cache membership
+            // cannot bootstrap authority. Reset may only preserve already verified
+            // availability from this binding, additionally fenced against overlap.
+            Set<Integer> verified = new HashSet<>();
+            for (Map.Entry<Integer, User> entry : users.entrySet()) {
+                if (entry.getValue().state.available) verified.add(entry.getKey());
+            }
             events = invalidateAll();
             final boolean eligible = matches(identity) && pendingRevocations == 0;
             boolean counted = matches(identity);
@@ -224,7 +240,7 @@ public final class CeStorageAccessTracker {
                 exhaust(); counted = false;
             }
             if (counted) ++pendingRevocations;
-            token = new Operation(this, -1, Kind.RESET, eligible, counted);
+            token = new Operation(this, -1, Kind.RESET, eligible, counted, verified);
             finishEvents(events);
         }
         deliver(events);
@@ -240,10 +256,11 @@ public final class CeStorageAccessTracker {
     }
 
     /**
-     * A successful reset may revalidate the preserved platform cache, but only when
-     * no later revocation/backend change overlapped it. A restoration query has the
-     * same fence. Old completions cannot acquire the newest generation by arriving
-     * late. Call with a copy of upstream IDs, outside StorageManagerService.mLock.
+     * A successful reset may preserve previously verified availability only when
+     * the user remains in the platform cache and no revocation/backend change
+     * overlapped it. Cache membership alone is NOT new positive evidence. A fresh
+     * restoration downcall has its own operation fence. Call with a copy of upstream
+     * IDs, outside StorageManagerService.mLock.
      */
     public void completeBulk(Operation token, boolean success, int[] unlockedUsers) {
         Objects.requireNonNull(unlockedUsers);
@@ -272,6 +289,7 @@ public final class CeStorageAccessTracker {
                     advance(); events.add(publish(token.userId, true, false));
                 } else {
                     for (int id : unlockedUsers) {
+                        if (token.kind == Kind.RESET && !token.resetCandidates.contains(id)) continue;
                         advance(); events.add(publish(id, true, false));
                     }
                 }

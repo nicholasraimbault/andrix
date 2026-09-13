@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[3]
 
 
 class CeStorageAccessTests(unittest.TestCase):
-    def test_exact_framework_connection_lock_and_restore(self):
+    def test_exact_framework_connection_lock_restore_and_reset(self):
         javac, java = shutil.which('javac'), shutil.which('java')
         self.assertIsNotNone(javac)
         self.assertIsNotNone(java)
@@ -25,7 +25,7 @@ class CeStorageAccessTests(unittest.TestCase):
             ran = subprocess.run([java, '-ea', '-cp', directory, 'StorageManagerHookTest'],
                 capture_output=True, text=True, timeout=30)
             self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
-            self.assertIn('Exact framework connection/lock/restore methods passed', ran.stdout)
+            self.assertIn('Exact framework connection/lock/restore/reset methods passed', ran.stdout)
             self.assertIn('Android unqualified', ran.stdout)
 
     def test_user_and_ce_composition(self):

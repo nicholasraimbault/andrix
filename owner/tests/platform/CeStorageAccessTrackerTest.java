@@ -66,6 +66,11 @@ public final class CeStorageAccessTrackerTest {
         tracker.complete(oldReply, true);
         tracker.completeBulk(oldRestore, true, new int[]{0});
         assert latest.state.sequence == replacementSequence && !latest.state.available;
+        var emptyRestore = tracker.beginRestore(replacement);
+        tracker.completeBulk(emptyRestore, true, new int[0]);
+        var reset = tracker.beginReset(replacement);
+        tracker.completeBulk(reset, true, new int[]{0}); // Old cache is not new-backend evidence.
+        assert !latest.state.available;
         var restore = tracker.beginRestore(replacement);
         tracker.completeBulk(restore, true, new int[]{0});
         assert latest.state.available;
@@ -107,11 +112,26 @@ public final class CeStorageAccessTrackerTest {
         tracker.complete(lock, true);
         tracker.completeBulk(restore, true, new int[]{0});
         assert !latest.state.available;
-        ready(tracker, 0, daemon);
+        // Rejected restore can still have appended to the upstream cache. A
+        // later non-overlapping reset must not launder it into new authority.
+        reset = tracker.beginReset(daemon);
+        tracker.completeBulk(reset, true, new int[]{0});
+        assert !latest.state.available;
+        reset = tracker.beginReset(daemon);
+        tracker.completeBulk(reset, true, new int[]{0});
+        assert !latest.state.available;
+        ready(tracker, 0, daemon); // A fresh successful operation is new evidence.
         reset = tracker.beginReset(daemon);
         tracker.completeBulk(reset, false, new int[]{0});
         assert !latest.state.available;
+        reset = tracker.beginReset(daemon);
+        tracker.completeBulk(reset, true, new int[]{0});
+        assert !latest.state.available; // Failure is not undone by cache membership either.
         ready(tracker, 0, daemon); assert latest.state.available; // No stuck revocation count.
+        Latest unknown = new Latest(); tracker.register(1, unknown);
+        reset = tracker.beginReset(daemon);
+        tracker.completeBulk(reset, true, new int[]{0, 1});
+        assert latest.state.available && !unknown.state.available;
     }
 
     private static void listenerSafetyAndOrdering() throws Exception {

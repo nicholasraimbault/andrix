@@ -133,3 +133,93 @@
             mCeAccess.complete(observation, success);
         }
     }
+
+    private void resetIfBootedAndConnected() {
+        Slog.d(TAG, "Thinking about reset, mBootCompleted=" + mBootCompleted
+                + ", mDaemonConnected=" + mDaemonConnected);
+        if (mBootCompleted && mDaemonConnected) {
+            final IVold vold = mVold;
+            final CeStorageAccessTracker.Operation observation =
+                    mCeAccess.beginReset(voldIdentity(vold));
+            boolean observedSuccess = false;
+            try {
+                final UserManager userManager = mContext.getSystemService(UserManager.class);
+                final List<UserInfo> users = userManager.getUsers();
+
+                extendWatchdogTimeout("#onReset might be slow");
+                mStorageSessionController.onReset(vold, () -> {
+                    mHandler.removeCallbacksAndMessages(null);
+                });
+
+                final int[] systemUnlockedUsers;
+                synchronized (mLock) {
+                    // make copy as sorting can change order
+                    systemUnlockedUsers = Arrays.copyOf(mSystemUnlockedUsers,
+                            mSystemUnlockedUsers.length);
+
+                    mDisks.clear();
+                    mVolumes.clear();
+
+                    addInternalVolumeLocked();
+                }
+
+                try {
+                    // Reset vold to tear down existing disks/volumes and start from
+                    // a clean state.  Exception: already-unlocked user storage will
+                    // remain unlocked and is not affected by the reset.
+                    //
+                    // TODO(b/135341433): Remove cautious logging when FUSE is stable
+                    Slog.i(TAG, "Resetting vold...");
+                    vold.reset();
+                    Slog.i(TAG, "Reset vold");
+
+                    // Tell vold about all existing and started users
+                    for (UserInfo user : users) {
+                        if (user.isCloneProfile()) {
+                            vold.onUserAdded(user.id, user.serialNumber, user.profileGroupId);
+                        } else {
+                            vold.onUserAdded(user.id, user.serialNumber, -1);
+                        }
+                    }
+                    for (int userId : systemUnlockedUsers) {
+                        vold.onUserStarted(userId);
+                        mStoraged.onUserStarted(userId);
+                    }
+                    restoreSystemUnlockedUsers(vold, userManager, users, systemUnlockedUsers);
+                    vold.onSecureKeyguardStateChanged(mSecureKeyguardShowing);
+                    mStorageManagerInternal.onReset(vold);
+                    observedSuccess = true;
+                } catch (Exception e) {
+                    Slog.wtf(TAG, e);
+                }
+            } finally {
+                final int[] unlocked;
+                synchronized (mLock) { unlocked = mCeUnlockedUsers.all().clone(); }
+                mCeAccess.completeBulk(observation, observedSuccess, unlocked);
+            }
+        }
+    }
+
+    private void restoreSystemUnlockedUsers(IVold vold, UserManager userManager, List<UserInfo> allUsers,
+            int[] systemUnlockedUsers) throws Exception {
+        Arrays.sort(systemUnlockedUsers);
+        UserManager.invalidateIsUserUnlockedCache();
+        for (UserInfo user : allUsers) {
+            int userId = user.id;
+            if (!userManager.isUserRunning(userId)) {
+                continue;
+            }
+            if (Arrays.binarySearch(systemUnlockedUsers, userId) >= 0) {
+                continue;
+            }
+            boolean unlockingOrUnlocked = userManager.isUserUnlockingOrUnlocked(userId);
+            if (!unlockingOrUnlocked) {
+                continue;
+            }
+            Slog.w(TAG, "UNLOCK_USER lost from vold reset, will retry, user:" + userId);
+            vold.onUserStarted(userId);
+            mStoraged.onUserStarted(userId);
+            mHandler.obtainMessage(H_COMPLETE_UNLOCK_USER, userId, /* arg2 (unusued) */ 0)
+                    .sendToTarget();
+        }
+    }

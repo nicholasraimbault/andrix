@@ -49,8 +49,12 @@ recording is not a synchronous pre-eviction completion guarantee.
 ## Host checks
 
 The tracker tests exercise operation/revocation/backend fencing and listener
-ordering. The adapted framework-method fixture retains upstream copyright and is
-byte-checked by the source guard, then run with explicit host Binder/vold facades.
+ordering. Reset revalidation requires previously verified availability: raw cache
+entries, including those appended by stale replies, cannot bootstrap authority.
+The adapted framework-method fixture includes connection, locking, restoration and
+reset, retains upstream copyright, and is byte-checked by the source guard. It runs
+with explicit host Binder/vold facades. Its stale-restore → lock → delayed
+cache append → reset regression rejects the original `8986260` implementation.
 The native pump tests include both flag-off and flag-on branches with a host
 observation stub. None of those facades supplies Android runtime or identity proof.
 
