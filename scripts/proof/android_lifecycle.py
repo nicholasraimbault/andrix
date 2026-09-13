@@ -100,6 +100,8 @@ def extracted_methods(data):
         ('    public void lockCeStorage(int userId) {', '    @Override\n    public boolean isCeStorageUnlocked('),
         ('    private void resetIfBootedAndConnected() {', '    private void restoreSystemUnlockedUsers('),
         ('    private void restoreSystemUnlockedUsers(', '    // If vold knows'),
+        ('        public void unlockCeStorage(@UserIdInt int userId, byte[] secret) {',
+         '        @Override\n        public void registerCloudProviderChangeListener('),
     ):
         if text.count(start) != 1 or text.count(end) != 1:
             raise ValueError('ambiguous extracted-method boundary')

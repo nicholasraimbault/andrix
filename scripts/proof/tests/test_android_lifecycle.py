@@ -25,6 +25,7 @@ class AndroidLifecycleTests(unittest.TestCase):
             self.assertEqual(methods.count(name), 1)
         self.assertIn('Copyright (C) 2007 The Android Open Source Project', methods)
         self.assertIn('mVold.asBinder() != binder', methods)
+        self.assertLess(methods.index('mCeAccess.connected(binder)'), methods.index('mVold = candidate'))
         self.assertIn('mCeAccess.beginRevocation(userId', methods)
         self.assertIn('mCeUnlockedUsers.appendAll(userIds)', methods)
         self.assertNotIn('mCeUnlockedUsers.clear', methods)

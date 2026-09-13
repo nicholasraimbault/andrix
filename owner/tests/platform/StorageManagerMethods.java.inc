@@ -51,9 +51,18 @@
                     synchronized (mVoldConnectionLock) {
                         // Covers death delivered before the candidate was published.
                         if (binder.isBinderAlive()) {
-                            mVold = candidate;
+                            // Key methods read mVold without this connection lock.
+                            // Install observation identity BEFORE exposing the binder,
+                            // or a revocation could start against an untracked backend.
                             mCeAccess.connected(binder);
-                            connected = candidate;
+                            // Local observation callbacks can race death. Do not
+                            // publish a candidate which died during that handoff.
+                            if (binder.isBinderAlive()) {
+                                mVold = candidate;
+                                connected = candidate;
+                            } else {
+                                mCeAccess.died(binder);
+                            }
                         }
                     }
                 } else {
@@ -223,3 +232,23 @@
                     .sendToTarget();
         }
     }
+
+        public void unlockCeStorage(@UserIdInt int userId, byte[] secret) {
+            final IVold vold = mVold;
+            final CeStorageAccessTracker.Operation observation =
+                    mCeAccess.beginAvailable(userId, voldIdentity(vold));
+            boolean success = false;
+            try {
+                if (StorageManager.isFileEncrypted()) {
+                    try {
+                        vold.unlockCeStorage(userId, secret);
+                    } catch (RemoteException e) {
+                        e.rethrowAsRuntimeException();
+                    }
+                }
+                synchronized (mLock) { mCeUnlockedUsers.append(userId); }
+                success = true;
+            } finally {
+                mCeAccess.complete(observation, success);
+            }
+        }

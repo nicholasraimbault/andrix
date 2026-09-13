@@ -166,7 +166,9 @@ public final class CeStorageAccessTracker {
             if (daemon == identity) return;
             events = invalidateAll();
             if (!exhausted) { ++backend; daemon = identity; }
-            pendingRevocations = 0;
+            // In-flight revocations, including those that captured a null binder
+            // during publication, must keep fencing positives. Completions drain
+            // the count; do not drop it because a new identity appeared.
             finishEvents(events);
         }
         deliver(events);
@@ -179,7 +181,7 @@ public final class CeStorageAccessTracker {
             if (daemon == null || daemon != identity) return;
             events = invalidateAll();
             if (!exhausted) ++backend;
-            daemon = null; pendingRevocations = 0;
+            daemon = null;
             finishEvents(events);
         }
         deliver(events);
@@ -197,7 +199,9 @@ public final class CeStorageAccessTracker {
             user(id);
             if (advance()) ++revision;
             events.add(publish(id, false, true));
-            boolean counted = matches(identity);
+            // Count even when the captured binder is null or stale. Key methods
+            // can observe mVold before publication; those revocations still fence.
+            boolean counted = !exhausted;
             if (counted && pendingRevocations == Integer.MAX_VALUE) {
                 exhaust(); counted = false;
             }
@@ -276,7 +280,9 @@ public final class CeStorageAccessTracker {
             if (token == null || token.owner != this || token.completed) return;
             token.completed = true;
             final boolean sameBackend = token.backend == backend && token.daemon == daemon;
-            if (sameBackend && token.counted && pendingRevocations > 0) --pendingRevocations;
+            // Drain in-flight counts even after a backend change; otherwise a
+            // null-identity revocation started during publication would stick.
+            if (token.counted && pendingRevocations > 0) --pendingRevocations;
             if (token.kind == Kind.REVOKE) return; // Never undo pre-request revocation.
             if (!sameBackend || exhausted) return;
             if (!success) {
