@@ -98,6 +98,8 @@ def extracted_methods(data):
         ('    private void connectVold() {', '    private void servicesReady() {'),
         ('    private void restoreCeUnlockedUsers(IVold vold) {', '    private void onUserUnlocking(int userId) {'),
         ('    public void lockCeStorage(int userId) {', '    @Override\n    public boolean isCeStorageUnlocked('),
+        ('    private void resetIfBootedAndConnected() {', '    private void restoreSystemUnlockedUsers('),
+        ('    private void restoreSystemUnlockedUsers(', '    // If vold knows'),
     ):
         if text.count(start) != 1 or text.count(end) != 1:
             raise ValueError('ambiguous extracted-method boundary')

@@ -18,7 +18,7 @@
   "added": {
     "path": "services/core/java/com/android/server/storage/CeStorageAccessTracker.java",
     "source": "owner/platform/framework/CeStorageAccessTracker.java",
-    "sha256": "3d2a5f7b5a8cc2bc15adec7e8f96bd730a1501bf82ae505bb5dc1db96654aaf2"
+    "sha256": "68eabe9fc130f77f49be1d9ba666d55d9217a821843da85fd1b27386c51b3a0a"
   },
   "scope": "system_server-local CE access observations; no key-operation/cleanup barrier or APK grant; not runtime-qualified"
 }
