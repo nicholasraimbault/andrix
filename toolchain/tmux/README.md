@@ -2,8 +2,8 @@
 
 This profile is preparation for an opt-in retained terminal, not a packaged or
 qualified native tmux result yet. It targets the existing ARM64/Bionic API 37 SDK
-and preserves the compiler profile's hardening. Libevent and terminfo code are
-intended to be private static dependencies of the executable; **Bionic remains
+and preserves the compiler profile's hardening. The first native candidate compiled
+with private static libevent/terminfo dependencies; **Bionic remains
 dynamically linked**. Do not use tmux's `--enable-static`, which adds global `-static`.
 
 Candidate sources selected September 13, 2026:
@@ -24,8 +24,11 @@ Candidate sources selected September 13, 2026:
 
 Keep source, build-only host tools and device payload provenance separate. Host
 `tic` may generate a small selected terminfo set but must not enter the Android
-payload. The system config/database paths stay within authenticated `/usr`; Android
-`/etc` remains Android's. Optional systemd/cgroup integration, utempter, UTF8Proc,
+payload. The config/database paths stay within authenticated `/usr/etc/andrix`,
+matching the existing APEX data layout; Android `/etc` remains Android's. The native
+terminfo directory is `/usr/etc/andrix/terminfo`. Invoke the pinned build-only Bison
+as `bison -y` through its private PATH: tmux's follow-up configure search incorrectly
+prepends PATH entries when given an absolute YACC executable name. Optional systemd/cgroup integration, utempter, UTF8Proc,
 jemalloc, sixel and OpenSSL dependencies are disabled in the initial candidate.
 This does not remove owner control of explicitly executed programs or establish
 full terminal compatibility.

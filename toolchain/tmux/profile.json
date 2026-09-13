@@ -127,8 +127,8 @@
       "--disable-db-install",
       "--enable-pc-files",
       "--with-pkg-config-libdir=/usr/lib/pkgconfig",
-      "--with-default-terminfo-dir=/usr/share/terminfo",
-      "--with-terminfo-dirs=/usr/share/terminfo"
+      "--with-default-terminfo-dir=/usr/etc/andrix/terminfo",
+      "--with-terminfo-dirs=/usr/etc/andrix/terminfo"
     ],
     "ncurses_host": [
       "--prefix=/unused-host-tic",
@@ -156,5 +156,11 @@
       "--disable-sixel",
       "--disable-asan"
     ]
+  },
+  "terminfo_directory": "/usr/etc/andrix/terminfo",
+  "host_yacc": {
+    "file": "linux-x86/bin/bison",
+    "invoke": "bison -y",
+    "lookup": "pinned build-tools directory first in PATH; tmux configure does not accept the absolute YACC name in its follow-up PATH search"
   }
 }
