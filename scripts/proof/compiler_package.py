@@ -89,10 +89,39 @@ def lldb_paths(manifest, pins, shared_stl_sha256):
     return paths
 
 
+def tmux_paths(manifest, pins):
+    profile_data=(TOOLCHAIN/'tmux/profile.json').read_bytes()
+    profile=parse(profile_data)
+    if (manifest['tool']!='tmux' or manifest['version']!=profile['version']
+            or manifest['target']!=profile['target']
+            or manifest['source_build']!=pins['tmux']['source_build']
+            or manifest['profile_sha256']!=hashlib.sha256(profile_data).hexdigest()
+            or manifest['bootstrap_revision']!=profile['bootstrap_revision']
+            or manifest['bootstrap_version']!=profile['bootstrap_version']
+            or manifest['sdk_manifest_sha256']!=pins['sdk']['sha256']
+            or manifest['packages']!=profile['packages']
+            or manifest['terminfo_directory']!=profile['terminfo_directory']
+            or manifest['source_modifications']!=[]
+            or set(manifest['elf']['needed'])!={'libc.so','libdl.so','libm.so'}
+            or manifest['elf']['runpath'] is not None):
+        raise ValueError('Unreviewed native tmux artifact')
+    paths={'bin/tmux':'bin/tmux'}
+    for name in ['d/dumb','v/vt100','v/vt100-am','x/xterm-256color','s/screen',
+                 's/screen-256color','t/tmux','t/tmux-256color']:
+        path='etc/andrix/terminfo/'+name;paths[path]=path
+    for name in ['tmux-COPYING','libevent-LICENSE','ncurses-COPYING','SOURCE']:
+        paths['licenses/'+name]='etc/andrix/tmux/'+name
+    for value in profile['packages'].values():
+        name=value['archive']['file'];paths['licenses/'+name]='etc/andrix/tmux/'+name
+    if {row['path'] for row in manifest['files']}!=set(paths) or len(manifest['files'])!=16:
+        raise ValueError('Unexpected native tmux payload')
+    return paths
+
+
 def inputs(input_root):
     input_root=input_root.resolve(); pins=load(TOOLCHAIN/'package-inputs.json')
     manifests={}
-    for name in ['native','sdk','resources','make','lldb']:
+    for name in ['native','sdk','resources','make','lldb','tmux']:
         manifests[name]=pinned_manifest(input_root,pins[name])
     files={};sources={}
     def add(source,dest,digest,size):
@@ -140,9 +169,14 @@ def inputs(input_root):
     for row in debugger['files']:
         p=regular(input_root,'frozen-lldb-01/'+row['path'],row['sha256'],row['size'])
         add(p,paths[row['path']],row['sha256'],row['size'])
+    multiplexer=manifests['tmux'];paths=tmux_paths(multiplexer,pins)
+    for row in multiplexer['files']:
+        p=regular(input_root,'frozen-tmux-01/'+row['path'],row['sha256'],row['size'])
+        add(p,paths[row['path']],row['sha256'],row['size'])
     for name in ['cxx.cfg','cxx-shared.cfg']:
         p=TOOLCHAIN/name;add(p,'etc/andrix/'+name,sha(p),p.stat().st_size)
-    required=['bin/clang','bin/ld.lld','bin/llvm-ar','bin/make','bin/lldb','bin/lldb-server',
+    required=['bin/clang','bin/ld.lld','bin/llvm-ar','bin/make','bin/lldb','bin/lldb-server','bin/tmux',
+              'etc/andrix/terminfo/t/tmux-256color','etc/andrix/tmux/SOURCE',
               'lib64/liblldb.so','etc/andrix/lldb/LLDB-LICENSE.TXT','etc/andrix/make/COPYING',
               'etc/andrix/make/SOURCE','lib64/libc++_shared.so',
               'etc/andrix/sdk/usr/lib/aarch64-linux-android/37/crtbegin_dynamic.o',
@@ -190,6 +224,16 @@ license {
     license_text: ["licenses/lldb-LLVM-LICENSE.TXT", "licenses/lldb-Clang-LICENSE.TXT",
         "licenses/lldb-LLDB-LICENSE.TXT"],
 }
+license {
+    name: "andrix_native_tmux_license",
+    visibility: [":__subpackages__"],
+    // Original component notices and complete source archives are shipped;
+    // their individual terms/build-tool exceptions remain authoritative.
+    license_kinds: ["SPDX-license-identifier-ISC", "SPDX-license-identifier-BSD-3-Clause",
+        "SPDX-license-identifier-X11", "legacy_notice"],
+    license_text: ["licenses/tmux-COPYING", "licenses/tmux-libevent-LICENSE",
+        "licenses/tmux-ncurses-COPYING"],
+}
 '''
     parts=[preamble]
     for suffix,base,props in [('binary','cc_prebuilt_binary',['enabled']),
@@ -215,6 +259,19 @@ license {
     stl: "none",
     apex_available: ["dev.andrix.usr"],
     system_shared_libs: ["libc", "libdl"],
+    strip: { none: true },
+}
+''')
+    parts.append('andrix_compiler_binary {\n    name: "andrix_compiler_tmux",\n'+enabled+'''
+    licenses: ["andrix_native_tmux_license"],
+    srcs: ["artifacts/root/bin/tmux"],
+    stem: "tmux",
+    compile_multilib: "64",
+    sdk_version: "37",
+    min_sdk_version: "37",
+    stl: "none",
+    apex_available: ["dev.andrix.usr"],
+    system_shared_libs: ["libc", "libm", "libdl"],
     strip: { none: true },
 }
 ''')
@@ -270,11 +327,13 @@ license {
         name='andrix_compiler_data_'+hashlib.sha256(directory.encode()).hexdigest()[:16];modules.append(name)
         license_line='    licenses: ["andrix_native_make_license"],\n' if directory=='etc/andrix/make' else ''
         if directory=='etc/andrix/lldb':license_line='    licenses: ["andrix_native_lldb_license"],\n'
+        if directory=='etc/andrix/tmux' or directory.startswith('etc/andrix/terminfo/'):
+            license_line='    licenses: ["andrix_native_tmux_license"],\n'
         parts.append('andrix_compiler_data {\n    name: '+json.dumps(name)+',\n'+enabled+license_line+
             '    relative_install_path: '+json.dumps(directory.removeprefix('etc/'))+',\n'+
             '    installable: false,\n    srcs: [\n'+''.join('        '+json.dumps('artifacts/root/'+p)+',\n' for p in paths)+'    ],\n}\n')
     parts.append('andrix_compiler_apex_defaults {\n    name: "andrix_compiler_apex_payload",\n    soong_config_variables: { owner_compiler: {\n'+
-        '        binaries: ["andrix_compiler_clang", "andrix_compiler_lld", "andrix_compiler_ar", "andrix_compiler_cxx", "andrix_compiler_make", "andrix_compiler_lldb", "andrix_compiler_lldb_server"],\n'+
+        '        binaries: ["andrix_compiler_clang", "andrix_compiler_lld", "andrix_compiler_ar", "andrix_compiler_cxx", "andrix_compiler_make", "andrix_compiler_lldb", "andrix_compiler_lldb_server", "andrix_compiler_tmux"],\n'+
         '        native_shared_libs: ["andrix_compiler_libcxx", "andrix_compiler_liblldb"],\n        prebuilts: [\n'+
         ''.join('            '+json.dumps(n)+',\n' for n in modules)+'        ],\n    } },\n}\n')
     return '\n'.join(parts)
@@ -323,6 +382,9 @@ def main():
         shutil.copyfile(sources['etc/andrix/make/COPYING'],TOOLCHAIN/'licenses/make-COPYING')
         for name in ['LLVM-LICENSE.TXT','Clang-LICENSE.TXT','LLDB-LICENSE.TXT']:
             shutil.copyfile(sources['etc/andrix/lldb/'+name],TOOLCHAIN/'licenses'/('lldb-'+name))
+        for name,dest in [('tmux-COPYING','tmux-COPYING'),('libevent-LICENSE','tmux-libevent-LICENSE'),
+                          ('ncurses-COPYING','tmux-ncurses-COPYING')]:
+            shutil.copyfile(sources['etc/andrix/tmux/'+name],TOOLCHAIN/'licenses'/dest)
         (TOOLCHAIN/'payload.json').write_text(json.dumps({'schema':1,'files':rows},indent=2)+'\n')
     elif (TOOLCHAIN/'Android.bp').read_text()!=text or load(TOOLCHAIN/'payload.json')!={'schema':1,'files':rows}:
         raise ValueError('Generated public metadata differs; review before regenerating')

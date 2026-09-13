@@ -43,6 +43,14 @@ class CompilerPackageTests(unittest.TestCase):
         for path in ['bin/lldb','bin/lldb-server','lib64/liblldb.so',
                      'etc/andrix/lldb/LLDB-LICENSE.TXT']:
             self.assertIn(path,paths)
+        self.assertIn('bin/tmux',paths)
+        self.assertIn('etc/andrix/terminfo/t/tmux-256color',paths)
+        self.assertIn('etc/andrix/tmux/SOURCE',paths)
+        tmux=bp[bp.index('    name: "andrix_compiler_tmux"'):];tmux=tmux[:tmux.index('\n}')]
+        self.assertIn('licenses: ["andrix_native_tmux_license"]',tmux)
+        self.assertIn('system_shared_libs: ["libc", "libm", "libdl"]',tmux)
+        self.assertNotIn('andrix_compiler_libcxx',tmux)
+        self.assertNotIn('check_elf_files: false',tmux)
         for name in ['lldb','lldb_server','liblldb']:
             block=bp[bp.index('    name: "andrix_compiler_'+name+'"'):]
             block=block[:block.index('\n}')]
@@ -51,6 +59,32 @@ class CompilerPackageTests(unittest.TestCase):
             self.assertIn('andrix_compiler_libcxx',block)
             self.assertIn('stl: "none"',block)
             self.assertNotIn('check_elf_files: false',block)
+
+    def test_tmux_manifest_and_private_static_closure(self):
+        data=(package.TOOLCHAIN/'tmux/profile.json').read_bytes();profile=package.parse(data)
+        pins=package.load(package.TOOLCHAIN/'package-inputs.json')
+        names=['bin/tmux']+['etc/andrix/terminfo/'+x for x in
+            ['d/dumb','v/vt100','v/vt100-am','x/xterm-256color','s/screen',
+             's/screen-256color','t/tmux','t/tmux-256color']]
+        names+=['licenses/'+x for x in ['tmux-COPYING','libevent-LICENSE','ncurses-COPYING','SOURCE']]
+        names+=['licenses/'+x['archive']['file'] for x in profile['packages'].values()]
+        manifest={'tool':'tmux','version':profile['version'],'target':profile['target'],
+            'source_build':pins['tmux']['source_build'],'profile_sha256':hashlib.sha256(data).hexdigest(),
+            'bootstrap_revision':profile['bootstrap_revision'],'bootstrap_version':profile['bootstrap_version'],
+            'sdk_manifest_sha256':pins['sdk']['sha256'],'packages':profile['packages'],
+            'terminfo_directory':profile['terminfo_directory'],'source_modifications':[],
+            'elf':{'needed':['libc.so','libdl.so','libm.so'],'runpath':None},
+            'files':[{'path':x} for x in names]}
+        self.assertEqual(set(package.tmux_paths(manifest,pins)),set(names))
+        for key in ['version','target','source_build','profile_sha256','bootstrap_revision',
+                    'bootstrap_version','sdk_manifest_sha256','packages','terminfo_directory','source_modifications']:
+            with self.assertRaises(ValueError):package.tmux_paths({**manifest,key:'changed'},pins)
+        for elf in [{'needed':['libc.so','libevent.so'],'runpath':None},
+                    {'needed':['libc.so','libdl.so','libm.so'],'runpath':'/host/lib'}]:
+            with self.assertRaises(ValueError):package.tmux_paths({**manifest,'elf':elf},pins)
+        for files in [manifest['files'][:-1],manifest['files']+[{'path':'bin/host-tic'}],
+                      manifest['files'][:-1]+[manifest['files'][0]]]:
+            with self.assertRaises(ValueError):package.tmux_paths({**manifest,'files':files},pins)
 
     def test_lldb_manifest_requires_matching_sdk_runtime_and_exact_files(self):
         profile_data=(package.TOOLCHAIN/'lldb/profile.json').read_bytes()

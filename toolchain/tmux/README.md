@@ -1,10 +1,11 @@
 # Native terminal-multiplexer candidate
 
-This profile is preparation for an opt-in retained terminal, not a packaged or
-qualified native tmux result yet. It targets the existing ARM64/Bionic API 37 SDK
-and preserves the compiler profile's hardening. The first native candidate compiled
-with private static libevent/terminfo dependencies; **Bionic remains
-dynamically linked**. Do not use tmux's `--enable-static`, which adds global `-static`.
+This native candidate is preparation for an opt-in retained terminal, not Android
+runtime qualification yet. It targets the existing ARM64/Bionic API 37 SDK and
+preserves the compiler profile's hardening. The 1,403,056-byte executable passed
+ELF/command checks with private static libevent/terminfo dependencies; **Bionic remains
+dynamically linked**. Its only runtime libraries are libc/libdl/libm, with no RUNPATH,
+PIE/RELRO/NOW/non-executable stack and 16KiB load alignment. CFI remains enabled. Do not use tmux's `--enable-static`, which adds global `-static`.
 
 Candidate sources selected September 13, 2026:
 
@@ -31,7 +32,9 @@ as `bison -y` through its private PATH: tmux's follow-up configure search incorr
 prepends PATH entries when given an absolute YACC executable name. Optional systemd/cgroup integration, utempter, UTF8Proc,
 jemalloc, sixel and OpenSSL dependencies are disabled in the initial candidate.
 This does not remove owner control of explicitly executed programs or establish
-full terminal compatibility.
+full terminal compatibility. The opt-in APEX 6 candidate adds 16 pinned payload files
+(binary, selected terminfo entries, notices and original source archives) without
+changing any prior compiler/SDK/Make/LLDB payload row.
 
 Preserve original license text and per-file notices. Static dependency notices
 remain distinct from LLVM and GNU Make's obligations. The intended notice bundle

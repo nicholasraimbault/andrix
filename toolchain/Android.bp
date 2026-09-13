@@ -27,6 +27,16 @@ license {
     license_text: ["licenses/lldb-LLVM-LICENSE.TXT", "licenses/lldb-Clang-LICENSE.TXT",
         "licenses/lldb-LLDB-LICENSE.TXT"],
 }
+license {
+    name: "andrix_native_tmux_license",
+    visibility: [":__subpackages__"],
+    // Original component notices and complete source archives are shipped;
+    // their individual terms/build-tool exceptions remain authoritative.
+    license_kinds: ["SPDX-license-identifier-ISC", "SPDX-license-identifier-BSD-3-Clause",
+        "SPDX-license-identifier-X11", "legacy_notice"],
+    license_text: ["licenses/tmux-COPYING", "licenses/tmux-libevent-LICENSE",
+        "licenses/tmux-ncurses-COPYING"],
+}
 
 soong_config_module_type {
     name: "andrix_compiler_binary",
@@ -133,6 +143,23 @@ andrix_compiler_binary {
     stl: "none",
     apex_available: ["dev.andrix.usr"],
     system_shared_libs: ["libc", "libdl"],
+    strip: { none: true },
+}
+
+andrix_compiler_binary {
+    name: "andrix_compiler_tmux",
+    enabled: false,
+    soong_config_variables: { owner_compiler: { enabled: true } },
+
+    licenses: ["andrix_native_tmux_license"],
+    srcs: ["artifacts/root/bin/tmux"],
+    stem: "tmux",
+    compile_multilib: "64",
+    sdk_version: "37",
+    min_sdk_version: "37",
+    stl: "none",
+    apex_available: ["dev.andrix.usr"],
+    system_shared_libs: ["libc", "libm", "libdl"],
     strip: { none: true },
 }
 
@@ -5730,10 +5757,91 @@ andrix_compiler_data {
     ],
 }
 
+andrix_compiler_data {
+    name: "andrix_compiler_data_657adfd277fab9c3",
+    enabled: false,
+    soong_config_variables: { owner_compiler: { enabled: true } },
+    licenses: ["andrix_native_tmux_license"],
+    relative_install_path: "andrix/terminfo/d",
+    installable: false,
+    srcs: [
+        "artifacts/root/etc/andrix/terminfo/d/dumb",
+    ],
+}
+
+andrix_compiler_data {
+    name: "andrix_compiler_data_e57742f0c61c1bd3",
+    enabled: false,
+    soong_config_variables: { owner_compiler: { enabled: true } },
+    licenses: ["andrix_native_tmux_license"],
+    relative_install_path: "andrix/terminfo/s",
+    installable: false,
+    srcs: [
+        "artifacts/root/etc/andrix/terminfo/s/screen",
+        "artifacts/root/etc/andrix/terminfo/s/screen-256color",
+    ],
+}
+
+andrix_compiler_data {
+    name: "andrix_compiler_data_a1a587d44889e055",
+    enabled: false,
+    soong_config_variables: { owner_compiler: { enabled: true } },
+    licenses: ["andrix_native_tmux_license"],
+    relative_install_path: "andrix/terminfo/t",
+    installable: false,
+    srcs: [
+        "artifacts/root/etc/andrix/terminfo/t/tmux",
+        "artifacts/root/etc/andrix/terminfo/t/tmux-256color",
+    ],
+}
+
+andrix_compiler_data {
+    name: "andrix_compiler_data_3de2c44c5542ff11",
+    enabled: false,
+    soong_config_variables: { owner_compiler: { enabled: true } },
+    licenses: ["andrix_native_tmux_license"],
+    relative_install_path: "andrix/terminfo/v",
+    installable: false,
+    srcs: [
+        "artifacts/root/etc/andrix/terminfo/v/vt100",
+        "artifacts/root/etc/andrix/terminfo/v/vt100-am",
+    ],
+}
+
+andrix_compiler_data {
+    name: "andrix_compiler_data_232e5bf721a028b4",
+    enabled: false,
+    soong_config_variables: { owner_compiler: { enabled: true } },
+    licenses: ["andrix_native_tmux_license"],
+    relative_install_path: "andrix/terminfo/x",
+    installable: false,
+    srcs: [
+        "artifacts/root/etc/andrix/terminfo/x/xterm-256color",
+    ],
+}
+
+andrix_compiler_data {
+    name: "andrix_compiler_data_33839bfe8a75bc32",
+    enabled: false,
+    soong_config_variables: { owner_compiler: { enabled: true } },
+    licenses: ["andrix_native_tmux_license"],
+    relative_install_path: "andrix/tmux",
+    installable: false,
+    srcs: [
+        "artifacts/root/etc/andrix/tmux/SOURCE",
+        "artifacts/root/etc/andrix/tmux/libevent-2.1.13-stable.tar.gz",
+        "artifacts/root/etc/andrix/tmux/libevent-LICENSE",
+        "artifacts/root/etc/andrix/tmux/ncurses-6.6-20260912.tgz",
+        "artifacts/root/etc/andrix/tmux/ncurses-COPYING",
+        "artifacts/root/etc/andrix/tmux/tmux-3.7c.tar.gz",
+        "artifacts/root/etc/andrix/tmux/tmux-COPYING",
+    ],
+}
+
 andrix_compiler_apex_defaults {
     name: "andrix_compiler_apex_payload",
     soong_config_variables: { owner_compiler: {
-        binaries: ["andrix_compiler_clang", "andrix_compiler_lld", "andrix_compiler_ar", "andrix_compiler_cxx", "andrix_compiler_make", "andrix_compiler_lldb", "andrix_compiler_lldb_server"],
+        binaries: ["andrix_compiler_clang", "andrix_compiler_lld", "andrix_compiler_ar", "andrix_compiler_cxx", "andrix_compiler_make", "andrix_compiler_lldb", "andrix_compiler_lldb_server", "andrix_compiler_tmux"],
         native_shared_libs: ["andrix_compiler_libcxx", "andrix_compiler_liblldb"],
         prebuilts: [
             "andrix_compiler_data_61e2fecb568e5703",
@@ -5923,6 +6031,12 @@ andrix_compiler_apex_defaults {
             "andrix_compiler_data_447fbb138bb973ec",
             "andrix_compiler_data_c9ba3f5964a38977",
             "andrix_compiler_data_c8c69bead95b97a5",
+            "andrix_compiler_data_657adfd277fab9c3",
+            "andrix_compiler_data_e57742f0c61c1bd3",
+            "andrix_compiler_data_a1a587d44889e055",
+            "andrix_compiler_data_3de2c44c5542ff11",
+            "andrix_compiler_data_232e5bf721a028b4",
+            "andrix_compiler_data_33839bfe8a75bc32",
         ],
     } },
 }

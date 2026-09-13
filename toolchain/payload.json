@@ -32,6 +32,11 @@
       "size": 260416
     },
     {
+      "path": "bin/tmux",
+      "sha256": "f023e162db8b7b060b65d4a2480d1043d3e2a93d5b44b4edb4a7bd9590abd484",
+      "size": 1403056
+    },
+    {
       "path": "etc/andrix/clang/23/include/__clang_cuda_builtin_vars.h",
       "sha256": "32d445ec643c5802efbd54d41e4e8bff952436586d992fc0f91258238cb6e115",
       "size": 4892
@@ -18220,6 +18225,81 @@
       "path": "etc/andrix/sdk/usr/lib/aarch64-linux-android/libc++abi.a",
       "sha256": "c0520f2e83ab27bd14c5079bc3b8629d07d234ef4b9f0bbf73647c51cfe7e865",
       "size": 4930052
+    },
+    {
+      "path": "etc/andrix/terminfo/d/dumb",
+      "sha256": "123c85a2812a517d967db5f31660db0e6aded4a0b95ed943c5ab435368e7a25c",
+      "size": 308
+    },
+    {
+      "path": "etc/andrix/terminfo/s/screen",
+      "sha256": "a3b4c48d083d66e09267331c88c8d72ad6026fe75375a330a88c355a1db374ff",
+      "size": 1681
+    },
+    {
+      "path": "etc/andrix/terminfo/s/screen-256color",
+      "sha256": "5eda92dcaf8f88c99cb9b6a6923690eadbd649ed8d2703e7e7be7f445b5568c5",
+      "size": 1819
+    },
+    {
+      "path": "etc/andrix/terminfo/t/tmux",
+      "sha256": "59443d8139b5bda27890f546e0502b9341884f75cbc1dfd0bcfddf6b67d2b236",
+      "size": 3331
+    },
+    {
+      "path": "etc/andrix/terminfo/t/tmux-256color",
+      "sha256": "71cd04d52201de8e68dacc885c3dc7cf2dd8426d79889e316229c26e37995794",
+      "size": 3471
+    },
+    {
+      "path": "etc/andrix/terminfo/v/vt100",
+      "sha256": "779a219d6ed2ed282f9416ee04fe65f92a1c90606cf6e93a61cebfc3aa96c982",
+      "size": 1282
+    },
+    {
+      "path": "etc/andrix/terminfo/v/vt100-am",
+      "sha256": "779a219d6ed2ed282f9416ee04fe65f92a1c90606cf6e93a61cebfc3aa96c982",
+      "size": 1282
+    },
+    {
+      "path": "etc/andrix/terminfo/x/xterm-256color",
+      "sha256": "e7481653bfe11455e36d50c56e83ea1dc26c2f9fd199b8f9e5130bc90c0951d4",
+      "size": 4250
+    },
+    {
+      "path": "etc/andrix/tmux/SOURCE",
+      "sha256": "94b5450fc95059acc1e7ba941336b01e9bfdab405bdaf6d6917f2d1e6cff9486",
+      "size": 1315
+    },
+    {
+      "path": "etc/andrix/tmux/libevent-2.1.13-stable.tar.gz",
+      "sha256": "f7e9383b8c0baa81b687e5b5eecc01beefaf1b19b64151d95ed61647fe7a315c",
+      "size": 1126525
+    },
+    {
+      "path": "etc/andrix/tmux/libevent-LICENSE",
+      "sha256": "ff02effc9b331edcdac387d198691bfa3e575e7d244ad10cb826aa51ef085670",
+      "size": 4528
+    },
+    {
+      "path": "etc/andrix/tmux/ncurses-6.6-20260912.tgz",
+      "sha256": "bc14b72df2511e92ad544e971cd383729220787ebd4985d1c81268d6b7b2cc54",
+      "size": 3824348
+    },
+    {
+      "path": "etc/andrix/tmux/ncurses-COPYING",
+      "sha256": "a85ca5bef8ce71f013bc5f4306c681881b248450f3b63722589891f0b69ea52d",
+      "size": 1447
+    },
+    {
+      "path": "etc/andrix/tmux/tmux-3.7c.tar.gz",
+      "sha256": "7c60cae9a0e25288e2e24750aafc9e8800fc7fd4555e447e1b29ee4201cfb3bf",
+      "size": 789431
+    },
+    {
+      "path": "etc/andrix/tmux/tmux-COPYING",
+      "sha256": "2116115d46eeb1e736acfa562eed14fe6c34760794bc5b484642fe694adde0fd",
+      "size": 731
     },
     {
       "path": "lib64/libc++_shared.so",
