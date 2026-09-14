@@ -49,7 +49,7 @@ signature and 70-day-age validation on the downloaded files. Recheck the age at
 **guest use** time too. Pages/CDN caching does not extend the client's freshness
 limit, and static hosting is not an automatic update service. Stage/review a new
 snapshot well before expiry and account for the client's retry interval. Pages
-caches files independently (600 seconds was observed); an update can briefly mix
+can cache files independently; an update can briefly mix
 old/new generations. Signature failure must retain the last valid generation,
 not become a pass. Stale or unavailable data cannot be a successful update.
 

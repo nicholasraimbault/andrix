@@ -24,3 +24,14 @@ proposals until adopted.
 If a task needs private local paths or access context, consult
 `dev/operator-current.md` when present. That ignored file supplies operating
 context; public work state and recorded evidence establish project claims.
+
+## Public documentation boundary
+
+Public Git holds product architecture, source provenance, reusable build/test
+instructions, and concise milestone outcomes with their limitations.
+
+Keep machine inventory, local access paths, process IDs, live job/lease state,
+execution transcripts, raw receipts, and cross-project coordination in ignored
+operator records or private evidence. Do not turn public milestones into an
+operational diary. Preserve detailed failures privately; publish the reusable
+technical lesson when it affects the product or its tooling.
