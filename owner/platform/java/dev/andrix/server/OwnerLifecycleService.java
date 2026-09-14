@@ -41,9 +41,11 @@ public final class OwnerLifecycleService extends SystemService {
 
     private final IPlatformLifecycle.Stub binder = new IPlatformLifecycle.Stub() {
         @Override public PlatformState snapshot() {
-            // SELinux restricts discovery to andrixd; UID7500 owner workers cannot
-            // call this endpoint (worker Binder filter and owner policy boundary).
-            // No supplied PID, UID, user ID or Boolean is accepted as authority.
+            // Owner/Console/ordinary-app discovery is denied. Existing privileged
+            // system/debug domains can also find this service, so discovery alone
+            // is not authorization. UID7500 plus worker Binder filtering and the
+            // owner policy boundary select the coordinator. No supplied identity
+            // or Boolean is accepted as authority.
             if (Binder.getCallingUid() != OWNER_UID || Binder.getCallingPid() <= 1) {
                 throw new SecurityException("not the native owner coordinator");
             }
