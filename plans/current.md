@@ -38,12 +38,15 @@ from screen relock and from asynchronous process cleanup.
 1. Verify fault-enabled and normal build artifacts, including absence of the lab
    commands from normal images.
 2. Exercise real key-withdrawal and delayed-reply cleanup/recovery in a fresh fixture.
-3. After those controls, separate owner workload lifetime from terminal attachment.
-   Android supervision stays authoritative; Console becomes a client and tmux an
-   optional presentation tool. Keep may remain a convenience shortcut rather than
-   the only form of retained work.
-4. Define and qualify the resulting foreground/detached-work policies before changing
-   ordinary defaults. Separation alone does not enable automatic retention or restart.
+3. Use those results for a post-proof design review, then separate owner workload
+   lifetime from terminal attachment. Android supervision stays authoritative;
+   Console becomes a client and tmux an optional presentation tool. Keep may remain
+   a convenience shortcut rather than the only form of retained work. Retain,
+   refactor or replace prototype code according to the sound long-term design,
+   not the cost already spent on it.
+4. Define the resulting foreground/detached-work policies and re-run the relevant
+   regression and runtime proofs on that implementation before changing ordinary
+   defaults. Separation alone does not enable automatic retention or restart.
 
 This direction is owner-approved. The current Console-bound/plain and tmux-backed
 Keep implementation remains unchanged until that follow-up is implemented and tested.
