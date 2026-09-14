@@ -1,10 +1,11 @@
 # Android-owned lifecycle integration candidate
 
-See the [bounded image/runtime result](../../plans/2026-09-13-android-lifecycle.md#observed-image-and-runtime-result).
-Image `8b39806` exercised the actual platform service, cold admission, relock and
-plain-session cleanup. This is not independent key-loss or kept-session
-qualification: Console-process death still ends native work. No ordinary APK
-receives user/storage management permissions.
+See the [initial lifecycle baseline](../../plans/2026-09-13-android-lifecycle.md#observed-image-and-runtime-result)
+and subsequent [opt-in Keep result](../../plans/2026-09-14-keep.md#observed-opt-in-keep-result).
+Image `8a9a2ab` additionally exercised notification-backed kept work/return/Stop and
+actual watchdog platform loss. Plain work remains Console-bound. Keep is off by
+default; independent live key-loss and broader release behavior remain unqualified.
+No ordinary APK receives user/storage management permissions.
 
 The product flag `ANDRIX_OWNER_LIFECYCLE=true` requires `ANDRIX_OWNER_SESSION=true`.
 It selects the system_server adapter jar/overlay, native observer and dedicated
@@ -32,8 +33,11 @@ APEX must remain independently buildable and byte-reproducible.
 
 ## Protocol boundary
 
-`andrix.owner.lifecycle` returns platform-instance/generation/availability metadata
-only. Dedicated SELinux discovery, UID7500 checking and the native worker Binder
+`andrix.owner.lifecycle.snapshot()` returns platform instance/generation/availability
+and the current Keep registration identifiers. With the separate Keep flag, `keepWork`
+can establish one notification-backed grant for an authenticated native work Binder;
+it grants no terminal access or key management. Dedicated discovery, UID7500 checking
+and the native worker Binder
 filter separate the coordinator from both APKs and owner-controlled workers. PID
 alone is not an identity. The native observer holds one live platform Binder for
 its entire daemon lifetime; replacement, death, unavailability or expired observation
@@ -44,8 +48,10 @@ metadata. It is not proof of owner-home preparation, physical erasure, or comple
 process cleanup. Readiness never bypasses the coordinator's existing home/admission
 checks or the separate foreground/unlocked UI lease.
 
-Commands to init run on a distinct coalesced handler. No callback waits for native
-cleanup or changes Android's key-locking result. In particular, pre-request event
+Global lifecycle commands to init run on a distinct coalesced handler. Notification
+Stop instead targets the process-bound `IKeptWork` Binder so it cannot restart a
+replacement by a reused service name. No callback waits for native cleanup or
+changes Android's key-locking result. In particular, pre-request event
 recording is not a synchronous pre-eviction completion guarantee.
 
 ## Host checks
@@ -63,7 +69,9 @@ cache append → reset regression rejects the original `8986260` implementation.
 The native pump tests include both flag-off and flag-on branches with a host
 observation stub. None of those facades supplies Android runtime or identity proof.
 
-Android compilation, extracted-image classpath/policy checks and bounded normal
-runtime controls are recorded for `8b39806`. Independent live key/authority loss,
-hung-query/suspend behavior and safe recovery remain required before enabling Keep.
-The attempted framework-only restart was permission-denied, not a test pass.
+Android compilation, image checks and bounded controls are recorded for `8b39806`
+and opt-in `8a9a2ab`. The latter exercised actual system_server watchdog death with
+Console absent and fresh recovery, without altering Android's timeout/permissions.
+The earlier denied restart and too-short watchdog attempt remain failures. Direct
+live CE-key eviction, hung snapshot RPCs and broader suspend/release controls remain
+open; the tested opt-in mode is not unconditional production promotion.
