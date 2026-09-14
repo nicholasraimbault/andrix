@@ -93,6 +93,17 @@ software remains an owner choice.
 
 ## Lifecycle and networking
 
+Owner workload lifetime and terminal presentation are separate abstractions. Android
+supervision governs workload identity, user/CE authority, resource bounds and cleanup;
+Console is a client of that work, not the definition of its lifetime. Explicit
+policies distinguish foreground work, detached jobs and enabled services. Terminal
+persistence may use an ordinary tool such as tmux; choosing that tool neither grants
+retention authority nor becomes a prerequisite for every retained workload.
+
+This separation does not imply automatic retention, restart, wake or network
+authority. Foreground/unlocked terminal access remains a separate permission from
+continuing computation.
+
 Owner processes participate in Android memory pressure, LMKD and kernel OOM,
 suspend, battery and thermal policy. Daily owner work stays below
 phone-critical services. Ordinary work runs directly; active overnight work

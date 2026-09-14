@@ -93,8 +93,9 @@ removal must be tested separately; no multi-user support is claimed.
   `UserManager.isUserUnlocked() == false` state ends the session (not screen relock): Android
   init kills/reaps the entire service cgroup, not only a Unix process group which
   children could escape with `setsid`. End is a termination request, not storage
-  durability acknowledgement. This first prototype's processes do not outlive the
-  console APK process; Android may reclaim it while cached. Reboot ends processes,
+  durability acknowledgement. Plain-mode processes do not outlive the Console
+  APK process; Android may reclaim it while cached. Explicit kept work has the
+  separate lifetime described below. Reboot ends processes,
   not the intended home data. Independent long-lived service/user-stop/key-eviction
   qualification remains future work, not a claimed feature here.
 - No automatic shell start on daemon boot, arbitrary privileged exec API, caller-
