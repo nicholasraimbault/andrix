@@ -31,3 +31,8 @@ watchdog platform-death cleanup. Independent live CE-key eviction, vold failure,
 hung snapshot RPCs, broader pressure/suspend and phone/release behavior are not
 qualified by those tests. Do not turn this opt-in result into an unconditional
 release or hardware claim.
+
+Android's lockscreen notification settings still apply. The quiet Keep notice is
+hidden there when the owner hides silent notifications; enabling their display does
+not require showing sensitive content or exposing terminal output. Stop while locked
+was exercised with that normal-UI visibility choice. Keep does not override it.

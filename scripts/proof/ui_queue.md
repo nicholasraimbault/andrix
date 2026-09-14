@@ -23,7 +23,15 @@ another batch**. Inspect/settle or stop the window before an explicit recovery.
 an implicit Enter. It rejects Android input percent escapes, newlines and untested
 non-ASCII input. This is a bounded test route, not an IME/Unicode compatibility claim.
 
-`terminal_input_ready()` examines a real UI hierarchy for the attached status and
+A zero `uiautomator dump` exit code is **not** capture success: Android can print an
+error and leave the old XML file untouched. Use `new_ui_dump_path()`, reject an
+already-existing remote path, run the dump, and call `require_ui_dump_success()` on
+its output/status **before reading that unique file**. A missing, warned, failed or
+wrong-path acknowledgement must not fall back to an old capture. Preserve that
+failure and inspect it before another input attempt. Do not rewrite old sealed
+consumers; stage corrected helpers in a fresh runtime.
+
+`terminal_input_ready()` examines that fresh hierarchy for the attached status and
 an enabled, focused terminal view. Use that observation before sending terminal
 input instead of assuming that a fixed delay after Attach was sufficient. It does
 not attest keyguard state or native-shell readiness and grants no Android authority.

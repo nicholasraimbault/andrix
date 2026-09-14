@@ -53,6 +53,18 @@ class KeepTests(unittest.TestCase):
             self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
             self.assertIn('onUnlinked lifetime', ran.stdout)
 
+    def test_notification_channel_owner_control_contract(self):
+        source = (ROOT / 'owner/platform/java/dev/andrix/server/KeepNotifications.java').read_text()
+        self.assertLess(source.index('channel.setBlockable(true)'),
+                        source.index('manager.createNotificationChannel(channel)'))
+        self.assertIn('NotificationManager.IMPORTANCE_LOW', source)
+        self.assertIn('Notification.VISIBILITY_PUBLIC', source)
+        self.assertIn('.setAuthenticationRequired(false)', source)
+        self.assertIn('if (!allowed()) keep.notificationRevoked();', source)
+        self.assertNotIn('setLockscreenVisibility', source)
+        # Source contract only. The Android channel/UI/broadcast path requires the
+        # separately recorded active-block, denied-new-Keep and re-enable controls.
+
     def test_creation_plain_preservation_and_new_presentation_contract(self):
         native = (ROOT / 'owner/native/andrixd.cpp').read_text()
         start = native[native.index('  ScopedAStatus startKept('):native.index('  ScopedAStatus stopKeptWork()')]

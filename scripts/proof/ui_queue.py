@@ -8,7 +8,28 @@ import os
 from pathlib import Path
 import re
 import time
+import uuid
 import xml.etree.ElementTree as ET
+
+
+def new_ui_dump_path():
+    """A one-use shell-owned output path; never reuse a prior UI hierarchy."""
+    return '/data/local/tmp/andrix-ui-' + uuid.uuid4().hex + '.xml'
+
+
+def require_ui_dump_success(path, stdout, stderr, exit_code=0):
+    """uiautomator can exit zero after an error without writing its output file.
+
+    Call before reading the new path or applying terminal_input_ready. The caller
+    must also reject a pre-existing path. This is fixture freshness, not Android
+    authorization, and deliberately rejects warnings/ambiguous output.
+    """
+    if not isinstance(path, str) or not re.fullmatch(
+            r'/data/local/tmp/andrix-ui-[0-9a-f]{32}\.xml', path):
+        raise ValueError('Expected a one-use UI dump path')
+    if (exit_code != 0 or not isinstance(stdout, str) or not isinstance(stderr, str)
+            or stdout.strip() != 'UI hierchary dumped to: ' + path or stderr.strip()):
+        raise RuntimeError('UI dump did not acknowledge this fresh hierarchy')
 
 
 def terminal_input_ready(xml):

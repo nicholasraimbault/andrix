@@ -14,6 +14,35 @@ spec.loader.exec_module(queue)
 
 
 class UiQueueTests(unittest.TestCase):
+    def test_ui_dump_requires_fresh_path_and_explicit_success(self):
+        path = queue.new_ui_dump_path()
+        self.assertNotEqual(path, queue.new_ui_dump_path())
+        ack = 'UI hierchary dumped to: ' + path + '\n'
+        queue.require_ui_dump_success(path, ack, '')
+        for stdout, stderr, code in [
+                ('', 'ERROR: null root node returned by UiTestAutomationBridge.\n', 0),
+                ('ERROR: could not get idle state.\n', '', 0),
+                ('', '', 0),
+                (ack, 'warning: ambiguous result', 0),
+                ('UI hierchary dumped to: ' + queue.new_ui_dump_path(), '', 0),
+                (ack, '', 1)]:
+            with self.subTest(stdout=stdout, stderr=stderr, code=code):
+                with self.assertRaises(RuntimeError):
+                    queue.require_ui_dump_success(path, stdout, stderr, code)
+        # An existing old XML cannot rescue a failed capture. Validation happens
+        # before reading XML or applying the view-readiness predicate.
+        with tempfile.TemporaryDirectory() as directory:
+            old = Path(directory) / 'previous.xml'
+            old.write_text('<hierarchy/>')
+            with self.assertRaises(RuntimeError):
+                queue.require_ui_dump_success(path, '', 'ERROR: null root node', 0)
+            self.assertEqual(old.read_text(), '<hierarchy/>')
+        for invalid in ['/data/local/tmp/andrix-ready-ui.xml', '/data/misc_ce/0/andrix/file',
+                        path + '; touch /tmp/x', None]:
+            with self.subTest(path=invalid):
+                with self.assertRaises(ValueError):
+                    queue.require_ui_dump_success(invalid, ack, '')
+
     def fixture(self, root):
         (root/'state/ui-requests').mkdir(parents=True)
         (root/'evidence/ui').mkdir(parents=True)
