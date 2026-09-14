@@ -57,7 +57,16 @@ this actual snapshot-RPC control.
 - Fresh frozen-image/host runtime controls and recovery, preserving failed attempts,
   sampling actual authority and cleanup rather than a guessed process ID alone.
 
-This does not enable Keep by default, qualify all pressure/suspend/vold cases, alter
-accepted architecture, or authorize Pixel deployment/services/SSH/package transactions.
-Use fresh, verified artifacts and immutable evidence; do not reuse a consumed fixture
-session or substitute a host model for an Android runtime result.
+This test facility does not enable Keep by default or qualify all pressure/suspend/
+vold cases, Pixel deployment, services, SSH or package transactions. Use fresh, verified
+artifacts and immutable evidence; do not reuse a consumed fixture session or substitute
+a host model for an Android runtime result.
+
+## Approved follow-up
+
+After these tests, separate workload lifetime from terminal attachment, as recorded
+in the [architecture](../docs/architecture.md#lifecycle-and-networking). Retain Android
+user/CE authority, resource supervision, process-bound Stop and independent locked-UI
+gates. tmux remains an ordinary optional tool, not a condition of all retained work.
+Exact foreground/detached-work defaults require explicit definition and qualification;
+this direction does not itself change the current prototype's lifetime behavior.
