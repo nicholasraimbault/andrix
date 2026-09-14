@@ -1,6 +1,6 @@
 # Disposable ordinary-app proof
 
-Optional [P5](../../plans/2026-08-28-phase1-andrix-hello-aosp17.md#p5-a17--prove-the-ordinary-app-boundary)
+Optional [P5](../../plans/2026-08-28-phase1-andrix-hello-aosp17.md#result-and-boundaries)
 fixture. Live build/runtime state belongs in [current work](../../plans/current.md),
 not this recipe. Implementing or building it is not P5 runtime proof.
 
