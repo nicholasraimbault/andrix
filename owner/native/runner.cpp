@@ -2,6 +2,7 @@
 #include "guards.h"
 #include "session_core.h"
 #include "worker_filter.h"
+#include "runner_command.h"
 
 #include <fcntl.h>
 #include <sys/ioctl.h>
@@ -24,8 +25,14 @@ namespace {
 }
 }
 
-int main(int argc, char**) {
-  if (argc != 1) fail("runner takes no caller arguments");
+int main(int argc, char** argv) {
+#ifdef ANDRIX_OWNER_KEEP
+  constexpr bool keep_enabled = true;
+#else
+  constexpr bool keep_enabled = false;
+#endif
+  const auto command = andrix::runner_command(argc, argv, keep_enabled);
+  if (command.mode == andrix::RunnerMode::Invalid) fail("invalid fixed runner mode");
   auto identity = andrix::check_identity();
   if (!identity.empty()) fail(identity);
   pid_t coordinator = getppid();
@@ -66,6 +73,24 @@ int main(int argc, char**) {
   char executable[] = "/system/bin/sh";
   char interactive[] = "-i";
   char* arguments[] = {executable, interactive, nullptr};
+#ifdef ANDRIX_OWNER_KEEP
+  if (command.mode != andrix::RunnerMode::Plain) {
+    // Only a fixed native work namespace and fixed commands. Reattachment never
+    // uses new-session -A: absence must not silently create a replacement pane.
+    char tmux[] = "/usr/bin/tmux";
+    char socket_option[] = "-L";
+    char create[] = "new-session", attach[] = "attach-session";
+    char session_option[] = "-s", target_option[] = "-t", session_name[] = "owner";
+    char directory_option[] = "-c", directory[] = "/data/misc_ce/0/andrix", end_options[] = "--";
+    char* socket_name = const_cast<char*>(command.socket_name.c_str());
+    char* create_args[] = {tmux, socket_option, socket_name, create, session_option,
+        session_name, directory_option, directory, end_options, executable, interactive, nullptr};
+    char* attach_args[] = {tmux, socket_option, socket_name, attach, target_option, session_name, nullptr};
+    dprintf(STDOUT_FILENO, "Andrix kept terminal: uid=%u; fresh tmux presentation\r\n", getuid());
+    execve(tmux, command.mode == andrix::RunnerMode::TmuxNew ? create_args : attach_args, environment);
+    fail("tmux execve");
+  }
+#endif
   dprintf(STDOUT_FILENO, "Andrix owner session: uid=%u; existing CE home; bounded native shell\r\n", getuid());
   execve(executable, arguments, environment);
   fail("shell execve");

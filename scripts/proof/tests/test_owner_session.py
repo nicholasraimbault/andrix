@@ -110,7 +110,7 @@ class OwnerSessionTests(unittest.TestCase):
         source = (ROOT/'owner/native/andrixd.cpp').read_text()
         lifecycle_start = source.index('  bool lifecycle_ready_locked() {')
         lifecycle = source[lifecycle_start:source.index('  bool controller_matches()', lifecycle_start)]
-        death_start = source.index('  void controller_died() {')
+        death_start = source.index('  void controller_lost_locked() {')
         start = source.index('  void revoke_locked() {')
         death = source[death_start:start]
         revoke = source[start:source.index('  bool start_shell_locked(', start)]
@@ -168,9 +168,12 @@ class OwnerSessionTests(unittest.TestCase):
         self.assertIn('FS_IOC_GET_ENCRYPTION_POLICY_EX', guards)
         self.assertNotIn('FS_IOC_GET_ENCRYPTION_KEY_STATUS', guards)
         daemon = (ROOT/'owner/native/andrixd.cpp').read_text()
-        self.assertIn('AIBinder_linkToDeath(lifetime.get(), death_, this)', daemon)
+        self.assertIn('AIBinder_linkToDeath(lifetime.get(), death_, cookie)', daemon)
+        self.assertIn('AIBinder_DeathRecipient_setOnUnlinked(death_', daemon)
+        self.assertIn('controller_generation_ != registration', daemon)
+        self.assertIn('if (!kept_) stopping_ = true;', daemon)
         self.assertIn('controller_pid_ == AIBinder_getCallingPid()', daemon)
-        self.assertIn('void controller_died()', daemon)
+        self.assertIn('void controller_died(uint64_t registration)', daemon)
         activity = (ROOT/'owner/terminal/src/dev/andrix/terminal/ConsoleActivity.java').read_text()
         controller = (ROOT/'owner/terminal/src/dev/andrix/terminal/TerminalController.java').read_text()
         self.assertIn('static final Binder PROCESS_LIFETIME = new Binder()', controller)

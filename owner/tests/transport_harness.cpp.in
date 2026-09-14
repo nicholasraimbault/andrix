@@ -19,6 +19,7 @@
 using namespace andrix;
 uint64_t fake_now = 100;
 uint64_t now_ms() { return fake_now; }
+uint64_t active_ms() { return fake_now; }
 struct HostFd {
   int value = -1;
   ~HostFd() { reset(); }
@@ -44,7 +45,9 @@ struct Pump {
   std::string input_;
   HostFd master_;
   HostFd bridge_;
-  bool stopping_ = false;
+  bool stopping_ = false, kept_ = false, retiring_ = false;
+  int child_ = 0;
+  uint64_t retiring_since_ = 0;
 // PRODUCTION_METHODS
 };
 
@@ -133,7 +136,7 @@ int main() {
   p.revoke_locked();
   assert(p.master_ >= 0); // detach retains PTY
   connect(next);
-  p.controller_died();
+  p.controller_lost_locked();
   assert(p.stopping_ && p.bridge_ == -1 && !p.gate_.live(fake_now));
   assert(read(next, &byte, 1) == 0);
 #ifdef ANDRIX_OWNER_LIFECYCLE
@@ -155,5 +158,20 @@ int main() {
   blocked.transfer_locked();
   assert(blocked.stopping_ && !blocked.gate_.live(fake_now));
 #endif
+  // Kept presentation retirement closes this owned master and bridge, but does
+  // not convert Console loss into whole-work termination. No PID is signalled.
+  Pump kept;
+  int kept_master = posix_openpt(O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC);
+  assert(kept_master >= 0 && grantpt(kept_master) == 0 && unlockpt(kept_master) == 0);
+  kept.master_.reset(kept_master);
+  kept.kept_ = true; kept.child_ = 42; // Explicit bookkeeping facade, no real PID control.
+  assert(kept.gate_.attach(++fake_now, true, true, true));
+  kept.input_ = "must discard";
+  kept.controller_lost_locked();
+  assert(!kept.stopping_ && kept.retiring_ && kept.master_ == -1);
+  assert(kept.input_.empty() && !kept.gate_.live(fake_now));
+  auto began = kept.retiring_since_;
+  ++fake_now; kept.revoke_locked();
+  assert(kept.retiring_since_ == began); // Repeated loop checks do not extend retirement.
   std::cout << "real host PTY/framed replay/revocation checks passed; Android unqualified\n";
 }

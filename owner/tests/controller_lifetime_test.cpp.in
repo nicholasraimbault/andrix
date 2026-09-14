@@ -1,0 +1,151 @@
+// SPDX-License-Identifier: Apache-2.0
+// Exact coordinator registration/callback methods with an explicit NDK scheduling
+// facade. This proves host cookie ownership/order, not Android UID/SID authority.
+#include "session_core.h"
+#include <atomic>
+#include <cassert>
+#include <cstdint>
+#include <iostream>
+#include <memory>
+#include <mutex>
+#include <new>
+#include <string>
+#include <vector>
+#include <unistd.h>
+using namespace andrix;
+
+struct ScopedAStatus {
+  bool accepted;
+  bool isOk() const { return accepted; }
+  static ScopedAStatus ok() { return {true}; }
+  static ScopedAStatus fromExceptionCodeWithMessage(int, const char*) { return {false}; }
+};
+constexpr int EX_ILLEGAL_ARGUMENT = 1, STATUS_OK = 0;
+struct AIBinder_DeathRecipient { void (*died)(void*); void (*unlinked)(void*) = nullptr; };
+struct Link {
+  AIBinder_DeathRecipient* recipient;
+  void* cookie;
+  bool retiring = false, done = false;
+};
+struct AIBinder { bool alive = true, remote = true, fail = false; std::vector<Link*> links; };
+std::vector<std::unique_ptr<Link>> all_links;
+std::vector<std::unique_ptr<AIBinder_DeathRecipient>> recipients;
+int caller_pid = 100;
+bool allowed = true;
+bool caller_allowed() { return allowed; }
+int AIBinder_getCallingPid() { return caller_pid; }
+bool AIBinder_isRemote(AIBinder* binder) { return binder->remote; }
+bool AIBinder_isAlive(AIBinder* binder) { return binder->alive; }
+AIBinder_DeathRecipient* AIBinder_DeathRecipient_new(void (*callback)(void*)) {
+  auto item = std::make_unique<AIBinder_DeathRecipient>(); item->died = callback;
+  auto* result = item.get(); recipients.push_back(std::move(item)); return result;
+}
+void AIBinder_DeathRecipient_setOnUnlinked(AIBinder_DeathRecipient* recipient, void (*callback)(void*)) {
+  recipient->unlinked = callback;
+}
+int AIBinder_linkToDeath(AIBinder* binder, AIBinder_DeathRecipient* recipient, void* cookie) {
+  assert(binder && recipient && cookie && recipient->unlinked);
+  if (!binder->alive || binder->fail) { recipient->unlinked(cookie); return -1; }
+  auto item = std::make_unique<Link>(Link{recipient, cookie});
+  binder->links.push_back(item.get()); all_links.push_back(std::move(item)); return STATUS_OK;
+}
+int AIBinder_unlinkToDeath(AIBinder* binder, AIBinder_DeathRecipient* recipient, void* cookie) {
+  for (Link* link : binder->links) {
+    if (!link->done && link->recipient == recipient && link->cookie == cookie) {
+      link->retiring = true; return STATUS_OK; // Not quiescence: callback may still arrive.
+    }
+  }
+  return -1;
+}
+void pending_death(Link* link) { assert(!link->done); link->recipient->died(link->cookie); }
+void finish_unlink(Link* link) {
+  assert(!link->done); link->done = true; link->recipient->unlinked(link->cookie);
+}
+namespace ndk {
+class SpAIBinder {
+ public:
+  SpAIBinder() = default;
+  explicit SpAIBinder(AIBinder* value) : value_(value) { }
+  AIBinder* get() const { return value_; }
+  void set(AIBinder* value) { value_ = value; }
+ private:
+  AIBinder* value_ = nullptr;
+};
+}
+ScopedAStatus denied() { return {false}; }
+ScopedAStatus bad_state(const std::string&) { return {false}; }
+uint64_t epoch_seed() { return 17; }
+struct OwnerBase { virtual ScopedAStatus registerController(const ndk::SpAIBinder&) = 0; virtual ~OwnerBase() = default; };
+class OwnerSession : public OwnerBase {
+  struct ControllerCookie { OwnerSession* owner; uint64_t registration; };
+ public:
+// CONSTRUCTOR
+// REGISTRATION
+// DEATH_METHODS
+  void revoke_locked() { ++revocations; }
+  std::mutex mutex_;
+  const uint64_t work_id_;
+  uint64_t session_id_;
+  AttachmentGate gate_;
+  bool stopping_ = false, kept_ = false;
+  ndk::SpAIBinder controller_;
+  int controller_pid_ = 0;
+  uint64_t controller_sequence_ = 0, controller_generation_ = 0;
+  ControllerCookie* controller_cookie_ = nullptr;
+  std::atomic<unsigned> death_links_{0};
+  AIBinder_DeathRecipient* death_;
+  unsigned revocations = 0;
+};
+
+int main() {
+  OwnerSession kept; kept.kept_ = true;
+  AIBinder original, replacement, other;
+  assert(!kept.registerController(ndk::SpAIBinder()).isOk());
+  original.remote = false;
+  assert(!kept.registerController(ndk::SpAIBinder(&original)).isOk());
+  original.remote = true; original.fail = true;
+  assert(!kept.registerController(ndk::SpAIBinder(&original)).isOk());
+  assert(kept.death_links_.load() == 0); original.fail = false;
+  assert(kept.registerController(ndk::SpAIBinder(&original)).isOk());
+  assert(kept.registerController(ndk::SpAIBinder(&original)).isOk());
+  assert(original.links.size() == 1 && kept.death_links_.load() == 1);
+  assert(!kept.registerController(ndk::SpAIBinder(&other)).isOk());
+  caller_pid = 101; original.alive = false;
+  assert(kept.registerController(ndk::SpAIBinder(&replacement)).isOk());
+  Link* old = original.links[0]; assert(old->retiring);
+  auto generation = kept.controller_generation_; auto revocations = kept.revocations;
+  pending_death(old); // Unlink returned, but old callback still pending.
+  assert(kept.controller_generation_ == generation && kept.controller_.get() == &replacement);
+  assert(kept.revocations == revocations && !kept.stopping_);
+  finish_unlink(old); assert(kept.death_links_.load() == 1);
+  replacement.alive = false; pending_death(replacement.links[0]);
+  assert(!kept.controller_.get() && !kept.stopping_);
+  finish_unlink(replacement.links[0]); assert(kept.death_links_.load() == 0);
+
+  OwnerSession plain; AIBinder console;
+  assert(plain.registerController(ndk::SpAIBinder(&console)).isOk());
+  console.alive = false; pending_death(console.links[0]);
+  assert(plain.stopping_ && !plain.controller_.get()); finish_unlink(console.links[0]);
+  assert(plain.death_links_.load() == 0);
+
+  OwnerSession limit; limit.kept_ = true; std::vector<std::unique_ptr<AIBinder>> cohort;
+  for (int i = 0; i < 8; ++i) {
+    if (!cohort.empty()) cohort.back()->alive = false;
+    auto binder = std::make_unique<AIBinder>(); ++caller_pid;
+    assert(limit.registerController(ndk::SpAIBinder(binder.get())).isOk());
+    cohort.push_back(std::move(binder));
+  }
+  cohort.back()->alive = false; AIBinder overflow; ++caller_pid;
+  assert(!limit.registerController(ndk::SpAIBinder(&overflow)).isOk());
+  assert(limit.death_links_.load() == 8);
+  for (const auto& binder : cohort) {
+    pending_death(binder->links[0]); finish_unlink(binder->links[0]);
+  }
+  assert(limit.death_links_.load() == 0 && !limit.stopping_);
+  limit.controller_sequence_ = INT64_MAX;
+  assert(!limit.registerController(ndk::SpAIBinder(&overflow)).isOk());
+  allowed = false;
+  assert(!kept.registerController(ndk::SpAIBinder(&overflow)).isOk());
+  for (const auto& link : all_links) assert(link->done);
+  std::cout << "Controller epoch/onUnlinked lifetime and retiring bounds passed; Android unqualified\n";
+}

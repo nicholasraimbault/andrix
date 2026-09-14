@@ -45,7 +45,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicLong;
 
-/** Process-lifetime terminal state. Activity changes never replace the parser checkpoint. */
+/** One parser per native presentation ID; kept work returns through a fresh client/PTY. */
 final class TerminalController implements TerminalSession.Host {
     interface Listener {
         void sessionChanged(TerminalSession session);
@@ -87,6 +87,8 @@ final class TerminalController implements TerminalSession.Host {
     private volatile long uiEpoch; // main-thread changes cancel in-flight attach intent
     private volatile int rows = 24, columns = 80;
     private TerminalSession session; // main/parser thread only
+    private boolean workKnown, keptWork;
+    private IOwnerSession knownService; // Exact native Binder instance; never retarget a queued Stop.
     private String state = "Detached — unlock and Attach";
 
     private TerminalController(Context context) {
@@ -139,7 +141,22 @@ final class TerminalController implements TerminalSession.Host {
         return attachments.current(request) && uiEpoch == epoch && listener == target;
     }
 
-    void attach() {
+    boolean hasKeptWork() { requireMain(); return keptWork && workKnown; }
+    void startKept() {
+        requireMain();
+        if (!ConsoleFeatures.KEEP) { show("Keep is not enabled in this image"); return; }
+        if (knownService != null && !knownService.asBinder().isBinderAlive()) {
+            workKnown = false; keptWork = false; knownService = null;
+        }
+        if (workKnown) {
+            show(keptWork ? "Kept work already exists: Attach or End it first"
+                    : "End the plain session before New kept; running shells cannot be adopted");
+            return;
+        }
+        attach(true);
+    }
+    void attach() { attach(false); }
+    private void attach(boolean newKept) {
         requireMain();
         if (!eligible()) { show("Attach refused: locked or not foreground"); return; }
         if (ending.get() || attachments.preparing()) return;
@@ -151,7 +168,10 @@ final class TerminalController implements TerminalSession.Host {
         final AttachTrace trace = new AttachTrace(requestEpoch, SystemClock::elapsedRealtime);
         show("Attaching — input unavailable until connected");
         final Listener target = listener;
-        final Checkpoint resume = checkpoint.get();
+        // A kept pane can redraw through a fresh client; never rebase the old
+        // parser after a gap. Native treats zero here as a new presentation request.
+        final Checkpoint resume = keptWork && !cursor.inputAllowed()
+                ? new Checkpoint(0, 0) : checkpoint.get();
         final int requestedRows = rows, requestedColumns = columns;
         control.execute(() -> {
             trace.mark(Event.CONTROL_BEGIN);
@@ -166,10 +186,26 @@ final class TerminalController implements TerminalSession.Host {
                 trace.mark(Event.REGISTER_BEGIN);
                 service.registerController(PROCESS_LIFETIME);
                 trace.mark(Event.REGISTER_END);
-                boolean foreground = eligible(), unlocked = users.isUserUnlocked();
                 trace.mark(Event.ATTACH_BEGIN);
-                Attachment a = service.attach(requestedRows, requestedColumns, foreground,
-                        unlocked, resume.session, resume.next);
+                Attachment a = null;
+                for (int attempt = 0; attempt < 20; ++attempt) {
+                    if (!currentRequest(request, requestEpoch, target) || !eligible())
+                        throw new IOException("UI changed");
+                    try {
+                        a = newKept ? service.startKept(requestedRows, requestedColumns,
+                                eligible(), users.isUserUnlocked())
+                            : service.attach(requestedRows, requestedColumns, eligible(),
+                                users.isUserUnlocked(), resume.session, resume.next);
+                        break;
+                    } catch (IllegalStateException error) {
+                        // Closing our old PTY client is asynchronous. Retry only
+                        // this exact bounded retirement condition, not other errors.
+                        if (newKept || !"kept presentation is retiring; Attach again".equals(error.getMessage())
+                                || attempt == 19) throw error;
+                        Thread.sleep(50);
+                    }
+                }
+                if (a == null) throw new IOException("No native presentation");
                 trace.mark(Event.ATTACH_REPLY);
                 fd = a.stream;
                 if (fd == null || a.generation <= 0 || a.sessionId <= 0 || a.firstOutputOffset < 0)
@@ -226,14 +262,16 @@ final class TerminalController implements TerminalSession.Host {
                 next.trace.mark(Event.TERMINAL_END);
             }
             checkpoint.set(new Checkpoint(cursor.session(), cursor.nextOffset()));
+            workKnown = true; keptWork = next.kept; knownService = next.service;
             // Renewal/cancellation can retire pending ownership while the UI is
             // preparing. Promotion and input eligibility are one checked transition.
             if (!currentRequest(request, requestEpoch, target) || !eligible()
                     || !attachments.promote(request, next, cursor.inputAllowed()))
                 throw new IOException("Attachment expired or UI changed during preparation");
             next.trace.mark(Event.CONNECTION_SET);
-            state = attachments.inputAllowed(next) ? "Attached — native owner UID7500"
-                    : "Output gap: input blocked. End session, then Attach to start fresh.";
+            state = attachments.inputAllowed(next)
+                    ? (next.kept ? "Kept — native owner UID7500; Stop in notification or End" : "Attached — native owner UID7500")
+                    : gapMessage(next.kept);
             reader.execute(() -> readOutput(next));
             writer.execute(() -> writeInput(next));
             resize(session, rows, columns);
@@ -244,6 +282,11 @@ final class TerminalController implements TerminalSession.Host {
             control.execute(() -> remoteDetach(next));
             showFor(next, "Attachment state failed; Attach again (gaps require End)");
         }
+    }
+
+    private static String gapMessage(boolean kept) {
+        return kept ? "Output gap: input blocked. Attach for a fresh tmux presentation, or End."
+                : "Output gap: input blocked. End session, then Attach to start fresh.";
     }
 
     private boolean renewLease(Connection current) throws Exception {
@@ -293,7 +336,7 @@ final class TerminalController implements TerminalSession.Host {
                         checkpoint.set(new Checkpoint(cursor.session(), cursor.nextOffset()));
                         if (ack[0] < 0) {
                             attachments.blockInput(current); current.queue.discard();
-                            show("Output gap: input blocked. End session, then Attach to start fresh.");
+                            show(gapMessage(current.kept));
                         }
                     } catch (IOException | RuntimeException error) {
                         attachments.blockInput(current); current.queue.discard();
@@ -340,6 +383,7 @@ final class TerminalController implements TerminalSession.Host {
     }
     void endSession() {
         requireMain();
+        if (hasKeptWork() && knownService != null) { stopKept(); return; }
         Connection current = attachments.active();
         if (current == null || !eligible() || !ending.compareAndSet(false, true)) return;
         // End remains available after a gap; it never depends on healthy input.
@@ -349,10 +393,38 @@ final class TerminalController implements TerminalSession.Host {
             catch (Exception error) { showFor(current, "End failed: " + error.getMessage()); }
             finally {
                 disconnect(current); ending.set(false);
-                if (requested) showFor(current, "End requested — Attach again after the service restarts");
+                if (requested) main.post(() -> {
+                    if (current.epoch == uiEpoch && current.owner == listener) {
+                        workKnown = false; keptWork = false; knownService = null;
+                        show("End requested — Attach again after the service restarts");
+                    }
+                });
             }
         });
     }
+    private void stopKept() {
+        if (!eligible() || !ending.compareAndSet(false, true)) return;
+        final IOwnerSession service = knownService;
+        final Listener target = listener;
+        final long epoch = uiEpoch;
+        Connection current = attachments.cancel();
+        if (current != null) current.close();
+        control.execute(() -> {
+            String message;
+            boolean stopped = false;
+            try { service.stopKeptWork(); stopped = true; message = "Stop requested — Android init cleans up the work"; }
+            catch (Exception error) { message = "Stop failed: " + error.getMessage(); }
+            finally { ending.set(false); }
+            final String result = message;
+            final boolean accepted = stopped;
+            main.post(() -> {
+                if (listener != target || uiEpoch != epoch) return;
+                if (accepted) { workKnown = false; keptWork = false; knownService = null; }
+                show(result);
+            });
+        });
+    }
+
     private boolean disconnect(Connection target) {
         if (target == null) return false;
         boolean owned = attachments.retire(target);
@@ -451,6 +523,7 @@ final class TerminalController implements TerminalSession.Host {
         final long epoch;
         final Listener owner;
         final long generation, session, firstOffset;
+        final boolean kept;
         final ParcelFileDescriptor stream;
         final InputStream input;
         final OutputStream output;
@@ -460,7 +533,7 @@ final class TerminalController implements TerminalSession.Host {
                    long epoch, Listener owner) throws IOException {
             this.trace = trace; this.epoch = epoch; this.owner = owner;
             this.service = service; generation = a.generation; session = a.sessionId;
-            firstOffset = a.firstOutputOffset; stream = fd;
+            firstOffset = a.firstOutputOffset; kept = a.kept; stream = fd;
             ParcelFileDescriptor read = ParcelFileDescriptor.dup(fd.getFileDescriptor());
             ParcelFileDescriptor write = null;
             try {

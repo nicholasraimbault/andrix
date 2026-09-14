@@ -53,6 +53,9 @@ class OutputJournal {
   // Untrusted RPC input must also pass the existing identity/generation/lease
   // guards. An acknowledgement beyond delivered data cannot free queued output.
   bool acknowledge(uint64_t next_offset);
+  // Coordinator-only: after allocating a DIFFERENT presentation/session ID and
+  // before starting its fresh PTY client. Never use this to hide a gap in one ID.
+  void clear_for_new_presentation();
   uint64_t begin() const { return begin_; }
   uint64_t end() const { return end_; }
   uint64_t acknowledged() const { return acknowledged_; }

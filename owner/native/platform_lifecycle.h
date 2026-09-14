@@ -6,6 +6,7 @@
 #include <aidl/dev/andrix/lifecycle/IPlatformLifecycle.h>
 #include <android/binder_ibinder.h>
 
+#include <condition_variable>
 #include <memory>
 #include <mutex>
 
@@ -19,6 +20,11 @@ class PlatformLifecycle {
   bool start(); // Binder thread pool must already be running; no owner child yet.
   bool ready();
   bool failed();
+#ifdef ANDRIX_OWNER_KEEP
+  // Serialized with platform queries on the observer thread. No daemon mutex may
+  // be held by the caller. Success includes a fresh snapshot of the exact grant.
+  bool retain(const ndk::SpAIBinder& lifetime, uint64_t work_id);
+#endif
 
  private:
   static uint64_t now();
@@ -31,6 +37,17 @@ class PlatformLifecycle {
   bool failed_ = false;
   std::shared_ptr<aidl::dev::andrix::lifecycle::IPlatformLifecycle> service_;
   AIBinder_DeathRecipient* death_ = nullptr;
+#ifdef ANDRIX_OWNER_KEEP
+  struct KeepRequest {
+    ndk::SpAIBinder lifetime;
+    uint64_t work;
+    bool done = false, accepted = false;
+  };
+  std::condition_variable changed_;
+  std::shared_ptr<KeepRequest> request_;
+  uint64_t kept_work_ = 0;
+  int64_t keep_registration_ = 0;
+#endif
 };
 
 } // namespace andrix

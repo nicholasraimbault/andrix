@@ -31,6 +31,17 @@ PRODUCT_SYSTEM_SERVER_JARS_EXTRA += system_ext:andrix-owner-lifecycle
 SYSTEM_OPTIMIZE_JAVA := true
 endif
 
+# Keep candidate is a separate explicit opt-in, never the ordinary session default.
+ifeq ($(ANDRIX_OWNER_KEEP),true)
+ifneq ($(ANDRIX_OWNER_LIFECYCLE),true)
+$(error ANDRIX_OWNER_KEEP requires ANDRIX_OWNER_LIFECYCLE=true)
+endif
+ifneq ($(ANDRIX_OWNER_COMPILER),true)
+$(error ANDRIX_OWNER_KEEP requires the pinned ANDRIX_OWNER_COMPILER=true tmux payload)
+endif
+$(call soong_config_set_bool,andrix,owner_keep,true)
+endif
+
 # Compiler payload is a separate opt-in within the owner environment. Unflagged
 # builds retain the original small APEX and do not require the staged compiler.
 ifeq ($(ANDRIX_OWNER_COMPILER),true)

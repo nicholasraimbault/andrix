@@ -39,9 +39,44 @@ andrix_lifecycle_cc_defaults {
     },
 }
 
+soong_config_module_type {
+    name: "andrix_keep_cc_defaults",
+    module_type: "cc_defaults",
+    config_namespace: "andrix",
+    bool_variables: ["owner_keep"],
+    properties: ["cflags"],
+}
+
+andrix_keep_cc_defaults {
+    name: "andrix_keep_build",
+    soong_config_variables: {
+        owner_keep: { cflags: ["-DANDRIX_OWNER_KEEP=1"] },
+    },
+}
+
+soong_config_module_type {
+    name: "andrix_keep_java_defaults",
+    module_type: "java_defaults",
+    config_namespace: "andrix",
+    bool_variables: ["owner_keep"],
+    properties: ["srcs"],
+}
+
+andrix_keep_java_defaults {
+    name: "andrix_terminal_features",
+    soong_config_variables: {
+        owner_keep: {
+            srcs: ["terminal/features/keep-enabled/ConsoleFeatures.java"],
+            conditions_default: {
+                srcs: ["terminal/features/keep-disabled/ConsoleFeatures.java"],
+            },
+        },
+    },
+}
+
 cc_binary {
     name: "andrixd",
-    defaults: ["andrix_owner_defaults", "andrix_lifecycle_build"],
+    defaults: ["andrix_owner_defaults", "andrix_lifecycle_build", "andrix_keep_build"],
     srcs: ["native/andrixd.cpp", "native/terminal_protocol.cpp"],
     static_libs: ["andrix_session-ndk"],
     shared_libs: ["libbase", "libbinder_ndk", "liblog", "libselinux"],
@@ -50,7 +85,7 @@ cc_binary {
 
 cc_binary {
     name: "andrix-session-runner",
-    defaults: ["andrix_owner_defaults"],
+    defaults: ["andrix_owner_defaults", "andrix_keep_build"],
     srcs: ["native/runner.cpp", "native/worker_filter.cpp"],
 }
 
@@ -61,6 +96,7 @@ filegroup {
 
 android_app {
     name: "AndrixTerminal",
+    defaults: ["andrix_terminal_features"],
     system_ext_specific: true,
     privileged: true,
     platform_apis: true,
