@@ -62,6 +62,10 @@ public final class ConsoleActivity extends Activity implements TerminalControlle
         LinearLayout actions = new LinearLayout(this);
         add(actions, "Attach", controller::attach);
         add(actions, "Detach", controller::detach);
+        if (ConsoleFeatures.KEEP) {
+            Button kept = add(actions, "New kept", controller::startKept);
+            kept.setContentDescription("Start a new kept tmux terminal; plain sessions cannot be adopted");
+        }
         end = add(actions, "End", controller::endSession);
         layout.addView(actions);
         terminal = new TerminalView(this, null);
@@ -166,7 +170,7 @@ public final class ConsoleActivity extends Activity implements TerminalControlle
         // Disabling the view on detach relinquishes focus. Restore it only when
         // an eligible attachment becomes input-capable, never while locked/gapped.
         if (inputAllowed && !previouslyEnabled) terminal.requestFocus();
-        end.setEnabled(attached && resumed && focused);
+        end.setEnabled((attached || controller.hasKeptWork()) && resumed && focused);
         if (!inputAllowed) { control = false; controlKey.setText("Ctrl"); }
         notifyScreenReaders();
     }

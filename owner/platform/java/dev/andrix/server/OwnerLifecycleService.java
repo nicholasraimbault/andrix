@@ -5,6 +5,8 @@ import android.content.Context;
 import android.os.Binder;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.os.IBinder;
+import android.os.RemoteException;
 import android.os.SystemProperties;
 import android.util.Slog;
 
@@ -14,6 +16,7 @@ import com.android.server.SystemService;
 import com.android.server.pm.UserManagerInternal;
 import com.android.server.storage.CeStorageAccessTracker;
 
+import dev.andrix.lifecycle.IKeptWork;
 import dev.andrix.lifecycle.IPlatformLifecycle;
 import dev.andrix.lifecycle.PlatformState;
 
@@ -32,6 +35,8 @@ public final class OwnerLifecycleService extends SystemService {
     private static final int OWNER_UID = 7500;
     private final OwnerLifecycleState state = new OwnerLifecycleState();
     private final long instance;
+    private final KeepNotifications notifications;
+    private final KeepWork keep;
     private final AtomicBoolean publishQueued = new AtomicBoolean();
     private Handler commands;
     // These fields belong only to the independent command handler.
@@ -41,28 +46,40 @@ public final class OwnerLifecycleService extends SystemService {
 
     private final IPlatformLifecycle.Stub binder = new IPlatformLifecycle.Stub() {
         @Override public PlatformState snapshot() {
-            // Owner/Console/ordinary-app discovery is denied. Existing privileged
-            // system/debug domains can also find this service, so discovery alone
-            // is not authorization. UID7500 plus worker Binder filtering and the
-            // owner policy boundary select the coordinator. No supplied identity
-            // or Boolean is accepted as authority.
-            if (Binder.getCallingUid() != OWNER_UID || Binder.getCallingPid() <= 1) {
-                throw new SecurityException("not the native owner coordinator");
-            }
-            OwnerLifecycleState.State current = state.snapshot();
+            enforceCoordinator();
+            KeepWork.Snapshot current = keep.snapshot();
             PlatformState result = new PlatformState();
-            result.instance = instance; result.generation = current.generation;
-            result.available = current.available;
+            result.instance = instance; result.generation = current.platform.generation;
+            result.available = current.platform.available;
+            result.keptWorkId = current.workId; result.keepRegistration = current.registration;
             return result;
+        }
+        @Override public long keepWork(IBinder lifetime, long workId,
+                long platformInstance, long platformGeneration) throws RemoteException {
+            enforceCoordinator();
+            if (!KeepBuild.ENABLED || lifetime == null) return 0;
+            // Authorized platform work uses system context AND system Binder identity,
+            // not the remote UID7500 identity inherited by this Binder thread.
+            long identity = Binder.clearCallingIdentity();
+            try {
+                // Descriptor/object checks are outside all lifecycle/storage locks.
+                // Endpoint UID + MAC/worker filtering trust the native coordinator to
+                // supply its own process-lifetime IKeptWork, not an arbitrary token.
+                if (lifetime instanceof Binder
+                        || !IKeptWork.DESCRIPTOR.equals(lifetime.getInterfaceDescriptor())) return 0;
+                return keep.keep(new BinderLifetime(lifetime, IKeptWork.Stub.asInterface(lifetime)),
+                        workId, platformInstance, platformGeneration);
+            } finally { Binder.restoreCallingIdentity(identity); }
         }
         @Override protected void dump(FileDescriptor fd, PrintWriter out, String[] args) {
             int uid = Binder.getCallingUid();
             if (uid != android.os.Process.SYSTEM_UID && uid != android.os.Process.SHELL_UID) {
                 throw new SecurityException("lifecycle metadata dump denied");
             }
-            OwnerLifecycleState.State current = state.snapshot();
-            out.println("instance=" + instance + " generation=" + current.generation
-                    + " available=" + current.available);
+            KeepWork.Snapshot current = keep.snapshot();
+            out.println("instance=" + instance + " generation=" + current.platform.generation
+                    + " available=" + current.platform.available + " keptWorkId=" + current.workId
+                    + " keepRegistration=" + current.registration);
             out.println("Android lifecycle metadata; no synchronous key/cleanup completion claim");
         }
     };
@@ -71,12 +88,60 @@ public final class OwnerLifecycleService extends SystemService {
         super(context);
         long seed = new SecureRandom().nextLong() & Long.MAX_VALUE;
         instance = seed == 0 ? 1 : seed;
+        notifications = new KeepNotifications(context, this::postCommand);
+        keep = new KeepWork(KeepBuild.ENABLED, instance, state, notifications);
+    }
+
+    private static void enforceCoordinator() {
+        // MAC service-manager find policy excludes owner workers/Console/apps but
+        // also admits some system/debug domains. It is not endpoint authorization.
+        // Only the ACTUAL Binder caller UID7500/PID>1 is accepted here. Worker Binder
+        // filtering and MAC separate same-UID owner code from the coordinator;
+        // neither a supplied UID/PID nor mere discovery establishes that identity.
+        if (Binder.getCallingUid() != OWNER_UID || Binder.getCallingPid() <= 1) {
+            throw new SecurityException("not the native owner coordinator");
+        }
+    }
+
+    private static final class BinderLifetime implements KeepWork.Lifetime {
+        private final IBinder binder;
+        private final IKeptWork callback;
+        private IBinder.DeathRecipient recipient;
+        BinderLifetime(IBinder binder, IKeptWork callback) {
+            this.binder = binder; this.callback = callback;
+        }
+        @Override public Object identity() { return binder; }
+        @Override public void link(Runnable death) throws RemoteException {
+            recipient = death::run; // Per-registration recipient, never PID keyed.
+            try { binder.linkToDeath(recipient, 0); }
+            catch (RemoteException error) { death.run(); throw error; }
+        }
+        @Override public void unlink() {
+            if (recipient != null) binder.unlinkToDeath(recipient, 0);
+        }
+        @Override public boolean isAlive() { return binder.isBinderAlive(); }
+        @Override public void stop(long workId, long registration) throws RemoteException {
+            // Oneway to THIS process token. Native authenticates system_server and
+            // exits; init reaps the group. A request is not cleanup acknowledgement.
+            callback.stop(workId, registration);
+        }
+    }
+
+    private void postCommand(Runnable command) {
+        if (commands == null || !commands.post(command)) {
+            throw new IllegalStateException("Lifecycle command handler unavailable");
+        }
+    }
+
+    private void failState() {
+        synchronized (state) { state.fail(); keep.platformChanged(); }
     }
 
     @Override public void onStart() {
         HandlerThread thread = new HandlerThread("AndrixLifecycleCommands");
         thread.start();
         commands = new Handler(thread.getLooper());
+        if (KeepBuild.ENABLED) notifications.initialize(keep, commands);
         publishBinderService(SERVICE, binder);
         schedulePublication(); // Starts blocked, including missing dependency paths.
         try {
@@ -88,10 +153,13 @@ public final class OwnerLifecycleService extends SystemService {
             ceChanged(initial); // Sequence reconciliation handles callback-before-return.
             long before = state.userRevision();
             boolean ready = users.isUserRunning(0) && users.isUserUnlocked(0);
-            state.bootstrapUser(before, ready); // User state only; CE has its separate observation.
+            synchronized (state) {
+                state.bootstrapUser(before, ready); // User state only; CE is separately observed.
+                keep.platformChanged();
+            }
             schedulePublication();
         } catch (RuntimeException error) {
-            state.fail(); schedulePublication();
+            failState(); schedulePublication();
             Slog.e(TAG, "Cannot establish lifecycle observation", error);
         }
     }
@@ -99,13 +167,17 @@ public final class OwnerLifecycleService extends SystemService {
     private void ceChanged(CeStorageAccessTracker.Snapshot observation) {
         if (observation.userId != 0) return;
         // No storage locks, Binder downcalls, property I/O or cleanup waits here.
-        state.ce(observation.sequence, observation.revocation, observation.available);
+        synchronized (state) {
+            state.ce(observation.sequence, observation.revocation, observation.available);
+            keep.platformChanged();
+        }
         schedulePublication();
     }
 
     private void userChanged(TargetUser user, boolean ready) {
         if (user.getUserIdentifier() != 0) return;
-        state.user(ready); schedulePublication();
+        synchronized (state) { state.user(ready); keep.platformChanged(); }
+        schedulePublication();
     }
     @Override public void onUserStarting(TargetUser user) { userChanged(user, false); }
     @Override public void onUserUnlocking(TargetUser user) { userChanged(user, false); }
@@ -116,16 +188,17 @@ public final class OwnerLifecycleService extends SystemService {
     private void schedulePublication() {
         if (commands == null || !publishQueued.compareAndSet(false, true)) return;
         if (!commands.post(this::publish)) {
-            publishQueued.set(false); state.fail();
+            publishQueued.set(false); failState();
             Slog.e(TAG, "Lifecycle command handler unavailable");
         }
     }
 
     private void publish() {
         publishQueued.set(false); // At most this invocation plus one pending update.
-        OwnerLifecycleState.State current = state.snapshot();
+        OwnerLifecycleState.State current = keep.snapshot().platform;
+        keep.cancelRevoked(); // Notification I/O outside storage/lifecycle monitors.
         try {
-            // Existing init control requests, not a second process supervisor.
+            // Existing GLOBAL Android lifecycle init controls, not notification Stop.
             if (!current.available) {
                 SystemProperties.set("ctl.stop", "andrixd");
             } else if (published && (current.generation != publishedGeneration || !publishedReady)) {
@@ -140,7 +213,7 @@ public final class OwnerLifecycleService extends SystemService {
             published = true; publishedGeneration = current.generation;
             publishedReady = current.available;
         } catch (RuntimeException error) {
-            state.fail();
+            failState(); keep.cancelRevoked();
             // Do not let publication failure leave a true Binder observation.
             // This is a stop request, not an acknowledgement that cleanup ended.
             try { SystemProperties.set("ctl.stop", "andrixd"); }

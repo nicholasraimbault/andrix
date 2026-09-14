@@ -102,4 +102,9 @@ bool OutputJournal::acknowledge(uint64_t next_offset) {
   return true;
 }
 
+void OutputJournal::clear_for_new_presentation() {
+  bytes_.clear();
+  begin_ = end_ = acknowledged_ = delivered_ = dropped_ = 0;
+}
+
 } // namespace andrix::terminal

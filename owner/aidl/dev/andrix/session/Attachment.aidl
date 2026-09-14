@@ -8,4 +8,5 @@ parcelable Attachment {
     long sessionId;
     long firstOutputOffset;
     ParcelFileDescriptor stream;
+    boolean kept;
 }

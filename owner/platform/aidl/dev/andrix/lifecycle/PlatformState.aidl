@@ -7,4 +7,7 @@ parcelable PlatformState {
     long instance;
     long generation;
     boolean available;
+    // Both zero without an active notification-backed grant for THIS epoch.
+    long keptWorkId;
+    long keepRegistration;
 }

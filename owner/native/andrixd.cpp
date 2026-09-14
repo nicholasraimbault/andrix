@@ -5,6 +5,12 @@
 #ifdef ANDRIX_OWNER_LIFECYCLE
 #include "platform_lifecycle.h"
 #endif
+#ifdef ANDRIX_OWNER_KEEP
+#ifndef ANDRIX_OWNER_LIFECYCLE
+#error Keep requires Android lifecycle observation
+#endif
+#include <aidl/dev/andrix/lifecycle/BnKeptWork.h>
+#endif
 
 #include <aidl/dev/andrix/session/BnOwnerSession.h>
 #include <android/binder_ibinder_platform.h>
@@ -28,12 +34,14 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <csignal>
 #include <cstring>
 #include <limits>
 #include <mutex>
+#include <new>
 #include <string>
 #include <thread>
 
@@ -47,6 +55,12 @@ namespace {
 uint64_t now_ms() {
   timespec ts{};
   if (clock_gettime(CLOCK_BOOTTIME, &ts) != 0) _exit(125);
+  return uint64_t(ts.tv_sec) * 1000 + uint64_t(ts.tv_nsec) / 1000000;
+}
+
+uint64_t active_ms() {
+  timespec ts{};
+  if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) _exit(125);
   return uint64_t(ts.tv_sec) * 1000 + uint64_t(ts.tv_nsec) / 1000000;
 }
 
@@ -72,12 +86,42 @@ ScopedAStatus bad_state(const std::string& text) {
   return ScopedAStatus::fromExceptionCodeWithMessage(EX_ILLEGAL_STATE, text.c_str());
 }
 
-class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
+#ifdef ANDRIX_OWNER_KEEP
+// A supplied old Binder handle cannot target a replacement daemon. This token
+// exists for one native process/work ID; Stop needs no possibly-stalled main lock.
+class KeptWorkToken final : public aidl::dev::andrix::lifecycle::BnKeptWork {
  public:
-  OwnerSession() : session_id_(epoch_seed()), gate_(session_id_), death_(AIBinder_DeathRecipient_new([](void* cookie) {
-    static_cast<OwnerSession*>(cookie)->controller_died();
-  })) {
+  explicit KeptWorkToken(uint64_t work) : work_(work) { }
+  ScopedAStatus stop(int64_t work, int64_t registration) override {
+    const char* sid = AIBinder_getCallingSid();
+    if (!sid || AIBinder_getCallingUid() != 1000 ||
+        std::strcmp(sid, "u:r:system_server:s0") != 0 ||
+        work <= 0 || uint64_t(work) != work_ || registration <= 0) return denied();
+    _exit(0); // Android init, not a guessed process group, owns complete cleanup.
+  }
+ private:
+  const uint64_t work_;
+};
+#endif
+
+class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
+  struct ControllerCookie { OwnerSession* owner; uint64_t registration; };
+ public:
+  OwnerSession() : work_id_(epoch_seed()), session_id_(work_id_), gate_(work_id_),
+      death_(AIBinder_DeathRecipient_new([](void* value) {
+        auto* cookie = static_cast<ControllerCookie*>(value);
+        cookie->owner->controller_died(cookie->registration);
+      })) {
     if (!death_) _exit(125);
+    AIBinder_DeathRecipient_setOnUnlinked(death_, [](void* value) {
+      auto* cookie = static_cast<ControllerCookie*>(value);
+      if (cookie->owner->death_links_.fetch_sub(1) == 0) _exit(125);
+      delete cookie; // Only here: pending death callbacks must finish first.
+    });
+#ifdef ANDRIX_OWNER_KEEP
+    work_lifetime_ = ndk::SharedRefBase::make<KeptWorkToken>(work_id_);
+    AIBinder_setRequestingSid(work_lifetime_->asBinder().get(), true);
+#endif
   }
 
   bool start_lifecycle() {
@@ -95,13 +139,31 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
     std::lock_guard guard(mutex_);
     if (stopping_) return bad_state("session is ending");
     if (controller_.get()) {
-      if (controller_pid_ == AIBinder_getCallingPid() && controller_.get() == lifetime.get())
-        return ScopedAStatus::ok();
-      return bad_state("a different console lifetime is already registered");
+      if (AIBinder_isAlive(controller_.get())) {
+        if (controller_pid_ == AIBinder_getCallingPid() && controller_.get() == lifetime.get())
+          return ScopedAStatus::ok();
+        return bad_state("a different console lifetime is already registered");
+      }
+      const auto old = controller_;
+      auto* cookie = controller_cookie_;
+      clear_controller_locked();
+      controller_lost_locked();
+      // Unlink is not callback quiescence. onUnlinked owns cookie reclamation.
+      AIBinder_unlinkToDeath(old.get(), death_, cookie);
+      if (stopping_) return bad_state("plain session is ending with its console");
     }
-    if (AIBinder_linkToDeath(lifetime.get(), death_, this) != STATUS_OK)
+    if (death_links_.load() >= 8 || controller_sequence_ == uint64_t{INT64_MAX})
+      return bad_state("console lifetime retirement is full");
+    const uint64_t registration = ++controller_sequence_;
+    auto* cookie = new (std::nothrow) ControllerCookie{this, registration};
+    if (!cookie) return bad_state("console lifetime allocation failed");
+    death_links_.fetch_add(1);
+    // lifetime/death/cookie are all non-null before transferring link ownership.
+    if (AIBinder_linkToDeath(lifetime.get(), death_, cookie) != STATUS_OK)
       return bad_state("console is no longer alive");
     controller_ = lifetime;
+    controller_cookie_ = cookie;
+    controller_generation_ = registration;
     controller_pid_ = AIBinder_getCallingPid();
     return ScopedAStatus::ok();
   }
@@ -113,6 +175,59 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
     if (!valid_dimensions(rows, columns) || previous_session < 0 || next_output < 0)
       return ScopedAStatus::fromExceptionCodeWithMessage(EX_ILLEGAL_ARGUMENT, "invalid PTY dimensions");
     std::lock_guard guard(mutex_);
+    if (starting_keep_) return bad_state("kept work is being prepared");
+    return attach_locked(rows, columns, ui_eligible, user_unlocked, previous_session, next_output, result);
+  }
+
+  ScopedAStatus startKept(int32_t rows, int32_t columns, bool ui_eligible,
+                         bool user_unlocked, Attachment* result) override {
+    if (!caller_allowed()) return denied();
+#ifndef ANDRIX_OWNER_KEEP
+    (void)rows; (void)columns; (void)ui_eligible; (void)user_unlocked; (void)result;
+    return bad_state("Keep is not enabled in this image");
+#else
+    if (!valid_dimensions(rows, columns) || !ui_eligible || !user_unlocked)
+      return bad_state("start kept work only while foreground and unlocked");
+    std::unique_lock guard(mutex_);
+    if (!controller_matches()) return denied();
+    if (stopping_ || starting_keep_) return bad_state("session is ending or being prepared");
+    if (home_ >= 0 || child_ != 0) return bad_state("End existing work before starting a new kept terminal");
+    if (!lifecycle_ready_locked()) return bad_state("Android lifecycle observation unavailable");
+    std::string error = check_resource_bounds();
+    if (!error.empty()) return bad_state(error);
+    unique_fd checked_home(open_ce_home(&error));
+    if (checked_home < 0) return bad_state(error);
+    const uint64_t controller_generation = controller_generation_;
+    starting_keep_ = true;
+    auto lifetime = work_lifetime_->asBinder();
+    guard.unlock();
+    const bool granted = platform_.retain(lifetime, work_id_);
+    guard.lock();
+    starting_keep_ = false;
+    if (!granted || stopping_ || !controller_matches() ||
+        controller_generation_ != controller_generation || !lifecycle_ready_locked()) {
+      stopping_ = true; revoke_locked();
+      return bad_state("Keep notification or platform grant unavailable");
+    }
+    kept_ = true;
+    auto status = attach_locked(rows, columns, ui_eligible, user_unlocked, 0, 0, result);
+    if (!status.isOk()) { stopping_ = true; revoke_locked(); }
+    return status;
+#endif
+  }
+
+  ScopedAStatus stopKeptWork() override {
+    if (!caller_allowed()) return denied();
+    std::lock_guard guard(mutex_);
+    if (!controller_matches()) return denied();
+    if (!kept_) return bad_state("not kept work");
+    stopping_ = true; revoke_locked();
+    return ScopedAStatus::ok();
+  }
+
+  ScopedAStatus attach_locked(int32_t rows, int32_t columns, bool ui_eligible,
+                             bool user_unlocked, int64_t previous_session, int64_t next_output,
+                             Attachment* result) {
     if (!controller_matches()) return denied();
     if (stopping_) return bad_state("session is ending");
     if (!lifecycle_ready_locked()) return bad_state("Android lifecycle observation unavailable");
@@ -121,9 +236,16 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
       return bad_state("output offset was never delivered");
     if (previous_session == 0 && next_output != 0)
       return bad_state("missing native session for output offset");
-    revoke_locked();
+    if (kept_ && child_ != 0 && (master_ < 0 || uint64_t(previous_session) != session_id_)) {
+      revoke_locked();
+      return bad_state("kept presentation is retiring; Attach again");
+    }
+    // Same live presentation may replace only its stream with the same parser
+    // checkpoint. A retired/lost presentation always gets a fresh PTY and ID.
+    revoke_stream_locked();
+    const bool fresh_presentation = kept_ && child_ == 0;
     if (!user_unlocked) {
-      stopping_ = child_ != 0;
+      stopping_ = home_ >= 0;
       return bad_state("Android user is not unlocked");
     }
     std::string error;
@@ -132,7 +254,7 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
     unique_fd home(open_ce_home(&error));
     if (home < 0 || !ui_eligible || !user_unlocked)
       return bad_state(error.empty() ? "console is locked or not foreground" : error);
-    if (child_ != 0) {
+    if (home_ >= 0) {
       struct stat previous{}, current{};
       if (fstat(home_, &previous) != 0 || fstat(home, &current) != 0 ||
           previous.st_dev != current.st_dev || previous.st_ino != current.st_ino) {
@@ -153,20 +275,30 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
     uint64_t generation = gate_.attach(now_ms(), true, true, true);
     if (!generation || generation > uint64_t(std::numeric_limits<int64_t>::max()))
       return bad_state("attachment generation exhausted");
-    if (child_ == 0 && !start_shell_locked(rows, columns, home.release(), &error)) {
-      gate_.revoke();
-      return bad_state(error);
+    if (child_ == 0) {
+      if (kept_) {
+        if (session_id_ == uint64_t{INT64_MAX}) { stopping_ = true; return bad_state("presentation ID exhausted"); }
+        ++session_id_;
+        output_.clear_for_new_presentation();
+        output_cursor_ = 0;
+      }
+      if (!start_shell_locked(rows, columns, home.release(), &error)) {
+        gate_.revoke();
+        return bad_state(error);
+      }
     }
     // A replacement socket replays bytes until the controller confirms they were
     // parsed. A different daemon/session cannot inherit an old parser checkpoint.
-    const uint64_t resume = uint64_t(previous_session) == session_id_ ? uint64_t(next_output) : 0;
-    if (uint64_t(previous_session) == session_id_ && !output_.acknowledge(resume)) _exit(125);
+    const bool same_presentation = !fresh_presentation && uint64_t(previous_session) == session_id_;
+    const uint64_t resume = same_presentation ? uint64_t(next_output) : 0;
+    if (same_presentation && !output_.acknowledge(resume)) _exit(125);
     output_cursor_ = std::max(resume, output_.begin());
     bridge_ = std::move(server);
     result->generation = generation;
     result->sessionId = session_id_;
     result->firstOutputOffset = output_cursor_;
     result->stream = std::move(client);
+    result->kept = kept_;
     return ScopedAStatus::ok();
   }
 
@@ -203,7 +335,8 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
       return ScopedAStatus::fromExceptionCodeWithMessage(EX_ILLEGAL_ARGUMENT, "invalid PTY dimensions");
     std::lock_guard guard(mutex_);
     if (!controller_matches()) return denied();
-    if (generation <= 0 || uint64_t(generation) != gate_.generation() || !gate_.live(now_ms()))
+    if (generation <= 0 || uint64_t(generation) != gate_.generation() || !gate_.live(now_ms()) ||
+        !lifecycle_ready_locked())
       return bad_state("attachment is no longer active");
     winsize size{static_cast<unsigned short>(rows), static_cast<unsigned short>(columns), 0, 0};
     if (ioctl(master_, TIOCSWINSZ, &size) != 0) return bad_state("PTY resize failed");
@@ -237,6 +370,7 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
     if (!active) revoke_locked();
     *result = "uid=" + std::to_string(getuid()) + " child=" + std::to_string(child_) +
               " attached=" + (active ? "true" : "false") +
+              " kept=" + (kept_ ? "true" : "false") +
               " output_buffered=" + std::to_string(output_.size()) +
               " output_dropped=" + std::to_string(output_.dropped()) +
               " output_ack=" + std::to_string(output_.acknowledged()) +
@@ -274,12 +408,20 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
         do {
           reaped = waitpid(-1, &status, WNOHANG);
           if (reaped > 0 && reaped == child_) {
-            LOG(INFO) << "Owner shell exited, wait status " << status;
-            child_ = 0;
-            stopping_ = true;
+            LOG(INFO) << "Owner presentation exited, wait status " << status;
+            const bool was_retiring = retiring_;
+            child_ = 0; retiring_ = false; master_.reset();
+            if (!kept_ || (!was_retiring && (!WIFEXITED(status) || WEXITSTATUS(status) != 0)))
+              stopping_ = true;
             revoke_locked();
           }
         } while (reaped > 0);
+        // With subreaper ownership, no children means no server/pane ancestry
+        // remains. Never create a new tmux server silently on reattachment.
+        if (kept_ && home_ >= 0 && !starting_keep_ && reaped < 0 && errno == ECHILD)
+          stopping_ = true;
+        if (retiring_ && (active_ms() < retiring_since_ || active_ms() - retiring_since_ >= 5000))
+          stopping_ = true; // Hung client: init ends this group, not an external PID/PGID kill.
         transfer_locked();
       }
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -297,18 +439,40 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
   }
 
   bool controller_matches() const {
-    return controller_.get() && controller_pid_ == AIBinder_getCallingPid();
+    return controller_.get() && controller_generation_ != 0 &&
+        controller_pid_ == AIBinder_getCallingPid() && AIBinder_isAlive(controller_.get());
   }
 
-  void controller_died() {
+  void clear_controller_locked() {
+    controller_.set(nullptr); controller_pid_ = 0; controller_generation_ = 0;
+    controller_cookie_ = nullptr;
+  }
+
+  void controller_died(uint64_t registration) {
     std::lock_guard guard(mutex_);
-    // Android reclaims this APK process on user stop. Do not leave its native
-    // session behind after the lifecycle authority disappears.
-    stopping_ = true;
+    if (controller_generation_ != registration) return;
+    clear_controller_locked();
+    controller_lost_locked();
+  }
+
+  void controller_lost_locked() {
+    // Consent and OS lifecycle are independent of Console only for explicit kept
+    // work. Plain sessions preserve the original process-death cleanup.
+    if (!kept_) stopping_ = true;
     revoke_locked();
   }
 
   void revoke_locked() {
+    revoke_stream_locked();
+    if (kept_ && master_ >= 0) {
+      // Close only our PTY master. The tmux client retires; its server and panes
+      // keep their own PTYs in this same init-owned cgroup.
+      master_.reset();
+      if (child_ > 0) { retiring_ = true; retiring_since_ = active_ms(); }
+    }
+  }
+
+  void revoke_stream_locked() {
     gate_.revoke();
     if (bridge_ >= 0) shutdown(bridge_, SHUT_RDWR);
     bridge_.reset();
@@ -339,7 +503,10 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
     const pid_t parent = getpid();
     const int slave_fd = slave.get();
     char executable[] = "/system_ext/bin/andrix-session-runner";
-    char* arguments[] = {executable, nullptr};
+    char new_mode[] = "--tmux-new", attach_mode[] = "--tmux-attach";
+    std::string work = std::to_string(work_id_); // Construct before multithreaded fork.
+    char* arguments[] = {executable, kept_ ? (tmux_created_ ? attach_mode : new_mode) : nullptr,
+                         kept_ ? work.data() : nullptr, nullptr};
     // Runner will construct the shell environment after entering the owner domain.
     char path[] = "PATH=/system/bin";
     char* environment[] = {path, nullptr};
@@ -362,6 +529,8 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
     home_ = std::move(home);
     master_ = std::move(master);
     child_ = child;
+    retiring_ = false;
+    if (kept_) tmux_created_ = true;
     return true;
   }
 
@@ -427,7 +596,8 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
 #ifdef ANDRIX_OWNER_LIFECYCLE
   PlatformLifecycle platform_;
 #endif
-  const uint64_t session_id_;
+  const uint64_t work_id_;
+  uint64_t session_id_;
   AttachmentGate gate_;
   terminal::OutputJournal output_;
   uint64_t output_cursor_ = 0;
@@ -439,10 +609,18 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
   unique_fd master_;
   unique_fd bridge_;
   pid_t child_ = 0;
-  bool stopping_ = false;
+  bool stopping_ = false, kept_ = false, starting_keep_ = false, tmux_created_ = false;
+  bool retiring_ = false;
+  uint64_t retiring_since_ = 0;
+#ifdef ANDRIX_OWNER_KEEP
+  std::shared_ptr<KeptWorkToken> work_lifetime_;
+#endif
   ndk::SpAIBinder controller_;
   pid_t controller_pid_ = 0;
-  AIBinder_DeathRecipient* death_; // fixed process-lifetime recipient, never replaced
+  uint64_t controller_sequence_ = 0, controller_generation_ = 0;
+  ControllerCookie* controller_cookie_ = nullptr;
+  std::atomic<unsigned> death_links_{0};
+  AIBinder_DeathRecipient* death_; // process-lifetime recipient; per-link cookies retire via onUnlinked
 };
 
 }  // namespace

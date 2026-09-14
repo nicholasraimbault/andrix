@@ -87,10 +87,10 @@ class AndroidLifecycleTests(unittest.TestCase):
         self.assertIn('gate_.begin_query', native)
         self.assertIn('gate_.report', native)
         daemon = (ROOT / 'owner/native/andrixd.cpp').read_text()
-        start = daemon.index('  void controller_died() {')
+        start = daemon.index('  void controller_died(uint64_t registration) {')
         body = daemon[start:daemon.index('  void revoke_locked()', start)]
-        self.assertIn('stopping_ = true;', body)
-        self.assertNotIn('keep', body.lower())
+        self.assertIn('controller_generation_ != registration', body)
+        self.assertIn('if (!kept_) stopping_ = true;', body)
         negative = (ROOT / 'tests/owner-negative/probe.cpp').read_text()
         self.assertIn('AServiceManager_checkService("andrix.owner.lifecycle")', negative)
         self.assertIn('lifecycle_service_found', negative)

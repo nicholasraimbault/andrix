@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
+# Only the platform service receives the process-bound Stop token. No named PID
+# or service restart is used for notification Stop; no FD is returned by it.
+allow system_server andrixd:binder call;

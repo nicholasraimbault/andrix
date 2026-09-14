@@ -122,6 +122,10 @@ class UiQueueTests(unittest.TestCase):
                     'text="'+label+'"/><node package="'+package+'" class="android.view.View" '
                     'enabled="'+enabled+'" focused="'+focused+'" text="owner screen"/></hierarchy>')
         self.assertTrue(queue.terminal_input_ready(xml()))
+        kept = 'Kept — native owner UID7500; Stop in notification or End'
+        self.assertTrue(queue.terminal_input_ready(xml(label=kept)))
+        self.assertFalse(queue.terminal_input_ready(xml(label=kept, enabled='false')))
+        self.assertFalse(queue.terminal_input_ready(xml(label=kept, focused='false')))
         for args in [dict(label='Attaching — input unavailable until connected'),
                      dict(enabled='false'), dict(focused='false'), dict(package='other.app')]:
             self.assertFalse(queue.terminal_input_ready(xml(**args)))

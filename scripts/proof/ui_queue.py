@@ -22,7 +22,8 @@ def terminal_input_ready(xml):
     nodes = list(ET.fromstring(xml).iter('node'))
     state = any(n.get('package') == 'dev.andrix.terminal'
                 and n.get('class') == 'android.widget.TextView'
-                and n.get('text') == 'Attached — native owner UID7500' for n in nodes)
+                and n.get('text') in {'Attached — native owner UID7500',
+                    'Kept — native owner UID7500; Stop in notification or End'} for n in nodes)
     view = any(n.get('package') == 'dev.andrix.terminal'
                and n.get('class') == 'android.view.View'
                and n.get('enabled') == 'true' and n.get('focused') == 'true' for n in nodes)

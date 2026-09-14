@@ -88,6 +88,13 @@ static void journal() {
   assert(maximum.append(std::string(kJournalLimit + 1, 'x')));
   assert(maximum.size() == kJournalLimit && maximum.dropped() == 1);
   assert(maximum.read(1).bytes.size() == kFramePayloadLimit);
+  // Used only with a new presentation ID. No old delivered/ack state survives.
+  log.clear_for_new_presentation();
+  assert(log.begin() == 0 && log.end() == 0 && log.size() == 0);
+  assert(log.delivered_end() == 0 && log.acknowledged() == 0 && log.dropped() == 0);
+  assert(!log.acknowledge(1));
+  assert(log.append("redraw"));
+  assert(log.read(0).bytes == "redraw" && !log.read(0).gap);
 }
 
 static void socket_replay() {
