@@ -41,3 +41,9 @@ In the [native project trial](../../plans/2026-09-11-owner-project-input.md), th
 predicate accepted actual eligible Android views and blocked both cold first-Attach
 failures. No following command/key action was submitted after either failed readiness
 step. Explicit retries worked; this did not fix or hide the underlying resize failure.
+
+Before boot, verify that staging selected the **intended** consumer source and its
+required operations/capture contract. A self-generated hash of an accidentally old
+consumer proves its bytes did not change, not that the correct consumer was selected.
+Preserve a failed staging attempt and use a fresh runtime; never patch live frozen
+inputs merely to obtain a convenient UI action.

@@ -36,3 +36,10 @@ Android's lockscreen notification settings still apply. The quiet Keep notice is
 hidden there when the owner hides silent notifications; enabling their display does
 not require showing sensitive content or exposing terminal output. Stop while locked
 was exercised with that normal-UI visibility choice. Keep does not override it.
+
+The [owner-channel controls](../../plans/2026-09-14-keep-failure-controls.md#corrected-image-result)
+now exercise normal UI blocking of this optional-work channel: active work ends,
+blocked state survives reboot, and re-enabling notifications alone starts no work.
+A fresh New kept remains necessary. A failed blocked-start currently has a generic
+error message; the recorded state/cleanup controls, not that wording, establish the
+bounded result.
