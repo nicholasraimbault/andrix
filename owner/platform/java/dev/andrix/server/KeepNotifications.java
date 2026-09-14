@@ -40,8 +40,14 @@ final class KeepNotifications implements KeepWork.Backend {
         try {
             manager = context.getSystemService(NotificationManager.class);
             if (manager == null) return;
-            manager.createNotificationChannel(new NotificationChannel(CHANNEL,
-                    "Andrix kept terminal", NotificationManager.IMPORTANCE_LOW));
+            NotificationChannel channel = new NotificationChannel(CHANNEL,
+                    "Andrix kept terminal", NotificationManager.IMPORTANCE_LOW);
+            // This is optional owner work, not a non-blockable system warning.
+            // The system context has a fixed notification permission; opt THIS
+            // channel into Android's normal owner controls. Re-creating it may
+            // update blockability but must not override a user's blocked state.
+            channel.setBlockable(true);
+            manager.createNotificationChannel(channel);
             IntentFilter stopFilter = new IntentFilter(STOP);
             stopFilter.addDataScheme("andrix-keep");
             stopFilter.addDataAuthority("stop", null);
