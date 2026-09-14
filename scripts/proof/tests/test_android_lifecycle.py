@@ -51,6 +51,17 @@ class AndroidLifecycleTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     lifecycle.profile()
 
+    def test_rejects_both_evidence_seal_forms(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertFalse(lifecycle.sealed_ancestor(root / 'new/receipt.json'))
+            (root / 'SHA256SUMS').write_text('existing receipt manifest\n')
+            self.assertTrue(lifecycle.sealed_ancestor(root / 'new/receipt.json'))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'SEALED').write_text('closed\n')
+            self.assertTrue(lifecycle.sealed_ancestor(root / 'new/receipt.json'))
+
     def test_opt_in_authority_and_existing_cleanup(self):
         product = (ROOT / 'products/andrix_gos_cf_arm64_only_phone.mk').read_text()
         self.assertIn('ifeq ($(ANDRIX_OWNER_LIFECYCLE),true)', product)

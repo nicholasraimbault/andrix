@@ -163,6 +163,13 @@ def replace(path, data):
     os.replace(temporary, path)
 
 
+def sealed_ancestor(path):
+    # Older project receipts seal with SHA256SUMS; newer ones may also carry an
+    # explicit marker. Neither form is a writable evidence destination.
+    return any((parent / 'SEALED').exists() or (parent / 'SHA256SUMS').exists()
+               for parent in path.parents)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source-root', required=True, type=Path)
@@ -175,7 +182,7 @@ def main():
     root = args.source_root.resolve(strict=True)
     evidence = args.evidence.resolve()
     if (evidence.exists() or root in evidence.parents or ROOT in evidence.parents
-            or any((parent / 'SEALED').exists() for parent in evidence.parents)):
+            or sealed_ancestor(evidence)):
         raise ValueError('fresh unsealed evidence outside source/repository required')
     project, original, target, result = inspect(root)
     if args.action != 'check':

@@ -1,8 +1,10 @@
 # Android-owned lifecycle integration candidate
 
-See the [integration plan](../../plans/2026-09-13-android-lifecycle.md). This is a
-candidate, not a qualified kept-session feature. Console-process death still ends
-native work. No ordinary APK receives user/storage management permissions.
+See the [bounded image/runtime result](../../plans/2026-09-13-android-lifecycle.md#observed-image-and-runtime-result).
+Image `8b39806` exercised the actual platform service, cold admission, relock and
+plain-session cleanup. This is not independent key-loss or kept-session
+qualification: Console-process death still ends native work. No ordinary APK
+receives user/storage management permissions.
 
 The product flag `ANDRIX_OWNER_LIFECYCLE=true` requires `ANDRIX_OWNER_SESSION=true`.
 It selects the system_server adapter jar/overlay, native observer and dedicated
@@ -61,6 +63,7 @@ cache append → reset regression rejects the original `8986260` implementation.
 The native pump tests include both flag-off and flag-on branches with a host
 observation stub. None of those facades supplies Android runtime or identity proof.
 
-Actual Android compilation, generated classpath/reference tracing, complete policy,
-service/ordinary-app boundaries and real lifecycle failure controls remain required
-before enabling independent Keep behavior.
+Android compilation, extracted-image classpath/policy checks and bounded normal
+runtime controls are recorded for `8b39806`. Independent live key/authority loss,
+hung-query/suspend behavior and safe recovery remain required before enabling Keep.
+The attempted framework-only restart was permission-denied, not a test pass.
