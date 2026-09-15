@@ -42,6 +42,24 @@ endif
 $(call soong_config_set_bool,andrix,owner_keep,true)
 endif
 
+# Two owner-approved fixed lab fault controls. Normal images select different
+# source files without the commands/storage-lock call; a runtime flag is not enough.
+$(call soong_config_set_bool,andrix,owner_fault_tests,false)
+ifeq ($(ANDRIX_OWNER_FAULT_TESTS),true)
+ifneq ($(TARGET_PRODUCT),andrix_gos_cf_arm64_only_phone)
+$(error ANDRIX_OWNER_FAULT_TESTS is limited to the GrapheneOS Cuttlefish lab product)
+endif
+ifneq ($(ANDRIX_OWNER_KEEP),true)
+$(error ANDRIX_OWNER_FAULT_TESTS requires ANDRIX_OWNER_KEEP=true)
+endif
+ifneq ($(TARGET_BUILD_VARIANT),userdebug)
+ifneq ($(TARGET_BUILD_VARIANT),eng)
+$(error ANDRIX_OWNER_FAULT_TESTS requires userdebug or eng; never a user build)
+endif
+endif
+$(call soong_config_set_bool,andrix,owner_fault_tests,true)
+endif
+
 # Compiler payload is a separate opt-in within the owner environment. Unflagged
 # builds retain the original small APEX and do not require the staged compiler.
 ifeq ($(ANDRIX_OWNER_COMPILER),true)

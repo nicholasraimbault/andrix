@@ -54,6 +54,12 @@ replacement by a reused service name. No callback waits for native cleanup or
 changes Android's key-locking result. In particular, pre-request event
 recording is not a synchronous pre-eviction completion guarantee.
 
+The owner-approved [lab-only fault adapter](faults/README.md) is selected by an
+additional debug-product flag. Its two fixed Shell controls invoke the real user0
+CE lock or delay one matching captured reply; normal products select a different
+source implementation without those operations. This test authority is not a new
+normal-image permission or production lifecycle policy.
+
 ## Host checks
 
 The tracker tests exercise operation/revocation/backend fencing and listener

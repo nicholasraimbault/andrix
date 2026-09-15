@@ -32,9 +32,29 @@ andrix_platform_keep_java_defaults {
     },
 }
 
+soong_config_module_type {
+    name: "andrix_platform_fault_java_defaults",
+    module_type: "java_defaults",
+    config_namespace: "andrix",
+    bool_variables: ["owner_fault_tests"],
+    properties: ["srcs"],
+}
+
+andrix_platform_fault_java_defaults {
+    name: "andrix_platform_fault_build",
+    soong_config_variables: {
+        owner_fault_tests: {
+            srcs: ["faults/enabled/**/*.java"],
+            conditions_default: {
+                srcs: ["faults/disabled/**/*.java"],
+            },
+        },
+    },
+}
+
 java_library {
     name: "andrix-owner-lifecycle",
-    defaults: ["andrix_platform_keep_build"],
+    defaults: ["andrix_platform_keep_build", "andrix_platform_fault_build"],
     system_ext_specific: true,
     installable: true,
     srcs: ["java/**/*.java"],
