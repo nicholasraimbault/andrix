@@ -17,7 +17,6 @@ import com.android.server.pm.UserManagerInternal;
 import com.android.server.storage.CeStorageAccessTracker;
 
 import dev.andrix.lifecycle.IKeptWork;
-import dev.andrix.lifecycle.IPlatformLifecycle;
 import dev.andrix.lifecycle.PlatformState;
 
 import java.io.FileDescriptor;
@@ -44,14 +43,22 @@ public final class OwnerLifecycleService extends SystemService {
     private boolean publishedReady;
     private boolean published;
 
-    private final IPlatformLifecycle.Stub binder = new IPlatformLifecycle.Stub() {
-        @Override public PlatformState snapshot() {
-            enforceCoordinator();
+    private final OwnerLifecycleBinder binder = new OwnerLifecycleBinder(getContext()) {
+        @Override protected PlatformState captureState() {
             KeepWork.Snapshot current = keep.snapshot();
             PlatformState result = new PlatformState();
             result.instance = instance; result.generation = current.platform.generation;
             result.available = current.platform.available;
             result.keptWorkId = current.workId; result.keepRegistration = current.registration;
+            return result;
+        }
+        @Override public PlatformState snapshot() {
+            enforceCoordinator();
+            PlatformState result = captureState();
+            // Normal products select a no-op source implementation. The separate
+            // authorized lab variant may delay this actual captured reply outside
+            // the lifecycle monitor; it cannot manufacture availability.
+            beforeReply(result);
             return result;
         }
         @Override public long keepWork(IBinder lifetime, long workId,
@@ -76,10 +83,10 @@ public final class OwnerLifecycleService extends SystemService {
             if (uid != android.os.Process.SYSTEM_UID && uid != android.os.Process.SHELL_UID) {
                 throw new SecurityException("lifecycle metadata dump denied");
             }
-            KeepWork.Snapshot current = keep.snapshot();
-            out.println("instance=" + instance + " generation=" + current.platform.generation
-                    + " available=" + current.platform.available + " keptWorkId=" + current.workId
-                    + " keepRegistration=" + current.registration);
+            PlatformState current = captureState();
+            out.println("instance=" + current.instance + " generation=" + current.generation
+                    + " available=" + current.available + " keptWorkId=" + current.keptWorkId
+                    + " keepRegistration=" + current.keepRegistration);
             out.println("Android lifecycle metadata; no synchronous key/cleanup completion claim");
         }
     };
