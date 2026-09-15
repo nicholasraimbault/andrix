@@ -22,29 +22,30 @@ results are not general phone, privacy, power-loss or hardware qualification.
 
 ## Current milestone
 
-Prepare the [approved lab lifecycle fault controls](2026-09-14-lab-lifecycle-faults.md):
+Qualify the [approved lab lifecycle fault controls](2026-09-14-lab-lifecycle-faults.md):
 
 - invoke Android's real primary-user CE-storage lock operation;
 - delay one genuine lifecycle snapshot reply beyond the native freshness deadline.
 
-The source candidate and focused host tests exist; Android artifact inspection and
-runtime qualification remain to be completed. Normal images must omit these controls.
-No broad application/Shell permission or synthetic availability flag is part of the
-scope. Actual key-withdrawal outcomes, including busy-file behavior, remain distinct
-from screen relock and from asynchronous process cleanup.
+The source, 346 host checks and separate normal/lab Android image inspections are
+complete. The normal image omits the lab commands; the lab image contains the real
+storage operation and reply delay. Matching images and host tools are frozen.
+Runtime qualification remains open. No broad application/Shell permission or
+synthetic availability flag is part of the scope. Actual key withdrawal outcomes,
+including busy file behavior, remain distinct from screen relock and asynchronous
+process cleanup.
 
 ## Next gates
 
-1. Verify fault-enabled and normal build artifacts, including absence of the lab
-   commands from normal images.
-2. Exercise real key-withdrawal and delayed-reply cleanup/recovery in a fresh fixture.
-3. Use those results for a post-proof design review, then separate owner workload
+1. Reverify the frozen inputs and exercise real key withdrawal and delayed reply
+   cleanup/recovery in a fresh fixture.
+2. Use those results for a post-proof design review, then separate owner workload
    lifetime from terminal attachment. Android supervision stays authoritative;
    Console becomes a client and tmux an optional presentation tool. Keep may remain
    a convenience shortcut rather than the only form of retained work. Retain,
    refactor or replace prototype code according to the sound long-term design,
    not the cost already spent on it.
-4. Define the resulting foreground/detached-work policies and re-run the relevant
+3. Define the resulting foreground/detached-work policies and re-run the relevant
    regression and runtime proofs on that implementation before changing ordinary
    defaults. Separation alone does not enable automatic retention or restart.
 

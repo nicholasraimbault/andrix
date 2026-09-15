@@ -7,9 +7,9 @@ Keep and its existing dependencies must also be enabled. Normal products select 
 Debuggable state alone cannot enable the facility.
 
 The [approved scope and verification plan](../../../plans/2026-09-14-lab-lifecycle-faults.md)
-remain authoritative for the experiment. Host facades do not qualify Android caller
-identity, key state or cleanup. No fault-enabled Android runtime has been observed at
-this source-preparation checkpoint.
+remain authoritative for the experiment. Host checks and separate normal/lab image
+inspections passed for source `17b998c`. Host facades and image bytes do not qualify
+Android caller identity, key state or cleanup. Fault runtime tests remain pending.
 
 In the lab image, the existing service's standard Binder Shell interface accepts:
 
@@ -25,8 +25,8 @@ per platform-service lifetime. Both require a current active Keep grant and refu
 concurrent faults.
 
 - `delay-next-snapshot` targets the captured platform epoch/work/registration. Its
-  arm expires after5000ms active time. One matching authenticated native snapshot
-  reply is delayed2500ms after its real state is captured, with no lifecycle/storage/
+  arm expires after 5000 ms of active time. One matching authenticated native snapshot
+  reply is delayed 2500 ms after its real state is captured, with no lifecycle/storage/
   gate monitor held. Changed targets and late arms are discarded; old positives
   are not rewritten as synthetic state.
 - `lock-ce-user0` uses the actual `StorageManager.lockCeStorage(0)` path after
