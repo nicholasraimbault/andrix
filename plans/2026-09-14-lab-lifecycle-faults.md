@@ -1,9 +1,9 @@
 # Approved lab lifecycle fault controls
 
-**Status:** source implementation and host-test preparation. No fault-enabled
-Android artifact or runtime result yet. The owner approved the two fixed controls
-below; ordinary images must omit them. Resource admission and artifact validation
-remain part of the reusable verification procedure.
+**Status:** source, host checks and normal/lab image artifact checks passed.
+Runtime qualification remains pending. The owner approved the two fixed controls
+below; ordinary images omit them. Resource admission and artifact validation remain
+part of the reusable verification procedure.
 
 ## Exact scope
 
@@ -33,8 +33,8 @@ A returned method or synthetic state flag is not sufficient by itself.
 
 ### `delay-next-snapshot`
 
-Arm one2500ms delay for the current platform instance/generation/work/registration.
-The arm expires after a fixed5000ms active-time window. Only a matching authenticated
+Arm one 2500 ms delay for the current platform instance/generation/work/registration.
+The arm expires after a fixed 5000 ms window measured in active time. Only a matching authenticated
 native snapshot can consume it; a changed target or expired arm cannot delay later
 replacement work. The hook retains the actual captured response, including a genuine
 positive, and delays only its reply outside all lifecycle/storage/gate monitors.
@@ -61,6 +61,22 @@ This test facility does not enable Keep by default or qualify all pressure/suspe
 vold cases, Pixel deployment, services, SSH or package transactions. Use fresh, verified
 artifacts and immutable evidence; do not reuse a consumed fixture session or substitute
 a host model for an Android runtime result.
+
+## Verified artifact checkpoint
+
+Source `17b998c` passed 346 host checks. Both image variants were built from that
+source, frozen with their matching host packages and inspected independently.
+
+The normal image's owner jar matches the compiled variant without either lab command
+or the storage lock call. The unique lab command strings were absent from the scanned
+DEX containers in its installed partitions. The lab image contains the two commands
+and the actual Android storage lock and delay invocations. The bundled owner APEX,
+Console, native coordinator, runner and SELinux policy retain their previously checked
+bytes. Keep remains an explicit product opt in, not an ordinary default.
+
+These are image and bytecode results. They do not establish actual caller identity,
+key withdrawal, busy file outcomes, delayed reply cleanup or recovery on Android.
+Those require the fresh runtime controls above.
 
 ## Approved follow-up
 
