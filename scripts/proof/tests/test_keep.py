@@ -44,10 +44,12 @@ class KeepTests(unittest.TestCase):
             cpp = Path(directory) / 'cookies.cpp'
             cpp.write_text(harness)
             binary = Path(directory) / 'cookies'
+            # Sanitizer compilation can exceed a minute under a shared CPU quota.
+            # This budget does not change the test's runtime or lifecycle deadlines.
             compiled = subprocess.run([compiler, '-std=c++20', '-Wall', '-Wextra', '-Werror',
                 '-fsanitize=address,undefined', '-fno-omit-frame-pointer', '-g',
                 '-I' + str(ROOT / 'owner/native'), str(ROOT / 'owner/native/session_core.cpp'),
-                str(cpp), '-o', str(binary)], capture_output=True, text=True, timeout=60)
+                str(cpp), '-o', str(binary)], capture_output=True, text=True, timeout=180)
             self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
             ran = subprocess.run([str(binary)], capture_output=True, text=True, timeout=30)
             self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
