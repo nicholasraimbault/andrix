@@ -31,8 +31,8 @@ The fixture uses the existing 256 MiB leaf budget plus a 256 MiB aggregate UID b
 zero swap, group OOM, 32 tasks, 128 descriptors, no core files and a 64 MiB per-file
 limit. Init applies the empty capability set, process limits and scheduling profile.
 The fixed trusted bootstrap verifies those inherited limits and the aggregate before
-publishing any endpoint or launching a worker. The init-owned
-leaf controls are read back before admission. These are proof bounds, not new product
+publishing any endpoint or launching a worker. The init owned leaf controls are read
+back before admission. These are proof bounds, not new product
 resource defaults. Do not run the batch alongside ordinary owner work in the fixture.
 
 ## Source finding before runtime

@@ -1,11 +1,12 @@
 # Unix work supervision: design candidate and proof matrix
 
-**Status:** design/proof pass, not a replacement implementation or a new accepted process
-layout. Ten focused Linux host experiments now exercise kernel and selected shell behavior.
-Android implementation source was inspected separately. The complete host suite passed
+**Initial design/proof checkpoint:** not a replacement implementation or a new accepted
+process layout. Ten focused Linux host experiments exercised kernel and selected shell
+behavior. Android implementation source was inspected separately. That host suite passed
 354 tests, followed by ten additional repetitions of all ten process cases, 100 more
-case executions. No new Android image, runtime, permissions, resource policy,
-notification behavior or public API is introduced here.
+case executions. That pass introduced no Android image/runtime result, permissions,
+resource policy, notification behavior or public API. The subsequent separately gated
+scope experiment and its status are linked below.
 
 This follows the [owner direction](../docs/architecture.md#design-method) and
 [register R05 through R10](../docs/design-evidence.md#r05-work-and-terminal-lifetime).
