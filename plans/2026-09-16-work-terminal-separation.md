@@ -1,8 +1,9 @@
 # Work and terminal separation
 
-**Status:** source review and first native component extraction. Public lifecycle
-behavior, Binder transactions, product defaults and Android authority are unchanged.
-The complete workload API and new lifetime policies are not implemented yet.
+**Status:** source review and first native component extraction complete. All 347 host
+tests passed, and native modules built for both current Android configurations. Public
+lifecycle behavior, Binder transactions, product defaults and Android authority are
+unchanged. The complete workload API and new lifetime policies are not implemented yet.
 
 This follows the [two scoped lifecycle trials](2026-09-14-lab-lifecycle-faults.md)
 and implements the separation required by the
@@ -106,7 +107,17 @@ design is implemented and qualified.
 Tests exercise the actual component and the production revoke/exit/stream methods with
 host PTYs and sockets. They also vary retention and terminal role independently, so
 accidental recoupling is detectable. These extra combinations are host model controls,
-not new Android modes. Android builds and runtime evidence remain separate gates.
+not new Android modes.
+
+Source `f0a5e7f` passed all 347 host tests, including optimized and sanitizer checks of
+the process model. Both Android native module configurations, ordinary and explicit
+Keep, compiled successfully. Their ARM64 binaries and configurations were frozen and
+rechecked, including the linked terminal process methods. Framework adaptation checks
+passed before and after the builds. The kept runner retains its prior bytes.
+
+These are host and native module results, not a new complete image or runtime result.
+The earlier lifecycle trials used source `17b998c`; their observations do not silently
+transfer to the modified coordinator.
 
 ## Subsequent gates
 

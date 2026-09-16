@@ -37,9 +37,10 @@ becomes a client and tmux an optional presentation tool. Keep may remain a conve
 shortcut rather than the only form of retained work.
 
 The first native slice separates terminal process role and retirement from permission
-to keep computing. Current public modes and defaults are unchanged. This is not the
-complete workload API or a new Android runtime qualification; the previously tested
-image remains a separate baseline.
+to keep computing. All 347 host tests passed, and both current Android native module
+configurations compiled and were inspected. Public modes and defaults are unchanged.
+This is not the complete workload API or a new Android runtime qualification; the
+previously tested image remains a separate baseline.
 
 ## Next gates
 
