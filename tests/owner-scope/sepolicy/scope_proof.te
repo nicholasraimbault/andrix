@@ -10,7 +10,7 @@ neverallow { andrix_owner andrix_terminal untrusted_app_all isolated_app_all } a
 # Closed experiment channels only. Do not grant owner code access to arbitrary
 # andrixd-labelled pipes/sockets. Both endpoints remain native s0 roles.
 type andrix_scope_probe_socket, file_type;
-allow andrixd andrix_scope_probe_socket:unix_stream_socket create_stream_socket_perms;
+allow andrixd andrix_scope_probe_socket:unix_stream_socket create_socket_perms_no_ioctl;
 allow andrix_owner andrix_scope_probe_socket:unix_stream_socket { read write };
 neverallow { domain -andrixd -andrix_owner } andrix_scope_probe_socket:unix_stream_socket { read write };
 

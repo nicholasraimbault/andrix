@@ -95,6 +95,8 @@ class OwnerScopeProofTests(unittest.TestCase):
         owner_allow = [line for line in policy.splitlines() if line.startswith('allow andrix_owner ')]
         self.assertEqual(owner_allow, ['allow andrix_owner andrix_scope_probe_socket:unix_stream_socket { read write };'])
         self.assertNotIn('allow andrix_owner andrixd:fifo_file', policy)
+        self.assertIn('create_socket_perms_no_ioctl', policy)
+        self.assertNotIn('create_stream_socket_perms', policy)
         self.assertNotIn('cgroup_v2:file { write', policy)
         client = (PROOF/'client.cpp').read_text()
         self.assertIn('live group before Stop', client)

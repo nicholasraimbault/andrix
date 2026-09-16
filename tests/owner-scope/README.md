@@ -59,7 +59,10 @@ label with access only for the guardian and owner roles. It does not grant acces
 arbitrary coordinator pipes or sockets. These are fixture synchronization channels,
 not a decision to replace normal Unix stdin/stdout pipes with sockets. Actual program
 stream types and their MAC crossings remain part of the long term execution design.
-The corrected channels require new artifact and runtime checks.
+The corrected channels require new artifact and runtime checks. The first policy build
+also rejected the socket-creation macro's unused unrestricted ioctl permission. The
+fixture now selects the existing no-ioctl macro rather than weakening the neverallow or
+granting unused operations.
 
 ## Intended controls
 
