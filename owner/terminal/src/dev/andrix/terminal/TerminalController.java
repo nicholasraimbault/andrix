@@ -201,10 +201,19 @@ final class TerminalController implements TerminalSession.Host {
     private void finishWorkQuery(Query query, long epoch, Listener target,
             WorkReference<IOwnerSession> value, boolean observed) {
         requireMain();
-        if (!observed) { work.failQuery(query); return; }
-        boolean current = uiEpoch == epoch && listener == target && eligible() && !ending.get()
+        boolean obsolete = uiEpoch != epoch || listener != target || !work.queryCurrent(query);
+        if (!observed) {
+            work.failQuery(query);
+            // A foreground event may have found this old query still pending.
+            // Once it retires, observe the current intent. Do not spin on an RPC
+            // failure belonging to the same intent.
+            if (obsolete) refreshWork();
+            return;
+        }
+        boolean current = !obsolete && eligible() && !ending.get()
                 && !attachments.preparing() && attachments.lease() == null;
         if (work.finishQuery(query, value, current)) publish();
+        else if (obsolete) refreshWork();
     }
 
     void startKept() {
@@ -303,7 +312,10 @@ final class TerminalController implements TerminalSession.Host {
         requireMain(); attachments.finish(request);
         // Only the matching request can release preparation ownership. An old
         // completion cannot release or overwrite a later attachment's state.
-        if (uiEpoch != requestEpoch || listener != target || !eligible()) return;
+        if (uiEpoch != requestEpoch || listener != target || !eligible()) {
+            refreshWork(); // A newer foreground intent may have waited for this RPC to retire.
+            return;
+        }
         show("Attach failed: " + message);
         refreshWork(); // Work may exist even though no terminal was installed.
     }
@@ -316,6 +328,7 @@ final class TerminalController implements TerminalSession.Host {
             disconnect(next); attachments.finish(request);
             control.execute(() -> remoteDetach(next));
             showFor(next, "Attachment cancelled or expired during preparation");
+            refreshWork(); // Discover any admitted work once cancelled attachment ownership retires.
             return;
         }
         // The same attachment reply supplies independent work metadata. A parser

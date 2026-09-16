@@ -17,7 +17,7 @@ public final class AttachFailureTest {
     }
     private boolean eligible() { return allowed; }
     private void show(String text) { state = text; ++publications; }
-    private void refreshWork() { ++observations; }
+    private void refreshWork() { if (eligible() && !attachments.preparing()) ++observations; }
 
 // PRODUCTION_FAILURE_CALLBACK
 
@@ -46,7 +46,7 @@ public final class AttachFailureTest {
 
         Request newer = h.attachments.begin(); h.allowed = true; h.uiEpoch = 3;
         h.failAttach(locked, 2, h.listener, "duplicate old completion");
-        assert h.attachments.current(newer) && h.publications == 1 && h.observations == 1;
+        assert h.attachments.current(newer) && h.publications == 1 && h.observations == 3;
         System.out.println("Actual stale-attachment failure callback passed; Android unqualified");
     }
 }

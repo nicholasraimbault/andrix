@@ -17,12 +17,13 @@ public final class WorkCallbacksTest {
     Listener listener = new Listener() { };
     long uiEpoch = 1;
     boolean foreground = true;
-    int publications;
+    int publications, refreshes;
     String text;
     void requireMain() { assert Thread.currentThread() == main; }
     boolean eligible() { return foreground; }
     void publish() { ++publications; }
     void show(String value) { text = value; publish(); }
+    void refreshWork() { ++refreshes; }
     static WorkReference<IOwnerSession> ref(long id) {
         IOwnerSession service = new IOwnerSession() { };
         WorkInfo i = new WorkInfo(); i.workId = id; i.state = WorkInfo.RUNNING;
@@ -52,6 +53,7 @@ public final class WorkCallbacksTest {
             stale.finishWorkQuery(pending, 1, target, replacement, true);
             assert stale.work.current() == original && stale.publications == 0;
             assert stale.work.beginQuery() != null; // Matching old reservation retired.
+            assert stale.refreshes == (cause == 0 || cause == 1 || cause == 5 ? 1 : 0);
         }
         Query error = h.work.beginQuery(); h.finishWorkQuery(error, 1, h.listener, null, false);
         assert h.work.current() == original && h.publications == 1;

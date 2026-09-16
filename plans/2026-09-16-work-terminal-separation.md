@@ -1,9 +1,10 @@
 # Work and terminal separation
 
-**Status:** the first native component extraction passed host and Android module
-checks. The next source candidate adds independent work discovery and exact work Stop.
-Existing lifetime policies, launch modes, product defaults and Android authority stay
-unchanged. Work creation and new lifetime policies remain subsequent work.
+**Status:** work discovery and exact work Stop are implemented. Source `13a1af0`
+passed host, Android module and lab image checks. The runtime observations below are
+scoped and the overall fixture ended at its deadline. A subsequent source review found
+and corrected an eventual rediscovery gap. Existing lifetime policies, launch modes,
+product defaults and Android authority stay unchanged.
 
 This follows the [two scoped lifecycle trials](2026-09-14-lab-lifecycle-faults.md)
 and implements the separation required by the
@@ -149,8 +150,55 @@ than the Keep permission bit.
 This changes discovery and Stop availability, not permission to keep computing. Ordinary
 work still ends with Console process death; explicit Keep still requires its Android
 grant. No new creation mode, restart, wake or locked terminal access is introduced.
-Matched Android native and Console artifacts, followed by runtime checks, are required
-before treating this source candidate as qualified Android behavior.
+Matched Android native and Console artifacts, followed by runtime checks, remain
+separate verification gates.
+
+### Observed candidate behavior
+
+Source `13a1af0` passed 352 host tests. Ordinary and Keep native/Console modules built,
+and the lab image was frozen with matching host tools. Inspection checked the actual
+work API in native code and Console bytecode, along with unchanged platform authority,
+owner payload and policy inputs.
+
+In the fresh offline ARM64 emulator:
+
+- Opening Console discovered idle state without creating a shell or grant.
+- Explicit Detach left plain work alive and terminal input disabled. End then removed
+  that workload group without reattachment.
+- Console process loss left kept work alive. A cold Console discovered it and enabled
+  End without adding a new terminal client. End removed the complete group.
+- The repeated genuine reply delay lasted 2.501 seconds. Native work ended after
+  1.003 seconds and its group was removed after 1.115 seconds, before the late reply.
+- Real CE locking again reported busy files. Old work was cleaned up; normal PIN entry
+  restored availability and fresh work read its saved file, compiled and ran C.
+- Ordinary app home/service access remained denied before and after the faults.
+
+The original readiness observer rejected the new two line status label without sending
+input. A separately recorded observer update accepts only the exact supported labels
+and still requires a fresh hierarchy plus an enabled, focused terminal view. Frozen
+fixture inputs were not edited. One initially named detached End observation was in
+fact still attached; only the later explicit Detach trial supports the detached claim.
+
+The fixture subsequently reached its UI deadline. Guest shutdown and capture completed,
+but final planned End/process death checks and a final authority snapshot were not
+reached. The overall run is incomplete, not a blanket runtime pass. Complete physical
+key removal and broader storage/pressure/phone behavior remain unqualified.
+
+### Review correction and remaining responsiveness limit
+
+Source review found an eventual rediscovery gap. If Console left and returned while
+an old query or attachment was outstanding, the old result was correctly rejected,
+but the new foreground intent could remain without an observation after the old
+operation completed. Completion now requests a fresh observation for that current
+intent after retiring the old reservation. It does not retry an RPC failure for the
+same intent indefinitely. Tests exercise eventual discovery after stale success,
+stale failure and cancelled attachment completion, not just stale-result rejection.
+
+Console still has one control executor. Discovery and UI Stop can wait behind a
+blocked admission RPC even though native Stop does not require an attachment lease.
+The independent Android notification Stop path remains available for kept work. This
+client responsiveness limitation needs a coherent admission/control design; it is not
+claimed solved by the metadata API or by the rediscovery correction.
 
 ## Subsequent gates
 

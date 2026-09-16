@@ -41,10 +41,16 @@ def terminal_input_ready(xml):
     if len(xml) > 1024 * 1024 or '<!DOCTYPE' in xml or '<!ENTITY' in xml:
         raise ValueError('Unbounded/unsupported UI hierarchy')
     nodes = list(ET.fromstring(xml).iter('node'))
+    attached = 'Attached — native owner UID7500'
+    kept = 'Kept — native owner UID7500; Stop in notification or End'
+    # Accept the old single-line UI and the explicit two-line work description.
+    # A generic prefix would also accept a contradictory idle/stopping suffix.
+    labels = {attached, kept,
+              attached + '\nWork: running, Console process bound',
+              kept + '\nWork: running, explicit Keep'}
     state = any(n.get('package') == 'dev.andrix.terminal'
                 and n.get('class') == 'android.widget.TextView'
-                and n.get('text') in {'Attached — native owner UID7500',
-                    'Kept — native owner UID7500; Stop in notification or End'} for n in nodes)
+                and n.get('text') in labels for n in nodes)
     view = any(n.get('package') == 'dev.andrix.terminal'
                and n.get('class') == 'android.view.View'
                and n.get('enabled') == 'true' and n.get('focused') == 'true' for n in nodes)
