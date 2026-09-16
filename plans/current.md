@@ -31,10 +31,15 @@ are documented separately. Normal images omit the lab controls.
 
 ## Current milestone
 
-Review the prototype after these proofs, then separate owner workload lifetime from
-terminal attachment. Android supervision stays authoritative. Console becomes a
-client and tmux an optional presentation tool. Keep may remain a convenience shortcut
-rather than the only form of retained work.
+Implement the [work and terminal separation](2026-09-16-work-terminal-separation.md)
+identified by the source review. Android supervision stays authoritative. Console
+becomes a client and tmux an optional presentation tool. Keep may remain a convenience
+shortcut rather than the only form of retained work.
+
+The first native slice separates terminal process role and retirement from permission
+to keep computing. Current public modes and defaults are unchanged. This is not the
+complete workload API or a new Android runtime qualification; the previously tested
+image remains a separate baseline.
 
 ## Next gates
 

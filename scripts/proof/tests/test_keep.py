@@ -71,13 +71,21 @@ class KeepTests(unittest.TestCase):
         native = (ROOT / 'owner/native/andrixd.cpp').read_text()
         start = native[native.index('  ScopedAStatus startKept('):native.index('  ScopedAStatus stopKeptWork()')]
         self.assertIn('#ifndef ANDRIX_OWNER_KEEP', start)
-        self.assertIn('home_ >= 0 || child_ != 0', start)
+        self.assertIn('home_ >= 0 || terminal_.has_process()', start)
         self.assertLess(start.index('guard.unlock()'), start.index('platform_.retain('))
         self.assertLess(start.index('platform_.retain('), start.index('guard.lock()'))
         self.assertIn('controller_generation_ != controller_generation', start)
         self.assertLess(native.index('++session_id_'), native.index('output_.clear_for_new_presentation()'))
         self.assertIn('!fresh_presentation &&', native)
         self.assertIn('master_.reset();', native)
+        # The compatibility command deliberately selects both axes. Presentation
+        # retirement/launch must not infer its role from a Keep permission bit.
+        self.assertIn('terminal_.select_role(TerminalProcessRole::PresentationClient)', start)
+        revoke = native[native.index('  void revoke_locked() {'):native.index('  void revoke_stream_locked() {')]
+        launch = native[native.index('  bool start_terminal_locked('):native.index('  void transfer_locked() {')]
+        self.assertNotIn('kept_', revoke + launch)
+        self.assertIn('terminal_.replaceable()', revoke)
+        self.assertIn('terminal_.ever_started()', launch)
         aidl = (ROOT / 'owner/aidl/dev/andrix/session/IOwnerSession.aidl').read_text()
         self.assertLess(aidl.index('String status();'), aidl.index('Attachment startKept'))
         stop = (ROOT / 'owner/platform/java/dev/andrix/server/KeepWork.java').read_text()

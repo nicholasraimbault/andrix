@@ -113,7 +113,7 @@ class OwnerSessionTests(unittest.TestCase):
         death_start = source.index('  void controller_lost_locked() {')
         start = source.index('  void revoke_locked() {')
         death = source[death_start:start]
-        revoke = source[start:source.index('  bool start_shell_locked(', start)]
+        revoke = source[start:source.index('  bool start_terminal_locked(', start)]
         start = source.index('  void transfer_locked() {')
         pump = source[start:source.index('  std::mutex mutex_;', start)]
         self.assertEqual(revoke.count('void revoke_locked'), 1)
@@ -132,7 +132,8 @@ class OwnerSessionTests(unittest.TestCase):
                 compiled = subprocess.run([compiler, '-std=c++20', '-Wall', '-Wextra', '-Werror',
                                            '-O2', *flags, '-I'+str(ROOT/'owner/native'),
                                            str(ROOT/'owner/native/session_core.cpp'),
-                                           str(ROOT/'owner/native/terminal_protocol.cpp'), str(cpp), '-o', str(binary)],
+                                           str(ROOT/'owner/native/terminal_protocol.cpp'),
+                                           str(ROOT/'owner/native/terminal_process.cpp'), str(cpp), '-o', str(binary)],
                                           capture_output=True, text=True, timeout=60)
                 self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
                 ran = subprocess.run([str(binary)], capture_output=True, text=True, timeout=20)

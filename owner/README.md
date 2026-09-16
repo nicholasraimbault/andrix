@@ -96,8 +96,8 @@ removal must be tested separately; no multi-user support is claimed.
   durability acknowledgement. Plain-mode processes do not outlive the Console
   APK process; Android may reclaim it while cached. Explicit kept work has the
   separate lifetime described below. Reboot ends processes,
-  not the intended home data. Independent long-lived service/user-stop/key-eviction
-  qualification remains future work, not a claimed feature here.
+  not the intended home data. The scoped lifecycle trials below are not general
+  service, user stop or complete key removal qualification.
 - No automatic shell start on daemon boot, arbitrary privileged exec API, caller-
   supplied path/UID/environment, descriptor-based access to the real PTY, root
   shell, adopted identity or ordinary APK hardening override.
@@ -120,12 +120,21 @@ runs are private evidence. No capabilities or general cross-domain tracing were 
 for debugging. Broad IME/language, assistive-service, pressure and phone compatibility
 are not implied by these checks.
 
-Resource-exhaustion tests, all adversarial descriptor/race cases on Android,
-user-stop/key eviction, long-lived services and native phone qualification remain
-open. Neither offline execution nor these lifecycle checks qualify networking
-privacy, production updates or power-loss durability.
+The [two fixed lifecycle trials](../plans/2026-09-14-lab-lifecycle-faults.md) exercised
+actual CE locking with a vold busy file outcome and one delayed genuine snapshot reply.
+Old work groups were removed and fresh work recovered without reboot. Complete key
+removal is not claimed. Resource exhaustion, broader descriptor/race, user stop,
+service and native phone qualification remain open. These checks do not qualify
+networking privacy, production updates or power loss durability.
 
 ## Presentation and terminal behavior
+
+The [separation review](../plans/2026-09-16-work-terminal-separation.md) now distinguishes
+native terminal process role from workload retention. `TerminalProcessState` routes
+real owned child exits and bounds client retirement. It grants no continuation or
+Android authority. Current modes, runner commands and full init cleanup stay unchanged;
+the new workload API and policy changes remain subsequent work.
+
 
 The [terminal adapter](../plans/2026-09-10-owner-tools.md) connects pinned
 VT libraries to the native stream through an Andrix-owned, process-free session
