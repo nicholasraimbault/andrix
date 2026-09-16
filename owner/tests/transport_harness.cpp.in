@@ -3,6 +3,7 @@
 // Android identities, CE or SELinux permissions are faked into a runtime PASS.
 #include "session_core.h"
 #include "terminal_protocol.h"
+#include "terminal_process.h"
 #include <sys/socket.h>
 #include <fcntl.h>
 #include <termios.h>
@@ -45,9 +46,8 @@ struct Pump {
   std::string input_;
   HostFd master_;
   HostFd bridge_;
-  bool stopping_ = false, kept_ = false, retiring_ = false;
-  int child_ = 0;
-  uint64_t retiring_since_ = 0;
+  bool stopping_ = false, kept_ = false;
+  TerminalProcessState terminal_;
 // PRODUCTION_METHODS
 };
 
@@ -164,14 +164,54 @@ int main() {
   int kept_master = posix_openpt(O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC);
   assert(kept_master >= 0 && grantpt(kept_master) == 0 && unlockpt(kept_master) == 0);
   kept.master_.reset(kept_master);
-  kept.kept_ = true; kept.child_ = 42; // Explicit bookkeeping facade, no real PID control.
+  kept.kept_ = true;
+  assert(kept.terminal_.select_role(TerminalProcessRole::PresentationClient));
+  assert(kept.terminal_.started(42)); // Bookkeeping facade, no PID control.
   assert(kept.gate_.attach(++fake_now, true, true, true));
   kept.input_ = "must discard";
   kept.controller_lost_locked();
-  assert(!kept.stopping_ && kept.retiring_ && kept.master_ == -1);
+  assert(!kept.stopping_ && kept.terminal_.retiring() && kept.master_ == -1);
   assert(kept.input_.empty() && !kept.gate_.live(fake_now));
-  auto began = kept.retiring_since_;
+  auto began = fake_now;
   ++fake_now; kept.revoke_locked();
-  assert(kept.retiring_since_ == began); // Repeated loop checks do not extend retirement.
+  assert(!kept.terminal_.retirement_expired(began + kTerminalRetirementMillis - 1));
+  assert(kept.terminal_.retirement_expired(began + kTerminalRetirementMillis));
+
+  // The two axes are independent in the production methods. These extra host
+  // combinations are not new public modes or Android retention permissions.
+  Pump retained_root;
+  retained_root.kept_ = true;
+  retained_root.master_.reset(dup(master));
+  assert(retained_root.master_ >= 0 && retained_root.terminal_.started(43));
+  retained_root.controller_lost_locked();
+  assert(!retained_root.stopping_ && retained_root.master_ >= 0);
+  assert(!retained_root.terminal_.retiring());
+  assert(!retained_root.terminal_exited_locked(99, true, 0));
+  assert(retained_root.master_ >= 0 && retained_root.terminal_.pid() == 43);
+  assert(retained_root.terminal_exited_locked(43, true, 0));
+  assert(retained_root.stopping_ && retained_root.master_ == -1);
+  assert(!retained_root.terminal_.started(45)); // Retention is not root restart.
+
+  Pump bound_client;
+  bound_client.master_.reset(dup(master));
+  assert(bound_client.master_ >= 0);
+  assert(bound_client.terminal_.select_role(TerminalProcessRole::PresentationClient));
+  assert(bound_client.terminal_.started(44));
+  bound_client.controller_lost_locked();
+  assert(bound_client.stopping_ && bound_client.master_ == -1);
+  assert(bound_client.terminal_.retiring());
+  assert(bound_client.terminal_exited_locked(44, false, 0));
+  assert(bound_client.stopping_); // Reaping must never clear whole-work termination.
+
+  Pump client;
+  client.kept_ = true;
+  client.master_.reset(dup(master));
+  assert(client.terminal_.select_role(TerminalProcessRole::PresentationClient));
+  assert(client.terminal_.started(46));
+  assert(client.terminal_exited_locked(46, true, 0));
+  assert(!client.stopping_ && client.master_ == -1 && client.terminal_.ever_started());
+  assert(client.terminal_.started(47));
+  assert(client.terminal_exited_locked(47, false, 0));
+  assert(client.stopping_ && !client.terminal_.started(48));
   std::cout << "real host PTY/framed replay/revocation checks passed; Android unqualified\n";
 }

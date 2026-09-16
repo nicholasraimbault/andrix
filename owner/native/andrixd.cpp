@@ -2,6 +2,7 @@
 #include "guards.h"
 #include "session_core.h"
 #include "terminal_protocol.h"
+#include "terminal_process.h"
 #ifdef ANDRIX_OWNER_LIFECYCLE
 #include "platform_lifecycle.h"
 #endif
@@ -191,7 +192,7 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
     std::unique_lock guard(mutex_);
     if (!controller_matches()) return denied();
     if (stopping_ || starting_keep_) return bad_state("session is ending or being prepared");
-    if (home_ >= 0 || child_ != 0) return bad_state("End existing work before starting a new kept terminal");
+    if (home_ >= 0 || terminal_.has_process()) return bad_state("End existing work before starting a new kept terminal");
     if (!lifecycle_ready_locked()) return bad_state("Android lifecycle observation unavailable");
     std::string error = check_resource_bounds();
     if (!error.empty()) return bad_state(error);
@@ -208,6 +209,13 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
         controller_generation_ != controller_generation || !lifecycle_ready_locked()) {
       stopping_ = true; revoke_locked();
       return bad_state("Keep notification or platform grant unavailable");
+    }
+    // This compatibility entry selects two independent decisions: a confirmed
+    // retention grant and a replaceable tmux presentation. Neither implies the
+    // other in the process model; no new lifetime policy is exposed here.
+    if (!terminal_.select_role(TerminalProcessRole::PresentationClient)) {
+      stopping_ = true; revoke_locked();
+      return bad_state("terminal role is already fixed for this work");
     }
     kept_ = true;
     auto status = attach_locked(rows, columns, ui_eligible, user_unlocked, 0, 0, result);
@@ -236,14 +244,15 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
       return bad_state("output offset was never delivered");
     if (previous_session == 0 && next_output != 0)
       return bad_state("missing native session for output offset");
-    if (kept_ && child_ != 0 && (master_ < 0 || uint64_t(previous_session) != session_id_)) {
+    if (terminal_.replaceable() && terminal_.has_process() &&
+        (master_ < 0 || uint64_t(previous_session) != session_id_)) {
       revoke_locked();
       return bad_state("kept presentation is retiring; Attach again");
     }
     // Same live presentation may replace only its stream with the same parser
     // checkpoint. A retired/lost presentation always gets a fresh PTY and ID.
     revoke_stream_locked();
-    const bool fresh_presentation = kept_ && child_ == 0;
+    const bool fresh_presentation = terminal_.replaceable() && !terminal_.has_process();
     if (!user_unlocked) {
       stopping_ = home_ >= 0;
       return bad_state("Android user is not unlocked");
@@ -275,14 +284,14 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
     uint64_t generation = gate_.attach(now_ms(), true, true, true);
     if (!generation || generation > uint64_t(std::numeric_limits<int64_t>::max()))
       return bad_state("attachment generation exhausted");
-    if (child_ == 0) {
-      if (kept_) {
+    if (!terminal_.has_process()) {
+      if (terminal_.replaceable()) {
         if (session_id_ == uint64_t{INT64_MAX}) { stopping_ = true; return bad_state("presentation ID exhausted"); }
         ++session_id_;
         output_.clear_for_new_presentation();
         output_cursor_ = 0;
       }
-      if (!start_shell_locked(rows, columns, home.release(), &error)) {
+      if (!start_terminal_locked(rows, columns, home.release(), &error)) {
         gate_.revoke();
         return bad_state(error);
       }
@@ -368,7 +377,7 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
     if (!controller_matches()) return denied();
     bool active = gate_.live(now_ms()) && lifecycle_ready_locked();
     if (!active) revoke_locked();
-    *result = "uid=" + std::to_string(getuid()) + " child=" + std::to_string(child_) +
+    *result = "uid=" + std::to_string(getuid()) + " child=" + std::to_string(terminal_.pid()) +
               " attached=" + (active ? "true" : "false") +
               " kept=" + (kept_ ? "true" : "false") +
               " output_buffered=" + std::to_string(output_.size()) +
@@ -407,20 +416,16 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
         pid_t reaped;
         do {
           reaped = waitpid(-1, &status, WNOHANG);
-          if (reaped > 0 && reaped == child_) {
+          if (reaped > 0 && terminal_exited_locked(reaped, WIFEXITED(status),
+                                                   WIFEXITED(status) ? WEXITSTATUS(status) : 0))
             LOG(INFO) << "Owner presentation exited, wait status " << status;
-            const bool was_retiring = retiring_;
-            child_ = 0; retiring_ = false; master_.reset();
-            if (!kept_ || (!was_retiring && (!WIFEXITED(status) || WEXITSTATUS(status) != 0)))
-              stopping_ = true;
-            revoke_locked();
-          }
         } while (reaped > 0);
-        // With subreaper ownership, no children means no server/pane ancestry
-        // remains. Never create a new tmux server silently on reattachment.
-        if (kept_ && home_ >= 0 && !starting_keep_ && reaped < 0 && errno == ECHILD)
+        // A presentation client may exit while other owned work remains. An
+        // empty subreaper scope still ends work, never silently creating a new
+        // backend on reattachment. This is not a retained-work permission check.
+        if (terminal_.replaceable() && home_ >= 0 && !starting_keep_ && reaped < 0 && errno == ECHILD)
           stopping_ = true;
-        if (retiring_ && (active_ms() < retiring_since_ || active_ms() - retiring_since_ >= 5000))
+        if (terminal_.retiring() && terminal_.retirement_expired(active_ms()))
           stopping_ = true; // Hung client: init ends this group, not an external PID/PGID kill.
         transfer_locked();
       }
@@ -464,11 +469,11 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
 
   void revoke_locked() {
     revoke_stream_locked();
-    if (kept_ && master_ >= 0) {
-      // Close only our PTY master. The tmux client retires; its server and panes
-      // keep their own PTYs in this same init-owned cgroup.
+    if (terminal_.replaceable() && master_ >= 0) {
+      // Close this presentation's PTY, not the workload. The selected client
+      // retires; other owned work keeps its own descriptors in the init cgroup.
       master_.reset();
-      if (child_ > 0) { retiring_ = true; retiring_since_ = active_ms(); }
+      terminal_.retire(active_ms());
     }
   }
 
@@ -482,7 +487,16 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
     frame_end_ = 0;
   }
 
-  bool start_shell_locked(int rows, int columns, int home_fd, std::string* error) {
+  bool terminal_exited_locked(pid_t pid, bool exited, int exit_code) {
+    const auto outcome = terminal_.reaped(pid, exited, exit_code);
+    if (outcome == TerminalExit::NotTracked) return false;
+    master_.reset();
+    if (outcome == TerminalExit::EndWork) stopping_ = true;
+    revoke_locked();
+    return true;
+  }
+
+  bool start_terminal_locked(int rows, int columns, int home_fd, std::string* error) {
     unique_fd home(home_fd);
     unique_fd master(posix_openpt(O_RDWR | O_NOCTTY | O_CLOEXEC | O_NONBLOCK));
     if (master < 0 || grantpt(master) != 0 || unlockpt(master) != 0) {
@@ -505,8 +519,9 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
     char executable[] = "/system_ext/bin/andrix-session-runner";
     char new_mode[] = "--tmux-new", attach_mode[] = "--tmux-attach";
     std::string work = std::to_string(work_id_); // Construct before multithreaded fork.
-    char* arguments[] = {executable, kept_ ? (tmux_created_ ? attach_mode : new_mode) : nullptr,
-                         kept_ ? work.data() : nullptr, nullptr};
+    const bool client = terminal_.replaceable();
+    char* arguments[] = {executable, client ? (terminal_.ever_started() ? attach_mode : new_mode) : nullptr,
+                         client ? work.data() : nullptr, nullptr};
     // Runner will construct the shell environment after entering the owner domain.
     char path[] = "PATH=/system/bin";
     char* environment[] = {path, nullptr};
@@ -528,9 +543,7 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
     }
     home_ = std::move(home);
     master_ = std::move(master);
-    child_ = child;
-    retiring_ = false;
-    if (kept_) tmux_created_ = true;
+    if (!terminal_.started(child)) _exit(125); // Impossible bookkeeping drift ends the whole scope.
     return true;
   }
 
@@ -608,10 +621,9 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
   unique_fd home_;
   unique_fd master_;
   unique_fd bridge_;
-  pid_t child_ = 0;
-  bool stopping_ = false, kept_ = false, starting_keep_ = false, tmux_created_ = false;
-  bool retiring_ = false;
-  uint64_t retiring_since_ = 0;
+  TerminalProcessState terminal_;
+  // Work policy/admission, deliberately separate from terminal process role.
+  bool stopping_ = false, kept_ = false, starting_keep_ = false;
 #ifdef ANDRIX_OWNER_KEEP
   std::shared_ptr<KeptWorkToken> work_lifetime_;
 #endif

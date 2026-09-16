@@ -27,10 +27,11 @@ generation and issued-query deadlines remain mandatory. Native identity, cgroup
 limits, tracing boundary and worker syscall filter are unchanged.
 
 The lab demonstrated kept editor return, relock, Stop/End, reboot and actual Android
-watchdog platform-death cleanup. Independent live CE-key eviction, vold failure,
-hung snapshot RPCs, broader pressure/suspend and phone/release behavior are not
-qualified by those tests. Do not turn this opt-in result into an unconditional
-release or hardware claim.
+watchdog platform death cleanup. The later [fixed lifecycle trials](../../plans/2026-09-14-lab-lifecycle-faults.md)
+observed real CE locking with busy files, delayed reply cleanup and normal PIN/fresh
+work recovery. Complete physical key removal, abnormal vold failure, broader stalled
+RPC/pressure/suspend cases and phone/release behavior remain open. Do not turn these
+scoped results into an unconditional release or hardware claim.
 
 Android's lockscreen notification settings still apply. The quiet Keep notice is
 hidden there when the owner hides silent notifications; enabling their display does

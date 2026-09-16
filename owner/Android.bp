@@ -77,7 +77,7 @@ andrix_keep_java_defaults {
 cc_binary {
     name: "andrixd",
     defaults: ["andrix_owner_defaults", "andrix_lifecycle_build", "andrix_keep_build"],
-    srcs: ["native/andrixd.cpp", "native/terminal_protocol.cpp"],
+    srcs: ["native/andrixd.cpp", "native/terminal_protocol.cpp", "native/terminal_process.cpp"],
     static_libs: ["andrix_session-ndk"],
     shared_libs: ["libbase", "libbinder_ndk", "liblog", "libselinux"],
     init_rc: ["andrixd.rc"],
