@@ -39,6 +39,7 @@ images, credentials or raw lab captures. GrapheneOS `2026081300`, based on
 Earlier direct-AOSP experiments remain distinct from the adopted foundation.
 
 - [Current product progress and remaining work](plans/current.md)
+- [Prototypes, evidence and long term intent](docs/design-evidence.md)
 - [Accepted architecture](docs/architecture.md)
 - [Source provenance](docs/source-provenance.md)
 - [GrapheneOS migration](plans/2026-09-08-grapheneos-migration.md)

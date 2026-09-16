@@ -1,0 +1,361 @@
+# Design evidence register
+
+Andrix's goal is a mature, general purpose, owner controlled Unix computer on mobile.
+The current prototypes are instruments for learning how to build that system, not the
+architecture we must preserve. Correctness and coherence take priority over the time
+or effort needed to replace them.
+
+This is the running map from experiments and implementation to evidence, design lessons
+and long term intent. It is not a release checklist or an execution diary.
+
+- [Architecture](architecture.md) holds accepted requirements and design decisions.
+- This register connects those decisions to evidence, temporary mechanisms and open questions.
+- [Current work](../plans/current.md) selects the next work from those gaps.
+- Linked milestones retain the details and limits of their particular checkpoints.
+  An older milestone's pending follow-up is not necessarily the current global status.
+- Raw captures, machine inventories, credentials and operating records remain private.
+
+## How to read and maintain it
+
+**Vehicle** says what exists: an integrated prototype, component candidate, test facility,
+historical experiment or planned capability. None of these labels means production ready.
+
+**Evidence** states what was inspected or exercised. Source/host models, compiled artifacts,
+Android emulator behavior and physical device behavior are separate levels. A later source
+revision does not inherit an earlier runtime result automatically. Suite totals are not
+proof of every feature. Failed or incomplete runs stay visible alongside their useful
+observations.
+
+**Implication** is the interpretation of that evidence, not another test result.
+**Intent** links an accepted architectural requirement, or explicitly labels a proposal.
+**Disposition** says what to retain, reassess or replace. It is not a guarantee that the
+current code satisfies the intent or permission to remove preserved artifacts.
+**Next gate** names the evidence or design work needed before adoption or expansion.
+
+Update the relevant entry when a prototype changes, a significant test succeeds or fails,
+a limitation is found, or a design decision is accepted. Do that in the same change as the
+milestone/current-work update. Add new areas rather than hiding them in a completed feature
+label. Keep stable entry IDs and mark superseded vehicles instead of erasing their lessons.
+Promote intent into the architecture only through an explicit accepted decision. A passing
+prototype must never silently promote its own limits, API or process layout into a requirement.
+
+The register is initially populated from the published milestones and inspected source at
+`24a0b84`. It is maintained by area; each evidence statement retains its own source scope.
+There is no supported release or qualified physical phone deployment at this checkpoint.
+
+## At a glance
+
+| ID | Area | Current vehicle | Disposition |
+| --- | --- | --- | --- |
+| [R01](#r01-android-foundation) | Android foundation | Adopted source direction, emulator integration | Retain foundation, qualify maintained device releases |
+| [R02](#r02-trusted-usr-and-abi) | Trusted `/usr` and ABI | Integrated APEX/compiler payload | Retain trust/ABI boundary, qualify lifecycle and updates |
+| [R03](#r03-owner-identity-and-android-crossings) | Owner identity and crossings | Bounded native owner prototype | Retain authority separation, reassess entry mechanisms |
+| [R04](#r04-user-and-ce-authority) | User/CE authority | Platform adapter, host models, lab faults | Retain provenance/freshness rules, extend evidence |
+| [R05](#r05-work-and-terminal-lifetime) | Work and terminal lifetime | Console/plain and tmux/Keep prototype | Replace coupling with Unix semantics |
+| [R06](#r06-work-discovery-admission-and-stop) | Work discovery, admission, Stop | New API and corrected UI candidate | Complete admission/control design and runtime checks |
+| [R07](#r07-keep-and-notification-controls) | Keep and notifications | Optional prototype grant/Stop channel | Retain owner control, do not make Keep universal |
+| [R08](#r08-resource-policy) | Resource policy | Fixed proof limits | Design product policy from measured workloads |
+| [R09](#r09-program-entry-and-environment) | Program entry/environment | Fixed shell/tmux runner entry | Replace narrow entry contract, retain execution boundary |
+| [R10](#r10-terminal-state-and-input) | Terminal state/input | VT adapter, journal, leases and UI fixtures | Retain explicit ownership, complete recovery/compatibility |
+| [R11](#r11-native-development-tools) | Native development tools | Compiler, C++ profiles and Make candidates | Retain useful tools, extend workload qualification |
+| [R12](#r12-owner-debugging) | Owner debugging | LLDB integration and boundary probes | Retain owner debugging, qualify remaining features |
+| [R13](#r13-files-projects-and-output) | Files, projects, output | Normal file workflows and bounded output | Keep data independent of presentation, complete output design |
+| [R14](#r14-networking-and-attestation) | Networking/attestation | Source review and bounded connected fixture | Retain accepted policy, qualify conditional/device paths |
+| [R15](#r15-webview-updates-and-rollback) | WebView updates/rollback | Historical direct AOSP experiments | Retain lessons, no automatic GrapheneOS adoption |
+| [R16](#r16-verification-machinery) | Verification machinery | Host models, artifact tools, emulator controllers | Retain strict evidence boundaries, improve fixtures |
+| [R17](#r17-phone-release-and-later-capabilities) | Phone release and later capabilities | Requirements/readiness work | Planned, not delivered features |
+
+## R01 Android foundation
+
+- **Vehicle:** pinned GrapheneOS Android 17 source and an Andrix Cuttlefish overlay.
+  Earlier direct AOSP experiments are a separate historical substrate.
+- **Evidence:** source verification, image builds, offline boot and bounded connected/UI
+  checks are recorded in the [migration](../plans/2026-09-08-grapheneos-migration.md),
+  [offline](../plans/2026-09-08-grapheneos-first-boot.md) and
+  [connected](../plans/2026-09-09-grapheneos-connected-baseline.md) milestones.
+  Emulator APN and Bluetooth expectations needed corrections specific to that product.
+- **Implication:** observed emulator requirements must not become guessed Pixel configuration.
+- **Intent, accepted:** [one maintained Android/Bionic foundation](architecture.md#foundation),
+  retaining the phone framework and an attributable owner computing layer.
+- **Disposition:** retain the foundation choice. The `2026081300` pin is a reproducible
+  starting point, not an indefinite update policy or a qualified device release.
+- **Next gate:** verify a mutually compatible maintained platform/device/kernel/firmware
+  generation and its licensing, then qualify the actual phone. See R17.
+
+## R02 Trusted `/usr` and ABI
+
+- **Vehicle:** the integrated `dev.andrix.usr` APEX, with compiler/tool payload variants
+  and strict package input verification. This is not a native package transaction system.
+- **Evidence:** [offline checks](../plans/2026-09-08-grapheneos-first-boot.md) observed the
+  authenticated active APEX, read only `/usr`, Android `/etc`, ARM64/Bionic execution and
+  ordinary app isolation. [Package tooling](../toolchain/README.md) verifies the selected
+  source, SDK, libraries, payload layout and license closure. These are bounded results.
+- **Implication:** payload identity and a working mounted ABI need actual artifact/runtime
+  checks; a source manifest or successful packaging command alone is insufficient.
+- **Intent, accepted:** [authenticated system state with owner controlled trust roots](architecture.md#trusted-usr),
+  one Bionic/system-linker ABI and separately writable owner software/data.
+- **Disposition:** retain the accepted first generation APEX and trust/ABI boundaries.
+  Exact payload contents and version numbers are not permanent product limits; a different
+  packaging architecture would require a separate decision. Owner programs need not be
+  packaged as APKs or receive platform identity.
+- **Next gate:** qualify generation commit, update, rollback and recovery on the adopted
+  foundation. Do not infer production update or power loss guarantees from current boot tests.
+
+## R03 Owner identity and Android crossings
+
+- **Vehicle:** [`andrixd`, the runner and Console](../owner/README.md), dedicated owner UID/MAC
+  roles, a CE home, a narrow platform policy bridge and worker syscall restrictions.
+- **Evidence:** the [owner session](../plans/2026-09-10-owner-session.md) exercised real native
+  execution, inherited bounds and complete group cleanup, with live owner positives and
+  ordinary app negatives. A factory APK signature sidecar caused PackageManager rejection;
+  factory packaging and the normal verified APK update path are now kept distinct.
+- **Implication:** direct owner execution and controlled Android crossings are different
+  capabilities. A trusted UI or coordinator must not execute owner payloads with its authority.
+- **Intent, accepted:** [owner authority with native daily processes and isolated applications](architecture.md#authority-identity-and-state).
+- **Disposition:** retain actual identity, worker/coordinator separation and scoped crossings.
+  The prototype UID number, fixed entry API and Console implementation are not the product goal.
+- **Next gate:** prove equivalent authority and cleanup boundaries for replacement work
+  admission and command/stream handling; keep ordinary app and coordinator negative controls.
+
+## R04 User and CE authority
+
+- **Vehicle:** Android lifecycle adaptation, native issued-query freshness gate, host models
+  and compile time lab fault controls. The earlier ordinary app witness/public polling and
+  proposed synchronous cleanup barrier were not adopted as native key authority.
+- **Evidence:** [platform integration](../plans/2026-09-13-android-lifecycle.md) records reset
+  provenance and backend publication race corrections. The [fixed fault trials](../plans/2026-09-14-lab-lifecycle-faults.md)
+  exercised real CE locking with busy files and a delayed genuine reply. Old work groups were
+  removed and normal PIN/fresh-work recovery was observed without a framework restart or reboot.
+  Complete physical key removal, abnormal backend failure and general suspend/pressure are open.
+- **Implication:** directory policy, an open descriptor, a cached unlocked flag or a surviving
+  app is not continuous key authority. A late positive must not extend an expired query lease.
+- **Intent, accepted:** [Android user/CE authority independent of screen relock](architecture.md#lifecycle-and-networking),
+  with no fake availability or cleanup barrier delaying key withdrawal.
+- **Disposition:** retain provenance, epoch and freshness principles. Reuse or replace the
+  adapter according to the final design. Lab injection endpoints stay absent from normal images.
+- **Next gate:** carry those invariants into new work supervision and test the unqualified
+  backend/suspend/pressure cases separately. A successful real lock call with busy files is not erasure proof.
+
+## R05 Work and terminal lifetime
+
+- **Vehicle:** plain work tied to Console process lifetime and explicit Keep using tmux.
+  `TerminalProcessState` now separates terminal process role from the retention flag.
+- **Evidence:** [Keep](../plans/2026-09-14-keep.md) and
+  [retained presentation](../plans/2026-09-13-retained-terminal.md) exercised return, relock,
+  frontend retirement, Stop and reboot in the emulator. The
+  [separation record](../plans/2026-09-16-work-terminal-separation.md) scopes later component,
+  module and partial runtime observations. These do not prove general Unix job lifetime.
+- **Implication:** a shell, a replaceable frontend, the UI connection and the supervised
+  process scope cannot all share one implicit lifetime. The current root-exit policy would
+  terminate detached descendants too; its test is a prototype policy test, not a Unix requirement.
+- **Intent, accepted:** [Unix lifetime semantics](architecture.md#lifecycle-and-networking):
+  view loss/Detach is not terminal hangup, shell exit is not blanket descendant Stop,
+  detached work needs no Console or mandatory multiplexer, and explicit Stop is complete.
+- **Disposition:** replace the coupling. One work per coordinator/init cgroup is the current
+  tested cleanup mechanism, not a required final process layout. No identity reuse or weaker
+  cleanup is allowed merely to add more work scopes.
+- **Next gate:** establish real PTY/hangup, shell job control and surviving descendant behavior,
+  then implement work admission and supervision with matching identity/resource/cleanup tests.
+
+## R06 Work discovery, admission and Stop
+
+- **Vehicle:** `WorkInfo`, `describeWork`, exact Binder/work ID `stopWork`, and Console's bounded
+  metadata tracker. Work creation still occurs through legacy Attach/New kept operations.
+- **Evidence:** [source `13a1af0`](../plans/2026-09-16-work-terminal-separation.md#observed-candidate-behavior)
+  has matched native/Console builds and a lab image. Observations covered idle discovery without
+  work creation, detached plain End, cold kept discovery/End without a new frontend, and repeated
+  fault recovery. The overall fixture reached its deadline; it is not a full runtime pass.
+  [Correction `1571c7b`](../plans/2026-09-16-work-terminal-separation.md#review-correction-and-remaining-responsiveness-limit)
+  passes 353 host tests and both Android module configurations, but has no new runtime result.
+- **Implication:** stale-result rejection is necessary but not sufficient: the new foreground
+  intent must eventually be observed after an obsolete query or attachment retires. Sharing one
+  control executor still lets UI Stop wait behind blocked admission.
+- **Intent, accepted:** [independent work and presentation control](architecture.md#lifecycle-and-networking),
+  with exact work targeting and no automatic work or authority from metadata.
+- **Disposition:** retain identity and stale completion rules. Complete or replace the admission,
+  cancellation and client control design; append-only prototype transactions are not a final ABI mandate.
+- **Next gate:** define explicit creation and bounded independent control; prove pending Stop,
+  stale identities, eventual discovery and responsiveness under blocked admission. Reverify the corrected UI on Android.
+
+## R07 Keep and notification controls
+
+- **Vehicle:** optional Keep grant, quiet notification, owner blockable channel and process bound
+  notification Stop. Keep remains off by default in the current implementation.
+- **Evidence:** [notification controls](../plans/2026-09-14-keep-failure-controls.md) exercised
+  blocking active work, refusing blocked admission, persistence through reboot, re-enabling
+  without work restart, and locked Stop under the owner's notification visibility settings.
+- **Implication:** indication, owner consent, Stop, continuation and terminal access are distinct.
+  A posted or stopped notification is not itself acknowledgement of group cleanup.
+- **Intent, accepted:** inspectable [owner supervised computation](architecture.md#lifecycle-and-networking),
+  without requiring a special Keep action for ordinary Unix work or granting locked terminal I/O.
+- **Disposition:** retain owner control and exact Stop targeting. Do not turn the optional
+  prototype Keep channel into an accidental universal permission gate for computing.
+- **Next gate:** design how work inspection, indication and Stop fit ordinary work and detached
+  jobs while respecting owner preferences. Exact notification mechanics remain design work, not a new accepted default.
+
+## R08 Resource policy
+
+- **Vehicle:** [fixed native proof bounds](../owner/README.md#bounds-and-lifecycle): 256 MiB aggregate
+  memory, 32 tasks, 128 descriptors, 64 MiB per file, no core dumps and fixed scheduling/OOM policy.
+  The per-file limit is not a total storage quota.
+- **Evidence:** guard and worker tests exercise admission/restrictions; emulator checks observed
+  inherited limits and complete init cleanup. The listed tools ran under this profile. Broader
+  exhaustion, suspend, thermal behavior and supported-device suitability remain open.
+- **Implication:** those numbers prove a bounded experiment, not universal limits suitable for
+  all owner programs. A larger workload failing under them would not establish an ABI defect.
+- **Intent, accepted:** [bounded Android resource and phone policy participation](architecture.md#lifecycle-and-networking),
+  with owner control and work below essential phone services.
+- **Disposition:** reassess exact limits and policy mechanisms. Visible owner configurable
+  workload profiles are a proposal to evaluate, not implemented policy or permission for unlimited use.
+- **Next gate:** measure representative interactive, build, background and pressure workloads
+  on the actual target, then define and verify aggregate/per-work policy and storage accounting.
+
+## R09 Program entry and environment
+
+- **Vehicle:** the [fixed runner](../owner/native/runner.cpp) enters the owner domain, validates
+  home/bounds, constructs an environment and starts a shell or fixed tmux operation.
+- **Evidence:** owner programs already run normally inside that shell, including native builds.
+  The narrow entry and worker restrictions were checked separately from ordinary app execution.
+  This is not evidence that the existing Binder entry is a complete program launch API.
+- **Implication:** fixing the trusted crossing is useful, but fixing every future owner command,
+  shell, working directory or stream to that prototype would defeat normal Unix composition.
+- **Intent, accepted:** [direct owner execution and a programmable userland](architecture.md#owner-userland)
+  under the actual owner identity, not arbitrary privileged execution by the coordinator.
+- **Disposition:** retain the execution boundary and deliberate handling of inherited state;
+  replace the narrow entry contract as needed. Exact request/descriptor design remains a proposal.
+- **Next gate:** define command, argument, environment, working-directory and standard-stream
+  ownership; test invalid requests, descriptor races, cancellation and partial launch failure.
+
+## R10 Terminal state and input
+
+- **Vehicle:** pinned VT libraries through an Andrix adapter, native owned PTY, revocable stream,
+  128 KiB output journal, parser acknowledgements and bounded UI/input queues.
+- **Evidence:** [terminal checks](../plans/2026-09-10-owner-tools.md) and
+  [cold attachment](../plans/2026-09-11-cold-attachment.md) found that main-thread preparation
+  could outlast a received lease. Pending ownership/renewal and guarded promotion corrected it.
+  tmux fresh redraw worked; a tail cannot reconstruct a lost parser. Broad IME/accessibility
+  and arbitrary scheduler stalls remain unqualified.
+- **Implication:** transport delivery, parser acknowledgement, input permission and screen
+  reconstruction are different facts. A successful retry does not explain an earlier failure.
+- **Intent, accepted:** usable [owner terminals independent of work lifetime](architecture.md#lifecycle-and-networking),
+  with explicit foreground/unlocked access and optional ordinary multiplexers.
+- **Disposition:** retain bounded ownership, explicit gaps and deliberate clipboard/accessibility
+  crossings. The current parser location, journal size and recovery modes are candidates, not permanent restrictions.
+- **Next gate:** establish a complete direct-terminal recovery contract without silent screen
+  invention, then qualify actual UI, input methods, accessibility and backpressure under it.
+
+## R11 Native development tools
+
+- **Vehicle:** native LLVM compiler, pinned API/NDK/Bionic inputs, standalone and project private
+  C++ runtime profiles, and GNU Make in the authenticated payload.
+- **Evidence:** [compiler](../plans/2026-09-11-native-compiler.md),
+  [C++ defaults](../plans/2026-09-11-cxx-defaults.md) and [Make](../plans/2026-09-11-native-build-tools.md)
+  record actual edit/build/run, incremental/recursive builds, relocation and reboot/rebuild.
+  A global C++ runtime lookup failure led to static C++ for standalone programs and an explicit
+  private shared profile, without static Bionic or broader global namespace access.
+- **Implication:** diagnose the ABI/library closure rather than solve a local lookup problem
+  by weakening the whole platform. Native tools should remain ordinary composable programs.
+- **Intent, accepted:** a supportable [on-device ARM64/Bionic development environment](architecture.md#owner-userland).
+- **Disposition:** retain useful tools and the verified ABI approach, not every bootstrap pin,
+  wrapper, disabled optional feature or serial-build default as a permanent product limitation.
+- **Next gate:** qualify realistic larger projects, remaining languages/plugins/libraries and
+  resource behavior. Expand features or replace integration only with a complete dependency and test story.
+
+## R12 Owner debugging
+
+- **Vehicle:** native LLDB/client/server integration and same-owner/cross-identity probes.
+- **Evidence:** [debugger checks](../plans/2026-09-12-native-debugger.md) started with a real
+  unchanged-policy launch denial. Narrow owner tracing/PTY rules enabled bounded C/C++ breakpoints,
+  stepping, backtraces and inspection while retaining ASLR, ordinary app and coordinator negatives.
+- **Implication:** the owner should be able to debug owner programs without making every
+  Android process a tracing target. A missing target is not a useful denial control.
+- **Intent, accepted:** [ordinary owner programming and debugging](architecture.md#owner-userland),
+  retaining the [identity boundaries](architecture.md#authority-identity-and-state).
+- **Disposition:** retain the capability and isolation principle. The downstream client and
+  disabled feature combinations remain candidates, not a claim of complete upstream support.
+- **Next gate:** qualify remaining expression, JIT/scripting/library, workload and device paths.
+
+## R13 Files, projects and output
+
+- **Vehicle:** normal owner home file operations, a small multi-file project fixture and a bounded
+  terminal journal. There is no general durable job-output service demonstrated by that journal.
+- **Evidence:** [project controls](../plans/2026-09-11-owner-project-input.md) exercised header
+  editing, selective rebuild, relocation, failed-build recovery and reboot/rebuild. Lifecycle
+  trials read saved files from fresh work after cleanup and normal PIN recovery. These are not power loss tests.
+- **Implication:** saved data, process lifetime, terminal history and persistent output are
+  different objects. Neither End nor a successful command is a durability acknowledgement.
+- **Intent, accepted:** [owner controlled Unix files and composable tools](architecture.md#owner-userland),
+  with owner state separate from [trusted system generations](architecture.md#trusted-usr).
+- **Disposition:** retain ordinary file behavior and that separation. Optional bounded job logs
+  and output redirection independent of Console need design; no automatic complete transcript is assumed.
+- **Next gate:** define stream/file ownership for nonterminal work, failure/truncation reporting,
+  and the actual storage commit/recovery contract before making durability claims.
+
+## R14 Networking and attestation
+
+- **Vehicle:** endpoint source reviews, isolated connected emulator fixtures and real security
+  consumers. Offline owner-work fixtures are not connected policy tests.
+- **Evidence:** the [connected policy review](grapheneos-connected-policy-review.md) records an
+  exercised GrapheneOS proxy endpoint and successful Cuttlefish software provisioning. A hostname
+  property alone did not identify the effective endpoint. No direct Google connection was observed
+  in that window; hardware attestation, all redirects/fallbacks and conditional consumers remain open.
+- **Implication:** semantic client behavior matters, not an empty capture, destination blocklist
+  or superficial hostname. Software keys do not establish hardware security.
+- **Intent, accepted:** [no automatic direct Google connections by official components](architecture.md#foundation),
+  explicit owner Google use allowed, backend use by non-Google services permitted, and genuine
+  hardware attestation through the planned proxy without gating ordinary owner computing.
+- **Disposition:** retain that policy and genuine consumers. Earlier stricter backend-independence
+  language is superseded, not a reason to fake provisioning or invent replacement certification.
+- **Next gate:** exercise conditional endpoints, redirects/fallbacks and actual supported-device
+  hardware paths. No blanket privacy or DRM playback result follows from these checks.
+
+## R15 WebView updates and rollback
+
+- **Vehicle:** historical direct AOSP/Vanadium signer, package-session and rollback experiments.
+  They are not adopted changes to the current GrapheneOS platform.
+- **Evidence:** the [three-package rollback attempt](../plans/2026-09-07-webview-qualification.md)
+  failed its intended model. [Split cohorts](../plans/2026-09-07-webview-cohort-rollback.md)
+  worked with an exact signed library prerequisite. [Retention](../plans/2026-09-07-rollback-retention.md)
+  and [lifecycle/metadata commits](../plans/2026-09-08-rollback-lifecycle.md) examined pruning,
+  reboot, expiry, in-flight refusal and persistence errors. Manifest-only versions were not real browser upgrades.
+- **Implication:** dependencies referenced by recoverable generations must outlive those records.
+  Requested, available, staged, committed and applied states must not be collapsed into success.
+- **Intent, accepted:** [complete authenticated generations with rollback and owner data preserved](architecture.md#trusted-usr).
+- **Disposition:** retain the lessons, not automatic adoption of the old patch series or a claim
+  that a production updater/native package manager exists.
+- **Next gate:** review against the adopted foundation; test genuine version changes, dependency
+  closure, persistence failure, power loss and recovery before promoting an update design.
+
+## R16 Verification machinery
+
+- **Vehicle:** host state/facade tests, source contracts, artifact inspectors, UI request queues,
+  captured runtime fixtures and development artifact handling procedures. These are test facilities.
+- **Evidence:** [UI freshness](../plans/2026-09-14-keep-failure-controls.md#test-driver-freshness-defect)
+  found that a successful command could leave no new hierarchy. Later
+  [work API observations](../plans/2026-09-16-work-terminal-separation.md#observed-candidate-behavior)
+  distinguished a changed label from a broken terminal and retained an overall timed-out fixture.
+  Native/API source models did not supply actual Android identities or key authority.
+- **Implication:** fixtures have bugs too. Check intended inputs, exact acknowledgements, actual
+  process identities, positive controls and lifecycle completion, not only exit codes or self hashes.
+- **Intent, accepted:** [tests inform architecture through scoped observed reality](architecture.md#design-method).
+- **Disposition:** retain explicit evidence boundaries and [artifact preservation](development-artifacts.md).
+  Test-driver limits and fixture configuration are not mobile product policy. Failed attempts stay available.
+- **Next gate:** update fixture contracts when product semantics deliberately change, verify
+  independently, and repeat fresh artifact/runtime checks. Do not reuse consumed queues or amend sealed evidence.
+
+## R17 Phone release and later capabilities
+
+- **Vehicle:** [physical-device readiness](../plans/2026-09-08-caiman-readiness.md) and accepted
+  architectural requirements. Services, SSH, native package transactions and attributable agent
+  delegation are later capabilities, not completed features of the owner terminal prototype.
+- **Evidence:** the current platform/tool/work results are bounded emulator evidence. There is
+  no buildable Andrix Pixel deployment product or supported release. The register does not fill
+  these gaps with inferred success from tests on other substrates.
+- **Implication:** useful owner tools are necessary but not sufficient for a mature mobile computer.
+- **Intent, accepted:** the [Android/Pixel foundation](architecture.md#foundation),
+  [owner userland](architecture.md#owner-userland), [lifecycle/network policy](architecture.md#lifecycle-and-networking)
+  and [attributable agent operations](architecture.md#agents), while preserving essential phone functions.
+- **Disposition:** planned. Exact implementations and qualification remain work, not blanket
+  authorization to flash phones, change signing roots, run package transactions or expose services.
+- **Next gate:** establish supported inputs, owner installation/recovery procedures and real
+  phone/security/power/update behavior, then qualify later capabilities through explicit scoped work.

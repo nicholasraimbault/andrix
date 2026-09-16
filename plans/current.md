@@ -15,6 +15,14 @@ This target is an accepted direction, not a claim that the current prototype imp
 it. The same review applies to existing resource policy, execution entry points, output
 handling and owner tools before proof constraints become product restrictions.
 
+## Prototype and design tracking
+
+Use the [design evidence register](../docs/design-evidence.md) for the running list of
+prototype/test vehicles, observed results, design implications, accepted intent,
+proposals and next gates across the developed system. Update it with relevant source,
+proof and milestone changes. The architecture holds accepted decisions; the register
+must not turn prototype limits or successful tests into product requirements silently.
+
 ## Product checkpoint
 
 Andrix has a bounded ARM64/Bionic development environment on its GrapheneOS-derived
