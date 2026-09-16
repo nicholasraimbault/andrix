@@ -160,7 +160,10 @@ There is no supported release or qualified physical phone deployment at this che
   cleanup is allowed merely to add more work scopes.
 - **Next gate:** use the [supervision candidate and proof matrix](../plans/2026-09-16-unix-work-supervision.md)
   to qualify actual Android shell behavior and a bounded scope factory with exact identities,
-  resource admission and independent cleanup. The final process layout is not selected yet.
+  resource admission and independent cleanup. The [scope boundary experiment](../tests/owner-scope/README.md)
+  is currently unqualified source using fixed named slots. Source review rejected the direct
+  temporary-service shortcut because it does not establish the required empty capability
+  bounding set. A dynamic factory and the final process layout are not selected yet.
 
 ## R06 Work discovery, admission and Stop
 

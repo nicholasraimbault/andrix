@@ -127,6 +127,20 @@ Inspected source anchors in the pinned foundation:
 | `frameworks/base` at `aab06a8bd44c4c2b58eeec780fde83baa9d43a40`, `core/jni/android_util_Process.cpp` | Framework process-group entry points delegate to native process-group operations. | API availability does not supply request identity, authorization or safe scope lifetime ownership. |
 | `external/mksh` at `71d564487c9b34f65961570073f037658e07eb06`, `src/jobs.c::j_exit` and `src/main.c` | Job exit handling distinguishes stopped/foreground jobs and login/`FNOHUP` state; startup initializes `FNOHUP`. | Host Bash results cannot define Android shell behavior. Test the actual shell and options separately. |
 
+A subsequent source check found a stronger obstacle to using `exec_background` unchanged:
+`MakeTemporaryOneshotService` leaves the capability field absent. The nonroot fallback in
+`SetProcessAttributesAndCaps` calls `DropInheritableCaps`, which clears inheritable flags,
+not the bounding set. In contrast, a named service's explicit empty `capabilities` field
+selects `SetCapsForExec(empty)`, including bounding-set removal. The existing owner identity
+guard requires every capability set, including the bounding set, to be zero. Do not relax
+that guard or grant a helper capabilities to make the shortcut work.
+
+The first [Android scope boundary experiment](../tests/owner-scope/README.md) therefore
+uses two fixed named init slots with complete inherited profiles. It can test independent
+cleanup, held execution, slot reuse and stale handles, but it is not a dynamic factory.
+A general factory must preserve the complete trusted profile and qualify its bootstrap.
+No Android execution of the discarded temporary-service draft is claimed.
+
 These are source observations, not new Android executions or adopted framework patches.
 The [current guards](../owner/native/guards.cpp) and [policy](../owner/sepolicy/andrix_owner.te)
 require protected Android resource controls and forbid worker cgroup writes/Binder access.

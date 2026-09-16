@@ -75,6 +75,12 @@ exercise PTY hangup, signal dispositions, descendant survival/adoption and confi
 shell behavior. Source review identified Android group creation, cleanup and PID lifetime
 constraints. These are not new Android runtime results or an adopted factory/process layout.
 
+The [scope boundary experiment](../tests/owner-scope/README.md) is now being prepared as
+separately gated debug source. It uses fixed named init slots with complete capability
+and resource profiles. Source review ruled out plain `exec_background` as a shortcut:
+its absent capability profile does not establish the required zero bounding set. The
+experiment will not be represented as a general dynamic factory or ordinary product behavior.
+
 ## Next gates
 
 1. Qualify a bounded Android work-scope factory with exact identities, resource

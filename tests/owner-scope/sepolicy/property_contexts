@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+sys.andrix.scope_probe.run          u:object_r:andrix_scope_probe_control_prop:s0 exact bool
+sys.andrix.scope_probe.replace_a    u:object_r:andrix_scope_probe_control_prop:s0 exact bool
+sys.andrix.scope_probe.consumed     u:object_r:andrix_scope_probe_state_prop:s0 exact bool
+sys.andrix.scope_probe.replaced     u:object_r:andrix_scope_probe_state_prop:s0 exact bool
+sys.andrix.scope_probe.a.pid        u:object_r:andrix_scope_probe_pid_prop:s0 exact uint
+sys.andrix.scope_probe.b.pid        u:object_r:andrix_scope_probe_pid_prop:s0 exact uint

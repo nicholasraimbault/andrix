@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0
+# Only selected in the separately gated debug Cuttlefish proof image.
+type andrix_scope_probe_service, service_manager_type;
+add_service(andrixd, andrix_scope_probe_service)
+allow andrixd andrix_scope_probe_service:service_manager find;
+allow shell andrix_scope_probe_service:service_manager find;
+binder_call(shell, andrixd)
+neverallow { andrix_owner andrix_terminal untrusted_app_all isolated_app_all } andrix_scope_probe_service:service_manager find;
+
+# Fixed lab trigger booleans, never general ctl.start/exec/cgroup access.
+system_internal_prop(andrix_scope_probe_control_prop)
+system_internal_prop(andrix_scope_probe_state_prop)
+system_internal_prop(andrix_scope_probe_pid_prop)
+set_prop(shell, andrix_scope_probe_control_prop)
+get_prop(shell, andrix_scope_probe_state_prop)
+set_prop(andrixd, andrix_scope_probe_pid_prop)
+neverallow { domain -init -shell } andrix_scope_probe_control_prop:property_service set;
+neverallow { domain -init } andrix_scope_probe_state_prop:property_service set;
+neverallow { domain -init -andrixd } andrix_scope_probe_pid_prop:property_service set;
+
+# Resource/capability profiles are applied by named init services. No new resource,
+# scheduling or cgroup write permission is supplied to the coordinator or worker.
