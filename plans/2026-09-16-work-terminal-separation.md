@@ -24,7 +24,11 @@ work. Tests should inform the replacement before we commit to its architecture. 
 implementation may be rebuilt from scratch if that yields the correct system. Time,
 difficulty and effort spent on the prototype do not determine what must survive.
 
-## What the prototype currently couples
+The next [supervision design candidate and proof matrix](2026-09-16-unix-work-supervision.md)
+uses real process experiments and Android implementation source to evaluate replacement
+mechanisms. It does not adopt a new factory or change this prototype's public behavior.
+
+## Couplings identified by the initial review
 
 | Location | Current coupling | Design consequence |
 | --- | --- | --- |
