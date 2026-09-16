@@ -23,6 +23,7 @@ import android.util.Log;
 import com.termux.terminal.TerminalSession;
 import dev.andrix.session.Attachment;
 import dev.andrix.session.IOwnerSession;
+import dev.andrix.session.WorkInfo;
 import dev.andrix.terminal.protocol.AttachmentLifecycle;
 import dev.andrix.terminal.protocol.AttachmentLifecycle.Request;
 import dev.andrix.terminal.protocol.AttachTrace;
@@ -30,6 +31,9 @@ import dev.andrix.terminal.protocol.AttachTrace.Event;
 import dev.andrix.terminal.protocol.AttachTrace.Report;
 import dev.andrix.terminal.protocol.InputQueue;
 import dev.andrix.terminal.protocol.OutputProtocol;
+import dev.andrix.terminal.protocol.WorkReference;
+import dev.andrix.terminal.protocol.WorkTracker;
+import dev.andrix.terminal.protocol.WorkTracker.Query;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -87,8 +91,7 @@ final class TerminalController implements TerminalSession.Host {
     private volatile long uiEpoch; // main-thread changes cancel in-flight attach intent
     private volatile int rows = 24, columns = 80;
     private TerminalSession session; // main/parser thread only
-    private boolean workKnown, keptWork;
-    private IOwnerSession knownService; // Exact native Binder instance; never retarget a queued Stop.
+    private final WorkTracker<IOwnerSession> work = new WorkTracker<>();
     private String state = "Detached — unlock and Attach";
 
     private TerminalController(Context context) {
@@ -114,7 +117,7 @@ final class TerminalController implements TerminalSession.Host {
         if (listener != target) return;
         resumed = isResumed; focused = hasFocus;
         if (!isResumed || !hasFocus) detach();
-        else publish();
+        else { publish(); refreshWork(); }
     }
     void unbind(Listener target) {
         requireMain();
@@ -141,16 +144,76 @@ final class TerminalController implements TerminalSession.Host {
         return attachments.current(request) && uiEpoch == epoch && listener == target;
     }
 
-    boolean hasKeptWork() { requireMain(); return keptWork && workKnown; }
+    private WorkReference<IOwnerSession> knownWork() {
+        WorkReference<IOwnerSession> value = work.current();
+        return value != null && value.service.asBinder().isBinderAlive() ? value : null;
+    }
+    boolean canStopWork() {
+        requireMain();
+        WorkReference<IOwnerSession> value = knownWork();
+        return eligible() && !ending.get() && value != null && value.canRequestStop();
+    }
+    String workStatus() {
+        requireMain();
+        if (!eligible()) return "Work status hidden while locked or not foreground";
+        WorkReference<IOwnerSession> value = knownWork();
+        if (value == null) return "Work: coordinator not observed";
+        if (value.state == WorkInfo.IDLE) return "Work: idle";
+        if (value.state == WorkInfo.STOPPING) return "Work: Stop requested, cleanup not acknowledged";
+        String policy = value.retained() ? "explicit Keep" : "Console process bound";
+        return "Work: " + (value.state == WorkInfo.PREPARING ? "preparing " : "running, ") + policy;
+    }
+
+    // Metadata discovery has its own bounded reservation. It does not acquire a
+    // terminal lease or run in the critical reply-to-promotion attachment window.
+    private void refreshWork() {
+        requireMain();
+        if (!eligible() || ending.get() || attachments.preparing() || attachments.lease() != null) return;
+        Query query = work.beginQuery();
+        if (query == null) return;
+        final long epoch = uiEpoch;
+        final Listener target = listener;
+        control.execute(() -> {
+            WorkReference<IOwnerSession> value = null;
+            boolean observed = false;
+            try {
+                if (!work.queryCurrent(query) || uiEpoch != epoch || listener != target || !eligible())
+                    throw new IOException("UI changed");
+                IBinder binder = ServiceManager.checkService("andrix.owner.session");
+                if (binder != null) {
+                    IOwnerSession service = IOwnerSession.Stub.asInterface(binder);
+                    service.registerController(PROCESS_LIFETIME);
+                    if (!work.queryCurrent(query) || uiEpoch != epoch || listener != target || !eligible())
+                        throw new IOException("UI changed");
+                    value = new WorkReference<>(service, binder, service.describeWork());
+                }
+                observed = true;
+            } catch (Exception ignored) {
+                // Failure is not an idle-work observation and never starts work.
+            }
+            final WorkReference<IOwnerSession> result = value;
+            final boolean completed = observed;
+            if (!main.post(() -> finishWorkQuery(query, epoch, target, result, completed)))
+                work.failQuery(query);
+        });
+    }
+
+    private void finishWorkQuery(Query query, long epoch, Listener target,
+            WorkReference<IOwnerSession> value, boolean observed) {
+        requireMain();
+        if (!observed) { work.failQuery(query); return; }
+        boolean current = uiEpoch == epoch && listener == target && eligible() && !ending.get()
+                && !attachments.preparing() && attachments.lease() == null;
+        if (work.finishQuery(query, value, current)) publish();
+    }
+
     void startKept() {
         requireMain();
         if (!ConsoleFeatures.KEEP) { show("Keep is not enabled in this image"); return; }
-        if (knownService != null && !knownService.asBinder().isBinderAlive()) {
-            workKnown = false; keptWork = false; knownService = null;
-        }
-        if (workKnown) {
-            show(keptWork ? "Kept work already exists: Attach or End it first"
-                    : "End the plain session before New kept; running shells cannot be adopted");
+        WorkReference<IOwnerSession> value = knownWork();
+        if (value != null && value.hasWork()) {
+            show(value.state == WorkInfo.STOPPING ? "Work is ending; no replacement started"
+                    : "Work already exists: Attach or End it first; running work cannot be adopted");
             return;
         }
         attach(true);
@@ -161,6 +224,7 @@ final class TerminalController implements TerminalSession.Host {
         if (!eligible()) { show("Attach refused: locked or not foreground"); return; }
         if (ending.get() || attachments.preparing()) return;
         final long requestEpoch = ++uiEpoch;
+        work.invalidate();
         Connection old = attachments.cancel();
         if (old != null) old.close();
         final Request request = attachments.begin();
@@ -170,7 +234,8 @@ final class TerminalController implements TerminalSession.Host {
         final Listener target = listener;
         // A kept pane can redraw through a fresh client; never rebase the old
         // parser after a gap. Native treats zero here as a new presentation request.
-        final Checkpoint resume = keptWork && !cursor.inputAllowed()
+        final WorkReference<IOwnerSession> observedWork = knownWork();
+        final Checkpoint resume = observedWork != null && observedWork.recreatesTerminal() && !cursor.inputAllowed()
                 ? new Checkpoint(0, 0) : checkpoint.get();
         final int requestedRows = rows, requestedColumns = columns;
         control.execute(() -> {
@@ -240,6 +305,7 @@ final class TerminalController implements TerminalSession.Host {
         // completion cannot release or overwrite a later attachment's state.
         if (uiEpoch != requestEpoch || listener != target || !eligible()) return;
         show("Attach failed: " + message);
+        refreshWork(); // Work may exist even though no terminal was installed.
     }
 
     private void finishAttach(Request request, long requestEpoch, Listener target, Connection next) {
@@ -252,7 +318,10 @@ final class TerminalController implements TerminalSession.Host {
             showFor(next, "Attachment cancelled or expired during preparation");
             return;
         }
+        // The same attachment reply supplies independent work metadata. A parser
+        // failure must not make already admitted computation undiscoverable.
         try {
+            if (!work.attached(next.work)) throw new IOException("Work is already stopping");
             OutputProtocol.AttachmentState result = cursor.attach(next.session, next.firstOffset);
             next.trace.mark(Event.CURSOR_READY);
             if (result == OutputProtocol.AttachmentState.NEW_SESSION) {
@@ -262,7 +331,6 @@ final class TerminalController implements TerminalSession.Host {
                 next.trace.mark(Event.TERMINAL_END);
             }
             checkpoint.set(new Checkpoint(cursor.session(), cursor.nextOffset()));
-            workKnown = true; keptWork = next.kept; knownService = next.service;
             // Renewal/cancellation can retire pending ownership while the UI is
             // preparing. Promotion and input eligibility are one checked transition.
             if (!currentRequest(request, requestEpoch, target) || !eligible()
@@ -271,7 +339,7 @@ final class TerminalController implements TerminalSession.Host {
             next.trace.mark(Event.CONNECTION_SET);
             state = attachments.inputAllowed(next)
                     ? (next.kept ? "Kept — native owner UID7500; Stop in notification or End" : "Attached — native owner UID7500")
-                    : gapMessage(next.kept);
+                    : gapMessage(next.work.recreatesTerminal());
             reader.execute(() -> readOutput(next));
             writer.execute(() -> writeInput(next));
             resize(session, rows, columns);
@@ -281,11 +349,12 @@ final class TerminalController implements TerminalSession.Host {
             disconnect(next); attachments.finish(request); reportTrace(next.trace, Report.FAILURE);
             control.execute(() -> remoteDetach(next));
             showFor(next, "Attachment state failed; Attach again (gaps require End)");
+            refreshWork();
         }
     }
 
-    private static String gapMessage(boolean kept) {
-        return kept ? "Output gap: input blocked. Attach for a fresh tmux presentation, or End."
+    private static String gapMessage(boolean recreate) {
+        return recreate ? "Output gap: input blocked. Attach for a fresh terminal presentation, or End."
                 : "Output gap: input blocked. End session, then Attach to start fresh.";
     }
 
@@ -336,7 +405,7 @@ final class TerminalController implements TerminalSession.Host {
                         checkpoint.set(new Checkpoint(cursor.session(), cursor.nextOffset()));
                         if (ack[0] < 0) {
                             attachments.blockInput(current); current.queue.discard();
-                            show(gapMessage(current.kept));
+                            show(gapMessage(current.work.recreatesTerminal()));
                         }
                     } catch (IOException | RuntimeException error) {
                         attachments.blockInput(current); current.queue.discard();
@@ -383,46 +452,37 @@ final class TerminalController implements TerminalSession.Host {
     }
     void endSession() {
         requireMain();
-        if (hasKeptWork() && knownService != null) { stopKept(); return; }
-        Connection current = attachments.active();
-        if (current == null || !eligible() || !ending.compareAndSet(false, true)) return;
-        // End remains available after a gap; it never depends on healthy input.
-        control.execute(() -> {
-            boolean requested = false;
-            try { current.service.endSession(current.generation); requested = true; }
-            catch (Exception error) { showFor(current, "End failed: " + error.getMessage()); }
-            finally {
-                disconnect(current); ending.set(false);
-                if (requested) main.post(() -> {
-                    if (current.epoch == uiEpoch && current.owner == listener) {
-                        workKnown = false; keptWork = false; knownService = null;
-                        show("End requested — Attach again after the service restarts");
-                    }
-                });
-            }
-        });
-    }
-    private void stopKept() {
-        if (!eligible() || !ending.compareAndSet(false, true)) return;
-        final IOwnerSession service = knownService;
+        final WorkReference<IOwnerSession> selected = knownWork();
+        if (!eligible() || selected == null || !selected.canRequestStop()
+                || !ending.compareAndSet(false, true)) return;
+        final Object token = work.invalidate();
         final Listener target = listener;
-        final long epoch = uiEpoch;
+        final long epoch = ++uiEpoch;
         Connection current = attachments.cancel();
         if (current != null) current.close();
+        publish();
         control.execute(() -> {
             String message;
-            boolean stopped = false;
-            try { service.stopKeptWork(); stopped = true; message = "Stop requested — Android init cleans up the work"; }
-            catch (Exception error) { message = "Stop failed: " + error.getMessage(); }
+            boolean accepted = false;
+            try {
+                // Never resolve a service name here. Delayed Stop targets only
+                // the selected Binder and work ID, without a presentation lease.
+                accepted = selected.service.stopWork(selected.id);
+                message = accepted ? "Stop requested; Android init cleans up the work"
+                        : "Selected work is no longer available; no replacement was stopped";
+            } catch (Exception error) { message = "Stop failed: " + error.getMessage(); }
             finally { ending.set(false); }
             final String result = message;
-            final boolean accepted = stopped;
-            main.post(() -> {
-                if (listener != target || uiEpoch != epoch) return;
-                if (accepted) { workKnown = false; keptWork = false; knownService = null; }
-                show(result);
-            });
+            final boolean requested = accepted;
+            main.post(() -> finishWorkStop(token, selected, epoch, target, requested, result));
         });
+    }
+
+    private void finishWorkStop(Object token, WorkReference<IOwnerSession> selected,
+            long epoch, Listener target, boolean accepted, String message) {
+        requireMain();
+        boolean current = accepted ? work.stopAccepted(token, selected) : work.currentTarget(token, selected);
+        if (current && listener == target && uiEpoch == epoch && eligible()) show(message);
     }
 
     private boolean disconnect(Connection target) {
@@ -524,6 +584,7 @@ final class TerminalController implements TerminalSession.Host {
         final Listener owner;
         final long generation, session, firstOffset;
         final boolean kept;
+        final WorkReference<IOwnerSession> work;
         final ParcelFileDescriptor stream;
         final InputStream input;
         final OutputStream output;
@@ -534,6 +595,9 @@ final class TerminalController implements TerminalSession.Host {
             this.trace = trace; this.epoch = epoch; this.owner = owner;
             this.service = service; generation = a.generation; session = a.sessionId;
             firstOffset = a.firstOutputOffset; kept = a.kept; stream = fd;
+            work = new WorkReference<>(service, service.asBinder(), a.work);
+            if (work.state != WorkInfo.RUNNING || work.retained() != kept)
+                throw new IOException("Inconsistent attachment work metadata");
             ParcelFileDescriptor read = ParcelFileDescriptor.dup(fd.getFileDescriptor());
             ParcelFileDescriptor write = null;
             try {

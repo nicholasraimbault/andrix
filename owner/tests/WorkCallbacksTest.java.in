@@ -1,0 +1,76 @@
+// SPDX-License-Identifier: Apache-2.0
+// Actual Console completion methods with explicit UI state facades, not Android authority.
+import dev.andrix.session.WorkInfo;
+import dev.andrix.terminal.protocol.AttachmentLifecycle;
+import dev.andrix.terminal.protocol.WorkReference;
+import dev.andrix.terminal.protocol.WorkTracker;
+import dev.andrix.terminal.protocol.WorkTracker.Query;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+public final class WorkCallbacksTest {
+    interface IOwnerSession { }
+    interface Listener { }
+    final WorkTracker<IOwnerSession> work = new WorkTracker<>();
+    final AttachmentLifecycle<Object> attachments = new AttachmentLifecycle<>();
+    final AtomicBoolean ending = new AtomicBoolean();
+    final Thread main = Thread.currentThread();
+    Listener listener = new Listener() { };
+    long uiEpoch = 1;
+    boolean foreground = true;
+    int publications;
+    String text;
+    void requireMain() { assert Thread.currentThread() == main; }
+    boolean eligible() { return foreground; }
+    void publish() { ++publications; }
+    void show(String value) { text = value; publish(); }
+    static WorkReference<IOwnerSession> ref(long id) {
+        IOwnerSession service = new IOwnerSession() { };
+        WorkInfo i = new WorkInfo(); i.workId = id; i.state = WorkInfo.RUNNING;
+        i.lifetimePolicy = WorkInfo.CONSOLE_BOUND; i.terminalRecovery = WorkInfo.CONTINUOUS_TERMINAL;
+        return new WorkReference<>(service, service, i);
+    }
+// PRODUCTION_WORK_QUERY_COMPLETION
+// PRODUCTION_WORK_STOP_COMPLETION
+
+    public static void main(String[] args) {
+        WorkCallbacksTest h = new WorkCallbacksTest();
+        WorkReference<IOwnerSession> original = ref(7), replacement = ref(8);
+        Query q = h.work.beginQuery(); h.finishWorkQuery(q, 1, h.listener, original, true);
+        assert h.work.current() == original && h.publications == 1;
+        assert h.attachments.lease() == null; // Discovery creates no terminal.
+
+        for (int cause = 0; cause < 6; ++cause) {
+            WorkCallbacksTest stale = new WorkCallbacksTest();
+            stale.work.attached(original); Query pending = stale.work.beginQuery();
+            Listener target = stale.listener;
+            if (cause == 0) stale.uiEpoch = 2;
+            if (cause == 1) stale.listener = new Listener() { };
+            if (cause == 2) stale.foreground = false;
+            if (cause == 3) stale.ending.set(true);
+            if (cause == 4) stale.attachments.begin();
+            if (cause == 5) stale.work.invalidate();
+            stale.finishWorkQuery(pending, 1, target, replacement, true);
+            assert stale.work.current() == original && stale.publications == 0;
+            assert stale.work.beginQuery() != null; // Matching old reservation retired.
+        }
+        Query error = h.work.beginQuery(); h.finishWorkQuery(error, 1, h.listener, null, false);
+        assert h.work.current() == original && h.publications == 1;
+
+        Object stop = h.work.invalidate();
+        h.finishWorkStop(stop, original, 1, h.listener, true, "Stop requested");
+        assert h.work.current().state == WorkInfo.STOPPING && h.text.equals("Stop requested");
+        assert h.work.current().hasWork() && !h.work.current().canRequestStop();
+        int published = h.publications;
+        h.work.attached(replacement);
+        h.finishWorkStop(stop, original, 1, h.listener, true, "stale success");
+        h.finishWorkStop(stop, original, 1, h.listener, false, "stale failure");
+        assert h.work.current() == replacement && h.publications == published;
+
+        WorkCallbacksTest hidden = new WorkCallbacksTest(); hidden.work.attached(original);
+        Object token = hidden.work.invalidate(); Listener old = hidden.listener;
+        hidden.uiEpoch = 2; hidden.listener = new Listener() { }; hidden.foreground = false;
+        hidden.finishWorkStop(token, original, 1, old, true, "hidden result");
+        assert hidden.work.current().state == WorkInfo.STOPPING && hidden.publications == 0;
+        System.out.println("Actual work query/Stop completion guards passed; Android unqualified");
+    }
+}
