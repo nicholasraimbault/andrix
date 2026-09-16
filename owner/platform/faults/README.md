@@ -8,8 +8,11 @@ Debuggable state alone cannot enable the facility.
 
 The [approved scope and verification plan](../../../plans/2026-09-14-lab-lifecycle-faults.md)
 remain authoritative for the experiment. Host checks and separate normal/lab image
-inspections passed for source `17b998c`. Host facades and image bytes do not qualify
-Android caller identity, key state or cleanup. Fault runtime tests remain pending.
+inspections passed for source `17b998c`. The two fixed operations were then exercised
+on a fresh frozen lab image. Delayed reply cleanup and normal PIN/fresh work recovery
+were observed without a framework restart or reboot. The real CE call reported busy
+files, not complete physical key removal. See the linked plan for scope and collector
+qualifications; host facades and image bytes alone are not runtime proof.
 
 In the lab image, the existing service's standard Binder Shell interface accepts:
 

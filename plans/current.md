@@ -20,34 +20,33 @@ within the documented emulator scope. Keep remains off by default.
 There is no supported Andrix release or buildable Pixel deployment product. Emulator
 results are not general phone, privacy, power-loss or hardware qualification.
 
+The [two approved lifecycle faults](2026-09-14-lab-lifecycle-faults.md) have now been
+exercised on a fresh frozen lab image. A delayed genuine reply caused complete native
+cleanup before the reply returned. The real CE lock produced a vold busy file outcome,
+revoked availability and cleaned up the old workload. Normal PIN entry restored CE
+availability; fresh work could read its saved file and compile and run a C program.
+Neither fault required a framework restart or reboot. Complete physical key removal
+is not claimed. The incomplete delay sampler and subsequent independent observations
+are documented separately. Normal images omit the lab controls.
+
 ## Current milestone
 
-Qualify the [approved lab lifecycle fault controls](2026-09-14-lab-lifecycle-faults.md):
-
-- invoke Android's real primary-user CE-storage lock operation;
-- delay one genuine lifecycle snapshot reply beyond the native freshness deadline.
-
-The source, 346 host checks and separate normal/lab Android image inspections are
-complete. The normal image omits the lab commands; the lab image contains the real
-storage operation and reply delay. Matching images and host tools are frozen.
-Runtime qualification remains open. No broad application/Shell permission or
-synthetic availability flag is part of the scope. Actual key withdrawal outcomes,
-including busy file behavior, remain distinct from screen relock and asynchronous
-process cleanup.
+Review the prototype after these proofs, then separate owner workload lifetime from
+terminal attachment. Android supervision stays authoritative. Console becomes a
+client and tmux an optional presentation tool. Keep may remain a convenience shortcut
+rather than the only form of retained work.
 
 ## Next gates
 
-1. Reverify the frozen inputs and exercise real key withdrawal and delayed reply
-   cleanup/recovery in a fresh fixture.
-2. Use those results for a post-proof design review, then separate owner workload
-   lifetime from terminal attachment. Android supervision stays authoritative;
-   Console becomes a client and tmux an optional presentation tool. Keep may remain
-   a convenience shortcut rather than the only form of retained work. Retain,
-   refactor or replace prototype code according to the sound long-term design,
-   not the cost already spent on it.
-3. Define the resulting foreground/detached-work policies and re-run the relevant
-   regression and runtime proofs on that implementation before changing ordinary
-   defaults. Separation alone does not enable automatic retention or restart.
+1. Define workload identity, lifetime policy and terminal presentation separately.
+   Retain the demonstrated Android authority, freshness, resource, Stop and complete
+   group cleanup boundaries. Choose the sound long term design, not the design that
+   preserves the most prototype code.
+2. Define the resulting foreground and detached work policies before implementing
+   their externally visible behavior. Keep retention, restart, wake and locked UI
+   access as distinct decisions. Separation alone enables none of them automatically.
+3. Implement the separation and repeat the relevant host, artifact and runtime
+   proofs before changing ordinary defaults.
 
 This direction is owner-approved. The current Console-bound/plain and tmux-backed
 Keep implementation remains unchanged until that follow-up is implemented and tested.

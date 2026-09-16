@@ -1,9 +1,10 @@
 # Approved lab lifecycle fault controls
 
-**Status:** source, host checks and normal/lab image artifact checks passed.
-Runtime qualification remains pending. The owner approved the two fixed controls
-below; ordinary images omit them. Resource admission and artifact validation remain
-part of the reusable verification procedure.
+**Status:** both fixed controls were exercised on the frozen Android lab image.
+Cleanup and fresh work recovery were observed within the emulator scope below.
+The CE operation reported busy files, not complete physical key removal. Ordinary
+images omit these controls. Resource admission and artifact validation remain part
+of the reusable verification procedure.
 
 ## Exact scope
 
@@ -74,9 +75,44 @@ and the actual Android storage lock and delay invocations. The bundled owner APE
 Console, native coordinator, runner and SELinux policy retain their previously checked
 bytes. Keep remains an explicit product opt in, not an ordinary default.
 
-These are image and bytecode results. They do not establish actual caller identity,
-key withdrawal, busy file outcomes, delayed reply cleanup or recovery on Android.
-Those require the fresh runtime controls above.
+Image and bytecode results alone do not establish actual caller identity, storage
+outcomes or cleanup. The separate runtime observations follow.
+
+## Observed Android runtime checkpoint
+
+A fresh offline ARM64 emulator used the frozen lab image and matching host tools.
+The actual Shell caller had UID 2000. Android remained enforcing. Each fault targeted
+live kept work after Console had been stopped. Process identities, workload cgroups,
+platform epochs and Android/kernel logs were recorded independently.
+
+The genuine snapshot reply was delayed for 2.506 seconds. Native work ended after
+1.006 seconds and init removed its cgroup after 1.194 seconds, before the late reply.
+The old coordinator, tmux server, shell and background process disappeared. The late
+reply did not revive work. A fresh explicit Keep request succeeded and read the saved
+CE file. The platform instance and generation stayed unchanged through this trial.
+
+The real `StorageManager.lockCeStorage(0)` call returned. Platform availability became
+false with a newer generation, and the complete old workload group was removed.
+Vold reported files still open after key removal and deferred their cleanup to a
+worker. This demonstrates the real busy file outcome. It does not establish that all
+open inodes were locked or that physical key removal was complete.
+
+Normal lock screen PIN entry restored CE availability without reboot. A fresh explicit
+Keep request read the saved file, compiled and ran a C program, and ended cleanly.
+Neither fault replaced `system_server`: its PID and process start time, and the kernel
+boot identity, remained unchanged. Ordinary app access to the owner home and services
+was denied before and after the faults. No Keep grant returned automatically.
+
+The first delay sampler exceeded its host deadline. Its incomplete run is retained,
+not counted as a completed collector. Partial samples, independent platform/kernel
+logs and subsequent observations established the cleanup and recovery sequence. The
+CE trial used a separately recorded bounded operator collector. Frozen image and
+fixture inputs were not modified. Failed UI readiness checks submitted no terminal
+text and were retained as failures.
+
+These results cover one lab fixture. Broader pressure/suspend behavior, abnormal
+storage backend failure, complete busy inode locking and phone/release qualification
+remain open.
 
 ## Approved follow-up
 
