@@ -1,0 +1,99 @@
+// SPDX-License-Identifier: Apache-2.0
+// Actual metadata/Stop methods with an explicit Binder/platform facade.
+// No Android identity, CE or process cleanup is simulated into a runtime pass.
+#include "terminal_process.h"
+#include <cassert>
+#include <cstdint>
+#include <iostream>
+#include <mutex>
+using namespace andrix;
+
+// WORK_INFO_FACADE
+struct ScopedAStatus {
+  bool accepted;
+  bool isOk() const { return accepted; }
+  static ScopedAStatus ok() { return {true}; }
+};
+bool allowed = true;
+bool caller_allowed() { return allowed; }
+ScopedAStatus denied() { return {false}; }
+struct WorkBase {
+  virtual ScopedAStatus describeWork(WorkInfo*) = 0;
+  virtual ScopedAStatus stopWork(int64_t, bool*) = 0;
+  virtual ~WorkBase() = default;
+};
+struct WorkService : WorkBase {
+  explicit WorkService(uint64_t id) : work_id_(id) { }
+  std::mutex mutex_;
+  const uint64_t work_id_;
+  bool controller = true, ready = true, platform_failed = false;
+  bool stopping_ = false, starting_keep_ = false, kept_ = false;
+  int home_ = -1, revocations = 0;
+  TerminalProcessState terminal_;
+  bool controller_matches() { return controller; }
+  bool lifecycle_ready_locked() {
+    if (platform_failed) stopping_ = true;
+    return ready && !platform_failed;
+  }
+  void revoke_locked() { ++revocations; }
+// PRODUCTION_WORK_API
+};
+
+int main() {
+  WorkService service(42);
+  WorkInfo info{};
+  assert(service.describeWork(&info).isOk());
+  assert(info.workId == 42 && info.state == WorkInfo::IDLE);
+  assert(info.lifetimePolicy == WorkInfo::CONSOLE_BOUND);
+  assert(info.terminalRecovery == WorkInfo::CONTINUOUS_TERMINAL);
+  assert(service.revocations == 0 && !service.stopping_ && !service.terminal_.ever_started());
+  bool accepted = true;
+  assert(service.stopWork(42, &accepted).isOk() && !accepted);
+  assert(!service.stopping_ && service.revocations == 0);
+
+  allowed = false;
+  assert(!service.describeWork(&info).isOk() && !service.stopWork(42, &accepted).isOk());
+  allowed = true; service.controller = false;
+  assert(!service.describeWork(&info).isOk() && !service.stopWork(42, &accepted).isOk());
+  service.controller = true;
+
+  service.home_ = 5; // Explicit metadata facade for a previously admitted scope.
+  assert(service.describeWork(&info).isOk() && info.state == WorkInfo::RUNNING);
+  for (int64_t stale : {-1, 0, 41, 43}) {
+    assert(service.stopWork(stale, &accepted).isOk() && !accepted);
+    assert(!service.stopping_ && service.revocations == 0);
+  }
+  // No presentation, PTY, parser or attachment generation exists in this facade.
+  assert(service.stopWork(42, &accepted).isOk() && accepted);
+  assert(service.stopping_ && service.revocations == 1);
+  assert(service.describeWork(&info).isOk() && info.state == WorkInfo::STOPPING);
+  assert(service.stopWork(42, &accepted).isOk() && accepted); // Idempotent request, no cleanup claim.
+
+  WorkService replacement(84); replacement.home_ = 6;
+  assert(replacement.stopWork(42, &accepted).isOk() && !accepted);
+  assert(!replacement.stopping_ && replacement.revocations == 0);
+  assert(replacement.describeWork(&info).isOk() && info.workId == 84);
+
+  WorkService pending(128); pending.starting_keep_ = true;
+  assert(pending.describeWork(&info).isOk());
+  assert(info.state == WorkInfo::PREPARING && !pending.kept_);
+  assert(info.lifetimePolicy == WorkInfo::EXPLICIT_KEEP && info.terminalRecovery == WorkInfo::RECREATE_TERMINAL);
+  assert(pending.stopWork(128, &accepted).isOk() && accepted && pending.stopping_);
+  pending.starting_keep_ = false; // A later grant completion cannot clear stopping_.
+  assert(pending.describeWork(&info).isOk() && info.state == WorkInfo::STOPPING);
+
+  WorkService kept(256); kept.kept_ = true; kept.home_ = 7;
+  assert(kept.terminal_.select_role(TerminalProcessRole::PresentationClient));
+  assert(kept.describeWork(&info).isOk());
+  assert(info.state == WorkInfo::RUNNING && info.lifetimePolicy == WorkInfo::EXPLICIT_KEEP);
+  assert(info.terminalRecovery == WorkInfo::RECREATE_TERMINAL && kept.revocations == 0);
+  kept.platform_failed = true;
+  assert(kept.describeWork(&info).isOk() && info.state == WorkInfo::STOPPING);
+  assert(kept.stopping_ && kept.revocations > 0);
+
+  // Recovery strategy is not inferred from retention policy, even in host combinations.
+  WorkService retained_root(512); retained_root.kept_ = true; retained_root.home_ = 8;
+  assert(retained_root.describeWork(&info).isOk());
+  assert(info.lifetimePolicy == WorkInfo::EXPLICIT_KEEP && info.terminalRecovery == WorkInfo::CONTINUOUS_TERMINAL);
+  std::cout << "Actual work metadata and exact-target Stop guards passed; Android unqualified\n";
+}

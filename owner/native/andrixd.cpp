@@ -49,6 +49,7 @@
 using android::base::unique_fd;
 using ndk::ScopedAStatus;
 using aidl::dev::andrix::session::Attachment;
+using aidl::dev::andrix::session::WorkInfo;
 
 namespace andrix {
 namespace {
@@ -233,6 +234,41 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
     return ScopedAStatus::ok();
   }
 
+  WorkInfo work_info_locked() const {
+    WorkInfo info;
+    info.workId = static_cast<int64_t>(work_id_);
+    info.state = stopping_ ? WorkInfo::STOPPING : starting_keep_ ? WorkInfo::PREPARING
+                 : home_ >= 0 ? WorkInfo::RUNNING : WorkInfo::IDLE;
+    info.lifetimePolicy = kept_ || starting_keep_ ? WorkInfo::EXPLICIT_KEEP : WorkInfo::CONSOLE_BOUND;
+    info.terminalRecovery = terminal_.replaceable() || starting_keep_
+                           ? WorkInfo::RECREATE_TERMINAL : WorkInfo::CONTINUOUS_TERMINAL;
+    return info;
+  }
+
+  ScopedAStatus describeWork(WorkInfo* result) override {
+    if (!caller_allowed()) return denied();
+    std::lock_guard guard(mutex_);
+    if (!controller_matches()) return denied();
+    // Observation may notice an already lost platform authority. It cannot
+    // renew that authority or create a terminal/attachment as a side effect.
+    if (!lifecycle_ready_locked()) revoke_locked();
+    *result = work_info_locked();
+    return ScopedAStatus::ok();
+  }
+
+  ScopedAStatus stopWork(int64_t work, bool* accepted) override {
+    if (!caller_allowed()) return denied();
+    std::lock_guard guard(mutex_);
+    if (!controller_matches()) return denied();
+    *accepted = false;
+    if (work <= 0 || uint64_t(work) != work_id_) return ScopedAStatus::ok();
+    if (!stopping_ && !starting_keep_ && home_ < 0) return ScopedAStatus::ok();
+    stopping_ = true;
+    revoke_locked();
+    *accepted = true; // Init cleanup is asynchronous, never acknowledged here.
+    return ScopedAStatus::ok();
+  }
+
   ScopedAStatus attach_locked(int32_t rows, int32_t columns, bool ui_eligible,
                              bool user_unlocked, int64_t previous_session, int64_t next_output,
                              Attachment* result) {
@@ -308,6 +344,7 @@ class OwnerSession final : public aidl::dev::andrix::session::BnOwnerSession {
     result->firstOutputOffset = output_cursor_;
     result->stream = std::move(client);
     result->kept = kept_;
+    result->work = work_info_locked();
     return ScopedAStatus::ok();
   }
 

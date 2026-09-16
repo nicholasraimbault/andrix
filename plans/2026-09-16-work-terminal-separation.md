@@ -1,9 +1,9 @@
 # Work and terminal separation
 
-**Status:** source review and first native component extraction complete. All 347 host
-tests passed, and native modules built for both current Android configurations. Public
-lifecycle behavior, Binder transactions, product defaults and Android authority are
-unchanged. The complete workload API and new lifetime policies are not implemented yet.
+**Status:** the first native component extraction passed host and Android module
+checks. The next source candidate adds independent work discovery and exact work Stop.
+Existing lifetime policies, launch modes, product defaults and Android authority stay
+unchanged. Work creation and new lifetime policies remain subsequent work.
 
 This follows the [two scoped lifecycle trials](2026-09-14-lab-lifecycle-faults.md)
 and implements the separation required by the
@@ -119,13 +119,47 @@ These are host and native module results, not a new complete image or runtime re
 The earlier lifecycle trials used source `17b998c`; their observations do not silently
 transfer to the modified coordinator.
 
+## Work discovery and Stop candidate
+
+`WorkInfo` describes the immutable work identity, observed idle/preparing/running/
+stopping state, lifetime policy and terminal recovery strategy. It carries no terminal
+FD, command, home path or execution authority. `describeWork` requires the authenticated,
+registered Console process. It neither starts work nor renews a lease or grant. It can
+notice already lost platform authority and expose that the scope is stopping.
+
+`stopWork(workId)` accepts only the exact service Binder and matching work ID. It does
+not need an attachment generation, a healthy terminal parser or a tmux presentation.
+A Stop of pending Keep admission prevents later completion from admitting work. A true
+return means request acceptance, not completed group cleanup. Old transactions remain
+in their original order; these operations and attachment work metadata are appended.
+
+Console discovers metadata while foreground and unlocked, independently of successful
+attachment. End can therefore stop observed detached work, including a kept workload
+after a cold Console start. It captures the selected Binder and work ID before queuing
+Stop and never resolves a replacement service for that operation. The existing platform
+notification Stop path remains separate and does not wait on the native main lock.
+
+Metadata queries have a separate bounded reservation and intent fence. An old query,
+attachment or Stop completion cannot overwrite a newer work selection or resurrect a
+stopping identity. Query failures are not treated as idle-work observations. Attachment
+replies carry their own work metadata, avoiding an extra synchronous call during the
+short terminal lease promotion window. Parser recovery uses its own strategy rather
+than the Keep permission bit.
+
+This changes discovery and Stop availability, not permission to keep computing. Ordinary
+work still ends with Console process death; explicit Keep still requires its Android
+grant. No new creation mode, restart, wake or locked terminal access is introduced.
+Matched Android native and Console artifacts, followed by runtime checks, are required
+before treating this source candidate as qualified Android behavior.
+
 ## Subsequent gates
 
-1. Introduce a workload description and explicit admission/discovery boundary that
-   does not require successful terminal attachment. Preserve current modes as explicit
-   compatibility adapters while the lifetime policies are defined.
-2. Separate Stop targeting from presentation health, retaining exact work/process
-   identity and the distinction between a request and completed group cleanup.
+1. Validate independent work discovery and exact Stop on Android, including idle
+   discovery, pending/cancelled attachment, detached plain End, cold kept discovery,
+   stale Binder/work targets and complete group cleanup.
+2. Introduce explicit work creation/admission separately from terminal attachment.
+   Preserve current modes as explicit compatibility adapters while lifetime policies
+   are defined. Do not infer permission from metadata or a presentation choice.
 3. Separate the work launch description from optional terminal frontend selection.
    Keep the fixed trusted runner boundary, owner identity, worker filter and resource
    admission. Do not turn this into privileged arbitrary execution by the coordinator.

@@ -10,13 +10,14 @@ public final class AttachFailureTest {
     private Listener listener = new Listener() { };
     private boolean allowed = true;
     private String state = "Attaching";
-    private int publications;
+    private int publications, observations;
     private final Thread main = Thread.currentThread();
     private void requireMain() {
         if (Thread.currentThread() != main) throw new AssertionError("Not main");
     }
     private boolean eligible() { return allowed; }
     private void show(String text) { state = text; ++publications; }
+    private void refreshWork() { ++observations; }
 
 // PRODUCTION_FAILURE_CALLBACK
 
@@ -25,7 +26,7 @@ public final class AttachFailureTest {
         Request first = h.attachments.begin();
         h.failAttach(first, 1, h.listener, "native failure");
         assert !h.attachments.preparing() && h.publications == 1;
-        assert h.state.equals("Attach failed: native failure");
+        assert h.state.equals("Attach failed: native failure") && h.observations == 1;
 
         Request cancelled = h.attachments.begin();
         h.uiEpoch = 2; h.state = "Detached"; h.attachments.cancel();
@@ -45,7 +46,7 @@ public final class AttachFailureTest {
 
         Request newer = h.attachments.begin(); h.allowed = true; h.uiEpoch = 3;
         h.failAttach(locked, 2, h.listener, "duplicate old completion");
-        assert h.attachments.current(newer) && h.publications == 1;
+        assert h.attachments.current(newer) && h.publications == 1 && h.observations == 1;
         System.out.println("Actual stale-attachment failure callback passed; Android unqualified");
     }
 }

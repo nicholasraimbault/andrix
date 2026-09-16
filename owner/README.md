@@ -129,11 +129,18 @@ networking privacy, production updates or power loss durability.
 
 ## Presentation and terminal behavior
 
-The [separation review](../plans/2026-09-16-work-terminal-separation.md) now distinguishes
+The [separation review](../plans/2026-09-16-work-terminal-separation.md) distinguishes
 native terminal process role from workload retention. `TerminalProcessState` routes
 real owned child exits and bounds client retirement. It grants no continuation or
-Android authority. Current modes, runner commands and full init cleanup stay unchanged;
-the new workload API and policy changes remain subsequent work.
+Android authority.
+
+The next API candidate adds typed work metadata and exact work Stop independently of
+terminal attachment. Console can discover observed work while foreground and unlocked,
+then End that selected Binder/work identity without attaching or repairing a parser.
+An old response cannot replace a newer work selection. Stop acceptance remains a request,
+not completed cleanup. Metadata grants no terminal or retention authority. Existing
+creation modes, lifetime policies, runner commands and full init cleanup remain in
+place; explicit work creation and new policies are subsequent work.
 
 
 The [terminal adapter](../plans/2026-09-10-owner-tools.md) connects pinned

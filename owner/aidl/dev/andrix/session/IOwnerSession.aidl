@@ -2,6 +2,7 @@
 package dev.andrix.session;
 
 import dev.andrix.session.Attachment;
+import dev.andrix.session.WorkInfo;
 import android.os.IBinder;
 
 // Local experimental interface, not a production stable/VINTF API. Identity is
@@ -28,4 +29,11 @@ interface IOwnerSession {
     // Stop is computation-only, not an attach/read/input capability. The daemon
     // hosts one immutable work identity for its whole process lifetime.
     void stopKeptWork();
+    // Append only. Reading metadata neither creates work/presentations nor
+    // renews an attachment or retention grant. Requires the registered caller.
+    WorkInfo describeWork();
+    // Target this exact service Binder AND workId, never a freshly resolved
+    // service name. No attachment lease or parser is needed. True means a Stop
+    // request was accepted, not that Android finished group cleanup or storage I/O.
+    boolean stopWork(long workId);
 }

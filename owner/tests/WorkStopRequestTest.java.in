@@ -1,0 +1,94 @@
+// SPDX-License-Identifier: Apache-2.0
+// Actual Console request/completion code with queued RPC/UI facades.
+import dev.andrix.session.WorkInfo;
+import dev.andrix.terminal.protocol.AttachmentLifecycle;
+import dev.andrix.terminal.protocol.WorkReference;
+import dev.andrix.terminal.protocol.WorkTracker;
+import java.util.ArrayDeque;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+public final class WorkStopRequestTest {
+    static final class IOwnerSession {
+        int calls; long requested; boolean accept = true, fail;
+        boolean stopWork(long id) throws Exception {
+            ++calls; requested = id;
+            if (fail) throw new Exception("fixture failure");
+            return accept;
+        }
+    }
+    interface Listener { }
+    static final class Connection { int closes; void close() { ++closes; } }
+    static final class Queue {
+        final ArrayDeque<Runnable> tasks = new ArrayDeque<>();
+        void execute(Runnable r) { tasks.add(r); }
+        boolean post(Runnable r) { tasks.add(r); return true; }
+        void run() { tasks.remove().run(); }
+    }
+    final WorkTracker<IOwnerSession> work = new WorkTracker<>();
+    final AttachmentLifecycle<Connection> attachments = new AttachmentLifecycle<>();
+    final AtomicBoolean ending = new AtomicBoolean();
+    final Queue control = new Queue(), main = new Queue();
+    Listener listener = new Listener() { };
+    long uiEpoch = 1;
+    boolean allowed = true;
+    int publications;
+    String message;
+    void requireMain() { }
+    boolean eligible() { return allowed; }
+    WorkReference<IOwnerSession> knownWork() { return work.current(); }
+    void publish() { ++publications; }
+    void show(String text) { message = text; publish(); }
+    static WorkReference<IOwnerSession> ref(long id, int state) {
+        IOwnerSession service = new IOwnerSession();
+        WorkInfo i = new WorkInfo(); i.workId = id; i.state = state;
+        i.lifetimePolicy = WorkInfo.CONSOLE_BOUND; i.terminalRecovery = WorkInfo.CONTINUOUS_TERMINAL;
+        return new WorkReference<>(service, service, i);
+    }
+// PRODUCTION_STOP_REQUEST
+// PRODUCTION_STOP_COMPLETION
+
+    public static void main(String[] args) {
+        WorkStopRequestTest detached = new WorkStopRequestTest();
+        WorkReference<IOwnerSession> selected = ref(7, WorkInfo.RUNNING);
+        detached.work.attached(selected); detached.endSession();
+        assert detached.ending.get() && detached.control.tasks.size() == 1;
+        assert detached.attachments.lease() == null && selected.service.calls == 0;
+        detached.endSession(); assert detached.control.tasks.size() == 1;
+        WorkReference<IOwnerSession> replacement = ref(8, WorkInfo.RUNNING);
+        detached.work.attached(replacement); // Replacement observed before queued Stop executes.
+        detached.control.run(); detached.main.run();
+        assert selected.service.calls == 1 && selected.service.requested == 7;
+        assert replacement.service.calls == 0 && detached.work.current() == replacement;
+        assert detached.message == null && !detached.ending.get();
+
+        WorkStopRequestTest pending = new WorkStopRequestTest(); pending.work.attached(selected);
+        AttachmentLifecycle.Request request = pending.attachments.begin();
+        Connection stream = new Connection(); assert pending.attachments.retain(request, stream);
+        pending.endSession();
+        assert stream.closes == 1 && pending.attachments.lease() == null;
+        assert pending.attachments.preparing(); // Stop does not invent RPC quiescence.
+        pending.control.run(); pending.main.run();
+        assert pending.work.current().state == WorkInfo.STOPPING;
+        assert pending.message.startsWith("Stop requested") && !pending.ending.get();
+
+        for (int mode = 0; mode < 3; ++mode) {
+            WorkStopRequestTest refused = new WorkStopRequestTest();
+            WorkReference<IOwnerSession> value = ref(9, WorkInfo.RUNNING); refused.work.attached(value);
+            if (mode == 0) value.service.accept = false;
+            if (mode == 1) value.service.fail = true;
+            if (mode == 2) refused.allowed = false;
+            refused.endSession();
+            if (mode == 2) { assert refused.control.tasks.isEmpty() && value.service.calls == 0; }
+            else {
+                refused.control.run(); refused.main.run();
+                assert refused.work.current() == value && !refused.ending.get();
+                assert value.service.requested == 9 && refused.message != null;
+            }
+        }
+        WorkStopRequestTest idle = new WorkStopRequestTest();
+        WorkTracker.Query query = idle.work.beginQuery();
+        idle.work.finishQuery(query, ref(10, WorkInfo.IDLE), true); idle.endSession();
+        assert idle.control.tasks.isEmpty();
+        System.out.println("Actual detached-work Stop targets selected Binder/id without terminal lease; Android unqualified");
+    }
+}

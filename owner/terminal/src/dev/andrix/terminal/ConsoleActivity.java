@@ -164,13 +164,13 @@ public final class ConsoleActivity extends Activity implements TerminalControlle
         notifyScreenReaders();
     }
     @Override public void stateChanged(String message, boolean attached, boolean inputAllowed) {
-        state.setText(message);
+        state.setText(message + "\n" + controller.workStatus());
         boolean previouslyEnabled = terminal.isEnabled();
         terminal.setEnabled(inputAllowed);
         // Disabling the view on detach relinquishes focus. Restore it only when
         // an eligible attachment becomes input-capable, never while locked/gapped.
         if (inputAllowed && !previouslyEnabled) terminal.requestFocus();
-        end.setEnabled((attached || controller.hasKeptWork()) && resumed && focused);
+        end.setEnabled(controller.canStopWork() && resumed && focused);
         if (!inputAllowed) { control = false; controlKey.setText("Ctrl"); }
         notifyScreenReaders();
     }
