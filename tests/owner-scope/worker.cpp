@@ -35,7 +35,7 @@ void event(uint32_t type, pid_t guardian) {
               binder_error, group_error};
   if (write(1, &value, sizeof(value)) != sizeof(value)) {
     // Broken observer is not permission to leave the resource group. Surviving
-    // descendants ignore the pipe failure and still require actual group cleanup.
+    // descendants ignore the channel failure and still require actual group cleanup.
     if (type == kHeld) fail("held acknowledgement");
   }
 }

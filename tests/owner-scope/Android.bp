@@ -20,7 +20,7 @@ cc_binary {
     srcs: ["guardian.cpp", ":andrix_scope_proof_guard_sources"],
     include_dirs: ["vendor/andrix/owner/native"],
     static_libs: ["andrix_scope_proof-ndk", "andrix_platform_lifecycle-ndk"],
-    shared_libs: ["libbase", "libbinder_ndk", "liblog"],
+    shared_libs: ["libbase", "libbinder_ndk", "liblog", "libselinux"],
     init_rc: ["scope-probe.rc"],
 }
 

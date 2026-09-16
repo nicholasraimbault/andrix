@@ -7,6 +7,13 @@ allow shell andrix_scope_probe_service:service_manager find;
 binder_call(shell, andrixd)
 neverallow { andrix_owner andrix_terminal untrusted_app_all isolated_app_all } andrix_scope_probe_service:service_manager find;
 
+# Closed experiment channels only. Do not grant owner code access to arbitrary
+# andrixd-labelled pipes/sockets. Both endpoints remain native s0 roles.
+type andrix_scope_probe_socket, file_type;
+allow andrixd andrix_scope_probe_socket:unix_stream_socket create_stream_socket_perms;
+allow andrix_owner andrix_scope_probe_socket:unix_stream_socket { read write };
+neverallow { domain -andrixd -andrix_owner } andrix_scope_probe_socket:unix_stream_socket { read write };
+
 # Fixed lab trigger booleans, never general ctl.start/exec/cgroup access.
 system_internal_prop(andrix_scope_probe_control_prop)
 system_internal_prop(andrix_scope_probe_state_prop)

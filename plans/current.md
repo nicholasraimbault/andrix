@@ -80,6 +80,10 @@ separately gated debug source. It uses fixed named init slots with complete capa
 and resource profiles. Source review ruled out plain `exec_background` as a shortcut:
 its absent capability profile does not establish the required zero bounding set. The
 experiment will not be represented as a general dynamic factory or ordinary product behavior.
+Both module/image configurations passed inspection at `57a43b6`. Its first Android
+attempt failed before payload release on the inherited pipe MAC boundary. The correction
+uses dedicated fixture channel labels, not general coordinator-pipe access. It needs
+fresh artifact/runtime qualification.
 
 ## Next gates
 

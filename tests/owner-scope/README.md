@@ -45,6 +45,22 @@ grant capabilities to the helper. The named-slot experiment uses explicit empty
 capabilities and the full init profile. A general profile-preserving factory remains
 a separate design/qualification gate. No Android run of the discarded draft is claimed.
 
+## First Android observation and channel correction
+
+Source `57a43b6` passed both module/policy configurations and complete image inspection.
+The first fresh offline Android attempt registered both scoped guardians, but SELinux
+rejected the owner worker's inherited anonymous pipes at exec. The allowed FD use did
+not authorize access to their `andrixd` labelled `fifo_file` objects. The entry exited
+before payload release and init removed scope A's group. Later controls were not reached;
+the overall attempt failed and remains preserved.
+
+The correction gives the fixture's release/observation socket pairs a dedicated object
+label with access only for the guardian and owner roles. It does not grant access to
+arbitrary coordinator pipes or sockets. These are fixture synchronization channels,
+not a decision to replace normal Unix stdin/stdout pipes with sockets. Actual program
+stream types and their MAC crossings remain part of the long term execution design.
+The corrected channels require new artifact and runtime checks.
+
 ## Intended controls
 
 - Both groups have actual owner UID/SID, protected resources and independent identities.

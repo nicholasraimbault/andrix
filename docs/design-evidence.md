@@ -161,9 +161,12 @@ There is no supported release or qualified physical phone deployment at this che
 - **Next gate:** use the [supervision candidate and proof matrix](../plans/2026-09-16-unix-work-supervision.md)
   to qualify actual Android shell behavior and a bounded scope factory with exact identities,
   resource admission and independent cleanup. The [scope boundary experiment](../tests/owner-scope/README.md)
-  is currently unqualified source using fixed named slots. Source review rejected the direct
-  temporary-service shortcut because it does not establish the required empty capability
-  bounding set. A dynamic factory and the final process layout are not selected yet.
+  uses fixed named slots. Source review rejected the direct temporary-service shortcut
+  because it does not establish the required empty capability bounding set. Source `57a43b6`
+  passed module/image inspection; its first Android attempt registered both guardians but
+  failed on owner access to inherited coordinator pipes before payload release. Dedicated
+  fixture channel labels are the next correction, not a broad permission grant or runtime pass.
+  A dynamic factory and the final process layout are not selected yet.
 
 ## R06 Work discovery, admission and Stop
 
@@ -226,6 +229,9 @@ There is no supported release or qualified physical phone deployment at this che
 - **Evidence:** owner programs already run normally inside that shell, including native builds.
   The narrow entry and worker restrictions were checked separately from ordinary app execution.
   This is not evidence that the existing Binder entry is a complete program launch API.
+  The [scope experiment](../tests/owner-scope/README.md#first-android-observation-and-channel-correction)
+  further demonstrated that FD inheritance/use and permission to access the backing object
+  are separate: its coordinator-labelled pipes were denied across owner-domain exec.
 - **Implication:** fixing the trusted crossing is useful, but fixing every future owner command,
   shell, working directory or stream to that prototype would defeat normal Unix composition.
 - **Intent, accepted:** [direct owner execution and a programmable userland](architecture.md#owner-userland)
