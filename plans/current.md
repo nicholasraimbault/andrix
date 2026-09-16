@@ -1,5 +1,20 @@
 # Current work
 
+## Governing direction
+
+Make Android a general purpose, owner controlled Unix computer. Tests and prototypes
+inform the long term design; they do not require preserving prototype code. Follow the
+[design method](../docs/architecture.md#design-method): retain, refactor or replace
+components according to correctness and coherence, including starting again when
+necessary. Past investment, implementation time and difficulty do not justify an
+inferior design.
+
+Unix semantics, not a universal Keep switch or Android UI process lifetime, guide work
+behavior. Detach, terminal hangup, shell job control and complete work Stop are distinct.
+This target is an accepted direction, not a claim that the current prototype implements
+it. The same review applies to existing resource policy, execution entry points, output
+handling and owner tools before proof constraints become product restrictions.
+
 ## Product checkpoint
 
 Andrix has a bounded ARM64/Bionic development environment on its GrapheneOS-derived
@@ -48,19 +63,22 @@ modes, lifetime policies and defaults stay unchanged.
 
 ## Next gates
 
-1. Define workload identity, lifetime policy and terminal presentation separately.
-   Retain the demonstrated Android authority, freshness, resource, Stop and complete
-   group cleanup boundaries. Choose the sound long term design, not the design that
-   preserves the most prototype code.
-2. Define the resulting foreground and detached work policies before implementing
-   their externally visible behavior. Keep retention, restart, wake and locked UI
-   access as distinct decisions. Separation alone enables none of them automatically.
-3. Implement the separation and repeat the relevant host, artifact and runtime
-   proofs before changing ordinary defaults.
+1. Design explicit work creation, admission/cancellation and independent control
+   around the accepted Unix semantics. Work, terminal presentation and attachment
+   have distinct identities and responsibilities. Do not constrain this design to
+   fit the prototype's classes, flags, API or process layout.
+2. Use focused tests to establish terminal hangup, shell exit, detached descendant
+   behavior and control responsiveness before committing to the replacement. Preserve
+   genuine Android user/CE authority, bounded resources and complete work Stop. Keep
+   restart, wake and locked UI access separate from continuing computation.
+3. Implement the coherent design, replacing prototype components where needed, and
+   repeat host, artifact and runtime verification before changing ordinary defaults.
 
-This direction is owner-approved. The current Console-bound/plain and tmux-backed
-Keep implementation remains unchanged until that follow-up is implemented and tested.
-Other proposed long-term improvements are not blanket authorization to redesign it.
+This direction is owner approved. Current plain work bound to Console and Keep backed
+by tmux remain compatibility behavior until the replacement is implemented
+and tested. No prototype component is protected from redesign by its development cost.
+Existing safety boundaries and accepted product decisions remain deliberate inputs;
+changing a requirement must be explicit, not hidden inside a rewrite.
 
 Broader pressure/suspend testing, abnormal storage-backend failure and phone/release
 qualification remain open. Native package transactions and explicitly enabled SSH
