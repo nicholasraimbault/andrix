@@ -145,6 +145,10 @@ There is no supported release or qualified physical phone deployment at this che
   frontend retirement, Stop and reboot in the emulator. The
   [separation record](../plans/2026-09-16-work-terminal-separation.md) scopes later component,
   module and partial runtime observations. These do not prove general Unix job lifetime.
+  Ten [real Linux process/shell probes](../tests/owner-work-lifetime/README.md) now distinguish
+  last-master hangup, ignored HUP, parent exit, subreaper adoption, `setsid` membership and
+  configured Bash/nohup/disown behavior. The complete host suite passed 354 tests, followed
+  by 100 further case executions. Those are host observations, not Android mksh results.
 - **Implication:** a shell, a replaceable frontend, the UI connection and the supervised
   process scope cannot all share one implicit lifetime. The current root-exit policy would
   terminate detached descendants too; its test is a prototype policy test, not a Unix requirement.
@@ -154,8 +158,9 @@ There is no supported release or qualified physical phone deployment at this che
 - **Disposition:** replace the coupling. One work per coordinator/init cgroup is the current
   tested cleanup mechanism, not a required final process layout. No identity reuse or weaker
   cleanup is allowed merely to add more work scopes.
-- **Next gate:** establish real PTY/hangup, shell job control and surviving descendant behavior,
-  then implement work admission and supervision with matching identity/resource/cleanup tests.
+- **Next gate:** use the [supervision candidate and proof matrix](../plans/2026-09-16-unix-work-supervision.md)
+  to qualify actual Android shell behavior and a bounded scope factory with exact identities,
+  resource admission and independent cleanup. The final process layout is not selected yet.
 
 ## R06 Work discovery, admission and Stop
 
@@ -174,8 +179,9 @@ There is no supported release or qualified physical phone deployment at this che
   with exact work targeting and no automatic work or authority from metadata.
 - **Disposition:** retain identity and stale completion rules. Complete or replace the admission,
   cancellation and client control design; append-only prototype transactions are not a final ABI mandate.
-- **Next gate:** define explicit creation and bounded independent control; prove pending Stop,
-  stale identities, eventual discovery and responsiveness under blocked admission. Reverify the corrected UI on Android.
+- **Next gate:** test the proposed [reservation/admission/control ordering](../plans/2026-09-16-unix-work-supervision.md#3-proposed-admission-and-control-ordering),
+  including pending Stop, stale identities, eventual discovery and blocked admission. It is not
+  implemented yet. Reverify the corrected UI on Android.
 
 ## R07 Keep and notification controls
 
@@ -335,6 +341,9 @@ There is no supported release or qualified physical phone deployment at this che
   [work API observations](../plans/2026-09-16-work-terminal-separation.md#observed-candidate-behavior)
   distinguished a changed label from a broken terminal and retained an overall timed-out fixture.
   Native/API source models did not supply actual Android identities or key authority.
+  The [Unix lifetime fixture](../tests/owner-work-lifetime/README.md#fixture-correction) also
+  found that a selected login shell marked auxiliary observation FDs close-on-exec. Corrected
+  observation setup was required before testing that shell's lifetime behavior.
 - **Implication:** fixtures have bugs too. Check intended inputs, exact acknowledgements, actual
   process identities, positive controls and lifecycle completion, not only exit codes or self hashes.
 - **Intent, accepted:** [tests inform architecture through scoped observed reality](architecture.md#design-method).

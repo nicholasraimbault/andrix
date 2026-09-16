@@ -69,15 +69,21 @@ Android module configurations, but has no new runtime result yet. Console contro
 calls still share a lane, so Stop can wait behind blocked admission. Existing creation
 modes, lifetime policies and defaults stay unchanged.
 
+A [supervision design candidate and proof matrix](2026-09-16-unix-work-supervision.md)
+now separate the intended contract from proposed mechanisms. Ten real host experiments
+exercise PTY hangup, signal dispositions, descendant survival/adoption and configured
+shell behavior. Source review identified Android group creation, cleanup and PID lifetime
+constraints. These are not new Android runtime results or an adopted factory/process layout.
+
 ## Next gates
 
-1. Design explicit work creation, admission/cancellation and independent control
-   around the accepted Unix semantics. Work, terminal presentation and attachment
-   have distinct identities and responsibilities. Do not constrain this design to
-   fit the prototype's classes, flags, API or process layout.
-2. Use focused tests to establish terminal hangup, shell exit, detached descendant
-   behavior and control responsiveness before committing to the replacement. Preserve
-   genuine Android user/CE authority, bounded resources and complete work Stop. Keep
+1. Qualify a bounded Android work-scope factory with exact identities, resource
+   admission and independent complete cleanup. Compare the proposed init owned
+   guardians with alternatives instead of assuming the current classes or process
+   layout must survive.
+2. Use focused tests for Android shell behavior, descendant topology, admission
+   cancellation and control responsiveness before committing to the replacement.
+   Preserve genuine user/CE authority, bounded resources and complete work Stop. Keep
    restart, wake and locked UI access separate from continuing computation.
 3. Implement the coherent design, replacing prototype components where needed, and
    repeat host, artifact and runtime verification before changing ordinary defaults.
