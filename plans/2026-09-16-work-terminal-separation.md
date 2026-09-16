@@ -194,6 +194,11 @@ intent after retiring the old reservation. It does not retry an RPC failure for 
 same intent indefinitely. Tests exercise eventual discovery after stale success,
 stale failure and cancelled attachment completion, not just stale-result rejection.
 
+The correction in `1571c7b` passes all 353 host tests and matched ordinary/Keep Android
+native and Console module checks. The native coordinator and runner bytes match the
+`13a1af0` builds; Console changes. The correction does not yet have its own complete
+image or runtime result.
+
 Console still has one control executor. Discovery and UI Stop can wait behind a
 blocked admission RPC even though native Stop does not require an attachment lease.
 The independent Android notification Stop path remains available for kept work. This

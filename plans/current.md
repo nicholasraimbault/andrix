@@ -41,10 +41,10 @@ to keep computing. It passed 347 host tests and both Android native module build
 Work discovery and exact work Stop now have matched Android module/image checks and
 scoped runtime observations, including detached plain End and cold kept-work discovery.
 The full runtime fixture ended at its deadline, so it is not a blanket pass. Review
-found an eventual rediscovery gap; its source correction passes 353 host tests and
-needs separate Android checks. Console control calls still share a lane, so Stop can
-wait behind blocked admission. Existing creation modes, lifetime policies and defaults
-stay unchanged.
+found an eventual rediscovery gap; its correction passes 353 host tests and both
+Android module configurations, but has no new runtime result yet. Console control
+calls still share a lane, so Stop can wait behind blocked admission. Existing creation
+modes, lifetime policies and defaults stay unchanged.
 
 ## Next gates
 
