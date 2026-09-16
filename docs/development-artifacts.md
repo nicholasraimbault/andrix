@@ -15,6 +15,16 @@ operator records; this document describes the reusable method.
 - Verify that staging selected the intended scripts and behavior, not merely that
   an accidentally old script matches its own freshly generated checksum.
 
+## Keep artifact comparisons independent
+
+Check whether an inspection library caches state across objects. The pinned Android
+policy test helper stores rule sets at class scope; loading two policy objects in one
+process can therefore reuse the first policy's rules. Inspect one frozen policy per
+fresh process and compare the resulting records, with a known differing type/rule as
+a positive control. Hash the actual policy, inspector and supporting library inputs.
+A matching report produced through shared stale state is not independent evidence.
+Corrections to an earlier inspection belong in a new record, never an amended seal.
+
 ## Measure storage accurately
 
 `du`, apparent file sizes and filesystem free space answer different questions.

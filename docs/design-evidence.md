@@ -346,7 +346,10 @@ There is no supported release or qualified physical phone deployment at this che
   Native/API source models did not supply actual Android identities or key authority.
   The [Unix lifetime fixture](../tests/owner-work-lifetime/README.md#fixture-correction) also
   found that a selected login shell marked auxiliary observation FDs close-on-exec. Corrected
-  observation setup was required before testing that shell's lifetime behavior.
+  observation setup was required before testing that shell's lifetime behavior. A policy
+  inspection audit also found class-level rule caches: separate fresh processes with a
+  differing-policy positive control independently rechecked the coordinator cgroup rules.
+  The older shared-process comparison is not relied on as independent evidence.
 - **Implication:** fixtures have bugs too. Check intended inputs, exact acknowledgements, actual
   process identities, positive controls and lifecycle completion, not only exit codes or self hashes.
 - **Intent, accepted:** [tests inform architecture through scoped observed reality](architecture.md#design-method).

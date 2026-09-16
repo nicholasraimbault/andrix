@@ -13,6 +13,7 @@
 #include <android-base/properties.h>
 #include <android-base/unique_fd.h>
 #include <android/binder_ibinder.h>
+#include <android/binder_ibinder_platform.h>
 #include <android/binder_manager.h>
 #include <android/binder_process.h>
 #include <fcntl.h>
