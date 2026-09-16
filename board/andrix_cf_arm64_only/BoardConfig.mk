@@ -15,6 +15,9 @@ TARGET_FS_CONFIG_GEN += vendor/andrix/owner/config.fs
 SYSTEM_EXT_PRIVATE_SEPOLICY_DIRS += vendor/andrix/owner/sepolicy
 ifeq ($(ANDRIX_OWNER_LIFECYCLE),true)
 SYSTEM_EXT_PRIVATE_SEPOLICY_DIRS += vendor/andrix/owner/platform/sepolicy
+ifeq ($(ANDRIX_OWNER_SCOPE_PROOF),true)
+SYSTEM_EXT_PRIVATE_SEPOLICY_DIRS += vendor/andrix/tests/owner-scope/sepolicy
+endif
 ifeq ($(ANDRIX_OWNER_KEEP),true)
 SYSTEM_EXT_PRIVATE_SEPOLICY_DIRS += vendor/andrix/owner/keep/sepolicy
 endif

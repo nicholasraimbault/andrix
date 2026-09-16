@@ -1,0 +1,64 @@
+# SPDX-License-Identifier: Apache-2.0
+# Debug Cuttlefish boundary experiment. Fixed named slots are NOT a dynamic factory.
+# exec_background does not carry the explicit empty capability/profile fields.
+on init
+    setprop sys.andrix.scope_probe.consumed false
+    setprop sys.andrix.scope_probe.replaced false
+    setprop sys.andrix.scope_probe.run false
+    setprop sys.andrix.scope_probe.replace_a false
+
+on property:sys.andrix.scope_probe.run=true && property:sys.andrix.scope_probe.consumed=false && property:sys.user.0.ce_available=true
+    setprop sys.andrix.scope_probe.consumed true
+    # UID group exists from the ordinary owner service. Guardians read back these
+    # protected aggregate controls before publishing or forking owner payloads.
+    write /sys/fs/cgroup/system/uid_7500/memory.max 268435456
+    write /sys/fs/cgroup/system/uid_7500/memory.swap.max 0
+    write /sys/fs/cgroup/system/uid_7500/memory.oom.group 1
+    start andrix-scope-a
+    start andrix-scope-b
+
+on property:sys.andrix.scope_probe.replace_a=true && property:sys.andrix.scope_probe.replaced=false && property:sys.andrix.scope_probe.consumed=true && property:sys.user.0.ce_available=true
+    setprop sys.andrix.scope_probe.replaced true
+    start andrix-scope-a
+
+# Each fixed guardian publishes only its own actual PID. Shell and owner payloads
+# cannot set these properties. PID text is not a cleanup acknowledgement.
+on property:sys.andrix.scope_probe.a.pid=*
+    write /sys/fs/cgroup/system/uid_7500/pid_${sys.andrix.scope_probe.a.pid}/memory.max 268435456
+    write /sys/fs/cgroup/system/uid_7500/pid_${sys.andrix.scope_probe.a.pid}/memory.swap.max 0
+    write /sys/fs/cgroup/system/uid_7500/pid_${sys.andrix.scope_probe.a.pid}/memory.oom.group 1
+
+on property:sys.andrix.scope_probe.b.pid=*
+    write /sys/fs/cgroup/system/uid_7500/pid_${sys.andrix.scope_probe.b.pid}/memory.max 268435456
+    write /sys/fs/cgroup/system/uid_7500/pid_${sys.andrix.scope_probe.b.pid}/memory.swap.max 0
+    write /sys/fs/cgroup/system/uid_7500/pid_${sys.andrix.scope_probe.b.pid}/memory.oom.group 1
+
+service andrix-scope-a /system_ext/bin/andrix-scope-guardian-probe a
+    class late_start
+    user system_ext_andrix
+    group system_ext_andrix inet
+    disabled
+    oneshot
+    capabilities
+    priority 10
+    oom_score_adjust 700
+    task_profiles SCHED_SP_BACKGROUND
+    rlimit nproc 32 32
+    rlimit nofile 128 128
+    rlimit core 0 0
+    rlimit fsize 67108864 67108864
+
+service andrix-scope-b /system_ext/bin/andrix-scope-guardian-probe b
+    class late_start
+    user system_ext_andrix
+    group system_ext_andrix inet
+    disabled
+    oneshot
+    capabilities
+    priority 10
+    oom_score_adjust 700
+    task_profiles SCHED_SP_BACKGROUND
+    rlimit nproc 32 32
+    rlimit nofile 128 128
+    rlimit core 0 0
+    rlimit fsize 67108864 67108864

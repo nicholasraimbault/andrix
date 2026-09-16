@@ -60,6 +60,32 @@ endif
 $(call soong_config_set_bool,andrix,owner_fault_tests,true)
 endif
 
+# Fixed native scope factory experiment, not a new product work API. Separate
+# from lifecycle fault delegation; never install its control/policy in normal images.
+ifeq ($(ANDRIX_OWNER_SCOPE_PROOF),true)
+ifneq ($(TARGET_PRODUCT),andrix_gos_cf_arm64_only_phone)
+$(error ANDRIX_OWNER_SCOPE_PROOF is limited to the GrapheneOS Cuttlefish lab product)
+endif
+ifneq ($(ANDRIX_OWNER_SESSION),true)
+$(error ANDRIX_OWNER_SCOPE_PROOF requires ANDRIX_OWNER_SESSION=true)
+endif
+ifneq ($(ANDRIX_OWNER_LIFECYCLE),true)
+$(error ANDRIX_OWNER_SCOPE_PROOF requires ANDRIX_OWNER_LIFECYCLE=true)
+endif
+ifeq ($(ANDRIX_OWNER_KEEP),true)
+$(error ANDRIX_OWNER_SCOPE_PROOF cannot be combined with Keep)
+endif
+ifeq ($(ANDRIX_OWNER_FAULT_TESTS),true)
+$(error ANDRIX_OWNER_SCOPE_PROOF cannot be combined with lifecycle fault controls)
+endif
+ifneq ($(TARGET_BUILD_VARIANT),userdebug)
+ifneq ($(TARGET_BUILD_VARIANT),eng)
+$(error ANDRIX_OWNER_SCOPE_PROOF requires userdebug or eng)
+endif
+endif
+PRODUCT_PACKAGES += andrix-scope-guardian-probe andrix-scope-worker-probe andrix-scope-proof-client
+endif
+
 # Compiler payload is a separate opt-in within the owner environment. Unflagged
 # builds retain the original small APEX and do not require the staged compiler.
 ifeq ($(ANDRIX_OWNER_COMPILER),true)

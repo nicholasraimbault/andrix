@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: Apache-2.0
+// Lab fixture modules, never selected by an ordinary product build.
+aidl_interface {
+    name: "andrix_scope_proof",
+    unstable: true,
+    srcs: ["aidl/dev/andrix/proof/scope/*.aidl"],
+    local_include_dir: "aidl",
+    backend: {
+        cpp: { enabled: false },
+        java: { enabled: false },
+        ndk: { enabled: true },
+    },
+}
+
+cc_binary {
+    name: "andrix-scope-guardian-probe",
+    system_ext_specific: true,
+    cpp_std: "c++20",
+    cflags: ["-Wall", "-Wextra", "-Werror", "-DANDRIX_OWNER_LIFECYCLE=1"],
+    srcs: ["guardian.cpp", ":andrix_scope_proof_guard_sources"],
+    include_dirs: ["vendor/andrix/owner/native"],
+    static_libs: ["andrix_scope_proof-ndk", "andrix_platform_lifecycle-ndk"],
+    shared_libs: ["libbase", "libbinder_ndk", "liblog"],
+    init_rc: ["scope-probe.rc"],
+}
+
+cc_binary {
+    name: "andrix-scope-worker-probe",
+    system_ext_specific: true,
+    cpp_std: "c++20",
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+    srcs: ["worker.cpp", ":andrix_scope_proof_worker_sources"],
+    include_dirs: ["vendor/andrix/owner/native"],
+}
+
+cc_binary {
+    name: "andrix-scope-proof-client",
+    system_ext_specific: true,
+    cpp_std: "c++20",
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+    srcs: ["client.cpp"],
+    static_libs: ["andrix_scope_proof-ndk"],
+    shared_libs: ["libbase", "libbinder_ndk"],
+}
