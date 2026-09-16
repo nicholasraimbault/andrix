@@ -3,7 +3,9 @@
 This is the accepted system design: requirements for the system being built,
 not a claim that the current prototype implements or proves them. There is no
 supported Andrix release yet. Live implementation and proof state belong in
-[`plans/current.md`](../plans/current.md).
+[`plans/current.md`](../plans/current.md). The [design evidence register](design-evidence.md)
+tracks which mechanisms are prototypes, what their tests establish, what those results
+imply and which long term intentions are accepted or still proposed.
 
 ## Design method
 
