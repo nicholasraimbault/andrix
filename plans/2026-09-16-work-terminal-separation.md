@@ -12,6 +12,18 @@ and implements the separation required by the
 identify boundaries to preserve. They do not require preserving the prototype's
 structure or establish every storage, suspend or pressure case.
 
+## Owner direction
+
+The target is the behavior expected from a general purpose, owner controlled Unix
+computer. It is not a choice between keeping every terminal job forever and killing
+all work when Console disappears. View detach, real terminal hangup, shell job control,
+detached jobs and complete work Stop must have their distinct meanings.
+
+The [design method](../docs/architecture.md#design-method) applies throughout this
+work. Tests should inform the replacement before we commit to its architecture. The
+implementation may be rebuilt from scratch if that yields the correct system. Time,
+difficulty and effort spent on the prototype do not determine what must survive.
+
 ## What the prototype currently couples
 
 | Location | Current coupling | Design consequence |
@@ -36,10 +48,16 @@ Own the work identity, creation/admission state, lifetime policy and termination
 Android user/CE authority, platform freshness and resource supervision govern this
 scope. The owner home is validated state, not a fallback directory or key oracle.
 
-For the next implementation, retain one active work scope per coordinator generation.
-A work end remains irreversible. An idle replacement coordinator may admit an explicit
-new request, but it does not resurrect the old work or its grant. Supporting multiple
-work scopes is not part of this first separation.
+The prototype supports one active work scope per coordinator generation. Its process
+bound identity and init cleanup are a tested mechanism, not a required final process
+layout. Keep that mechanism until a replacement establishes equally clear work identity,
+resource accounting and complete cleanup. Do not add multiple scopes by merely removing
+the current checks or recycle an identity that old requests can still target.
+
+A work Stop remains irreversible. A replacement may admit an explicit new request,
+but it must not resurrect stopped work or an old grant. Natural shell exit and terminal
+hangup are different events: surviving detached descendants do not become an implicit
+Stop request merely because their original shell ended.
 
 ### Presentation
 
@@ -65,7 +83,7 @@ session number while simplifying the code.
 
 ## Policies and compatibility
 
-The existing modes are compatibility mappings, not a complete future policy model:
+The existing modes are compatibility mappings, not the target Unix lifetime policy:
 
 | Current entry | Continuation permission | Terminal role |
 | --- | --- | --- |
@@ -84,9 +102,12 @@ No new combination is made available by the internal extraction. In particular:
 - Retention, automatic restart, wake authority and locked UI access remain distinct.
 - Keep stays off by default. Services, SSH and package transactions remain separate work.
 
-Before exposing new creation modes, define their start, detach, Console loss, natural
-exit, Stop and recovery behavior explicitly. The next workload interface should make
-those choices visible rather than inheriting them from a terminal implementation.
+Before exposing new creation modes, define their start, detach, Console loss, terminal
+hangup, natural exit, Stop and recovery behavior according to the accepted Unix policy.
+Ordinary owner work must not require a specific terminal, tmux or a product specific
+Keep action. These tools retain their actual Unix semantics; they do not bypass Android
+user/CE authority, resource supervision or explicit Stop. The next workload interface
+must express that policy rather than inherit restrictions from the prototype.
 
 ## First implementation slice
 
@@ -210,15 +231,18 @@ claimed solved by the metadata API or by the rediscovery correction.
 1. Validate independent work discovery and exact Stop on Android, including idle
    discovery, pending/cancelled attachment, detached plain End, cold kept discovery,
    stale Binder/work targets and complete group cleanup.
-2. Introduce explicit work creation/admission separately from terminal attachment.
-   Preserve current modes as explicit compatibility adapters while lifetime policies
-   are defined. Do not infer permission from metadata or a presentation choice.
-3. Separate the work launch description from optional terminal frontend selection.
-   Keep the fixed trusted runner boundary, owner identity, worker filter and resource
-   admission. Do not turn this into privileged arbitrary execution by the coordinator.
-4. Demonstrate explicitly retained work without a tmux prerequisite. Define output and
-   reconnection semantics before adding another terminal mode. No automatic retention
-   or restart follows from the internal model alone.
+2. Design explicit work creation/admission and cancellation separately from terminal
+   attachment, with a bounded control path that remains usable during blocked admission.
+   Current modes may serve as temporary compatibility adapters, not design constraints.
+   Metadata and presentation choices are not execution authority.
+3. Separate owner command/argument/stream handling from optional terminal frontend
+   selection. Preserve the trusted execution boundary, owner identity, worker filter
+   and resource admission, not necessarily the runner's present implementation or
+   fixed command list. The coordinator must not execute owner payloads with its authority.
+4. Establish Unix hangup and detached descendant behavior, including work without a
+   terminal or tmux. Keep output recovery explicit and bounded; never silently invent
+   a recovered screen. Detach is not terminal hangup, and neither is complete work Stop.
+   No automatic restart or wake authority follows from these semantics.
 5. Repeat host, artifact and Android runtime checks for the implementation. Include
    controller loss during admission, late grants/replies, stale work and presentation
    IDs, output gaps, frontend exit/hang, locked UI, Stop, CE loss and fresh work recovery.

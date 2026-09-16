@@ -5,6 +5,29 @@ not a claim that the current prototype implements or proves them. There is no
 supported Andrix release yet. Live implementation and proof state belong in
 [`plans/current.md`](../plans/current.md).
 
+## Design method
+
+Andrix is making Android a general purpose, owner controlled Unix computer. Long term
+correctness, coherence, maintainability and owner control determine the design.
+Neither time and effort already spent nor the cost or difficulty of replacement is
+a reason to retain an inferior design or take an architectural shortcut.
+
+Tests and prototypes establish what actually works, expose assumptions and inform the
+system we should build. Prototype code is replaceable, including from scratch when
+that is the sound approach. Reuse must earn its place in the long term design; a
+rewrite is a means to that design, not a goal by itself.
+
+Establish focused tests and observations before committing to uncertain design choices,
+then verify the actual replacement through host, artifact and runtime checks. Keep
+observed facts, accepted requirements and prototype assumptions distinct. Test
+expectations may change when the intended contract deliberately changes, not merely
+to make an implementation pass. Preserve previous evidence with its original scope.
+
+Proof limits, fixed entry points, temporary API shapes and simplified lifecycle modes
+do not become permanent product restrictions by accident. Apply this review to the
+whole developed system, not only its terminal. Preserve the phone and boundaries that
+protect its owner; reject restrictions whose purpose is vendor control.
+
 ## Foundation
 
 Andrix's Android/Pixel platform follows an explicitly pinned public GrapheneOS
@@ -100,9 +123,29 @@ policies distinguish foreground work, detached jobs and enabled services. Termin
 persistence may use an ordinary tool such as tmux; choosing that tool neither grants
 retention authority nor becomes a prerequisite for every retained workload.
 
-This separation does not imply automatic retention, restart, wake or network
-authority. Foreground/unlocked terminal access remains a separate permission from
-continuing computation.
+Lifetime behavior follows what the owner expects from a general purpose Unix
+computer, not a blanket rule to keep every terminal job or kill every process when
+an application closes. Leaving a view, screen relock or Console process reclamation
+is not an owner request to end work. Detach revokes the presentation connection.
+Explicitly closing a terminal performs terminal hangup, with the normal kernel,
+shell and program signal behavior. Running a command with `&` alone does not promise
+survival of hangup. Shell exit is not an additional Andrix instruction to kill every
+remaining descendant.
+
+Owner code can use ordinary job control, `nohup`, `disown` where supported by the
+chosen shell, `setsid` and optional terminal multiplexers for their actual Unix
+semantics. A detached job need not have a terminal or depend on Console's process.
+These mechanisms do not exempt work from Android user/CE authority, resource limits
+or explicit owner Stop. Stop targets the complete supervised work scope and remains
+distinct from terminal hangup. Neither closing a terminal nor ending its shell is a
+reason to silently restart it.
+
+This separation does not imply automatic restart, wake or network authority.
+Foreground/unlocked terminal access remains a separate permission from continuing
+computation. Starting and supervising ordinary owner work must not require a
+particular terminal application, multiplexer or a product specific Keep operation;
+the prototype's existing modes remain compatibility behavior until replaced and
+qualified.
 
 Owner processes participate in Android memory pressure, LMKD and kernel OOM,
 suspend, battery and thermal policy. Daily owner work stays below

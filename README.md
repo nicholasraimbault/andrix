@@ -22,6 +22,14 @@ release or a phone installation image**. There is no buildable Pixel deployment
 product here. Do not flash a phone or treat the accepted design as proof of complete
 hardware, networking, privacy or power-loss behavior.
 
+## Development principle
+
+Tests and prototypes inform the long term design; they do not require preserving
+prototype code. Correctness, coherence and owner control take priority over time,
+effort and ease of implementation. We will replace components or start again when
+that is the sound way to build the system. See the
+[design method](docs/architecture.md#design-method).
+
 ## Repository scope
 
 This is the Andrix layer, placed at `vendor/andrix` in a separately verified Android
