@@ -10,5 +10,5 @@ struct Event {
   int32_t pid, parent, session, group;
   int32_t uid, binder_errno, cgroup_errno;
 };
-static_assert(sizeof(Event) < 512); // One atomic pipe write, no unbounded text parser.
+static_assert(sizeof(Event) < 512); // One bounded SEQPACKET message, no text parser.
 } // namespace andrix::scope_proof

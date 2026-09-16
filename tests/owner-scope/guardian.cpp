@@ -20,7 +20,9 @@
 #include <sys/prctl.h>
 #include <sys/random.h>
 #include <sys/resource.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
+#include <selinux/selinux.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -81,6 +83,16 @@ void bootstrap() {
   }
   if (prctl(PR_SET_CHILD_SUBREAPER, 1) != 0) fail("bootstrap subreaper");
 }
+void channel(int descriptors[2]) {
+  // A passed FD does not bypass the backing object's MAC permissions. Give the
+  // closed fixture channels their own label, not access to arbitrary coordinator pipes.
+  if (setsockcreatecon("u:object_r:andrix_scope_probe_socket:s0") != 0) fail("channel label");
+  const int result = socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, descriptors);
+  const int saved_errno = errno;
+  const int reset = setsockcreatecon(nullptr);
+  if (reset != 0) fail("channel label reset");
+  if (result != 0) { errno = saved_errno; fail("bounded channel creation"); }
+}
 bool shell_caller() {
   const char* sid = AIBinder_getCallingSid();
   return sid && AIBinder_getCallingUid() == 2000 && AIBinder_getCallingPid() > 1 &&
@@ -116,9 +128,9 @@ class Guardian final : public aidl::dev::andrix::proof::scope::BnScopeProof {
     unique_fd home(andrix::open_ce_home(&error));
     if (home < 0) fail(error);
     int input[2], output[2];
-    if (pipe2(input, O_CLOEXEC) != 0) fail("release pipe");
+    channel(input);
     unique_fd input_read(input[0]), input_write(input[1]);
-    if (pipe2(output, O_CLOEXEC) != 0) fail("observation pipe");
+    channel(output);
     unique_fd output_read(output[0]), output_write(output[1]);
     if (fcntl(output_read, F_SETFL, O_NONBLOCK) != 0) fail("bounded observation");
     std::string parent = std::to_string(getpid());
