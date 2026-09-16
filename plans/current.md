@@ -38,10 +38,13 @@ shortcut rather than the only form of retained work.
 
 The first native slice separates terminal process role and retirement from permission
 to keep computing. It passed 347 host tests and both Android native module builds.
-The next source candidate adds work discovery and exact work Stop without a terminal
-attachment. Its 352 host tests pass; matched Android builds and runtime checks are next.
-Existing creation modes, lifetime policies and defaults stay unchanged. The earlier
-runtime image remains a separate baseline, not a pass for the modified implementation.
+Work discovery and exact work Stop now have matched Android module/image checks and
+scoped runtime observations, including detached plain End and cold kept-work discovery.
+The full runtime fixture ended at its deadline, so it is not a blanket pass. Review
+found an eventual rediscovery gap; its source correction passes 353 host tests and
+needs separate Android checks. Console control calls still share a lane, so Stop can
+wait behind blocked admission. Existing creation modes, lifetime policies and defaults
+stay unchanged.
 
 ## Next gates
 

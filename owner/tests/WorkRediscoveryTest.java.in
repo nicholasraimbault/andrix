@@ -1,0 +1,99 @@
+// SPDX-License-Identifier: Apache-2.0
+// Exact production discovery and completion flow with queued UI/RPC adapters.
+import dev.andrix.session.WorkInfo;
+import dev.andrix.terminal.protocol.AttachmentLifecycle;
+import dev.andrix.terminal.protocol.AttachmentLifecycle.Request;
+import dev.andrix.terminal.protocol.WorkReference;
+import dev.andrix.terminal.protocol.WorkTracker;
+import dev.andrix.terminal.protocol.WorkTracker.Query;
+import java.io.IOException;
+import java.util.ArrayDeque;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+public final class WorkRediscoveryTest {
+    interface Listener { }
+    static final class IBinder { final IOwnerSession service = new IOwnerSession(); }
+    static final class IOwnerSession {
+        Runnable duringQuery;
+        boolean fail;
+        int queries;
+        void registerController(Object ignored) { }
+        WorkInfo describeWork() throws IOException {
+            ++queries;
+            if (duringQuery != null) { Runnable r = duringQuery; duringQuery = null; r.run(); }
+            if (fail) throw new IOException("fixture failure");
+            WorkInfo i = new WorkInfo(); i.workId = 7; i.state = WorkInfo.RUNNING;
+            i.lifetimePolicy = WorkInfo.EXPLICIT_KEEP; i.terminalRecovery = WorkInfo.RECREATE_TERMINAL;
+            return i;
+        }
+        static final class Stub { static IOwnerSession asInterface(IBinder binder) { return binder.service; } }
+    }
+    static final class ServiceManager {
+        static IBinder binder;
+        static IBinder checkService(String ignored) { return binder; }
+    }
+    static final class Queue {
+        final ArrayDeque<Runnable> jobs = new ArrayDeque<>();
+        void execute(Runnable r) { jobs.add(r); }
+        boolean post(Runnable r) { jobs.add(r); return true; }
+        void run() { jobs.remove().run(); }
+    }
+    static final Object PROCESS_LIFETIME = new Object();
+    final WorkTracker<IOwnerSession> work = new WorkTracker<>();
+    final AttachmentLifecycle<Object> attachments = new AttachmentLifecycle<>();
+    final AtomicBoolean ending = new AtomicBoolean();
+    final Queue control = new Queue(), main = new Queue();
+    Listener listener = new Listener() { };
+    long uiEpoch = 1;
+    boolean foreground = true;
+    int publications;
+    String state;
+    void requireMain() { }
+    boolean eligible() { return foreground; }
+    void publish() { ++publications; }
+    void show(String text) { state = text; publish(); }
+    void leaveAndReturn() {
+        foreground = false; ++uiEpoch; attachments.cancel();
+        foreground = true; refreshWork();
+    }
+// PRODUCTION_DISCOVERY
+// PRODUCTION_QUERY_COMPLETION
+// PRODUCTION_ATTACH_FAILURE
+
+    public static void main(String[] args) {
+        for (boolean fails : new boolean[] {false, true}) {
+            WorkRediscoveryTest h = new WorkRediscoveryTest();
+            ServiceManager.binder = new IBinder(); IOwnerSession service = ServiceManager.binder.service;
+            h.refreshWork();
+            service.fail = fails; service.duringQuery = h::leaveAndReturn;
+            h.control.run(); // Return found an existing query; no second RPC could start yet.
+            assert h.control.jobs.isEmpty() && service.queries == 1;
+            h.main.run(); // Stale success or failure must schedule a new observation.
+            assert h.work.current() == null && h.control.jobs.size() == 1;
+            service.fail = false; h.control.run(); h.main.run();
+            assert h.work.current() != null && h.work.current().canRequestStop();
+            assert service.queries == 2 && h.control.jobs.isEmpty() && h.attachments.lease() == null;
+        }
+
+        WorkRediscoveryTest beforeRpc = new WorkRediscoveryTest(); ServiceManager.binder = new IBinder();
+        beforeRpc.refreshWork(); beforeRpc.leaveAndReturn();
+        beforeRpc.control.run(); beforeRpc.main.run(); // Cancelled before the first remote call.
+        assert ServiceManager.binder.service.queries == 0 && beforeRpc.control.jobs.size() == 1;
+        beforeRpc.control.run(); beforeRpc.main.run(); assert beforeRpc.work.current() != null;
+
+        WorkRediscoveryTest cancelled = new WorkRediscoveryTest(); ServiceManager.binder = new IBinder();
+        Request request = cancelled.attachments.begin(); Listener old = cancelled.listener;
+        cancelled.leaveAndReturn(); assert cancelled.control.jobs.isEmpty(); // Attachment still retiring.
+        cancelled.failAttach(request, 1, old, "late creation completion");
+        assert !cancelled.attachments.preparing() && cancelled.control.jobs.size() == 1;
+        cancelled.control.run(); cancelled.main.run();
+        assert cancelled.work.current().state == WorkInfo.RUNNING && cancelled.work.current().canRequestStop();
+        assert cancelled.attachments.lease() == null; // Work discovered without installing a terminal.
+
+        WorkRediscoveryTest failed = new WorkRediscoveryTest(); ServiceManager.binder = new IBinder();
+        ServiceManager.binder.service.fail = true;
+        failed.refreshWork(); failed.control.run(); failed.main.run();
+        assert failed.control.jobs.isEmpty() && failed.work.current() == null; // No same-intent retry loop.
+        System.out.println("Actual eventual foreground rediscovery flow passed; Android unqualified");
+    }
+}

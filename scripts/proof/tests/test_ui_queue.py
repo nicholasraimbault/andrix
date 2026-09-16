@@ -148,11 +148,22 @@ class UiQueueTests(unittest.TestCase):
         def xml(label='Attached — native owner UID7500', enabled='true', focused='true',
                 package='dev.andrix.terminal'):
             return ('<hierarchy><node package="'+package+'" class="android.widget.TextView" '
-                    'text="'+label+'"/><node package="'+package+'" class="android.view.View" '
+                    'text="'+label.replace('\n', '&#10;')+'"/><node package="'+package+'" class="android.view.View" '
                     'enabled="'+enabled+'" focused="'+focused+'" text="owner screen"/></hierarchy>')
         self.assertTrue(queue.terminal_input_ready(xml()))
         kept = 'Kept — native owner UID7500; Stop in notification or End'
         self.assertTrue(queue.terminal_input_ready(xml(label=kept)))
+        plain_work = 'Attached — native owner UID7500\nWork: running, Console process bound'
+        kept_work = kept + '\nWork: running, explicit Keep'
+        self.assertTrue(queue.terminal_input_ready(xml(label=plain_work)))
+        self.assertTrue(queue.terminal_input_ready(xml(label=kept_work)))
+        for label in [plain_work + '\nextra', kept + '\nWork: idle',
+                      kept + '\nWork: preparing explicit Keep',
+                      kept + '\nWork: Stop requested, cleanup not acknowledged',
+                      'Attached — native owner UID7500\nWork: running, explicit Keep']:
+            self.assertFalse(queue.terminal_input_ready(xml(label=label)))
+        self.assertFalse(queue.terminal_input_ready(xml(label=kept_work, focused='false')))
+        self.assertFalse(queue.terminal_input_ready(xml(label=plain_work, enabled='false')))
         self.assertFalse(queue.terminal_input_ready(xml(label=kept, enabled='false')))
         self.assertFalse(queue.terminal_input_ready(xml(label=kept, focused='false')))
         for args in [dict(label='Attaching — input unavailable until connected'),

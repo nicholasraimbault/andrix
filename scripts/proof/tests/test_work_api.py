@@ -66,6 +66,19 @@ class WorkApiTests(unittest.TestCase):
             '// PRODUCTION_WORK_QUERY_COMPLETION', query).replace('// PRODUCTION_WORK_STOP_COMPLETION', stop)
         self.run_java('WorkCallbacksTest', harness)
 
+    def test_eventual_foreground_rediscovery_after_old_operation_retires(self):
+        source = (ROOT / 'owner/terminal/src/dev/andrix/terminal/TerminalController.java').read_text()
+        discovery = source[source.index('    private void refreshWork()'):source.index('    private void finishWorkQuery(')]
+        completion = source[source.index('    private void finishWorkQuery('):source.index('    void startKept()')]
+        failure = source[source.index('    private void failAttach('):source.index('    private void finishAttach(')]
+        harness = (ROOT / 'owner/tests/WorkRediscoveryTest.java.in').read_text().replace(
+            '// PRODUCTION_DISCOVERY', discovery).replace('// PRODUCTION_QUERY_COMPLETION', completion).replace(
+            '// PRODUCTION_ATTACH_FAILURE', failure)
+        self.run_java('WorkRediscoveryTest', harness)
+        cancelled = source[source.index('    private void finishAttach('):source.index('        try {\n            if (!work.attached(next.work))')]
+        self.assertIn('attachments.finish(request)', cancelled)
+        self.assertIn('refreshWork()', cancelled)
+
     def test_actual_detached_stop_request_target(self):
         source = (ROOT / 'owner/terminal/src/dev/andrix/terminal/TerminalController.java').read_text()
         request = source[source.index('    void endSession()'):source.index('    private void finishWorkStop(')]
