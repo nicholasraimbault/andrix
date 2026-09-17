@@ -23,6 +23,7 @@ on property:sys.andrix.factory.manager_pid=*
 on property:ro.andrix.factory_backend=delegated && property:sys.andrix.factory.manager_pid=*
     # Delegate only the manager subtree. Its ceiling and migration ancestor stay protected.
     chown 7500 7500 /sys/fs/cgroup/system/uid_7500/pid_${sys.andrix.factory.manager_pid}
+    chmod 0755 /sys/fs/cgroup/system/uid_7500/pid_${sys.andrix.factory.manager_pid}
     chown 7500 7500 /sys/fs/cgroup/system/uid_7500/pid_${sys.andrix.factory.manager_pid}/cgroup.procs
     chown 7500 7500 /sys/fs/cgroup/system/uid_7500/pid_${sys.andrix.factory.manager_pid}/cgroup.threads
     chown 7500 7500 /sys/fs/cgroup/system/uid_7500/pid_${sys.andrix.factory.manager_pid}/cgroup.subtree_control

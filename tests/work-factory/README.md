@@ -108,8 +108,8 @@ cgroup-control denial, and leave detached children that ignore observation-chann
 The common client exercises duplicate creation, wrong/old IDs, held cancellation, late
 allocation completion, independent live work, manager failure/recovery and final cleanup.
 
-These Android sources have not yet completed their compile, policy, image and runtime
-gates. The first module batch passed normal modules/policy, then the build system rejected
+The native qualification attempts exposed several build issues. The first module
+batch passed normal modules/policy, then the build system rejected
 the lab backend property being added to the generic system partition. It now belongs to
 `system_ext`; the partition rule was not bypassed. The native candidate had not compiled
 in that failed batch. The next attempt reached native compilation and rejected an
@@ -122,6 +122,40 @@ activation-hook compile and rejected implicit descriptor conversions under init'
 settings. Those calls now use explicit `.get()` values; the pre-activation check also
 requires the actual fresh child membership. These artifact steps, the old fixed-slot
 trial and host mechanisms do not qualify the new interfaces or Android recovery.
+
+## First Android comparison observations
+
+Source `7b8a117` passed 365 host tests, native/policy gates and complete normal/A/B
+image inspection. A's init bytes matched the unmodified baseline. Both variants used
+matching guardian, worker and client bytes. Normal images excluded the experiment.
+
+The first fresh A runtime created two dynamic groups and both owner workers reached
+Held without payload release. The Shell observer was then denied access to their
+kernel metadata. The source retained init's private umask while requesting mode 0755
+for new directories. A real host cgroup test reproduced the resulting 0700 mode and
+verified explicit directory chmod. The correction makes only owned lab metadata
+readable for the observer, without granting owner workers control. That correction
+still needs fresh Android artifacts and execution; the stopped attempt is not a pass.
+
+The first fresh B runtime exercised actual dynamic init instances, kernel identity,
+capability/limit/filter observations, entry exit with detached descendants, ordinary-app
+negatives with live positives, independent Stop, wrong/old IDs and tombstones, held
+cancellation, and Stop during a blocked allocation followed by late helper cleanup
+without owner payload. Init logs then recorded removal of both groups and SIGKILL of
+all four detached descendants after manager loss.
+
+However, the B client timed out before recovery. Its boolean population helper treated
+failure to reopen an already removed group's event file as still populated. The overall
+run remains incomplete; manager recovery and the final authority snapshot were not reached.
+A new observer distinguishes Populated, Empty, Removed and Unknown on a captured cgroup
+object. Real host tests of that same C++ code covered permission denial remaining Unknown,
+normal Empty, removal and path reuse without retargeting. A retained directory's link
+count remained 2 after removal, so link count is deliberately not the removal test.
+This correction is not yet an Android result.
+
+Both runs, failures and useful observations are preserved. Neither backend is selected.
+The next gate is matching corrected images and complete fresh comparison trials, not
+reclassifying the old runs or declaring a winner from how far their observers progressed.
 
 ## Running safely
 

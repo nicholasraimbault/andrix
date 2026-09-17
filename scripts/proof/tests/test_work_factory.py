@@ -104,6 +104,20 @@ int main() {
         manager=(ROOT/'tests/work-factory/manager.cpp').read_text()
         self.assertLess(manager.index('std::numeric_limits<pid_t>::max()'),manager.index('const auto created_pid = static_cast<pid_t>(pid)'))
 
+    def test_native_group_observation_rejects_unknown_descriptors(self):
+        proof=ROOT/'tests/work-factory'
+        with tempfile.TemporaryDirectory() as directory:
+            binary=Path(directory)/'observation'
+            built=subprocess.run(['g++','-std=c++20','-O2','-Wall','-Wextra','-Werror',
+                str(proof/'group_observation.cpp'),str(proof/'group_observation_probe.cpp'),
+                '-o',str(binary)],capture_output=True,text=True,timeout=180)
+            self.assertEqual(built.returncode,0,built.stderr)
+            self.assertEqual(subprocess.run([str(binary)],timeout=10).returncode,0)
+        client=(proof/'client.cpp').read_text()
+        self.assertIn('GroupObservation first_state',client)
+        self.assertIn('GroupPopulation::Empty || state == GroupPopulation::Removed',' '.join(client.split()))
+        self.assertNotIn('!populated(first_fd)',client)
+
     def test_new_crossings_do_not_grant_worker_management_authority(self):
         proof=ROOT/'tests/work-factory'
         policy=(proof/'sepolicy/factory_proof.te').read_text()
@@ -111,7 +125,7 @@ int main() {
         self.assertEqual(owner,['allow andrix_owner andrix_factory_probe_socket:unix_stream_socket { read write };'])
         self.assertIn('neverallow andrix_owner andrixd:unix_stream_socket connectto',policy)
         manager=(proof/'manager.cpp').read_text()
-        self.assertIn('work_binders.push_back(std::move(binder))',manager)
+        self.assertRegex(manager,r'work_binders\.push_back\(\s*std::move\(binder\)\)')
         self.assertIn('AServiceManager_addService(binder.get(), kManagerService)',manager)
         self.assertNotIn('own_binder(factory->asBinder().get())',manager)
         rc=(proof/'factory-probe.rc').read_text()
