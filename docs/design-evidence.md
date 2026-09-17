@@ -168,9 +168,11 @@ There is no supported release or qualified physical phone deployment at this che
   fixture channels in `101f253` then reached both held workers. That run stopped on a collector
   assumption that cgroup membership was v2-only. A fresh corrected observation then recorded
   both released scopes, detached descendants and ordinary-app negatives. Its Stop control failed
-  because a synchronous caller-PID check was applied to `oneway`. Kernel UID/SID and exact identity
-  remain required; the documented absent oneway PID must not be invented. Complete Stop/reuse
-  still needs a successful trial. A dynamic factory and final layout remain open.
+  because a synchronous caller-PID check was applied to `oneway`. Corrected `0e60a42` then completed
+  the listed fixed-slot Android controls: independent complete Stop, live scope B, old Binder/ID
+  rejection, held-entry cancellation and late release refusal. Actual oneway PID zero was observed.
+  Init killed the released detached descendants; a denied parent-death signal is not cleanup proof.
+  The dynamic factory and final layout remain open; fixed slots are not the product limit.
 
 ## R06 Work discovery, admission and Stop
 

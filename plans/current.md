@@ -75,27 +75,26 @@ exercise PTY hangup, signal dispositions, descendant survival/adoption and confi
 shell behavior. Source review identified Android group creation, cleanup and PID lifetime
 constraints. These are not new Android runtime results or an adopted factory/process layout.
 
-The [scope boundary experiment](../tests/owner-scope/README.md) is now being prepared as
-separately gated debug source. It uses fixed named init slots with complete capability
-and resource profiles. Source review ruled out plain `exec_background` as a shortcut:
-its absent capability profile does not establish the required zero bounding set. The
-experiment will not be represented as a general dynamic factory or ordinary product behavior.
-Both module/image configurations passed inspection at `57a43b6`. Its first Android
-attempt failed before payload release on the inherited pipe MAC boundary. The correction
-uses dedicated fixture channel labels, not general coordinator-pipe access. Corrected
-`101f253` artifacts passed inspection and both workers reached held state in Android.
-That attempt then stopped on an observer's v2-only cgroup assumption. The parser is
-corrected and a fresh attempt observed released workloads, detached descendants and
-ordinary-app negatives. That run exposed a caller check that incorrectly required PID
-for oneway Stop. The correction preserves kernel UID/SID and exact scope identity;
-complete Stop and stale handles still need a completed fresh runtime trial.
+The [scope boundary experiment](../tests/owner-scope/README.md#observed-fixed-slot-result)
+completed its listed Android controls at `0e60a42`, after 360 host tests and matching
+module/policy/image checks. Two fixed init owned scopes retained detached descendants
+after entry exit. A's complete cleanup left B live; old Binder/ID requests did not affect
+a replacement, and held-entry Stop defeated late release. Real UID/MAC, protected limits,
+worker restrictions and ordinary-app negatives were checked. The earlier failed attempts
+and their lessons remain recorded, not reclassified as passes.
+
+This validates the fixed-slot boundary, not a general dynamic factory or new product
+lifetime policy. Plain `exec_background` lacks the full capability profile; inherited
+FD use does not bypass backing-object MAC policy; oneway caller PID is absent; and
+parent-death signals cannot replace init cleanup. These findings now constrain the
+factory design.
 
 ## Next gates
 
-1. Qualify a bounded Android work-scope factory with exact identities, resource
-   admission and independent complete cleanup. Compare the proposed init owned
-   guardians with alternatives instead of assuming the current classes or process
-   layout must survive.
+1. Design and qualify a general factory that preserves the complete trusted launch
+   profile and exact instance lifetime. Use the fixed-slot evidence, not its slot
+   count or property interface, as the basis. Compare init instantiation that preserves
+   the profile with alternative Android owned boundaries before adopting a layout.
 2. Use focused tests for Android shell behavior, descendant topology, admission
    cancellation and control responsiveness before committing to the replacement.
    Preserve genuine user/CE authority, bounded resources and complete work Stop. Keep
