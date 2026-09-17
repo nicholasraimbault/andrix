@@ -28,6 +28,9 @@ Observed on the Linux host kernel:
   distinguishes those errors. Explicit child-directory removal then allowed parent removal.
 - Treating `mkdir(..., exist_ok=True)` on the leftover path as success retained the same
   inode. This was path reuse, not a forced reuse of a numeric process ID.
+- After removing and recreating a work-group path, a captured old control FD failed
+  with `ENODEV`, and lookup through the old directory FD failed with `ENOENT`. Neither
+  resolved the replacement inode. This tests kernel object identity, not an Android API.
 
 The first setup attempt assumed systemd delegation had already activated the memory
 controller. It had not. That failed attempt is retained; the corrected fixture explicitly
@@ -57,7 +60,15 @@ export property. That unnecessary property was removed; no C++ test had run in t
 attempt. A subsequent compile caught a signedness mismatch in a gtest flags assertion;
 that assertion now uses the service field's unsigned type. Construction code compiled,
 but no tests ran in that failed attempt. The host probe explicitly selects the first
-host architecture. Execution remains pending, and host success is not Android authority.
+host architecture.
+
+Source `166ff64` then compiled against the actual `libinit_host` and passed all four
+construction tests. The frozen binary and matching host libraries were used for execution.
+The temporary two-friendship/build-rule integration was reverted and exact upstream
+source restored afterward. Framework adaptation checks passed before and after. The
+full project host suite also passed 361 tests at that source. These are distinct results:
+no owner process was launched by the construction tests, and no new Android image or
+runtime was qualified.
 
 ## Running safely
 
