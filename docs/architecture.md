@@ -152,6 +152,8 @@ software remains an owner choice.
 Android supervises the owner environment. Andrix manages work inside it. The kernel
 enforces containment, and Console is a client. This ownership model is accepted; the
 combined delegation, activation and cleanup contract still needs design and qualification.
+The [contract draft and failure matrix](../plans/2026-09-17-delegated-supervision-contract.md)
+are the current design surface, not an accepted wire API or qualified implementation.
 The [comparative experiments](../plans/2026-09-17-work-factory-comparison.md) establish
 useful mechanisms, not a production implementation of this contract.
 
