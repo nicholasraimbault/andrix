@@ -234,8 +234,8 @@ fixed slot count, property triggers or prototype API into the long term architec
 ## 7. Adoption sequence
 
 1. Keep this behavioral contract and the register current as observations refine it.
-2. Obtain a decision on the [profile factory proposal](2026-09-17-work-factory-proposal.md)
-   before extending the privileged init launch interface. Then use bounded isolated tests
+2. Run the owner approved [factory comparison](2026-09-17-work-factory-comparison.md):
+   existing Android facilities versus a narrow init extension. Use bounded isolated tests
    of admission, exact identities, dynamic scopes and failure cleanup. Do not begin by
    widening owner cgroup control or grafting another flag onto Attach.
 3. Choose and document the resource/cleanup backend, then implement reservation/admission

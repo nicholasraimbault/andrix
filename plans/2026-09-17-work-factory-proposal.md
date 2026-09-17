@@ -1,12 +1,12 @@
 # Work factory proposal
 
-**Status:** proposed next experiment, not accepted architecture or implemented init changes.
-The [fixed-slot Android trial](../tests/owner-scope/README.md#observed-fixed-slot-result)
-now supplies scoped evidence for independent lifetime, identity and cleanup. It does not
-supply a general factory. This proposal requires an explicit decision before extending
-Android's privileged launch interface.
+**Status:** candidate B in the owner approved [comparative tests](2026-09-17-work-factory-comparison.md),
+not accepted product architecture. Candidate A uses existing Android facilities without
+changing init. The [fixed-slot Android trial](../tests/owner-scope/README.md#observed-fixed-slot-result)
+supplies scoped evidence for independent lifetime, identity and cleanup, not a general
+factory or a conclusion that init must be extended.
 
-## Recommendation
+## Candidate to compare
 
 Prototype a narrow init facility that instantiates an image defined native work profile
 with a fresh instance identity. Preserve Android init's actual resource setup, capability
