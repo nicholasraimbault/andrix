@@ -65,5 +65,13 @@ int main() {
     assert(error.code == GroupError::InvalidArgument);
   }
   assert(open_fds() == before);
+  assert(!CapturedCgroup::Adopt(nullptr, error));
+  assert(error.code == GroupError::InvalidArgument);
+  auto invalid = std::make_unique<CgroupTransfer>();
+  invalid->name = "scope";
+  invalid->limits = limits;
+  for (int& descriptor : invalid->descriptors) descriptor = dup(temporary);
+  assert(!CapturedCgroup::Adopt(std::move(invalid), error));
+  assert(error.code == GroupError::WrongFilesystem && open_fds() == before);
   close(temporary);
 }

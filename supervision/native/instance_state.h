@@ -156,6 +156,7 @@ class InstanceState {
   bool stop_latched() const { return stop_latched_; }
   bool process_exited() const { return process_exited_; }
   bool process_reaped() const { return process_reaped_; }
+  bool initial_process_absent() const { return initial_process_absent_; }
   std::size_t pending_mutations() const { return pending_mutations_; }
   bool observation_pending() const { return observation_.has_value(); }
   bool cleanup_pending() const { return cleanup_step_.has_value(); }
@@ -175,6 +176,14 @@ class InstanceState {
   bool report_initial_process_exit(InstanceId ref);
   // Reap cannot stand in for the separate exit fact. It grants no signal right.
   bool report_initial_process_reaped(InstanceId ref);
+  // All creators have ceased and no initial process was created. This is not an
+  // invented exit/reap result. It closes activation after a definite start
+  // failure.
+  bool report_no_initial_process(InstanceId ref);
+  // Definite failure before root allocation, with no remaining owned resources.
+  // The adapter must not use this for an uncertain mkdir/fork result or a
+  // leftover root.
+  bool retire_unallocated(InstanceId ref);
 
   std::optional<ObservationTicket> begin_observation(InstanceId ref);
   // An exact stale reply consumes its own slot but returns false and applies no
@@ -183,6 +192,11 @@ class InstanceState {
   // sets it.
   bool finish_observation(const ObservationTicket& ticket,
                           Population population);
+  // Separate authoritative reconciliation after a lost cleanup reply. The
+  // adapter must have proved removal through its original captured descriptor
+  // cohort and absent owned entry. Not a failed path read or generic Removed
+  // enum.
+  bool finish_confirmed_removal(const ObservationTicket& ticket);
   // Expiry invalidates evidence but retains the occupied reader slot. A late
   // result consumes that slot without becoming a fresh observation.
   bool observation_timed_out(const ObservationTicket& ticket);
@@ -233,6 +247,7 @@ class InstanceState {
   bool stop_latched_ = false;
   bool process_exited_ = false;
   bool process_reaped_ = false;
+  bool initial_process_absent_ = false;
   bool observation_expired_ = false;
 };
 

@@ -73,6 +73,26 @@ bool directory_identity(int fd, GroupIdentity& identity, Failure& failure) {
               static_cast<uint64_t>(info.st_ino)};
   return true;
 }
+bool transfer_identity(int fd, size_t index, GroupIdentity& identity,
+                       Failure& failure) {
+  struct stat info{};
+  struct statfs filesystem{};
+  const int flags = fcntl(fd, F_GETFL);
+  if (flags < 0 || fstat(fd, &info) || fstatfs(fd, &filesystem)) {
+    failure = fail(GroupError::Io, errno, "inspect transferred descriptor");
+    return false;
+  }
+  if (filesystem.f_type != CGROUP2_SUPER_MAGIC || (flags & O_PATH) ||
+      (index < 2 ? !S_ISDIR(info.st_mode) : !S_ISREG(info.st_mode)) ||
+      (flags & O_ACCMODE) != (index == 2 ? O_WRONLY : O_RDONLY)) {
+    failure = fail(GroupError::WrongFilesystem, EINVAL,
+                   "transferred descriptor type/mode");
+    return false;
+  }
+  identity = {static_cast<uint64_t>(info.st_dev),
+              static_cast<uint64_t>(info.st_ino)};
+  return true;
+}
 bool named_identity(int parent, const std::string& name, GroupIdentity expected,
                     Failure& failure) {
   struct stat info{};
@@ -229,6 +249,93 @@ std::shared_ptr<CapturedCgroup> CapturedCgroup::Capture(int parent,
   return std::shared_ptr<CapturedCgroup>(new CapturedCgroup(std::move(impl)));
 }
 GroupIdentity CapturedCgroup::identity() const { return impl_->identity; }
+CgroupTransfer::~CgroupTransfer() {
+  for (int fd : descriptors)
+    if (fd >= 0) close(fd);
+}
+std::unique_ptr<CgroupTransfer> CapturedCgroup::Export(Failure& failure) const {
+  failure = {};
+  if (impl_->cursor_active.load()) {
+    failure = fail(GroupError::Busy, EBUSY, "transfer while cursor owned");
+    return {};
+  }
+  auto transfer = std::make_unique<CgroupTransfer>();
+  transfer->name = impl_->name;
+  transfer->limits = impl_->limits;
+  transfer->stats = stats();
+  const std::array<int, 4> source{impl_->parent.get(), impl_->root.get(),
+                                  impl_->kill.get(), impl_->events.get()};
+  for (size_t n = 0; n < source.size(); ++n) {
+    transfer->descriptors[n] = duplicate(source[n]).release();
+    if (!transfer_identity(transfer->descriptors[n], n, transfer->identities[n],
+                           failure))
+      return {};
+  }
+  return transfer;
+}
+std::shared_ptr<CapturedCgroup> CapturedCgroup::Adopt(
+    std::unique_ptr<CgroupTransfer> transfer, Failure& failure) {
+  failure = {};
+  if (!transfer || !valid_name(transfer->name) ||
+      !valid_limits(transfer->limits) ||
+      transfer->stats.steps > transfer->limits.max_total_steps ||
+      transfer->stats.directory_visits >
+          transfer->limits.max_directory_visits ||
+      transfer->stats.entry_visits > transfer->limits.max_entry_visits ||
+      transfer->stats.removed_directories > transfer->stats.directory_visits) {
+    failure = fail(GroupError::InvalidArgument, EINVAL, "transfer metadata");
+    return {};
+  }
+  for (size_t n = 0; n < transfer->descriptors.size(); ++n) {
+    GroupIdentity actual;
+    if (!transfer_identity(transfer->descriptors[n], n, actual, failure))
+      return {};
+    if (actual != transfer->identities[n] ||
+        actual.device != transfer->identities[1].device ||
+        (n != 1 && actual == transfer->identities[1])) {
+      failure = fail(GroupError::IdentityChanged, ESTALE,
+                     "transferred object changed");
+      return {};
+    }
+    if (fcntl(transfer->descriptors[n], F_SETFD, FD_CLOEXEC)) {
+      failure = fail(GroupError::Io, errno, "protect transferred descriptor");
+      return {};
+    }
+  }
+  auto impl = std::make_unique<Impl>();
+  impl->parent = Fd(std::exchange(transfer->descriptors[0], -1));
+  impl->root = Fd(std::exchange(transfer->descriptors[1], -1));
+  impl->kill = Fd(std::exchange(transfer->descriptors[2], -1));
+  impl->events = Fd(std::exchange(transfer->descriptors[3], -1));
+  impl->identity = transfer->identities[1];
+  impl->name = std::move(transfer->name);
+  impl->limits = transfer->limits;
+  impl->steps = transfer->stats.steps;
+  impl->directories = transfer->stats.directory_visits;
+  impl->entries = transfer->stats.entry_visits;
+  impl->removals = transfer->stats.removed_directories;
+  return std::shared_ptr<CapturedCgroup>(new CapturedCgroup(std::move(impl)));
+}
+Failure CapturedCgroup::ConfirmRemoved() {
+  if (impl_->removed.load()) return {};
+  if (impl_->cursor_active.load())
+    return fail(GroupError::Busy, EBUSY,
+                "removal confirmation while cursor owned");
+  auto population = ObservePopulation();
+  if (population.state != GroupPopulation::Removed ||
+      population.error != ENODEV)
+    return fail(GroupError::UnknownPopulation, population.error,
+                "captured core not removed");
+  struct stat info{};
+  if (fstatat(impl_->parent.get(), impl_->name.c_str(), &info,
+              AT_SYMLINK_NOFOLLOW) == 0)
+    return fail(GroupError::IdentityChanged, ESTALE,
+                "retired name unexpectedly present");
+  if (errno != ENOENT)
+    return fail(GroupError::Io, errno, "confirm retired parent entry");
+  impl_->removed = true;
+  return {};
+}
 PopulationResult CapturedCgroup::ObservePopulation() const {
   if (impl_->removed.load()) return {GroupPopulation::Removed, 0};
   return read_population(impl_->events.get());
