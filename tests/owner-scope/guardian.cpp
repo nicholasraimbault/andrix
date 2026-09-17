@@ -93,10 +93,13 @@ void channel(int descriptors[2]) {
   if (reset != 0) fail("channel label reset");
   if (result != 0) { errno = saved_errno; fail("bounded channel creation"); }
 }
-bool shell_caller() {
+bool shell_identity() {
   const char* sid = AIBinder_getCallingSid();
-  return sid && AIBinder_getCallingUid() == 2000 && AIBinder_getCallingPid() > 1 &&
-      strcmp(sid, "u:r:shell:s0") == 0;
+  return sid && AIBinder_getCallingUid() == 2000 && strcmp(sid, "u:r:shell:s0") == 0;
+}
+bool shell_caller() {
+  // Synchronous observation/admission requires a live identifiable caller.
+  return shell_identity() && AIBinder_getCallingPid() > 1;
 }
 ScopedAStatus denied() { return ScopedAStatus::fromExceptionCode(EX_SECURITY); }
 uint64_t identity() {
@@ -114,6 +117,7 @@ class Guardian final : public aidl::dev::andrix::proof::scope::BnScopeProof {
     out->scopeId = static_cast<int64_t>(gate_.id()); out->guardianPid = getpid();
     out->phase = gate_.phase(); out->entryPid = entry_; out->entryExited = entry_exited_;
     out->stopRequests = static_cast<int64_t>(stop_requests_.load()); out->pulses = pulses_;
+    out->lastStopCallerPid = last_stop_pid_.load();
     out->descendants.clear();
     for (const auto& [pid, event] : descendants_) { (void)event; out->descendants.push_back(pid); }
     return ScopedAStatus::ok();
@@ -162,7 +166,10 @@ class Guardian final : public aidl::dev::andrix::proof::scope::BnScopeProof {
     return ScopedAStatus::ok();
   }
   ScopedAStatus stop(int64_t id, bool crash) override {
-    if (!shell_caller()) return denied();
+    // Binder deliberately supplies PID 0 for oneway. The kernel UID/SID and
+    // immutable scope target still apply; never substitute a supplied PID.
+    if (!shell_identity()) return denied();
+    last_stop_pid_.store(AIBinder_getCallingPid());
     ++stop_requests_;
     if (gate_.stop(id)) _exit(crash ? 77 : 0); // Never waits on admission/observation mutex.
     return ScopedAStatus::ok();
@@ -208,6 +215,7 @@ class Guardian final : public aidl::dev::andrix::proof::scope::BnScopeProof {
   andrix::PlatformLifecycle& platform_;
   Gate gate_;
   std::atomic<uint64_t> stop_requests_{0};
+  std::atomic<int32_t> last_stop_pid_{-1};
   std::mutex mutex_;
   unique_fd release_, events_;
   pid_t entry_ = 0;

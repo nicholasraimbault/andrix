@@ -10,4 +10,5 @@ parcelable ScopeState {
     int[] descendants;
     long pulses;
     long stopRequests;
+    int lastStopCallerPid;
 }
