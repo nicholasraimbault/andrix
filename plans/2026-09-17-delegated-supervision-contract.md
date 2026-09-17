@@ -373,6 +373,9 @@ was used for captured group cleanup after leader reap. The replacement remained 
 A supplied lifecycle fact in a host driver is not proof of Android authentication/reaping,
 and a step quantum does not guarantee kernel syscall latency. The adapter, cleanup lane
 and Android restart/control integration are still required; no init behavior changed.
+The `8a7ddd1` candidate passed 386 host tests, Android library/link compilation and
+separately frozen Soong host unit execution. It remains uninstalled and has no new
+Android runtime result.
 
 The implementation choice is not final until source review, actual kernel controls,
 selected Android artifact checks and fresh Android fault trials support the combined

@@ -181,8 +181,9 @@ There is no supported release or qualified physical phone deployment at this che
   [native state/cgroup candidate](../supervision/README.md) adds bounded tickets, captured
   control FDs, cursor ownership and limits. Native host tests also exercised a real late
   member, permission denial and deterministic replacement while retaining restart fences.
-  These components are not yet an Android service adapter. The corresponding Android
-  cleanup/reap/control integration and runtime qualification remain the next gates. The earlier
+  At `8a7ddd1`, 386 host tests, Android library/link compilation and frozen Soong host
+  tests passed. These components are not yet an Android service adapter. The corresponding
+  Android cleanup/reap/control integration and runtime qualification remain the next gates. The earlier
   [supervision candidate and proof matrix](../plans/2026-09-16-unix-work-supervision.md)
   retains its evidence limits and the open Android shell controls.
 - **Supporting mechanism record:** the [scope boundary experiment](../tests/owner-scope/README.md)
