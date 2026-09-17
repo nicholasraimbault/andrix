@@ -116,8 +116,12 @@ in that failed batch. The next attempt reached native compilation and rejected a
 unnecessary const-string copy in the bounds loop under `-Werror`; the loop now takes a
 reference. A subsequent manager compile caught a signed PID comparison; the parsed
 value is now bounded to `pid_t` before conversion and checked by a focused parser test.
-No warning was disabled. These incomplete batches, the earlier fixed-slot trial and
-host mechanisms do not qualify the new interfaces, recovery or activation hook.
+No warning was disabled. A later batch completed A's native and compiled-policy gates,
+with init bytes identical to the earlier unchanged-source artifact. B then reached its
+activation-hook compile and rejected implicit descriptor conversions under init's stricter
+settings. Those calls now use explicit `.get()` values; the pre-activation check also
+requires the actual fresh child membership. These artifact steps, the old fixed-slot
+trial and host mechanisms do not qualify the new interfaces or Android recovery.
 
 ## Running safely
 

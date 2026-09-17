@@ -43,9 +43,15 @@ Result<void> WorkProfileExperiment::ActivateForInit(const Service& service) {
       open(path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW));
   struct statfs fs{};
   struct stat owner{};
-  if (group < 0 || fstatfs(group, &fs) || fs.f_type != CGROUP2_SUPER_MAGIC ||
-      fstat(group, &owner) || (owner.st_uid != 0 && owner.st_uid != 1000))
+  if (group < 0 || fstatfs(group.get(), &fs) || fs.f_type != CGROUP2_SUPER_MAGIC ||
+      fstat(group.get(), &owner) || (owner.st_uid != 0 && owner.st_uid != 1000))
     return Error() << "actual init cgroup";
+  android::base::unique_fd members(openat(group.get(), "cgroup.procs",
+                                         O_RDONLY | O_CLOEXEC | O_NOFOLLOW));
+  std::string membership;
+  if (members < 0 || !android::base::ReadFdToString(members.get(), &membership) ||
+      membership != std::to_string(service.pid()) + "\n")
+    return Error() << "exact pre-activation process membership";
   for (auto [name, value] : {std::pair{"memory.max", "268435456"},
                              {"memory.swap.max", "0"},
                              {"memory.oom.group", "1"}}) {
@@ -56,8 +62,8 @@ Result<void> WorkProfileExperiment::ActivateForInit(const Service& service) {
     fd.reset(openat(group.get(), name, O_RDONLY | O_CLOEXEC | O_NOFOLLOW));
     std::string actual;
     struct stat st{};
-    if (fd < 0 || fstat(fd, &st) || (st.st_uid != 0 && st.st_uid != 1000) ||
-        (st.st_mode & S_IWOTH) ||
+    if (fd < 0 || fstat(fd.get(), &st) || (st.st_uid != 0 && st.st_uid != 1000) ||
+        (st.st_gid != 0 && st.st_gid != 1000) || (st.st_mode & S_IWOTH) ||
         !android::base::ReadFdToString(fd.get(), &actual) ||
         actual != std::string(value) + "\n")
       return Error() << "init memory readback " << name;
