@@ -20,7 +20,7 @@
  
 --- a/init/Android.bp
 +++ b/init/Android.bp
-@@ -829,3 +829,11 @@
+@@ -829,3 +829,12 @@
      aconfig_declarations: "init_flags",
      host_supported: true,
  }
@@ -29,6 +29,7 @@
 +cc_test_host {
 +    name: "andrix_init_profile_probe",
 +    defaults: ["init_host_defaults"],
++    compile_multilib: "first",
 +    srcs: [":andrix_factory_profile_sources"],
 +    static_libs: ["libinit_host"],
 +}
