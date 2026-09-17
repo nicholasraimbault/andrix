@@ -358,6 +358,22 @@ reuse. It did not use a delayed numeric PID/PGID signal. It did not force actual
 PID reuse, prove hostile namespace races or execute Android init. No platform source,
 normal owner policy or runtime ABI was changed by these design checks.
 
+A [native component candidate](../supervision/README.md) now implements the state and
+captured kernel operations in C++. State methods do no I/O, issue bounded typed tickets,
+separate process exit from reap and fence restart. The captured cgroup component owns its
+actual root/control FDs and provides one bounded traversal cursor with cumulative limits.
+Its strict lookup currently requires `openat2` support and fails without a weaker fallback.
+That is a candidate prerequisite, not a newly adopted universal device requirement.
+
+Optimized and sanitizer host units passed. The same native components were exercised on
+the real Linux kernel with a late member invalidating an old Empty sample, an occupied
+timeout slot, cursor interruption, independent live control responses, budget failures,
+actual permission denial and deterministic root entry replacement. No numeric signal
+was used for captured group cleanup after leader reap. The replacement remained live.
+A supplied lifecycle fact in a host driver is not proof of Android authentication/reaping,
+and a step quantum does not guarantee kernel syscall latency. The adapter, cleanup lane
+and Android restart/control integration are still required; no init behavior changed.
+
 The implementation choice is not final until source review, actual kernel controls,
 selected Android artifact checks and fresh Android fault trials support the combined
 contract. Broader hardware, application compatibility, glibc/Wayland, packages, services
