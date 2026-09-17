@@ -37,7 +37,7 @@ void CheckProfile(const WorkProfileExperiment::Snapshot& value) {
         EXPECT_EQ(bound.rlim_cur, limits.at(resource));
         EXPECT_EQ(bound.rlim_max, limits.at(resource));
     }
-    EXPECT_EQ(value.flags, SVC_ONESHOT | SVC_TEMPORARY);
+    EXPECT_EQ(value.flags, static_cast<unsigned>(SVC_ONESHOT | SVC_TEMPORARY));
     EXPECT_EQ(value.pid, 0);
     EXPECT_EQ(value.crash_count, 0);
     EXPECT_EQ(value.start_order, 0U);

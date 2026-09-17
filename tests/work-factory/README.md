@@ -54,8 +54,10 @@ sequence/name collisions and rejected definitions without partial publication. T
 is construction code, not an installed init launch interface. The first build attempt
 stopped during Soong parsing because the test filegroup used an unsupported include
 export property. That unnecessary property was removed; no C++ test had run in that
-attempt. Compilation/execution remains a separate pending gate, and host success is
-not Android authority.
+attempt. A subsequent compile caught a signedness mismatch in a gtest flags assertion;
+that assertion now uses the service field's unsigned type. Construction code compiled,
+but no tests ran in that failed attempt. The host probe explicitly selects the first
+host architecture. Execution remains pending, and host success is not Android authority.
 
 ## Running safely
 
