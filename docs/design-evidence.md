@@ -165,8 +165,15 @@ There is no supported release or qualified physical phone deployment at this che
 - **Disposition:** replace the coupling. One work per coordinator/init cgroup is the current
   tested cleanup mechanism, not a required final process layout. No identity reuse or weaker
   cleanup is allowed merely to add more work scopes.
-- **Next gate:** specify and qualify the accepted [delegated service and work contracts](architecture.md#work-supervision),
-  including failure, exact identities, resource admission and cleanup. The earlier
+- **Next gate:** specify and qualify the accepted [delegated service and work contracts](architecture.md#work-supervision).
+  The [current contract draft and source impact map](../plans/2026-09-17-delegated-supervision-contract.md)
+  separates generic service lifetime from work policy. Its executable ordering model
+  checks cancellation, late resources, mutation/observation fencing and restart identity;
+  it is not kernel or Android authority evidence. A separate Linux probe exercised
+  captured group kill after leader reap, stepped directory reclamation, interrupted
+  cursor recovery and refusal of a stale control after pathname reuse. Its unrelated
+  control responses do not prove Android init responsiveness. The corresponding
+  Android cleanup/reap integration remains the next gate. The earlier
   [supervision candidate and proof matrix](../plans/2026-09-16-unix-work-supervision.md)
   retains its evidence limits and the open Android shell controls.
 - **Supporting mechanism record:** the [scope boundary experiment](../tests/owner-scope/README.md)

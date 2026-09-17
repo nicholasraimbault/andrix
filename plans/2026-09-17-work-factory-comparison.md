@@ -161,7 +161,8 @@ based on patch size or prior implementation effort.
 
 ### Costs, open choices and next gates
 
-Write the delegated service contract next. Name its operations, authorized callers,
+The [delegated supervision contract draft](2026-09-17-delegated-supervision-contract.md)
+is the next design and proof surface, not a qualified implementation. Name its operations, authorized callers,
 permitted inputs, profile provenance, instance and descriptor ownership, activation
 states, cleanup progress and failure outcomes. Keep generic service instance identity
 distinct from Andrix work identity. Exact wire APIs and helper processes remain open.

@@ -115,11 +115,15 @@ launch profiles and generic Android cleanup. It does not adopt either fixture's 
 require init to stay unchanged. The [decision rationale](2026-09-17-work-factory-comparison.md#accepted-ownership-direction)
 retains the alternatives, observed costs and qualification gaps.
 
-1. Specify the generic delegated service contract and the separate Andrix work contract.
-   Name operations, callers, permitted inputs, exact instance identities, profile and
-   descriptor ownership, activation states and honest cleanup outcomes. Init must not
-   acquire Andrix work IDs, admission or terminal policy. User/CE authority remains in
-   Android's framework and is enforced by the manager and launch/input gates.
+1. Refine and exercise the [delegated supervision and work contract](2026-09-17-delegated-supervision-contract.md).
+   The draft names operations, callers, permitted inputs, exact instance identities,
+   profile/descriptor ownership, activation and cleanup states, and the source impact
+   map. It is not a released wire API. The ordering model checks Stop, late resources,
+   observation/mutation fencing and replacement safety, not Android authority. A separate
+   host kernel probe exercises captured group kill after leader reap and stepped empty
+   directory reclamation. Neither result qualifies the combined Android contract.
+   Init must not acquire Andrix work IDs, admission or terminal policy. User/CE authority
+   remains in Android's framework and is enforced by the manager and launch/input gates.
 2. Qualify the combined contract, not just its parts. Exercise failed launch, stuck
    components, identity reuse, interrupted cleanup, resource failure and CE loss, along
    with cancellation, independent work and actual authority negatives. Also qualify
@@ -134,6 +138,17 @@ by tmux remain compatibility behavior until the replacement is implemented
 and tested. No prototype component is protected from redesign by its development cost.
 Existing safety boundaries and accepted product decisions remain deliberate inputs;
 changing a requirement must be explicit, not hidden inside a rewrite.
+
+The immediate implementation question is cleanup split into bounded steps on an exact
+owned instance, with safe reaping, closed mutation ownership and no delayed numeric
+signal hazards. Then qualify declared profile/delegation activation and an ordinary
+owner program launch before integrating presentation. Do not merely put the old
+synchronous cleanup function in a thread or promote either fixture unchanged.
+
+Pinned glibc and an Android hosted Wayland path remain later compatibility research.
+They may reduce application friction, but no second ABI or GUI stack is adopted by
+continuing the base work. Personal computing is the priority, not automatic persistent
+server exposure; owner chosen background jobs and services remain capabilities.
 
 Broader pressure/suspend testing, abnormal storage-backend failure and phone/release
 qualification remain open. Native package transactions and explicitly enabled SSH
