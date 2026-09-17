@@ -36,7 +36,9 @@ ifelse(andrix_factory_backend, `delegated', `
   # Existing upstream MAC write permissions do not include mkdir/rmdir. Only the
   # trusted manager/guardian role gains these lab operations. DAC limits them to
   # the init-delegated subtree; aggregate files and migration ancestors stay protected.
-  allow andrixd cgroup_v2:dir { create rmdir };
+  # setattr permits explicit read-only observer visibility on newly owned lab
+  # directories despite inherited umask 077, not changes to ancestor/control files.
+  allow andrixd cgroup_v2:dir { create rmdir setattr };
 ')
 ifelse(andrix_factory_backend, `init', `
   set_prop(andrixd, andrix_factory_request_prop)

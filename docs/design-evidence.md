@@ -180,10 +180,13 @@ There is no supported release or qualified physical phone deployment at this che
   Actual init parser construction tests passed four cases at `166ff64`, preserving the
   explicit empty capability/profile fields without copying live service state. These
   are mechanism results, not an Android backend verdict. The next separately gated
-  Android sources now exercise A's protected delegation/recovery and B's init profile
-  creation/activation hook through common control tests. Those new sources are unqualified
-  until their artifact and runtime gates complete. The final layout remains open;
-  fixed slots are not the product limit.
+  Android variants at `7b8a117` passed native/policy/image gates. A reached two held
+  dynamic workers, then its observer hit private directory permissions. B exercised
+  dynamic creation, independent Stop, stale IDs and blocked allocation cancellation.
+  Init also logged complete cleanup after manager loss, but an observer mistook a removed
+  group for a populated one and stopped before recovery. Both runs remain incomplete;
+  corrected observers need fresh trials. The final layout remains open, and fixed slots
+  are not the product limit.
 
 ## R06 Work discovery, admission and Stop
 
@@ -377,6 +380,9 @@ There is no supported release or qualified physical phone deployment at this che
   The older shared-process comparison is not relied on as independent evidence. The scope
   collector also had to distinguish the unified cgroup row from accompanying legacy
   hierarchy rows, rather than treating a valid hybrid observation as wrong membership.
+  The factory comparison then exposed observer directory permissions and the distinction
+  between a populated group, an empty group, a removed captured object and an unknown
+  read result. Host tests of the corrected C++ observer preserve those distinctions.
 - **Implication:** fixtures have bugs too. Check intended inputs, exact acknowledgements, actual
   process identities, positive controls and lifecycle completion, not only exit codes or self hashes.
 - **Intent, accepted:** [tests inform architecture through scoped observed reality](architecture.md#design-method).

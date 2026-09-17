@@ -181,7 +181,8 @@ class Factory final : public api::BnFactory {
     work->state.work = work->work_id;
     auto binder = work->asBinder();
     own_binder(binder.get());
-    work_binders.push_back(std::move(binder));  // Preserve this exact SID-requesting Binder.
+    work_binders.push_back(
+        std::move(binder));  // Preserve this exact SID-requesting Binder.
     requests.emplace(request, work);
     queue.push_back(work);
     *out = work;
@@ -256,8 +257,15 @@ class Factory final : public api::BnFactory {
     const std::string path = root + "/work_" + std::to_string(work->work_id);
     if (mkdir(path.c_str(), 0755)) fail("unique work cgroup");
     auto group = open_group(path);
-    if (group < 0 ||
-        !write_control(group, "memory.max", std::to_string(kMemory)) ||
+    // init deliberately supplies umask 077. Make only this non-secret kernel
+    // metadata directory searchable by the independent Shell observer; control
+    // files and owner worker MAC write denials are unchanged.
+    struct stat directory{};
+    if (group < 0 || fchmod(group.get(), 0755) ||
+        fstat(group.get(), &directory) || (directory.st_mode & 0777) != 0755 ||
+        directory.st_uid != 7500)
+      fail("observable delegated directory mode");
+    if (!write_control(group, "memory.max", std::to_string(kMemory)) ||
         !write_control(group, "memory.swap.max", "0") ||
         !write_control(group, "memory.oom.group", "1"))
       fail("work bounds");

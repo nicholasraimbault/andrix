@@ -70,10 +70,17 @@ The [mechanism tests](../tests/work-factory/README.md) now provide two distinct 
   The existing temporary-service constructor's absent capability profile was observed
   directly in its object, without executing a service or changing credentials.
 
-Both have useful mechanisms. Neither has passed the full common Android backend
-contract. In particular, A still needs an actual protected delegation and recovery
-implementation, while B still needs an authenticated creation/control integration and
-actual launch/failure tests. The fixed-slot Android result is not substituted for either.
+Both have useful mechanisms. The next native implementations and normal/A/B image
+gates passed at `7b8a117`, followed by separate fresh Android attempts. A created two
+held scopes but observer permissions prevented the planned kernel inspection. B
+completed creation, worker lifetime, access negatives, independent Stop, stale-ID and
+blocked-allocation controls. Actual init/kernel cleanup after manager loss was logged,
+but a population observer error stopped the run before recovery.
+
+Neither has passed the full common contract. The observer corrections now have focused
+host checks and need matching corrected Android artifacts and fresh trials. The earlier
+fixed-slot Android result is not substituted for either. See the
+[scoped observations](../tests/work-factory/README.md#first-android-comparison-observations).
 
 ## Operational limits
 

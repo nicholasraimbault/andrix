@@ -64,6 +64,6 @@ cc_binary {
 cc_binary {
     name: "andrix-factory-proof-client",
     defaults: ["andrix_factory_native_defaults"],
-    srcs: ["client.cpp", "common.cpp", ":andrix_factory_basic_guard_sources"],
+    srcs: ["client.cpp", "common.cpp", "group_observation.cpp", ":andrix_factory_basic_guard_sources"],
     static_libs: ["andrix_factory_proof-ndk"],
 }

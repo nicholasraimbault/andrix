@@ -13,6 +13,7 @@ import resource
 import select
 import signal
 import socket
+import stat
 import time
 
 
@@ -128,6 +129,23 @@ def main():
     records = []
     scope = root/'fixture'
     try:
+        mode_path = root/'mode_probe'
+        prior_mask = os.umask(0o077)
+        try:
+            mode_path.mkdir(mode=0o755)
+            created.append(mode_path)
+        finally:
+            os.umask(prior_mask)
+        before_mode = stat.S_IMODE(mode_path.stat().st_mode)
+        mode_fd = os.open(mode_path, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        try:
+            os.fchmod(mode_fd, 0o755)
+            after_mode = stat.S_IMODE(os.fstat(mode_fd).st_mode)
+        finally:
+            os.close(mode_fd)
+        require(before_mode == 0o700 and after_mode == 0o755, 'actual inherited/private directory mode and correction')
+        mode_path.rmdir();created.remove(mode_path)
+        records.append(dict(event='private_directory_mode_corrected_explicitly', before_mode=oct(before_mode), after_mode=oct(after_mode)))
         for path in [scope, scope/'control', scope/'work_a', scope/'work_b']:
             path.mkdir();created.append(path)
         parent, child_control = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
@@ -184,6 +202,8 @@ def main():
         require(status['pid'] == held[0]['pid'] and os.WIFSIGNALED(status['status']) and
                 os.WTERMSIG(status['status']) == signal.SIGKILL, 'actual individual group kill')
         wait_empty(scope/'work_a');(scope/'work_a').rmdir();created.remove(scope/'work_a')
+        unlinked = os.fstat(old_a)
+        records.append(dict(event='removed_directory_handle_metadata', inode=unlinked.st_ino, links=unlinked.st_nlink))
         (scope/'work_a').mkdir();created.append(scope/'work_a')
         require((scope/'work_a').stat().st_ino != old_inode, 'replacement path is a different kernel object')
         try:
@@ -214,8 +234,8 @@ def main():
         require(pid == held[1]['pid'] and os.WIFSIGNALED(status) and os.WTERMSIG(status) == signal.SIGKILL,
                 'recursive kill actual wait status')
         wait_empty(scope)
-        stat = Path(f'/proc/{child}/stat').read_text()
-        require(stat.rsplit(')',1)[1].split()[0] == 'Z', 'manager PID still pinned during cleanup')
+        process_stat = Path(f'/proc/{child}/stat').read_text()
+        require(process_stat.rsplit(')',1)[1].split()[0] == 'Z', 'manager PID still pinned during cleanup')
         try:
             scope.rmdir()
         except OSError as error:

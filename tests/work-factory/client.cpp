@@ -15,6 +15,7 @@
 #include <functional>
 
 #include "common.h"
+#include "group_observation.h"
 
 using namespace andrix::factory_proof;
 namespace api = aidl::dev::andrix::proof::factory;
@@ -273,8 +274,10 @@ int main(int argc, char** argv) {
     const std::string first = a.state.groupPath, second = b.state.groupPath,
                       manager_group = initial.groupPath;
     auto first_fd = open_group(first), second_fd = open_group(second);
-    check(first_fd >= 0 && second_fd >= 0 && populated(first_fd) &&
-              populated(second_fd),
+    GroupObservation first_state(first_fd.get()), second_state(second_fd.get());
+    check(first_fd >= 0 && second_fd >= 0 &&
+              first_state.read() == GroupPopulation::Populated &&
+              second_state.read() == GroupPopulation::Populated,
           "live groups before manager loss");
     check(factory->crash(initial.managerId).isOk(), "manager crash transport");
     wait_for(
@@ -284,9 +287,23 @@ int main(int argc, char** argv) {
           return status.getStatus() == STATUS_DEAD_OBJECT;
         },
         "old manager Binder death");
-    wait_for([&] { return !populated(first_fd) && !populated(second_fd); },
-             "manager loss complete process termination");
-    puts("{\"event\":\"manager_loss_groups_unpopulated\"}");
+    GroupPopulation first_after = GroupPopulation::Unknown;
+    GroupPopulation second_after = GroupPopulation::Unknown;
+    wait_for(
+        [&] {
+          first_after = first_state.read();
+          second_after = second_state.read();
+          auto quiescent = [](GroupPopulation state) {
+            return state == GroupPopulation::Empty ||
+                   state == GroupPopulation::Removed;
+          };
+          return quiescent(first_after) && quiescent(second_after);
+        },
+        "manager loss complete process termination");
+    printf(
+        "{\"event\":\"manager_loss_groups_quiescent\",\"first\":\"%s\","
+        "\"second\":\"%s\"}\n",
+        population_name(first_after), population_name(second_after));
     fflush(stdout);
     check(android::base::SetProperty("sys.andrix.factory.recover", "true"),
           "fresh manager recovery trigger");
@@ -307,9 +324,12 @@ int main(int argc, char** argv) {
         },
         "new manager identity", 40000);
     const auto recovered_state = factory_state(recovered);
-    printf("{\"event\":\"factory_recovered\",\"managerId\":%lld,\"managerPid\":%d,\"groupPath\":\"%s\",\"reserved\":%d}\n",
-           static_cast<long long>(recovered_state.managerId), recovered_state.managerPid,
-           recovered_state.groupPath.c_str(), recovered_state.reserved);
+    printf(
+        "{\"event\":\"factory_recovered\",\"managerId\":%lld,\"managerPid\":%d,"
+        "\"groupPath\":\"%s\",\"reserved\":%d}\n",
+        static_cast<long long>(recovered_state.managerId),
+        recovered_state.managerPid, recovered_state.groupPath.c_str(),
+        recovered_state.reserved);
     fflush(stdout);
     for (const auto& path : {first, second, manager_group}) {
       struct stat st{};

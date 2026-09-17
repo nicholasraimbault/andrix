@@ -94,8 +94,13 @@ factory design.
 The owner approved [comparative factory tests](2026-09-17-work-factory-comparison.md):
 an Andrix manager using existing Android facilities with init unchanged, and a narrow
 init extension that creates fresh instances from complete trusted profiles. Neither
-backend is selected. Source feasibility, focused mechanisms and real Android controls
-must be compared before accepting a layout.
+backend is selected. The `7b8a117` variants passed native/policy/image gates and ran in
+separate fresh Android fixtures. A reached held dynamic workers but its observer could
+not traverse private group directories. B completed creation, independent Stop, stale
+IDs and blocked allocation controls; init logged cleanup after manager loss, but a
+removed-group observation error prevented recovery testing. Both runs remain incomplete.
+The corrected visibility and group-state observers need matching artifacts and fresh
+trials before accepting a layout.
 
 1. Design and qualify a general factory that preserves the complete trusted launch
    profile and exact instance lifetime. Use the fixed-slot evidence, not its slot
