@@ -151,7 +151,8 @@ A new observer distinguishes Populated, Empty, Removed and Unknown on a captured
 object. Real host tests of that same C++ code covered permission denial remaining Unknown,
 normal Empty, removal and path reuse without retargeting. A retained directory's link
 count remained 2 after removal, so link count is deliberately not the removal test.
-This correction is not yet an Android result.
+The corrections at `7127cc7` passed 366 host tests and both Android native/policy
+configurations. Those are not matching corrected image or runtime results.
 
 Both runs, failures and useful observations are preserved. Neither backend is selected.
 The next gate is matching corrected images and complete fresh comparison trials, not
