@@ -1,7 +1,8 @@
 # Android scope boundary experiment
 
-**Status:** experimental source, not qualified Android behavior or a product work API.
-This is the next gate in the [supervision matrix](../../plans/2026-09-16-unix-work-supervision.md).
+**Status:** the fixed named-slot boundary trial passed its listed Android controls at
+source `0e60a42`. This is not a general dynamic factory, production work API or phone
+qualification. It informs the [supervision matrix](../../plans/2026-09-16-unix-work-supervision.md).
 
 The experiment uses two fixed named init service slots, not arbitrary commands supplied
 by a client or a claimed dynamic factory. Each trusted guardian gets its own init owned group.
@@ -89,7 +90,41 @@ measured, not inferred from a missing reply. This does not grant another identit
 control authority. Complete Stop and stale-handle checks remain unqualified by that
 failed attempt and require fresh artifacts/runtime.
 
-## Intended controls
+## Observed fixed-slot result
+
+Source `0e60a42` passed 360 host tests, normal/proof module and compiled-policy checks,
+and complete image/host-tool inspection. A fresh offline ARM64 emulator then completed:
+
+- Two separately identified scopes with actual guardian/owner MAC roles and UID,
+  all-zero capability sets, protected aggregate/leaf limits, and worker filter state.
+- Held entry acknowledgements without payload release, followed by explicit release.
+- Entry-process exit with two live detached descendants retained in each owned group.
+- Ordinary-app service/home negatives between live positive observations of both scopes.
+- An authenticated wrong-ID Stop observed with the actual oneway caller PID of zero,
+  without ending that scope.
+- Deliberate nonzero guardian exit for A, init SIGKILL of both detached descendants,
+  and removal of A's group while B supplied fresh output.
+- Reuse of the A service slot with a new immutable identity. The captured old Binder
+  was dead; an old ID on the new Binder was rejected without ending the new scope.
+- Stop of the new held entry before payload release, group removal, rejection of late
+  release through its dead Binder, another live B observation and final complete B Stop.
+
+The held entry exited with refusal status on its closed release channel. A parent-death
+SIGKILL was also denied across the coordinator/owner MAC roles. We do not count that
+signal as a cleanup mechanism or widen its permissions: init's actual SIGKILL and group
+removal supplied complete cleanup for the released workloads. Parent-death signals are
+not a substitute for the Android supervisor.
+
+The same system_server process/start time, kernel boot and platform epoch remained.
+Controller, guest runner, normal shutdown and capture completed successfully. Images,
+inputs and evidence are preserved separately from earlier failed attempts.
+
+This is one bounded fixed-slot run. It does not qualify a dynamic factory, saturated
+Binder or arbitrary stalled admission, new terminal recovery, independently induced CE
+loss in this candidate, general pressure/suspend, phone behavior or storage durability.
+No ordinary lifetime, Keep, restart, wake, notification or locked-I/O policy was changed.
+
+## Control matrix
 
 - Both groups have actual owner UID/SID, protected resources and independent identities.
 - Starting a gated worker does not imply payload release.

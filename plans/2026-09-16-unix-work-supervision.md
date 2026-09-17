@@ -204,19 +204,19 @@ The selected shell is GNU Bash with explicit startup/options and redirected job 
 | U10 | Login shell exit with huponexit on | Host child ends after actual shell exit | Shell-specific test, not a proposed Andrix default |
 | C01 | Reserve then cancel before Start | Contract only | Actual registry state tests; no owner exec marker |
 | C02 | Accepted Start with lost reply/UI death | Contract only | Exactly one launch or explicit failed state, discoverable by exact handle |
-| C03 | Stop during blocked admission, then late successful reply | Existing prototype has narrower pending Keep guards; new path unimplemented | Independent control acknowledgement, closed execution gate and actual cleanup |
-| C04 | Two scopes, one Stop, detached descendants | Not established by a PID/process-group test | Android resource boundary; unrelated scope live positive control |
-| C05 | Guardian dies during creation or while work lives | Existing single init group is a baseline only | New factory/registry failure injection, exact group cleanup and no restart |
-| C06 | PID/service slot reused after old scope ends | Source identifies risk; new registry unimplemented | Old handles/queued callbacks cannot signal or admit replacement work |
+| C03 | Stop during blocked admission, then late successful reply | Fixed Android trial stops a held entry and refuses late release; this is not a blocked external admission RPC | General independent control, closed execution gate and actual cleanup |
+| C04 | Two scopes, one Stop, detached descendants | Fixed named-slot Android trial observed init SIGKILL/group removal for A with fresh B output | Carry the same boundary into the general factory and resource policy |
+| C05 | Guardian dies during creation or while work lives | Deliberate nonzero guardian exit and held-entry cancellation checked in fixed Android slots | General factory/registry failure injection and hung/abnormal failure cases |
+| C06 | PID/service slot reused after old scope ends | Service slot reuse with new identity, dead old Binder and rejected old ID checked in Android; numeric PID reuse was not forced | General registry identities, delayed callbacks and PID reuse controls |
 | C07 | Forking, double forks, descendant reparenting and scope emptiness | Simple host adoption observed; broader cases open | Exact group membership and natural completion under the chosen guardian |
 | C08 | Cancelled helper arrives after a new request | Contract only | No retargeting, leak or premature resource-account release |
 | C09 | Record/queue/descriptor exhaustion | Not exercised for a new supervisor | Bounded rejection/cleanup without creating unaccounted work |
-| A01 | Ordinary app and owner worker attempt privileged control | Existing negatives are separate baseline | Compiled policy and real caller positives/negatives for each new crossing |
+| A01 | Ordinary app and owner worker attempt privileged control | Fixed scope trial checked compiled policy, actual UID/MAC, worker filter/cgroup denial and ordinary-app negatives with live positives | Requalify each new general factory crossing and transferred-handle cases |
 | A02 | CE loss, delayed reply, platform replacement/death | Existing source-specific trials only | Repeat against the selected supervisor; no late resurrection |
 | A03 | Reconnect after parser loss/output overflow/resize | Existing tmux redraw and explicit gap behavior only | Selected direct-terminal state contract, locked UI and stale input controls |
 | A04 | CPU/memory/FD/process/storage/suspend behavior | Current fixed proof profile only | Representative workloads and aggregate/per-work limits, then phone measurements |
 | A05 | Notification blocked/hidden, locked Stop and no restart | Current Keep controls only | New indication/control policy without conflating notice and compute authority |
-| A06 | ABI, artifact and full runtime | New fixtures are host only | Matched ARM64/Bionic binaries/images and a new frozen runtime fixture |
+| A06 | ABI, artifact and full runtime | `0e60a42` fixed-slot source has matching modules/policy/images and a completed fresh Android trial | A general factory and changed product behavior require their own qualification |
 
 The first fixture attempts failed before the login-shell lifetime action because the
 observation FD did not survive exec. A syscall trace showed the selected login shell
@@ -224,6 +224,12 @@ marking auxiliary descriptors close-on-exec, including the attempted duplication
 corrected fixture creates its private observation connection after exec and checks actual
 peer credentials. Failed setup is not a death/hangup pass. The original attempts remain
 separate evidence; no production shell policy was changed to make the probe pass.
+
+The [fixed-slot Android result](../tests/owner-scope/README.md#observed-fixed-slot-result)
+is now a separate evidence checkpoint. It also observed a denied parent-death SIGKILL
+across the guardian/owner MAC boundary. No broader signal permission was added: actual
+init group cleanup is the mechanism relied on. The completed run does not promote the
+fixed slot count, property triggers or prototype API into the long term architecture.
 
 ## 7. Adoption sequence
 
