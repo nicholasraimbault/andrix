@@ -258,6 +258,20 @@ platform epoch, freshness and revocation must be explicit. Neither a path being 
 an old FD nor screen unlock is a CE availability oracle. Receipt of a late positive
 response must not create a new lease or clear revocation.
 
+An execution admission attempt must bind to its trusted platform instance, user and
+authority epoch before asynchronous creation can outlive that authorization. Unbound
+reservations carry no execution permission. The precise binding point is part of the
+work protocol, not an epoch chosen independently by a later helper. Request, admission
+operation, helper handoff and release must retain that binding. Epoch fields are checked
+against genuine framework authority; caller supplied numbers do not confer permission.
+
+Revocation or an incompatible platform/authority epoch invalidates the old admission
+and its execution gate irreversibly. A new positive may authorize a fresh explicit
+request under the new epoch, not revive the old request, completion or helper. Late
+helpers remain owned for cleanup, and their current snapshot must match the request's
+bound epoch rather than silently rebind it. This belongs to Andrix work admission, not
+to init's generic service lifecycle.
+
 Release must reject known unavailable, stale or mismatched authority. The combined
 contract still needs a precise authorization point and measured revocation/freshness
 bounds for a concurrent CE transition. Do not invent instantaneous global atomicity
@@ -286,6 +300,7 @@ Inspected Android reference: `system/core` at
 | Owner `guards.cpp`, `worker_filter.h`, sepolicy and fixed entry | Actual UID/caps, protected resource controls, owner MAC and descriptor/backing-object restrictions are checked. | Preserve outcomes under the new resource layout and ordinary program API; do not weaken guards to fit a shortcut. |
 | Owner `platform_lifecycle.cpp` and framework lifecycle service | Query issuance and fixed platform binding matter; current daemon death recipient exits rather than waits for its main loop. `UserManagerInternal` and `CeStorageAccessTracker` supply authority, not fscrypt policy metadata. | Explicit authority/release race contract and independent failure cleanup for the new manager lifetime. Reuse principles, not accidental one-work assumptions. |
 | Factory `manager.cpp`, `tick_work`, and `guardian.cpp`, Release handling | The current fixture checks `!stopped` separately from sending Release. Its guardian checks `platform.ready()` separately from writing the release byte. | Define and exercise queued/concurrent Release versus Stop and authority revocation. The successful blocked allocation case does not qualify these interleavings or supply global atomicity with key withdrawal. |
+| Factory manager admission, `wire.h` and guardian startup | The manager has no `PlatformLifecycle` binding. The handoff carries manager/work IDs but no platform epoch. Each new guardian establishes its own first current binding. | Bind and invalidate the original admission epoch. No proof yet covers an allocator blocked across real CE revocation and regrant before a late guardian starts. A helper's new positive is not permission to revive an old request. |
 | Console/native session protocol | Creation, attachment and control still have prototype coupling. | Keep existing behavior until a qualified work API replaces it. Do not make a UI-only executor fix stand in for supervision. |
 
 ## 7. Qualification matrix
@@ -308,7 +323,7 @@ behavior, not Android MAC. Artifacts establish construction, not execution.
 | D10 | Child exit and numeric PID reuse during assignment/reaping | No migration or signal of a replacement; no unbounded reaper spin. Model/path reuse is not forced real PID reuse. |
 | D11 | Cleanup pauses, fails or loses its worker | Visible pending/Blocked state, bounded resources, exact ownership retained and safe resumption. |
 | D12 | Empty nested directories and cleanup budget exhaustion | Reclaim the owned tree without a long init loop stall; no unrelated path removal or premature restart. |
-| D13 | Real CE loss, platform death and delayed positive responses | Genuine authority loss, closed launch/input gates, bounded cleanup, no reply-based lease renewal or key-withdrawal barrier. |
+| D13 | Real CE loss, platform death, delayed positive responses, and revoke/regrant before a blocked request's late helper starts | Old admission/gate remains invalid after a new positive; mismatched late helper is cleaned up without payload. A fresh explicit request may succeed under the new epoch. Also exercise revocation between readiness checking and release commitment. No reply-based lease renewal or key-withdrawal barrier. |
 | D14 | Entry exits but descendants live; final descendant exits | Preserve Unix lifetime; distinguish entry result from natural scope completion. |
 | D15 | Memory/process/FD and control transport pressure | Protected aggregate preserved; bounded admission/control; honest failure, no unlimited helpers. |
 | D16 | Old clients/terminals/attachments and locked UI | No new work or authority from discovery, no stale input/control, no implicit whole-work Stop from UI loss. |

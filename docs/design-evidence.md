@@ -139,7 +139,12 @@ There is no supported release or qualified physical phone deployment at this che
 - **Disposition:** retain provenance, epoch and freshness principles. Reuse or replace the
   adapter according to the final design. Lab injection endpoints stay absent from normal images.
 - **Next gate:** carry those invariants into new work supervision and test the unqualified
-  backend/suspend/pressure cases separately. A successful real lock call with busy files is not erasure proof.
+  backend/suspend/pressure cases separately. The factory manager currently has no platform
+  binding, and its handoff does not bind the original request to a platform epoch; a late
+  guardian starts its own current binding. Both successful trials stayed within one epoch.
+  Revoke/regrant before late helper creation therefore remains a source identified gap,
+  not proof that an old request cannot revive. The new work contract requires that fence
+  and a real CE transition test. A successful real lock call with busy files is not erasure proof.
 
 ## R05 Work and terminal lifetime
 
