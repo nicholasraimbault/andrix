@@ -172,7 +172,9 @@ There is no supported release or qualified physical phone deployment at this che
   the listed fixed-slot Android controls: independent complete Stop, live scope B, old Binder/ID
   rejection, held-entry cancellation and late release refusal. Actual oneway PID zero was observed.
   Init killed the released detached descendants; a denied parent-death signal is not cleanup proof.
-  The dynamic factory and final layout remain open; fixed slots are not the product limit.
+  The [factory experiment using trusted profiles](../plans/2026-09-17-work-factory-proposal.md) is
+  proposed for an explicit decision before extending init. The final layout remains open;
+  fixed slots are not the product limit.
 
 ## R06 Work discovery, admission and Stop
 
