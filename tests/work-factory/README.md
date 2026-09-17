@@ -109,8 +109,11 @@ The common client exercises duplicate creation, wrong/old IDs, held cancellation
 allocation completion, independent live work, manager failure/recovery and final cleanup.
 
 These Android sources have not yet completed their compile, policy, image and runtime
-gates. The earlier fixed-slot Android trial and the host mechanism results above do not
-qualify the new interfaces, delegation, recovery or init activation hook.
+gates. The first module batch passed normal modules/policy, then the build system rejected
+the lab backend property being added to the generic system partition. It now belongs to
+`system_ext`; the partition rule was not bypassed. The native candidate had not compiled
+in that failed batch. The earlier fixed-slot trial and host mechanism results above do
+not qualify the new interfaces, delegation, recovery or init activation hook.
 
 ## Running safely
 
