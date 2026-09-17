@@ -23,6 +23,13 @@ proposals and next gates across the developed system. Update it with relevant so
 proof and milestone changes. The architecture holds accepted decisions; the register
 must not turn prototype limits or successful tests into product requirements silently.
 
+Apply the [deliberate decision discipline](../docs/architecture.md#deliberate-decisions)
+to significant choices throughout Andrix, including existing components. Use R01 through
+R17 as the review map. Record goals, ownership, authority, credible alternatives,
+evidence, costs, failure behavior and next gates in the relevant design. Review does
+not mean reopening accepted requirements automatically, nor claiming every area has
+already been reviewed. Match the depth of the work to its risk and uncertainty.
+
 ## Product checkpoint
 
 Andrix has a bounded ARM64/Bionic development environment on its GrapheneOS-derived
@@ -94,28 +101,33 @@ factory design.
 The owner approved [comparative factory tests](2026-09-17-work-factory-comparison.md):
 an Andrix manager using existing Android facilities with init unchanged, and a narrow
 init extension that creates fresh instances from complete trusted profiles. Neither
-backend is selected. The first `7b8a117` attempts exposed two observer defects and remain
+fixture is adopted unchanged as the product. The first `7b8a117` attempts exposed two observer defects and remain
 incomplete. Corrected source at `409fc6d` passed 366 host tests and complete normal/A/B
 artifact gates. Both fresh Android trials then completed the listed creation, authority,
 descendant, independent Stop, stale identity, blocked allocation and manager recovery
 controls, including fresh work and final cleanup. These are finite fixture results,
 not full product, resource failure, pressure or phone qualification.
 
-The [proposed next direction](2026-09-17-work-factory-comparison.md#interpretation-and-proposed-direction)
-is A's ownership model: the Andrix manager owns work scopes and Android init supervises
-the manager. A's empty directory reconciliation and init retry delay must remain explicit
-requirements, not hidden by the successful trial. This is a proposal awaiting an owner
-decision, not an accepted architecture change.
+The owner accepted the refined [delegated supervision contract](../docs/architecture.md#work-supervision):
+Android supervises the owner environment, Andrix manages work inside it, and the kernel
+enforces containment. This combines the delegated ownership hierarchy with complete
+launch profiles and generic Android cleanup. It does not adopt either fixture's API or
+require init to stay unchanged. The [decision rationale](2026-09-17-work-factory-comparison.md#accepted-ownership-direction)
+retains the alternatives, observed costs and qualification gaps.
 
-1. Accept or revise the proposed ownership direction, then design and qualify the
-   general work API and complete trusted launch profile. Do not preserve fixture request
-   counts, fixed payloads, property transport or resource values as product restrictions.
-2. Use focused tests for Android shell behavior, descendant topology, admission
-   cancellation and control responsiveness before committing to the replacement.
-   Preserve genuine user/CE authority, bounded resources and complete work Stop. Keep
-   restart, wake and locked UI access separate from continuing computation.
+1. Specify the generic delegated service contract and the separate Andrix work contract.
+   Name operations, callers, permitted inputs, exact instance identities, profile and
+   descriptor ownership, activation states and honest cleanup outcomes. Init must not
+   acquire Andrix work IDs, admission or terminal policy. User/CE authority remains in
+   Android's framework and is enforced by the manager and launch/input gates.
+2. Qualify the combined contract, not just its parts. Exercise failed launch, stuck
+   components, identity reuse, interrupted cleanup, resource failure and CE loss, along
+   with cancellation, independent work and actual authority negatives. Also qualify
+   Android shell behavior and terminal separation. Stop acceptance is not cleanup success.
 3. Implement the coherent design, replacing prototype components where needed, and
    repeat host, artifact and runtime verification before changing ordinary defaults.
+   Fixture request counts, fixed payloads, property transport and limits are not product
+   restrictions. Restart, wake and locked UI access remain separate from computation.
 
 This direction is owner approved. Current plain work bound to Console and Keep backed
 by tmux remain compatibility behavior until the replacement is implemented

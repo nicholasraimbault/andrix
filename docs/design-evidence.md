@@ -10,6 +10,8 @@ and long term intent. It is not a release checklist or an execution diary.
 
 - [Architecture](architecture.md) holds accepted requirements and design decisions.
 - This register connects those decisions to evidence, temporary mechanisms and open questions.
+- Significant choices follow the [deliberate decision discipline](architecture.md#deliberate-decisions).
+  Linked designs record their goal, alternatives, ownership, costs, failure behavior and next gates.
 - [Current work](../plans/current.md) selects the next work from those gaps.
 - Linked milestones retain the details and limits of their particular checkpoints.
   An older milestone's pending follow-up is not necessarily the current global status.
@@ -38,6 +40,9 @@ milestone/current-work update. Add new areas rather than hiding them in a comple
 label. Keep stable entry IDs and mark superseded vehicles instead of erasing their lessons.
 Promote intent into the architecture only through an explicit accepted decision. A passing
 prototype must never silently promote its own limits, API or process layout into a requirement.
+An accepted responsibility model can still have open mechanisms and unqualified failure paths.
+Use every area below as a review surface, including inherited choices. Do not claim that an
+architecture wide review is complete merely because this register lists the areas.
 
 The register is initially populated from the published milestones and inspected source at
 `24a0b84`. It is maintained by area; each evidence statement retains its own source scope.
@@ -51,7 +56,7 @@ There is no supported release or qualified physical phone deployment at this che
 | [R02](#r02-trusted-usr-and-abi) | Trusted `/usr` and ABI | Integrated APEX/compiler payload | Retain trust/ABI boundary, qualify lifecycle and updates |
 | [R03](#r03-owner-identity-and-android-crossings) | Owner identity and crossings | Bounded native owner prototype | Retain authority separation, reassess entry mechanisms |
 | [R04](#r04-user-and-ce-authority) | User/CE authority | Platform adapter, host models, lab faults | Retain provenance/freshness rules, extend evidence |
-| [R05](#r05-work-and-terminal-lifetime) | Work and terminal lifetime | Console/plain and tmux/Keep prototype | Replace coupling with Unix semantics |
+| [R05](#r05-work-and-terminal-lifetime) | Work and terminal lifetime | Terminal prototype and comparative scope fixtures | Implement accepted delegated supervision and Unix lifetime contracts |
 | [R06](#r06-work-discovery-admission-and-stop) | Work discovery, admission, Stop | New API and corrected UI candidate | Complete admission/control design and runtime checks |
 | [R07](#r07-keep-and-notification-controls) | Keep and notifications | Optional prototype grant/Stop channel | Retain owner control, do not make Keep universal |
 | [R08](#r08-resource-policy) | Resource policy | Fixed proof limits | Design product policy from measured workloads |
@@ -155,12 +160,16 @@ There is no supported release or qualified physical phone deployment at this che
 - **Intent, accepted:** [Unix lifetime semantics](architecture.md#lifecycle-and-networking):
   view loss/Detach is not terminal hangup, shell exit is not blanket descendant Stop,
   detached work needs no Console or mandatory multiplexer, and explicit Stop is complete.
+  The [delegated supervision model](architecture.md#work-supervision) assigns work to
+  Andrix and the outer service boundary to Android without fixing a helper process layout.
 - **Disposition:** replace the coupling. One work per coordinator/init cgroup is the current
   tested cleanup mechanism, not a required final process layout. No identity reuse or weaker
   cleanup is allowed merely to add more work scopes.
-- **Next gate:** use the [supervision candidate and proof matrix](../plans/2026-09-16-unix-work-supervision.md)
-  to qualify actual Android shell behavior and a bounded scope factory with exact identities,
-  resource admission and independent cleanup. The [scope boundary experiment](../tests/owner-scope/README.md)
+- **Next gate:** specify and qualify the accepted [delegated service and work contracts](architecture.md#work-supervision),
+  including failure, exact identities, resource admission and cleanup. The earlier
+  [supervision candidate and proof matrix](../plans/2026-09-16-unix-work-supervision.md)
+  retains its evidence limits and the open Android shell controls.
+- **Supporting mechanism record:** the [scope boundary experiment](../tests/owner-scope/README.md)
   uses fixed named slots. Source review rejected the direct temporary-service shortcut
   because it does not establish the required empty capability bounding set. Source `57a43b6`
   passed module/image inspection; its first Android attempt registered both guardians but
@@ -190,9 +199,11 @@ There is no supported release or qualified physical phone deployment at this che
   a fresh epoch with no restarted jobs, old hierarchy retirement, new work and final
   cleanup. A observed Empty nested groups before explicit reconciliation, including
   init's parent removal retry; B observed groups already Removed by init. Each retained
-  its platform and boot identities. The manager ownership model is now proposed as the
-  next direction, not accepted. Resource failure, forced PID reuse, blocked guardians
-  and broad product qualification remain open.
+  its platform and boot identities. The owner then accepted the refined
+  [delegated supervision ownership model](architecture.md#work-supervision), not either
+  fixture unchanged. Complete profiles and generic Android subtree cleanup are required
+  alongside manager ownership of work. The combined contract, resource failure, forced
+  PID reuse, blocked components and broad product qualification remain unproved.
 
 ## R06 Work discovery, admission and Stop
 
@@ -212,13 +223,16 @@ There is no supported release or qualified physical phone deployment at this che
 - **Implication:** stale-result rejection is necessary but not sufficient: the new foreground
   intent must eventually be observed after an obsolete query or attachment retires. Sharing one
   control executor still lets UI Stop wait behind blocked admission.
-- **Intent, accepted:** [independent work and presentation control](architecture.md#lifecycle-and-networking),
-  with exact work targeting and no automatic work or authority from metadata.
+- **Intent, accepted:** [manager ownership of work and exact control](architecture.md#andrix-work-and-launch),
+  independent of presentation. Start is accepted at most once; Stop permanently closes
+  the execution gate, defeats late completion and does not depend on payload cooperation.
+  Metadata does not create work or grant authority.
 - **Disposition:** retain identity and stale completion rules. Complete or replace the admission,
   cancellation and client control design; append-only prototype transactions are not a final ABI mandate.
-- **Next gate:** test the proposed [reservation/admission/control ordering](../plans/2026-09-16-unix-work-supervision.md#3-proposed-admission-and-control-ordering),
-  including pending Stop, stale identities, eventual discovery and blocked admission. It is not
-  implemented yet. Reverify the corrected UI on Android.
+- **Next gate:** specify the actual reservation/admission/control protocol and qualify
+  pending Stop, stale identities, eventual discovery, uncertain replies and blocked
+  operations. The [earlier ordering proposal](../plans/2026-09-16-unix-work-supervision.md#3-proposed-admission-and-control-ordering)
+  is not itself the implemented general API. Reverify the corrected UI on Android.
 
 ## R07 Keep and notification controls
 
@@ -267,8 +281,12 @@ There is no supported release or qualified physical phone deployment at this che
   are separate: its coordinator-labelled pipes were denied across owner-domain exec.
 - **Implication:** fixing the trusted crossing is useful, but fixing every future owner command,
   shell, working directory or stream to that prototype would defeat normal Unix composition.
-- **Intent, accepted:** [direct owner execution and a programmable userland](architecture.md#owner-userland)
-  under the actual owner identity, not arbitrary privileged execution by the coordinator.
+- **Intent, accepted:** [direct owner execution and a programmable userland](architecture.md#owner-userland),
+  with a [complete trusted launch boundary](architecture.md#andrix-work-and-launch).
+  Privileged bootstrap selection comes from declared profiles, not caller supplied
+  programs, UIDs or filesystem paths. Ordinary owner program and environment requests
+  remain supported after entering owner authority; the restriction does not limit which
+  commands the owner may run.
 - **Disposition:** retain the execution boundary and deliberate handling of inherited state;
   replace the narrow entry contract as needed. Exact request/descriptor design remains a proposal.
 - **Next gate:** define command, argument, environment, working-directory and standard-stream
@@ -398,7 +416,9 @@ There is no supported release or qualified physical phone deployment at this che
   followed by successful recovery. An unreadable file alone is still not proof of cleanup.
 - **Implication:** fixtures have bugs too. Check intended inputs, exact acknowledgements, actual
   process identities, positive controls and lifecycle completion, not only exit codes or self hashes.
-- **Intent, accepted:** [tests inform architecture through scoped observed reality](architecture.md#design-method).
+- **Intent, accepted:** [tests inform architecture through scoped observed reality](architecture.md#design-method),
+  with [deliberate decision records](architecture.md#deliberate-decisions) across the whole
+  system. Acceptance, implementation and qualification must remain distinct.
 - **Disposition:** retain explicit evidence boundaries and [artifact preservation](development-artifacts.md).
   Test-driver limits and fixture configuration are not mobile product policy. Failed attempts stay available.
 - **Next gate:** update fixture contracts when product semantics deliberately change, verify

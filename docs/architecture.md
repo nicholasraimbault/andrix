@@ -30,6 +30,35 @@ do not become permanent product restrictions by accident. Apply this review to t
 whole developed system, not only its terminal. Preserve the phone and boundaries that
 protect its owner; reject restrictions whose purpose is vendor control.
 
+### Deliberate decisions
+
+Every significant architectural choice must have an explicit rationale, including
+choices inherited from earlier work. Record the following in the relevant design or
+milestone, linked from the [design evidence register](design-evidence.md):
+
+- The owner capability or system requirement being served, and the guarantees to preserve.
+- Who owns the state, authority, resources and lifetime, including each trusted crossing.
+- The credible alternatives, inspected evidence and assumptions that remain unproved.
+- The chosen contract, reasons for choosing it, costs and failure or recovery behavior.
+- What is accepted, what remains a proposal, what is implemented, and what is qualified.
+- The next verification gates and circumstances that would justify revisiting the choice.
+
+Acceptance of an ownership model does not qualify its implementation or settle every
+API, process layout or mechanism. A successful fixture does not select an architecture
+by itself. Small patches, familiar conventions, existing code and previous effort are
+not substitutes for this reasoning.
+
+Apply the same discipline to platform integration, trust and updates, resources, files,
+networking, tools, terminals and agent authority. Review existing decisions against
+their rationale and current evidence; do not assume they were accidental or discard
+accepted requirements without an explicit revision. The register is the review map,
+not a claim that all areas have already completed this assessment.
+
+Keep the depth of documentation and verification proportional to consequence and
+uncertainty. Routine implementation inside an accepted contract need not become a
+formal architecture decision. Changes to authority boundaries, owner visible semantics,
+platform responsibility or product restrictions must be made and accepted explicitly.
+
 ## Foundation
 
 Andrix's Android/Pixel platform follows an explicitly pinned public GrapheneOS
@@ -80,9 +109,11 @@ ARM64/Bionic execution; and isolated Android application identities. Crossings
 use explicit Binder operations, file descriptors, URI grants or equivalent
 scoped capabilities.
 
-One bounded `andrixd` coordinates sessions, PTYs and explicit Android
-crossings from the owner domain. Android retains installation, signing, init
-and platform-policy authority.
+Trusted native components mediate explicit Android crossings from the owner domain.
+Their roles and authority are deliberate boundaries, not permission to execute owner
+commands with coordinator privileges. The current `andrixd` process layout is a
+prototype, not a requirement to combine work, launch and terminal responsibilities in
+one process. Android retains installation, signing, init and platform policy authority.
 
 ## Trusted `/usr`
 
@@ -115,6 +146,74 @@ package-private libraries and owner-only relative RUNPATHs. Transactions
 provide atomicity and rollback. Deliberately executed owner code shares owner
 authority; automatic untrusted hooks use proved Android isolation. Unsigned
 software remains an owner choice.
+
+## Work supervision
+
+Android supervises the owner environment. Andrix manages work inside it. The kernel
+enforces containment, and Console is a client. This ownership model is accepted; the
+combined delegation, activation and cleanup contract still needs design and qualification.
+The [comparative experiments](../plans/2026-09-17-work-factory-comparison.md) establish
+useful mechanisms, not a production implementation of this contract.
+
+### Android's service boundary
+
+Android starts the trusted control machinery under a complete declared profile, sets
+protected aggregate resource ceilings and delegates only the required controls inside
+its supervised subtree. Trusted control and owner work occupy separate parts of that
+resource hierarchy. Exact helper processes and API details remain design work.
+
+Init owns generic service supervision: starting a declared service, controlling its
+exact instance and reporting its lifecycle and cleanup state. It does not acquire
+Andrix work IDs, admission decisions, terminal state or owner job restart policy.
+Generic service instance identity is still necessary to prevent stale control or
+cleanup from targeting a replacement.
+
+On manager failure or an authorized end of that service instance, Android has the whole
+subtree as its cleanup boundary. Cleanup must terminate its processes, observe quiescence,
+reclaim empty groups and retire identities safely, without stalling unrelated init work.
+Acceptance of Stop, process termination, directory reclamation and release of accounting
+are distinct facts. Unknown state is not success. Incomplete cleanup must remain visible
+and retain the identity protection needed to prevent unsafe reuse.
+
+This can require deliberate Android integration changes. Keeping init unchanged is not
+a product requirement. The platform contract is generic delegated supervision, not an
+Andrix work factory in PID 1. Neither the prototype's PID property/reclaim sequence nor
+its dependency on a guardian exiting is the production contract.
+
+### Andrix work and launch
+
+The Andrix work manager owns work identities, authenticated client operations, admission,
+cancellation, scope resources and job policy. Control binds to the exact work and kernel
+objects, not a reusable PID, name or path alone. It has direct scope control; complete
+Stop must not require cooperation from payloads or work guardians. Manager failure has
+Android's enclosing subtree as its backstop. That failure does not silently restart
+ordinary jobs under a new identity; separately enabled services have explicit policy.
+
+Start is accepted at most once. Owner execution stays gated until its prerequisites
+are established. Stop closes that gate irreversibly, including during admission. A late
+successful creation must be cleaned up without releasing a stopped payload. Admission
+and terminal I/O must not block the control path by sharing its locks or execution lane.
+
+Trusted launch machinery constructs execution from a complete immutable profile. Actual
+identity, groups, explicit capabilities, SELinux role, resource membership and limits,
+descriptors and execution state must be established before owner code runs. Identity
+changes and descriptor sanitization are steps of that complete transition, not general
+privileged mutation operations offered to callers.
+
+The privileged interface selects only declared profiles and fixed trusted bootstraps.
+It does not accept an arbitrary privileged program, UID or filesystem path. The ordinary
+owner work API does accept executable, argument, environment and working directory
+requests. Those inputs may direct owner execution, never redirect privileged bootstrap
+execution or select its authority.
+
+Android's framework remains the source of genuine user and CE authority. The manager
+and launch/input gates enforce its freshness and revocation; init does not gain Andrix
+CE admission policy. A positive check is not permanent permission, and a late result
+cannot revive a stopped or revoked identity.
+
+A work scope defines lifetime and resource accounting, not automatic mutual security
+isolation between programs deliberately run as the same owner. Untrusted hooks, agent
+principals and other isolated work require their own explicit authority boundaries.
 
 ## Lifecycle and networking
 

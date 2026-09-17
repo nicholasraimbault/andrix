@@ -191,8 +191,10 @@ remaining descendants, fully released physical accounting, phone behavior, press
 suspend, durability or a new CE loss result. No universal resource defaults follow from
 fixture limits. The earlier incomplete runs remain separate.
 
-Neither backend is selected. See the [comparison and proposed direction](../../plans/2026-09-17-work-factory-comparison.md#interpretation-and-proposed-direction)
-for the ownership tradeoff rather than choosing by prototype size or observer progress.
+The owner accepted the refined [delegated supervision ownership model](../../docs/architecture.md#work-supervision),
+not either fixture unchanged. See the [decision and rationale](../../plans/2026-09-17-work-factory-comparison.md#accepted-ownership-direction).
+These tests inform the combined contract; they do not qualify its unimplemented API,
+platform integration or remaining failure behavior.
 
 ## Running safely
 

@@ -4,7 +4,11 @@
 not accepted product architecture. Candidate A uses existing Android facilities without
 changing init. The [fixed-slot Android trial](../tests/owner-scope/README.md#observed-fixed-slot-result)
 supplies scoped evidence for independent lifetime, identity and cleanup, not a general
-factory or a conclusion that init must be extended.
+factory or a conclusion that init must be extended. The subsequent
+[accepted ownership decision](2026-09-17-work-factory-comparison.md#accepted-ownership-direction)
+requires a generic delegated service contract, complete profiles and manager ownership
+of work. It does not adopt this particular factory in PID 1. The proposal below remains
+a record of the alternative and its useful launch guarantees.
 
 ## Candidate to compare
 

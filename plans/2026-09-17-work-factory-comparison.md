@@ -1,9 +1,10 @@
 # Work factory comparison
 
 **Status:** both backends completed the listed Android comparison controls at `409fc6d`.
-A proposed direction follows below, but neither backend is selected for the product.
-The earlier [init factory proposal](2026-09-17-work-factory-proposal.md) remains one
-candidate, not a conclusion justified merely by the successful trial with fixed slots.
+The owner accepted the refined [delegated supervision ownership model](../docs/architecture.md#work-supervision),
+not either fixture as the production implementation. The earlier
+[init factory proposal](2026-09-17-work-factory-proposal.md) remains comparative design
+work, not an adopted Andrix work factory in PID 1.
 
 ## Candidates
 
@@ -115,30 +116,64 @@ saturated control transports. This experiment did not repeat CE loss, pressure, 
 durability or phone qualification. Fixture request counts, limits and property transport
 are not a product API or owner defaults.
 
-## Interpretation and proposed direction
+## Accepted ownership direction
 
-The evidence defeats the assumption that a work factory must live in init to preserve
-the demonstrated boundaries. Both mechanisms work for these controls. It does not show
-that either prototype is already the correct complete product implementation.
+The owner accepted a refined contract: **Android supervises the owner environment,
+Andrix manages work inside it, and the kernel enforces containment.** The decision is
+recorded in the [architecture](../docs/architecture.md#work-supervision). It accepts
+responsibility boundaries, not a finished API, process layout or qualified implementation.
 
-The proposed next direction is **A's ownership model**, not automatic promotion of its
-fixture code. Keep work admission, identities, resource scopes and direct group control
-in an Andrix manager, with Android init supervising that manager. The nested containment
-also gives manager failure a kernel group boundary, rather than relying on every work
-guardian to cooperate. This fits the goal of keeping most work policy outside PID 1.
-It is an ownership and control argument, not a preference for fewer changed lines.
+### Goal and alternatives
 
-B remains a useful alternative: it constructs complete fresh profiles and gives each
-work instance init's existing service cleanup. It avoids A's residual child directories
-and reduces the manager's direct cgroup authority, but adds a privileged instance factory
-and activation path. The current B vehicle's Stop and manager loss paths still depend
-on guardian exit; stronger handling of an unresponsive guardian remains untested.
+The goal is ordinary owner computing independent of Console, with genuine Android
+authority, inspectable resources and complete scope control. A reusable PID or name
+must not let old control affect new work.
 
-Before adopting a product layout, resolve A's cleanup/restart behavior and both candidates'
-remaining failure obligations. A narrower generic cleanup improvement would be a separate
-proposal, not an excuse to claim this trial with unchanged init qualified new init code.
-Neither backend has been accepted for the product. The owner must explicitly accept
-or revise this proposed direction before production integration.
+A demonstrated nested containment and direct manager control without an init work
+factory. Its residual directory reconciliation and init retries are real costs. B
+constructed complete fresh profiles and used init's service cleanup, with less direct
+cgroup authority in the manager. Its current Stop and manager loss paths depend on
+guardian exit. Neither result proves the complete failure contract or requires keeping
+its particular prototype mechanism.
+
+### Decision and reasons
+
+Use the delegated resource ownership hierarchy, complete declared launch profiles and
+a proper generic Android cleanup contract. Andrix owns work identities, admission,
+resources and direct group control. Init owns the outer service instance and its
+cleanup boundary, not Andrix work IDs, admission or terminals. Manager failure therefore
+has kernel containment rather than requiring each guardian to cooperate.
+
+The privileged side starts only fixed trusted bootstraps under declared profiles. Actual
+identity, capabilities, resource placement and descriptor state are parts of a complete
+transition, not independently exposed privileged mutation operations. Owner program,
+argument, environment and working directory requests remain normal work API inputs;
+they must not redirect privileged bootstrap execution. User/CE authority stays with
+Android's framework and is enforced by the manager and launch/input gates, not new
+Andrix policy in init.
+
+Keeping init unchanged is not the objective. Generic delegation and cleanup may need
+Android changes. Those changes must reclaim owned subtrees without stalling unrelated
+init work, preserve exact instance identity and report incomplete cleanup honestly.
+Neither A's property/reclaim workaround nor B's dependency on guardian exit is adopted
+as the production interface. This is an ownership and guarantee decision, not a choice
+based on patch size or prior implementation effort.
+
+### Costs, open choices and next gates
+
+Write the delegated service contract next. Name its operations, authorized callers,
+permitted inputs, profile provenance, instance and descriptor ownership, activation
+states, cleanup progress and failure outcomes. Keep generic service instance identity
+distinct from Andrix work identity. Exact wire APIs and helper processes remain open.
+
+Qualify the combined contract with failed launch, stuck manager or guardian, identity
+reuse, interrupted cleanup, resource failure and CE loss. Include Stop during admission,
+late completion, independent work, ordinary app/worker negatives and normal image
+exclusion. Do not infer those results from the two successful component vehicles.
+
+Revisit mechanisms if they cannot preserve these boundaries or make supervision and
+recovery incoherent. Preserve the accepted owner guarantees unless deliberately revised;
+do not silently replace them with what a prototype happens to support.
 
 ## Operational limits
 
