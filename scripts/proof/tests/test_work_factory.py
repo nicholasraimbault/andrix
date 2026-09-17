@@ -128,6 +128,9 @@ int main() {
         runtime=(proof/'init/work_profile_runtime.cpp').read_text()
         self.assertIn('getpid() != 1 || getuid() != 0',runtime)
         self.assertIn('ro.andrix.factory_backend',runtime)
+        self.assertIn('fstatfs(group.get(), &fs)',runtime)
+        self.assertIn('exact pre-activation process membership',runtime)
+        self.assertNotIn('fstat(group,',runtime)
         self.assertRegex(runtime,r'tickets\.emplace\(\s*key,\s*""\)')
 
 
