@@ -1,0 +1,50 @@
+{
+  "system_core_revision": "84ebea5e21110f31b632473a2fdb1c656b599b24",
+  "files": {
+    "init/Android.bp": {
+      "original_sha256": "bf2cce3902a4b191e3796ee238cf6ad41a3615154a6daff7b7aa4c852421f5ab",
+      "probe_sha256": "7d9c6435ac2485ddf6194e4f9a9e2ab0932e2ab083710d28314cb2f350afe78a"
+    },
+    "init/service.h": {
+      "original_sha256": "febcf5e674fb2e13e4632ea3b015d131c26d938311108b54c624db3b516bdd8d",
+      "probe_sha256": "45fd6165987ffc3e4cb868a05ecd613d9c6b011946cff9b08802d33f41e4a756"
+    },
+    "init/service.cpp": {
+      "original_sha256": "922eea487f33fc5f2f918ffa58e20d1ea0ec5796e5c1310dc4af5dae5d1af7dc",
+      "probe_sha256": "216edd500e0933c3f3dcf33d699404832c461c0c902a17614aae5e28a2505803"
+    },
+    "init/service_parser.h": {
+      "original_sha256": "46fd705f5c002a218152794434d2f39b4c5628bcf2f1ae5239c9db4f099a3e89",
+      "probe_sha256": "afca10625be1e3f22586080a1747c587329fc79cf41ba922a05bf6ae344b0d3c"
+    },
+    "init/service_parser.cpp": {
+      "original_sha256": "b608bf0da220dc8a042adbb9af1ecbbd2ab60b8314799713a32cf76057941791",
+      "probe_sha256": "9776098fedea50c08bdc621d214b380ac998d578cb3ae0b15f3cdd75e3229c8c"
+    },
+    "init/service_list.h": {
+      "original_sha256": "13d3ec1ada8ab44af1ae055162fdb9cddf02c18eedade63af501a5c6bbed1d07",
+      "probe_sha256": "b5b6d10abc5c3a8dad576c993e99dec86a4412cfb6e3c773ce1fe8bd85440bde"
+    },
+    "init/service_list.cpp": {
+      "original_sha256": "fa0e3da053a7fecd95e3b903bfdbbfc5d9ed5bb710a0228413baf0ecdb8526b5",
+      "probe_sha256": "7dbc83222956b01cd2cac1fc517f7120197b2eeb97b5312700bbcc97d2d41b31"
+    },
+    "init/sigchld_handler.cpp": {
+      "original_sha256": "821367f0c3b2e8188c9b28b8f385f9426dc3bfb8fc69999166603e2c34dbaea5",
+      "probe_sha256": "5d903c79875fec7ad935ba5e80418bec557a1fb65c85c267759a1d8898b7bdfb"
+    },
+    "init/init.cpp": {
+      "original_sha256": "4070fb5640a42fcd24d1d4b6cb88981b4648be5c9135e984e88800e345bf4f3b",
+      "probe_sha256": "5fa457dce5820db39c38c3eb0c8aa00fcce06917a669804aba4d69da17910a50"
+    },
+    "init/main.cpp": {
+      "original_sha256": "9c2d144b151232f669bff8260ab26512e3084eb226f35d5f59898ede322c2de2",
+      "probe_sha256": "b7a79b0e91c97f42d23106ed86a49a544e07395416fff981ba62d4606bbaebe6"
+    },
+    "init/builtins.cpp": {
+      "original_sha256": "cc754f60283d8e31eaee7d14b7cee1abc3f19f86d78bcdb446eb44b831b83a14",
+      "probe_sha256": "030bbcd460cadcd12ef74995fb184a092c6b3d729293a150ac443cca93d9052a"
+    }
+  },
+  "scope": "optional named delegated service runtime; no Andrix Work IDs or CE admission policy"
+}

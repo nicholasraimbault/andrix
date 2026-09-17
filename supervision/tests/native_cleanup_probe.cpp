@@ -71,7 +71,8 @@ void check_scope(int parent) {
   assert(membership.starts_with("0::/") && membership.ends_with("/control"));
   const auto path = std::string("/sys/fs/cgroup") +
                     membership.substr(3, membership.size() - 3 - 8);
-  assert(path.starts_with("/sys/fs/cgroup/user.slice/user-1003.slice/"));
+  assert(path.starts_with("/sys/fs/cgroup/user.slice/user-" +
+                          std::to_string(getuid()) + ".slice/"));
   const auto name = path.substr(path.find_last_of('/') + 1);
   assert(std::regex_match(
       name,

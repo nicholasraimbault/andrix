@@ -35,7 +35,8 @@ std::string line(const std::string& name) {
 }
 std::string check_environment() {
   auto member = line("/proc/self/cgroup");
-  assert(member.starts_with("0::/user.slice/user-1003.slice/") &&
+  assert(member.starts_with("0::/user.slice/user-" + std::to_string(getuid()) +
+                            ".slice/") &&
          member.ends_with("/control"));
   auto path =
       std::string("/sys/fs/cgroup") + member.substr(3, member.size() - 11);

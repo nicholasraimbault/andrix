@@ -37,7 +37,7 @@ def manager(control, child_channel):
 def main():
     own = Path('/sys/fs/cgroup') / membership().lstrip('/');root = own.parent
     require(own.name == 'control' and re.fullmatch(r'andrix-delegated-native-kernel-[0-9]{8}t[0-9]{6}z\.service', root.name), 'owned native proof delegation only')
-    require(root.resolve() == root and root.is_relative_to('/sys/fs/cgroup/user.slice/user-1003.slice'), 'owned hierarchy')
+    require(root.resolve() == root and root.is_relative_to(f'/sys/fs/cgroup/user.slice/user-{os.getuid()}.slice'), 'owned hierarchy')
     for file,value in [('memory.max',str(512*1024**2)),('memory.swap.max','0'),('cpu.max','200000 100000'),('pids.max','128')]:require((root/file).read_text().strip()==value,file)
     require(resource.getrlimit(resource.RLIMIT_CORE)==(0,0),'zero cores')
     require(len(sys.argv)==2,'explicit frozen native binary')
