@@ -112,8 +112,10 @@ These Android sources have not yet completed their compile, policy, image and ru
 gates. The first module batch passed normal modules/policy, then the build system rejected
 the lab backend property being added to the generic system partition. It now belongs to
 `system_ext`; the partition rule was not bypassed. The native candidate had not compiled
-in that failed batch. The earlier fixed-slot trial and host mechanism results above do
-not qualify the new interfaces, delegation, recovery or init activation hook.
+in that failed batch. The next attempt reached native compilation and rejected an
+unnecessary const-string copy in the bounds loop under `-Werror`; the loop now takes a
+reference. No warning was disabled. The earlier fixed-slot trial and host mechanism
+results above do not qualify the new interfaces, delegation, recovery or activation hook.
 
 ## Running safely
 

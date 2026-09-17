@@ -125,7 +125,7 @@ std::string bounds_error(const std::string& group, bool worker) {
   int nice = getpriority(PRIO_PROCESS, getpid());
   if (errno || nice < 10) return "background priority";
   if (read_small("/proc/self/oom_score_adj") != "700\n") return "OOM priority";
-  for (const std::string path : {std::string(kUidGroup), group}) {
+  for (const std::string& path : {std::string(kUidGroup), group}) {
     for (auto [file, value] : {std::pair{"memory.max", kMemory},
                                {"memory.swap.max", uint64_t(0)},
                                {"memory.oom.group", uint64_t(1)}}) {

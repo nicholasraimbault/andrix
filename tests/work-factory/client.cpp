@@ -306,6 +306,11 @@ int main(int argc, char** argv) {
           return true;
         },
         "new manager identity", 40000);
+    const auto recovered_state = factory_state(recovered);
+    printf("{\"event\":\"factory_recovered\",\"managerId\":%lld,\"managerPid\":%d,\"groupPath\":\"%s\",\"reserved\":%d}\n",
+           static_cast<long long>(recovered_state.managerId), recovered_state.managerPid,
+           recovered_state.groupPath.c_str(), recovered_state.reserved);
+    fflush(stdout);
     for (const auto& path : {first, second, manager_group}) {
       struct stat st{};
       check(lstat(path.c_str(), &st) < 0 && errno == ENOENT,
