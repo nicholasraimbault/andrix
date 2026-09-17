@@ -1,8 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // Internal implementation candidate. Nothing here is in PRODUCT_PACKAGES.
+filegroup {
+    name: "andrix_delegated_init_sources",
+    srcs: ["init/delegated_service.cpp"],
+}
+filegroup {
+    name: "andrix_delegated_profile_test_sources",
+    srcs: ["init/profile_test.cpp"],
+}
 cc_library_static {
     name: "andrix_delegated_scope",
     host_supported: true,
+    recovery_available: true,
+    ramdisk_available: true,
+    vendor_ramdisk_available: true,
+    bootstrap: true,
     cpp_std: "c++20",
     cflags: ["-Wall", "-Wextra", "-Werror"],
     srcs: ["native/captured_cgroup.cpp", "native/instance_state.cpp", "native/cleanup_worker.cpp"],

@@ -124,6 +124,32 @@ PRODUCT_SYSTEM_EXT_PROPERTIES += ro.andrix.factory_backend=$(ANDRIX_WORK_FACTORY
 PRODUCT_PACKAGES += andrix-factory-manager-probe andrix-factory-guardian-probe andrix-factory-worker-probe andrix-factory-proof-client
 endif
 
+# Optional generic service supervision integration. No Andrix job policy in init.
+$(call soong_config_set_bool,andrix,delegated_service,false)
+ifeq ($(ANDRIX_DELEGATED_SERVICE_PROOF),true)
+ifneq ($(TARGET_PRODUCT),andrix_gos_cf_arm64_only_phone)
+$(error ANDRIX_DELEGATED_SERVICE_PROOF is limited to the GrapheneOS Cuttlefish lab product)
+endif
+ifneq ($(TARGET_BUILD_VARIANT),userdebug)
+ifneq ($(TARGET_BUILD_VARIANT),eng)
+$(error ANDRIX_DELEGATED_SERVICE_PROOF requires userdebug or eng)
+endif
+endif
+ifneq ($(ANDRIX_OWNER_SESSION),true)
+$(error ANDRIX_DELEGATED_SERVICE_PROOF requires ANDRIX_OWNER_SESSION=true)
+endif
+ifneq ($(ANDRIX_OWNER_LIFECYCLE),true)
+$(error ANDRIX_DELEGATED_SERVICE_PROOF requires ANDRIX_OWNER_LIFECYCLE=true)
+endif
+ifneq ($(filter true,$(ANDRIX_OWNER_KEEP) $(ANDRIX_OWNER_FAULT_TESTS) $(ANDRIX_OWNER_SCOPE_PROOF)),)
+$(error ANDRIX_DELEGATED_SERVICE_PROOF cannot use Keep or older fault/scope controls)
+endif
+ifneq ($(ANDRIX_WORK_FACTORY_PROOF),)
+$(error ANDRIX_DELEGATED_SERVICE_PROOF cannot use the older factory experiment)
+endif
+$(call soong_config_set_bool,andrix,delegated_service,true)
+endif
+
 # Compiler payload is a separate opt-in within the owner environment. Unflagged
 # builds retain the original small APEX and do not require the staged compiler.
 ifeq ($(ANDRIX_OWNER_COMPILER),true)
