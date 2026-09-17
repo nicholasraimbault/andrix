@@ -19,7 +19,7 @@
     },
     "init/Android.bp": {
       "original_sha256": "bf2cce3902a4b191e3796ee238cf6ad41a3615154a6daff7b7aa4c852421f5ab",
-      "probe_sha256": "01a155a20e1da93258b9e0c90099d23c893593a9e1ae6c5661f93729394ee900"
+      "probe_sha256": "5fbca6110796c98b7d2885b407cd69ff38985d888f8dea9249eeac04a88b1c22"
     }
   }
 }

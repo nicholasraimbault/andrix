@@ -82,7 +82,7 @@
          {"hostname",                {1,     1,    {true,   do_hostname}}},
 --- a/init/Android.bp
 +++ b/init/Android.bp
-@@ -112,8 +112,27 @@
+@@ -112,8 +112,35 @@
      ],
  }
  
@@ -98,8 +98,16 @@
 +    soong_config_variables: {
 +        factory_init: {
 +            cflags: ["-DANDRIX_FACTORY_INIT=1"],
-+            srcs: [":andrix_factory_init_runtime_sources"],
 +            include_dirs: ["vendor/andrix/tests/work-factory/init"],
++        },
++    },
++}
++
++andrix_init_factory_defaults_type {
++    name: "andrix_init_factory_sources",
++    soong_config_variables: {
++        factory_init: {
++            srcs: [":andrix_factory_init_runtime_sources"],
 +        },
 +    },
 +}
@@ -110,3 +118,11 @@
      sanitize: {
          misc_undefined: ["signed-integer-overflow"],
      },
+@@ -237,6 +264,7 @@
+     name: "libinit_defaults",
+     recovery_available: true,
+     defaults: [
++        "andrix_init_factory_sources",
+         "init_defaults",
+         "selinux_policy_version",
+     ],
