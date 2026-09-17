@@ -1,8 +1,9 @@
 # Work factory comparison
 
-**Status:** the owner approved focused comparative tests. Neither backend is selected
-for the product. The earlier [init factory proposal](2026-09-17-work-factory-proposal.md)
-is one candidate, not a conclusion justified merely by the successful fixed-slot trial.
+**Status:** both backends completed the listed Android comparison controls at `409fc6d`.
+A proposed direction follows below, but neither backend is selected for the product.
+The earlier [init factory proposal](2026-09-17-work-factory-proposal.md) remains one
+candidate, not a conclusion justified merely by the successful trial with fixed slots.
 
 ## Candidates
 
@@ -77,11 +78,67 @@ completed creation, worker lifetime, access negatives, independent Stop, stale-I
 blocked-allocation controls. Actual init/kernel cleanup after manager loss was logged,
 but a population observer error stopped the run before recovery.
 
-Neither has passed the full common contract. The corrections at `7127cc7` passed 366
-host tests and both Android native/policy configurations. They still need matching
-corrected images and fresh trials. The earlier
-fixed-slot Android result is not substituted for either. See the
-[scoped observations](../tests/work-factory/README.md#first-android-comparison-observations).
+Those initial runs remain incomplete. The corrections at `7127cc7` passed 366 host
+tests and both Android native/policy configurations. The later documentation commit
+`409fc6d`, with identical native code, then passed another 366 host tests and complete
+normal/A/B artifact gates before the corrected trials below. The earlier result with fixed slots is not substituted for either.
+
+## Corrected Android results
+
+Both backends completed the [listed finite controls](../tests/work-factory/README.md#corrected-android-comparison-result)
+in separate fresh fixtures at `409fc6d`. These included actual authority and resource
+observations, duplicate creation, detached descendants, ordinary app negatives with
+live positives, independent Stop, old identities, held cancellation and blocked
+allocation followed by late helper cleanup without payload. Both then completed
+manager failure, a fresh manager epoch with no restarted jobs, old hierarchy retirement,
+new work and final graceful cleanup. Platform and boot identities remained unchanged
+within each trial. A's init binary matched the unmodified baseline.
+
+| Observed boundary | A | B |
+| --- | --- | --- |
+| Work containment | Nested groups under the manager's init group | Separate complete init service instances |
+| Worker control authority | MAC still denies cgroup writes, despite shared UID with the trusted creator | MAC and protected init group ownership deny writes |
+| Manager death | Init kills the nested processes; captured child groups become Empty | Guardians exit on loss of the manager connection; init kills descendants and removes their groups |
+| Directory cleanup | Init first retries parent removal with `EBUSY`; the new manager removes known empty children and requests the existing parent `rmdir` action | Init removes each shallow group; captured objects become Removed |
+| Recovery | New identity, no restored jobs, old controls retired, fresh work and final cleanup | Same listed outcomes |
+
+A's init retry interval, about two seconds in this fixture, and directory reconciliation
+are real costs, not hidden cleanup success. B's guardian connection and init service association
+are also real parts of its failure contract. A process being killed, a group being
+empty, a directory being removed and all physical accounting being released remain
+different observations.
+
+The broader common requirements are not fully qualified. Still open are resource and
+setup failure injection, natural completion of all remaining descendants, deliberately
+forced numeric PID reuse, uncertain launch replies, arbitrary blocked operations and
+saturated control transports. This experiment did not repeat CE loss, pressure, suspend,
+durability or phone qualification. Fixture request counts, limits and property transport
+are not a product API or owner defaults.
+
+## Interpretation and proposed direction
+
+The evidence defeats the assumption that a work factory must live in init to preserve
+the demonstrated boundaries. Both mechanisms work for these controls. It does not show
+that either prototype is already the correct complete product implementation.
+
+The proposed next direction is **A's ownership model**, not automatic promotion of its
+fixture code. Keep work admission, identities, resource scopes and direct group control
+in an Andrix manager, with Android init supervising that manager. The nested containment
+also gives manager failure a kernel group boundary, rather than relying on every work
+guardian to cooperate. This fits the goal of keeping most work policy outside PID 1.
+It is an ownership and control argument, not a preference for fewer changed lines.
+
+B remains a useful alternative: it constructs complete fresh profiles and gives each
+work instance init's existing service cleanup. It avoids A's residual child directories
+and reduces the manager's direct cgroup authority, but adds a privileged instance factory
+and activation path. The current B vehicle's Stop and manager loss paths still depend
+on guardian exit; stronger handling of an unresponsive guardian remains untested.
+
+Before adopting a product layout, resolve A's cleanup/restart behavior and both candidates'
+remaining failure obligations. A narrower generic cleanup improvement would be a separate
+proposal, not an excuse to claim this trial with unchanged init qualified new init code.
+Neither backend has been accepted for the product. The owner must explicitly accept
+or revise this proposed direction before production integration.
 
 ## Operational limits
 

@@ -184,10 +184,15 @@ There is no supported release or qualified physical phone deployment at this che
   dynamic workers, then its observer hit private directory permissions. B exercised
   dynamic creation, independent Stop, stale IDs and blocked allocation cancellation.
   Init also logged complete cleanup after manager loss, but an observer mistook a removed
-  group for a populated one and stopped before recovery. Both runs remain incomplete;
-  corrections at `7127cc7` passed 366 host tests and both native/policy configurations,
-  but still need matching images and fresh trials. The final layout remains open, and
-  fixed slots are not the product limit.
+  group for a populated one and stopped before recovery. Those runs remain incomplete.
+  The corrections then passed 366 host tests and complete matching artifacts at `409fc6d`.
+  Both fresh Android trials completed the listed controls, including manager failure,
+  a fresh epoch with no restarted jobs, old hierarchy retirement, new work and final
+  cleanup. A observed Empty nested groups before explicit reconciliation, including
+  init's parent removal retry; B observed groups already Removed by init. Each retained
+  its platform and boot identities. The manager ownership model is now proposed as the
+  next direction, not accepted. Resource failure, forced PID reuse, blocked guardians
+  and broad product qualification remain open.
 
 ## R06 Work discovery, admission and Stop
 
@@ -201,6 +206,9 @@ There is no supported release or qualified physical phone deployment at this che
   passes 353 host tests and both Android module configurations, but has no new runtime result.
   The [scope experiment](../tests/owner-scope/README.md#released-work-observation-and-binder-correction)
   also exposed the difference between synchronous Binder caller metadata and oneway's absent PID.
+  Both factory vehicles at `409fc6d` then exercised Stop during a blocked allocation and
+  late helper completion without payload, plus exact old identity controls. That separate
+  fixture does not fix Console's shared control lane or establish arbitrary RPC responsiveness.
 - **Implication:** stale-result rejection is necessary but not sufficient: the new foreground
   intent must eventually be observed after an obsolete query or attachment retires. Sharing one
   control executor still lets UI Stop wait behind blocked admission.
@@ -234,8 +242,10 @@ There is no supported release or qualified physical phone deployment at this che
   memory, 32 tasks, 128 descriptors, 64 MiB per file, no core dumps and fixed scheduling/OOM policy.
   The per-file limit is not a total storage quota.
 - **Evidence:** guard and worker tests exercise admission/restrictions; emulator checks observed
-  inherited limits and complete init cleanup. The listed tools ran under this profile. Broader
-  exhaustion, suspend, thermal behavior and supported-device suitability remain open.
+  inherited limits and complete init cleanup. The listed tools ran under this profile.
+  Both factory trials also checked protected aggregate and individual work bounds and
+  worker control denial. They did not inject resource exhaustion or measure complete
+  physical accounting release. Suspend, thermal behavior and device suitability remain open.
 - **Implication:** those numbers prove a bounded experiment, not universal limits suitable for
   all owner programs. A larger workload failing under them would not establish an ABI defect.
 - **Intent, accepted:** [bounded Android resource and phone policy participation](architecture.md#lifecycle-and-networking),
@@ -383,7 +393,9 @@ There is no supported release or qualified physical phone deployment at this che
   hierarchy rows, rather than treating a valid hybrid observation as wrong membership.
   The factory comparison then exposed observer directory permissions and the distinction
   between a populated group, an empty group, a removed captured object and an unknown
-  read result. Host tests of the corrected C++ observer preserve those distinctions.
+  read result. Host tests of the corrected C++ observer preserve those distinctions;
+  the fresh Android trials then observed Empty for A and Removed for B at manager loss,
+  followed by successful recovery. An unreadable file alone is still not proof of cleanup.
 - **Implication:** fixtures have bugs too. Check intended inputs, exact acknowledgements, actual
   process identities, positive controls and lifecycle completion, not only exit codes or self hashes.
 - **Intent, accepted:** [tests inform architecture through scoped observed reality](architecture.md#design-method).

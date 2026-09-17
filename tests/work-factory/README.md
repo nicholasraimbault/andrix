@@ -134,8 +134,8 @@ Held without payload release. The Shell observer was then denied access to their
 kernel metadata. The source retained init's private umask while requesting mode 0755
 for new directories. A real host cgroup test reproduced the resulting 0700 mode and
 verified explicit directory chmod. The correction makes only owned lab metadata
-readable for the observer, without granting owner workers control. That correction
-still needs fresh Android artifacts and execution; the stopped attempt is not a pass.
+readable for the observer, without granting owner workers control. It required new
+artifacts and execution; the stopped attempt remains incomplete.
 
 The first fresh B runtime exercised actual dynamic init instances, kernel identity,
 capability/limit/filter observations, entry exit with detached descendants, ordinary-app
@@ -152,11 +152,47 @@ object. Real host tests of that same C++ code covered permission denial remainin
 normal Empty, removal and path reuse without retargeting. A retained directory's link
 count remained 2 after removal, so link count is deliberately not the removal test.
 The corrections at `7127cc7` passed 366 host tests and both Android native/policy
-configurations. Those are not matching corrected image or runtime results.
+configurations. Those results did not qualify the earlier runtime attempts.
 
-Both runs, failures and useful observations are preserved. Neither backend is selected.
-The next gate is matching corrected images and complete fresh comparison trials, not
-reclassifying the old runs or declaring a winner from how far their observers progressed.
+## Corrected Android comparison result
+
+At `409fc6d`, with the same native corrections as `7127cc7`, all 366 host tests and
+complete normal/A/B native, policy and image gates passed. Each backend then completed
+the listed controls in a separate fresh offline Android fixture with matching tools:
+
+- Dynamic creation, duplicate request identity, held execution and explicit release.
+- Actual UID/MAC, zero capabilities, protected bounds, filter and membership checks.
+- Entry exit with two surviving detached descendants per scope.
+- Ordinary app negatives bracketed by live factory/work positives.
+- Independent scope Stop or guardian crash with unrelated work still advancing.
+- Wrong/old IDs and tombstone controls, held cancellation and refused late release.
+- Stop while the allocator was blocked, followed by late helper creation and removal
+  without an owner entry or payload.
+- Manager death, process cleanup, a fresh manager identity with zero restored jobs,
+  retirement of old handles/hierarchies, new work and final graceful cleanup.
+
+A used unchanged init. Init killed the nested processes but initially could not remove
+the parent directory while empty children remained. Captured groups were observed Empty;
+the new manager reconciled the old hierarchy through its owned directory controls and
+init's existing `rmdir` action. The expected init retry interval and `EBUSY` messages
+remain part of the result, not evidence that directory cleanup was immediate. Shell
+independently observed the corrected leaf and parent directory modes.
+
+B used the separately enabled init extension. Init removed each work group after its
+guardian exited. Captured old groups were observed Removed after manager loss. Fresh
+manager admission, no automatic job restart, retirement of old handles and final cleanup
+then completed. Both runs retained the same boot, system_server identity and platform
+lifecycle epoch within their respective fixture.
+
+These are successful finite comparison trials, not production qualification. They do
+not establish forced numeric PID reuse safety, arbitrary hung operations or Binder
+saturation, injection of resource or setup failures, natural completion of all
+remaining descendants, fully released physical accounting, phone behavior, pressure,
+suspend, durability or a new CE loss result. No universal resource defaults follow from
+fixture limits. The earlier incomplete runs remain separate.
+
+Neither backend is selected. See the [comparison and proposed direction](../../plans/2026-09-17-work-factory-comparison.md#interpretation-and-proposed-direction)
+for the ownership tradeoff rather than choosing by prototype size or observer progress.
 
 ## Running safely
 

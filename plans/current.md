@@ -94,18 +94,22 @@ factory design.
 The owner approved [comparative factory tests](2026-09-17-work-factory-comparison.md):
 an Andrix manager using existing Android facilities with init unchanged, and a narrow
 init extension that creates fresh instances from complete trusted profiles. Neither
-backend is selected. The `7b8a117` variants passed native/policy/image gates and ran in
-separate fresh Android fixtures. A reached held dynamic workers but its observer could
-not traverse private group directories. B completed creation, independent Stop, stale
-IDs and blocked allocation controls; init logged cleanup after manager loss, but a
-removed-group observation error prevented recovery testing. Both runs remain incomplete.
-The corrections passed 366 host tests and both native/policy configurations. Matching
-corrected images and fresh trials are still required before accepting a layout.
+backend is selected. The first `7b8a117` attempts exposed two observer defects and remain
+incomplete. Corrected source at `409fc6d` passed 366 host tests and complete normal/A/B
+artifact gates. Both fresh Android trials then completed the listed creation, authority,
+descendant, independent Stop, stale identity, blocked allocation and manager recovery
+controls, including fresh work and final cleanup. These are finite fixture results,
+not full product, resource failure, pressure or phone qualification.
 
-1. Design and qualify a general factory that preserves the complete trusted launch
-   profile and exact instance lifetime. Use the fixed-slot evidence, not its slot
-   count or property interface, as the basis. Compare init instantiation that preserves
-   the profile with alternative Android owned boundaries before adopting a layout.
+The [proposed next direction](2026-09-17-work-factory-comparison.md#interpretation-and-proposed-direction)
+is A's ownership model: the Andrix manager owns work scopes and Android init supervises
+the manager. A's empty directory reconciliation and init retry delay must remain explicit
+requirements, not hidden by the successful trial. This is a proposal awaiting an owner
+decision, not an accepted architecture change.
+
+1. Accept or revise the proposed ownership direction, then design and qualify the
+   general work API and complete trusted launch profile. Do not preserve fixture request
+   counts, fixed payloads, property transport or resource values as product restrictions.
 2. Use focused tests for Android shell behavior, descendant topology, admission
    cancellation and control responsiveness before committing to the replacement.
    Preserve genuine user/CE authority, bounded resources and complete work Stop. Keep
