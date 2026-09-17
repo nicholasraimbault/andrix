@@ -22,7 +22,7 @@ class WorkFactoryFixtureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             makefile = Path(directory)/'Makefile'
             makefile.write_text('soong_config_set_bool =\ninclude '+str(product)+
-                '\nall:\n\t@printf "%s\\n" "$(PRODUCT_PACKAGES)|$(PRODUCT_SYSTEM_PROPERTIES)"\n')
+                '\nall:\n\t@printf "%s\\n" "$(PRODUCT_PACKAGES)|$(PRODUCT_SYSTEM_EXT_PROPERTIES)"\n')
             base = dict(TARGET_PRODUCT='andrix_gos_cf_arm64_only_phone', TARGET_BUILD_VARIANT='userdebug',
                         ANDRIX_OWNER_SESSION='true',ANDRIX_OWNER_LIFECYCLE='true')
             for backend in ['', 'delegated', 'init', 'other', 'delegated init']:

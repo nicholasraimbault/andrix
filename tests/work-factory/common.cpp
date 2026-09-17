@@ -14,7 +14,10 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <cstddef>
 #include <cstring>
+#include <ctime>
+#include <utility>
 
 #include "guards.h"
 

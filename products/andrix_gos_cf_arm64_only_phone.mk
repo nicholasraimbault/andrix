@@ -120,7 +120,7 @@ endif
 ifeq ($(ANDRIX_WORK_FACTORY_PROOF),init)
 $(call soong_config_set_bool,andrix,factory_init,true)
 endif
-PRODUCT_SYSTEM_PROPERTIES += ro.andrix.factory_backend=$(ANDRIX_WORK_FACTORY_PROOF)
+PRODUCT_SYSTEM_EXT_PROPERTIES += ro.andrix.factory_backend=$(ANDRIX_WORK_FACTORY_PROOF)
 PRODUCT_PACKAGES += andrix-factory-manager-probe andrix-factory-guardian-probe andrix-factory-worker-probe andrix-factory-proof-client
 endif
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 #include <android-base/unique_fd.h>
+#include <sys/types.h>
 
 #include <cstdint>
 #include <string>
