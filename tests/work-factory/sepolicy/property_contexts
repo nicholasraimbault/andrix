@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: Apache-2.0
+sys.andrix.factory.run u:object_r:andrix_factory_control_prop:s0 exact bool
+sys.andrix.factory.recover u:object_r:andrix_factory_control_prop:s0 exact bool
+sys.andrix.factory.consumed u:object_r:andrix_factory_state_prop:s0 exact bool
+sys.andrix.factory.recovered u:object_r:andrix_factory_state_prop:s0 exact bool
+ro.andrix.factory_backend u:object_r:andrix_factory_state_prop:s0 exact enum delegated init
+sys.andrix.factory.manager_pid u:object_r:andrix_factory_pid_prop:s0 exact int
+sys.andrix.factory.reclaim_pid u:object_r:andrix_factory_pid_prop:s0 exact int
+sys.andrix.factory.request u:object_r:andrix_factory_request_prop:s0 exact string
+sys.andrix.factory.reply u:object_r:andrix_factory_reply_prop:s0 exact string

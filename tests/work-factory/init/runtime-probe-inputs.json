@@ -1,0 +1,25 @@
+{
+  "system_core_revision": "84ebea5e21110f31b632473a2fdb1c656b599b24",
+  "files": {
+    "init/service.h": {
+      "original_sha256": "febcf5e674fb2e13e4632ea3b015d131c26d938311108b54c624db3b516bdd8d",
+      "probe_sha256": "b6de256f667c6903c64d8fb9f87e0fa26e077fc731bcc2e1c6b985af6709971a"
+    },
+    "init/service_list.h": {
+      "original_sha256": "13d3ec1ada8ab44af1ae055162fdb9cddf02c18eedade63af501a5c6bbed1d07",
+      "probe_sha256": "18900bcfdfb96f11bff3a1bab47a9a5748e1d1494c462b5e8e35107ba08dba69"
+    },
+    "init/service.cpp": {
+      "original_sha256": "922eea487f33fc5f2f918ffa58e20d1ea0ec5796e5c1310dc4af5dae5d1af7dc",
+      "probe_sha256": "3ef0f1a677bd905924f9fc5192d2fd5e2493ada38b54ec935c0ef6702b43b2a1"
+    },
+    "init/builtins.cpp": {
+      "original_sha256": "cc754f60283d8e31eaee7d14b7cee1abc3f19f86d78bcdb446eb44b831b83a14",
+      "probe_sha256": "e9a50ffb7583764146ca6655ff5d4a6d20864ca0d42e2f7a4cbfc3af70ab4ca2"
+    },
+    "init/Android.bp": {
+      "original_sha256": "bf2cce3902a4b191e3796ee238cf6ad41a3615154a6daff7b7aa4c852421f5ab",
+      "probe_sha256": "01a155a20e1da93258b9e0c90099d23c893593a9e1ae6c5661f93729394ee900"
+    }
+  }
+}

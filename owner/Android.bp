@@ -92,6 +92,11 @@ cc_binary {
 // Source reuse by a separately selected debug scope experiment. These filegroups
 // install nothing and do not change the normal owner's linked inputs or policy.
 filegroup {
+    name: "andrix_factory_basic_guard_sources",
+    srcs: ["native/session_core.cpp", "native/guards.cpp"],
+}
+
+filegroup {
     name: "andrix_scope_proof_guard_sources",
     srcs: ["native/session_core.cpp", "native/guards.cpp", "native/platform_lifecycle.cpp",
            "native/lifecycle_core.cpp"],

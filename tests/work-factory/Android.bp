@@ -1,7 +1,69 @@
 // SPDX-License-Identifier: Apache-2.0
-// The integration patch defines the host test in system/core/init so it links the
-// actual private libinit_host parser, rather than a facade in the vendor tree.
 filegroup {
     name: "andrix_factory_profile_sources",
     srcs: ["init/work_profile_experiment.cpp", "init/profile_test.cpp"],
+}
+filegroup {
+    name: "andrix_factory_init_runtime_sources",
+    srcs: ["init/work_profile_experiment.cpp", "init/work_profile_runtime.cpp"],
+}
+
+soong_config_module_type {
+    name: "andrix_factory_cc_defaults_type",
+    module_type: "cc_defaults",
+    config_namespace: "andrix",
+    bool_variables: ["factory_init"],
+    properties: ["cflags", "init_rc"],
+}
+andrix_factory_cc_defaults_type {
+    name: "andrix_factory_backend",
+    soong_config_variables: {
+        factory_init: {
+            cflags: ["-DANDRIX_FACTORY_INIT=1"],
+            init_rc: ["factory-init-probe.rc"],
+        },
+    },
+}
+cc_defaults {
+    name: "andrix_factory_native_defaults",
+    system_ext_specific: true,
+    cpp_std: "c++20",
+    cflags: ["-Wall", "-Wextra", "-Werror", "-DANDRIX_OWNER_LIFECYCLE=1"],
+    include_dirs: ["vendor/andrix/owner/native"],
+    shared_libs: ["libbase", "libbinder_ndk", "liblog", "libselinux"],
+}
+aidl_interface {
+    name: "andrix_factory_proof",
+    unstable: true,
+    srcs: ["aidl/dev/andrix/proof/factory/*.aidl"],
+    local_include_dir: "aidl",
+    backend: {
+        cpp: { enabled: false },
+        java: { enabled: false },
+        ndk: { enabled: true },
+    },
+}
+cc_binary {
+    name: "andrix-factory-manager-probe",
+    defaults: ["andrix_factory_native_defaults", "andrix_factory_backend"],
+    srcs: ["manager.cpp", "common.cpp", ":andrix_factory_basic_guard_sources"],
+    static_libs: ["andrix_factory_proof-ndk"],
+    init_rc: ["factory-probe.rc"],
+}
+cc_binary {
+    name: "andrix-factory-guardian-probe",
+    defaults: ["andrix_factory_native_defaults"],
+    srcs: ["guardian.cpp", "common.cpp", ":andrix_scope_proof_guard_sources"],
+    static_libs: ["andrix_platform_lifecycle-ndk"],
+}
+cc_binary {
+    name: "andrix-factory-worker-probe",
+    defaults: ["andrix_factory_native_defaults"],
+    srcs: ["worker.cpp", "common.cpp", ":andrix_scope_proof_worker_sources"],
+}
+cc_binary {
+    name: "andrix-factory-proof-client",
+    defaults: ["andrix_factory_native_defaults"],
+    srcs: ["client.cpp", "common.cpp", ":andrix_factory_basic_guard_sources"],
+    static_libs: ["andrix_factory_proof-ndk"],
 }

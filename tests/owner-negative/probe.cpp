@@ -23,6 +23,9 @@ Java_dev_andrix_proof_ownernegative_OwnerNegative_nativeProbe(JNIEnv* env, jclas
     const bool scope_a_found = scope_a != nullptr, scope_b_found = scope_b != nullptr;
     if (scope_a != nullptr) AIBinder_decStrong(scope_a);
     if (scope_b != nullptr) AIBinder_decStrong(scope_b);
+    AIBinder* factory = AServiceManager_checkService("andrix.proof.factory");
+    const bool factory_found = factory != nullptr;
+    if (factory != nullptr) AIBinder_decStrong(factory);
     errno = 0;
     int home = open("/data/misc_ce/0/andrix", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
     const int home_error = home < 0 ? errno : 0;
@@ -40,10 +43,10 @@ Java_dev_andrix_proof_ownernegative_OwnerNegative_nativeProbe(JNIEnv* env, jclas
     char record[768];
     int length = snprintf(record, sizeof(record),
         "{\"uid\":%u,\"euid\":%u,\"sid\":\"%s\",\"service_found\":%s,"
-        "\"lifecycle_service_found\":%s,\"scope_a_found\":%s,\"scope_b_found\":%s,\"home_errno\":%d}",
+        "\"lifecycle_service_found\":%s,\"scope_a_found\":%s,\"scope_b_found\":%s,\"factory_found\":%s,\"home_errno\":%d}",
         getuid(), geteuid(), sid, found ? "true" : "false",
         lifecycle_found ? "true" : "false", scope_a_found ? "true" : "false",
-        scope_b_found ? "true" : "false", home_error);
+        scope_b_found ? "true" : "false", factory_found ? "true" : "false", home_error);
     if (length < 0 || length >= static_cast<int>(sizeof(record))) return nullptr;
     return env->NewStringUTF(record);
 }

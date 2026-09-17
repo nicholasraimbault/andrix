@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: Apache-2.0
+# Selected lab only. Native workers retain the existing andrix_owner boundary.
+type andrix_factory_probe_service, service_manager_type;
+add_service(andrixd, andrix_factory_probe_service)
+allow andrixd andrix_factory_probe_service:service_manager find;
+allow shell andrix_factory_probe_service:service_manager find;
+binder_call(shell, andrixd)
+neverallow { andrix_owner andrix_terminal untrusted_app_all isolated_app_all } andrix_factory_probe_service:service_manager find;
+
+# Private fixed worker observation/release channels, not arbitrary coordinator I/O.
+type andrix_factory_probe_socket, file_type;
+allow andrixd andrix_factory_probe_socket:unix_stream_socket create_socket_perms_no_ioctl;
+allow andrix_owner andrix_factory_probe_socket:unix_stream_socket { read write };
+neverallow { domain -andrixd -andrix_owner } andrix_factory_probe_socket:unix_stream_socket { read write };
+# Manager/guardian connections stay in the trusted role, unavailable to workers.
+allow andrixd self:unix_stream_socket connectto;
+neverallow andrix_owner andrixd:unix_stream_socket connectto;
+allow andrixd andrixd_exec:file execute_no_trans;
+allow andrixd cgroup_v2:dir { open read getattr search };
+
+system_internal_prop(andrix_factory_control_prop)
+system_internal_prop(andrix_factory_state_prop)
+system_internal_prop(andrix_factory_pid_prop)
+system_internal_prop(andrix_factory_request_prop)
+system_internal_prop(andrix_factory_reply_prop)
+set_prop(shell, andrix_factory_control_prop)
+get_prop(shell, andrix_factory_state_prop)
+set_prop(andrixd, andrix_factory_pid_prop)
+get_prop(andrixd, andrix_factory_state_prop)
+get_prop(andrixd, andrix_factory_reply_prop)
+neverallow { domain -init -shell } andrix_factory_control_prop:property_service set;
+neverallow { domain -init } { andrix_factory_state_prop andrix_factory_reply_prop }:property_service set;
+neverallow { domain -init -andrixd } { andrix_factory_pid_prop andrix_factory_request_prop }:property_service set;
+
+ifelse(andrix_factory_backend, `delegated', `
+  # Existing upstream MAC write permissions do not include mkdir/rmdir. Only the
+  # trusted manager/guardian role gains these lab operations. DAC limits them to
+  # the init-delegated subtree; aggregate files and migration ancestors stay protected.
+  allow andrixd cgroup_v2:dir { create rmdir };
+')
+ifelse(andrix_factory_backend, `init', `
+  set_prop(andrixd, andrix_factory_request_prop)
+')
+# No worker directory/control writes, capabilities or privileged Binder calls added.

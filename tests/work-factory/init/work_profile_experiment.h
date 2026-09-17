@@ -71,6 +71,11 @@ class WorkProfileExperiment {
     Result<Instance> Create(ServiceList& destination);
 
     static Snapshot Inspect(const Service& service);
+#ifdef ANDRIX_FACTORY_INIT
+    // Init-only lab entry points. No caller-selected identity, program or bounds.
+    static Result<pid_t> StartForInit(uint64_t manager, uint64_t work);
+    static Result<void> ActivateForInit(const Service& service);
+#endif
 
   private:
     static Result<void> ValidateDefinition(const TrustedDefinition& definition);
