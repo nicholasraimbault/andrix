@@ -141,8 +141,12 @@ changing a requirement must be explicit, not hidden inside a rewrite.
 
 The immediate implementation question is cleanup split into bounded steps on an exact
 owned instance, with safe reaping, closed mutation ownership and no delayed numeric
-signal hazards. Then qualify declared profile/delegation activation and an ordinary
-owner program launch before integrating presentation. Do not merely put the old
+signal hazards. A [native candidate](../supervision/README.md) now provides the bounded
+state/ticket and captured cgroup primitives, with host unit/sanitizer and actual Linux
+kernel controls. It is not installed or integrated into init. Compile the Android
+candidate, then wire the optional service adapter and execution lane while preserving
+existing services. Qualify declared profile/delegation activation and an ordinary owner
+program launch before integrating presentation. Do not merely put the old
 synchronous cleanup function in a thread or promote either fixture unchanged.
 
 Pinned glibc and an Android hosted Wayland path remain later compatibility research.

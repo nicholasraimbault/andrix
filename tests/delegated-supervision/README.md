@@ -72,5 +72,11 @@ an outside actor replacing names. The tree was fixture bounded, not an arbitrary
 production hierarchy. No claim of Android init responsiveness, MAC, asynchronous worker
 recovery or combined contract qualification follows.
 
+The subsequent [native component candidate](../../supervision/README.md) ports the
+ordering and captured group mechanisms to C++. `native_cleanup_kernel.py` exercises
+those actual components, including late population, occupied timeout slots, incremental
+reclamation, restart fences, permission errors, limits and entry replacement. It still
+uses host authority, not Android caller or MAC identity.
+
 Next is the corresponding optional Android service cleanup path with exact instance
 ownership and restart fencing. The earlier A/B results do not qualify that new code.
