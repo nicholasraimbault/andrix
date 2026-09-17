@@ -91,11 +91,11 @@ factory design.
 
 ## Next gates
 
-The [next factory experiment](2026-09-17-work-factory-proposal.md) is proposed for an
-explicit decision: a narrow init facility that instantiates a complete image defined
-profile with a fresh lifetime identity. It would extend a privileged Android launch
-interface, so it is not treated as already approved by the fixed-slot trial. No init
-changes for that facility have been made.
+The owner approved [comparative factory tests](2026-09-17-work-factory-comparison.md):
+an Andrix manager using existing Android facilities with init unchanged, and a narrow
+init extension that creates fresh instances from complete trusted profiles. Neither
+backend is selected. Source feasibility, focused mechanisms and real Android controls
+must be compared before accepting a layout.
 
 1. Design and qualify a general factory that preserves the complete trusted launch
    profile and exact instance lifetime. Use the fixed-slot evidence, not its slot

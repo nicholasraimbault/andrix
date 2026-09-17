@@ -1,0 +1,17 @@
+{
+  "system_core_revision": "84ebea5e21110f31b632473a2fdb1c656b599b24",
+  "files": {
+    "init/service.h": {
+      "original_sha256": "febcf5e674fb2e13e4632ea3b015d131c26d938311108b54c624db3b516bdd8d",
+      "probe_sha256": "86288b3dbd848f6f9a44a528173145b76ac59339b5336281069184ec9aa0bd81"
+    },
+    "init/service_list.h": {
+      "original_sha256": "13d3ec1ada8ab44af1ae055162fdb9cddf02c18eedade63af501a5c6bbed1d07",
+      "probe_sha256": "dcafe4c6455f7d808318bb71bec4c3e55dcd7f16becff8d9166e264a26feaef0"
+    },
+    "init/Android.bp": {
+      "original_sha256": "bf2cce3902a4b191e3796ee238cf6ad41a3615154a6daff7b7aa4c852421f5ab",
+      "probe_sha256": "ec9c0f90f88894fb7da8db911ed3d39cbbb4e9b6d0ce8da8b7deb1c582297b83"
+    }
+  }
+}

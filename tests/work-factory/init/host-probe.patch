@@ -1,0 +1,34 @@
+--- a/init/service.h
++++ b/init/service.h
+@@ -67,6 +67,7 @@
+ 
+ class Service {
+     friend class ServiceParser;
++    friend class WorkProfileExperiment;  // Construction probe, no launch API.
+ 
+   public:
+     Service(const std::string& name, Subcontext* subcontext_for_restart_commands,
+--- a/init/service_list.h
++++ b/init/service_list.h
+@@ -29,6 +29,7 @@
+ namespace init {
+ 
+ class ServiceList {
++    friend class WorkProfileExperiment;  // Private staging transfer in construction probe.
+   public:
+     static ServiceList& GetInstance();
+ 
+--- a/init/Android.bp
++++ b/init/Android.bp
+@@ -829,3 +829,11 @@
+     aconfig_declarations: "init_flags",
+     host_supported: true,
+ }
++
++// Andrix comparison: host construction test only, not a device launch extension.
++cc_test_host {
++    name: "andrix_init_profile_probe",
++    defaults: ["init_host_defaults"],
++    srcs: [":andrix_factory_profile_sources"],
++    static_libs: ["libinit_host"],
++}

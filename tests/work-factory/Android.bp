@@ -1,0 +1,8 @@
+// SPDX-License-Identifier: Apache-2.0
+// The integration patch defines the host test in system/core/init so it links the
+// actual private libinit_host parser, rather than a facade in the vendor tree.
+filegroup {
+    name: "andrix_factory_profile_sources",
+    srcs: ["init/work_profile_experiment.cpp", "init/profile_test.cpp"],
+    export_include_dirs: ["init"],
+}

@@ -1,0 +1,29 @@
+Construction probe only. No init launch/control extension is installed by this patch.
+
+Pinned system/core: 84ebea5e21110f31b632473a2fdb1c656b599b24.
+Apply host-probe.patch only after checking the exact original hashes in
+host-probe-inputs.json. It adds two C++ friendships and one host test build rule:
+
+1. In Service, alongside friend class ServiceParser:
+   friend class WorkProfileExperiment;
+2. In ServiceList, before public:
+   friend class WorkProfileExperiment;
+
+The first allows validation/snapshot of actual parsed private fields, including the
+optional capability configuration. The second transfers a newly parsed unique_ptr
+from a private staging list, not a live service. No normal runtime methods change.
+The host test is defined in system/core/init to use its private libinit_host, while
+source inputs come from the Andrix test filegroup. Source provenance and revert
+checks are required; this is not permission to mutate an active build.
+
+Build target: andrix_init_profile_probe. Run the newly frozen HOST binary with its
+matching host libraries. Never run CtsInitTestCases or device init in its place.
+No service is started, no UID/capability is changed, and no cgroup is written by
+these construction tests. Passing them does not qualify Android execution or any
+factory's request, cancellation, restart or cleanup protocol.
+
+The factory's numeric sequence and borrowed Service pointer are construction
+identifiers, not externally usable work capabilities. A production registry and
+boot/instance identity protocol are separate work. The constructor accepts an
+immutable trusted definition to support negative tests, not untrusted request data.
+All limits in this fixture remain experiment values rather than product defaults.
