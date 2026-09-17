@@ -64,6 +64,14 @@ also rejected the socket-creation macro's unused unrestricted ioctl permission. 
 fixture now selects the existing no-ioctl macro rather than weakening the neverallow or
 granting unused operations.
 
+Source `101f253` passed corrected module/policy/image checks. The next Android attempt
+reached both held worker acknowledgements without payload release. Its collector then
+incorrectly required `/proc/PID/cgroup` to contain only a v2 row; Android also reported
+v1 CPU, cpuset and I/O hierarchies. The expected v2 row was present and correct. This
+is an observer failure, not a changed Android membership policy or a completed runtime
+pass. A tested parser now selects the one exact unified row while validating the other
+rows. The next attempt uses fresh state and the same sealed Android inputs.
+
 ## Intended controls
 
 - Both groups have actual owner UID/SID, protected resources and independent identities.
