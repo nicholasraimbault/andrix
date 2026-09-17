@@ -114,8 +114,10 @@ the lab backend property being added to the generic system partition. It now bel
 `system_ext`; the partition rule was not bypassed. The native candidate had not compiled
 in that failed batch. The next attempt reached native compilation and rejected an
 unnecessary const-string copy in the bounds loop under `-Werror`; the loop now takes a
-reference. No warning was disabled. The earlier fixed-slot trial and host mechanism
-results above do not qualify the new interfaces, delegation, recovery or activation hook.
+reference. A subsequent manager compile caught a signed PID comparison; the parsed
+value is now bounded to `pid_t` before conversion and checked by a focused parser test.
+No warning was disabled. These incomplete batches, the earlier fixed-slot trial and
+host mechanisms do not qualify the new interfaces, recovery or activation hook.
 
 ## Running safely
 

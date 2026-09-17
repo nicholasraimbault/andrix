@@ -82,6 +82,28 @@ int main() {
             self.assertEqual(built.returncode,0,built.stderr)
             self.assertEqual(subprocess.run([str(binary)],timeout=10).returncode,0)
 
+    def test_actual_opaque_identity_parser_and_pid_narrowing_guard(self):
+        source=(ROOT/'tests/work-factory/common.cpp').read_text()
+        parser=source[source.index('bool parse_id('):source.index('std::string read_small(')]
+        harness='#include <cstdint>\n#include <cassert>\n'+parser+'''
+int main() {
+ uint64_t value=0;
+ assert(!parse_id(nullptr,&value));assert(!parse_id("",&value));
+ assert(!parse_id("0",&value));assert(!parse_id("-1",&value));
+ assert(!parse_id("1:2",&value));assert(parse_id("42",&value) && value==42);
+ assert(parse_id("4611686018427387904",&value) && value==(uint64_t{1}<<62));
+ assert(!parse_id("4611686018427387905",&value));
+ assert(!parse_id("18446744073709551616",&value));
+}
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            cpp=Path(directory)/'id.cpp';cpp.write_text(harness);binary=Path(directory)/'id'
+            built=subprocess.run(['g++','-std=c++20','-O2','-Wall','-Wextra','-Werror',str(cpp),'-o',str(binary)],capture_output=True,text=True,timeout=180)
+            self.assertEqual(built.returncode,0,built.stderr)
+            self.assertEqual(subprocess.run([str(binary)],timeout=10).returncode,0)
+        manager=(ROOT/'tests/work-factory/manager.cpp').read_text()
+        self.assertLess(manager.index('std::numeric_limits<pid_t>::max()'),manager.index('const auto created_pid = static_cast<pid_t>(pid)'))
+
     def test_new_crossings_do_not_grant_worker_management_authority(self):
         proof=ROOT/'tests/work-factory'
         policy=(proof/'sepolicy/factory_proof.te').read_text()
