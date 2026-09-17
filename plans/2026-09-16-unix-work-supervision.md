@@ -6,7 +6,10 @@ behavior. Android implementation source was inspected separately. That host suit
 354 tests, followed by ten additional repetitions of all ten process cases, 100 more
 case executions. That pass introduced no Android image/runtime result, permissions,
 resource policy, notification behavior or public API. The subsequent separately gated
-scope experiment and its status are linked below.
+scope experiment and its status are linked below. The later
+[accepted work supervision model](../docs/architecture.md#work-supervision) supersedes
+this note's tentative backend preference, not its scoped observations. Exact helper
+processes and protocols still need design; this note is not a prescribed process layout.
 
 This follows the [owner direction](../docs/architecture.md#design-method) and
 [register R05 through R10](../docs/design-evidence.md#r05-work-and-terminal-lifetime).
