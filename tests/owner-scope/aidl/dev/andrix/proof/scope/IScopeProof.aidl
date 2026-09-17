@@ -10,5 +10,6 @@ interface IScopeProof {
     boolean release(long scopeId);
     // The counter in observe shows that a rejected old/wrong request was processed.
     // A matching request exits this exact guardian. Transport return is not cleanup.
+    // Kernel UID/SID authenticate oneway; Binder does not provide its caller PID.
     oneway void stop(long scopeId, boolean crash);
 }

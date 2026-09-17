@@ -166,8 +166,11 @@ There is no supported release or qualified physical phone deployment at this che
   passed module/image inspection; its first Android attempt registered both guardians but
   failed on owner access to inherited coordinator pipes before payload release. Dedicated
   fixture channels in `101f253` then reached both held workers. That run stopped on a collector
-  assumption that cgroup membership was v2-only. Correct hybrid parsing needs a fresh attempt;
-  neither incomplete run is a full runtime pass. A dynamic factory and final layout remain open.
+  assumption that cgroup membership was v2-only. A fresh corrected observation then recorded
+  both released scopes, detached descendants and ordinary-app negatives. Its Stop control failed
+  because a synchronous caller-PID check was applied to `oneway`. Kernel UID/SID and exact identity
+  remain required; the documented absent oneway PID must not be invented. Complete Stop/reuse
+  still needs a successful trial. A dynamic factory and final layout remain open.
 
 ## R06 Work discovery, admission and Stop
 
@@ -179,6 +182,8 @@ There is no supported release or qualified physical phone deployment at this che
   fault recovery. The overall fixture reached its deadline; it is not a full runtime pass.
   [Correction `1571c7b`](../plans/2026-09-16-work-terminal-separation.md#review-correction-and-remaining-responsiveness-limit)
   passes 353 host tests and both Android module configurations, but has no new runtime result.
+  The [scope experiment](../tests/owner-scope/README.md#released-work-observation-and-binder-correction)
+  also exposed the difference between synchronous Binder caller metadata and oneway's absent PID.
 - **Implication:** stale-result rejection is necessary but not sufficient: the new foreground
   intent must eventually be observed after an obsolete query or attachment retires. Sharing one
   control executor still lets UI Stop wait behind blocked admission.

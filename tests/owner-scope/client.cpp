@@ -58,10 +58,10 @@ ScopeState observe(Work& work) {
 void record(const char* event, const Work& work) {
   const auto& s = work.state;
   printf("{\"event\":\"%s\",\"scopeId\":%lld,\"guardian\":%d,\"phase\":%d,"
-         "\"entry\":%d,\"entryExited\":%s,\"pulses\":%lld,\"stopRequests\":%lld,\"descendants\":[",
+         "\"entry\":%d,\"entryExited\":%s,\"pulses\":%lld,\"stopRequests\":%lld,\"stopCallerPid\":%d,\"descendants\":[",
          event, static_cast<long long>(s.scopeId), s.guardianPid, s.phase, s.entryPid,
          s.entryExited ? "true" : "false", static_cast<long long>(s.pulses),
-         static_cast<long long>(s.stopRequests));
+         static_cast<long long>(s.stopRequests), s.lastStopCallerPid);
   for (size_t i = 0; i < s.descendants.size(); ++i) printf("%s%d", i ? "," : "", s.descendants[i]);
   printf("]}\n"); fflush(stdout);
 }
@@ -110,6 +110,7 @@ void reject(Work& work, int64_t wrong) {
   int64_t before = observe(work).stopRequests;
   require(wrong != work.state.scopeId && work.service->stop(wrong, false).isOk(), "wrong-ID submission");
   wait_for([&] { observe(work); return work.state.stopRequests > before; }, "wrong-ID request processed");
+  require(work.state.lastStopCallerPid == 0, "actual oneway PID observation");
   record("wrong_id_processed_scope_survived", work);
 }
 }

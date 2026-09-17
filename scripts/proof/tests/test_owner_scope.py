@@ -24,6 +24,41 @@ class OwnerScopeProofTests(unittest.TestCase):
             self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
             self.assertIn('Android identity/resources/cleanup unqualified', ran.stdout)
 
+    def test_actual_caller_predicates_distinguish_oneway_pid(self):
+        source = (PROOF/'guardian.cpp').read_text()
+        methods = source[source.index('bool shell_identity() {'):source.index('ScopedAStatus denied()')]
+        harness = '''#include <cassert>
+#include <cstring>
+#include <iostream>
+#include <sys/types.h>
+static uid_t uid = 2000;
+static pid_t pid = 42;
+static const char* sid = "u:r:shell:s0";
+uid_t AIBinder_getCallingUid() { return uid; }
+pid_t AIBinder_getCallingPid() { return pid; }
+const char* AIBinder_getCallingSid() { return sid; }
+''' + methods + '''
+int main() {
+ assert(shell_identity() && shell_caller());
+ pid = 0; assert(shell_identity() && !shell_caller());
+ uid = 1000; assert(!shell_identity() && !shell_caller());
+ uid = 10146; assert(!shell_identity());
+ uid = 2000; sid = "u:r:andrix_owner:s0"; assert(!shell_identity());
+ sid = nullptr; assert(!shell_identity());
+ sid = "u:r:shell:s0"; pid = 1; assert(shell_identity() && !shell_caller());
+ std::cout << "Caller predicate model passed; actual Android identity unqualified\\n";
+}
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            cpp = Path(directory)/'caller.cpp';cpp.write_text(harness)
+            binary = Path(directory)/'caller'
+            built = subprocess.run(['g++','-std=c++20','-Wall','-Wextra','-Werror','-O2',
+                str(cpp),'-o',str(binary)],capture_output=True,text=True,timeout=180)
+            self.assertEqual(built.returncode,0,built.stderr)
+            result = subprocess.run([str(binary)],capture_output=True,text=True,timeout=20)
+            self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+            self.assertIn('actual Android identity unqualified',result.stdout)
+
     def test_explicit_debug_selection_and_separate_fault_scope(self):
         product = ROOT/'products/andrix_gos_cf_arm64_only_phone.mk'
         with tempfile.TemporaryDirectory() as directory:
@@ -78,6 +113,9 @@ class OwnerScopeProofTests(unittest.TestCase):
         stop = source[source.index('  ScopedAStatus stop('):source.index('  void tick()')]
         self.assertIn('if (gate_.stop(id)) _exit(crash ? 77 : 0)', stop)
         self.assertNotIn('mutex_', stop)
+        self.assertIn('if (!shell_identity())', stop)
+        self.assertNotIn('shell_caller()', stop)
+        self.assertIn('last_stop_pid_.store(AIBinder_getCallingPid())', stop)
         self.assertNotIn('kill(', source)
         self.assertIn('setsockcreatecon("u:object_r:andrix_scope_probe_socket:s0")', source)
         self.assertIn('setsockcreatecon(nullptr)', source)

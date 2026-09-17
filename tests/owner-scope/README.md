@@ -16,7 +16,8 @@ product with owner session and platform lifecycle enabled. It is separate from t
 existing lifecycle fault controls and cannot be combined with Keep or those controls.
 Normal images do not install these executables, init commands or policy entries.
 
-Only actual debug Shell callers may invoke the fixed probe controls. The experiment
+Only actual debug Shell UID/SID callers may invoke the fixed probe controls. Synchronous
+calls also require a valid caller PID; Binder supplies no PID for `oneway` Stop. The experiment
 has no caller supplied command, path, UID, budget or resource-group path. Probe
 workers cannot call the control service or modify cgroups. No general storage or
 execution management permission is granted to Shell or ordinary applications.
@@ -71,6 +72,22 @@ v1 CPU, cpuset and I/O hierarchies. The expected v2 row was present and correct.
 is an observer failure, not a changed Android membership policy or a completed runtime
 pass. A tested parser now selects the one exact unified row while validating the other
 rows. The next attempt uses fresh state and the same sealed Android inputs.
+
+## Released-work observation and Binder correction
+
+The fresh hybrid-aware collector with image `101f253` observed both released scopes,
+entry-process exit, two surviving detached descendants per scope, real kernel identity,
+limits and membership, and ordinary-app negatives bracketed by live scope positives.
+It then stopped because the wrong-ID Stop never advanced the authenticated request
+counter. Source review found that the common caller check required PID > 1 for a
+`oneway` method, but `AIBinder_getCallingPid` explicitly returns 0 for `oneway`.
+
+The correction authenticates Stop through the actual kernel UID/SID and immutable scope
+ID without inventing a caller PID. Synchronous calls retain their PID check. The next
+fixture records the actual Stop caller PID after authentication so the distinction is
+measured, not inferred from a missing reply. This does not grant another identity
+control authority. Complete Stop and stale-handle checks remain unqualified by that
+failed attempt and require fresh artifacts/runtime.
 
 ## Intended controls
 

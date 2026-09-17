@@ -85,8 +85,10 @@ attempt failed before payload release on the inherited pipe MAC boundary. The co
 uses dedicated fixture channel labels, not general coordinator-pipe access. Corrected
 `101f253` artifacts passed inspection and both workers reached held state in Android.
 That attempt then stopped on an observer's v2-only cgroup assumption. The parser is
-being corrected; payload release, independent Stop and stale handles still need a
-completed fresh runtime trial.
+corrected and a fresh attempt observed released workloads, detached descendants and
+ordinary-app negatives. That run exposed a caller check that incorrectly required PID
+for oneway Stop. The correction preserves kernel UID/SID and exact scope identity;
+complete Stop and stale handles still need a completed fresh runtime trial.
 
 ## Next gates
 
