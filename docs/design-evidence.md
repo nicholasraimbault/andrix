@@ -227,6 +227,10 @@ There is no supported release or qualified physical phone deployment at this che
   Both factory vehicles at `409fc6d` then exercised Stop during a blocked allocation and
   late helper completion without payload, plus exact old identity controls. That separate
   fixture does not fix Console's shared control lane or establish arbitrary RPC responsiveness.
+  Source inspection also leaves queued/concurrent Release versus Stop unqualified: the
+  fixture's Stop check and Release send are separate, as are guardian authority checking
+  and the payload release write. The blocked allocation result is not proof of those
+  release interleavings.
 - **Implication:** stale-result rejection is necessary but not sufficient: the new foreground
   intent must eventually be observed after an obsolete query or attachment retires. Sharing one
   control executor still lets UI Stop wait behind blocked admission.
