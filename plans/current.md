@@ -82,8 +82,11 @@ its absent capability profile does not establish the required zero bounding set.
 experiment will not be represented as a general dynamic factory or ordinary product behavior.
 Both module/image configurations passed inspection at `57a43b6`. Its first Android
 attempt failed before payload release on the inherited pipe MAC boundary. The correction
-uses dedicated fixture channel labels, not general coordinator-pipe access. It needs
-fresh artifact/runtime qualification.
+uses dedicated fixture channel labels, not general coordinator-pipe access. Corrected
+`101f253` artifacts passed inspection and both workers reached held state in Android.
+That attempt then stopped on an observer's v2-only cgroup assumption. The parser is
+being corrected; payload release, independent Stop and stale handles still need a
+completed fresh runtime trial.
 
 ## Next gates
 

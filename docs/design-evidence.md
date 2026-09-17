@@ -165,8 +165,9 @@ There is no supported release or qualified physical phone deployment at this che
   because it does not establish the required empty capability bounding set. Source `57a43b6`
   passed module/image inspection; its first Android attempt registered both guardians but
   failed on owner access to inherited coordinator pipes before payload release. Dedicated
-  fixture channel labels are the next correction, not a broad permission grant or runtime pass.
-  A dynamic factory and the final process layout are not selected yet.
+  fixture channels in `101f253` then reached both held workers. That run stopped on a collector
+  assumption that cgroup membership was v2-only. Correct hybrid parsing needs a fresh attempt;
+  neither incomplete run is a full runtime pass. A dynamic factory and final layout remain open.
 
 ## R06 Work discovery, admission and Stop
 
@@ -355,7 +356,9 @@ There is no supported release or qualified physical phone deployment at this che
   observation setup was required before testing that shell's lifetime behavior. A policy
   inspection audit also found class-level rule caches: separate fresh processes with a
   differing-policy positive control independently rechecked the coordinator cgroup rules.
-  The older shared-process comparison is not relied on as independent evidence.
+  The older shared-process comparison is not relied on as independent evidence. The scope
+  collector also had to distinguish the unified cgroup row from accompanying legacy
+  hierarchy rows, rather than treating a valid hybrid observation as wrong membership.
 - **Implication:** fixtures have bugs too. Check intended inputs, exact acknowledgements, actual
   process identities, positive controls and lifecycle completion, not only exit codes or self hashes.
 - **Intent, accepted:** [tests inform architecture through scoped observed reality](architecture.md#design-method).
