@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
+# Installed only with comparison B and its selected init extension.
+on property:sys.andrix.factory.request=*
+    andrix_factory_start ${sys.andrix.factory.request}

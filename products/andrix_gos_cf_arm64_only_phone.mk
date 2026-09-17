@@ -86,6 +86,44 @@ endif
 PRODUCT_PACKAGES += andrix-scope-guardian-probe andrix-scope-worker-probe andrix-scope-proof-client
 endif
 
+# Comparative native factory experiments. No default/product work policy changes.
+$(call soong_config_set_bool,andrix,factory_init,false)
+ifneq ($(ANDRIX_WORK_FACTORY_PROOF),)
+ifneq ($(ANDRIX_WORK_FACTORY_PROOF),delegated)
+ifneq ($(ANDRIX_WORK_FACTORY_PROOF),init)
+$(error ANDRIX_WORK_FACTORY_PROOF must be delegated or init)
+endif
+endif
+ifneq ($(TARGET_PRODUCT),andrix_gos_cf_arm64_only_phone)
+$(error ANDRIX_WORK_FACTORY_PROOF is limited to the GrapheneOS Cuttlefish lab product)
+endif
+ifneq ($(ANDRIX_OWNER_SESSION),true)
+$(error ANDRIX_WORK_FACTORY_PROOF requires ANDRIX_OWNER_SESSION=true)
+endif
+ifneq ($(ANDRIX_OWNER_LIFECYCLE),true)
+$(error ANDRIX_WORK_FACTORY_PROOF requires ANDRIX_OWNER_LIFECYCLE=true)
+endif
+ifeq ($(ANDRIX_OWNER_KEEP),true)
+$(error ANDRIX_WORK_FACTORY_PROOF cannot be combined with Keep)
+endif
+ifeq ($(ANDRIX_OWNER_FAULT_TESTS),true)
+$(error ANDRIX_WORK_FACTORY_PROOF cannot be combined with lifecycle fault controls)
+endif
+ifeq ($(ANDRIX_OWNER_SCOPE_PROOF),true)
+$(error ANDRIX_WORK_FACTORY_PROOF cannot be combined with the old fixed-slot proof)
+endif
+ifneq ($(TARGET_BUILD_VARIANT),userdebug)
+ifneq ($(TARGET_BUILD_VARIANT),eng)
+$(error ANDRIX_WORK_FACTORY_PROOF requires userdebug or eng)
+endif
+endif
+ifeq ($(ANDRIX_WORK_FACTORY_PROOF),init)
+$(call soong_config_set_bool,andrix,factory_init,true)
+endif
+PRODUCT_SYSTEM_PROPERTIES += ro.andrix.factory_backend=$(ANDRIX_WORK_FACTORY_PROOF)
+PRODUCT_PACKAGES += andrix-factory-manager-probe andrix-factory-guardian-probe andrix-factory-worker-probe andrix-factory-proof-client
+endif
+
 # Compiler payload is a separate opt-in within the owner environment. Unflagged
 # builds retain the original small APEX and do not require the staged compiler.
 ifeq ($(ANDRIX_OWNER_COMPILER),true)

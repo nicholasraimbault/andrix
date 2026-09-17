@@ -70,6 +70,48 @@ full project host suite also passed 361 tests at that source. These are distinct
 no owner process was launched by the construction tests, and no new Android image or
 runtime was qualified.
 
+## Android comparison vehicle under qualification
+
+The new Android fixture uses one manager and dynamically created work instances.
+`ANDRIX_WORK_FACTORY_PROOF=delegated` selects A with unchanged init implementation;
+`ANDRIX_WORK_FACTORY_PROOF=init` selects B with the separately gated init patch.
+Neither is installed in an ordinary image. Both require the debug Cuttlefish product,
+owner session and lifecycle support, with Keep and the other fault/scope fixtures off.
+
+Both managers use the same bounded Binder test controls and exact manager/work IDs.
+The actual debug Shell UID/SID is checked. Work control objects remain as tombstones
+inside the current manager after cleanup; they are not resolved again by a reused name.
+One creator thread can be blocked in a real pipe read while the independent Stop method
+latches stopping. Resuming that operation deliberately creates a late helper, which
+must be cleaned without owner payload release. This is a specific blocked allocation
+case, not proof against every stalled Binder pool or arbitrary uninterruptible I/O.
+
+For A, existing init configuration delegates directory/procs/subtree-control ownership
+only inside the manager's own group. Aggregate memory ceilings and migration ancestors
+remain protected. The trusted coordinator gets lab directory creation/removal permission;
+owner workers retain their write/mkdir denials and cannot become managers. Per-work
+control uses captured cgroup directory descriptors. Manager death relies on init's
+recursive process kill, followed by explicit empty-directory reconciliation on recovery.
+Final parent removal uses the existing init `rmdir` builtin, not a stale numeric PID kill.
+
+For B, `runtime-probe.patch` adds a separately selected init builtin that constructs a
+fresh instance from the tested fixed profile. Its memory controls are applied and read
+back before the existing child activation pipe is released. The trusted guardian stays
+alive after the owner entry exits. Init's normal service registration, PID lifetime pin
+and reap/cleanup own that group. The property ticket/reply transport is bounded lab
+machinery, not a selected product reservation protocol.
+
+Guardians in both variants independently check actual platform/CE authority and bounds
+before owner entry or payload release. Private manager connections authenticate kernel
+peer credentials and SID. Owner workers execute the existing filter, prove Binder and
+cgroup-control denial, and leave detached children that ignore observation-channel loss.
+The common client exercises duplicate creation, wrong/old IDs, held cancellation, late
+allocation completion, independent live work, manager failure/recovery and final cleanup.
+
+These Android sources have not yet completed their compile, policy, image and runtime
+gates. The earlier fixed-slot Android trial and the host mechanism results above do not
+qualify the new interfaces, delegation, recovery or init activation hook.
+
 ## Running safely
 
 Use a fresh bounded user service selected by the fixture's exact unit-name shape,

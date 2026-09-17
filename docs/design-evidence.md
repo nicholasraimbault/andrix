@@ -179,7 +179,10 @@ There is no supported release or qualified physical phone deployment at this che
   Captured control/directory FDs also did not resolve a replacement after path reuse.
   Actual init parser construction tests passed four cases at `166ff64`, preserving the
   explicit empty capability/profile fields without copying live service state. These
-  are mechanism results, not an Android backend verdict. The final layout remains open;
+  are mechanism results, not an Android backend verdict. The next separately gated
+  Android sources now exercise A's protected delegation/recovery and B's init profile
+  creation/activation hook through common control tests. Those new sources are unqualified
+  until their artifact and runtime gates complete. The final layout remains open;
   fixed slots are not the product limit.
 
 ## R06 Work discovery, admission and Stop

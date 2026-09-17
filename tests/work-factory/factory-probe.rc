@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: Apache-2.0
+# Test controls only. No per-work service slots are declared here.
+on init
+    setprop sys.andrix.factory.consumed false
+    setprop sys.andrix.factory.recovered false
+
+on property:sys.andrix.factory.run=true && property:sys.andrix.factory.consumed=false && property:sys.user.0.ce_available=true
+    setprop sys.andrix.factory.consumed true
+    start andrix-factory-manager
+
+on property:sys.andrix.factory.recover=true && property:sys.andrix.factory.recovered=false && property:sys.andrix.factory.consumed=true && property:init.svc.andrix-factory-manager=stopped && property:sys.user.0.ce_available=true
+    setprop sys.andrix.factory.recovered true
+    start andrix-factory-manager
+
+on property:sys.andrix.factory.manager_pid=*
+    write /sys/fs/cgroup/system/uid_7500/memory.max 268435456
+    write /sys/fs/cgroup/system/uid_7500/memory.swap.max 0
+    write /sys/fs/cgroup/system/uid_7500/memory.oom.group 1
+    write /sys/fs/cgroup/system/uid_7500/pid_${sys.andrix.factory.manager_pid}/memory.max 268435456
+    write /sys/fs/cgroup/system/uid_7500/pid_${sys.andrix.factory.manager_pid}/memory.swap.max 0
+    write /sys/fs/cgroup/system/uid_7500/pid_${sys.andrix.factory.manager_pid}/memory.oom.group 1
+
+on property:ro.andrix.factory_backend=delegated && property:sys.andrix.factory.manager_pid=*
+    # Delegate only the manager subtree. Its ceiling and migration ancestor stay protected.
+    chown 7500 7500 /sys/fs/cgroup/system/uid_7500/pid_${sys.andrix.factory.manager_pid}
+    chown 7500 7500 /sys/fs/cgroup/system/uid_7500/pid_${sys.andrix.factory.manager_pid}/cgroup.procs
+    chown 7500 7500 /sys/fs/cgroup/system/uid_7500/pid_${sys.andrix.factory.manager_pid}/cgroup.threads
+    chown 7500 7500 /sys/fs/cgroup/system/uid_7500/pid_${sys.andrix.factory.manager_pid}/cgroup.subtree_control
+
+on property:ro.andrix.factory_backend=delegated && property:sys.andrix.factory.reclaim_pid=*
+    # Empty child directories are first removed by the trusted manager. This
+    # existing init builtin runs serially with init's creation/migration work.
+    rmdir /sys/fs/cgroup/system/uid_7500/pid_${sys.andrix.factory.reclaim_pid}
+
+service andrix-factory-manager /system_ext/bin/andrix-factory-manager-probe
+    class late_start
+    user 7500
+    group 7500 inet
+    capabilities
+    disabled
+    oneshot
+    priority 10
+    oom_score_adjust 700
+    task_profiles SCHED_SP_BACKGROUND
+    rlimit nproc 32 32
+    rlimit nofile 128 128
+    rlimit core 0 0
+    rlimit fsize 67108864 67108864
