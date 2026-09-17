@@ -124,6 +124,7 @@ def main():
     created = []
     handles = {}
     channels = []
+    group_fds = []
     records = []
     scope = root/'fixture'
     try:
@@ -173,12 +174,30 @@ def main():
             records.append(dict(event='released', name=name, pid=pid, session=released['session']))
         require((scope/'cgroup.procs').read_text().strip() == '', 'parent procs is not recursive')
         require(populated(scope), 'parent events accounts for descendants')
-        (scope/'work_a/cgroup.kill').write_text('1')
+        old_a = os.open(scope/'work_a', os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        old_kill = os.open('cgroup.kill', os.O_WRONLY | os.O_CLOEXEC, dir_fd=old_a)
+        group_fds.extend([old_a, old_kill])
+        old_inode = os.fstat(old_a).st_ino
+        require(os.write(old_kill, b'1') == 1, 'exact captured group kill')
         require(select.select([handles[held[0]['pid']]], [], [], 5)[0], 'first payload exit')
         send(parent, {'command':'reap_a'});status = receive(parent)
         require(status['pid'] == held[0]['pid'] and os.WIFSIGNALED(status['status']) and
                 os.WTERMSIG(status['status']) == signal.SIGKILL, 'actual individual group kill')
         wait_empty(scope/'work_a');(scope/'work_a').rmdir();created.remove(scope/'work_a')
+        (scope/'work_a').mkdir();created.append(scope/'work_a')
+        require((scope/'work_a').stat().st_ino != old_inode, 'replacement path is a different kernel object')
+        try:
+            os.write(old_kill, b'1')
+        except OSError as error:
+            records.append(dict(event='old_open_control_rejected_after_path_reuse', errno=error.errno))
+        else:
+            raise RuntimeError('removed group control unexpectedly accepted a write')
+        try:
+            stale = os.open('cgroup.kill', os.O_WRONLY | os.O_CLOEXEC, dir_fd=old_a)
+        except OSError as error:
+            records.append(dict(event='old_directory_handle_does_not_resolve_replacement', errno=error.errno))
+        else:
+            os.close(stale);raise RuntimeError('removed directory unexpectedly resolved a control')
         send(b, {'command':'ping'});require(receive(b)['pid'] == held[1]['pid'], 'unrelated group remains live')
         records.append(dict(event='independent_group_kill_with_live_b', first_wait_status=status['status']))
         send(parent, {'command':'exit'})
@@ -208,7 +227,7 @@ def main():
         scope.mkdir(exist_ok=True)
         require(scope.stat().st_ino == before, 'EEXIST is not a fresh group identity')
         records.append(dict(event='existing_path_keeps_same_inode', old_inode=before))
-        for path in [scope/'work_b', scope/'control', scope]:
+        for path in [scope/'work_b', scope/'work_a', scope/'control', scope]:
             path.rmdir();created.remove(path)
         got, status = os.waitpid(child,0);require(got == child and os.WIFEXITED(status) and os.WEXITSTATUS(status)==37,
                                                'reap after complete directory cleanup')
@@ -232,6 +251,7 @@ def main():
             path.rmdir()
         for channel in channels:channel.close()
         for fd in handles.values():os.close(fd)
+        for fd in group_fds:os.close(fd)
 
 
 if __name__ == '__main__':

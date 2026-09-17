@@ -176,8 +176,11 @@ There is no supported release or qualified physical phone deployment at this che
   external manager using existing Android facilities and a narrow init extension.
   A focused real Linux host test confirmed recursive nested group kill, but empty child
   directories still prevented parent removal with `EBUSY`, not assumed `ENOTEMPTY`.
-  That is a cleanup/recovery constraint, not an Android backend verdict. The final layout
-  remains open; fixed slots are not the product limit.
+  Captured control/directory FDs also did not resolve a replacement after path reuse.
+  Actual init parser construction tests passed four cases at `166ff64`, preserving the
+  explicit empty capability/profile fields without copying live service state. These
+  are mechanism results, not an Android backend verdict. The final layout remains open;
+  fixed slots are not the product limit.
 
 ## R06 Work discovery, admission and Stop
 

@@ -56,6 +56,25 @@ examination for nested scopes; it is not itself proof that no external manager c
 implement safe cleanup. Conversely, a small init patch is not automatically the better
 architecture. Prototype only uncertain mechanisms, not two complete operating systems.
 
+## Initial mechanism results
+
+The [mechanism tests](../tests/work-factory/README.md) now provide two distinct results:
+
+- Real Linux host cgroup operations established nested process termination, independent
+  Stop with another live group, nonrecursive `cgroup.procs`, recursive population/kill,
+  required controller activation, separate directory reclamation and stale FD refusal
+  after path reuse. The manager PID was retained unreaped through explicit cleanup.
+- Four tests compiled with the actual Android `libinit_host` established fresh profile
+  construction through `ServiceParser`, exact declared identity/capability/limit fields,
+  no copying of mutable instance state, and rejection without partial publication.
+  The existing temporary-service constructor's absent capability profile was observed
+  directly in its object, without executing a service or changing credentials.
+
+Both have useful mechanisms. Neither has passed the full common Android backend
+contract. In particular, A still needs an actual protected delegation and recovery
+implementation, while B still needs an authenticated creation/control integration and
+actual launch/failure tests. The fixed-slot Android result is not substituted for either.
+
 ## Operational limits
 
 Use the existing resource admission helper, hard memory/swap bounds and filesystem
