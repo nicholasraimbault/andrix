@@ -99,8 +99,8 @@ separate fresh Android fixtures. A reached held dynamic workers but its observer
 not traverse private group directories. B completed creation, independent Stop, stale
 IDs and blocked allocation controls; init logged cleanup after manager loss, but a
 removed-group observation error prevented recovery testing. Both runs remain incomplete.
-The corrected visibility and group-state observers need matching artifacts and fresh
-trials before accepting a layout.
+The corrections passed 366 host tests and both native/policy configurations. Matching
+corrected images and fresh trials are still required before accepting a layout.
 
 1. Design and qualify a general factory that preserves the complete trusted launch
    profile and exact instance lifetime. Use the fixed-slot evidence, not its slot

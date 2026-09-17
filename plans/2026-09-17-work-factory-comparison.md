@@ -77,8 +77,9 @@ completed creation, worker lifetime, access negatives, independent Stop, stale-I
 blocked-allocation controls. Actual init/kernel cleanup after manager loss was logged,
 but a population observer error stopped the run before recovery.
 
-Neither has passed the full common contract. The observer corrections now have focused
-host checks and need matching corrected Android artifacts and fresh trials. The earlier
+Neither has passed the full common contract. The corrections at `7127cc7` passed 366
+host tests and both Android native/policy configurations. They still need matching
+corrected images and fresh trials. The earlier
 fixed-slot Android result is not substituted for either. See the
 [scoped observations](../tests/work-factory/README.md#first-android-comparison-observations).
 

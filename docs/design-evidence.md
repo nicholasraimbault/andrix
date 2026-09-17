@@ -185,8 +185,9 @@ There is no supported release or qualified physical phone deployment at this che
   dynamic creation, independent Stop, stale IDs and blocked allocation cancellation.
   Init also logged complete cleanup after manager loss, but an observer mistook a removed
   group for a populated one and stopped before recovery. Both runs remain incomplete;
-  corrected observers need fresh trials. The final layout remains open, and fixed slots
-  are not the product limit.
+  corrections at `7127cc7` passed 366 host tests and both native/policy configurations,
+  but still need matching images and fresh trials. The final layout remains open, and
+  fixed slots are not the product limit.
 
 ## R06 Work discovery, admission and Stop
 
