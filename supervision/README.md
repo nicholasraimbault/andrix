@@ -15,14 +15,17 @@ retains the real process and resource objects. The state component enforces orde
   and one cleanup step in flight. A shared allocator prevents different service slots
   from independently issuing the same boot/serial identity.
 - Complete setup before one activation. Initial service process exit closes activation
-  and latches Stop. Exit and actual reaping are separate facts.
+  and latches Stop. Exit and actual reaping are separate facts. A definite failed start
+  with no process uses an explicit absence fact, never an invented exit or wait result.
+  Failure before any root allocation has a separate retirement path.
 - Every mutation completion invalidates earlier population evidence. Observation tickets
   retain their issuance boundary and sequence; receipt time cannot refresh stale facts.
 - Timeout does not release an occupied worker slot. Confirmed completion or acknowledged
   cessation is required before a replacement operation can start.
 - Unknown or merely Removed observations do not authorize retirement. An exact cleanup
   result follows a closed mutation boundary and fresh Empty evidence. Failed cleanup
-  retains ownership and requires new evidence before retry.
+  retains ownership and requires new evidence before retry. Lost final replies have a
+  separate authoritative reconciliation operation, bound to a fresh observation ticket.
 - Replacement is fenced until retirement with no outstanding operations. Capacity limits
   cause backpressure; counter exhaustion cannot wrap or reuse identities and quarantines
   the instance. The small test limits are not owner resource defaults.
@@ -42,6 +45,42 @@ A cursor has bounded depth, cumulative directory/entry visits and total work. Ea
 has a bounded operation quantum. Dropping a cursor does not reset those cumulative
 limits or lose the root. Only one cursor can own traversal at a time. Errors remain
 Blocked, not a false retirement or automatic retry through a new pathname.
+
+## Private cleanup worker candidate
+
+`cleanup_worker` provides a private local protocol for a fixed trusted cleanup process.
+It accepts captured descriptor bundles, not arbitrary paths, UIDs, profiles or programs.
+Every packet checks actual `SCM_CREDENTIALS` and immutable instance, worker generation
+and increasing request sequence. Socketpair `SO_PEERCRED` alone would identify its
+creator, not the later child sender. Extra or malformed descriptor messages are refused
+and received descriptors remain owned for closure.
+
+The candidate uses a process rather than adding filesystem work to init's critical loop.
+A process can be observed dead before a new worker acquires the cleanup obligation;
+a timed out thread cannot safely be assumed cancelled. The cost is another bounded
+process, private IPC and descriptor/lifetime management. The Android bootstrap must
+still enforce its complete trusted profile, UID/SID, FD closure and peer binding.
+The host driver uses a fixed executable, empty environment and explicit descriptor
+inheritance; it is not the Android implementation of those checks.
+
+The supervisor keeps its original parent/root/kill/events descriptors across worker
+loss. Transfers preserve actual descriptor identities, limits and cumulative work
+accounting. A transferred bundle is accepted only from the trusted private supervisor,
+not from caller supplied metadata. There must still be only one live cleanup owner;
+copying descriptors does not itself enforce a lease across processes.
+
+If the worker removed the root but its reply was lost, `ConfirmRemoved` requires the
+formerly valid captured core event FD to return `ENODEV` and the owned parent entry to
+be absent. Neither a missing pathname alone nor permission failure suffices. A replaced
+name remains an explicit identity failure. Only the separate verified reconciliation
+result, on a closed current boundary, can retire the instance without the original reply.
+
+The [worker kernel probe](../tests/delegated-supervision/cleanup_worker_kernel.py) exercises
+real descriptor transfer and a separate process. Controls include SIGSTOP while a step
+is outstanding, responsive parent inspection, timeout without slot reuse, actual worker
+kill/reap before replacement, partial cleanup recovery and a deliberately discarded final
+reply. Captured removal reconciliation succeeds without retargeting a recreated name.
+This does not prove Android init responsiveness or uninterruptible kernel I/O behavior.
 
 ## Important limits
 

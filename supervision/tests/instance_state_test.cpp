@@ -267,6 +267,74 @@ void service_slots_share_allocation_and_fence_restart() {
   assert(other->identity().serial() ==
          2);  // Another slot's state was not replaced.
 }
+void lost_cleanup_reply_needs_authoritative_current_reconciliation() {
+  InstanceState s(ref, limits);
+  ready(s);
+  close(s);
+  observe(s, Population::Empty);
+  auto cleanup = s.begin_cleanup_step(ref);
+  assert(cleanup);
+  assert(!s.begin_observation(ref));
+  assert(s.cleanup_timed_out(*cleanup));
+  assert(
+      s.acknowledge_cleanup_cancellation(*cleanup));  // Verified worker ceased.
+  auto query = s.begin_observation(ref);
+  assert(query);
+  assert(s.observation_timed_out(*query));
+  assert(!s.finish_confirmed_removal(*query) && !s.restart_allowed());
+  auto fresh = s.begin_observation(ref);
+  assert(fresh);
+  assert(s.finish_confirmed_removal(*fresh) && s.restart_allowed());
+  assert(!s.finish_confirmed_removal(*fresh));
+
+  InstanceState active(ref, limits);
+  ready(active);
+  auto invalid = active.begin_observation(ref);
+  assert(invalid);
+  assert(!active.finish_confirmed_removal(*invalid) && active.active());
+
+  InstanceState delayed(ref, limits);
+  ready(delayed);
+  auto mutator = delayed.begin_mutation(ref);
+  assert(mutator);
+  close(delayed);
+  auto old = delayed.begin_observation(ref);
+  assert(old);
+  assert(delayed.finish_mutation(*mutator));
+  assert(!delayed.finish_confirmed_removal(*old) && !delayed.restart_allowed());
+}
+void definite_start_failure_does_not_invent_a_process() {
+  InstanceState before_root(ref, limits);
+  auto creator = before_root.begin_mutation(ref);
+  assert(creator && before_root.stop(ref));
+  assert(!before_root.report_no_initial_process(ref));
+  assert(!before_root.retire_unallocated(ref));
+  assert(before_root.finish_mutation(*creator));
+  assert(before_root.report_no_initial_process(ref));
+  assert(!before_root.process_exited() && !before_root.process_reaped());
+  assert(before_root.retire_unallocated(ref) && before_root.restart_allowed());
+  assert(before_root.population() == Population::Unknown &&
+         !before_root.root_bound());
+  assert(!before_root.capture_root(ref));
+
+  InstanceState fork_failed(ref, limits);
+  assert(fork_failed.capture_root(ref));
+  assert(fork_failed.report_no_initial_process(ref));
+  assert(!fork_failed.retire_unallocated(ref));
+  assert(!fork_failed.report_initial_process_exit(ref));
+  assert(!fork_failed.report_initial_process_reaped(ref));
+  assert(!fork_failed.complete_setup(ref) && !fork_failed.activate(ref));
+  observe(fork_failed, Population::Empty);
+  auto cleanup = fork_failed.begin_cleanup_step(ref);
+  assert(cleanup &&
+         fork_failed.finish_cleanup_step(*cleanup, CleanupResult::Reclaimed));
+  assert(fork_failed.restart_allowed() && !fork_failed.process_exited());
+
+  InstanceState started(ref, limits);
+  ready(started);
+  assert(!started.report_no_initial_process(ref) &&
+         !started.retire_unallocated(ref));
+}
 void malformed_configuration() {
   InstanceState invalid(InstanceId(0, 1), limits);
   assert(invalid.fault() == InstanceFault::InvalidIdentity &&
@@ -298,4 +366,6 @@ int main() {
   exhaustion_is_permanent_but_owns_late_results();
   service_slots_share_allocation_and_fence_restart();
   malformed_configuration();
+  definite_start_failure_does_not_invent_a_process();
+  lost_cleanup_reply_needs_authoritative_current_reconciliation();
 }

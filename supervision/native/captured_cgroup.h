@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -55,6 +56,22 @@ struct CleanupStats {
   size_t removed_directories = 0;
 };
 
+// A trusted supervisor can transfer this exact descriptor cohort to its private
+// cleanup process. It is not a serialized capability for an untrusted caller.
+// Descriptor order is parent, root, kill, events. Metadata must travel through
+// the authenticated private channel with the descriptors, never be re-resolved.
+struct CgroupTransfer {
+  std::array<int, 4> descriptors{-1, -1, -1, -1};
+  std::array<GroupIdentity, 4> identities{};
+  CleanupLimits limits{};
+  CleanupStats stats{};
+  std::string name;
+  CgroupTransfer() = default;
+  ~CgroupTransfer();
+  CgroupTransfer(const CgroupTransfer&) = delete;
+  CgroupTransfer& operator=(const CgroupTransfer&) = delete;
+};
+
 class ReclamationCursor;
 class CapturedCgroup : public std::enable_shared_from_this<CapturedCgroup> {
  public:
@@ -72,6 +89,13 @@ class CapturedCgroup : public std::enable_shared_from_this<CapturedCgroup> {
   CapturedCgroup& operator=(const CapturedCgroup&) = delete;
 
   GroupIdentity identity() const;
+  std::unique_ptr<CgroupTransfer> Export(Failure& failure) const;
+  static std::shared_ptr<CapturedCgroup> Adopt(
+      std::unique_ptr<CgroupTransfer> transfer, Failure& failure);
+  // Reconcile a lost worker reply using a formerly valid captured core event FD
+  // reporting ENODEV AND absence of its owned parent entry. ENOENT alone is not
+  // sufficient. A replaced name or permission error stays an explicit failure.
+  Failure ConfirmRemoved();
   PopulationResult ObservePopulation() const;
   Failure Kill()
       const;  // Exact captured cgroup.kill only. Never numeric PID/PGID.

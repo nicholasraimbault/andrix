@@ -5,7 +5,7 @@ cc_library_static {
     host_supported: true,
     cpp_std: "c++20",
     cflags: ["-Wall", "-Wextra", "-Werror"],
-    srcs: ["native/captured_cgroup.cpp", "native/instance_state.cpp"],
+    srcs: ["native/captured_cgroup.cpp", "native/instance_state.cpp", "native/cleanup_worker.cpp"],
     export_include_dirs: ["native"],
 }
 
@@ -26,6 +26,16 @@ cc_test_host {
     cpp_std: "c++20",
     cflags: ["-Wall", "-Wextra", "-Werror", "-UNDEBUG"],
     srcs: ["tests/captured_cgroup_test.cpp"],
+    static_libs: ["andrix_delegated_scope"],
+}
+
+cc_test_host {
+    name: "andrix_cleanup_worker_test",
+    compile_multilib: "first",
+    gtest: false,
+    cpp_std: "c++20",
+    cflags: ["-Wall", "-Wextra", "-Werror", "-UNDEBUG"],
+    srcs: ["tests/cleanup_worker_test.cpp"],
     static_libs: ["andrix_delegated_scope"],
 }
 

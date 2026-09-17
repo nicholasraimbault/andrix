@@ -118,7 +118,9 @@ bool InstanceState::stop(InstanceId ref) {
   return true;
 }
 bool InstanceState::report_initial_process_exit(InstanceId ref) {
-  if (ref != identity_ || cleanup_ == Cleanup::Retired) return false;
+  if (ref != identity_ || cleanup_ == Cleanup::Retired ||
+      initial_process_absent_)
+    return false;
   if (!process_exited_) {
     process_exited_ = true;
     active_ = false;
@@ -134,6 +136,27 @@ bool InstanceState::report_initial_process_reaped(InstanceId ref) {
     process_reaped_ = true;
     advance_boundary();
   }
+  return true;
+}
+bool InstanceState::report_no_initial_process(InstanceId ref) {
+  if (ref != identity_ || cleanup_ == Cleanup::Retired || active_ ||
+      activated_once_ || process_exited_ || process_reaped_ ||
+      pending_mutations_)
+    return false;
+  if (!initial_process_absent_) {
+    initial_process_absent_ = true;
+    advance_boundary();
+  }
+  stop(ref);
+  return true;
+}
+bool InstanceState::retire_unallocated(InstanceId ref) {
+  if (ref != identity_ || root_bound_ || !initial_process_absent_ ||
+      !stop_latched_ || pending_mutations_ || observation_ || cleanup_step_ ||
+      fault_ != InstanceFault::None || cleanup_ == Cleanup::Retired)
+    return false;
+  cleanup_ = Cleanup::Retired;
+  // No root was removed, and no exit/reap is fabricated.
   return true;
 }
 std::optional<ObservationTicket> InstanceState::begin_observation(
@@ -181,6 +204,21 @@ bool InstanceState::finish_observation(const ObservationTicket& ticket,
   if (stop_latched_) block_cleanup();
   return false;
 }
+bool InstanceState::finish_confirmed_removal(const ObservationTicket& ticket) {
+  if (!observation_ || ticket != *observation_) return false;
+  const bool current =
+      !observation_expired_ && ticket.instance() == identity_ &&
+      ticket.boundary() == boundary_ && fault_ == InstanceFault::None &&
+      cleanup_ != Cleanup::Retired && stop_latched_ && root_bound_ &&
+      (initial_process_absent_ || (process_exited_ && process_reaped_)) &&
+      pending_mutations_ == 0 && !cleanup_step_;
+  observation_.reset();
+  observation_expired_ = false;
+  if (!current) return false;
+  population_ = Population::Removed;
+  cleanup_ = Cleanup::Retired;
+  return true;
+}
 bool InstanceState::observation_timed_out(const ObservationTicket& ticket) {
   if (!observation_ || ticket != *observation_) return false;
   observation_expired_ = true;
@@ -198,10 +236,10 @@ bool InstanceState::acknowledge_observation_cancellation(
 }
 bool InstanceState::closed_empty_boundary() const {
   return fault_ == InstanceFault::None && stop_latched_ && root_bound_ &&
-         process_exited_ && process_reaped_ && pending_mutations_ == 0 &&
-         !observation_ && population_ == Population::Empty &&
-         population_boundary_ && *population_boundary_ == boundary_ &&
-         population_sequence_ != 0;
+         (initial_process_absent_ || (process_exited_ && process_reaped_)) &&
+         pending_mutations_ == 0 && !observation_ &&
+         population_ == Population::Empty && population_boundary_ &&
+         *population_boundary_ == boundary_ && population_sequence_ != 0;
 }
 bool InstanceState::can_begin_cleanup() const {
   return cleanup_ != Cleanup::Retired && !cleanup_step_ &&
@@ -265,7 +303,9 @@ bool InstanceState::acknowledge_cleanup_cancellation(
 bool InstanceState::restart_allowed() const {
   return fault_ == InstanceFault::None && cleanup_ == Cleanup::Retired &&
          pending_mutations_ == 0 && !observation_ && !cleanup_step_ &&
-         stop_latched_ && process_exited_ && process_reaped_ && !active_;
+         stop_latched_ &&
+         (initial_process_absent_ || (process_exited_ && process_reaped_)) &&
+         !active_;
 }
 InstanceAllocator::InstanceAllocator(uint64_t boot, uint64_t max_serial)
     : boot_(boot), max_serial_(max_serial) {

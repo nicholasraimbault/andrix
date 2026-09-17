@@ -160,6 +160,12 @@ Empty, Removed and Unknown must remain different observations. No permission err
 missing reply or failed read becomes evidence of an empty group. Directory removal
 and a captured descriptor's lifetime are distinct; link count is not a removal oracle.
 Accounting observations must be reported separately from process and directory cleanup.
+Recovery after a lost removal reply may use a separate authoritative confirmation from
+formerly valid captured core descriptors and the absent owned parent entry, while the
+mutation and process boundary remains closed. A missing pathname or a generic Removed
+observation alone cannot authorize retirement. Definite failure with no initial process
+or no allocated root must likewise be recorded explicitly, not as invented exit/reap or
+removal events.
 
 A stopped or failed instance cannot be reactivated. Proposed initial restart fencing:
 the same declared delegated service does not activate a replacement until the old
@@ -177,7 +183,13 @@ This requires more than moving the current helper into a thread. Cleanup owns st
 resource references rather than borrowing mutable `Service` fields across restart.
 Restart, stop notifications, reap callbacks and temporary service removal must respect
 that ownership. A lost cleanup worker must not lose the platform's remaining obligation.
-Thread/process choice and recovery of that worker remain proof questions.
+A private process worker is the current candidate. Its death can be established before
+replacement, while a timed out thread cannot safely be assumed cancelled. This adds
+process and IPC costs. The supervisor retains the original kernel handles and bounded
+operation slots across failure; replies carry exact instance/worker/request correlation.
+Host descriptor transfer, paused worker, recovery and lost reply controls have been
+exercised. The Android bootstrap profile, peer MAC, reaper and event loop integration
+remain separate proof questions.
 
 No delayed numeric PID/PGID signal is permitted after its lifetime pin is released.
 A pidfd is an exact signal target, not permission to use that numeric PID later. The
