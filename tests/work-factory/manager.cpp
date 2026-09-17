@@ -22,6 +22,7 @@
 #include <csignal>
 #include <cstring>
 #include <deque>
+#include <limits>
 #include <map>
 #include <mutex>
 #include <thread>
@@ -311,12 +312,14 @@ class Factory final : public api::BnFactory {
       if (reply.starts_with(ticket + ":")) {
         auto result = reply.substr(ticket.size() + 1);
         uint64_t pid = 0;
-        if (!parse_id(result.c_str(), &pid) || pid <= 1)
+        if (!parse_id(result.c_str(), &pid) || pid <= 1 ||
+            pid > static_cast<uint64_t>(std::numeric_limits<pid_t>::max()))
           fail("init creation result");
+        const auto created_pid = static_cast<pid_t>(pid);
         std::lock_guard lock(work->mutex);
-        if (work->state.guardian && work->state.guardian != pid)
+        if (work->state.guardian && work->state.guardian != created_pid)
           fail("init/peer PID disagreement");
-        work->state.guardian = pid;
+        work->state.guardian = created_pid;
         work->creation_returned = true;
         break;
       }
