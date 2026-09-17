@@ -83,6 +83,13 @@ independent live control responses, depth/entry/work/quantum refusal, actual `EA
 and old object/name replacement rejection. Lifecycle facts in empty fault cases are
 supplied by the harness; these are not Android service or MAC tests.
 
+At `8a7ddd1`, 386 general host tests passed, alongside the focused native optimized,
+sanitizer and real kernel controls. The library compiled for Android and linked into
+an uninstalled ARM64 probe. Both Soong host tests ran from frozen executables with their
+matching build dependencies. The first module attempt requested a nonexistent Make
+phony for the uninstalled probe; a fresh attempt built its actual output target without
+changing installation rules. No init implementation or policy was changed.
+
 Source selection, native compilation, host kernel behavior, Android init integration,
 worker isolation and phone qualification remain distinct gates. Do not promote a host
 success into the combined contract or install the link/test drivers as product services.
