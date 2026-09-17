@@ -4,5 +4,4 @@
 filegroup {
     name: "andrix_factory_profile_sources",
     srcs: ["init/work_profile_experiment.cpp", "init/profile_test.cpp"],
-    export_include_dirs: ["init"],
 }

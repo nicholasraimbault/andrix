@@ -51,8 +51,11 @@ those private fields and links the actual `libinit_host`.
 The tests contrast an explicit empty capability profile with the actual temporary
 service constructor's absent profile. They also cover independent instance state,
 sequence/name collisions and rejected definitions without partial publication. This
-is construction code, not an installed init launch interface. Compilation/execution
-of these tests is a separate pending gate; source or host success is not Android authority.
+is construction code, not an installed init launch interface. The first build attempt
+stopped during Soong parsing because the test filegroup used an unsupported include
+export property. That unnecessary property was removed; no C++ test had run in that
+attempt. Compilation/execution remains a separate pending gate, and host success is
+not Android authority.
 
 ## Running safely
 
