@@ -10,7 +10,6 @@
 #include <selinux/selinux.h>
 #include <spawn.h>
 #include <sys/prctl.h>
-#include <sys/random.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -330,7 +329,12 @@ bool DelegatedInstance::SpawnWorker() {
 #ifdef __BIONIC__
     result |= posix_spawnattr_setflags(&attributes, POSIX_SPAWN_CLOEXEC_DEFAULT);
 #else
-    result |= posix_spawn_file_actions_addclosefrom_np(&actions, 4);
+    // Host builds exercise parsing and state construction only. Do not invent
+    // a weaker inheritance path for sysroots without CLOEXEC_DEFAULT.
+    posix_spawn_file_actions_destroy(&actions);
+    posix_spawnattr_destroy(&attributes);
+    Failed("cleanup process bootstrap requires the Android adapter");
+    return false;
 #endif
     const char* argv[] = {"/system/bin/init", "delegated_cleanup", "3", nullptr};
     char* environment[] = {nullptr};
@@ -934,7 +938,8 @@ void DelegatedService::Install(Epoll& epoll, std::function<void()> wake) {
     event_loop = &epoll;
     wake_main = std::move(wake);
     uint64_t boot = 0;
-    if (getrandom(&boot, sizeof(boot), 0) != static_cast<ssize_t>(sizeof(boot)) || !boot) {
+    if (syscall(SYS_getrandom, &boot, sizeof(boot), 0) != static_cast<ssize_t>(sizeof(boot)) ||
+        !boot) {
         LOG(ERROR) << "delegated boot identity unavailable";
         return;
     }
