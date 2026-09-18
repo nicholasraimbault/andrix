@@ -33,6 +33,7 @@ class DelegatedInitSourceTests(unittest.TestCase):
             text=patch+(directory/'delegated_service.cpp').read_text()
             self.assertIn(gate,text)
         self.assertIn('exec waits are not qualified',patch)
+        self.assertIn('whole_static_libs: ["andrix_delegated_scope"]',patch)
 
     def test_builtin_wrappers_stay_outside_generated_map_region(self):
         patch=(ROOT/'supervision/init/integration.patch').read_text()
