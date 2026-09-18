@@ -25,14 +25,14 @@
 +    module_type: "cc_defaults",
 +    config_namespace: "andrix",
 +    bool_variables: ["delegated_service"],
-+    properties: ["srcs", "static_libs"],
++    properties: ["srcs", "whole_static_libs"],
 +}
 +andrix_delegated_sources_type {
 +    name: "andrix_delegated_sources",
 +    soong_config_variables: {
 +        delegated_service: {
 +            srcs: [":andrix_delegated_init_sources"],
-+            static_libs: ["andrix_delegated_scope"],
++            whole_static_libs: ["andrix_delegated_scope"],
 +        },
 +    },
 +}
