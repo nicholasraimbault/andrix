@@ -2,8 +2,9 @@
 
 **Status:** the initial adapter at `f78d91e` compiled and linked for Android. Four tests
 using the actual init parser passed. No Android execution has qualified it. The current
-[captured LMKD registration extension](../lmkd/README.md) still needs compilation and
-runtime checks. Earlier component results do not qualify that extension.
+[captured LMKD registration extension](../lmkd/README.md) also compiled at `5f9c893`, with
+its frozen host packet/descriptor test passing. Runtime and policy checks remain open.
+Earlier component results do not qualify the combined Android behavior.
 
 `integration.patch` targets the pinned `system/core` revision and file hashes in
 `integration-inputs.json`. Apply it only for the selected GrapheneOS Cuttlefish debug

@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 filegroup {
+    name: "andrix_captured_group_observation_source",
+    srcs: ["group_observation.cpp"],
+}
+filegroup {
     name: "andrix_factory_profile_sources",
     srcs: ["init/work_profile_experiment.cpp", "init/profile_test.cpp"],
 }

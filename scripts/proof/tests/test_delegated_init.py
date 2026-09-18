@@ -56,6 +56,29 @@ class DelegatedInitSourceTests(unittest.TestCase):
         self.assertIn('lmkd_register_service_instance',source)
         self.assertIn('LmkdUnregisterCaptured',source)
 
+    def test_runtime_vehicle_is_fixed_and_separately_selected(self):
+        directory=ROOT/'tests/delegated-supervision/android'
+        rc=(directory/'service-probe.rc').read_text()
+        self.assertIn('delegated_scope 268435456 0 64 8',rc)
+        self.assertIn('service andrix-delegated-peer',rc)
+        self.assertIn('stop_service_instance andrix-delegated-proof ${sys.andrix.delegated.ref}',rc)
+        self.assertIn('setprop sys.andrix.delegated.ack ${sys.andrix.delegated.sequence}',rc)
+        self.assertIn('memory_service_test andrix-delegated-proof ${sys.andrix.delegated.ref}',rc)
+        policy=(directory/'sepolicy/delegated_service.te').read_text()
+        self.assertIn('neverallow { domain -init -shell } andrix_delegated_control_prop',policy)
+        self.assertIn('neverallow { domain -init } andrix_delegated_status_prop',policy)
+
+    def test_runtime_observer_waits_for_actual_control_processing(self):
+        source=(ROOT/'tests/delegated-supervision/android/service-client.cpp').read_text()
+        for text in ['sys.andrix.delegated.sequence','sys.andrix.delegated.ack',
+                     'fresh init command processing acknowledgement','SYS_pidfd_open',
+                     'GroupObservation old_group','memory-kill','DELEGATED_SERVICE_PROOF_COMPLETE']:
+            self.assertIn(text,source)
+        bootstrap=(ROOT/'tests/delegated-supervision/android/service-probe.cpp').read_text()
+        self.assertIn('actual profile and endpoint readiness',bootstrap)
+        self.assertIn('explicit zero capabilities',bootstrap)
+        self.assertIn('migration ancestor protected',bootstrap)
+
     def test_generic_adapter_does_not_own_work_or_ce_authority(self):
         source=(ROOT/'supervision/init/delegated_service.cpp').read_text()
         for forbidden in ['PlatformLifecycle','CeStorageAccessTracker','WorkInfo','terminal_mode','killProcessGroup(']:

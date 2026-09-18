@@ -22,6 +22,9 @@ ifneq ($(filter delegated init,$(ANDRIX_WORK_FACTORY_PROOF)),)
 BOARD_SEPOLICY_M4DEFS += andrix_factory_backend=$(ANDRIX_WORK_FACTORY_PROOF)
 SYSTEM_EXT_PRIVATE_SEPOLICY_DIRS += vendor/andrix/tests/work-factory/sepolicy
 endif
+ifeq ($(ANDRIX_DELEGATED_SERVICE_PROOF),true)
+SYSTEM_EXT_PRIVATE_SEPOLICY_DIRS += vendor/andrix/tests/delegated-supervision/android/sepolicy
+endif
 ifeq ($(ANDRIX_OWNER_KEEP),true)
 SYSTEM_EXT_PRIVATE_SEPOLICY_DIRS += vendor/andrix/owner/keep/sepolicy
 endif

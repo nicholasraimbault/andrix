@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+# Selected generic-service vehicle only, never normal product policy.
+# The socket retains the actual trusted coordinator SID for SO_PEERSEC checks.
+# Shell is a lab observer, not a product client grant.
+allow shell andrixd:unix_stream_socket connectto;
+neverallow { andrix_owner andrix_terminal untrusted_app_all isolated_app_all } andrixd:unix_stream_socket connectto;
+
+# Trusted bootstrap creates only beneath its DAC-delegated work directory.
+allow andrixd cgroup_v2:dir { create rmdir setattr open read getattr search };
+# No owner payload gains management operations or supervisor descriptors.
+neverallow andrix_owner cgroup_v2:dir { create rmdir setattr };
+
+system_internal_prop(andrix_delegated_control_prop)
+system_internal_prop(andrix_delegated_status_prop)
+set_prop(shell, andrix_delegated_control_prop)
+get_prop(shell, andrix_delegated_status_prop)
+neverallow { domain -init -shell } andrix_delegated_control_prop:property_service set;
+neverallow { domain -init } andrix_delegated_status_prop:property_service set;

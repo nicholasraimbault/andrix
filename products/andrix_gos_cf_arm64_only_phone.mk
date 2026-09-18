@@ -148,6 +148,7 @@ ifneq ($(ANDRIX_WORK_FACTORY_PROOF),)
 $(error ANDRIX_DELEGATED_SERVICE_PROOF cannot use the older factory experiment)
 endif
 $(call soong_config_set_bool,andrix,delegated_service,true)
+PRODUCT_PACKAGES += andrix-delegated-service-probe andrix-delegated-service-client
 endif
 
 # Compiler payload is a separate opt-in within the owner environment. Unflagged
