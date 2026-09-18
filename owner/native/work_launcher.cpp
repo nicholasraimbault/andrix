@@ -2,6 +2,7 @@
 // Fixed trusted coordinator-role staging entry. Never executes caller code
 // here.
 #include <android-base/unique_fd.h>
+#include <android/log.h>
 #include <fcntl.h>
 #include <poll.h>
 #include <selinux/selinux.h>
@@ -31,6 +32,12 @@ using namespace andrix;
 WorkLaunchPacket identity;
 bool bound = false;
 [[noreturn]] void fail(const char* reason, int error = EINVAL) {
+  if (!error) error = EINVAL;
+  // Staging stdio is deliberately null. Preserve the exact failed guard in
+  // Android's existing coordinator log channel; no caller environment is
+  // logged.
+  __android_log_print(ANDROID_LOG_ERROR, "AndrixWorkStage", "%s (%d)", reason,
+                      error);
   dprintf(2, "andrix work staging refused: %s (%d)\n", reason, error);
   if (bound) {
     auto packet = identity;
