@@ -76,7 +76,10 @@ The subsequent [native component candidate](../../supervision/README.md) ports t
 ordering and captured group mechanisms to C++. `native_cleanup_kernel.py` exercises
 those actual components, including late population, occupied timeout slots, incremental
 reclamation, restart fences, permission errors, limits and entry replacement. It still
-uses host authority, not Android caller or MAC identity.
+uses host authority, not Android caller or MAC identity. The updated native and separate
+worker probes also exercise explicit takeback of mode zero directories after Empty,
+with no implicit bypass in unchanged credential mode. Their single UID cannot establish
+cross UID ownership or Android MAC authority; those remain runtime gates.
 
 Next is the corresponding optional Android service cleanup path with exact instance
 ownership and restart fencing. The earlier A/B results do not qualify that new code.

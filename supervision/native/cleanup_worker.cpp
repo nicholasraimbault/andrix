@@ -103,7 +103,7 @@ int ReceiveWorkerPacket(int fd, WorkerPeer expected,
       (message.msg_flags & (MSG_TRUNC | MSG_CTRUNC)))
     return EPROTO;
   const auto& packet = received.packet;
-  if (packet.magic != 0x44534350 || packet.version != 1 || !packet.boot ||
+  if (packet.magic != 0x44534350 || packet.version != 2 || !packet.boot ||
       !packet.instance || !packet.worker || !packet.sequence ||
       packet.operation < WorkerOperation::Initialize ||
       packet.operation > WorkerOperation::Exit)

@@ -8,15 +8,14 @@ type andrix_scope_cleanup_exec, exec_type, file_type, system_file_type;
 init_daemon_domain(andrix_scope_cleanup)
 allow init andrix_scope_cleanup:process { sigkill sigstop signal };
 # SETGID/SETPCAP are initialization steps. The fixed bootstrap drops them and
-# checks final effective/permitted/bounding DAC_OVERRIDE with empty inheritable/ambient.
-allow andrix_scope_cleanup self:capability { dac_override setgid setpcap };
+# checks final effective/permitted/bounding CHOWN with empty inheritable/ambient.
+allow andrix_scope_cleanup self:capability { chown setgid setpcap };
 allow andrix_scope_cleanup self:process { getcap setcap setrlimit getsched setsched };
 allow andrix_scope_cleanup self:dir r_dir_perms;
 allow andrix_scope_cleanup self:file r_file_perms;
 allow andrix_scope_cleanup self:lnk_file r_file_perms;
 allow andrix_scope_cleanup proc:dir r_dir_perms;
-allow andrix_scope_cleanup proc:file r_file_perms;
-allow andrix_scope_cleanup cgroup_v2:dir { r_dir_perms remove_name rmdir };
+allow andrix_scope_cleanup cgroup_v2:dir { r_dir_perms remove_name rmdir setattr };
 allow andrix_scope_cleanup cgroup_v2:file r_file_perms;
 neverallow andrix_scope_cleanup { andrix_owner andrixd andrix_terminal }:binder { call transfer };
 neverallow andrix_scope_cleanup andrix_lifecycle_service:service_manager { add find };

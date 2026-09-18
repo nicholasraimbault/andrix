@@ -67,6 +67,7 @@ def main():
         for path in [scope,scope/'control',scope/'work',scope/'work/one',other]:make(path)
         capture_kill(scope);other_kill=capture_kill(other)
         leader,leader_channel=spawn(scope/'control');descendant,desc_channel=spawn(scope/'work/one');peer,peer_channel=spawn(other)
+        os.chmod(scope/'work/one',0)
         d=Driver(scope.name);require(d.call('observe')['population']=='populated','real nonempty root through worker')
         require(d.call('kill')['accepted'],'captured cohort kill through private worker');reap_killed(leader);reap_killed(descendant)
         d.call('exit-fact');d.call('reap-fact');d.call('finish-mutation');require(d.call('observe')['population']=='empty','fresh actual Empty')
@@ -109,7 +110,7 @@ def main():
                 lost.quit()
         print(json.dumps({'actual_private_worker_processes':True,'kernel_cleanup_via_transferred_descriptor_cohort':True,
           'control_response_with_stopped_worker_seconds':response_delay,'timeout_did_not_free_worker_slot':True,
-          'worker_killed_and_reaped_before_replacement':True,'partial_cleanup_recovered_same_scope':True,
+          'worker_killed_and_reaped_before_replacement':True,'partial_cleanup_recovered_same_scope':True,'mode_zero_directory_takeback':True,'foreign_UID_takeback_not_exercised':True,
           'lost_final_reply_reconciled_via_captured_removed_object':True,'new_name_did_not_replace_old_identity':True,
           'unrelated_responses_during_steps':pongs,'records':records,'Android_init_or_MAC_qualified':False,
           'limits':['controlled SIGSTOP, not uninterruptible kernel I/O','host parent/worker share UID, no Android profile claim','no forced numeric PID reuse','exclusive parent namespace remains required']},indent=2))
@@ -132,6 +133,8 @@ def main():
             try:pid,_=os.waitpid(-1,os.WNOHANG)
             except ChildProcessError:break
             if pid==0:require(time.monotonic()<end,'owned child cleanup deadline');time.sleep(.01)
+        for path,inode in sorted(groups.items(),key=lambda row:len(row[0].parts)):
+            if path.exists():require(path.stat().st_ino==inode,'only fixture modes restored');os.chmod(path,0o755)
         for path,inode in sorted(groups.items(),key=lambda row:len(row[0].parts),reverse=True):
             if path.exists():require(path.stat().st_ino==inode,'only created groups removed');path.rmdir()
         for channel in sockets:channel.close()

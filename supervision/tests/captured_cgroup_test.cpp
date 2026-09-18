@@ -63,6 +63,10 @@ int main() {
     assert(!CapturedCgroup::Capture(temporary, "scope",
                                     CleanupLimits{65, 1, 1, 1, 1}, error));
     assert(error.code == GroupError::InvalidArgument);
+    auto invalid_policy = limits;
+    invalid_policy.directory_retirement = static_cast<DirectoryRetirement>(99);
+    assert(!CapturedCgroup::Capture(temporary, "scope", invalid_policy, error));
+    assert(error.code == GroupError::InvalidArgument);
   }
   assert(open_fds() == before);
   assert(!CapturedCgroup::Adopt(nullptr, error));

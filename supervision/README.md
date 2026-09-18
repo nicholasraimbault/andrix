@@ -41,6 +41,15 @@ with beneath, no symlinks and no mount crossings. There is no weaker fallback if
 primitive is unavailable. Independent directory descriptions avoid sharing traversal
 offsets when a cursor is dropped and resumed.
 
+The default leaves directory credentials unchanged. An explicit `ReclaimToWorker`
+retirement policy takes back only verified cgroup2 directory ownership to the cleanup
+worker's effective UID/GID and mode 0755, after the caller's closed mutation boundary
+and fresh kernel Empty. Mode zero children are captured through `O_PATH`; ownership and
+mode changes target that descriptor. Unsupported `fchmodat2 AT_EMPTY_PATH` kernels are
+refused, without a weaker fallback. This is part of complete retirement, not a standalone
+privileged metadata operation. See the [decision and gates](../plans/2026-09-18-directory-retirement.md).
+The private worker protocol is version 2 for this explicit policy.
+
 A cursor has bounded depth, cumulative directory/entry visits and total work. Each call
 has a bounded operation quantum. Dropping a cursor does not reset those cumulative
 limits or lose the root. Only one cursor can own traversal at a time. Errors remain

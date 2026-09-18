@@ -780,8 +780,9 @@ Result<void> DelegatedService::Prepare(Service& service, std::vector<Descriptor>
         current->root = OR_RETURN(OpenDirectoryAt(platform_parent.get(), current->name.c_str()));
         OR_RETURN(DirectoryMode(current->root.get(), 0, 0, 0755));
         sup::Failure error;
-        current->scope = sup::CapturedCgroup::Capture(platform_parent.get(), current->name,
-                                                      {8, 512, 16384, 32768, kQuantum}, error);
+        current->scope = sup::CapturedCgroup::Capture(
+                platform_parent.get(), current->name,
+                {8, 512, 16384, 32768, kQuantum, sup::DirectoryRetirement::ReclaimToWorker}, error);
         if (!current->scope)
             return Error() << "captured root unavailable: " << sup::group_error_name(error.code)
                            << ":" << error.error;

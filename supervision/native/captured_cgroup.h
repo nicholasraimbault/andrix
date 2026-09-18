@@ -41,12 +41,20 @@ struct Failure {
   const char* operation = "";
 };
 
+enum class DirectoryRetirement : uint32_t {
+  Unchanged = 0,
+  ReclaimToWorker = 1
+};
 struct CleanupLimits {
   size_t max_depth;
   size_t max_directory_visits;
   size_t max_entry_visits;
   size_t max_total_steps;
   size_t max_steps_per_call;
+  // Part of complete retirement, not an independently callable chown/chmod API.
+  // After caller quiescence, reclaim only verified cgroup2 directories to the
+  // worker's effective UID/GID and mode 0755. Requires fchmodat2 AT_EMPTY_PATH.
+  DirectoryRetirement directory_retirement = DirectoryRetirement::Unchanged;
 };
 
 struct CleanupStats {
@@ -104,7 +112,8 @@ class CapturedCgroup : public std::enable_shared_from_this<CapturedCgroup> {
   // initial process exit/reap accounted for, all mutators closed and fresh
   // quiescence. This performs an additional fresh kernel emptiness check.
   // One cursor at a time. Dropping a cursor retains the root and cumulative
-  // limits.
+  // limits. ReclaimToWorker also takes back the directory ownership after this
+  // quiescence check. Unsupported kernels fail before accepting that policy.
   std::unique_ptr<ReclamationCursor> BeginReclaim(Failure& failure);
   CleanupStats stats() const;
   bool removed() const;

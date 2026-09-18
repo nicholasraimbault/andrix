@@ -36,13 +36,16 @@ permission. Dedicated socket labels separate cleanup and readiness traffic from 
 coordinator sockets. Init holds the initial child's existing activation FIFO until the
 cleanup worker has actually initialized.
 
-The worker profile is root UID/GID, no supplementary groups, only `DAC_OVERRIDE` in
+The worker profile is root UID/GID, no supplementary groups, only `CHOWN` in
 permitted/effective/bounding sets, empty inheritable/ambient caps, no new privileges,
 zero core files, bounded FDs/CPU and reduced priority. SETGID/SETPCAP are declared internal
 initialization steps and are removed before any cleanup command is accepted. The worker
 checks its actual identity, limits, capability sets and closed descriptor set. It accepts
 captured kernel objects, never owner programs or caller selected privileged credentials.
-This is a candidate process layout, not an adopted product process count.
+This is a candidate process layout, not an adopted product process count. After fresh
+quiescence, [directory retirement](../../plans/2026-09-18-directory-retirement.md) takes
+back verified cgroup directory ownership and mode through held descriptors. General DAC
+override and unlabeled proc reads remain prohibited.
 
 ## Lifecycle integration
 
