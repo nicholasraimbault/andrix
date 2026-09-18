@@ -91,7 +91,7 @@ class DelegatedInitSourceTests(unittest.TestCase):
         self.assertIn('u:r:andrix_scope_cleanup:s0',worker)
         self.assertIn('PR_CAPBSET_DROP',worker)
         self.assertIn('CAP_DAC_OVERRIDE',worker)
-        self.assertIn('/system/bin/andrix-scope-cleaner',source)
+        self.assertIn('/system_ext/bin/andrix-scope-cleaner',source)
         self.assertNotIn('DelegatedService::WorkerMain',source)
 
     def test_bootstrap_waits_for_worker_and_event_handles_retire_after_dispatch(self):

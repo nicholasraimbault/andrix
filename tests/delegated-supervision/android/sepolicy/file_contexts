@@ -1,4 +1,4 @@
 # SPDX-License-Identifier: Apache-2.0
-/system/bin/andrix-scope-cleaner u:object_r:andrix_scope_cleanup_exec:s0
+/system_ext/bin/andrix-scope-cleaner u:object_r:andrix_scope_cleanup_exec:s0
 /system_ext/bin/andrix-delegated-service-probe u:object_r:andrixd_exec:s0
 /system_ext/bin/andrix-delegated-service-client u:object_r:system_file:s0
