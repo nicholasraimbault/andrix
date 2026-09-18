@@ -182,8 +182,8 @@ There is no supported release or qualified physical phone deployment at this che
   control FDs, cursor ownership and limits. Native host tests also exercised a real late
   member, permission denial and deterministic replacement while retaining restart fences.
   At `8a7ddd1`, 386 host tests, Android library/link compilation and frozen Soong host
-  tests passed. These components are not yet an Android service adapter. The corresponding
-  Android cleanup/reap/control integration and runtime qualification remain the next gates.
+  tests passed. At that checkpoint these components were not an Android service adapter;
+  cleanup/reap/control integration and runtime qualification were the next gates.
   The initial optional init adapter at `f78d91e` compiled and passed four actual parser
   construction cases, not Android execution. Source review then identified LMKD's separate
   UID/PID group lookup. Its [captured registration extension](../supervision/lmkd/README.md)
@@ -213,9 +213,16 @@ There is no supported release or qualified physical phone deployment at this che
   the SID read permission. No ptrace authority or socket-label substitute is proposed.
   The narrow observation/library correction at `b504a97` passes 401 host tests and both
   normal/selected native and compiled policy gates. The actual init parser/event and
-  LMKD host transport cases also pass. No new image or Android runtime result covers
-  that correction. These observations do not qualify the remaining workload, paused
-  worker, stale Stop or memory reaper controls. The earlier
+  LMKD host transport cases also pass. A subsequent fresh selected image and matching
+  tools at `df1a4b8` completed the
+  [listed finite Android controls](../plans/2026-09-18-delegated-service-qualification.md):
+  real activation, detached contained descendants, independent init progress during
+  stopped cleanup, complete retirement before replacement, stale Stop rejection, worker
+  recovery, fresh work and the captured LMKD reaper operation. Independent process
+  samples and init/LMKD logs supported the result; framework authority bookends matched.
+  This is not ordinary owner execution, real pressure, fresh CE loss, uninterruptible
+  I/O or phone qualification. Those remain separate gates, along with Andrix admission
+  and Console integration. The earlier
   [supervision candidate and proof matrix](../plans/2026-09-16-unix-work-supervision.md)
   retains its evidence limits and the open Android shell controls.
 - **Supporting mechanism record:** the [scope boundary experiment](../tests/owner-scope/README.md)

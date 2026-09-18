@@ -1,10 +1,11 @@
 # Captured service registration with LMKD
 
-**Status:** optional candidate. At `5f9c893`, init and LMKD compiled and linked together,
-the actual init parser cases passed, and the LMKD packing/descriptor send host test ran
-from a frozen artifact. The first fresh Android trial at `40696f3` observed actual init
-registration of the captured pair. A separate init readiness failure prevented its
-memory reaper control. No memory kill, reconnect race or pressure result is claimed.
+**Status:** optional candidate with a finite Android result at `df1a4b8`. Init registered
+the captured process/group pair, and the selected test command exercised the real reaper:
+the target service and contained descendants terminated while an unrelated service stayed
+live. The original scope retired before a fresh empty instance. This is not actual memory
+pressure or complete reconnect/removal race qualification. See the
+[result and limits](../../plans/2026-09-18-delegated-service-qualification.md).
 
 The pinned LMKD source selects both its pidfd and cgroup control from a registration
 containing numeric PID/UID metadata. For services, process type skips application soft

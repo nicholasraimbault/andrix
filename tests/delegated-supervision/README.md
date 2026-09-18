@@ -81,5 +81,8 @@ worker probes also exercise explicit takeback of mode zero directories after Emp
 with no implicit bypass in unchanged credential mode. Their single UID cannot establish
 cross UID ownership or Android MAC authority; those remain runtime gates.
 
-Next is the corresponding optional Android service cleanup path with exact instance
-ownership and restart fencing. The earlier A/B results do not qualify that new code.
+The corresponding optional Android service path now has its own
+[finite result](../../plans/2026-09-18-delegated-service-qualification.md), including exact
+instance ownership, independent controls and restart fencing. The earlier A/B or host
+results did not substitute for that new Android trial. Andrix work admission, ordinary
+owner execution, broader faults and phone qualification remain separate gates.

@@ -139,35 +139,22 @@ and tested. No prototype component is protected from redesign by its development
 Existing safety boundaries and accepted product decisions remain deliberate inputs;
 changing a requirement must be explicit, not hidden inside a rewrite.
 
-The immediate implementation question is cleanup split into bounded steps on an exact
-owned instance, with safe reaping, closed mutation ownership and no delayed numeric
-signal hazards. A [native candidate](../supervision/README.md) now provides the bounded
-state/ticket and captured cgroup primitives, with host unit/sanitizer and actual Linux
-kernel controls. At `8a7ddd1`, 386 host tests and Android library/link compilation
-passed, and the Soong host tests executed from frozen artifacts. It is not installed
-as a normal product behavior. The optional init adapter subsequently compiled, followed
-by captured LMKD registration at `5f9c893`. Actual parser construction and frozen protocol
-host tests passed. The [Android vehicle](../tests/delegated-supervision/android/README.md)
-now supplies the next selected program/policy and fresh runtime controls. At `c11e707`,
-399 host tests, bounded directory takeback kernel controls, Android module/policy checks
-and complete normal/test images passed. Three fresh Android attempts remain incomplete.
-The first exposed helper execution/readiness MAC boundaries. The second kept the
-bootstrap held and stopped its exact process on provider failure, but worker signal
-setup failed before initialization. Actual LMKD registration was observed; full delegated
-cleanup, recovery and its memory kill control were not reached. The startup correction
-at `b05d656` passed 400 host tests and the selected native/policy gate. Matching images at
-`3441868` then passed actual Bionic signal controls in a third fresh trial. The worker
-initialized and retired rejected startup scopes, but readiness still lacked narrow role
-metadata permission. The correction keeps actual task SID verification and adds no
-ptrace authority. At `b504a97`, 401 host tests and normal/selected native and compiled
-policy gates pass, but no new runtime qualifies it. No complete workload lifecycle
-result is claimed.
+The generic Android foundation now has its first
+[finite delegated service result](2026-09-18-delegated-service-qualification.md).
+At `df1a4b8`, 401 host tests and matching selected images preceded an enforcing Android
+trial. The declared service activated, detached descendants remained contained, unrelated
+init controls progressed while the cleanup worker was stopped, and exact cleanup retired
+the old scope before replacement. Stale Stop rejection, worker recovery, fresh useful
+work and the captured LMKD reaper control completed. Framework authority bookends matched.
+Three earlier incomplete attempts and their corrections remain recorded. This does not
+qualify arbitrary owner execution, real memory pressure, fresh CE loss or physical phones.
 
-Next qualify the corrected worker startup and complete delegated lifecycle. Then bind
-Andrix work admission to its original trusted CE epoch, close queued Release versus Stop
-races, and connect ordinary owner program launch and Console presentation. These are
-separate gates. Do not merely put synchronous cleanup in a thread, weaken a guard to
-fit a prototype, or promote finite controls into pressure or phone qualification.
+Next connect the generic environment handoff to Andrix work admission and execution.
+Bind admission to the original trusted CE authority epoch before asynchronous creation,
+close queued Release versus Stop races, and qualify ordinary owner credentials and Unix
+lifetimes. Then connect Console presentation as a client of that work. Do not adopt the
+fixture API or limits unchanged, weaken a guard to fit a prototype, or promote finite
+controls into broader qualification.
 
 Pinned glibc and an Android hosted Wayland path remain later compatibility research.
 They may reduce application friction, but no second ABI or GUI stack is adopted by
