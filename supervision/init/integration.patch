@@ -9,14 +9,14 @@
 +    module_type: "cc_defaults",
 +    config_namespace: "andrix",
 +    bool_variables: ["delegated_service"],
-+    properties: ["cflags", "include_dirs"],
++    properties: ["cflags", "header_libs"],
 +}
 +andrix_delegated_flags_type {
 +    name: "andrix_delegated_flags",
 +    soong_config_variables: {
 +        delegated_service: {
 +            cflags: ["-DANDRIX_DELEGATED_SERVICE_PROOF=1"],
-+            include_dirs: ["vendor/andrix/supervision/init"],
++            header_libs: ["andrix_delegated_init_headers"],
 +        },
 +    },
 +}
