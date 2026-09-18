@@ -24,6 +24,9 @@
 #include <android-base/strings.h>
 #include <android-base/unique_fd.h>
 #include <processgroup/processgroup.h>
+#if defined(__BIONIC__)
+#include <liblmkd_utils.h>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -678,6 +681,8 @@ Result<void> DelegatedService::Validate(const Service& service) {
     }
     if (!core || !files || !processes || !size)
         return Error() << "explicit bounded rlimits required";
+    if (service.oom_score_adjust_ == DEFAULT_OOM_SCORE_ADJUST)
+        return Error() << "explicit memory supervision priority required";
     return {};
 }
 Result<void> DelegatedService::BeforeStart(Service& service) {
@@ -816,6 +821,10 @@ Result<void> DelegatedService::Assign(Service& service, pid_t process) {
     current->initial_pid = process;
     current->initial_pidfd.reset(static_cast<int>(syscall(SYS_pidfd_open, process, 0)));
     if (current->initial_pidfd < 0) return ErrnoError() << "capture initial process";
+    std::string actual_oom;
+    if (!ReadFileToString("/proc/" + std::to_string(process) + "/oom_score_adj", &actual_oom) ||
+        android::base::Trim(actual_oom) != std::to_string(service.oom_score_adjust_))
+        return Error() << "initial memory priority readback";
     unique_fd destination(
             openat(current->control.get(), "cgroup.procs", O_WRONLY | O_CLOEXEC | O_NOFOLLOW));
     if (destination < 0 || !WriteStringToFd(std::to_string(process), destination.get()))
@@ -864,7 +873,8 @@ bool DelegatedService::DeferReap(Service& service, const siginfo_t& status) {
         current->FinishPreparation();
         current->state.report_initial_process_exit(current->state.identity());
         if (service.oom_score_adjust_ != DEFAULT_OOM_SCORE_ADJUST)
-            LmkdUnregister(service.name_, service.pid_);
+            LmkdUnregisterCaptured(service.name_, service.pid_, current->state.identity().boot(),
+                                   current->state.identity().serial());
         service.pid_ = 0;
         service.flags_ &= ~SVC_RUNNING;
         CloseEvent(current->ready);
@@ -913,6 +923,35 @@ void DelegatedService::Reaped(pid_t pid) {
         }
     }
     Pump();
+}
+bool DelegatedService::Enabled(const Service& service) {
+    return service.delegation_profile_.has_value();
+}
+int DelegatedService::RegisterWithLmkd(int socket, const Service& service) {
+#if defined(__BIONIC__)
+    auto current = service.delegation_instance_;
+    if (!current || !current->scope || !current->assigned || current->initial_pidfd < 0 ||
+        current->initial_pid != service.pid_ || current->state.process_exited()) {
+        errno = ESTALE;
+        return -1;
+    }
+    sup::Failure error;
+    auto cohort = current->scope->Export(error);
+    if (!cohort) {
+        errno = error.error ? error.error : EIO;
+        return -1;
+    }
+    const lmk_service_instance registration{service.pid_, service.uid(), service.oom_score_adjust_,
+                                            current->state.identity().boot(),
+                                            current->state.identity().serial()};
+    return lmkd_register_service_instance(socket, &registration, current->initial_pidfd.get(),
+                                          cohort->descriptors[2]);
+#else
+    (void)socket;
+    (void)service;
+    errno = ENOTSUP;
+    return -1;
+#endif
 }
 bool DelegatedService::Pending(const Service& service) {
     return service.delegation_instance_ && (!service.delegation_instance_->fully_retired ||
@@ -1007,6 +1046,17 @@ Result<void> DelegatedService::WorkerFault(Service& service, std::string_view re
                                          : 0;
     if (!signal || syscall(SYS_pidfd_send_signal, current->worker_pidfd.get(), signal, nullptr, 0))
         return ErrnoError() << "worker fault";
+    return {};
+}
+Result<void> DelegatedService::MemoryTest(Service& service, std::string_view reference) {
+    auto current = service.delegation_instance_;
+    if (!android::base::GetBoolProperty("ro.debuggable", false) || !current ||
+        current->Reference() != reference || current->fully_retired || current->initial_pid <= 0 ||
+        current->state.stop_latched())
+        return Error() << "invalid exact memory test target";
+    if (!LmkdTestKillCaptured(current->initial_pid, current->state.identity().boot(),
+                              current->state.identity().serial()))
+        return Error() << "memory supervisor test request failed";
     return {};
 }
 int DelegatedService::WorkerMain(int argc, char** argv) {

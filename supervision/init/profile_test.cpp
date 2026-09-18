@@ -52,7 +52,7 @@ TEST(DelegatedServiceProfile, ParsesCompleteDeclaredProfileWithoutStarting) {
     EXPECT_FALSE(DelegatedService::Pending(*service));
 }
 TEST(DelegatedServiceProfile, RejectsIncompleteAndUnsupportedProfiles) {
-    for (const char* option : {"user", "group", "capabilities", "seclabel"}) {
+    for (const char* option : {"user", "group", "capabilities", "seclabel", "oom_score_adjust"}) {
         auto lines = Profile();
         std::erase_if(lines, [&](const auto& line) { return line[0] == option; });
         ServiceList services;

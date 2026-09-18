@@ -1,0 +1,26 @@
+{
+  "lmkd_revision": "c3601e823bd07c9c190f67e2f9bc7486e4978328",
+  "files": {
+    "Android.bp": {
+      "original_sha256": "eda1259eea0ed0f80dce28dde2576bb00060a3a3d90b5174f63123fc7859ab8e",
+      "probe_sha256": "56afb1790328f2e2dfde8df3d2e733fe96dec7bb9d0c31fa184e08c0e5f54d72"
+    },
+    "include/lmkd.h": {
+      "original_sha256": "458e8c6f6aa145dc89903c0c91f36ea790138443d6b2d46fc38e7f3909282033",
+      "probe_sha256": "76a7f5bce00001269f77db5541116f91af35dcecb4b94416adabdb7a1917e062"
+    },
+    "include/liblmkd_utils.h": {
+      "original_sha256": "afdef2e870328f6d5c5c310ccabde0020aca7690f1dbe418b00566ce112b2347",
+      "probe_sha256": "c5fbd9ac9c805d87bd4d2a29cdafb94fd166f531f304171ceeee0f55748f3c06"
+    },
+    "liblmkd_utils.cpp": {
+      "original_sha256": "3f22441d13cc223eadc8b322e9b0344daa25a4b3661acedcf9a1dd72d6d4b120",
+      "probe_sha256": "0614ce4b56f60db6b00f79e50acf473f9697f7db3956c039a5035ab58b59966b"
+    },
+    "lmkd.cpp": {
+      "original_sha256": "63b6821d591e11536148ab71fd905665575c7679bfbde61b0bacb674cfa20678",
+      "probe_sha256": "10dfeed6a1f34e728bedf66b8ba23dd715261dac37ef5dfd14b8943877a4c4d7"
+    }
+  },
+  "scope": "optional exact service process/resource registration from authenticated init only; legacy registrations unchanged"
+}

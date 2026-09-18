@@ -1,0 +1,473 @@
+--- a/Android.bp
++++ b/Android.bp
+@@ -28,6 +28,19 @@
+     },
+ }
+ 
++soong_config_module_type {
++    name: "andrix_lmkd_service_defaults_type",
++    module_type: "cc_defaults",
++    config_namespace: "andrix",
++    bool_variables: ["delegated_service"],
++    properties: ["cflags"],
++}
++andrix_lmkd_service_defaults_type {
++    name: "andrix_lmkd_service_defaults",
++    soong_config_variables: {
++        delegated_service: { cflags: ["-DANDRIX_DELEGATED_SERVICE_PROOF=1"] },
++    },
++}
+ cc_defaults {
+     name: "stats_defaults",
+     cflags: [
+@@ -68,6 +81,7 @@
+     defaults: [
+         "stats_defaults",
+         "lmkd_hooks_defaults",
++        "andrix_lmkd_service_defaults",
+     ],
+     logtags: ["event.logtags"],
+     afdo: true,
+@@ -95,6 +109,8 @@
+ 
+ cc_library_static {
+     name: "liblmkd_utils",
++    host_supported: true,
++    defaults: ["andrix_lmkd_service_defaults"],
+     srcs: ["liblmkd_utils.cpp"],
+     recovery_available: true,
+     shared_libs: [
+@@ -108,3 +124,13 @@
+         "-Werror",
+     ],
+ }
++
++cc_test_host {
++    name: "andrix_lmkd_service_protocol_test",
++    defaults: ["andrix_lmkd_service_defaults"],
++    gtest: false,
++    compile_multilib: "first",
++    srcs: [":andrix_lmkd_service_protocol_sources"],
++    static_libs: ["liblmkd_utils"],
++    cflags: ["-Wall", "-Wextra", "-Werror", "-UNDEBUG"],
++}
+--- a/include/lmkd.h
++++ b/include/lmkd.h
+@@ -20,6 +20,7 @@
+ #include <arpa/inet.h>
+ #include <sys/cdefs.h>
+ #include <sys/types.h>
++#include <stdint.h>
+ 
+ __BEGIN_DECLS
+ 
+@@ -39,6 +40,11 @@
+     LMK_START_MONITORING,   /* Start psi monitoring if it was skipped earlier */
+     LMK_BOOT_COMPLETED,     /* Notify LMKD boot is completed */
+     LMK_PROCS_PRIO,         /* Register processes and set the same oom_adj_score */
++#ifdef ANDRIX_DELEGATED_SERVICE_PROOF
++    LMK_SERVICE_INSTANCE,   /* Init supplies exact process and resource handles */
++    LMK_SERVICE_REMOVE,     /* Exact service incarnation removal */
++    LMK_SERVICE_TEST_KILL,  /* Selected debug qualification only */
++#endif
+ };
+ 
+ /*
+@@ -153,6 +159,52 @@
+     return 6 * sizeof(int);
+ }
+ 
++#ifdef ANDRIX_DELEGATED_SERVICE_PROOF
++/* Complete registration from init: exact pidfd + recursive cgroup.kill fd are
++ * attached with SCM_RIGHTS. PID is diagnostic/index metadata, never a handle.
++ * The service incarnation also fences removal and reconnect from PID reuse. */
++struct lmk_service_instance {
++    pid_t pid;
++    uid_t uid;
++    int oomadj;
++    uint64_t boot;
++    uint64_t instance;
++};
++static inline void lmkd_pack_u64(LMKD_CTRL_PACKET packet, int at, uint64_t value) {
++    packet[at] = htonl((uint32_t)(value >> 32));
++    packet[at + 1] = htonl((uint32_t)value);
++}
++static inline uint64_t lmkd_unpack_u64(LMKD_CTRL_PACKET packet, int at) {
++    return ((uint64_t)ntohl(packet[at]) << 32) | ntohl(packet[at + 1]);
++}
++static inline size_t lmkd_pack_set_service_instance(LMKD_CTRL_PACKET packet,
++                                                   const struct lmk_service_instance* value) {
++    packet[0] = htonl(LMK_SERVICE_INSTANCE);
++    packet[1] = htonl(value->pid);
++    packet[2] = htonl(value->uid);
++    packet[3] = htonl(value->oomadj);
++    lmkd_pack_u64(packet, 4, value->boot);
++    lmkd_pack_u64(packet, 6, value->instance);
++    return 8 * sizeof(int);
++}
++static inline void lmkd_pack_get_service_instance(LMKD_CTRL_PACKET packet,
++                                                  struct lmk_service_instance* value) {
++    value->pid = (pid_t)ntohl(packet[1]);
++    value->uid = (uid_t)ntohl(packet[2]);
++    value->oomadj = (int)ntohl(packet[3]);
++    value->boot = lmkd_unpack_u64(packet, 4);
++    value->instance = lmkd_unpack_u64(packet, 6);
++}
++static inline size_t lmkd_pack_set_service_remove(LMKD_CTRL_PACKET packet,
++                                                pid_t pid, uint64_t boot, uint64_t instance) {
++    packet[0] = htonl(LMK_SERVICE_REMOVE);
++    packet[1] = htonl(pid);
++    lmkd_pack_u64(packet, 2, boot);
++    lmkd_pack_u64(packet, 4, instance);
++    return 6 * sizeof(int);
++}
++#endif
++
+ /* LMK_PROCREMOVE packet payload */
+ struct lmk_procremove {
+     pid_t pid;
+--- a/include/liblmkd_utils.h
++++ b/include/liblmkd_utils.h
+@@ -38,6 +38,14 @@
+  * In the case of error errno is set appropriately.
+  */
+ int lmkd_register_proc(int sock, struct lmk_procprio *params);
++#ifdef ANDRIX_DELEGATED_SERVICE_PROOF
++/* Transport acceptance only, matching the legacy registration convention.
++ * FDs remain owned by the caller. No path/UID substitution is performed. */
++int lmkd_register_service_instance(int sock, const struct lmk_service_instance* params,
++                                 int pidfd, int cgroup_kill_fd);
++int lmkd_unregister_service_instance(int sock, pid_t pid, uint64_t boot, uint64_t instance);
++int lmkd_test_kill_service_instance(int sock, pid_t pid, uint64_t boot, uint64_t instance);
++#endif
+ 
+ /*
+  * Registers a batch of processes with lmkd and sets its oomadj score.
+--- a/liblmkd_utils.cpp
++++ b/liblmkd_utils.cpp
+@@ -20,6 +20,8 @@
+ #include <sys/stat.h>
+ #include <sys/types.h>
+ #include <stdio.h>
++#include <string.h>
++#include <sys/socket.h>
+ #include <unistd.h>
+ 
+ #include <cutils/sockets.h>
+@@ -154,3 +156,47 @@
+     return createProcessGroup(uid, pid, true) == 0 ? 0 : -1;
+ }
+ 
++
++#ifdef ANDRIX_DELEGATED_SERVICE_PROOF
++int lmkd_register_service_instance(int sock, const struct lmk_service_instance* value,
++                                 int pidfd, int cgroup_kill_fd) {
++    if (!value || value->pid <= 0 || !value->boot || !value->instance || pidfd < 0 || cgroup_kill_fd < 0) {
++        errno = EINVAL;
++        return -1;
++    }
++    LMKD_CTRL_PACKET packet{};
++    const size_t size = lmkd_pack_set_service_instance(packet, value);
++    iovec data{packet, size};
++    alignas(cmsghdr) char control[CMSG_SPACE(2 * sizeof(int))]{};
++    msghdr message{};
++    message.msg_iov = &data;message.msg_iovlen = 1;
++    message.msg_control = control;message.msg_controllen = sizeof(control);
++    auto* header = CMSG_FIRSTHDR(&message);
++    header->cmsg_level = SOL_SOCKET;header->cmsg_type = SCM_RIGHTS;header->cmsg_len = CMSG_LEN(2 * sizeof(int));
++    const int descriptors[]{pidfd, cgroup_kill_fd};
++    memcpy(CMSG_DATA(header), descriptors, sizeof(descriptors));
++    const ssize_t sent = TEMP_FAILURE_RETRY(sendmsg(sock, &message, MSG_DONTWAIT | MSG_NOSIGNAL));
++    if (sent == static_cast<ssize_t>(size)) return 0;
++    if (sent >= 0) errno = EIO;
++    return -1;
++}
++int lmkd_unregister_service_instance(int sock, pid_t pid, uint64_t boot, uint64_t instance) {
++    if (pid <= 0 || !boot || !instance) { errno = EINVAL;return -1; }
++    LMKD_CTRL_PACKET packet{};
++    const size_t size = lmkd_pack_set_service_remove(packet, pid, boot, instance);
++    const ssize_t sent = TEMP_FAILURE_RETRY(send(sock, packet, size, MSG_DONTWAIT | MSG_NOSIGNAL));
++    if (sent == static_cast<ssize_t>(size)) return 0;
++    if (sent >= 0) errno = EIO;
++    return -1;
++}
++int lmkd_test_kill_service_instance(int sock, pid_t pid, uint64_t boot, uint64_t instance) {
++    if (pid <= 0 || !boot || !instance) { errno = EINVAL;return -1; }
++    LMKD_CTRL_PACKET packet{};
++    const size_t size = lmkd_pack_set_service_remove(packet, pid, boot, instance);
++    packet[0] = htonl(LMK_SERVICE_TEST_KILL);
++    const ssize_t sent = TEMP_FAILURE_RETRY(send(sock, packet, size, MSG_DONTWAIT | MSG_NOSIGNAL));
++    if (sent == static_cast<ssize_t>(size)) return 0;
++    if (sent >= 0) errno = EIO;
++    return -1;
++}
++#endif
+--- a/lmkd.cpp
++++ b/lmkd.cpp
+@@ -29,6 +29,13 @@
+ #include <sys/eventfd.h>
+ #include <sys/mman.h>
+ #include <sys/pidfd.h>
++#ifdef ANDRIX_DELEGATED_SERVICE_PROOF
++#include <linux/magic.h>
++#include <poll.h>
++#include <sys/stat.h>
++#include <sys/vfs.h>
++#include <string_view>
++#endif
+ #include <sys/socket.h>
+ #include <sys/syscall.h>
+ #include <sys/sysinfo.h>
+@@ -535,9 +542,29 @@
+     uid_t uid;
+     int oomadj;
+     pid_t reg_pid; /* PID of the process that registered this record */
++#ifdef ANDRIX_DELEGATED_SERVICE_PROOF
++    uint64_t service_boot = 0;
++    uint64_t service_instance = 0;
++#endif
+     bool valid;
+     struct proc *pidhash_next;
+ };
++
++#ifdef ANDRIX_DELEGATED_SERVICE_PROOF
++enum class ServicePidState { Live, Exited, Unknown };
++struct ServiceDescriptors {
++    std::array<android::base::unique_fd, 2> fds;
++    size_t count = 0;
++};
++static ServicePidState service_pidfd_state(int descriptor) {
++    if (descriptor < 0) return ServicePidState::Unknown;
++    pollfd item{descriptor, POLLIN, 0};
++    const int result = poll(&item, 1, 0);
++    if (result < 0 || (item.revents & (POLLERR | POLLNVAL))) return ServicePidState::Unknown;
++    if (result > 0 && (item.revents & (POLLIN | POLLHUP))) return ServicePidState::Exited;
++    return result == 0 ? ServicePidState::Live : ServicePidState::Unknown;
++}
++#endif
+ 
+ struct reread_data {
+     const char* const filename;
+@@ -692,6 +719,11 @@
+ }
+ 
+ static bool claim_record(struct proc* procp, pid_t pid) {
++#ifdef ANDRIX_DELEGATED_SERVICE_PROOF
++    // Scoped registrations cannot be reclaimed by a legacy PID-only request,
++    // including after a registrant disconnect makes reg_pid zero.
++    if (procp->service_instance) return false;
++#endif
+     if (procp->reg_pid == pid) {
+         /* Record already belongs to the registrant */
+         return true;
+@@ -736,6 +768,7 @@
+     remove_claims(data_sock[dsock_idx].pid);
+ }
+ 
++#ifndef ANDRIX_DELEGATED_SERVICE_PROOF
+ static ssize_t ctrl_data_read(int dsock_idx, char* buf, size_t bufsz, struct ucred* sender_cred) {
+     struct iovec iov = {buf, bufsz};
+     char control[CMSG_SPACE(sizeof(struct ucred))];
+@@ -777,6 +810,41 @@
+ 
+     return ret;
+ }
++
++#else
++static ssize_t ctrl_data_read(int dsock_idx, char* buf, size_t bufsz, struct ucred* sender_cred,
++                              ServiceDescriptors& descriptors) {
++    struct iovec iov{buf, bufsz};
++    alignas(cmsghdr) char control[CMSG_SPACE(sizeof(ucred)) + CMSG_SPACE(2 * sizeof(int))]{};
++    msghdr message{};message.msg_iov = &iov;message.msg_iovlen = 1;
++    message.msg_control = control;message.msg_controllen = sizeof(control);
++    const ssize_t size = TEMP_FAILURE_RETRY(recvmsg(data_sock[dsock_idx].sock, &message, MSG_DONTWAIT | MSG_CMSG_CLOEXEC));
++    if (size <= 0) return -1;
++    bool have_cred = false, malformed = false;
++    for (auto* header = CMSG_FIRSTHDR(&message); header; header = CMSG_NXTHDR(&message, header)) {
++        if (header->cmsg_len < CMSG_LEN(0)) { malformed = true;break; }
++        const size_t bytes = header->cmsg_len - CMSG_LEN(0);
++        if (header->cmsg_level != SOL_SOCKET) { malformed = true;continue; }
++        if (header->cmsg_type == SCM_CREDENTIALS && bytes == sizeof(ucred) && !have_cred) {
++            memcpy(sender_cred, CMSG_DATA(header), sizeof(ucred));have_cred = true;
++        } else if (header->cmsg_type == SCM_RIGHTS) {
++            if (bytes % sizeof(int)) malformed = true;
++            for (size_t offset = 0; offset + sizeof(int) <= bytes; offset += sizeof(int)) {
++                int owned = -1;memcpy(&owned, CMSG_DATA(header) + offset, sizeof(owned));
++                if (descriptors.count < descriptors.fds.size()) descriptors.fds[descriptors.count++].reset(owned);
++                else { close(owned);malformed = true; }
++            }
++        } else malformed = true;
++    }
++    if (malformed || !have_cred || (message.msg_flags & (MSG_TRUNC | MSG_CTRUNC))) {
++        ALOGE("Rejected malformed control credentials/descriptors");
++        ctrl_data_close(dsock_idx);
++        return -1;
++    }
++    data_sock[dsock_idx].pid = sender_cred->pid;
++    return size;
++}
++#endif
+ 
+ static int ctrl_data_write(int dsock_idx, char* buf, size_t bufsz) {
+     int ret = 0;
+@@ -1248,6 +1316,14 @@
+ }
+ 
+ static void apply_proc_prio(const struct lmk_procprio& params, struct ucred* cred) {
++#ifdef ANDRIX_DELEGATED_SERVICE_PROOF
++    if (auto* registered = pid_lookup(params.pid); registered && registered->service_instance) {
++        if (service_pidfd_state(registered->pidfd) != ServicePidState::Exited) {
++            ALOGE("Rejected legacy update of live scoped service record");return;
++        }
++        pid_remove(params.pid); // Only a positively exited old process, never an unknown descriptor.
++    }
++#endif
+     char path[PROCFS_PATH_MAX];
+     char val[20];
+     int64_t tgid;
+@@ -1523,6 +1599,101 @@
+     }
+ }
+ 
++#ifdef ANDRIX_DELEGATED_SERVICE_PROOF
++static bool init_service_sender(int socket, const ucred& cred) {
++    if (cred.pid != 1 || cred.uid != 0 || cred.gid != 0) return false;
++    char context[256]{};socklen_t size = sizeof(context);
++    if (getsockopt(socket, SOL_SOCKET, SO_PEERSEC, context, &size) || size == 0 || size > sizeof(context)) return false;
++    if (context[size - 1] == 0) --size;
++    return std::string_view(context, size) == "u:r:init:s0";
++}
++static bool service_pidfd_matches(int descriptor, pid_t pid) {
++    if (pid <= 0 || service_pidfd_state(descriptor) != ServicePidState::Live) return false;
++    char path[64], text[512];
++    snprintf(path, sizeof(path), "/proc/self/fdinfo/%d", descriptor);
++    android::base::unique_fd input(open(path, O_RDONLY | O_CLOEXEC));
++    if (input < 0) return false;
++    auto size = read_all(input.get(), text, sizeof(text) - 1);
++    if (size <= 0 || size == static_cast<ssize_t>(sizeof(text) - 1)) return false;
++    text[size] = 0;
++    const char* field = strstr(text, "\nPid:");
++    if (field) ++field;else if (!strncmp(text, "Pid:", 4)) field = text;
++    if (!field) return false;
++    errno = 0;char* end = nullptr;const long value = strtol(field + 4, &end, 10);
++    return !errno && value == pid && end && (*end == '\n' || *end == 0) && service_pidfd_state(descriptor) == ServicePidState::Live;
++}
++static bool service_group_control(int descriptor) {
++    struct statfs filesystem{};struct stat info{};
++    const int flags = fcntl(descriptor, F_GETFL);
++    if (flags < 0 || (flags & O_ACCMODE) != O_WRONLY || fstatfs(descriptor, &filesystem) ||
++        filesystem.f_type != CGROUP2_SUPER_MAGIC || fstat(descriptor, &info) || !S_ISREG(info.st_mode)) return false;
++    char link[64], path[PATH_MAX];snprintf(link, sizeof(link), "/proc/self/fd/%d", descriptor);
++    const ssize_t size = readlink(link, path, sizeof(path));
++    if (size <= 0 || size == static_cast<ssize_t>(sizeof(path))) return false;
++    return std::string_view(path, static_cast<size_t>(size)).ends_with("/cgroup.kill");
++}
++static bool same_service_control(const CgroupFD& original, int replacement) {
++    if (!original || !std::holds_alternative<CgroupKillFD>(*original)) return false;
++    struct stat before{}, after{};
++    return !fstat(std::get<CgroupKillFD>(*original).fd, &before) && !fstat(replacement, &after) &&
++           before.st_dev == after.st_dev && before.st_ino == after.st_ino;
++}
++static void cmd_service_instance(int socket, LMKD_CTRL_PACKET packet, const ucred& cred,
++                                 ServiceDescriptors& descriptors) {
++    lmk_service_instance value{};lmkd_pack_get_service_instance(packet, &value);
++    if (!init_service_sender(socket, cred) || descriptors.count != 2 || use_inkernel_interface ||
++        value.pid <= 0 || !value.boot || !value.instance || value.oomadj < OOM_SCORE_ADJ_MIN || value.oomadj > OOM_SCORE_ADJ_MAX ||
++        !service_pidfd_matches(descriptors.fds[0].get(), value.pid) || !service_group_control(descriptors.fds[1].get())) {
++        ALOGE("Rejected invalid service-instance registration");return;
++    }
++    for (int bucket = 0; bucket < PIDHASH_SZ; ++bucket) {
++        for (auto* other = pidhash[bucket]; other; other = other->pidhash_next) {
++            if (other->service_boot == value.boot && other->service_instance == value.instance && other->pid != value.pid) {
++                ALOGE("Rejected duplicate service incarnation on another process");return;
++            }
++        }
++    }
++    auto* existing = pid_lookup(value.pid);
++    if (existing) {
++        if (existing->service_boot == value.boot && existing->service_instance == value.instance) {
++            if (service_pidfd_state(existing->pidfd) != ServicePidState::Live || existing->uid != value.uid ||
++                existing->oomadj != value.oomadj || !same_service_control(existing->cgroupfd, descriptors.fds[1].get())) {
++                ALOGE("Rejected changed service-instance registration");return;
++            }
++            existing->reg_pid = cred.pid;
++            return; // Exact repeated registration; incoming duplicates close here.
++        }
++        if (service_pidfd_state(existing->pidfd) != ServicePidState::Exited) {
++            ALOGE("Rejected live PID registration collision for %d", value.pid);return;
++        }
++        pid_remove(value.pid);
++    }
++    auto* record = new (std::nothrow) proc();
++    if (!record) { ALOGE("Service-instance record allocation failed");return; }
++    record->pid = value.pid;record->uid = value.uid;record->oomadj = value.oomadj;
++    record->pidfd = descriptors.fds[0].release();record->cgroupfd = CgroupKillFD{descriptors.fds[1].release()};
++    record->service_boot = value.boot;record->service_instance = value.instance;record->reg_pid = cred.pid;record->valid = true;
++    proc_insert(record);
++    ALOGI("Registered exact service instance %" PRIu64 ".%" PRIu64 " pid %d with captured group control", value.boot, value.instance, value.pid);
++}
++static void cmd_service_remove(int socket, LMKD_CTRL_PACKET packet, const ucred& cred, bool test_kill) {
++    const pid_t pid = static_cast<pid_t>(ntohl(packet[1]));
++    const uint64_t boot = lmkd_unpack_u64(packet, 2), instance = lmkd_unpack_u64(packet, 4);
++    if (!init_service_sender(socket, cred) || pid <= 0 || !boot || !instance) return;
++    auto* record = pid_lookup(pid);
++    if (!record || record->service_boot != boot || record->service_instance != instance) {
++        ALOGW("Rejected stale service-instance removal for pid %d", pid);return;
++    }
++    if (test_kill) {
++        if (!property_get_bool("ro.debuggable", false)) return;
++        const bool queued = reaper.kill({record->pidfd, record->cgroupfd, record->pid, record->uid}, false);
++        ALOGI("Exact service memory test kill %" PRIu64 ".%" PRIu64 " pid %d accepted=%d", boot, instance, pid, queued);
++    } else {
++        pid_remove(pid);
++    }
++}
++#endif
++
+ static void ctrl_command_handler(int dsock_idx) {
+     LMKD_CTRL_PACKET packet;
+     struct ucred cred;
+@@ -1533,7 +1704,12 @@
+     int kill_cnt;
+     int result;
+ 
++#ifdef ANDRIX_DELEGATED_SERVICE_PROOF
++    ServiceDescriptors descriptors;
++    len = ctrl_data_read(dsock_idx, (char *)packet, CTRL_PACKET_MAX_SIZE, &cred, descriptors);
++#else
+     len = ctrl_data_read(dsock_idx, (char *)packet, CTRL_PACKET_MAX_SIZE, &cred);
++#endif
+     if (len <= 0)
+         return;
+ 
+@@ -1543,11 +1719,30 @@
+     }
+ 
+     cmd = lmkd_pack_get_cmd(packet);
++#ifdef ANDRIX_DELEGATED_SERVICE_PROOF
++    if (descriptors.count && cmd != LMK_SERVICE_INSTANCE) {
++        ALOGE("Rejected unexpected control descriptors");return;
++    }
++#endif
+     nargs = len / sizeof(int) - 1;
+     if (nargs < 0)
+         goto wronglen;
+ 
+     switch(cmd) {
++#ifdef ANDRIX_DELEGATED_SERVICE_PROOF
++    case LMK_SERVICE_INSTANCE:
++        if (len != static_cast<int>(8 * sizeof(int))) goto wronglen;
++        cmd_service_instance(data_sock[dsock_idx].sock, packet, cred, descriptors);
++        break;
++    case LMK_SERVICE_REMOVE:
++        if (len != static_cast<int>(6 * sizeof(int))) goto wronglen;
++        cmd_service_remove(data_sock[dsock_idx].sock, packet, cred, false);
++        break;
++    case LMK_SERVICE_TEST_KILL:
++        if (len != static_cast<int>(6 * sizeof(int))) goto wronglen;
++        cmd_service_remove(data_sock[dsock_idx].sock, packet, cred, true);
++        break;
++#endif
+     case LMK_TARGET:
+         targets = nargs / 2;
+         if (nargs & 0x1 || targets > (int)lowmem_adj.size()) {

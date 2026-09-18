@@ -36,6 +36,8 @@ class DelegatedService {
     static bool DeferReap(Service& service, const siginfo_t& status);
     static bool WorkerExited(pid_t pid, const siginfo_t& status);
     static void Reaped(pid_t pid);
+    static bool Enabled(const Service& service);
+    static int RegisterWithLmkd(int socket, const Service& service);
     static bool Pending(const Service& service);
     static bool Removable(const Service& service);
     static bool Empty(const Service& service);
@@ -46,6 +48,7 @@ class DelegatedService {
     // Lab fault controls are built only with this opt-in proof, never a product API.
     static Result<void> WorkerFault(Service& service, std::string_view reference,
                                     std::string_view operation);
+    static Result<void> MemoryTest(Service& service, std::string_view reference);
     static int WorkerMain(int argc, char** argv);
 };
 }  // namespace android::init

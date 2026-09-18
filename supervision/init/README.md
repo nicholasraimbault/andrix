@@ -1,7 +1,9 @@
 # Optional Android service adapter
 
-**Status:** source candidate, not yet compiled or executed. The native components have
-separate host/kernel/artifact results. Those results do not qualify this adapter.
+**Status:** the initial adapter at `f78d91e` compiled and linked for Android. Four tests
+using the actual init parser passed. No Android execution has qualified it. The current
+[captured LMKD registration extension](../lmkd/README.md) still needs compilation and
+runtime checks. Earlier component results do not qualify that extension.
 
 `integration.patch` targets the pinned `system/core` revision and file hashes in
 `integration-inputs.json`. Apply it only for the selected GrapheneOS Cuttlefish debug
@@ -52,6 +54,12 @@ The adapter must cover all of these, not just add a thread to `Service::Reap`:
   are excluded here. Existing callback and exec behavior remains unchanged for ordinary
   services; neither is silently reinterpreted as whole scope completion.
 - Pump owned stopping scopes during shutdown waits without changing unrelated services.
+
+LMKD must receive the same captured process/resource identity rather than reconstructing
+an old UID/PID path. The companion patch adds that registration and incarnation qualified
+removal, including existing service registration after connection recovery. A selected
+memory test command invokes LMKD's real reaper for a matching service; it is not a real
+memory pressure test or a production API.
 
 The exact instance Stop builtin is an internal trusted init action, not a general
 application API. The lab worker fault control is restricted to the matching instance
