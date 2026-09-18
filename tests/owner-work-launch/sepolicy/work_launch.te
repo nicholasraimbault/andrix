@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: Apache-2.0
+# Separate debug qualification vehicle, not the normal product API.
+type andrix_work_launcher_exec, exec_type, file_type, system_file_type;
+allow andrixd andrix_work_launcher_exec:file { rx_file_perms execute_no_trans };
+neverallow { andrix_owner andrix_terminal untrusted_app_all isolated_app_all } andrix_work_launcher_exec:file { execute execute_no_trans entrypoint };
+
+# The existing fixed exec transition remains the only owner entry. Installing
+# NNP and the worker filter BEFORE it must not suppress that declared transition.
+# No dyntransition, owner-data execution by the coordinator or set-id gain.
+allow andrixd andrix_owner:process2 nnp_transition;
+
+# Reopen the coordinator's own, write-sealed description as a read-only FD.
+allow andrixd self:memfd_file open;
+allow andrix_owner andrixd:memfd_file { read getattr };
+# The mutable admission gate stays in the coordinator role and cannot be modified
+# or mapped by ordinary owner code, even if a future bug passes its descriptor.
+neverallow andrix_owner andrixd:memfd_file { write append map execute };
+neverallow andrix_owner andrixd:unix_stream_socket { read write };
+
+# Declared ordinary standard streams, not the private launch control channel.
+type andrix_work_io, file_type;
+allow andrixd andrix_work_io:unix_stream_socket create_stream_socket_perms;
+allow andrix_owner andrix_work_io:unix_stream_socket { read write getattr getopt ioctl shutdown };
+allowxperm { andrixd andrix_owner } andrix_work_io:unix_stream_socket ioctl unpriv_unix_sock_ioctls;
+neverallow { andrix_terminal untrusted_app_all isolated_app_all } andrix_work_io:unix_stream_socket { read write };
+
+system_internal_prop(andrix_work_ctl_prop)
+set_prop(shell, andrix_work_ctl_prop)
+neverallow { domain -init -shell } andrix_work_ctl_prop:property_service set;
