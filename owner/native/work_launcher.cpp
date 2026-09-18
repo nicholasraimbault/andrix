@@ -1,0 +1,172 @@
+// SPDX-License-Identifier: Apache-2.0
+// Fixed trusted coordinator-role staging entry. Never executes caller code
+// here.
+#include <android-base/unique_fd.h>
+#include <fcntl.h>
+#include <poll.h>
+#include <selinux/selinux.h>
+#include <sys/prctl.h>
+#include <sys/resource.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/syscall.h>
+#include <time.h>
+#include <unistd.h>
+
+#include <cerrno>
+#include <cstdio>
+#include <string>
+#include <string_view>
+
+#include "launch_description.h"
+#include "session_core.h"
+#include "work_admission.h"
+#include "work_launch_protocol.h"
+#include "work_profile.h"
+#include "worker_filter.h"
+
+namespace {
+using android::base::unique_fd;
+using namespace andrix;
+WorkLaunchPacket identity;
+bool bound = false;
+[[noreturn]] void fail(const char* reason, int error = EINVAL) {
+  dprintf(2, "andrix work staging refused: %s (%d)\n", reason, error);
+  if (bound) {
+    auto packet = identity;
+    packet.operation = WorkLaunchOperation::Failed;
+    packet.error = error;
+    SendWorkLaunch(3, packet);
+  }
+  _exit(126);
+}
+uint64_t now() {
+  timespec value{};
+  if (clock_gettime(CLOCK_MONOTONIC, &value)) fail("monotonic clock", errno);
+  return uint64_t(value.tv_sec) * 1000 + uint64_t(value.tv_nsec) / 1000000;
+}
+void receive(LaunchPeer peer, WorkLaunchMessage& message) {
+  const uint64_t until = now() + 30000;
+  for (;;) {
+    int error = ReceiveWorkLaunch(3, peer, message);
+    if (!error) return;
+    if (error != EAGAIN && error != EINTR)
+      fail("private launch message", error);
+    if (now() >= until) fail("private launch deadline", ETIMEDOUT);
+    pollfd wait{3, POLLIN, 0};
+    int ready = poll(&wait, 1, 100);
+    if (ready < 0 && errno != EINTR) fail("private launch poll", errno);
+  }
+}
+bool same(const WorkLaunchPacket& a, const WorkLaunchPacket& b) {
+  return a.work == b.work && a.epoch == b.epoch && a.aggregate == b.aggregate &&
+         a.scope == b.scope;
+}
+bool alias(int a, int b) {
+  struct stat first{}, second{};
+  if (fstat(a, &first) || fstat(b, &second)) fail("descriptor identity", errno);
+  return first.st_dev == second.st_dev && first.st_ino == second.st_ino;
+}
+}  // namespace
+int main(int argc, char**) {
+  using namespace andrix;
+  if (argc != 1 || getppid() <= 1 || !ManagementDescriptorsClosed(3))
+    fail("fixed bootstrap descriptor set");
+  for (int fd = 0; fd <= 3; ++fd)
+    if (fcntl(fd, F_GETFD) < 0) fail("missing declared bootstrap descriptor");
+  if (ConfigureWorkLaunchSocket(3)) fail("credential channel");
+  const pid_t parent = getppid();
+  unique_fd parent_identity(
+      static_cast<int>(syscall(SYS_pidfd_open, parent, 0)));
+  if (parent_identity < 0 || getppid() != parent)
+    fail("coordinator identity", errno);
+  ucred creator{};
+  socklen_t size = sizeof(creator);
+  char* sid = nullptr;
+  if (getsockopt(3, SOL_SOCKET, SO_PEERCRED, &creator, &size) ||
+      size != sizeof(creator) || creator.pid != parent ||
+      creator.uid != kOwnerUid || creator.gid != kOwnerUid ||
+      getpeercon(3, &sid) || !sid)
+    fail("coordinator endpoint identity");
+  const bool coordinator = std::string_view(sid) == "u:r:andrixd:s0";
+  freecon(sid);
+  if (!coordinator) fail("coordinator endpoint role");
+  WorkLaunchMessage request;
+  receive({parent, kOwnerUid, kOwnerUid}, request);
+  if (request.packet.operation != WorkLaunchOperation::Prepare ||
+      request.count != kLaunchFdCount || request.packet.epoch.user != 0)
+    fail("complete primary-user launch handoff");
+  identity = request.packet;
+  bound = true;
+  for (size_t stream = static_cast<size_t>(LaunchFd::Input);
+       stream < kLaunchFdCount; ++stream) {
+    for (size_t management = 0;
+         management < static_cast<size_t>(LaunchFd::Input); ++management)
+      if (alias(request.descriptors[stream], request.descriptors[management]))
+        fail("stream aliases management object");
+    if (alias(request.descriptors[stream], 3) ||
+        alias(request.descriptors[stream], parent_identity.get()))
+      fail("stream aliases control handle");
+    int flags = fcntl(request.descriptors[stream], F_GETFL);
+    if (flags < 0 || (flags & O_PATH) ||
+        (stream == static_cast<size_t>(LaunchFd::Input)
+             ? (flags & O_ACCMODE) == O_WRONLY
+             : (flags & O_ACCMODE) == O_RDONLY))
+      fail("stream access mode");
+  }
+  if (setpriority(PRIO_PROCESS, 0, 10) || setsid() < 0)
+    fail("staging scheduling/session", errno);
+  auto profile = CheckLaunchStage(
+      request.descriptors[static_cast<size_t>(LaunchFd::Aggregate)],
+      request.descriptors[static_cast<size_t>(LaunchFd::Scope)],
+      identity.aggregate, identity.scope);
+  if (!profile.empty()) fail(profile.c_str());
+  LaunchDescription description;
+  LaunchFailure description_error;
+  const int description_mode = fcntl(
+      request.descriptors[static_cast<size_t>(LaunchFd::Description)], F_GETFL);
+  if (description_mode < 0 || (description_mode & O_ACCMODE) != O_RDONLY ||
+      (description_mode & O_PATH))
+    fail("read-only ordinary launch descriptor");
+  if (!ReadLaunch(
+          request.descriptors[static_cast<size_t>(LaunchFd::Description)], {},
+          description, description_error))
+    fail("immutable ordinary launch data", description_error.error);
+  int error = 0;
+  auto gate = WorkAdmission::Adopt(request.Take(LaunchFd::Gate), identity.work,
+                                   identity.epoch, error);
+  if (!gate) fail("original admission gate", error);
+  if (!install_worker_filter() || prctl(PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0) != 1)
+    fail("owner restrictions before transition");
+  auto staged = identity;
+  staged.operation = WorkLaunchOperation::Staged;
+  if (SendWorkLaunch(3, staged)) fail("staging reply");
+  WorkLaunchMessage wake;
+  receive({parent, kOwnerUid, kOwnerUid}, wake);
+  if (wake.packet.operation != WorkLaunchOperation::Wake ||
+      !same(wake.packet, identity) || wake.count)
+    fail("exact launch wake");
+  pollfd parent_wait{parent_identity.get(), POLLIN, 0};
+  if (poll(&parent_wait, 1, 0) != 0) fail("coordinator ended");
+  if (gate->ClaimEntry(identity.work, identity.epoch, now()) !=
+      EntryResult::Entered)
+    fail("admission closed before entry", ECANCELED);
+  // No owner environment, path evaluation or executable selection has run yet.
+  gate.reset();
+  parent_identity.reset();
+  const int description_fd =
+      request.descriptors[static_cast<size_t>(LaunchFd::Description)];
+  if (dup2(request.descriptors[static_cast<size_t>(LaunchFd::Input)], 0) != 0 ||
+      dup2(request.descriptors[static_cast<size_t>(LaunchFd::Output)], 1) !=
+          1 ||
+      dup2(request.descriptors[static_cast<size_t>(LaunchFd::Error)], 2) != 2 ||
+      dup2(description_fd, 3) != 3 || syscall(SYS_close_range, 4, ~0U, 0))
+    _exit(126);
+  // Only stdio and a write-sealed ordinary description cross the MAC exec.
+  char entry[] = "/system_ext/bin/andrix-work-entry";
+  char* arguments[] = {entry, nullptr};
+  char* environment[] = {nullptr};
+  execve(entry, arguments, environment);
+  dprintf(2, "andrix fixed owner entry exec failed: %d\n", errno);
+  _exit(126);
+}
