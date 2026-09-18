@@ -2,7 +2,6 @@
 #include "work_admission.h"
 
 #include <fcntl.h>
-#include <linux/memfd.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
@@ -22,6 +21,12 @@ constexpr uint64_t kMagic = 0x414e445857474154ULL;
 constexpr uint32_t kBinding = 1, kBound = 2, kPrepared = 4, kPublishing = 8,
                    kReleased = 16, kEntered = 32, kStopped = 64;
 constexpr int kSeals = F_SEAL_GROW | F_SEAL_SHRINK | F_SEAL_SEAL;
+// Linux memfd ABI: CLOEXEC | ALLOW_SEALING. The hermetic Soong host
+// sysroot has the syscall/seal definitions but no linux/memfd.h.
+constexpr unsigned kMemfdOptions = 0x0001U | 0x0002U;
+#if defined(MFD_CLOEXEC) && defined(MFD_ALLOW_SEALING)
+static_assert(kMemfdOptions == (MFD_CLOEXEC | MFD_ALLOW_SEALING));
+#endif
 static_assert(std::atomic<uint32_t>::is_always_lock_free);
 bool valid(WorkIdentity work) { return work.manager && work.serial; }
 bool valid(AuthorityEpoch epoch) {
@@ -70,8 +75,8 @@ std::shared_ptr<WorkAdmission> WorkAdmission::Reserve(WorkIdentity work,
     error = EINVAL;
     return {};
   }
-  int fd = static_cast<int>(syscall(SYS_memfd_create, "andrix-work-gate",
-                                    MFD_CLOEXEC | MFD_ALLOW_SEALING));
+  int fd = static_cast<int>(
+      syscall(SYS_memfd_create, "andrix-work-gate", kMemfdOptions));
   if (fd < 0) {
     error = errno;
     return {};
@@ -270,14 +275,21 @@ AdmissionResult AdmissionAuthority::Prepared(
   return work->Prepared() ? AdmissionResult::Accepted : refused(*work);
 }
 AdmissionResult AdmissionAuthority::Release(
-    const std::shared_ptr<WorkAdmission>& work, uint64_t now) {
+    const std::shared_ptr<WorkAdmission>& work, uint64_t now,
+    uint64_t deadline_ceiling) {
   std::lock_guard lock(mutex_);
   if (!Fresh(now))
     return failed_ ? AdmissionResult::Revoked : AdmissionResult::NotReady;
   if (!work || !Registered(work) || work->epoch() != epoch_)
     return AdmissionResult::Foreign;
-  return work->Publish(now, deadline_) ? AdmissionResult::Accepted
-                                       : refused(*work);
+  const uint64_t deadline =
+      deadline_ceiling < deadline_ ? deadline_ceiling : deadline_;
+  if (deadline <= now) {
+    work->Stop();
+    return AdmissionResult::Stopped;
+  }
+  return work->Publish(now, deadline) ? AdmissionResult::Accepted
+                                      : refused(*work);
 }
 AdmissionResult AdmissionAuthority::Retire(
     const std::shared_ptr<WorkAdmission>& work) {
