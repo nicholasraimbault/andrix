@@ -37,7 +37,7 @@
      srcs: ["liblmkd_utils.cpp"],
      recovery_available: true,
      shared_libs: [
-@@ -108,3 +124,13 @@
+@@ -108,3 +124,14 @@
          "-Werror",
      ],
  }
@@ -49,6 +49,7 @@
 +    compile_multilib: "first",
 +    srcs: [":andrix_lmkd_service_protocol_sources"],
 +    static_libs: ["liblmkd_utils"],
++    shared_libs: ["libcutils", "libprocessgroup"],
 +    cflags: ["-Wall", "-Wextra", "-Werror", "-UNDEBUG"],
 +}
 --- a/include/lmkd.h
