@@ -11,7 +11,7 @@
     },
     "init/service.cpp": {
       "original_sha256": "922eea487f33fc5f2f918ffa58e20d1ea0ec5796e5c1310dc4af5dae5d1af7dc",
-      "probe_sha256": "216edd500e0933c3f3dcf33d699404832c461c0c902a17614aae5e28a2505803"
+      "probe_sha256": "42e2ee63174e294c22b10cea779851a3116fa865de0fa8f8e54c27590af366dd"
     },
     "init/service_parser.h": {
       "original_sha256": "46fd705f5c002a218152794434d2f39b4c5628bcf2f1ae5239c9db4f099a3e89",
@@ -43,7 +43,15 @@
     },
     "init/builtins.cpp": {
       "original_sha256": "cc754f60283d8e31eaee7d14b7cee1abc3f19f86d78bcdb446eb44b831b83a14",
-      "probe_sha256": "da1cd77297c372c72e040ad466fedd7265b5ff3b2cf7966c0803cd0252ab97be"
+      "probe_sha256": "f111f02fbfdad296041eda74b8adf8b3a4c28d4836618086086af041a77d7162"
+    },
+    "init/lmkd_service.h": {
+      "original_sha256": "2b0ce13de25bfb9e1c95dbe28dee484aec45f42fae25283014f0c74ded141dd8",
+      "probe_sha256": "009b160cbe9f1709d38d121b0d9846bd17690f49b65a3f5ba97b95cd7804dd4b"
+    },
+    "init/lmkd_service.cpp": {
+      "original_sha256": "6a331541a889c72fabcd0ffd982c879302c919a6394bf48cf23c7ec0c5e411c3",
+      "probe_sha256": "22802fbb05115267e814b47326560feaaa32d75f94b9f90125083b0d62b42a20"
     }
   },
   "scope": "optional named delegated service runtime; no Andrix Work IDs or CE admission policy"

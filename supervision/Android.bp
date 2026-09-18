@@ -9,6 +9,10 @@ cc_library_headers {
     export_include_dirs: ["init"],
 }
 filegroup {
+    name: "andrix_lmkd_service_protocol_sources",
+    srcs: ["lmkd/protocol_test.cpp"],
+}
+filegroup {
     name: "andrix_delegated_init_sources",
     srcs: ["init/delegated_service.cpp"],
 }

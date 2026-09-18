@@ -21,7 +21,7 @@ class DelegatedInitSourceTests(unittest.TestCase):
         directory=ROOT/'supervision/init'
         meta=json.loads((directory/'integration-inputs.json').read_text())
         self.assertEqual(meta['system_core_revision'],'84ebea5e21110f31b632473a2fdb1c656b599b24')
-        self.assertEqual(len(meta['files']),11)
+        self.assertEqual(len(meta['files']),13)
         patch=(directory/'integration.patch').read_text()
         for name,row in meta['files'].items():
             self.assertIn('--- a/'+name,patch)
@@ -41,6 +41,20 @@ class DelegatedInitSourceTests(unittest.TestCase):
                         patch.index(' // Builtin-function-map start'))
         self.assertLess(patch.index('+static Result<void> do_service_worker_fault'),
                         patch.index(' // Builtin-function-map start'))
+
+    def test_memory_supervision_uses_exact_handles_and_incarnation(self):
+        directory=ROOT/'supervision/lmkd'
+        meta=json.loads((directory/'integration-inputs.json').read_text())
+        self.assertEqual(meta['lmkd_revision'],'c3601e823bd07c9c190f67e2f9bc7486e4978328')
+        self.assertEqual(len(meta['files']),5)
+        patch=(directory/'integration.patch').read_text()
+        for marker in ['SCM_RIGHTS','LMK_SERVICE_INSTANCE','LMK_SERVICE_REMOVE','LMK_SERVICE_TEST_KILL',
+                       'service_pidfd_matches','same_service_control','init_service_sender',
+                       'if (procp->service_instance) return false','MSG_CMSG_CLOEXEC']:
+            self.assertIn(marker,patch)
+        source=(ROOT/'supervision/init/delegated_service.cpp').read_text()
+        self.assertIn('lmkd_register_service_instance',source)
+        self.assertIn('LmkdUnregisterCaptured',source)
 
     def test_generic_adapter_does_not_own_work_or_ce_authority(self):
         source=(ROOT/'supervision/init/delegated_service.cpp').read_text()

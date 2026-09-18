@@ -183,7 +183,11 @@ There is no supported release or qualified physical phone deployment at this che
   member, permission denial and deterministic replacement while retaining restart fences.
   At `8a7ddd1`, 386 host tests, Android library/link compilation and frozen Soong host
   tests passed. These components are not yet an Android service adapter. The corresponding
-  Android cleanup/reap/control integration and runtime qualification remain the next gates. The earlier
+  Android cleanup/reap/control integration and runtime qualification remain the next gates.
+  The initial optional init adapter at `f78d91e` compiled and passed four actual parser
+  construction cases, not Android execution. Source review then identified LMKD's separate
+  UID/PID group lookup. Its [captured registration extension](../supervision/lmkd/README.md)
+  is a new unqualified candidate, not covered by the earlier artifact result. The earlier
   [supervision candidate and proof matrix](../plans/2026-09-16-unix-work-supervision.md)
   retains its evidence limits and the open Android shell controls.
 - **Supporting mechanism record:** the [scope boundary experiment](../tests/owner-scope/README.md)
