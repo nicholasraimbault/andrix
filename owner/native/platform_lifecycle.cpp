@@ -106,7 +106,7 @@ AdmissionResult PlatformLifecycle::release_work(const std::shared_ptr<WorkAdmiss
   if (!gate_.valid(current)) fail_locked();
   if (failed_) return AdmissionResult::Revoked;
   if (!gate_.ready(current)) return AdmissionResult::NotReady;
-  return admissions_.Release(work, current);
+  return admissions_.Release(work, current, gate_.ready_until(current));
 }
 
 AdmissionResult PlatformLifecycle::retire_work(const std::shared_ptr<WorkAdmission>& work) {

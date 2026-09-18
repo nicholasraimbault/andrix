@@ -115,8 +115,10 @@ class AdmissionAuthority {
   // permission.
   AdmissionResult Prepared(const std::shared_ptr<WorkAdmission>& work,
                            uint64_t now);
+  // The adapter may shorten this publication for an outstanding query's
+  // earlier failure deadline. The ceiling can never extend authority freshness.
   AdmissionResult Release(const std::shared_ptr<WorkAdmission>& work,
-                          uint64_t now);
+                          uint64_t now, uint64_t deadline_ceiling = UINT64_MAX);
   // Releases this registry slot only after its gate is stopped. External
   // creator, process and resource accounting remain the manager's separate
   // obligations.

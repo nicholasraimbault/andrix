@@ -154,6 +154,26 @@ void old_observation_cannot_extend_permission() {
   assert(gate->ClaimEntry(gate->work(), original, 2100) ==
          EntryResult::Expired);
 }
+void release_deadline_can_only_be_shortened() {
+  AdmissionAuthority authority;
+  ready(authority);
+  auto shorter = reserve(16);
+  prepared(authority, shorter);
+  assert(authority.Release(shorter, 103, 1000) == AdmissionResult::Accepted);
+  assert(shorter->ClaimEntry(shorter->work(), original, 1000) ==
+         EntryResult::Expired);
+  auto capped = reserve(17);
+  assert(authority.Admit(capped, 104) == AdmissionResult::Accepted);
+  assert(authority.Prepared(capped, 105) == AdmissionResult::Accepted);
+  assert(authority.Release(capped, 106, 9999) == AdmissionResult::Accepted);
+  assert(capped->ClaimEntry(capped->work(), original, 2100) ==
+         EntryResult::Expired);
+  auto expired = reserve(18);
+  assert(authority.Admit(expired, 107) == AdmissionResult::Accepted);
+  assert(authority.Prepared(expired, 108) == AdmissionResult::Accepted);
+  assert(authority.Release(expired, 109, 109) == AdmissionResult::Stopped);
+  assert(authority.Release(expired, 110) == AdmissionResult::Stopped);
+}
 void capacity_and_identity() {
   AdmissionAuthority authority(1);
   ready(authority);
@@ -276,6 +296,7 @@ int main() {
   cancellation();
   epochs_and_expiry();
   old_observation_cannot_extend_permission();
+  release_deadline_can_only_be_shortened();
   capacity_and_identity();
   descriptors();
   interleavings();

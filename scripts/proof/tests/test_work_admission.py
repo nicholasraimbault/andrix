@@ -37,7 +37,7 @@ class WorkAdmissionTests(unittest.TestCase):
         self.assertIn('gate_.ready_until(received)',source)
         self.assertIn('static_cast<uint64_t>(generation_), 0',source)
         self.assertIn('admissions_.Admit(work, current)',source)
-        self.assertIn('admissions_.Release(work, current)',source)
+        self.assertIn('admissions_.Release(work, current, gate_.ready_until(current))',source)
         self.assertLess(source.index('gate_.report(registration_, challenge, received'),
                         source.index('admissions_.Observe(epoch'))
         # Existing presentation/Keep code does not start using the candidate API.

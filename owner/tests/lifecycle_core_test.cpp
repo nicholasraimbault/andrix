@@ -45,6 +45,7 @@ static void later_queries_and_stale_generations() {
   assert(!gate.report(generation, first, 501, true, true));
   assert(!gate.report(generation, first, 502, false, false));
   assert(gate.ready(503));
+  assert(gate.ready_until(503) == 1500); // Pending issue500 + query timeout1000.
   assert(gate.report(generation, next, 600, true, true));
   assert(gate.ready(2499) && !gate.ready(2500));
 

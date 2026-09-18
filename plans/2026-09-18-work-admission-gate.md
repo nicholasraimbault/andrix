@@ -26,7 +26,10 @@ or resource operation.
 
 The manager publishes permission only while its original epoch is still current and
 fresh. The publication stores the observer's issue based deadline, not a new deadline
-from reply arrival or wake delivery. Publication and the launcher's one entry claim are
+from reply arrival or wake delivery. An outstanding query's earlier failure deadline
+also caps a new publication; the cap can shorten permission but never extend it. A
+later local revocation closes the shared gate rather than rewriting an old grant's
+publication metadata. Publication and the launcher's one entry claim are
 separate facts. A queued transport message is only a wake. The trusted launcher must
 claim the same shared gate immediately before ordinary execution, with the expected work
 and epoch and a fresh monotonic clock sample. It must close/unmap management handles
