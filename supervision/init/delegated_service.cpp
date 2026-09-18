@@ -362,8 +362,7 @@ bool DelegatedInstance::SpawnWorker() {
     result |= posix_spawn_file_actions_addopen(&actions, 2, "/dev/null", O_WRONLY, 0);
 #ifdef __BIONIC__
     sigset_t empty, defaults;
-    sigemptyset(&empty);
-    sigfillset(&defaults);
+    result |= sup::ConfigureWorkerSignalMasks(empty, defaults);
     result |= posix_spawnattr_setsigmask(&attributes, &empty);
     result |= posix_spawnattr_setsigdefault(&attributes, &defaults);
     result |= posix_spawnattr_setflags(&attributes, POSIX_SPAWN_CLOEXEC_DEFAULT |

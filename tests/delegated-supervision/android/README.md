@@ -3,8 +3,12 @@
 **Status:** compiled with normal exclusion, selected policy and complete image checks at
 `40696f3`. The first fresh Android run reached ordinary peer RPC and captured LMKD
 registration, then failed before full readiness on two genuine SELinux boundaries. It
-did not reach scoped descendant creation or the lifecycle controls below. Corrections
-require new artifact and runtime evidence. Neither program is an ordinary owner API.
+did not reach scoped descendant creation or the lifecycle controls below. A second run
+at `c11e707` confirmed the held bootstrap was stopped on provider failure and retained
+unchanged framework authority. Worker signal setup failed before initialization, so the
+remaining controls are still open. The next vehicle brackets an invalid Bionic signal
+reset with valid fixed `/system/bin/true` spawns under ordinary Shell credentials.
+Neither program is an ordinary owner API.
 
 The fixed service runs under the declared UID/GID, supplementary group, empty capability
 sets, SELinux role, scheduling and rlimits. It checks the inherited root descriptor,

@@ -15,5 +15,6 @@ cc_binary {
 cc_binary {
     name: "andrix-delegated-service-client",
     defaults: ["andrix_delegated_service_probe_defaults"],
+    static_libs: ["andrix_delegated_scope"],
     srcs: ["service-client.cpp", ":andrix_captured_group_observation_source"],
 }

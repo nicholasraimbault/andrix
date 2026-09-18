@@ -16,6 +16,12 @@ ReceivedWorkerPacket::~ReceivedWorkerPacket() {
   for (int fd : descriptors)
     if (fd >= 0) close(fd);
 }
+int ConfigureWorkerSignalMasks(sigset_t& mask, sigset_t& defaults) {
+  if (sigemptyset(&mask) || sigfillset(&defaults) ||
+      sigdelset(&defaults, SIGKILL) || sigdelset(&defaults, SIGSTOP))
+    return errno;
+  return 0;
+}
 int ConfigureWorkerSocket(int fd) {
   int enabled = 1;
   if (setsockopt(fd, SOL_SOCKET, SO_PASSCRED, &enabled, sizeof(enabled)))

@@ -79,7 +79,7 @@ int apply_profile() {
         prctl(PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0) != 1)
         return 126;
     DIR* descriptors = opendir("/proc/self/fd");
-    if (!descriptors) return 127;
+    if (!descriptors) return 118;
     bool closed = true;
     while (true) {
         errno = 0;
@@ -97,7 +97,8 @@ int apply_profile() {
             closed = false;
     }
     if (closedir(descriptors)) closed = false;
-    return closed ? 0 : 127;
+    // Keep 127 reserved for the spawn/exec path, so entry failure is distinct.
+    return closed ? 0 : 118;
 }
 }  // namespace
 

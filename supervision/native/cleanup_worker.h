@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include <signal.h>
 #include <sys/types.h>
 
 #include <array>
@@ -57,6 +58,9 @@ struct ReceivedWorkerPacket {
 // SO_PASSCRED is mandatory on BOTH endpoints. The actual sender of each packet
 // is checked with SCM_CREDENTIALS, not socketpair's creator-only SO_PEERCRED.
 int ConfigureWorkerSocket(int fd);
+// Explicit spawn signal state. Never ask posix_spawn to set a disposition for
+// SIGKILL or SIGSTOP. Bionic rejects that before exec, with child status 127.
+int ConfigureWorkerSignalMasks(sigset_t& mask, sigset_t& defaults);
 int SendWorkerPacket(int fd, const WorkerPacket& packet,
                      const int* descriptors = nullptr, size_t count = 0);
 int ReceiveWorkerPacket(int fd, WorkerPeer expected,
