@@ -24,11 +24,13 @@ static void query_delay_and_consumption() {
   assert(!gate.report(generation, query + 1, 102, true, true));
   assert(!gate.report(generation, 0, 103, true, true));
   assert(gate.report(generation, query, 900, true, true));
+  assert(gate.ready_until(900) == 2100); // Export issue-time, not receipt-time freshness.
   // A duplicate, including a stale negative, cannot renew or revoke this lease.
   assert(!gate.report(generation, query, 901, true, true));
   assert(!gate.report(generation, query, 902, false, false));
   assert(gate.ready(2099));
   assert(!gate.ready(2100)); // Issue at100 +2000, NOT receipt at900 +2000.
+  assert(gate.ready_until(2100) == 0);
   assert(!gate.report(generation, query, 2100, true, true));
   assert(gate.begin_query(generation, 2101) == 0);
 }

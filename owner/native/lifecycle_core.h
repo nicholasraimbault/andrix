@@ -28,6 +28,8 @@ class LifecycleGate {
               bool user_running, bool user_unlocked);
   bool valid(uint64_t now); // includes a pending, NOT ready registration
   bool ready(uint64_t now);
+  // Trusted adapter only: deadline already derived from query issue time.
+  uint64_t ready_until(uint64_t now) { return ready(now) ? deadline_ : 0; }
   bool release(uint64_t generation);
   void revoke();
   uint64_t generation() const { return generation_; }

@@ -2,6 +2,7 @@
 #pragma once
 
 #include "lifecycle_core.h"
+#include "work_admission.h"
 
 #include <aidl/dev/andrix/lifecycle/IPlatformLifecycle.h>
 #include <android/binder_ibinder.h>
@@ -20,6 +21,12 @@ class PlatformLifecycle {
   bool start(); // Binder thread pool must already be running; no owner child yet.
   bool ready();
   bool failed();
+  // Internal work path. The current primary-user framework adapter supplies
+  // the epoch; callers cannot choose it. No external I/O runs in these methods.
+  AdmissionResult admit_work(const std::shared_ptr<WorkAdmission>& work);
+  AdmissionResult prepare_work(const std::shared_ptr<WorkAdmission>& work);
+  AdmissionResult release_work(const std::shared_ptr<WorkAdmission>& work);
+  AdmissionResult retire_work(const std::shared_ptr<WorkAdmission>& work);
 #ifdef ANDRIX_OWNER_KEEP
   // Serialized with platform queries on the observer thread. No daemon mutex may
   // be held by the caller. Success includes a fresh snapshot of the exact grant.
@@ -32,6 +39,7 @@ class PlatformLifecycle {
   void fail_locked();
   std::mutex mutex_;
   LifecycleGate gate_;
+  AdmissionAuthority admissions_;
   uint64_t registration_ = 0;
   int64_t instance_ = 0, generation_ = 0;
   bool failed_ = false;
