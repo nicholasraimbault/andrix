@@ -1,0 +1,67 @@
+# SPDX-License-Identifier: Apache-2.0
+# Selected debug vehicle, fixed declared services and exact-instance controls only.
+on property:sys.andrix.delegated.command=start
+    start andrix-delegated-proof
+    setprop sys.andrix.delegated.ack ${sys.andrix.delegated.sequence}
+
+on property:sys.andrix.delegated.command=stop-exact
+    stop_service_instance andrix-delegated-proof ${sys.andrix.delegated.ref}
+    setprop sys.andrix.delegated.ack ${sys.andrix.delegated.sequence}
+
+on property:sys.andrix.delegated.command=pause-worker
+    service_worker_fault andrix-delegated-proof ${sys.andrix.delegated.ref} pause
+    setprop sys.andrix.delegated.ack ${sys.andrix.delegated.sequence}
+
+on property:sys.andrix.delegated.command=resume-worker
+    service_worker_fault andrix-delegated-proof ${sys.andrix.delegated.ref} resume
+    setprop sys.andrix.delegated.ack ${sys.andrix.delegated.sequence}
+
+on property:sys.andrix.delegated.command=crash-worker
+    service_worker_fault andrix-delegated-proof ${sys.andrix.delegated.ref} crash
+    setprop sys.andrix.delegated.ack ${sys.andrix.delegated.sequence}
+
+on property:sys.andrix.delegated.command=memory-kill
+    memory_service_test andrix-delegated-proof ${sys.andrix.delegated.ref}
+    setprop sys.andrix.delegated.ack ${sys.andrix.delegated.sequence}
+
+on property:sys.andrix.delegated.command=peer-start
+    start andrix-delegated-peer
+    setprop sys.andrix.delegated.ack ${sys.andrix.delegated.sequence}
+
+on property:sys.andrix.delegated.command=peer-stop
+    stop andrix-delegated-peer
+    setprop sys.andrix.delegated.ack ${sys.andrix.delegated.sequence}
+
+service andrix-delegated-proof /system_ext/bin/andrix-delegated-service-probe serve
+    class late_start
+    disabled
+    user system_ext_andrix
+    group system_ext_andrix inet
+    capabilities
+    seclabel u:r:andrixd:s0
+    priority 10
+    oom_score_adjust 700
+    task_profiles SCHED_SP_BACKGROUND
+    rlimit nproc 32 32
+    rlimit nofile 128 128
+    rlimit core 0 0
+    rlimit fsize 67108864 67108864
+    delegated_scope 268435456 0 64 8
+    restart_period 5
+
+# Deliberately not delegated. This exercises unchanged ordinary init progress.
+service andrix-delegated-peer /system_ext/bin/andrix-delegated-service-probe peer
+    class late_start
+    disabled
+    oneshot
+    user system_ext_andrix
+    group system_ext_andrix inet
+    capabilities
+    seclabel u:r:andrixd:s0
+    priority 10
+    oom_score_adjust 700
+    task_profiles SCHED_SP_BACKGROUND
+    rlimit nproc 32 32
+    rlimit nofile 128 128
+    rlimit core 0 0
+    rlimit fsize 67108864 67108864

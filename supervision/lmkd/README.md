@@ -1,7 +1,9 @@
 # Captured service registration with LMKD
 
-**Status:** optional source candidate. This patch has not been built or run. The
-compiled init adapter and earlier native kernel results do not qualify this change.
+**Status:** optional candidate. At `5f9c893`, init and LMKD compiled and linked together,
+the actual init parser cases passed, and the LMKD packing/descriptor send host test ran
+from a frozen artifact. No Android execution or memory pressure result qualifies this
+change yet.
 
 The pinned LMKD source selects both its pidfd and cgroup control from a registration
 containing numeric PID/UID metadata. For services, process type skips application soft

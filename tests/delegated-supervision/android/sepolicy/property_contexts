@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+sys.andrix.delegated.command u:object_r:andrix_delegated_control_prop:s0 exact string
+sys.andrix.delegated.ref u:object_r:andrix_delegated_control_prop:s0 exact string
+sys.andrix.delegated.sequence u:object_r:andrix_delegated_control_prop:s0 exact string
+sys.andrix.delegated.ack u:object_r:andrix_delegated_status_prop:s0 exact string
+init.svc_scope. u:object_r:andrix_delegated_status_prop:s0 prefix string

@@ -1,0 +1,19 @@
+// SPDX-License-Identifier: Apache-2.0
+cc_defaults {
+    name: "andrix_delegated_service_probe_defaults",
+    system_ext_specific: true,
+    cpp_std: "c++20",
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+    shared_libs: ["libbase", "liblog", "libselinux"],
+}
+cc_binary {
+    name: "andrix-delegated-service-probe",
+    defaults: ["andrix_delegated_service_probe_defaults"],
+    srcs: ["service-probe.cpp"],
+    init_rc: ["service-probe.rc"],
+}
+cc_binary {
+    name: "andrix-delegated-service-client",
+    defaults: ["andrix_delegated_service_probe_defaults"],
+    srcs: ["service-client.cpp", ":andrix_captured_group_observation_source"],
+}
