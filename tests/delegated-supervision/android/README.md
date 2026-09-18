@@ -1,17 +1,11 @@
 # Android delegated service vehicle
 
-**Status:** compiled with normal exclusion, selected policy and complete image checks at
-`40696f3`. The first fresh Android run reached ordinary peer RPC and captured LMKD
-registration, then failed before full readiness on two genuine SELinux boundaries. It
-did not reach scoped descendant creation or the lifecycle controls below. A second run
-at `c11e707` confirmed the held bootstrap was stopped on provider failure and retained
-unchanged framework authority. Worker signal setup failed before initialization, so the
-remaining controls are still open. The vehicle brackets an invalid Bionic signal
-reset with valid fixed `/system/bin/true` spawns under ordinary Shell credentials.
-The third trial at `3441868` passed those Bionic controls and initialized the cleanup
-worker. Readiness role observation was denied, so the remaining workload controls were
-not reached. Seven rejected startup scopes were cleaned and retired before replacements;
-framework authority bookends matched. Neither program is an ordinary owner API.
+**Status:** the [listed finite Android controls passed](../../../plans/2026-09-18-delegated-service-qualification.md)
+at `df1a4b8` with matching selected images and host tools. The actual Bionic signal
+controls, readiness, contained descendants, independent init controls, exact retirement,
+worker recovery and captured LMKD reaper operation completed. Independent kernel samples
+and init/LMKD logs supported the result. Three earlier incomplete attempts remain recorded.
+Neither program is an ordinary owner execution API or a pressure/phone qualification.
 
 The fixed service runs under the declared UID/GID, supplementary group, empty capability
 sets, SELinux role, scheduling and rlimits. It checks the inherited root descriptor,
@@ -28,7 +22,7 @@ One child directory deliberately loses all access bits after placement. Cleanup 
 take back that exact empty directory using the declared retirement policy, not general
 DAC override.
 
-The planned exercise creates two held fixed descendants, releases them, captures their
+The exercise creates two held fixed descendants, releases them, captures their
 pidfds and the original resource directory, pauses the cleanup process and exits the
 initial service. It checks that detached descendants remain alive while cleanup is
 pending, unrelated init Stop/Start continues, and replacement of the same declaration is
@@ -44,7 +38,7 @@ launch, CE revoke/regrant, terminal semantics, general pressure/suspend or a phy
 phone. No parent death signal substitutes for kernel cleanup. Failed and partial runs
 remain separate evidence.
 
-The selection must exclude these programs, init rc controls and policy types from normal
+The selection excludes these programs, init rc controls and policy types from normal
 images. Compilation, policy inspection, matching frozen images and fresh Android runtime
 observations are separate gates. The init and LMKD source patches must be restored before
 normal builds; never boot the mixed mutable Android output directory.

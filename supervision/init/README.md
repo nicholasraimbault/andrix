@@ -1,27 +1,13 @@
 # Optional Android service adapter
 
-**Status:** normal/selected module, policy and complete image gates passed at `40696f3`,
-following the earlier actual parser and LMKD transport tests. The first fresh Android
-trial reached captured LMKD registration but failed before full service readiness:
-SELinux rejected re-executing init and reading the readiness socket's backing label.
-That failed run is retained. The worker/channel/event retirement correction and bounded
-directory ownership takeback passed module, policy and complete image gates at `c11e707`.
-A second Android run kept the bootstrap held and terminated its exact process on worker
-failure, but did not reach full readiness. The signal profile incorrectly asked Bionic
-to reset SIGKILL/SIGSTOP. The current correction excludes those uncatchable signals,
-keeps descriptor census failure distinct from spawn status 127, and handles a cancelled
-activation read without dereferencing an error. It needs a fresh Android result.
-No complete Android lifecycle result is claimed. The signal correction at `b05d656`
-passed 400 host tests, selected Android module/policy checks, five actual init parser/event
-tests and the frozen LMKD transport test. Its new Bionic signal controls are compiled,
-not executed at that artifact checkpoint. Matching images and a third fresh Android
-trial at `3441868` subsequently passed the actual Bionic controls. Workers initialized
-and retired seven failed startup scopes before replacement. Readiness still failed:
-init lacked the bootstrap role's `process getattr` permission, and bootstrap library
-searches were denied. The narrower policy correction preserves actual task SID checks
-and adds no ptrace authority. At `b504a97`, 401 host tests, normal/selected native and
-compiled policy checks, five actual init parser/event tests and the LMKD host transport
-test passed. That artifact result does not yet qualify the correction in Android.
+**Status:** the listed finite Android service supervision controls passed at `df1a4b8`
+using the implementation at `b504a97`. Matching selected images, 401 host tests,
+normal/selected native and compiled policy checks, and actual init parser/event tests
+preceded the fresh emulator trial. Activation, contained cleanup, independent controls,
+retirement/restart fences, worker recovery and the captured LMKD reaper path completed.
+See the [result and limits](../../plans/2026-09-18-delegated-service-qualification.md).
+The three earlier failed trials remain preserved. This is not a finished owner work API,
+general pressure/CE fault qualification or a supported phone product.
 
 `integration.patch` targets the pinned `system/core` revision and file hashes in
 `integration-inputs.json`. Apply it only for the selected GrapheneOS Cuttlefish debug
@@ -105,4 +91,4 @@ terminal policy remain outside init.
 
 The cleanup constants and maximum simultaneous proof instances are bounded vehicle
 settings. They are not product quotas. Service/bootstrap, policy, normal exclusion,
-blocked worker, recovery and complete Android runtime controls still need qualification.
+broader failure, ordinary owner execution and phone controls still need qualification.

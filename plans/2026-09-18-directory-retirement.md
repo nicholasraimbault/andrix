@@ -73,8 +73,11 @@ without the new policy, and resumed cleanup after worker death through the same 
 cohort. Independent responses continued during bounded steps. These are host process and
 kernel results only. The selected Android and policy gate subsequently compiled, and
 matching normal/test images were frozen at `c11e707`. A worker spawn failure prevented
-actual directory retirement in the fresh Android run, so foreign UID takeback remains
-unqualified.
+actual directory retirement in that fresh Android run. A later
+[finite trial at `df1a4b8`](2026-09-18-delegated-service-qualification.md) completed
+retirement from the service UID to the cleanup worker UID, including a mode zero child.
+Independent samples observed the worker with CHOWN only. This does not extend the
+operation to ordinary data files or qualify arbitrary kernel I/O failure.
 
 Revisit if a supported phone kernel lacks the required ABI, a profile needs a different
 retirement owner, a namespace cannot be made exclusive, or the extra operation/descriptor

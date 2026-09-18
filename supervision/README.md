@@ -93,7 +93,9 @@ This does not prove Android init responsiveness or uninterruptible kernel I/O be
 
 ## Important limits
 
-These components still need their Android adapter and execution machinery. In particular:
+The [optional Android adapter](init/README.md) now has a
+[finite service supervision result](../plans/2026-09-18-delegated-service-qualification.md).
+It is not normal product behavior or complete failure/phone qualification. In particular:
 
 - The trusted allocator must create roots exclusively and keep the parent namespace
   from being reused until retirement. Capture does not establish fresh creation.
@@ -105,8 +107,8 @@ These components still need their Android adapter and execution machinery. In pa
   mismatch tests do not qualify a hostile concurrent writer.
 - Operation count is not a bound on kernel syscall duration. Run kernel I/O on the
   selected bounded cleanup lane, not directly on init's critical loop merely because
-  traversal is incremental. The worker pool, deadlines and worker failure recovery
-  still need implementation and qualification.
+  traversal is incremental. The candidate's bounded process lane and controlled recovery
+  have finite Android evidence, not arbitrary kernel latency or pressure guarantees.
 - Completion tickets correlate trusted results; they are not transferable authorization.
   The adapter must bind each ticket to the original captured resource object and verify
   actual child exit/reap and profile readiness. A pidfd does not pin a numeric PID for
