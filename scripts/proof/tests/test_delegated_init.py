@@ -90,7 +90,8 @@ class DelegatedInitSourceTests(unittest.TestCase):
         worker=(ROOT/'supervision/native/cleanup_worker_main.cpp').read_text()
         self.assertIn('u:r:andrix_scope_cleanup:s0',worker)
         self.assertIn('PR_CAPBSET_DROP',worker)
-        self.assertIn('CAP_DAC_OVERRIDE',worker)
+        self.assertIn('CAP_CHOWN',worker)
+        self.assertNotIn('CAP_DAC_OVERRIDE',worker)
         self.assertIn('/system_ext/bin/andrix-scope-cleaner',source)
         self.assertNotIn('DelegatedService::WorkerMain',source)
 

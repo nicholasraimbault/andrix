@@ -17,6 +17,10 @@ UID/GID/PID and SID. Each platform command carries a fresh sequence and waits fo
 only acknowledgement that the command was processed. Metadata and copied IDs do not
 authorize commands. The property/Unix transports are finite lab controls, not product APIs.
 
+One child directory deliberately loses all access bits after placement. Cleanup must
+take back that exact empty directory using the declared retirement policy, not general
+DAC override.
+
 The planned exercise creates two held fixed descendants, releases them, captures their
 pidfds and the original resource directory, pauses the cleanup process and exits the
 initial service. It checks that detached descendants remain alive while cleanup is

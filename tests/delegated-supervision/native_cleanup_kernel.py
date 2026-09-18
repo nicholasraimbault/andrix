@@ -48,8 +48,8 @@ def main():
     def kill_fd(path):
         fd=os.open(path/'cgroup.kill',os.O_WRONLY|os.O_CLOEXEC|os.O_NOFOLLOW);kills.append(fd);return fd
     class Driver:
-        def __init__(self,name,limits=(8,64,4096,8192,32),capture_error=None):
-            self.p=subprocess.Popen([sys.argv[1],str(directory),name,*map(str,limits)],
+        def __init__(self,name,limits=(8,64,4096,8192,32),capture_error=None,reclaim=False):
+            self.p=subprocess.Popen([sys.argv[1],str(directory),name,*map(str,limits),str(int(reclaim))],
                                     pass_fds=(directory,),stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
             self.pidfd=os.pidfd_open(self.p.pid);drivers.append(self)
             self.first=self.read()
@@ -106,8 +106,11 @@ def main():
         child=receive(control)['pid'];pidfds[child]=os.pidfd_open(child);require(receive(work)['pid']==child,'real nested child')
         (scope/'work/deep/leaf/cgroup.procs').write_text(str(child));send(work,{'command':'release'});receive(work)
         other,peer=spawn(other_group)
-        d=Driver(scope.name)
+        d=Driver(scope.name,reclaim=True)
+        os.chmod(scope/'work/deep',0)
         require(d.call('observe')['sample']=='populated','real native positive population')
+        require(d.call('second-cursor')['error']=='populated','no directory takeback while tasks live')
+        require((scope/'work/deep').stat().st_mode & 0o777 == 0,'live directory mode unchanged')
         send(control,{'command':'exit'});require(select.select([pidfds[leader]],[],[],5)[0],'manager exit')
         got,status=os.waitpid(leader,0);require(got==leader and os.WIFEXITED(status) and os.WEXITSTATUS(status)==37,'manager reaped before cleanup')
         send(work,{'command':'ping'});require(receive(work)['parent']==os.getpid(),'live adopted nested descendant')
@@ -157,6 +160,16 @@ def main():
             limited.quit()
             if (path/'child').exists():(path/'child').rmdir()
             path.rmdir()
+        locked=root/'locked_unchanged';make(locked);make(locked/'child');kill_fd(locked)
+        os.chmod(locked/'child',0)
+        no_takeback=Driver(locked.name);no_takeback.facts_closed()
+        for unused in range(1024):
+            row=no_takeback.call('step 8')
+            if row['cleanup']=='blocked':break
+        else:raise RuntimeError('unchanged-credential refusal bound')
+        require(row['error']=='io' and row['errno']==13 and not row['restart_allowed'],'no implicit permission bypass')
+        require((locked/'child').stat().st_mode & 0o777 == 0,'default retirement did not chmod')
+        no_takeback.quit();os.chmod(locked/'child',0o755);(locked/'child').rmdir();locked.rmdir()
         denied=root/'denied';make(denied);kill_fd(denied)
         mode=(denied/'cgroup.events').stat().st_mode & 0o777
         try:
@@ -180,7 +193,8 @@ def main():
                           'late_kernel_member_invalidated_old_empty':True,'cleanup_timeout_slot_preserved':True,
                           'unrelated_control_responses_during_steps':pongs,'cursor_resumed_from_captured_root':True,
                           'stale_root_and_changed_entry_did_not_target_replacement':True,'real_permission_denial':True,
-                          'depth_entry_work_and_quantum_bounds_observed':True,'records':records,
+                          'depth_entry_work_and_quantum_bounds_observed':True,'mode_zero_directory_reclaimed_after_empty_only':True,
+                          'default_credential_mode_did_not_bypass_EACCES':True,'foreign_UID_takeback_not_exercised':True,'records':records,
                           'limits':['not Android init integration or MAC proof','no forced numeric PID reuse','deterministic name replacement, not atomic protection against concurrent replacement','no arbitrary kernel I/O latency guarantee'],
                           'combined_contract_qualified':False},indent=2))
     finally:
@@ -201,6 +215,8 @@ def main():
             except ChildProcessError:break
             if pid==0:
                 require(time.monotonic()<until,'owned descendant cleanup deadline');time.sleep(.01)
+        for path,inode in sorted(groups.items(),key=lambda item:len(item[0].parts)):
+            if path.exists():require(path.stat().st_ino==inode,'only fixture directory modes restored');os.chmod(path,0o755)
         for path,inode in sorted(groups.items(),key=lambda item:len(item[0].parts),reverse=True):
             if path.exists():require(path.stat().st_ino==inode,'owned group identity at cleanup');path.rmdir()
         for channel in channels:channel.close()

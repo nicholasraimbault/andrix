@@ -47,11 +47,11 @@ int apply_profile() {
         errno = 0;
         const int present = prctl(PR_CAPBSET_READ, cap, 0, 0, 0);
         if (present < 0) {
-            if (errno != EINVAL || cap <= CAP_DAC_OVERRIDE) return 125;
+            if (errno != EINVAL || cap <= CAP_CHOWN) return 125;
             last = cap;
             break;
         }
-        if (cap == CAP_DAC_OVERRIDE) {
+        if (cap == CAP_CHOWN) {
             if (present != 1) return 125;
         } else if (prctl(PR_CAPBSET_DROP, cap, 0, 0, 0))
             return 125;
@@ -59,18 +59,18 @@ int apply_profile() {
     if (!last) return 125;
     __user_cap_header_struct header{_LINUX_CAPABILITY_VERSION_3, 0};
     __user_cap_data_struct capabilities[2]{};
-    capabilities[0].effective = capabilities[0].permitted = 1U << CAP_DAC_OVERRIDE;
+    capabilities[0].effective = capabilities[0].permitted = 1U << CAP_CHOWN;
     if (syscall(SYS_capset, &header, capabilities) ||
         prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0) ||
         prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0))
         return 126;
     __user_cap_data_struct actual[2]{};
-    if (syscall(SYS_capget, &header, actual) || actual[0].effective != (1U << CAP_DAC_OVERRIDE) ||
-        actual[0].permitted != (1U << CAP_DAC_OVERRIDE) || actual[0].inheritable ||
-        actual[1].effective || actual[1].permitted || actual[1].inheritable)
+    if (syscall(SYS_capget, &header, actual) || actual[0].effective != (1U << CAP_CHOWN) ||
+        actual[0].permitted != (1U << CAP_CHOWN) || actual[0].inheritable || actual[1].effective ||
+        actual[1].permitted || actual[1].inheritable)
         return 126;
     for (unsigned cap = 0; cap < last; ++cap) {
-        if (prctl(PR_CAPBSET_READ, cap, 0, 0, 0) != static_cast<int>(cap == CAP_DAC_OVERRIDE) ||
+        if (prctl(PR_CAPBSET_READ, cap, 0, 0, 0) != static_cast<int>(cap == CAP_CHOWN) ||
             prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_IS_SET, cap, 0, 0) != 0)
             return 126;
     }
@@ -81,7 +81,13 @@ int apply_profile() {
     DIR* descriptors = opendir("/proc/self/fd");
     if (!descriptors) return 127;
     bool closed = true;
-    while (auto* entry = readdir(descriptors)) {
+    while (true) {
+        errno = 0;
+        auto* entry = readdir(descriptors);
+        if (!entry) {
+            if (errno) closed = false;
+            break;
+        }
         if (entry->d_name[0] == '.') continue;
         int descriptor = -1;
         const auto parsed =
@@ -90,7 +96,7 @@ int apply_profile() {
             (descriptor > 3 && descriptor != dirfd(descriptors)))
             closed = false;
     }
-    closedir(descriptors);
+    if (closedir(descriptors)) closed = false;
     return closed ? 0 : 127;
 }
 }  // namespace

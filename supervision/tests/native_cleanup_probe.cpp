@@ -108,13 +108,15 @@ void result(const char* event, bool accepted, const InstanceState& state,
 }
 }  // namespace
 int main(int argc, char** argv) {
-  assert(argc == 8);
+  assert(argc == 9);
   const auto input = number(argv[1]);
   assert(input <= INT_MAX);
   const int parent = static_cast<int>(input);
   check_scope(parent);
-  CleanupLimits limits{number(argv[3]), number(argv[4]), number(argv[5]),
-                       number(argv[6]), number(argv[7])};
+  CleanupLimits limits{
+      number(argv[3]), number(argv[4]),
+      number(argv[5]), number(argv[6]),
+      number(argv[7]), static_cast<DirectoryRetirement>(number(argv[8]))};
   Failure error;
   auto scope = CapturedCgroup::Capture(parent, argv[2], limits, error);
   close(parent);  // CapturedCgroup owns its duplicate, no borrowed descriptor

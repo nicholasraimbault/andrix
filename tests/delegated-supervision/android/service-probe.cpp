@@ -306,6 +306,9 @@ int main(int argc, char** argv) {
                 "child remains held");
         require(write_at(leaf.get(), "cgroup.procs", std::to_string(pid)),
                 "owned unreaped child placement");
+        if (n == 0)
+          require(!fchmod(leaf.get(), 0),
+                  "empty retirement must reclaim directory access");
         state.children[n] = pid;
         channels[n] = std::move(parent);
       }

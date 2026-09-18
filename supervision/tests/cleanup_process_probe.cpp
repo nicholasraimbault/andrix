@@ -232,8 +232,9 @@ int main(int argc, char** argv) {
   int parent = open(own.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
   assert(parent >= 0);
   Failure error;
-  auto scope = CapturedCgroup::Capture(parent, argv[1],
-                                       {8, 512, 8192, 16384, 32}, error);
+  auto scope = CapturedCgroup::Capture(
+      parent, argv[1],
+      {8, 512, 8192, 16384, 32, DirectoryRetirement::ReclaimToWorker}, error);
   close(parent);
   assert(scope);
   Worker worker(argv[0], scope);

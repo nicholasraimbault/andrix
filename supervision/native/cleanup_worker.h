@@ -24,7 +24,7 @@ enum class WorkerOperation : uint32_t {
 };
 struct WorkerPacket {
   uint32_t magic = 0x44534350;
-  uint32_t version = 1;
+  uint32_t version = 2;
   uint64_t boot = 0, instance = 0, worker = 0, sequence = 0;
   WorkerOperation operation = WorkerOperation::Initialize;
   uint32_t quantum = 0;

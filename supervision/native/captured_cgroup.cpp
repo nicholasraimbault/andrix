@@ -73,6 +73,67 @@ bool directory_identity(int fd, GroupIdentity& identity, Failure& failure) {
               static_cast<uint64_t>(info.st_ino)};
   return true;
 }
+int descriptor_chmod(int fd, mode_t mode) {
+#if defined(SYS_fchmodat2)
+  return static_cast<int>(syscall(SYS_fchmodat2, fd, "", mode, AT_EMPTY_PATH));
+#elif defined(__aarch64__) || defined(__x86_64__)
+  // Stable syscall number on these two supported ABIs. Older build sysroots
+  // omit the name; the running kernel must still implement AT_EMPTY_PATH.
+  return static_cast<int>(syscall(452, fd, "", mode, AT_EMPTY_PATH));
+#else
+  errno = ENOSYS;
+  return -1;
+#endif
+}
+bool retirement_supported(const CleanupLimits& limits, Failure& failure) {
+  if (limits.directory_retirement == DirectoryRetirement::Unchanged)
+    return true;
+  // No object is changed by probing an invalid descriptor. In particular,
+  // refuse before ownership mutation if the required flags are unsupported.
+  errno = 0;
+  if (descriptor_chmod(-1, 0755) == -1 && errno == EBADF) return true;
+  failure =
+      fail(GroupError::Io, errno ? errno : EIO, "directory retirement ABI");
+  return false;
+}
+bool reclaim_directory(int fd, GroupIdentity expected, Failure& failure) {
+  GroupIdentity actual;
+  if (!directory_identity(fd, actual, failure)) return false;
+  if (actual != expected) {
+    failure =
+        fail(GroupError::IdentityChanged, ESTALE, "reclaim directory identity");
+    return false;
+  }
+  struct stat info{};
+  if (fstat(fd, &info)) {
+    failure = fail(GroupError::Io, errno, "reclaim directory metadata");
+    return false;
+  }
+  const uid_t uid = geteuid();
+  const gid_t gid = getegid();
+  if ((info.st_uid != uid || info.st_gid != gid) &&
+      fchownat(fd, "", uid, gid, AT_EMPTY_PATH)) {
+    failure = fail(GroupError::Io, errno, "reclaim directory owner");
+    return false;
+  }
+  if ((info.st_mode & 07777) != 0755 && descriptor_chmod(fd, 0755)) {
+    failure = fail(GroupError::Io, errno, "reclaim directory mode");
+    return false;
+  }
+  if (fstat(fd, &info)) {
+    failure = fail(GroupError::Io, errno, "reclaim directory readback");
+    return false;
+  }
+  if (info.st_uid != uid || info.st_gid != gid ||
+      (info.st_mode & 07777) != 0755 ||
+      GroupIdentity{static_cast<uint64_t>(info.st_dev),
+                    static_cast<uint64_t>(info.st_ino)} != expected) {
+    failure = fail(GroupError::IdentityChanged, ESTALE,
+                   "reclaim directory readback mismatch");
+    return false;
+  }
+  return true;
+}
 bool transfer_identity(int fd, size_t index, GroupIdentity& identity,
                        Failure& failure) {
   struct stat info{};
@@ -120,7 +181,9 @@ bool valid_limits(const CleanupLimits& limits) {
   // trees.
   return limits.max_depth <= 64 && limits.max_directory_visits > 0 &&
          limits.max_entry_visits > 0 && limits.max_total_steps > 0 &&
-         limits.max_steps_per_call > 0 && limits.max_steps_per_call <= 1024;
+         limits.max_steps_per_call > 0 && limits.max_steps_per_call <= 1024 &&
+         (limits.directory_retirement == DirectoryRetirement::Unchanged ||
+          limits.directory_retirement == DirectoryRetirement::ReclaimToWorker);
 }
 PopulationResult parse_population(std::string_view text) {
   if (text.empty() || text.size() >= 4096)
@@ -208,6 +271,7 @@ std::shared_ptr<CapturedCgroup> CapturedCgroup::Capture(int parent,
     failure = fail(GroupError::InvalidArgument, EINVAL, "capture inputs");
     return {};
   }
+  if (!retirement_supported(limits, failure)) return {};
   auto impl = std::make_unique<Impl>();
   impl->parent = duplicate(parent);
   GroupIdentity parent_identity;
@@ -286,6 +350,7 @@ std::shared_ptr<CapturedCgroup> CapturedCgroup::Adopt(
     failure = fail(GroupError::InvalidArgument, EINVAL, "transfer metadata");
     return {};
   }
+  if (!retirement_supported(transfer->limits, failure)) return {};
   for (size_t n = 0; n < transfer->descriptors.size(); ++n) {
     GroupIdentity actual;
     if (!transfer_identity(transfer->descriptors[n], n, actual, failure))
@@ -382,6 +447,12 @@ std::unique_ptr<ReclamationCursor> CapturedCgroup::BeginReclaim(
     impl_->cursor_active = false;
     return {};
   }
+  if (impl_->limits.directory_retirement ==
+          DirectoryRetirement::ReclaimToWorker &&
+      !reclaim_directory(impl_->root.get(), impl_->identity, failure)) {
+    impl_->cursor_active = false;
+    return {};
+  }
   // openat2(".") creates a new directory description, not dup's shared offset.
   auto root = beneath(impl_->root.get(), ".", O_RDONLY | O_DIRECTORY);
   GroupIdentity id;
@@ -461,15 +532,29 @@ CleanupStep ReclamationCursor::Step(size_t budget) {
         return blocked(
             fail(GroupError::Limit, E2BIG, "directory depth/visit budget"));
       const std::string name(entry->d_name);
-      auto child = beneath(current, name.c_str(), O_RDONLY | O_DIRECTORY);
-      if (child.get() < 0)
-        return blocked(fail(GroupError::Io, errno, "open child directory"));
       GroupIdentity id;
       Failure failure;
+      const auto expected = GroupIdentity{static_cast<uint64_t>(info.st_dev),
+                                          static_cast<uint64_t>(info.st_ino)};
+      Fd child;
+      if (root.limits.directory_retirement ==
+          DirectoryRetirement::ReclaimToWorker) {
+        // O_PATH captures the child without assuming its prior owner left read
+        // permission. Take back this exact directory, never an inferred path.
+        auto object = beneath(current, name.c_str(), O_PATH | O_DIRECTORY);
+        if (object.get() < 0)
+          return blocked(
+              fail(GroupError::Io, errno, "capture retirement directory"));
+        if (!reclaim_directory(object.get(), expected, failure))
+          return blocked(failure);
+        child = beneath(object.get(), ".", O_RDONLY | O_DIRECTORY);
+      } else
+        child = beneath(current, name.c_str(), O_RDONLY | O_DIRECTORY);
+      if (child.get() < 0)
+        return blocked(fail(GroupError::Io, errno, "open child directory"));
       if (!directory_identity(child.get(), id, failure))
         return blocked(failure);
-      if (id != GroupIdentity{static_cast<uint64_t>(info.st_dev),
-                              static_cast<uint64_t>(info.st_ino)})
+      if (id != expected)
         return blocked(fail(GroupError::IdentityChanged, ESTALE,
                             "child changed during open"));
       Directory directory(fdopendir(child.get()));
