@@ -377,7 +377,7 @@ bool DelegatedInstance::SpawnWorker() {
     Failed("cleanup process bootstrap requires the Android adapter");
     return false;
 #endif
-    const char* argv[] = {"/system/bin/andrix-scope-cleaner", "3", nullptr};
+    const char* argv[] = {"/system_ext/bin/andrix-scope-cleaner", "3", nullptr};
     char* environment[] = {nullptr};
     pid_t pid = 0;
     if (!result)

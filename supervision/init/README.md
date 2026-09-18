@@ -30,7 +30,7 @@ control leaf and delegated work subtree have distinct ownership. The gate requir
 actual initial child UID/GID, SID and captured root identity; a copied number is not
 readiness authority.
 
-Cleanup runs through the fixed `/system/bin/andrix-scope-cleaner 3` bootstrap with its
+Cleanup runs through the fixed `/system_ext/bin/andrix-scope-cleaner 3` bootstrap with its
 own `andrix_scope_cleanup` SELinux transition. It does not broaden `init_exec` execution
 permission. Dedicated socket labels separate cleanup and readiness traffic from ordinary
 coordinator sockets. Init holds the initial child's existing activation FIFO until the
