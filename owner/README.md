@@ -38,7 +38,9 @@ original epoch binding and a shared atomic execution gate. The real platform obs
 supplies its existing instance/generation and query issue based deadline. Stop closes
 that gate without the admission or UI mutex; queued wake data cannot reopen it.
 
-Host units and separate process controls exercise this mechanism. They do not qualify
+At `d211b25`, 404 host tests, focused optimized/sanitizer and separate process controls,
+normal/Keep Android native builds and the frozen Soong host admission test passed.
+They do not qualify
 Android caller/MAC identity, a new owner launcher or real CE revoke/regrant. Existing
 Console/plain/Keep paths do not call these new admission methods, and their behavior
 below remains unchanged. Gate closure is not process or resource cleanup.
