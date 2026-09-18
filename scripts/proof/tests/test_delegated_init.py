@@ -95,6 +95,17 @@ class DelegatedInitSourceTests(unittest.TestCase):
         self.assertIn('/system_ext/bin/andrix-scope-cleaner',source)
         self.assertNotIn('DelegatedService::WorkerMain',source)
 
+    def test_readiness_observes_task_sid_without_ptrace_or_socket_label_substitute(self):
+        policy=(ROOT/'tests/delegated-supervision/android/sepolicy/delegated_service.te').read_text()
+        self.assertIn('use_bootstrap_libs(andrix_scope_cleanup)',policy)
+        self.assertIn('allow init andrixd:process getattr;',policy)
+        self.assertIn('neverallow init andrixd:process ptrace;',policy)
+        self.assertNotIn('allow init self:capability sys_ptrace',policy)
+        source=(ROOT/'supervision/init/delegated_service.cpp').read_text()
+        self.assertIn('getpidcon(initial_pid, &actual_context)',source)
+        self.assertIn('bootstrap readiness task SID read:',source)
+        self.assertNotIn('SCM_SECURITY',source)
+
     def test_worker_spawn_never_resets_uncatchable_signal_dispositions(self):
         source=(ROOT/'supervision/native/cleanup_worker.cpp').read_text()
         self.assertIn('sigdelset(&defaults, SIGKILL)',source)

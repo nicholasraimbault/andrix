@@ -299,19 +299,26 @@ void DelegatedInstance::ParentReady() {
     }
     CloseEvent(ready);
     if (state.stop_latched() || !initial_pid) return;
-    std::string sid;
-    char* actual_context = nullptr;
-    if (getpidcon(initial_pid, &actual_context) == 0 && actual_context) {
-        sid = actual_context;
-        freecon(actual_context);
-    }
     if (count != static_cast<ssize_t>(sizeof(message)) ||
         packet.msg_flags & (MSG_TRUNC | MSG_CTRUNC) || invalid || !caller || !scope ||
         message.magic != 0x44454c4547415445ULL || message.boot != state.identity().boot() ||
         message.instance != state.identity().serial() ||
-        message.device != scope->identity().device || message.inode != scope->identity().inode ||
-        sid != service->seclabel()) {
-        Failed("bootstrap readiness identity/profile mismatch");
+        message.device != scope->identity().device || message.inode != scope->identity().inode) {
+        Failed("bootstrap readiness credentials/framing/scope mismatch");
+        return;
+    }
+    char* actual_context = nullptr;
+    const int observed = getpidcon(initial_pid, &actual_context);
+    if (observed < 0 || !actual_context) {
+        const int error = errno;
+        if (actual_context) freecon(actual_context);
+        Failed("bootstrap readiness task SID read: " + std::to_string(error));
+        return;
+    }
+    const std::string sid(actual_context);
+    freecon(actual_context);
+    if (sid != service->seclabel()) {
+        Failed("bootstrap readiness task SID mismatch");
         return;
     }
     bootstrap_ready = true;

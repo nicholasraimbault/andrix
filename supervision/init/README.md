@@ -14,7 +14,12 @@ activation read without dereferencing an error. It needs a fresh Android result.
 No complete Android lifecycle result is claimed. The signal correction at `b05d656`
 passed 400 host tests, selected Android module/policy checks, five actual init parser/event
 tests and the frozen LMKD transport test. Its new Bionic signal controls are compiled,
-not executed. No matching new complete image or Android trial is claimed for that fix.
+not executed at that artifact checkpoint. Matching images and a third fresh Android
+trial at `3441868` subsequently passed the actual Bionic controls. Workers initialized
+and retired seven failed startup scopes before replacement. Readiness still failed:
+init lacked the bootstrap role's `process getattr` permission, and bootstrap library
+searches were denied. The narrower policy correction preserves actual task SID checks
+and adds no ptrace authority. It has not yet been qualified in Android.
 
 `integration.patch` targets the pinned `system/core` revision and file hashes in
 `integration-inputs.json`. Apply it only for the selected GrapheneOS Cuttlefish debug
@@ -37,7 +42,11 @@ UID/PID path. It retains the aggregate controls and migration ancestors. The fix
 bootstrap receives a root descriptor, instance identity and readiness socket. Its
 control leaf and delegated work subtree have distinct ownership. The gate requires the
 actual initial child UID/GID, SID and captured root identity; a copied number is not
-readiness authority.
+readiness authority. The check observes the actual task SID, not the inherited socket's
+label. The pinned kernel's proc attribute open attempts a ptrace related helper for
+write safety but ignores its error; the SID read separately requires `process getattr`.
+The policy grants only that observation for the declared bootstrap role. Ptrace remains
+prohibited, and its diagnostic denial is not suppressed.
 
 Cleanup runs through the fixed `/system_ext/bin/andrix-scope-cleaner 3` bootstrap with its
 own `andrix_scope_cleanup` SELinux transition. It does not broaden `init_exec` execution

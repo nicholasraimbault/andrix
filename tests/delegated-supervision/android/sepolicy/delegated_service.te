@@ -6,6 +6,7 @@ type andrix_scope_cleanup, domain;
 typeattribute andrix_scope_cleanup coredomain;
 type andrix_scope_cleanup_exec, exec_type, file_type, system_file_type;
 init_daemon_domain(andrix_scope_cleanup)
+use_bootstrap_libs(andrix_scope_cleanup)
 allow init andrix_scope_cleanup:process { sigkill sigstop signal };
 # SETGID/SETPCAP are initialization steps. The fixed bootstrap drops them and
 # checks final effective/permitted/bounding CHOWN with empty inheritable/ambient.
@@ -28,6 +29,10 @@ neverallow { domain -init -andrix_scope_cleanup } andrix_cleanup_channel:unix_st
 type andrix_delegation_ready_socket, file_type;
 allow init andrix_delegation_ready_socket:unix_stream_socket create_socket_perms_no_ioctl;
 allow andrixd andrix_delegation_ready_socket:unix_stream_socket { read write getattr };
+# Read the actual service task SID after authenticating its per-message credentials.
+# This does not grant ptrace or replace the SID with a socket-label assertion.
+allow init andrixd:process getattr;
+neverallow init andrixd:process ptrace;
 neverallow { domain -init -andrixd } andrix_delegation_ready_socket:unix_stream_socket { read write };
 
 # The socket retains the actual trusted coordinator SID for SO_PEERSEC checks.
