@@ -21,7 +21,7 @@ class DelegatedInitSourceTests(unittest.TestCase):
         directory=ROOT/'supervision/init'
         meta=json.loads((directory/'integration-inputs.json').read_text())
         self.assertEqual(meta['system_core_revision'],'84ebea5e21110f31b632473a2fdb1c656b599b24')
-        self.assertEqual(len(meta['files']),13)
+        self.assertEqual(len(meta['files']),12)
         patch=(directory/'integration.patch').read_text()
         for name,row in meta['files'].items():
             self.assertIn('--- a/'+name,patch)
@@ -87,7 +87,25 @@ class DelegatedInitSourceTests(unittest.TestCase):
         self.assertIn('getpidcon(initial_pid',source)
         self.assertIn('SYS_pidfd_send_signal',source)
         self.assertIn('state.finish_confirmed_removal',source)
-        self.assertIn('fixed internal worker profile',source.lower())
+        worker=(ROOT/'supervision/native/cleanup_worker_main.cpp').read_text()
+        self.assertIn('u:r:andrix_scope_cleanup:s0',worker)
+        self.assertIn('PR_CAPBSET_DROP',worker)
+        self.assertIn('CAP_DAC_OVERRIDE',worker)
+        self.assertIn('/system/bin/andrix-scope-cleaner',source)
+        self.assertNotIn('DelegatedService::WorkerMain',source)
+
+    def test_bootstrap_waits_for_worker_and_event_handles_retire_after_dispatch(self):
+        source=(ROOT/'supervision/init/delegated_service.cpp').read_text()
+        patch=(ROOT/'supervision/init/integration.patch').read_text()
+        self.assertIn('HoldActivation(*this, std::move(cgroups_activated))',patch)
+        self.assertIn('DelegatedService::AfterWait()',patch)
+        self.assertIn('retired_event_fds.emplace_back(std::move(fd))',source)
+        self.assertIn('retired_event_fds.clear()',source)
+        self.assertIn('activation_released && bootstrap_ready',source)
+        policy=(ROOT/'tests/delegated-supervision/android/sepolicy/delegated_service.te').read_text()
+        self.assertIn('init_daemon_domain(andrix_scope_cleanup)',policy)
+        self.assertIn('andrix_delegation_ready_socket',policy)
+        self.assertNotIn('allow init init_exec:file execute_no_trans',policy)
 
 
 if __name__=='__main__':unittest.main()

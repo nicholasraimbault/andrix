@@ -2,14 +2,11 @@
 // Optional integration candidate. Built only for the delegated-service proof.
 #include "delegated_service.h"
 
-#include <dirent.h>
 #include <fcntl.h>
-#include <grp.h>
 #include <linux/openat2.h>
 #include <poll.h>
 #include <selinux/selinux.h>
 #include <spawn.h>
-#include <sys/prctl.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -36,7 +33,6 @@
 #include <map>
 #include <optional>
 
-#include "capabilities.h"
 #include "captured_cgroup.h"
 #include "cleanup_worker.h"
 #include "epoll.h"
@@ -75,6 +71,9 @@ bool platform_parent_ready = false;
 std::unique_ptr<sup::InstanceAllocator> identities;
 std::map<uint64_t, std::weak_ptr<DelegatedInstance>> instances;
 bool pumping = false;
+// Epoll removes handler map entries after dispatch. Keep their FD numbers owned
+// until that point, even when recovery runs from the first reap callback.
+std::vector<unique_fd> retired_event_fds;
 
 Result<unique_fd> OpenDirectoryAt(int parent, const char* name) {
     open_how how{};
@@ -162,7 +161,16 @@ sup::Population Population(sup::GroupPopulation value) {
 void CloseEvent(unique_fd& fd) {
     if (fd >= 0 && event_loop) {
         auto removed = event_loop->UnregisterHandler(fd.get());
-        if (!removed.ok()) LOG(ERROR) << removed.error();
+        if (removed.ok()) {
+            // End communication immediately, but do not allow descriptor number
+            // reuse while Epoll still owns the old handler. Counts are bounded
+            // by the instance and worker limits above.
+            shutdown(fd.get(), SHUT_RDWR);
+            retired_event_fds.emplace_back(std::move(fd));
+            if (wake_main) wake_main();
+            return;
+        }
+        LOG(ERROR) << removed.error();
     }
     fd.reset();
 }
@@ -178,6 +186,8 @@ struct DelegatedInstance : std::enable_shared_from_this<DelegatedInstance> {
     std::optional<sup::ObservationTicket> observation;
     std::optional<sup::CleanupTicket> cleanup;
     std::optional<siginfo_t> exit;
+    std::optional<InterprocessFifo> activation;
+    bool activation_released = false;
     pid_t initial_pid = 0;
     bool assigned = false, bootstrap_ready = false, root_allocated = false;
     bool kill_needed = false, kill_completed = false, confirm_needed = false;
@@ -217,7 +227,12 @@ struct DelegatedInstance : std::enable_shared_from_this<DelegatedInstance> {
             cleanup_deadline = boot_clock::now() + kCleanupDeadline;
         state.stop(state.identity());
         kill_needed = true;
-        if (!assigned && initial_pidfd >= 0)
+        const bool held = activation.has_value();
+        if (activation) {
+            activation->Close();
+            activation.reset();
+        }
+        if ((!assigned || held) && initial_pidfd >= 0)
             syscall(SYS_pidfd_send_signal, initial_pidfd.get(), SIGKILL, nullptr, 0);
         Publish();
     }
@@ -225,6 +240,10 @@ struct DelegatedInstance : std::enable_shared_from_this<DelegatedInstance> {
         failure = why;
         LOG(ERROR) << "delegated service " << service->name() << " " << Reference() << ": " << why;
         Stop();
+        // A failed provider must not leave its known initial process able to
+        // proceed. The enclosing scope remains owned until fully reconciled.
+        if (initial_pidfd >= 0)
+            syscall(SYS_pidfd_send_signal, initial_pidfd.get(), SIGKILL, nullptr, 0);
     }
     void Block(const std::string& why) {
         quarantined = true;
@@ -301,11 +320,22 @@ void DelegatedInstance::ParentReady() {
 bool DelegatedInstance::SpawnWorker() {
     if (worker_pid || !scope || !event_loop || worker_epoch >= kMaximumWorkers) return false;
     int sockets[2];
-    if (socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC | SOCK_NONBLOCK, 0, sockets)) {
-        Failed("cleanup channel allocation");
+    if (setsockcreatecon("u:object_r:andrix_cleanup_channel:s0")) {
+        Failed("cleanup channel label");
         return false;
     }
-    unique_fd parent(sockets[0]), child(sockets[1]);
+    const int created =
+            socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC | SOCK_NONBLOCK, 0, sockets);
+    const int creation_error = errno;
+    unique_fd parent, child;
+    if (!created) {
+        parent.reset(sockets[0]);
+        child.reset(sockets[1]);
+    }
+    if (setsockcreatecon(nullptr) || created) {
+        Failed("cleanup channel allocation/label reset: " + std::to_string(creation_error));
+        return false;
+    }
     if (sup::ConfigureWorkerSocket(parent.get()) || sup::ConfigureWorkerSocket(child.get())) {
         Failed("cleanup channel credentials");
         return false;
@@ -329,8 +359,16 @@ bool DelegatedInstance::SpawnWorker() {
     int result = posix_spawn_file_actions_adddup2(&actions, safe_child.get(), 3);
     result |= posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0);
     result |= posix_spawn_file_actions_addopen(&actions, 1, "/dev/null", O_WRONLY, 0);
+    result |= posix_spawn_file_actions_addopen(&actions, 2, "/dev/null", O_WRONLY, 0);
 #ifdef __BIONIC__
-    result |= posix_spawnattr_setflags(&attributes, POSIX_SPAWN_CLOEXEC_DEFAULT);
+    sigset_t empty, defaults;
+    sigemptyset(&empty);
+    sigfillset(&defaults);
+    result |= posix_spawnattr_setsigmask(&attributes, &empty);
+    result |= posix_spawnattr_setsigdefault(&attributes, &defaults);
+    result |= posix_spawnattr_setflags(&attributes, POSIX_SPAWN_CLOEXEC_DEFAULT |
+                                                            POSIX_SPAWN_SETSIGMASK |
+                                                            POSIX_SPAWN_SETSIGDEF);
 #else
     // Host builds exercise parsing and state construction only. Do not invent
     // a weaker inheritance path for sysroots without CLOEXEC_DEFAULT.
@@ -339,7 +377,7 @@ bool DelegatedInstance::SpawnWorker() {
     Failed("cleanup process bootstrap requires the Android adapter");
     return false;
 #endif
-    const char* argv[] = {"/system/bin/init", "delegated_cleanup", "3", nullptr};
+    const char* argv[] = {"/system/bin/andrix-scope-cleaner", "3", nullptr};
     char* environment[] = {nullptr};
     pid_t pid = 0;
     if (!result)
@@ -572,7 +610,17 @@ void DelegatedInstance::Tick() {
     }
     if (!worker_initialized) return;
     if (!state.stop_latched()) {
-        if (bootstrap_ready && !state.active()) {
+        if (activation) {
+            auto released = activation->Write(kCgroupsActivated);
+            activation->Close();
+            activation.reset();
+            if (!released.ok()) {
+                Failed("held bootstrap activation failed");
+                return;
+            }
+            activation_released = true;
+        }
+        if (activation_released && bootstrap_ready && !state.active()) {
             state.verify_profile(state.identity());
             if (state.complete_setup(state.identity())) state.activate(state.identity());
             Publish();
@@ -759,7 +807,7 @@ Result<void> DelegatedService::Prepare(Service& service, std::vector<Descriptor>
         OR_RETURN(DelegateFile(work.get(), "cgroup.subtree_control", service.uid(), service.gid()));
         OR_RETURN(EnableMemory(work.get()));
         int pair[2];
-        if (setsockcreatecon(service.seclabel_.c_str()))
+        if (setsockcreatecon("u:object_r:andrix_delegation_ready_socket:s0"))
             return ErrnoError() << "readiness socket label";
         const int created =
                 socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC | SOCK_NONBLOCK, 0, pair);
@@ -834,6 +882,29 @@ Result<void> DelegatedService::Assign(Service& service, pid_t process) {
     current->FinishPreparation();
     return {};
 }
+void DelegatedService::HoldActivation(Service& service, InterprocessFifo&& gate) {
+    auto current = service.delegation_instance_;
+    if (!current || current->state.stop_latched()) {
+        gate.Close();
+        return;
+    }
+    current->activation.emplace(std::move(gate));
+}
+void DelegatedService::AfterWait() {
+    // Called only after the main Epoll has finished dispatch and erased every
+    // deferred handler. No callback can then resolve an old FD to a new worker.
+    retired_event_fds.clear();
+}
+#if !defined(__BIONIC__)
+// Host test exercises the actual retirement operation against the actual init
+// Epoll class without installing a supervisor or creating any cgroup.
+void TestDelegatedEventRetirement(Epoll& epoll, unique_fd& descriptor) {
+    auto* saved = event_loop;
+    event_loop = &epoll;
+    CloseEvent(descriptor);
+    event_loop = saved;
+}
+#endif
 void DelegatedService::NoProcess(Service& service) {
     if (auto current = service.delegation_instance_) {
         current->FinishPreparation();
@@ -1058,57 +1129,5 @@ Result<void> DelegatedService::MemoryTest(Service& service, std::string_view ref
                               current->state.identity().serial()))
         return Error() << "memory supervisor test request failed";
     return {};
-}
-int DelegatedService::WorkerMain(int argc, char** argv) {
-    if (argc != 3 || std::string_view(argv[2]) != "3" || getppid() != 1 || getuid() != 0 ||
-        getgid() != 0)
-        return 120;
-    char* label = nullptr;
-    if (getcon(&label) || !label) return 121;
-    bool correct = std::string_view(label) == "u:r:init:s0";
-    freecon(label);
-    if (!correct) return 122;
-    // Fixed internal worker profile, not caller selected credentials or exec.
-    if (setgroups(0, nullptr) || setresgid(0, 0, 0) || setresuid(0, 0, 0) ||
-        setpriority(PRIO_PROCESS, 0, 10) || prctl(PR_SET_DUMPABLE, 0))
-        return 123;
-    const rlimit core{0, 0}, files{128, 128}, cpu{10, 10};
-    if (setrlimit(RLIMIT_CORE, &core) || setrlimit(RLIMIT_NOFILE, &files) ||
-        setrlimit(RLIMIT_CPU, &cpu))
-        return 124;
-    CapSet caps;
-    caps.set(CAP_DAC_OVERRIDE);
-    if (!SetCapsForExec(caps) || !DropInheritableCaps() ||
-        prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0) ||
-        prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0))
-        return 125;
-    ScopedCaps actual(cap_get_proc());
-    if (!actual || getgroups(0, nullptr) != 0) return 125;
-    for (unsigned cap = 0; cap <= GetLastValidCap(); ++cap) {
-        const bool wanted = cap == CAP_DAC_OVERRIDE;
-        cap_flag_value_t effective, permitted, inheritable;
-        if (cap_get_flag(actual.get(), cap, CAP_EFFECTIVE, &effective) ||
-            cap_get_flag(actual.get(), cap, CAP_PERMITTED, &permitted) ||
-            cap_get_flag(actual.get(), cap, CAP_INHERITABLE, &inheritable) ||
-            (effective == CAP_SET) != wanted || (permitted == CAP_SET) != wanted ||
-            inheritable != CAP_CLEAR ||
-            prctl(PR_CAPBSET_READ, cap, 0, 0, 0) != static_cast<int>(wanted) ||
-            prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_IS_SET, cap, 0, 0) != 0)
-            return 125;
-    }
-    unique_fd directory(open("/proc/self/fd", O_RDONLY | O_DIRECTORY | O_CLOEXEC));
-    if (directory < 0) return 126;
-    DIR* scan = fdopendir(directory.release());
-    if (!scan) return 126;
-    bool closed = true;
-    while (auto* entry = readdir(scan)) {
-        if (entry->d_name[0] == '.') continue;
-        int fd = 0;
-        if (!android::base::ParseInt(entry->d_name, &fd) || (fd > 3 && fd != dirfd(scan)))
-            closed = false;
-    }
-    closedir(scan);
-    if (!closed) return 127;
-    return sup::RunCleanupWorker(3, {1, 0, 0});
 }
 }  // namespace android::init

@@ -1,16 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // Actual init parser construction, with no service launch or credential changes.
+#include <android-base/unique_fd.h>
+#include <fcntl.h>
 #include <gtest/gtest.h>
+#include <sys/eventfd.h>
+#include <unistd.h>
 #include <algorithm>
+#include <cerrno>
 #include <string>
 #include <vector>
 
 #include "delegated_service.h"
+#include "epoll.h"
 #include "service.h"
 #include "service_list.h"
 #include "service_parser.h"
 
 namespace android::init {
+void TestDelegatedEventRetirement(Epoll&, android::base::unique_fd&);
 namespace {
 using Lines = std::vector<std::vector<std::string>>;
 Lines Profile() {
@@ -91,6 +98,42 @@ TEST(DelegatedServiceProfile, ReapCallbacksRequireAnExplicitSemanticsExtension) 
     service->AddReapCallback([](const siginfo_t&) {});
     EXPECT_FALSE(DelegatedService::Validate(*service).ok());
     EXPECT_EQ(service->pid(), 0);
+}
+TEST(DelegatedServiceEvents, DescriptorNumberStaysOwnedUntilDeferredHandlerRemoval) {
+    using android::base::unique_fd;
+    Epoll epoll;
+    ASSERT_TRUE(epoll.Open().ok());
+    unique_fd old(eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK));
+    ASSERT_GE(old.get(), 0);
+    const int old_number = old.get();
+    unique_fd replacement;
+    bool registration_ok = false;
+    int calls = 0;
+    ASSERT_TRUE(epoll.RegisterHandler(old.get(), [&] {
+                         ++calls;
+                         TestDelegatedEventRetirement(epoll, old);
+                         EXPECT_LT(old.get(), 0);
+                         EXPECT_GE(fcntl(old_number, F_GETFD), 0);
+                         replacement.reset(eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK));
+                         EXPECT_NE(replacement.get(), old_number);
+                         registration_ok =
+                                 epoll.RegisterHandler(replacement.get(), [&] { ++calls; }).ok();
+                     }).ok());
+    const uint64_t pulse = 1;
+    ASSERT_EQ(write(old.get(), &pulse, sizeof(pulse)), static_cast<ssize_t>(sizeof(pulse)));
+    auto delivered = epoll.Wait(std::chrono::milliseconds(500));
+    ASSERT_TRUE(delivered.ok());
+    EXPECT_EQ(calls, 1);
+    EXPECT_TRUE(registration_ok);
+    DelegatedService::AfterWait();
+    EXPECT_EQ(fcntl(old_number, F_GETFD), -1);
+    EXPECT_EQ(errno, EBADF);
+    unique_fd reused(eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK));
+    ASSERT_EQ(reused.get(), old_number);
+    EXPECT_TRUE(epoll.RegisterHandler(reused.get(), [&] { calls += 10; }).ok());
+    ASSERT_EQ(write(replacement.get(), &pulse, sizeof(pulse)), static_cast<ssize_t>(sizeof(pulse)));
+    ASSERT_TRUE(epoll.Wait(std::chrono::milliseconds(500)).ok());
+    EXPECT_EQ(calls, 2);
 }
 TEST(DelegatedServiceProfile, UnsupportedExecWaitRefusesBeforeFlagMutation) {
     ServiceList services;

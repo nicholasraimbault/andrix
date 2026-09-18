@@ -189,7 +189,14 @@ There is no supported release or qualified physical phone deployment at this che
   UID/PID group lookup. Its [captured registration extension](../supervision/lmkd/README.md)
   compiled and linked together with init at `5f9c893`; frozen actual parser and packet/FD
   transport tests passed. This is still not Android execution, control responsiveness,
-  actual MAC/resource binding or memory pressure qualification. The earlier
+  actual MAC/resource binding or memory pressure qualification. Normal/selected modules,
+  policy and complete images later passed at `40696f3` with 395 host tests. Its first
+  Android run reached ordinary peer RPC and actual captured LMKD registration, but
+  full readiness failed on init re-exec and readiness socket MAC checks. No scoped
+  descendant, cleanup/restart or memory kill result was reached. The failed attempt
+  also exposed a policy inspection error: a query matching any requested permission
+  is not evidence that all requested permissions exist. Required permission coverage
+  is now checked per exact source, target and class. The earlier
   [supervision candidate and proof matrix](../plans/2026-09-16-unix-work-supervision.md)
   retains its evidence limits and the open Android shell controls.
 - **Supporting mechanism record:** the [scope boundary experiment](../tests/owner-scope/README.md)
