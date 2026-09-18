@@ -151,6 +151,16 @@ $(call soong_config_set_bool,andrix,delegated_service,true)
 PRODUCT_PACKAGES += andrix-scope-cleaner andrix-delegated-service-probe andrix-delegated-service-client
 endif
 
+# Complete ordinary launch vehicle, separate from the generic service contract.
+$(call soong_config_set_bool,andrix,owner_work_proof,false)
+ifeq ($(ANDRIX_OWNER_WORK_PROOF),true)
+ifneq ($(ANDRIX_DELEGATED_SERVICE_PROOF),true)
+$(error ANDRIX_OWNER_WORK_PROOF requires the selected delegated service environment)
+endif
+$(call soong_config_set_bool,andrix,owner_work_proof,true)
+PRODUCT_PACKAGES += andrix-work-launcher andrix-work-entry andrix-work-launch-proof andrix-work-launch-client
+endif
+
 # Compiler payload is a separate opt-in within the owner environment. Unflagged
 # builds retain the original small APEX and do not require the staged compiler.
 ifeq ($(ANDRIX_OWNER_COMPILER),true)

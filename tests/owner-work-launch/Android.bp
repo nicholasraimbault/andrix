@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: Apache-2.0
+cc_defaults {
+    name: "andrix_work_launch_probe_defaults",
+    system_ext_specific: true,
+    cpp_std: "c++20",
+    cflags: ["-Wall", "-Wextra", "-Werror", "-DANDRIX_OWNER_LIFECYCLE=1"],
+    static_libs: ["andrix_launch_description"],
+    shared_libs: ["libbase", "libbinder_ndk", "liblog", "libselinux"],
+}
+cc_binary {
+    name: "andrix-work-launch-proof",
+    defaults: ["andrix_work_launch_probe_defaults"],
+    srcs: ["manager.cpp", ":andrix_scope_proof_guard_sources"],
+    static_libs: ["andrix_work_launch_protocol", "andrix_delegated_scope", "andrix_platform_lifecycle-ndk"],
+    init_rc: ["work-launch.rc"],
+}
+cc_binary {
+    name: "andrix-work-launch-client",
+    defaults: ["andrix_work_launch_probe_defaults"],
+    srcs: ["client.cpp"],
+}

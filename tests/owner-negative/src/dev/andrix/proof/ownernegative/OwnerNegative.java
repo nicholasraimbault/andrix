@@ -17,9 +17,12 @@ import org.json.JSONArray;
 public final class OwnerNegative extends Instrumentation {
     static { System.loadLibrary("andrix_owner_negative"); }
     private static native String nativeProbe();
+    private static native String nativeWorkLaunchProbe(String serviceReference);
+    private String workLaunchReference;
 
     @Override public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
+        workLaunchReference = arguments == null ? null : arguments.getString("work_launch_reference");
         start();
     }
 
@@ -55,6 +58,18 @@ public final class OwnerNegative extends Instrumentation {
                     && !report.getBoolean("lifecycle_service_found")
                     && !report.getBoolean("scope_a_found") && !report.getBoolean("scope_b_found")
                     && !report.getBoolean("factory_found") && report.getInt("home_errno") == 13;
+            if (workLaunchReference != null) {
+                String workText = nativeWorkLaunchProbe(workLaunchReference);
+                if (workText == null) throw new IllegalStateException("work launch observation failed");
+                JSONObject work = new JSONObject(workText);
+                report.put("work_launch", work);
+                rejected = rejected && work.getInt("uid") == Process.myUid()
+                        && work.getInt("connect_errno") == 13
+                        && work.getInt("launcher_exec_errno") == 13
+                        && work.getInt("entry_exec_errno") == 13
+                        && work.getInt("ctl_start_result") != 0
+                        && work.getInt("ctl_stop_result") != 0;
+            }
             report.put("status", rejected ? "NEGATIVES_OBSERVED_REQUIRE_POSITIVE_CONTROL" : "FAIL");
             result.putString("owner_negative", report.toString());
             finish(rejected ? Activity.RESULT_OK : Activity.RESULT_CANCELED, result);
