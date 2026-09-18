@@ -11,7 +11,7 @@
     },
     "init/service.cpp": {
       "original_sha256": "922eea487f33fc5f2f918ffa58e20d1ea0ec5796e5c1310dc4af5dae5d1af7dc",
-      "probe_sha256": "42e2ee63174e294c22b10cea779851a3116fa865de0fa8f8e54c27590af366dd"
+      "probe_sha256": "4a1cb4bb66f362a34b7cba17b32ac33536e2bb96ee76c5d3be8bf0ba8c687fe9"
     },
     "init/service_parser.h": {
       "original_sha256": "46fd705f5c002a218152794434d2f39b4c5628bcf2f1ae5239c9db4f099a3e89",
@@ -35,11 +35,7 @@
     },
     "init/init.cpp": {
       "original_sha256": "4070fb5640a42fcd24d1d4b6cb88981b4648be5c9135e984e88800e345bf4f3b",
-      "probe_sha256": "5fa457dce5820db39c38c3eb0c8aa00fcce06917a669804aba4d69da17910a50"
-    },
-    "init/main.cpp": {
-      "original_sha256": "9c2d144b151232f669bff8260ab26512e3084eb226f35d5f59898ede322c2de2",
-      "probe_sha256": "b7a79b0e91c97f42d23106ed86a49a544e07395416fff981ba62d4606bbaebe6"
+      "probe_sha256": "decfa2c490e6d647fcd87a0816cf01c75bf915e2cea2a01e484eef4e1fb3dd36"
     },
     "init/builtins.cpp": {
       "original_sha256": "cc754f60283d8e31eaee7d14b7cee1abc3f19f86d78bcdb446eb44b831b83a14",

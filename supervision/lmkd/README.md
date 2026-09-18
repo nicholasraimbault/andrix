@@ -2,8 +2,9 @@
 
 **Status:** optional candidate. At `5f9c893`, init and LMKD compiled and linked together,
 the actual init parser cases passed, and the LMKD packing/descriptor send host test ran
-from a frozen artifact. No Android execution or memory pressure result qualifies this
-change yet.
+from a frozen artifact. The first fresh Android trial at `40696f3` observed actual init
+registration of the captured pair. A separate init readiness failure prevented its
+memory reaper control. No memory kill, reconnect race or pressure result is claimed.
 
 The pinned LMKD source selects both its pidfd and cgroup control from a registration
 containing numeric PID/UID metadata. For services, process type skips application soft

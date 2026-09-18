@@ -1,8 +1,10 @@
 # Android delegated service vehicle
 
-**Status:** selected debug proof inputs, not yet compiled or run. Neither program is an
-ordinary owner execution API. They qualify the optional generic init/LMKD adapter before
-connecting Andrix work admission and terminal clients.
+**Status:** compiled with normal exclusion, selected policy and complete image checks at
+`40696f3`. The first fresh Android run reached ordinary peer RPC and captured LMKD
+registration, then failed before full readiness on two genuine SELinux boundaries. It
+did not reach scoped descendant creation or the lifecycle controls below. Corrections
+require new artifact and runtime evidence. Neither program is an ordinary owner API.
 
 The fixed service runs under the declared UID/GID, supplementary group, empty capability
 sets, SELinux role, scheduling and rlimits. It checks the inherited root descriptor,

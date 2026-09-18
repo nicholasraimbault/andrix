@@ -1,10 +1,11 @@
 # Optional Android service adapter
 
-**Status:** the initial adapter at `f78d91e` compiled and linked for Android. Four tests
-using the actual init parser passed. No Android execution has qualified it. The current
-[captured LMKD registration extension](../lmkd/README.md) also compiled at `5f9c893`, with
-its frozen host packet/descriptor test passing. Runtime and policy checks remain open.
-Earlier component results do not qualify the combined Android behavior.
+**Status:** normal/selected module, policy and complete image gates passed at `40696f3`,
+following the earlier actual parser and LMKD transport tests. The first fresh Android
+trial reached captured LMKD registration but failed before full service readiness:
+SELinux rejected re-executing init and reading the readiness socket's backing label.
+That failed run is retained. The corrected worker/channel/event retirement candidate
+below has not yet been compiled or run. No complete Android lifecycle result is claimed.
 
 `integration.patch` targets the pinned `system/core` revision and file hashes in
 `integration-inputs.json`. Apply it only for the selected GrapheneOS Cuttlefish debug
@@ -29,13 +30,19 @@ control leaf and delegated work subtree have distinct ownership. The gate requir
 actual initial child UID/GID, SID and captured root identity; a copied number is not
 readiness authority.
 
-Cleanup runs in a fixed internal process reached over an anonymous private socket.
-Its profile is root UID/GID, no supplementary groups, init SID, only `DAC_OVERRIDE` in
+Cleanup runs through the fixed `/system/bin/andrix-scope-cleaner 3` bootstrap with its
+own `andrix_scope_cleanup` SELinux transition. It does not broaden `init_exec` execution
+permission. Dedicated socket labels separate cleanup and readiness traffic from ordinary
+coordinator sockets. Init holds the initial child's existing activation FIFO until the
+cleanup worker has actually initialized.
+
+The worker profile is root UID/GID, no supplementary groups, only `DAC_OVERRIDE` in
 permitted/effective/bounding sets, empty inheritable/ambient caps, no new privileges,
-zero core files, bounded FDs/CPU and reduced priority. It receives only the declared
-channel and diagnostic descriptors. It accepts captured kernel objects, never owner
-programs or caller selected privileged credentials. This is a candidate process layout,
-not an adopted process count for the product.
+zero core files, bounded FDs/CPU and reduced priority. SETGID/SETPCAP are declared internal
+initialization steps and are removed before any cleanup command is accepted. The worker
+checks its actual identity, limits, capability sets and closed descriptor set. It accepts
+captured kernel objects, never owner programs or caller selected privileged credentials.
+This is a candidate process layout, not an adopted product process count.
 
 ## Lifecycle integration
 
@@ -61,6 +68,12 @@ an old UID/PID path. The companion patch adds that registration and incarnation 
 removal, including existing service registration after connection recovery. A selected
 memory test command invokes LMKD's real reaper for a matching service; it is not a real
 memory pressure test or a production API.
+
+The event lane retains each retired descriptor number until init's actual Epoll has
+erased its deferred handler. An identity checked callback alone does not make early FD
+reuse safe for that registry. Communication ends immediately through socket shutdown;
+physical FD close follows dispatch. Provider failure also stops the exact known initial
+process, without pretending its aggregate resource has been reclaimed.
 
 The exact instance Stop builtin is an internal trusted init action, not a general
 application API. The lab worker fault control is restricted to the matching instance

@@ -1,5 +1,36 @@
 # SPDX-License-Identifier: Apache-2.0
 # Selected generic-service vehicle only, never normal product policy.
+# A separate fixed bootstrap transitions out of init. Do not grant init_exec
+# execute_no_trans merely to make an internal helper fit the prototype layout.
+type andrix_scope_cleanup, domain;
+typeattribute andrix_scope_cleanup coredomain;
+type andrix_scope_cleanup_exec, exec_type, file_type, system_file_type;
+init_daemon_domain(andrix_scope_cleanup)
+allow init andrix_scope_cleanup:process { sigkill sigstop signal };
+# SETGID/SETPCAP are initialization steps. The fixed bootstrap drops them and
+# checks final effective/permitted/bounding DAC_OVERRIDE with empty inheritable/ambient.
+allow andrix_scope_cleanup self:capability { dac_override setgid setpcap };
+allow andrix_scope_cleanup self:process { getcap setcap setrlimit getsched setsched };
+allow andrix_scope_cleanup self:dir r_dir_perms;
+allow andrix_scope_cleanup self:file r_file_perms;
+allow andrix_scope_cleanup self:lnk_file r_file_perms;
+allow andrix_scope_cleanup proc:dir r_dir_perms;
+allow andrix_scope_cleanup proc:file r_file_perms;
+allow andrix_scope_cleanup cgroup_v2:dir { r_dir_perms remove_name rmdir };
+allow andrix_scope_cleanup cgroup_v2:file r_file_perms;
+neverallow andrix_scope_cleanup { andrix_owner andrixd andrix_terminal }:binder { call transfer };
+neverallow andrix_scope_cleanup andrix_lifecycle_service:service_manager { add find };
+
+type andrix_cleanup_channel, file_type;
+allow init andrix_cleanup_channel:unix_stream_socket create_socket_perms_no_ioctl;
+allow andrix_scope_cleanup andrix_cleanup_channel:unix_stream_socket { read write getattr getopt setopt shutdown };
+neverallow { domain -init -andrix_scope_cleanup } andrix_cleanup_channel:unix_stream_socket { read write };
+
+type andrix_delegation_ready_socket, file_type;
+allow init andrix_delegation_ready_socket:unix_stream_socket create_socket_perms_no_ioctl;
+allow andrixd andrix_delegation_ready_socket:unix_stream_socket { read write getattr };
+neverallow { domain -init -andrixd } andrix_delegation_ready_socket:unix_stream_socket { read write };
+
 # The socket retains the actual trusted coordinator SID for SO_PEERSEC checks.
 # Shell is a lab observer, not a product client grant.
 allow shell andrixd:unix_stream_socket connectto;

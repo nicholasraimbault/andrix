@@ -17,6 +17,7 @@ namespace android::init {
 class Descriptor;
 class Epoll;
 class Service;
+class InterprocessFifo;
 struct DelegatedInstance;
 
 // Opt-in named-service profile under trusted init configuration. Initial proof
@@ -30,6 +31,7 @@ class DelegatedService {
     static Result<void> BeforeStart(Service& service);
     static Result<void> Prepare(Service& service, std::vector<Descriptor>& descriptors);
     static Result<void> Assign(Service& service, pid_t process);
+    static void HoldActivation(Service& service, InterprocessFifo&& gate);
     static void NoProcess(Service& service);
     static void SetupFailed(Service& service);
     static bool Signal(Service& service, int signal);
@@ -44,11 +46,11 @@ class DelegatedService {
     static void Install(Epoll& epoll, std::function<void()> wake);
     static bool AnyStopping();
     static void Pump();
+    static void AfterWait();
     static Result<void> StopExact(Service& service, std::string_view reference);
     // Lab fault controls are built only with this opt-in proof, never a product API.
     static Result<void> WorkerFault(Service& service, std::string_view reference,
                                     std::string_view operation);
     static Result<void> MemoryTest(Service& service, std::string_view reference);
-    static int WorkerMain(int argc, char** argv);
 };
 }  // namespace android::init
