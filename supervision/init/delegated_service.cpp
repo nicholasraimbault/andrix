@@ -113,10 +113,10 @@ Result<void> DirectoryMode(int fd, uid_t uid, gid_t gid, mode_t mode) {
 }
 Result<void> DelegateFile(int directory, const char* name, uid_t uid, gid_t gid) {
     unique_fd fd(openat(directory, name, O_RDONLY | O_CLOEXEC | O_NOFOLLOW));
-    if (fd < 0 || fchown(fd, uid, gid) || fchmod(fd, 0644))
+    if (fd < 0 || fchown(fd.get(), uid, gid) || fchmod(fd.get(), 0644))
         return ErrnoError() << "delegate " << name;
     struct stat info{};
-    if (fstat(fd, &info) || info.st_uid != uid || info.st_gid != gid ||
+    if (fstat(fd.get(), &info) || info.st_uid != uid || info.st_gid != gid ||
         (info.st_mode & 0777) != 0644)
         return Error() << "delegation readback " << name;
     return {};
