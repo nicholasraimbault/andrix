@@ -33,7 +33,7 @@ andrix_lifecycle_cc_defaults {
     soong_config_variables: {
         owner_lifecycle: {
             cflags: ["-DANDRIX_OWNER_LIFECYCLE=1"],
-            srcs: ["native/platform_lifecycle.cpp", "native/lifecycle_core.cpp"],
+            srcs: ["native/platform_lifecycle.cpp", "native/lifecycle_core.cpp", "native/work_admission.cpp"],
             static_libs: ["andrix_platform_lifecycle-ndk"],
         },
     },
@@ -74,6 +74,17 @@ andrix_keep_java_defaults {
     },
 }
 
+// Internal admission primitive. This test installs no new product entry point.
+cc_test_host {
+    name: "andrix_work_admission_test",
+    gtest: false,
+    compile_multilib: "first",
+    cpp_std: "c++20",
+    cflags: ["-Wall", "-Wextra", "-Werror", "-UNDEBUG"],
+    srcs: ["native/work_admission.cpp", "tests/work_admission_test.cpp"],
+    local_include_dirs: ["native"],
+}
+
 cc_binary {
     name: "andrixd",
     defaults: ["andrix_owner_defaults", "andrix_lifecycle_build", "andrix_keep_build"],
@@ -99,7 +110,7 @@ filegroup {
 filegroup {
     name: "andrix_scope_proof_guard_sources",
     srcs: ["native/session_core.cpp", "native/guards.cpp", "native/platform_lifecycle.cpp",
-           "native/lifecycle_core.cpp"],
+           "native/lifecycle_core.cpp", "native/work_admission.cpp"],
 }
 
 filegroup {

@@ -41,6 +41,7 @@ bool PlatformLifecycle::start() {
 void PlatformLifecycle::fail_locked() {
   failed_ = true;
   gate_.revoke();
+  admissions_.Revoke();
 #ifdef ANDRIX_OWNER_KEEP
   if (request_) { request_->done = true; request_->accepted = false; }
   changed_.notify_all();
@@ -79,6 +80,37 @@ bool PlatformLifecycle::failed() {
   std::lock_guard lock(mutex_);
   if (!gate_.valid(now())) fail_locked();
   return failed_;
+}
+
+AdmissionResult PlatformLifecycle::admit_work(const std::shared_ptr<WorkAdmission>& work) {
+  std::lock_guard lock(mutex_);
+  const uint64_t current = now();
+  if (!gate_.valid(current)) fail_locked();
+  if (failed_) return AdmissionResult::Revoked;
+  if (!gate_.ready(current)) return AdmissionResult::NotReady;
+  return admissions_.Admit(work, current);
+}
+
+AdmissionResult PlatformLifecycle::prepare_work(const std::shared_ptr<WorkAdmission>& work) {
+  std::lock_guard lock(mutex_);
+  const uint64_t current = now();
+  if (!gate_.valid(current)) fail_locked();
+  if (failed_) return AdmissionResult::Revoked;
+  if (!gate_.ready(current)) return AdmissionResult::NotReady;
+  return admissions_.Prepared(work, current);
+}
+
+AdmissionResult PlatformLifecycle::release_work(const std::shared_ptr<WorkAdmission>& work) {
+  std::lock_guard lock(mutex_);
+  const uint64_t current = now();
+  if (!gate_.valid(current)) fail_locked();
+  if (failed_) return AdmissionResult::Revoked;
+  if (!gate_.ready(current)) return AdmissionResult::NotReady;
+  return admissions_.Release(work, current);
+}
+
+AdmissionResult PlatformLifecycle::retire_work(const std::shared_ptr<WorkAdmission>& work) {
+  return admissions_.Retire(work);
 }
 
 void PlatformLifecycle::observe() {
@@ -126,11 +158,19 @@ void PlatformLifecycle::observe() {
         fail_locked(); return;
       }
 #endif
-      if (!gate_.report(registration_, challenge, now(), true, true)) {
+      const uint64_t received = now();
+      if (!gate_.report(registration_, challenge, received, true, true)) {
         fail_locked(); return;
       }
       instance_ = state.instance;
       generation_ = state.generation;
+      // OwnerLifecycleService observes only Android user 0 in this adapter.
+      // This is not a caller-selectable user or a multi-user authority claim.
+      const AuthorityEpoch epoch{static_cast<uint64_t>(instance_),
+                                 static_cast<uint64_t>(generation_), 0};
+      if (admissions_.Observe(epoch, gate_.ready_until(received), received) != AdmissionResult::Accepted) {
+        fail_locked(); return;
+      }
 #ifdef ANDRIX_OWNER_KEEP
       if (request) {
         kept_work_ = request->work; keep_registration_ = granted;

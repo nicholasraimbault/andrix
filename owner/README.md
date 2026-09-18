@@ -31,6 +31,18 @@ GrapheneOS requires fs-verity for system-package updates; a streamed APK alone w
 correctly rejected. Never disable that check to install a development build. Verify the **v4 result**, not only
 `apksigner`'s overall exit status, which can succeed through another valid scheme.
 
+## Internal work admission candidate
+
+The [next admission slice](../plans/2026-09-18-work-admission-gate.md) introduces an
+original epoch binding and a shared atomic execution gate. The real platform observer
+supplies its existing instance/generation and query issue based deadline. Stop closes
+that gate without the admission or UI mutex; queued wake data cannot reopen it.
+
+Host units and separate process controls exercise this mechanism. They do not qualify
+Android caller/MAC identity, a new owner launcher or real CE revoke/regrant. Existing
+Console/plain/Keep paths do not call these new admission methods, and their behavior
+below remains unchanged. Gate closure is not process or resource cleanup.
+
 ## Components
 
 - `andrixd`: non-root UID/GID `system_ext_andrix` (7500), dedicated coordinator
