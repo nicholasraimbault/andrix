@@ -222,7 +222,14 @@ There is no supported release or qualified physical phone deployment at this che
   samples and init/LMKD logs supported the result; framework authority bookends matched.
   This is not ordinary owner execution, real pressure, fresh CE loss, uninterruptible
   I/O or phone qualification. Those remain separate gates, along with Andrix admission
-  and Console integration. The earlier
+  and Console integration. The next [internal admission gate](../plans/2026-09-18-work-admission-gate.md)
+  at `d211b25` binds the original authority epoch, uses one shared atomic release/entry
+  object and makes Stop independent of the admission/terminal lock. Updated 404 host
+  tests, sanitizer checks, selected concurrent orderings and real separate processes
+  exercised queued wake rejection, expiry, late old-epoch helpers and new explicit work.
+  Normal/Keep Android native modules and the frozen Soong host admission test passed.
+  This is not a new public work API, Android CE fault or owner execution qualification.
+  The earlier
   [supervision candidate and proof matrix](../plans/2026-09-16-unix-work-supervision.md)
   retains its evidence limits and the open Android shell controls.
 - **Supporting mechanism record:** the [scope boundary experiment](../tests/owner-scope/README.md)

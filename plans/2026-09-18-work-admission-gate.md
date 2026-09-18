@@ -1,7 +1,10 @@
 # Work admission and release gate
 
-Status: internal implementation candidate. It is not a new public work API, ordinary
-owner launcher, Android MAC crossing or a qualified CE fault result.
+Status: internal implementation candidate at `d211b25`. Updated host, sanitizer and
+separate process controls pass, along with 404 general host tests and normal/Keep Android
+native compilation. The Soong host admission test also ran from frozen artifacts. This
+is not a new public work API, ordinary owner launcher, Android MAC crossing or a qualified
+CE fault result.
 
 ## Goal and ownership
 
@@ -95,6 +98,13 @@ Stop/publication/claim orderings. Separate fixed host processes must exercise tr
 descriptors, a queued wake while the launcher is actually stopped, expiry without parent
 progress, and a late helper after old authority revocation plus a new explicit epoch.
 A positive entry followed by Stop must not be mislabeled physical cleanup.
+
+Source review after an initial passing suite found that an outstanding query can fail
+earlier than the last positive lease. The correction exports the earliest known deadline
+and allows only a narrowing publication cap. A separate Android build attempt exposed a
+missing `linux/memfd.h` in the hermetic host sysroot. The corrected build uses the same
+required Linux syscall and ABI flags, with no weaker fallback or warning suppression.
+Both incomplete evidence checkpoints remain separate from the final gate.
 
 The first focused checks passed optimized units, ASan/UBSan units, 1,000 selected
 three thread Stop/publication/entry races and 500 release/revocation races. Separate

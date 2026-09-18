@@ -149,10 +149,16 @@ work and the captured LMKD reaper control completed. Framework authority bookend
 Three earlier incomplete attempts and their corrections remain recorded. This does not
 qualify arbitrary owner execution, real memory pressure, fresh CE loss or physical phones.
 
-Next connect the generic environment handoff to Andrix work admission and execution.
-Bind admission to the original trusted CE authority epoch before asynchronous creation,
-close queued Release versus Stop races, and qualify ordinary owner credentials and Unix
-lifetimes. Then connect Console presentation as a client of that work. Do not adopt the
+The first [internal admission gate](2026-09-18-work-admission-gate.md) now captures the
+original platform/user/authority epoch and makes queued wake messages non-authoritative.
+Stop closes a shared atomic gate without the admission or presentation lock. At `d211b25`,
+404 host tests, sanitizer and separate process controls, normal/Keep Android native
+builds and the frozen Soong host test pass. A pending query's earlier failure deadline
+also caps release. These results do not qualify real CE revocation or owner execution.
+
+Next connect the generic environment handoff and admission gate to complete work creation,
+ordinary program launch and cleanup. Qualify genuine CE revoke/regrant, late helpers,
+caller/owner MAC boundaries and Unix lifetimes before connecting Console presentation. Do not adopt the
 fixture API or limits unchanged, weaken a guard to fit a prototype, or promote finite
 controls into broader qualification.
 
