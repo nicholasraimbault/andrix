@@ -150,13 +150,16 @@ by captured LMKD registration at `5f9c893`. Actual parser construction and froze
 host tests passed. The [Android vehicle](../tests/delegated-supervision/android/README.md)
 now supplies the next selected program/policy and fresh runtime controls. At `c11e707`,
 399 host tests, bounded directory takeback kernel controls, Android module/policy checks
-and complete normal/test images passed. Two fresh Android attempts remain incomplete.
+and complete normal/test images passed. Three fresh Android attempts remain incomplete.
 The first exposed helper execution/readiness MAC boundaries. The second kept the
 bootstrap held and stopped its exact process on provider failure, but worker signal
 setup failed before initialization. Actual LMKD registration was observed; full delegated
 cleanup, recovery and its memory kill control were not reached. The startup correction
-at `b05d656` passes 400 host tests and the selected native/policy gate, with no fresh
-Android runtime result yet.
+at `b05d656` passed 400 host tests and the selected native/policy gate. Matching images at
+`3441868` then passed actual Bionic signal controls in a third fresh trial. The worker
+initialized and retired rejected startup scopes, but readiness still lacked narrow role
+metadata permission. The proposed correction keeps actual task SID verification and
+adds no ptrace authority. No complete workload lifecycle result is claimed.
 
 Next qualify the corrected worker startup and complete delegated lifecycle. Then bind
 Andrix work admission to its original trusted CE epoch, close queued Release versus Stop

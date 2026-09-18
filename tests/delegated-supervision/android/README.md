@@ -6,9 +6,12 @@ registration, then failed before full readiness on two genuine SELinux boundarie
 did not reach scoped descendant creation or the lifecycle controls below. A second run
 at `c11e707` confirmed the held bootstrap was stopped on provider failure and retained
 unchanged framework authority. Worker signal setup failed before initialization, so the
-remaining controls are still open. The next vehicle brackets an invalid Bionic signal
+remaining controls are still open. The vehicle brackets an invalid Bionic signal
 reset with valid fixed `/system/bin/true` spawns under ordinary Shell credentials.
-Neither program is an ordinary owner API.
+The third trial at `3441868` passed those Bionic controls and initialized the cleanup
+worker. Readiness role observation was denied, so the remaining workload controls were
+not reached. Seven rejected startup scopes were cleaned and retired before replacements;
+framework authority bookends matched. Neither program is an ordinary owner API.
 
 The fixed service runs under the declared UID/GID, supplementary group, empty capability
 sets, SELinux role, scheduling and rlimits. It checks the inherited root descriptor,
