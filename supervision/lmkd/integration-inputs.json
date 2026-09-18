@@ -3,7 +3,7 @@
   "files": {
     "Android.bp": {
       "original_sha256": "eda1259eea0ed0f80dce28dde2576bb00060a3a3d90b5174f63123fc7859ab8e",
-      "probe_sha256": "56afb1790328f2e2dfde8df3d2e733fe96dec7bb9d0c31fa184e08c0e5f54d72"
+      "probe_sha256": "2273520f95f848ac8dcb47c9941f7dce0a3d0d0ba33a51d95acb56ccef67fbf6"
     },
     "include/lmkd.h": {
       "original_sha256": "458e8c6f6aa145dc89903c0c91f36ea790138443d6b2d46fc38e7f3909282033",
