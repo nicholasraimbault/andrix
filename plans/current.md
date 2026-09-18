@@ -154,7 +154,9 @@ and complete normal/test images passed. Two fresh Android attempts remain incomp
 The first exposed helper execution/readiness MAC boundaries. The second kept the
 bootstrap held and stopped its exact process on provider failure, but worker signal
 setup failed before initialization. Actual LMKD registration was observed; full delegated
-cleanup, recovery and its memory kill control were not reached.
+cleanup, recovery and its memory kill control were not reached. The startup correction
+at `b05d656` passes 400 host tests and the selected native/policy gate, with no fresh
+Android runtime result yet.
 
 Next qualify the corrected worker startup and complete delegated lifecycle. Then bind
 Andrix work admission to its original trusted CE epoch, close queued Release versus Stop

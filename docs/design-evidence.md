@@ -202,7 +202,10 @@ There is no supported release or qualified physical phone deployment at this che
   run stopped before worker initialization. The held bootstrap did not proceed, its
   exact process was terminated, and framework authority bookends matched. Source review
   identified SIGKILL/SIGSTOP in the spawn default signal set, which Bionic rejects before
-  exec. These observations do not qualify the remaining cleanup/restart/memory controls. The earlier
+  exec. The correction at `b05d656` passes 400 host tests and the selected native/policy
+  artifact gate, including five actual init parser/event tests and the LMKD transport
+  host test. Its added actual Bionic signal controls are compiled but unexecuted.
+  These observations do not qualify the remaining cleanup/restart/memory controls. The earlier
   [supervision candidate and proof matrix](../plans/2026-09-16-unix-work-supervision.md)
   retains its evidence limits and the open Android shell controls.
 - **Supporting mechanism record:** the [scope boundary experiment](../tests/owner-scope/README.md)

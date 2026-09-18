@@ -11,7 +11,10 @@ failure, but did not reach full readiness. The signal profile incorrectly asked 
 to reset SIGKILL/SIGSTOP. The current correction excludes those uncatchable signals,
 keeps descriptor census failure distinct from spawn status 127, and handles a cancelled
 activation read without dereferencing an error. It needs a fresh Android result.
-No complete Android lifecycle result is claimed.
+No complete Android lifecycle result is claimed. The signal correction at `b05d656`
+passed 400 host tests, selected Android module/policy checks, five actual init parser/event
+tests and the frozen LMKD transport test. Its new Bionic signal controls are compiled,
+not executed. No matching new complete image or Android trial is claimed for that fix.
 
 `integration.patch` targets the pinned `system/core` revision and file hashes in
 `integration-inputs.json`. Apply it only for the selected GrapheneOS Cuttlefish debug
