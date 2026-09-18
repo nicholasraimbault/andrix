@@ -75,6 +75,8 @@ int main(int argc, char** argv) {
     command.operation = proof::Operation::Release;
   else if (operation == "continue")
     command.operation = proof::Operation::ContinueCreation;
+  else if (operation == "exit-manager")
+    command.operation = proof::Operation::ExitManager;
   else if (operation == "start") {
     command.operation = proof::Operation::Start;
     if (argc < 10) fail("complete ordinary launch arguments");
@@ -147,7 +149,8 @@ int main(int argc, char** argv) {
       "\"queued\":%u,\"committed\":%u,\"stopped\":%u,\"reaped\":%u,\"no_"
       "process\":%u,\"empty\":%u,\"retired\":%u,\"blocked\":%u,\"gate_"
       "refused\":%u,\"authority_failed\":%u,\"exit_code\":%d,\"launch_error\":%"
-      "d,\"cleanup_error\":%d,\"output_bytes\":%llu,\"output\":%s}\n",
+      "d,\"cleanup_error\":%d,\"output_bytes\":%llu,\"manager_pid\":%d,"
+      "\"authority_ready\":%u,\"output\":%s}\n",
       (unsigned long long)state.boot, (unsigned long long)state.instance,
       (unsigned long long)state.manager, command.slot,
       (unsigned long long)state.serial, state.error,
@@ -158,6 +161,7 @@ int main(int argc, char** argv) {
       state.no_process, state.empty, state.retired, state.blocked,
       state.gate_refused, state.authority_failed, state.exit_code,
       state.launch_error, state.cleanup_error,
-      (unsigned long long)state.output_bytes, quote(state.output).c_str());
+      (unsigned long long)state.output_bytes, actual.pid, state.authority_ready,
+      quote(state.output).c_str());
   return state.error ? 1 : 0;
 }

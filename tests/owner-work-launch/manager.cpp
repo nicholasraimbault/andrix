@@ -419,6 +419,7 @@ proof::Snapshot snapshot(const std::shared_ptr<Work>& work, int error = 0) {
   state.error = error;
   state.committed = work->gate->entered();
   state.stopped = work->gate->phase() == AdmissionPhase::Stopped;
+  state.authority_ready = platform->ready();
   state.authority_failed = platform->failed();
   memcpy(state.output, work->output.data(), work->output.size());
   return state;
@@ -615,12 +616,17 @@ int main(int argc, char** argv) {
         else
           work->continue_creation = true;
         work->changed.notify_all();
-      } else if (command.operation != proof::Operation::Inspect)
+      } else if (command.operation != proof::Operation::Inspect &&
+                 command.operation != proof::Operation::ExitManager)
         error = EINVAL;
       auto state = snapshot(work, error);
       send(clients[i].get(), &state, sizeof(state),
            MSG_DONTWAIT | MSG_NOSIGNAL);
       clients[i].reset();
+      // Selected, authenticated fault control. Actual init supervision owns
+      // the still-live owner descendants, not a best-effort daemon destructor.
+      if (!error && command.operation == proof::Operation::ExitManager)
+        _exit(37);
     }
   }
 }

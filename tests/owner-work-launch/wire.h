@@ -10,7 +10,8 @@ enum class Operation : uint32_t {
   Start,
   Release,
   ContinueCreation,
-  Stop
+  Stop,
+  ExitManager
 };
 enum Flags : uint32_t { HoldCreation = 1, HoldRelease = 2, QueueThenStop = 4 };
 struct Command {
@@ -28,7 +29,8 @@ struct Snapshot {
   int32_t pid = 0, exit_code = 0, launch_error = 0, cleanup_error = 0;
   uint32_t started = 0, creator_pending = 0, staged = 0, queued = 0,
            committed = 0, stopped = 0, reaped = 0, no_process = 0, empty = 0,
-           retired = 0, blocked = 0, gate_refused = 0, authority_failed = 0;
+           retired = 0, blocked = 0, gate_refused = 0, authority_failed = 0,
+           authority_ready = 0;
   char output[kOutput]{};
 };
 }  // namespace andrix::work_probe

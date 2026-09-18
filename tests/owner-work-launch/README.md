@@ -31,7 +31,11 @@ PID/PGID reconstruction. Reclamation requires creator cessation, an accounted in
 process or explicit never-created fact, and fresh Empty. Removed resource handles are
 closed before reporting retirement. No final physical accounting claim is made.
 
-Controls are `inspect`, `start`, `release`, `continue` and `stop`. `start` accepts encoded
+Controls are `inspect`, `start`, `release`, `continue`, `stop` and the selected fault
+`exit-manager`. The latter exits the actual manager with status 37 while Android retains
+complete enclosing cleanup responsibility. It is not graceful work shutdown. The
+readiness field is diagnostic; every start still obtains fresh trusted admission.
+`start` accepts encoded
 ordinary executable/argv/env/cwd data, not a privileged executable or credential choice.
 Arguments include argv[0], with no implicit shell or PATH search. Identical retries
 return the original work state; conflicting descriptions are refused. Discovery uses
