@@ -19,7 +19,9 @@ trial at `3441868` subsequently passed the actual Bionic controls. Workers initi
 and retired seven failed startup scopes before replacement. Readiness still failed:
 init lacked the bootstrap role's `process getattr` permission, and bootstrap library
 searches were denied. The narrower policy correction preserves actual task SID checks
-and adds no ptrace authority. It has not yet been qualified in Android.
+and adds no ptrace authority. At `b504a97`, 401 host tests, normal/selected native and
+compiled policy checks, five actual init parser/event tests and the LMKD host transport
+test passed. That artifact result does not yet qualify the correction in Android.
 
 `integration.patch` targets the pinned `system/core` revision and file hashes in
 `integration-inputs.json`. Apply it only for the selected GrapheneOS Cuttlefish debug

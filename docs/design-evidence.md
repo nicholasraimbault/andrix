@@ -211,8 +211,11 @@ There is no supported release or qualified physical phone deployment at this che
   `process getattr`; bootstrap library searches were also denied. Source inspection of
   the running kernel distinguishes the ignored open-side ptrace helper failure from
   the SID read permission. No ptrace authority or socket-label substitute is proposed.
-  These observations do not qualify the remaining workload, paused worker, stale Stop
-  or memory reaper controls. The earlier
+  The narrow observation/library correction at `b504a97` passes 401 host tests and both
+  normal/selected native and compiled policy gates. The actual init parser/event and
+  LMKD host transport cases also pass. No new image or Android runtime result covers
+  that correction. These observations do not qualify the remaining workload, paused
+  worker, stale Stop or memory reaper controls. The earlier
   [supervision candidate and proof matrix](../plans/2026-09-16-unix-work-supervision.md)
   retains its evidence limits and the open Android shell controls.
 - **Supporting mechanism record:** the [scope boundary experiment](../tests/owner-scope/README.md)

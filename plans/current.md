@@ -158,8 +158,10 @@ cleanup, recovery and its memory kill control were not reached. The startup corr
 at `b05d656` passed 400 host tests and the selected native/policy gate. Matching images at
 `3441868` then passed actual Bionic signal controls in a third fresh trial. The worker
 initialized and retired rejected startup scopes, but readiness still lacked narrow role
-metadata permission. The proposed correction keeps actual task SID verification and
-adds no ptrace authority. No complete workload lifecycle result is claimed.
+metadata permission. The correction keeps actual task SID verification and adds no
+ptrace authority. At `b504a97`, 401 host tests and normal/selected native and compiled
+policy gates pass, but no new runtime qualifies it. No complete workload lifecycle
+result is claimed.
 
 Next qualify the corrected worker startup and complete delegated lifecycle. Then bind
 Andrix work admission to its original trusted CE epoch, close queued Release versus Stop
