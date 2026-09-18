@@ -71,7 +71,10 @@ The first updated host gate passed optimized and sanitizer component units. Actu
 runs reclaimed mode zero nested directories only after Empty, retained ordinary EACCES
 without the new policy, and resumed cleanup after worker death through the same descriptor
 cohort. Independent responses continued during bounded steps. These are host process and
-kernel results only; the foreign UID ownership change and Android policy remain open.
+kernel results only. The selected Android and policy gate subsequently compiled, and
+matching normal/test images were frozen at `c11e707`. A worker spawn failure prevented
+actual directory retirement in the fresh Android run, so foreign UID takeback remains
+unqualified.
 
 Revisit if a supported phone kernel lacks the required ABI, a profile needs a different
 retirement owner, a namespace cannot be made exclusive, or the extra operation/descriptor

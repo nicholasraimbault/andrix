@@ -14,6 +14,20 @@
 
 using namespace andrix::supervision;
 int main() {
+  sigset_t mask, defaults;
+  assert(!ConfigureWorkerSignalMasks(mask, defaults));
+  for (int signal :
+       {SIGTERM, SIGALRM, SIGXCPU, SIGPIPE, SIGCHLD, SIGHUP, SIGINT}) {
+    assert(sigismember(&mask, signal) == 0);
+    assert(sigismember(&defaults, signal) == 1);
+  }
+  for (int signal : {SIGKILL, SIGSTOP}) {
+    assert(sigismember(&defaults, signal) == 0);
+    struct sigaction reset{};
+    reset.sa_handler = SIG_DFL;
+    errno = 0;
+    assert(sigaction(signal, &reset, nullptr) == -1 && errno == EINVAL);
+  }
   int sockets[2];
   assert(!socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, sockets));
   assert(!ConfigureWorkerSocket(sockets[0]) &&

@@ -4,8 +4,14 @@
 following the earlier actual parser and LMKD transport tests. The first fresh Android
 trial reached captured LMKD registration but failed before full service readiness:
 SELinux rejected re-executing init and reading the readiness socket's backing label.
-That failed run is retained. The corrected worker/channel/event retirement candidate
-below has not yet been compiled or run. No complete Android lifecycle result is claimed.
+That failed run is retained. The worker/channel/event retirement correction and bounded
+directory ownership takeback passed module, policy and complete image gates at `c11e707`.
+A second Android run kept the bootstrap held and terminated its exact process on worker
+failure, but did not reach full readiness. The signal profile incorrectly asked Bionic
+to reset SIGKILL/SIGSTOP. The current correction excludes those uncatchable signals,
+keeps descriptor census failure distinct from spawn status 127, and handles a cancelled
+activation read without dereferencing an error. It needs a fresh Android result.
+No complete Android lifecycle result is claimed.
 
 `integration.patch` targets the pinned `system/core` revision and file hashes in
 `integration-inputs.json`. Apply it only for the selected GrapheneOS Cuttlefish debug

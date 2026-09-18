@@ -196,7 +196,13 @@ There is no supported release or qualified physical phone deployment at this che
   descendant, cleanup/restart or memory kill result was reached. The failed attempt
   also exposed a policy inspection error: a query matching any requested permission
   is not evidence that all requested permissions exist. Required permission coverage
-  is now checked per exact source, target and class. The earlier
+  is now checked per exact source, target and class. The corrected worker and directory
+  retirement candidate at `c11e707` passed 399 host tests, real host kernel recovery
+  controls, Android module/policy gates and matching complete images. Its second Android
+  run stopped before worker initialization. The held bootstrap did not proceed, its
+  exact process was terminated, and framework authority bookends matched. Source review
+  identified SIGKILL/SIGSTOP in the spawn default signal set, which Bionic rejects before
+  exec. These observations do not qualify the remaining cleanup/restart/memory controls. The earlier
   [supervision candidate and proof matrix](../plans/2026-09-16-unix-work-supervision.md)
   retains its evidence limits and the open Android shell controls.
 - **Supporting mechanism record:** the [scope boundary experiment](../tests/owner-scope/README.md)

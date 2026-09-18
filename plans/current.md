@@ -148,10 +148,19 @@ passed, and the Soong host tests executed from frozen artifacts. It is not insta
 as a normal product behavior. The optional init adapter subsequently compiled, followed
 by captured LMKD registration at `5f9c893`. Actual parser construction and frozen protocol
 host tests passed. The [Android vehicle](../tests/delegated-supervision/android/README.md)
-now supplies the next selected program/policy and fresh runtime controls. These artifact
-gates do not qualify the combined lifecycle, authority, pressure or phone behavior. Qualify declared profile/delegation activation and an ordinary owner
-program launch before integrating presentation. Do not merely put the old
-synchronous cleanup function in a thread or promote either fixture unchanged.
+now supplies the next selected program/policy and fresh runtime controls. At `c11e707`,
+399 host tests, bounded directory takeback kernel controls, Android module/policy checks
+and complete normal/test images passed. Two fresh Android attempts remain incomplete.
+The first exposed helper execution/readiness MAC boundaries. The second kept the
+bootstrap held and stopped its exact process on provider failure, but worker signal
+setup failed before initialization. Actual LMKD registration was observed; full delegated
+cleanup, recovery and its memory kill control were not reached.
+
+Next qualify the corrected worker startup and complete delegated lifecycle. Then bind
+Andrix work admission to its original trusted CE epoch, close queued Release versus Stop
+races, and connect ordinary owner program launch and Console presentation. These are
+separate gates. Do not merely put synchronous cleanup in a thread, weaken a guard to
+fit a prototype, or promote finite controls into pressure or phone qualification.
 
 Pinned glibc and an Android hosted Wayland path remain later compatibility research.
 They may reduce application friction, but no second ABI or GUI stack is adopted by

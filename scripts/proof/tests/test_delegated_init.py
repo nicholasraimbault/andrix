@@ -95,6 +95,16 @@ class DelegatedInitSourceTests(unittest.TestCase):
         self.assertIn('/system_ext/bin/andrix-scope-cleaner',source)
         self.assertNotIn('DelegatedService::WorkerMain',source)
 
+    def test_worker_spawn_never_resets_uncatchable_signal_dispositions(self):
+        source=(ROOT/'supervision/native/cleanup_worker.cpp').read_text()
+        self.assertIn('sigdelset(&defaults, SIGKILL)',source)
+        self.assertIn('sigdelset(&defaults, SIGSTOP)',source)
+        adapter=(ROOT/'supervision/init/delegated_service.cpp').read_text()
+        self.assertIn('ConfigureWorkerSignalMasks(empty, defaults)',adapter)
+        self.assertNotIn('sigfillset(&defaults)',adapter)
+        patch=(ROOT/'supervision/init/integration.patch').read_text()
+        self.assertIn('if (delegation_profile_) _exit(EXIT_FAILURE);',patch)
+
     def test_bootstrap_waits_for_worker_and_event_handles_retire_after_dispatch(self):
         source=(ROOT/'supervision/init/delegated_service.cpp').read_text()
         patch=(ROOT/'supervision/init/integration.patch').read_text()

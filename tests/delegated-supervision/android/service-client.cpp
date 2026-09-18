@@ -5,10 +5,12 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <selinux/selinux.h>
+#include <spawn.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/un.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <cerrno>
@@ -24,6 +26,7 @@
 #include <utility>
 
 #include "../../work-factory/group_observation.h"
+#include "cleanup_worker.h"
 #include "probe-wire.h"
 
 using namespace andrix::delegated_probe;
@@ -176,6 +179,40 @@ bool dead(int fd) {
   pollfd value{fd, POLLIN, 0};
   return poll(&value, 1, 0) == 1;
 }
+int signal_spawn_control(bool invalid_defaults) {
+  posix_spawnattr_t attributes;
+  require(!posix_spawnattr_init(&attributes), "spawn control attributes");
+  sigset_t mask, defaults;
+  require(!andrix::supervision::ConfigureWorkerSignalMasks(mask, defaults),
+          "fixed spawn signals");
+  if (invalid_defaults)
+    require(!sigfillset(&defaults), "negative signal control");
+  require(
+      !posix_spawnattr_setsigmask(&attributes, &mask) &&
+          !posix_spawnattr_setsigdefault(&attributes, &defaults) &&
+          !posix_spawnattr_setflags(&attributes, POSIX_SPAWN_CLOEXEC_DEFAULT |
+                                                     POSIX_SPAWN_SETSIGMASK |
+                                                     POSIX_SPAWN_SETSIGDEF),
+      "spawn control profile");
+  const char* arguments[] = {"/system/bin/true", nullptr};
+  char* environment[] = {nullptr};
+  pid_t child = 0;
+  const int spawned =
+      posix_spawn(&child, arguments[0], nullptr, &attributes,
+                  const_cast<char* const*>(arguments), environment);
+  posix_spawnattr_destroy(&attributes);
+  require(!spawned && child > 1, "fixed nonprivileged spawn control");
+  auto identity = pidfd(child);
+  pollfd wait{identity.get(), POLLIN, 0};
+  const int ready = TEMP_FAILURE_RETRY(poll(&wait, 1, 5000));
+  if (ready != 1)
+    syscall(SYS_pidfd_send_signal, identity.get(), SIGKILL, nullptr, 0);
+  int status = 0;
+  require(TEMP_FAILURE_RETRY(waitpid(child, &status, 0)) == child &&
+              ready == 1 && WIFEXITED(status),
+          "exact spawn control wait");
+  return WEXITSTATUS(status);
+}
 char state(pid_t pid) {
   auto stat = read("/proc/" + std::to_string(pid) + "/stat");
   auto at = stat.rfind(')');
@@ -192,6 +229,14 @@ int main(int argc, char** argv) {
   require(shell, "Shell MAC role");
   require(argc == 2 && std::string_view(argv[1]) == "exercise",
           "fixed exercise command");
+  require(signal_spawn_control(false) == 0, "Bionic valid signal baseline");
+  require(signal_spawn_control(true) == 127,
+          "Bionic rejects uncatchable signal reset");
+  require(signal_spawn_control(false) == 0, "Bionic valid signal recovery");
+  std::cout
+      << R"({"event":"signal_controls","valid_exit":0,"invalid_exit":127})"
+      << '\n'
+      << std::flush;
   control("peer-start");
   until([] { return prop("init.svc.andrix-delegated-peer") == "running"; },
         "ordinary peer start");

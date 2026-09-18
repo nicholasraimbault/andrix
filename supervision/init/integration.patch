@@ -168,7 +168,17 @@
      auto reboot_on_failure = make_scope_guard([this] {
          if (on_failure_reboot_target_) {
              trigger_shutdown(*on_failure_reboot_target_);
-@@ -606,6 +621,9 @@
+@@ -589,6 +604,9 @@
+     Result<uint8_t> byte = cgroups_activated.Read();
+     if (!byte.ok()) {
+         LOG(ERROR) << name_ << ": failed to read from notification channel: " << byte.error();
++#ifdef ANDRIX_DELEGATED_SERVICE_PROOF
++        if (delegation_profile_) _exit(EXIT_FAILURE);
++#endif
+     }
+     cgroups_activated.Close();
+     if (*byte != kCgroupsActivated) {
+@@ -606,6 +624,9 @@
                                   // Apply the task profiles to the current process.
                                   SetProcessProfiles(getuid(), getpid(), task_profiles_);
          if (!succeeded) {
@@ -178,7 +188,7 @@
              LOG(ERROR) << "failed to set task profiles";
          }
      }
-@@ -621,6 +639,9 @@
+@@ -621,6 +642,9 @@
  }
  
  Result<void> Service::Start() {
@@ -188,7 +198,7 @@
      auto reboot_on_failure = make_scope_guard([this] {
          if (on_failure_reboot_target_) {
              trigger_shutdown(*on_failure_reboot_target_);
-@@ -728,6 +749,9 @@
+@@ -728,6 +752,9 @@
          }
      }
  
@@ -198,7 +208,7 @@
      pid_t pid = -1;
      if (namespaces_.flags) {
          pid = clone(nullptr, nullptr, namespaces_.flags | SIGCHLD, nullptr);
-@@ -747,6 +771,9 @@
+@@ -747,6 +774,9 @@
      }
  
      if (pid < 0) {
@@ -208,7 +218,7 @@
          pid_ = 0;
          return ErrnoError() << "Failed to fork";
      }
-@@ -767,6 +794,17 @@
+@@ -767,6 +797,17 @@
      start_order_ = next_start_order_++;
      process_cgroup_empty_ = false;
  
@@ -226,7 +236,7 @@
      if (CgroupsAvailable()) {
          bool use_memcg = swappiness_ != -1 || soft_limit_in_bytes_ != -1 || limit_in_bytes_ != -1 ||
                           limit_percent_ != -1 || !limit_property_.empty();
-@@ -794,15 +832,25 @@
+@@ -794,15 +835,25 @@
          if (IsMicrodroid()) {
              LOG(ERROR) << "oom_score_adjust not supported in microdroid";
          } else {
@@ -257,7 +267,7 @@
  
      // Call setpgid() from the parent process to make sure that this call has
      // finished before the parent process calls kill(-pgid, ...).
-@@ -832,6 +880,9 @@
+@@ -832,6 +883,9 @@
      setsid_finished.Close();
  
      NotifyStateChange("running");
@@ -267,7 +277,7 @@
      reboot_on_failure.Disable();
  
      LOG(INFO) << "... started service '" << name_ << "' has pid " << pid_;
-@@ -969,7 +1020,11 @@
+@@ -969,7 +1023,11 @@
  void Service::Terminate() {
      flags_ &= ~(SVC_RESTARTING | SVC_DISABLED_START);
      flags_ |= SVC_DISABLED;
@@ -280,7 +290,7 @@
          KillProcessGroup(SIGTERM);
          NotifyStateChange("stopping");
      }
-@@ -981,14 +1036,22 @@
+@@ -981,14 +1039,22 @@
      // all other processes will transition to be restarting.
      LOG(INFO) << "Service '" << name_ << "' expired its timeout of " << timeout_period_->count()
                << " seconds and will now be killed";
@@ -305,7 +315,7 @@
          /* Stop, wait, then start the service. */
          StopOrReset(SVC_RESTART);
      } else if (!(flags_ & SVC_RESTARTING)) {
-@@ -1026,7 +1089,11 @@
+@@ -1026,7 +1092,11 @@
          flags_ &= (~SVC_RESTART);
      }
  
