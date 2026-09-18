@@ -34,6 +34,13 @@ class DelegatedInitSourceTests(unittest.TestCase):
             self.assertIn(gate,text)
         self.assertIn('exec waits are not qualified',patch)
 
+    def test_builtin_wrappers_stay_outside_generated_map_region(self):
+        patch=(ROOT/'supervision/init/integration.patch').read_text()
+        self.assertLess(patch.index('+static Result<void> do_stop_service_instance'),
+                        patch.index(' // Builtin-function-map start'))
+        self.assertLess(patch.index('+static Result<void> do_service_worker_fault'),
+                        patch.index(' // Builtin-function-map start'))
+
     def test_generic_adapter_does_not_own_work_or_ce_authority(self):
         source=(ROOT/'supervision/init/delegated_service.cpp').read_text()
         for forbidden in ['PlatformLifecycle','CeStorageAccessTracker','WorkInfo','terminal_mode','killProcessGroup(']:
