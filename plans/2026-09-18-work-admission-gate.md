@@ -24,8 +24,10 @@ Neither a copied identity nor memfd metadata authenticates a caller.
 Each reservation has its own sealed size memfd with a lock free shared atomic word.
 Reservation alone is unbound and cannot execute. It occurs outside control locks and
 before admission. The authority binds the original epoch exactly once. A trusted completed
-profile/resource transition must then report preparation. It is not a public credential
-or resource operation.
+staging profile/resource transition must then report preparation. It is not a public
+credential or resource operation. The [ordinary launch boundary](2026-09-18-owner-launch-boundary.md)
+keeps the gate in the trusted role; its fixed final owner transition and actual profile
+checks still precede arbitrary program execution.
 
 The manager publishes permission only while its original epoch is still current and
 fresh. The publication stores the observer's issue based deadline, not a new deadline
@@ -34,9 +36,10 @@ also caps a new publication; the cap can shorten permission but never extend it.
 later local revocation closes the shared gate rather than rewriting an old grant's
 publication metadata. Publication and the launcher's one entry claim are
 separate facts. A queued transport message is only a wake. The trusted launcher must
-claim the same shared gate immediately before ordinary execution, with the expected work
+claim the same shared gate at the declared launch commitment, with the expected work
 and epoch and a fresh monotonic clock sample. It must close/unmap management handles
-before owner code receives control.
+before the final owner-role transition. Claim success authorizes that complete transition;
+it is not a report that an ordinary program successfully executed.
 
 Stop is an atomic sticky bit on that object. It takes no registry, platform, terminal or
 admission mutex and performs no syscall. If it precedes publication or entry claim, the

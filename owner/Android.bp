@@ -74,6 +74,59 @@ andrix_keep_java_defaults {
     },
 }
 
+// Immutable ordinary launch data. Not a privileged command or installed API.
+cc_library_static {
+    name: "andrix_launch_description",
+    host_supported: true,
+    cpp_std: "c++20",
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+    srcs: ["native/launch_description.cpp"],
+    export_include_dirs: ["native"],
+}
+cc_test_host {
+    name: "andrix_launch_description_test",
+    gtest: false,
+    compile_multilib: "first",
+    cpp_std: "c++20",
+    cflags: ["-Wall", "-Wextra", "-Werror", "-UNDEBUG"],
+    srcs: ["tests/launch_description_test.cpp"],
+    static_libs: ["andrix_launch_description"],
+}
+
+cc_library_static {
+    name: "andrix_work_launch_protocol",
+    host_supported: true,
+    cpp_std: "c++20",
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+    srcs: ["native/work_launch_protocol.cpp"],
+    export_include_dirs: ["native"],
+}
+cc_test_host {
+    name: "andrix_work_launch_protocol_test",
+    gtest: false,
+    compile_multilib: "first",
+    cpp_std: "c++20",
+    cflags: ["-Wall", "-Wextra", "-Werror", "-UNDEBUG"],
+    srcs: ["tests/work_launch_protocol_test.cpp"],
+    static_libs: ["andrix_work_launch_protocol"],
+}
+
+// These fixed entries are not product packages without the separate vehicle.
+cc_binary {
+    name: "andrix-work-launcher",
+    defaults: ["andrix_owner_defaults"],
+    srcs: ["native/work_launcher.cpp", "native/work_profile.cpp", "native/work_admission.cpp", "native/worker_filter.cpp"],
+    static_libs: ["andrix_launch_description", "andrix_work_launch_protocol"],
+    shared_libs: ["libbase", "libselinux", "liblog"],
+}
+cc_binary {
+    name: "andrix-work-entry",
+    defaults: ["andrix_owner_defaults"],
+    srcs: ["native/work_entry.cpp", "native/work_profile.cpp", "native/worker_filter.cpp"],
+    static_libs: ["andrix_launch_description"],
+    shared_libs: ["libbase", "libselinux", "liblog"],
+}
+
 // Internal admission primitive. This test installs no new product entry point.
 cc_test_host {
     name: "andrix_work_admission_test",

@@ -54,11 +54,11 @@ enum class AdmissionResult {
 };
 
 class AdmissionAuthority;
-// One shared kernel object per reserved work. A wake packet is never
-// permission: the trusted launcher must claim this gate immediately before
-// ordinary exec, then close/unmap every management descriptor. No owner code
-// receives the gate. Linux lock-free shared uint32 atomics and a sealed-size
-// memfd are required.
+// One shared kernel object per reserved work. A wake packet is never permission.
+// The trusted launcher claims it at the declared launch commitment, then closes
+// and unmaps management handles before the final owner-role transition. Claim
+// success is permission, not successful program exec. Linux lock-free shared
+// uint32 atomics and a sealed-size memfd are required.
 class WorkAdmission {
  public:
   static std::shared_ptr<WorkAdmission> Reserve(WorkIdentity work, int& error);
@@ -110,9 +110,10 @@ class AdmissionAuthority {
   void Revoke();
   AdmissionResult Admit(const std::shared_ptr<WorkAdmission>& work,
                         uint64_t now);
-  // Only the trusted completed profile/resource transition may report Prepared.
-  // Late completion for a stopped request adds cleanup duties elsewhere, never
-  // permission.
+  // Only the trusted verified staging/profile/resource transition may report
+  // Prepared. The fixed final MAC transition still verifies the actual owner
+  // profile before arbitrary execution. Late completion adds cleanup duties,
+  // never permission for a stopped request.
   AdmissionResult Prepared(const std::shared_ptr<WorkAdmission>& work,
                            uint64_t now);
   // The adapter may shorten this publication for an outstanding query's
