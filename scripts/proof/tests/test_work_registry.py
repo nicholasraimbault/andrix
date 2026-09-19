@@ -46,6 +46,10 @@ class WorkRegistryTests(unittest.TestCase):
         self.assertNotIn('WorkRegistry', legacy)
         product = (ROOT/'products/andrix_gos_cf_arm64_only_phone.mk').read_text()
         self.assertNotIn('andrix_work_registry', product)
+        build = (ROOT/'owner/Android.bp').read_text()
+        registry = build[build.index('name: "andrix_work_registry",'):]
+        registry = registry[:registry.index('\n}')]
+        self.assertIn('whole_static_libs: ["andrix_launch_description"]', registry)
         source = (NATIVE/'work_registry.cpp').read_text()
         for token in ['fopen(', 'open(', 'write(', 'printf(', 'LOG(', 'fork(', 'execve(']:
             self.assertNotIn(token, source)

@@ -118,7 +118,7 @@ cc_library_static {
     cpp_std: "c++20",
     cflags: ["-Wall", "-Wextra", "-Werror"],
     srcs: ["native/work_registry.cpp", "native/work_admission.cpp"],
-    static_libs: ["andrix_launch_description"],
+    whole_static_libs: ["andrix_launch_description"],
     export_include_dirs: ["native"],
 }
 cc_test_host {

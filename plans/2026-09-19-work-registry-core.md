@@ -166,6 +166,11 @@ controls include 200 duplicate/conflicting Start pairs, 200 Start/Stop races and
 allocation/registry closure races. Optimized and address/undefined sanitizer builds pass.
 Those finite cases are not exhaustive scheduling or ThreadSanitizer evidence.
 
+The first Soong host link exposed a missing codec dependency: declaring it as an ordinary
+static dependency did not include its implementation in the registry archive. The codec
+is now explicitly bundled in that archive. The failed native gate remains recorded;
+this build correction does not weaken link checks or security policy.
+
 Next connect an authenticated bounded gateway and real resource backend to these leases,
 with complete ordinary stream semantics. Verify every actual creator, captured handle
 and completion against its original record. Repeat real process, Android identity/profile,
