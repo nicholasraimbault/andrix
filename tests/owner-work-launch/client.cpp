@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "launch_description.h"
+#include "snapshot_output.h"
 #include "wire.h"
 
 using android::base::unique_fd;
@@ -31,21 +32,6 @@ uint64_t number(std::string_view value) {
       p.ptr != value.data() + value.size())
     fail("invalid integer");
   return result;
-}
-std::string quote(std::string_view text) {
-  std::string out = "\"";
-  for (unsigned char c : text) {
-    if (c == '"' || c == '\\') {
-      out += '\\';
-      out += c;
-    } else if (c < 32 || c >= 127) {
-      char escaped[7];
-      snprintf(escaped, sizeof(escaped), "\\u%04x", c);
-      out += escaped;
-    } else
-      out += c;
-  }
-  return out + '"';
 }
 }  // namespace
 int main(int argc, char** argv) {
@@ -135,12 +121,13 @@ int main(int argc, char** argv) {
   pollfd wait{fd.get(), POLLIN, 0};
   if (poll(&wait, 1, 5000) != 1) fail("response deadline");
   proof::Snapshot state;
+  std::string output_json;
   if (recv(fd.get(), &state, sizeof(state), MSG_TRUNC) != sizeof(state) ||
       state.magic != proof::kMagic || state.boot != command.boot ||
       state.instance != command.instance ||
       (command.manager && state.manager != command.manager) ||
-      state.serial != command.slot + 1 ||
-      strnlen(state.output, sizeof(state.output)) >= sizeof(state.output))
+      state.serial != command.slot + 1 || state.reserved != 0 ||
+      !proof::SnapshotOutputJson(state, output_json))
     fail("exact response");
   printf(
       "{\"reference\":\"%llu.%llu.%llu\",\"slot\":%u,\"serial\":%llu,\"error\":"
@@ -150,7 +137,7 @@ int main(int argc, char** argv) {
       "process\":%u,\"empty\":%u,\"retired\":%u,\"blocked\":%u,\"gate_"
       "refused\":%u,\"authority_failed\":%u,\"exit_code\":%d,\"launch_error\":%"
       "d,\"cleanup_error\":%d,\"output_bytes\":%llu,\"manager_pid\":%d,"
-      "\"authority_ready\":%u,\"output\":%s}\n",
+      "\"authority_ready\":%u,\"output_size\":%u,\"output\":%s}\n",
       (unsigned long long)state.boot, (unsigned long long)state.instance,
       (unsigned long long)state.manager, command.slot,
       (unsigned long long)state.serial, state.error,
@@ -162,6 +149,6 @@ int main(int argc, char** argv) {
       state.gate_refused, state.authority_failed, state.exit_code,
       state.launch_error, state.cleanup_error,
       (unsigned long long)state.output_bytes, actual.pid, state.authority_ready,
-      quote(state.output).c_str());
+      state.output_size, output_json.c_str());
   return state.error ? 1 : 0;
 }

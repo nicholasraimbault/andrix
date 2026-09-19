@@ -164,9 +164,14 @@ queued wake rejection, independent work, detached descendants and manager loss c
 were exercised. Android retired the old environment before an empty replacement; a new
 explicit owner request then worked. The earlier fixture failure remains preserved.
 
-Next qualify original request invalidation through genuine CE withdrawal and normal
-credential recovery, without removing the approved fault facility's caller/consent
-checks. Then complete the product work registry/API and Console presentation integration.
+The [new admission CE trials](2026-09-19-owner-admission-ce-trial.md) now observe genuine
+withdrawal, old request refusal after normal PIN regrant, and fresh owner execution in
+a new epoch. All approved caller/consent guards stayed intact. The fourth scripted trial
+still failed because its diagnostic client truncated output at a NUL, before the final
+planned hierarchy census. The byte length correction passes focused host and sanitizer
+checks, not a new Android runtime. The complete corrected CE sequence remains a gate.
+
+Then complete the product work registry/API and Console presentation integration.
 Do not adopt fixture APIs or limits unchanged, weaken a guard to fit a prototype, or
 promote finite controls into broader qualification.
 

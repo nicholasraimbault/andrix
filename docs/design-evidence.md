@@ -132,6 +132,12 @@ There is no supported release or qualified physical phone deployment at this che
   exercised real CE locking with busy files and a delayed genuine reply. Old work groups were
   removed and normal PIN/fresh-work recovery was observed without a framework restart or reboot.
   Complete physical key removal, abnormal backend failure and general suspend/pressure are open.
+  The [new admission CE trials](../plans/2026-09-19-owner-admission-ce-trial.md) at `38af0ae`
+  observed real withdrawal, original request refusal after normal PIN regrant, and fresh
+  owner execution under the new epoch. The fourth scripted trial failed on diagnostic
+  output truncation at NUL, before its final planned hierarchy census. Both enclosing
+  retirements and matching authority bookends were observed. This is not a complete
+  scripted pass or a live late helper result after its startup timeout.
 - **Implication:** directory policy, an open descriptor, a cached unlocked flag or a surviving
   app is not continuous key authority. A late positive must not extend an expired query lease.
 - **Intent, accepted:** [Android user/CE authority independent of screen relock](architecture.md#lifecycle-and-networking),
@@ -139,12 +145,12 @@ There is no supported release or qualified physical phone deployment at this che
 - **Disposition:** retain provenance, epoch and freshness principles. Reuse or replace the
   adapter according to the final design. Lab injection endpoints stay absent from normal images.
 - **Next gate:** carry those invariants into new work supervision and test the unqualified
-  backend/suspend/pressure cases separately. The factory manager currently has no platform
-  binding, and its handoff does not bind the original request to a platform epoch; a late
-  guardian starts its own current binding. Both successful trials stayed within one epoch.
-  Revoke/regrant before late helper creation therefore remains a source identified gap,
-  not proof that an old request cannot revive. The new work contract requires that fence
-  and a real CE transition test. A successful real lock call with busy files is not erasure proof.
+  backend/suspend/pressure cases separately. The older comparison factory manager has no
+  original platform binding; a late guardian starts its own current binding. Its two
+  successful trials stayed within one epoch and did not close that gap. The new admission
+  component binds the original epoch, with the limited real CE observations above.
+  Complete the corrected CE sequence and product integration without weakening the
+  fence. A successful real lock call with busy files is not erasure proof.
 
 ## R05 Work and terminal lifetime
 
@@ -489,6 +495,11 @@ There is no supported release or qualified physical phone deployment at this che
   read result. Host tests of the corrected C++ observer preserve those distinctions;
   the fresh Android trials then observed Empty for A and Removed for B at manager loss,
   followed by successful recovery. An unreadable file alone is still not proof of cleanup.
+  The new CE collector also incorrectly required another generation increment on regrant,
+  then exceeded a diagnostic sampling budget. Those attempts remain incomplete. A later
+  trial reached fresh owner execution but exposed C string truncation of binary output
+  after a proc SID. Explicit retained lengths and actual host serializer/packet tests now
+  preserve NUL and all byte values. They do not retroactively pass the failed runtime.
 - **Implication:** fixtures have bugs too. Check intended inputs, exact acknowledgements, actual
   process identities, positive controls and lifecycle completion, not only exit codes or self hashes.
 - **Intent, accepted:** [tests inform architecture through scoped observed reality](architecture.md#design-method),

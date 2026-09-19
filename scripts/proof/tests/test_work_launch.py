@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Source selection and structure checks, never Android launch/authority proof."""
+"""Source selection and host encoding checks, not Android authority proof."""
 from pathlib import Path
+import json
 import unittest
 import re
 import subprocess
@@ -11,6 +12,22 @@ VEHICLE=ROOT/'tests/owner-work-launch'
 
 
 class WorkLaunchVehicleTests(unittest.TestCase):
+    def test_snapshot_output_preserves_binary_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            binary=Path(directory)/'output-test'
+            result=subprocess.run(['g++','-std=c++20','-O2','-Wall','-Wextra','-Werror',
+                '-UNDEBUG',str(VEHICLE/'output_test.cpp'),'-o',str(binary)],
+                capture_output=True,text=True,timeout=120)
+            self.assertEqual(result.returncode,0,result.stderr)
+            result=subprocess.run([str(binary)],capture_output=True,text=True,timeout=20)
+            self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+            self.assertEqual(json.loads(result.stdout).encode('latin-1'),bytes(range(256)))
+        client=(VEHICLE/'client.cpp').read_text()
+        self.assertIn('proof::SnapshotOutputJson(state, output_json)',client)
+        self.assertNotIn('quote(state.output)',client)
+        manager=(VEHICLE/'manager.cpp').read_text()
+        self.assertIn('state.output_size = static_cast<uint32_t>(work->output.size())',manager)
+
     def test_separate_debug_vehicle_keeps_existing_path(self):
         product=(ROOT/'products/andrix_gos_cf_arm64_only_phone.mk').read_text()
         self.assertIn('soong_config_set_bool,andrix,owner_work_proof,false',product)

@@ -1,7 +1,8 @@
 # Original owner admission through a real CE transition
 
-Status: next selected qualification slice. The passed ordinary launch trial did not
-withdraw CE authority. Existing public work/Console behavior is not replaced here.
+Status: four incomplete selected trials, with real withdrawal, old request refusal and
+fresh owner execution observed. The full scripted CE trial has not passed. Existing
+public work/Console behavior is not replaced here.
 
 ## Goal and authority
 
@@ -18,7 +19,7 @@ caller arguments. No storage permission is granted to an APK or arbitrary native
 Key withdrawal does not wait for cleanup. Do not remove the Keep guard just because the
 new work registry uses different identities.
 
-A new explicit `ANDRIX_OWNER_WORK_CE_PROOF=true` combination will require the ordinary work
+The explicit `ANDRIX_OWNER_WORK_CE_PROOF=true` combination requires the ordinary work
 vehicle, delegated environment, existing Keep and existing fault selection. It is a lab
 composition, not a default or a replacement permission model. Other mixtures of generic
 supervision with old fault/scope/factory controls remain rejected. The original Java
@@ -65,7 +66,7 @@ Normal, ordinary work proof and combined CE images need separate source/selectio
 artifact checks. The combined image alone may contain the existing fault commands.
 All runtime fixtures, data disks, observer inputs and control sequences must be fresh.
 
-## First attempt, incomplete
+## Preserved incomplete attempts
 
 The first combined image at `38af0ae` passed 413 host tests and normal/selected native,
 policy and Java selection checks. Its fresh Android trial invoked the unchanged real
@@ -102,3 +103,41 @@ wait budget and stopped the collector. The sampler was terminated and that incom
 observation retained. The next collector shortens the finite sampler and collects it
 after the core recovery controls. No platform, admission or Stop rule changes. The held
 bootstrap's startup timeout also remains explicit, not a claim of a live late helper.
+
+## Fourth attempt and diagnostic output correction
+
+The fourth trial, still using the `38af0ae` image, observed the required original epoch
+being revoked. Normal PIN entry restored availability in the revocation generation.
+Release, late creator completion and an identical retry did not revive the old request.
+After the old environment retired, a new manager admitted a fresh request in the new
+epoch. It entered, read the saved CE marker, reported UID 7500 and `andrix_owner`, exited
+zero and retired its work scope. Those are observed execution results, not an inference
+from a successful admission call alone.
+
+The script nevertheless failed on its final output marker. Its command read
+`/proc/self/attr/current` before printing that marker. The test client passed the binary
+snapshot buffer to an implicit C string conversion, which stops at NUL. The visible
+JSON contained 168 bytes while the manager reported receiving 194. The difference
+matches a NUL and the expected suffix, but the hidden suffix bytes were not independently
+read. Do not turn that inference into an observed marker or overwrite the failed check.
+
+The shortened diagnostic sampler completed all 16 samples. The stopped init log records
+retirement of both enclosing environments, and final platform, boot and framework
+bookends matched. The planned final independent hierarchy census was not reached. The
+held bootstrap's own startup deadline preceded regrant. The full scripted result therefore
+remains incomplete, with those limits and the useful CE/execution observations retained.
+No cancelled review intention supplies additional corroboration.
+
+The correction belongs to the test snapshot protocol, not the CE gate. It now carries an
+explicit retained byte length, validates the buffer bound and serializes NUL and every
+other byte. A protocol marker change refuses old peers rather than silently mixing
+layouts. JSON code points 0 through 255 represent byte values, not an assumed UTF-8
+string. Host checks exercise the actual serializer, a local packet socket, all 256 byte
+values, the NUL followed by output regression, maximum window and invalid lengths, with
+optimized and address/undefined sanitizer builds. These checks do not qualify a changed
+Android image or retroactively pass the fourth trial.
+
+The diagnostic tail is still a bounded capture, not a complete output transport or a
+durable job log. Ordinary streams, process exit, capture completion and resource
+retirement must remain separate in the product API. A new matching artifact/runtime
+check is required before calling the corrected full CE sequence qualified.
