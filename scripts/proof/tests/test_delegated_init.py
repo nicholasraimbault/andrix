@@ -13,7 +13,8 @@ class DelegatedInitSourceTests(unittest.TestCase):
         self.assertIn('$(call soong_config_set_bool,andrix,delegated_service,false)',product)
         self.assertIn('ifeq ($(ANDRIX_DELEGATED_SERVICE_PROOF),true)',product)
         for guard in ['requires userdebug or eng','requires ANDRIX_OWNER_SESSION=true',
-                      'requires ANDRIX_OWNER_LIFECYCLE=true','cannot use Keep or older fault/scope controls',
+                      'requires ANDRIX_OWNER_LIFECYCLE=true','cannot use the older scope controls',
+                      'requires the explicit owner work CE trial for Keep/fault composition',
                       'cannot use the older factory experiment']:
             self.assertIn('ANDRIX_DELEGATED_SERVICE_PROOF '+guard,product)
 

@@ -124,6 +124,22 @@ PRODUCT_SYSTEM_EXT_PROPERTIES += ro.andrix.factory_backend=$(ANDRIX_WORK_FACTORY
 PRODUCT_PACKAGES += andrix-factory-manager-probe andrix-factory-guardian-probe andrix-factory-worker-probe andrix-factory-proof-client
 endif
 
+# Explicit composition for a real CE trial. Reuse the approved fixed faults and
+# active Keep consent guard unchanged, never silently enable either dependency.
+$(call soong_config_set_bool,andrix,owner_work_ce_proof,false)
+ifeq ($(ANDRIX_OWNER_WORK_CE_PROOF),true)
+ifneq ($(ANDRIX_OWNER_WORK_PROOF),true)
+$(error ANDRIX_OWNER_WORK_CE_PROOF requires ANDRIX_OWNER_WORK_PROOF=true)
+endif
+ifneq ($(ANDRIX_OWNER_KEEP),true)
+$(error ANDRIX_OWNER_WORK_CE_PROOF requires the existing Keep consent path)
+endif
+ifneq ($(ANDRIX_OWNER_FAULT_TESTS),true)
+$(error ANDRIX_OWNER_WORK_CE_PROOF requires the approved fixed lifecycle faults)
+endif
+$(call soong_config_set_bool,andrix,owner_work_ce_proof,true)
+endif
+
 # Optional generic service supervision integration. No Andrix job policy in init.
 $(call soong_config_set_bool,andrix,delegated_service,false)
 ifeq ($(ANDRIX_DELEGATED_SERVICE_PROOF),true)
@@ -141,8 +157,13 @@ endif
 ifneq ($(ANDRIX_OWNER_LIFECYCLE),true)
 $(error ANDRIX_DELEGATED_SERVICE_PROOF requires ANDRIX_OWNER_LIFECYCLE=true)
 endif
-ifneq ($(filter true,$(ANDRIX_OWNER_KEEP) $(ANDRIX_OWNER_FAULT_TESTS) $(ANDRIX_OWNER_SCOPE_PROOF)),)
-$(error ANDRIX_DELEGATED_SERVICE_PROOF cannot use Keep or older fault/scope controls)
+ifeq ($(ANDRIX_OWNER_SCOPE_PROOF),true)
+$(error ANDRIX_DELEGATED_SERVICE_PROOF cannot use the older scope controls)
+endif
+ifneq ($(filter true,$(ANDRIX_OWNER_KEEP) $(ANDRIX_OWNER_FAULT_TESTS)),)
+ifneq ($(ANDRIX_OWNER_WORK_CE_PROOF),true)
+$(error ANDRIX_DELEGATED_SERVICE_PROOF requires the explicit owner work CE trial for Keep/fault composition)
+endif
 endif
 ifneq ($(ANDRIX_WORK_FACTORY_PROOF),)
 $(error ANDRIX_DELEGATED_SERVICE_PROOF cannot use the older factory experiment)

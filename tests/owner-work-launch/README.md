@@ -3,6 +3,9 @@
 Selected only by `ANDRIX_OWNER_WORK_PROOF=true` together with the generic delegated
 service proof, owner session and real lifecycle adapter. The surrounding selection
 already requires the lab product and a debug build. This is not the public work API.
+The separate [CE trial composition](../../plans/2026-09-19-owner-admission-ce-trial.md)
+requires `ANDRIX_OWNER_WORK_CE_PROOF=true`, existing Keep and existing fixed fault controls.
+Their active consent, caller, command and one use guards remain unchanged.
 
 The fixed service receives the generic init scope. Two unbound gate reservations and
 two creator/cleanup lanes are allocated before its public readiness. Each immutable

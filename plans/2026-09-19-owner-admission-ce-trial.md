@@ -1,0 +1,66 @@
+# Original owner admission through a real CE transition
+
+Status: next selected qualification slice. The passed ordinary launch trial did not
+withdraw CE authority. Existing public work/Console behavior is not replaced here.
+
+## Goal and authority
+
+Bind a real accepted work request before asynchronous creation. Withdraw Android user 0
+CE availability through the already approved storage path, restore it by normal owner
+credential entry, and show that the old request cannot execute after the newer positive.
+Fresh explicit work under a new manager must succeed. Filesystem readability and old
+open files must not substitute for Android's authority.
+
+Use the existing [approved lifecycle fault facility](2026-09-14-lab-lifecycle-faults.md)
+unchanged. It still requires actual Shell identity, a debug lab image, an active legacy
+Keep registration, one accepted use per platform service lifetime, fixed user 0 and no
+caller arguments. No storage permission is granted to an APK or arbitrary native program.
+Key withdrawal does not wait for cleanup. Do not remove the Keep guard just because the
+new work registry uses different identities.
+
+A new explicit `ANDRIX_OWNER_WORK_CE_PROOF=true` combination will require the ordinary work
+vehicle, delegated environment, existing Keep and existing fault selection. It is a lab
+composition, not a default or a replacement permission model. Other mixtures of generic
+supervision with old fault/scope/factory controls remain rejected. The original Java
+fault implementation, Binder enforcement and budgets are not changed.
+
+## Ownership and alternatives
+
+The legacy Keep job supplies the already approved consent context for the global user 0
+operation. The new work manager independently observes the same genuine platform epoch.
+Its held request retains its original binding. Its ordinary running work belongs to a
+separate captured scope. The test must distinguish cleanup of the legacy Keep group from
+cleanup of the new work scopes.
+
+This costs additional UI setup and one bounded legacy kept workload during the test.
+Those dependencies are not adopted by the product work API. Replacing the fault guard
+with a new work capability would require a separate authority design and approval; it
+is unnecessary for this qualification. Faking availability or treating relock as CE
+withdrawal is rejected.
+
+## Controls
+
+1. Configure credentials in a fresh disposable emulator. Establish real CE availability,
+   an active Keep grant and useful ordinary owner work with matching positive controls.
+2. Admit another ordinary request and hold creator completion. Record the original
+   platform instance/generation before any fault. Keep separate state for admission,
+   creator completion, gate commitment, entry exit and resource cleanup.
+3. Invoke only the fixed real `lock-ce-user0` operation. Record Android/vold results,
+   genuine negative availability and the newer authority generation. Record the native
+   gate closure and running work cleanup independently of readable data or busy keys.
+4. Restore availability through normal credential entry, without reboot or framework
+   replacement. Complete the old creator and attempt the old release. Its original gate
+   must remain closed; a new positive or helper cannot provide new permission for it.
+5. Verify old scope cleanup, explicitly restart the test manager, and run a fresh request
+   under the new epoch. Inspect the old exact reference, not an automatically recreated
+   work. Retire the final scopes and preserve platform bookends.
+
+A controlled held completion is not an uninterruptible syscall. If the bootstrap's own
+startup timeout wins first, record that fact rather than presenting it as a live late
+helper control. A returned key-lock call or busy-file outcome is not proof of complete
+physical key erasure. The separate work fixture also does not replace the final product
+integration of Android's environment service name and lifecycle ownership.
+
+Normal, ordinary work proof and combined CE images need separate source/selection and
+artifact checks. The combined image alone may contain the existing fault commands.
+All runtime fixtures, data disks, observer inputs and control sequences must be fresh.
