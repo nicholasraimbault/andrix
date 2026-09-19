@@ -132,12 +132,14 @@ There is no supported release or qualified physical phone deployment at this che
   exercised real CE locking with busy files and a delayed genuine reply. Old work groups were
   removed and normal PIN/fresh-work recovery was observed without a framework restart or reboot.
   Complete physical key removal, abnormal backend failure and general suspend/pressure are open.
-  The [new admission CE trials](../plans/2026-09-19-owner-admission-ce-trial.md) at `38af0ae`
-  observed real withdrawal, original request refusal after normal PIN regrant, and fresh
-  owner execution under the new epoch. The fourth scripted trial failed on diagnostic
-  output truncation at NUL, before its final planned hierarchy census. Both enclosing
-  retirements and matching authority bookends were observed. This is not a complete
-  scripted pass or a live late helper result after its startup timeout.
+  The [new admission CE trial](../plans/2026-09-19-owner-admission-ce-trial.md) at `8621e11`
+  passed its listed finite controls after 420 host tests and matching selected artifacts.
+  Real withdrawal closed the original admission. Release, late creator completion and
+  retry did not revive it after normal PIN regrant. Fresh owner execution bound the new
+  epoch, read saved CE data and exited zero. Both enclosing environments retired, the
+  final owned hierarchy was empty and authority bookends matched. Four earlier incomplete
+  attempts remain preserved. The helper's own startup timeout won before regrant, so this
+  is not a live late helper result or proof of physical key erasure.
 - **Implication:** directory policy, an open descriptor, a cached unlocked flag or a surviving
   app is not continuous key authority. A late positive must not extend an expired query lease.
 - **Intent, accepted:** [Android user/CE authority independent of screen relock](architecture.md#lifecycle-and-networking),
@@ -148,9 +150,9 @@ There is no supported release or qualified physical phone deployment at this che
   backend/suspend/pressure cases separately. The older comparison factory manager has no
   original platform binding; a late guardian starts its own current binding. Its two
   successful trials stayed within one epoch and did not close that gap. The new admission
-  component binds the original epoch, with the limited real CE observations above.
-  Complete the corrected CE sequence and product integration without weakening the
-  fence. A successful real lock call with busy files is not erasure proof.
+  component binds the original epoch, with the finite real CE result above. Complete
+  product integration and broader failure controls without weakening the fence.
+  A successful real lock call with busy files is not erasure proof.
 
 ## R05 Work and terminal lifetime
 
@@ -242,8 +244,10 @@ There is no supported release or qualified physical phone deployment at this che
   late creator Stop, real queued wake rejection, independent work, detached descendants,
   manager exit cleanup and an empty replacement followed by new work. The mutable gate
   remained in the coordinator role; the inherited filter and fixed NNP transition preceded
-  ordinary execution. This still is not genuine CE revoke/regrant for that path, the public
-  work/Console API, pressure, exhaustive races or phone qualification. The earlier
+  ordinary execution. A subsequent [finite CE trial](../plans/2026-09-19-owner-admission-ce-trial.md)
+  at `8621e11` exercised original request refusal through genuine withdrawal/regrant and
+  new explicit owner execution. Neither result qualifies the public work/Console API,
+  pressure, exhaustive races or physical phones. The earlier
   [supervision candidate and proof matrix](../plans/2026-09-16-unix-work-supervision.md)
   retains its evidence limits and the open Android shell controls.
 - **Supporting mechanism record:** the [scope boundary experiment](../tests/owner-scope/README.md)
@@ -499,7 +503,9 @@ There is no supported release or qualified physical phone deployment at this che
   then exceeded a diagnostic sampling budget. Those attempts remain incomplete. A later
   trial reached fresh owner execution but exposed C string truncation of binary output
   after a proc SID. Explicit retained lengths and actual host serializer/packet tests now
-  preserve NUL and all byte values. They do not retroactively pass the failed runtime.
+  preserve NUL and all byte values. A fresh matching Android image then completed the
+  corrected CE sequence and observed the NUL plus following marker. It does not
+  retroactively pass the failed runtime.
 - **Implication:** fixtures have bugs too. Check intended inputs, exact acknowledgements, actual
   process identities, positive controls and lifecycle completion, not only exit codes or self hashes.
 - **Intent, accepted:** [tests inform architecture through scoped observed reality](architecture.md#design-method),

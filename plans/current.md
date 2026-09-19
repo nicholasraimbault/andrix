@@ -164,14 +164,19 @@ queued wake rejection, independent work, detached descendants and manager loss c
 were exercised. Android retired the old environment before an empty replacement; a new
 explicit owner request then worked. The earlier fixture failure remains preserved.
 
-The [new admission CE trials](2026-09-19-owner-admission-ce-trial.md) now observe genuine
-withdrawal, old request refusal after normal PIN regrant, and fresh owner execution in
-a new epoch. All approved caller/consent guards stayed intact. The fourth scripted trial
-still failed because its diagnostic client truncated output at a NUL, before the final
-planned hierarchy census. The byte length correction passes focused host and sanitizer
-checks, not a new Android runtime. The complete corrected CE sequence remains a gate.
+The [new admission CE trial](2026-09-19-owner-admission-ce-trial.md) now passes its listed
+finite controls at `8621e11`, after 420 host tests, sanitizer checks and matching selected
+native/policy/image gates. Genuine withdrawal closed the original gate; old release,
+late creator completion and retry did not revive it after normal PIN regrant. A fresh
+manager admitted new owner execution under the restored epoch. Both environments retired,
+the final owned hierarchy was empty and authority bookends matched. The corrected byte
+serializer preserved the NUL and following output marker. Four incomplete attempts stay
+recorded. The helper's own startup timeout still prevents a live late helper claim after
+regrant. No physical key erasure, broader failure or phone qualification is implied.
 
-Then complete the product work registry/API and Console presentation integration.
+Next complete the product work registry/API and Console presentation integration.
+The [work result retention proposal](2026-09-19-work-result-retention.md) identifies the
+remaining product contract choice before committing the public API.
 Do not adopt fixture APIs or limits unchanged, weaken a guard to fit a prototype, or
 promote finite controls into broader qualification.
 

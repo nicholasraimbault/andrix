@@ -1,8 +1,8 @@
 # Original owner admission through a real CE transition
 
-Status: four incomplete selected trials, with real withdrawal, old request refusal and
-fresh owner execution observed. The full scripted CE trial has not passed. Existing
-public work/Console behavior is not replaced here.
+Status: the fifth fresh selected trial passed the listed finite controls at `8621e11`.
+Four earlier incomplete attempts remain preserved. This does not replace existing public
+work/Console behavior or qualify physical phones.
 
 ## Goal and authority
 
@@ -139,5 +139,48 @@ Android image or retroactively pass the fourth trial.
 
 The diagnostic tail is still a bounded capture, not a complete output transport or a
 durable job log. Ordinary streams, process exit, capture completion and resource
-retirement must remain separate in the product API. A new matching artifact/runtime
-check is required before calling the corrected full CE sequence qualified.
+retirement must remain separate in the product API. The following fresh matching trial,
+not a reinterpretation of the fourth attempt, qualified the corrected finite sequence.
+
+## Corrected finite result
+
+Source `8621e11` passed 420 host tests, optimized and address/undefined sanitizer output
+checks, Android compilation of the corrected diagnostic peers, and the actual frozen
+Soong host codec test. A fresh selected image then passed native, compiled policy, Java
+fault selection and image/tool checks, including six frozen host test executables.
+Normal production inputs were unchanged, with an explicit earlier normal artifact
+reference. No new complete normal image is claimed.
+
+The fifth fresh enforcing Android trial completed these controls:
+
+- An active legacy Keep grant supplied the existing approved consent context. Console
+  was absent. The separate work manager admitted useful owner work and a held creator
+  under the original genuine platform epoch.
+- The unchanged real user 0 CE operation published a newer unavailable epoch. The held
+  request's gate closed. Running owner work was killed, reaped and its scope retired.
+- Normal observed PIN keypad input restored availability without a new platform instance,
+  framework process or boot. The restored generation equalled the revocation generation.
+- Old release, late creator completion and an identical Start retry did not execute or
+  rebind the original request. Its scope was reclaimed under the original identity.
+- Android retired the old enclosing environment before activating the explicit replacement.
+  A fresh request bound the restored epoch, executed as the owner, read its saved CE file,
+  reported the owner identity and exited zero. The diagnostic output included both the
+  proc SID's NUL and the final marker, with the declared and observed lengths matching.
+- The final work and enclosing environment retired. An independent Shell census found
+  the owned hierarchy empty. Platform, framework and boot bookends matched.
+
+Sixteen finite proc samples corroborated the original manager and held bootstrap staying
+in their original scopes during the negative window. Running work was already absent
+at those reads. Stopped init, vold and lifecycle logs corroborated withdrawal, regrant
+and retirement ordering. The VM, controller, runner and capture closed successfully;
+immutable inputs were rechecked and the evidence bundle sealed.
+
+The limits remain important. The held bootstrap's own startup deadline expired before
+regrant, so this is not a live late helper entry control after recovery. The original
+request and its pending creator completion nevertheless remained irreversibly stopped.
+Busy files were reported during key withdrawal, not complete physical key erasure. The
+samples are not continuous observation or instantaneous atomicity between native entry,
+key withdrawal and physical termination. Product service name integration, the public
+work API, broader races, suspend, pressure, abnormal storage and phone qualification
+remain open. Earlier failed assertions and cancelled intention-only reviews are not
+promoted into corroborating results.

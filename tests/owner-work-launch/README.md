@@ -72,10 +72,11 @@ after are required. No absent endpoint is promoted to an authority denial.
 Source `fbccb19` completed the [first finite Android owner launch trial](../../plans/2026-09-19-owner-launch-qualification.md)
 with fresh matching images. Actual owner programs/profiles, application negatives,
 queued wake rejection, independent work, detached lifetime and manager cleanup were
-observed. Later [CE trials](../../plans/2026-09-19-owner-admission-ce-trial.md) observed
-real withdrawal, original request refusal after normal PIN regrant, and fresh owner
-execution in a new epoch. The fourth scripted trial still failed on the diagnostic
-client's NUL truncation, before its final planned hierarchy census. Its useful results
-and failure remain separate. The corrected full CE sequence, broader failures and the
-public work/Console API remain unqualified. Source or compilation alone supplies none
-of those runtime results.
+observed. The [corrected CE trial](../../plans/2026-09-19-owner-admission-ce-trial.md) at
+`8621e11` then passed its listed finite controls: genuine withdrawal, original request
+refusal after normal PIN regrant, fresh owner execution under the new epoch and final
+empty hierarchy. It observed the binary NUL and following output marker. Four earlier
+incomplete attempts, including the old client's truncation, remain preserved. The held
+bootstrap's own startup deadline won before regrant, so no live late helper control is
+claimed there. Broader failures and the public work/Console API remain unqualified.
+Source or compilation alone supplies none of those runtime results.

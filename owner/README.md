@@ -43,7 +43,12 @@ normal/Keep Android native builds and the frozen Soong host admission test passe
 Those component checks were followed by the [finite Android owner launch trial](../plans/2026-09-19-owner-launch-qualification.md)
 at `fbccb19`: 412 host tests, matching selected images and actual owner programs, profiles,
 ordinary app negatives, queued Stop, independent work and manager cleanup controls.
-Real CE withdrawal/regrant for the new path and its public work API remain unfinished.
+The [new admission CE trial](../plans/2026-09-19-owner-admission-ce-trial.md) at `8621e11`
+then passed its finite real withdrawal, old request refusal, normal PIN regrant, fresh
+owner execution and final cleanup controls, after 420 host tests and matching selected
+artifacts. Earlier incomplete attempts remain recorded. The held helper's own startup
+timeout won before regrant; no live late helper or physical key erasure claim follows.
+The public work API and broader qualification remain unfinished.
 Existing Console/plain/Keep paths do not call these new admission methods, and their
 behavior below remains unchanged. Gate closure is not process or resource cleanup.
 
