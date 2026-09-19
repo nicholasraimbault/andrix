@@ -94,3 +94,11 @@ cause of that coordinator exit was not established. This is not a CE result or a
 to relax the guard. The next fresh sequence completes lockscreen preparation before
 capturing the Keep/admission baseline, then performs the finite fault and recovery
 sequence without further setup between those controls.
+
+The third trial observed real withdrawal, normal PIN regrant, and the old admission
+remaining stopped after release, late creator completion and an identical request retry.
+It still did not reach the fresh work positive: a diagnostic sampler ran longer than its
+wait budget and stopped the collector. The sampler was terminated and that incomplete
+observation retained. The next collector shortens the finite sampler and collects it
+after the core recovery controls. No platform, admission or Stop rule changes. The held
+bootstrap's startup timeout also remains explicit, not a claim of a live late helper.
