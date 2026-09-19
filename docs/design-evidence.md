@@ -228,8 +228,16 @@ There is no supported release or qualified physical phone deployment at this che
   tests, sanitizer checks, selected concurrent orderings and real separate processes
   exercised queued wake rejection, expiry, late old-epoch helpers and new explicit work.
   Normal/Keep Android native modules and the frozen Soong host admission test passed.
-  This is not a new public work API, Android CE fault or owner execution qualification.
-  The earlier
+  Those component checks did not qualify Android owner execution. The subsequent
+  [ordinary owner launch trial](../plans/2026-09-19-owner-launch-qualification.md) at
+  `fbccb19` passed its listed enforcing Android controls after 412 host tests and matching
+  selected images. It compiled and ran owner code with caller argv/cwd/env/preload,
+  checked actual profiles and descriptor closure, and exercised ordinary app negatives,
+  late creator Stop, real queued wake rejection, independent work, detached descendants,
+  manager exit cleanup and an empty replacement followed by new work. The mutable gate
+  remained in the coordinator role; the inherited filter and fixed NNP transition preceded
+  ordinary execution. This still is not genuine CE revoke/regrant for that path, the public
+  work/Console API, pressure, exhaustive races or phone qualification. The earlier
   [supervision candidate and proof matrix](../plans/2026-09-16-unix-work-supervision.md)
   retains its evidence limits and the open Android shell controls.
 - **Supporting mechanism record:** the [scope boundary experiment](../tests/owner-scope/README.md)

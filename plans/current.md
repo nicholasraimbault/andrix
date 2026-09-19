@@ -156,11 +156,19 @@ Stop closes a shared atomic gate without the admission or presentation lock. At 
 builds and the frozen Soong host test pass. A pending query's earlier failure deadline
 also caps release. These results do not qualify real CE revocation or owner execution.
 
-Next connect the generic environment handoff and admission gate to complete work creation,
-ordinary program launch and cleanup. Qualify genuine CE revoke/regrant, late helpers,
-caller/owner MAC boundaries and Unix lifetimes before connecting Console presentation. Do not adopt the
-fixture API or limits unchanged, weaken a guard to fit a prototype, or promote finite
-controls into broader qualification.
+The [first finite ordinary owner launch trial](2026-09-19-owner-launch-qualification.md)
+now passes at `fbccb19`, after 412 host tests, native/policy gates and a fresh selected
+image. It compiled and executed owner code with caller argv/cwd/env and an owner library.
+Actual owner profiles, descriptor closure, ordinary app negatives, late creator Stop,
+queued wake rejection, independent work, detached descendants and manager loss cleanup
+were exercised. Android retired the old environment before an empty replacement; a new
+explicit owner request then worked. The earlier fixture failure remains preserved.
+
+Next qualify original request invalidation through genuine CE withdrawal and normal
+credential recovery, without removing the approved fault facility's caller/consent
+checks. Then complete the product work registry/API and Console presentation integration.
+Do not adopt fixture APIs or limits unchanged, weaken a guard to fit a prototype, or
+promote finite controls into broader qualification.
 
 Pinned glibc and an Android hosted Wayland path remain later compatibility research.
 They may reduce application friction, but no second ABI or GUI stack is adopted by

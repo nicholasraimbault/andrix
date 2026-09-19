@@ -1,8 +1,8 @@
 # Ordinary owner launch boundary
 
-Status: implementation and qualification plan. The ordinary launcher is not delivered by
-the admission gate or the earlier generic service trial. Existing Console/plain/Keep
-entry remains unchanged until a replacement is qualified.
+Status: the selected launcher at `fbccb19` completed its [first finite Android trial](2026-09-19-owner-launch-qualification.md),
+including ordinary owner execution and cleanup controls. It is not a new public work API
+or CE fault qualification. Existing Console/plain/Keep entry remains unchanged.
 
 ## Goal and ownership
 

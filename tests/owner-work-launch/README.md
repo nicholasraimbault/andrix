@@ -58,6 +58,9 @@ and exact service start/stop. Actual failed exec is distinguished from successfu
 executing a helper that later refuses the caller. Matching positive controls before and
 after are required. No absent endpoint is promoted to an authority denial.
 
-No new Android runtime result is claimed by source, host tests or module compilation.
-Genuine CE withdrawal/regrant, actual owner and application MAC crossings, payloads,
-independent work and complete cleanup require fresh matching images and runtime evidence.
+Source `fbccb19` completed the [first finite Android owner launch trial](../../plans/2026-09-19-owner-launch-qualification.md)
+with fresh matching images. Actual owner programs/profiles, application negatives,
+queued wake rejection, independent work, detached lifetime and manager cleanup were
+observed. Genuine CE withdrawal/regrant for this path, broader failures and the public
+work/Console API remain unqualified. Source or compilation alone supplies none of those
+runtime results.
