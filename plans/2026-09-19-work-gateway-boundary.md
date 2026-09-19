@@ -1,11 +1,11 @@
 # Work gateway boundary and ordinary streams
 
 Status: internal crossing and standard stream components are implemented. They are not
-an installed Work service, released wire API or Console replacement. Host component,
-real Linux socket and sanitizer checks pass. The first source `070a842` also passed
-normal and selected Android native/policy gates, but a later EOF regression exposed a
-stream lifetime gap. The lease correction below is not qualified by that earlier build.
-There is still no new Android runtime result.
+an installed Work service, released wire API or Console replacement. At `0e6f7a8`, all
+426 host tests, optimized/ASan/UBSan/ThreadSanitizer controls, ARM64 library compilation
+and three actual frozen Soong host tests pass. The corrected source explicitly references
+the unchanged normal/selected policy compiled at `070a842`. Its failed EOF regression
+and correction are retained below. There is still no new Android runtime result.
 
 ## Goal and ownership
 
@@ -194,9 +194,15 @@ creation/use restrictions and was absent from normal policy. Core/LMKD adaptatio
 restored and framework/Soong fences passed. Those results remain specific to that source,
 including its subsequently exposed EOF lifetime limitation.
 
-Rebuild the corrected native components against the unchanged, explicitly referenced
-policy source. Then implement the bounded authenticated dispatcher, stream import retry
-mapping and actual resource adapter.
+The corrected `0e6f7a8` then passed its own 426 host tests, ARM64 library inspection and
+three actual frozen Soong host tests, including EOF retention and the `EMFILE` control.
+Normal legacy binaries remained byte identical to the retained reference. The policy
+reference is explicit, with only implementation/tests/docs changed since `070a842`, not
+a new policy build or a new image. Framework fences passed and Core/LMKD/Soong remained
+unchanged. No Android VM or physical device ran in either phase.
+
+Next implement the bounded authenticated dispatcher, stream import retry mapping and
+actual resource adapter.
 Use exact issued work controls for Stop, separate creator and cleanup lanes, genuine
 original epoch admission and truthful resource retirement. Exercise authorized owner
 clients, ordinary application negatives, client loss and rediscovery, independent Stop,

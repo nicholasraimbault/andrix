@@ -66,8 +66,9 @@ owned standard stream bindings. Start matches the actual binding as well as requ
 Live creator/handoff leases are separate from identity retained in work metadata, so
 retaining results does not keep pipe writers open. The first native/policy gates passed
 at `070a842`; a subsequent EOF regression exposed that lifetime issue and is retained.
-The correction has its own gates. Host socket/process and sanitizer checks are separate
-from Android MAC qualification.
+Corrected `0e6f7a8` passed 426 host tests, sanitizer controls, ARM64 compilation and three
+frozen Soong host tests with an explicit unchanged policy reference. Host socket/process
+checks remain separate from Android MAC runtime qualification.
 No new control service, public descriptor import or persistent recorder is installed.
 The authenticated dispatcher and real backend still need integration and qualification.
 
