@@ -52,6 +52,15 @@ The public work API and broader qualification remain unfinished.
 Existing Console/plain/Keep paths do not call these new admission methods, and their
 behavior below remains unchanged. Gate closure is not process or resource cleanup.
 
+The [bounded registry core](../plans/2026-09-19-work-registry-core.md) now adds internal
+reservation capacity, identities that are not reused, ordered request streams, immutable
+Start matching, exact retained controls and creator/observation/cleanup bookkeeping.
+Focused host and sanitizer checks exercise its actual gate objects and selected thread
+races. Process and resource facts in those checks are supplied by the test adapter, not
+Android or kernel measurements. No new control service, caller authentication, descriptor
+import or persistent recorder is installed. The public crossing and real backend still
+need integration and qualification.
+
 ## Components
 
 - `andrixd`: non-root UID/GID `system_ext_andrix` (7500), dedicated coordinator

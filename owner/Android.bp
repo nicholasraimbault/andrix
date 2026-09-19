@@ -111,6 +111,26 @@ cc_test_host {
     static_libs: ["andrix_work_launch_protocol"],
 }
 
+// Internal bounded registry. No new product entry point or legacy routing.
+cc_library_static {
+    name: "andrix_work_registry",
+    host_supported: true,
+    cpp_std: "c++20",
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+    srcs: ["native/work_registry.cpp", "native/work_admission.cpp"],
+    static_libs: ["andrix_launch_description"],
+    export_include_dirs: ["native"],
+}
+cc_test_host {
+    name: "andrix_work_registry_test",
+    gtest: false,
+    compile_multilib: "first",
+    cpp_std: "c++20",
+    cflags: ["-Wall", "-Wextra", "-Werror", "-UNDEBUG"],
+    srcs: ["tests/work_registry_test.cpp"],
+    static_libs: ["andrix_work_registry"],
+}
+
 // These fixed entries are not product packages without the separate vehicle.
 cc_binary {
     name: "andrix-work-launcher",
