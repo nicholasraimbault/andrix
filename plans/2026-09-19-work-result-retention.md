@@ -1,7 +1,11 @@
 # Work result retention for the first public API
 
-Status: proposal, awaiting owner input. This does not change the accepted supervision
-contract or current Console behavior.
+Status: the discussion refined this binary choice into separate controls for live
+supervision, minimal security records, optional durable work history and output capture.
+The owner endorsed the proposed privacy defaults for further assessment. The
+[online source review](2026-09-19-logging-defaults-review.md) supports the principles and
+records the remaining qualifications. Exact retention values and implementation are
+not settled. This does not change current Console behavior.
 
 ## Goal and fixed requirements
 
@@ -22,7 +26,7 @@ results without identity reuse. It does not yet specify whether detailed work re
 must survive coordinator restart or reboot. That affects both the public promise and
 the storage design, not just an internal container choice.
 
-## Proposed first contract: records tied to one manager incarnation
+## Live records tied to one manager incarnation
 
 Keep active work records and bounded completion records in the manager. They survive
 Console reclamation and rediscovery while that manager remains alive. Define explicit
@@ -36,21 +40,23 @@ Android instance still owns termination and retirement; replacement remains fenc
 that cleanup. Old references never become references to replacement work. Starting again
 requires a fresh explicit request under genuine current authority.
 
-This is the recommendation for the first public API. It keeps the initial contract
-honest without adding a durable storage subsystem to the execution path. It does not
-delete saved files when a result is forgotten. It also does not promise a durable job
-history: a completed build's exit status may be lost with the manager even when its
-output files remain.
+This remains the baseline when persistent work history is disabled. It keeps the
+execution contract honest without making a history store mandatory. It does not delete
+saved files when a result is forgotten. It also does not promise durable job history:
+a completed build's exit status may be lost with the manager even when its output files
+remain. Optional persistence is a separate capability, not a source of live authority.
 
-## Alternative: durable work history from the first API
+## Optional durable work history
 
 Persist accepted request identities and confirmed results in a bounded journal. This
 could preserve useful receipts after manager loss or reboot. It would not resurrect
 processes, replay an old admission or prove an unrecorded exit code. Recovery must still
 distinguish confirmed facts from interrupted transitions and unknown outcomes.
 
-This requires a defined durable acceptance point, CE storage ownership, crash recovery,
-format migration, retention quotas and deliberate handling of sensitive launch data.
+This requires declared persistence and acknowledgement semantics, CE storage ownership,
+crash recovery, format migration, retention quotas and deliberate handling of sensitive
+launch data. A promise of durable submission additionally requires a durable acceptance
+point; merely retaining observed history does not imply that stronger promise.
 Filesystem operations must remain outside Stop's control path. A stalled writer keeps
 its bounded outstanding obligation; a timeout cannot manufacture a durable result or
 allow unsafe reuse. Real storage and power loss tests would be additional gates.
@@ -66,16 +72,18 @@ incarnations. The fresh manager after CE recovery intentionally starts with new 
 not reconstructed old work. The earlier diagnostic output defect also shows why received
 output, process exit and stored results cannot be treated as one fact.
 
-The first option costs loss of detailed history on coordinator failure. The second costs
-more persistent state, storage failure handling and qualification before its acceptance
-promise can be reliable. Neither option weakens CE revocation, exact Stop or the final
-cleanup boundary.
+Disabling persistence costs loss of detailed history on coordinator failure. Enabling
+it costs persistent state, storage failure handling and qualification before any durable
+receipt promise can be reliable. Neither mode weakens CE revocation, exact Stop or the
+final cleanup boundary.
 
-Choose before committing the public result and retry contract. Revisit the first option
-when durable receipts become a requirement for owner workflows, automation or later
-remote clients. A future journal must not reinterpret previously unavailable results as
-confirmed success, or turn retained descriptions into permission to restart work.
+The proposed default is no persistent work activity history, with explicit owner control
+to enable it. Minimal security records have a different purpose and event catalogue;
+they must not silently reproduce disabled work history. Strong durable acceptance or
+completion receipts need their own declared commitment point and qualification before
+the public API promises them.
 
-**Owner question:** may the first public API keep results through Console loss but report
-them unavailable after coordinator restart, with durable history added later, or is
-persistence across coordinator restart and reboot required from the start?
+Define those promises before committing the public result and retry contract. A journal
+must not reinterpret previously unavailable results as confirmed success, or turn
+retained descriptions into permission to restart work. The source review also leaves
+retention values open pending workload, privacy and investigation requirements.
