@@ -40,10 +40,12 @@ that gate without the admission or UI mutex; queued wake data cannot reopen it.
 
 At `d211b25`, 404 host tests, focused optimized/sanitizer and separate process controls,
 normal/Keep Android native builds and the frozen Soong host admission test passed.
-They do not qualify
-Android caller/MAC identity, a new owner launcher or real CE revoke/regrant. Existing
-Console/plain/Keep paths do not call these new admission methods, and their behavior
-below remains unchanged. Gate closure is not process or resource cleanup.
+Those component checks were followed by the [finite Android owner launch trial](../plans/2026-09-19-owner-launch-qualification.md)
+at `fbccb19`: 412 host tests, matching selected images and actual owner programs, profiles,
+ordinary app negatives, queued Stop, independent work and manager cleanup controls.
+Real CE withdrawal/regrant for the new path and its public work API remain unfinished.
+Existing Console/plain/Keep paths do not call these new admission methods, and their
+behavior below remains unchanged. Gate closure is not process or resource cleanup.
 
 ## Components
 
