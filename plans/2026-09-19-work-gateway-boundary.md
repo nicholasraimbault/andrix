@@ -33,6 +33,13 @@ a different connection. The adapter must still retain the actual socket descript
 through each operation and through event retirement. Cookie sampling does not make
 concurrent close and descriptor number reuse safe.
 
+Kernel checked credentials are not an unconditional sample of effective credentials.
+At this pin, an unprivileged sender may select its real, effective or saved UID/GID.
+Namespace checked `CAP_SETUID` and `CAP_SETGID` allow overrides. The declared caller
+profiles must therefore retain their fixed identities and lack those capabilities.
+The native owner entry checks all three UID/GID values and empty capability sets. The
+host spoof refusal controls cover unprivileged senders, not privileged impersonation.
+
 Authorization additionally requires actual `SO_PEERSEC` data and the declared policy:
 
 - The native owner has the reserved owner UID/GID and an owner domain socket.
@@ -73,6 +80,21 @@ A first experiment used `SO_PEERPIDFD`, `SO_PASSPIDFD`, `SCM_PIDFD` and pidfs in
 to require the original process on every message. Pinned 6.12 source and a real host
 socket control supported that mechanism, including rejection of an inherited connection
 used by another process with the same UID. Threads remained in the original group.
+
+The mechanism has an important credential provenance qualification. `SCM_PIDFD` is
+created from `scm->pid`, not independently forced to the current sending task. In
+`net/core/scm.c:47–64,180–210`, `CAP_SYS_ADMIN` in the active PID namespace's user namespace
+permits another credential PID, and `find_get_pid` supplies that PID object. Then
+`include/net/scm.h:136–169` creates the received pidfd from it. UID/GID checks are separate.
+Pidfs object equality can identify that nominated PID object; it does not by itself prove
+which privileged task sent the packet.
+
+The normal automatic paths use `task_tgid(current)` in `net/unix/af_unix.c:760–763,1929–1936`
+and `include/net/scm.h:94–102`. The socket paths pass zero flags to `pidfd_prepare`, whose
+check in `kernel/fork.c:2088–2095` requires a thread group PID rather than `PIDFD_THREAD`.
+`fs/pidfs.c:242–273,399–412` supports comparison through inode identity and a dentry cached
+for the retained PID object. These inspected paths and finite unprivileged controls are
+not a blanket statement about privileged senders or every namespace scenario.
 
 That was an unnecessary process restriction for this owner principal contract. It also
 introduced a newer kernel dependency without a demonstrated need. The caiman reference
