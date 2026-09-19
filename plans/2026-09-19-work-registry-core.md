@@ -1,9 +1,10 @@
 # Bounded work registry core
 
-Status: first internal implementation in `owner/native/work_registry.{h,cpp}`. The
-component owns real registry records, request bytes and gate references, with focused
-host and sanitizer checks. It is not yet connected to an Android service or public
-caller crossing. Supplied backend facts are not kernel or Android qualification.
+Status: first internal implementation in `owner/native/work_registry.{h,cpp}`. At
+`fd75e1e`, 423 host tests, optimized and sanitizer checks, ARM64 library compilation and
+the actual frozen Soong host test pass. The component owns real registry records, request
+bytes and gate references. It is not yet connected to an Android service or public caller
+crossing. Supplied backend facts are not kernel or Android qualification.
 
 ## Goal and ownership
 
@@ -163,13 +164,23 @@ stream closure/reconnection, pinned handle capacity, immutable descriptions, cre
 bounds, original authority refusal, natural descendant lifetime state, stale observations,
 cleanup timeout/retry, unknown resources and counter exhaustion. Selected concurrent
 controls include 200 duplicate/conflicting Start pairs, 200 Start/Stop races and 200 late
-allocation/registry closure races. Optimized and address/undefined sanitizer builds pass.
-Those finite cases are not exhaustive scheduling or ThreadSanitizer evidence.
+allocation/registry closure races. Optimized, address/undefined sanitizer and a separate
+ThreadSanitizer build/run pass. These are finite executions of the selected cases, not
+exhaustive scheduling, real kernel cleanup or Android caller evidence.
 
 The first Soong host link exposed a missing codec dependency: declaring it as an ordinary
 static dependency did not include its implementation in the registry archive. The codec
 is now explicitly bundled in that archive. The failed native gate remains recorded;
 this build correction does not weaken link checks or security policy.
+
+The corrected source passed 423 host tests and the normal Android native build. Artifact
+inspection then had to recognize that the archive contains LLVM bitcode and that a member
+can contain multiple LLVM modules. Those failed inspection assumptions remain preserved.
+The matching LLVM tool inspected every emitted module's ARM64 Android target, without
+disabling LTO. The actual Soong host test and its dependencies were frozen and executed
+successfully. Normal `andrixd` and runner binaries matched the retained normal reference
+byte for byte. Framework fences passed; Core, LMKD and Soong sources stayed unchanged.
+No policy build, new image or Android VM ran in this phase.
 
 Next connect an authenticated bounded gateway and real resource backend to these leases,
 with complete ordinary stream semantics. Verify every actual creator, captured handle

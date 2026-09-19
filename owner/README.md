@@ -55,8 +55,10 @@ behavior below remains unchanged. Gate closure is not process or resource cleanu
 The [bounded registry core](../plans/2026-09-19-work-registry-core.md) now adds internal
 reservation capacity, identities that are not reused, ordered request streams, immutable
 Start matching, exact retained controls and creator/observation/cleanup bookkeeping.
-Focused host and sanitizer checks exercise its actual gate objects and selected thread
-races. Process and resource facts in those checks are supplied by the test adapter, not
+At `fd75e1e`, 423 host tests, optimized/ASan/UBSan/ThreadSanitizer controls, ARM64 library
+compilation and the actual frozen Soong host test pass. Normal native binaries match the
+retained reference. Process and resource facts in those checks are supplied by the test
+adapter, not
 Android or kernel measurements. No new control service, caller authentication, descriptor
 import or persistent recorder is installed. The public crossing and real backend still
 need integration and qualification.
