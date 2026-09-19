@@ -43,6 +43,39 @@ class UiQueueTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     queue.require_ui_dump_success(invalid, ack, '')
 
+    def keypad_xml(self):
+        prefix = 'package="com.android.systemui" enabled="true" '
+        nodes = ['<node '+prefix+'resource-id="com.android.systemui:id/pinEntry" bounds="[50,200][670,320]"/>']
+        for digit in range(10):
+            x, y = 50 + digit % 3 * 180, 400 + digit // 3 * 150
+            nodes.append('<node '+prefix+'clickable="true" resource-id="com.android.systemui:id/key'+str(digit)+'" bounds="['+str(x)+','+str(y)+']['+str(x+100)+','+str(y+100)+']" text="'+str(digit)+'"/>')
+        nodes.append('<node '+prefix+'clickable="true" resource-id="com.android.systemui:id/key_enter" bounds="[500,1000][620,1120]"/>')
+        return '<hierarchy>'+''.join(nodes)+'</hierarchy>'
+
+    def test_pin_keypad_uses_observed_controls_not_keyboard_text(self):
+        actions = queue.pin_keypad_actions(self.keypad_xml(), '012345')
+        self.assertEqual(len(actions), 7)
+        self.assertTrue(all(row['action'] == 'tap' for row in actions))
+        self.assertEqual(actions[0], {'action':'tap', 'x':100, 'y':450})
+        self.assertEqual(actions[-1], {'action':'tap', 'x':560, 'y':1060})
+
+    def test_pin_keypad_rejects_unobserved_or_ambiguous_controls(self):
+        xml = self.keypad_xml()
+        for invalid in [xml.replace('com.android.systemui','other.app'),
+                        xml.replace('id/key_enter','id/absent'),
+                        xml.replace('text="4"','text="5"'),
+                        xml.replace('clickable="true"','clickable="false"'),
+                        xml.replace('enabled="true"','enabled="false"'),
+                        xml.replace('[620,1120]','[900,1400]'),
+                        xml.replace('</hierarchy>',xml[11:-12]+'</hierarchy>')]:
+            with self.assertRaises(ValueError): queue.pin_keypad_actions(invalid, '123456')
+
+    def test_pin_keypad_bounds_and_credential_shape(self):
+        for pin in ['', '123', '123x', '1'*17, 123456, None]:
+            with self.assertRaises(ValueError): queue.pin_keypad_actions(self.keypad_xml(), pin)
+        for xml in ['<!DOCTYPE x><hierarchy/>','<!ENTITY x><hierarchy/>',' '*1048577,None]:
+            with self.assertRaises(ValueError): queue.pin_keypad_actions(xml, '123456')
+
     def fixture(self, root):
         (root/'state/ui-requests').mkdir(parents=True)
         (root/'evidence/ui').mkdir(parents=True)

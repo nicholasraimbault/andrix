@@ -57,6 +57,48 @@ def terminal_input_ready(xml):
     return state and view
 
 
+def pin_keypad_actions(xml, pin):
+    """Normal taps on an observed SystemUI PIN keypad, not unlock authority.
+
+    The caller obtains a fresh checked UI dump and separately observes Android
+    credential/storage results. No keyboard text injection, lock setting command
+    or guessed digit position is used. This first fixture supports 720x1280 only.
+    """
+    if (not isinstance(pin, str) or not re.fullmatch(r'[0-9]{4,16}', pin)
+            or not isinstance(xml, str) or len(xml) > 1024 * 1024
+            or '<!DOCTYPE' in xml or '<!ENTITY' in xml):
+        raise ValueError('Expected bounded PIN and fresh keyguard hierarchy')
+    nodes = list(ET.fromstring(xml).iter('node'))
+    prefix = 'com.android.systemui:id/'
+
+    def one(name, clickable=False):
+        matches = [n for n in nodes if n.get('package') == 'com.android.systemui'
+                   and n.get('resource-id') == prefix + name
+                   and n.get('enabled') == 'true']
+        if len(matches) != 1 or (clickable and matches[0].get('clickable') != 'true'):
+            raise ValueError('Missing or ambiguous SystemUI PIN control')
+        return matches[0]
+
+    def center(node):
+        match = re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', node.get('bounds', ''))
+        if not match:
+            raise ValueError('Missing PIN control bounds')
+        x1, y1, x2, y2 = map(int, match.groups())
+        if not 0 <= x1 < x2 <= 720 or not 0 <= y1 < y2 <= 1280:
+            raise ValueError('Unsupported PIN display geometry')
+        return {'action': 'tap', 'x': (x1 + x2) // 2, 'y': (y1 + y2) // 2}
+
+    center(one('pinEntry'))
+    digits = {}
+    for digit in '0123456789':
+        node = one('key' + digit, True)
+        if not any(n.get('text') == digit or n.get('content-desc') == digit for n in node.iter('node')):
+            raise ValueError('Digit label does not match observed key')
+        digits[digit] = center(node)
+    enter = center(one('key_enter', True))
+    return [dict(digits[digit]) for digit in pin] + [enter]
+
+
 def text_actions(text, chunk=60):
     """Keep each Android input invocation bounded; do not implicitly press Enter."""
     if (type(chunk) is not int or not 1 <= chunk <= 60 or not isinstance(text, str)

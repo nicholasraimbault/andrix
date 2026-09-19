@@ -64,3 +64,25 @@ integration of Android's environment service name and lifecycle ownership.
 Normal, ordinary work proof and combined CE images need separate source/selection and
 artifact checks. The combined image alone may contain the existing fault commands.
 All runtime fixtures, data disks, observer inputs and control sequences must be fresh.
+
+## First attempt, incomplete
+
+The first combined image at `38af0ae` passed 413 host tests and normal/selected native,
+policy and Java selection checks. Its fresh Android trial invoked the unchanged real
+CE operation with active Keep consent. Availability was revoked, the original request's
+gate closed, and running owner work was killed and reclaimed. Normal PIN keypad entry
+then restored CE availability without replacing the platform instance or framework.
+Busy files were reported; complete physical key erasure is not claimed.
+
+The observer incorrectly expected another generation increment on regrant. The actual
+platform advances its authority generation on revocation, and can grant availability
+within that new generation. The correct comparison is original generation less than
+withdrawn generation, then restored generation greater than or equal to withdrawn,
+with the same platform instance and genuine unavailable/available observations. No
+platform behavior is changed to satisfy the observer.
+
+The first recovery observation preceded the positive, and the held helper's own startup
+timeout won before recovery completed. Old request release after regrant and fresh work
+were therefore not reached. Those partial results and the failed observer assumption
+remain preserved. The next fresh fixture uses an observed SystemUI keypad instead of
+unreliable keyboard text delivery and checks the actual revocation epoch semantics.

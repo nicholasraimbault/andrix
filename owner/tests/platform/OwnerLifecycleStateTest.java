@@ -13,8 +13,11 @@ public final class OwnerLifecycleStateTest {
         long first = state.snapshot().generation;
         state.ce(2, 2, false);
         assert !state.snapshot().available && state.snapshot().generation > first;
+        long revoked = state.snapshot().generation;
         state.ce(3, 2, true);
         assert state.snapshot().available;
+        // Grant belongs to the new revocation epoch; it need not increment again.
+        assert state.snapshot().generation == revoked;
         long second = state.snapshot().generation;
         state.ce(1, 1, true); // Stale initial snapshot must not undo a newer event.
         assert state.snapshot().generation == second;
