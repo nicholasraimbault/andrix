@@ -1,16 +1,17 @@
 # Logging defaults, privacy and online source review
 
-Status: the owner endorsed the proposed direction and requested online research. This
-review supports the separation and privacy principles, with the qualifications below.
-Exact retention values, the event catalogue and implementation remain unqualified. No
-runtime logging, Android policy or export setting changes follow from this document.
+Status: the owner accepted the policy direction after the online review and discussion.
+The accepted [architecture](../docs/architecture.md#work-records-and-diagnostics) records
+that decision. Exact retention values, the event catalogue and implementation remain
+unqualified. Seven days and 1 MiB are not accepted product constants. No runtime logging,
+Android policy or export setting has been changed by this decision record.
 
 The discussion refined the earlier [work result retention choice](2026-09-19-work-result-retention.md).
 Live supervision, security records, optional work history and output capture are distinct.
 Durable records describe observed facts; they are not execution or restart permission.
 This is a personal owner controlled computer, not an enterprise compliance profile.
 
-## Proposed defaults under review
+## Accepted default policy
 
 | Capability | Direction |
 | --- | --- |
@@ -31,7 +32,7 @@ that mode must not be advertised as a mandatory audit or compliance facility.
 
 Public sources were checked on 2026-09-19. They support principles and identify failure
 cases, not a qualification of Andrix code or a universal numerical retention policy.
-The proposed defaults are our application of those principles to the owner's goals,
+The accepted defaults are our application of those principles to the owner's goals,
 not a matrix prescribed by any of these sources.
 
 - [OWASP Logging Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html):

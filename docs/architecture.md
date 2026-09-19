@@ -217,6 +217,41 @@ A work scope defines lifetime and resource accounting, not automatic mutual secu
 isolation between programs deliberately run as the same owner. Untrusted hooks, agent
 principals and other isolated work require their own explicit authority boundaries.
 
+### Work records and diagnostics
+
+Live work state, security diagnostics, optional durable work history and output capture
+are separate responsibilities. Live ownership and control remain required regardless of
+recording preferences. Historical records describe confirmed observations, not permission
+to execute, restart or control a replacement instance.
+
+The accepted default is minimal, protected local recording of security relevant events
+and supervisor failures. This includes important successful authority and policy changes,
+not an automatic record of every ordinary owner program or shell command. Persistent work
+activity history, persistent terminal/output capture, debug verbosity and remote or
+archive export are disabled unless the owner explicitly enables them. Raw arguments,
+environments and sensitive contents are not collected automatically.
+
+The owner controls recording policy through authorized interfaces. Arbitrary applications
+and log producers cannot change it. Disabling persistence must not disable safe ordinary
+computation or silently reproduce the same activity collection elsewhere in Andrix.
+
+Recording has bounded memory, storage and ingestion, with visible loss and coverage limits.
+Filesystem and export work stay out of shared control paths. They must not block Stop,
+genuine CE withdrawal or unrelated supervision. Ordinary execution without a durability
+requirement does not depend on a writable history store. Sensitive persistent records
+use CE storage, without a silent less protected fallback
+when CE is unavailable. A bounded memory buffer may lose events on failure. Recording
+alone grants neither wake authority nor network exposure, and has no automatic export.
+
+Durability, retention, access revocation, logical deletion and physical erasure remain
+different promises. Optional durable receipts need explicit commitment semantics and
+qualification before the API promises them. Local records are not complete forensic
+evidence or protection against full system compromise. Specific event fields, retention
+values and implementations remain subject to measurement and tests. The
+[decision and source review](../plans/2026-09-19-logging-defaults-review.md) retains the
+rationale, alternatives, limitations and verification gates. This policy concerns Andrix
+recording, not an implicit replacement of Android's diagnostic facilities.
+
 ## Lifecycle and networking
 
 Owner workload lifetime and terminal presentation are separate abstractions. Android

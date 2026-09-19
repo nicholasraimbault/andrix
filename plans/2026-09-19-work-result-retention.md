@@ -1,11 +1,11 @@
 # Work result retention for the first public API
 
-Status: the discussion refined this binary choice into separate controls for live
-supervision, minimal security records, optional durable work history and output capture.
-The owner endorsed the proposed privacy defaults for further assessment. The
-[online source review](2026-09-19-logging-defaults-review.md) supports the principles and
-records the remaining qualifications. Exact retention values and implementation are
-not settled. This does not change current Console behavior.
+Status: the owner accepted separate controls for live supervision, minimal security
+records, optional durable work history and output capture after discussion and
+[online source review](2026-09-19-logging-defaults-review.md). The default policy is recorded
+in the [architecture](../docs/architecture.md#work-records-and-diagnostics). Exact retention
+values, optional durability commitments and implementation remain open. This does not
+change current Console behavior.
 
 ## Goal and fixed requirements
 
@@ -77,7 +77,7 @@ it costs persistent state, storage failure handling and qualification before any
 receipt promise can be reliable. Neither mode weakens CE revocation, exact Stop or the
 final cleanup boundary.
 
-The proposed default is no persistent work activity history, with explicit owner control
+The accepted default is no persistent work activity history, with explicit owner control
 to enable it. Minimal security records have a different purpose and event catalogue;
 they must not silently reproduce disabled work history. Strong durable acceptance or
 completion receipts need their own declared commitment point and qualification before
