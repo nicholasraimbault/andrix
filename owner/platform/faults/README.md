@@ -4,7 +4,10 @@ This is test authority, not a production feature. Select only with
 `ANDRIX_OWNER_FAULT_TESTS=true` on the GrapheneOS Cuttlefish userdebug/eng product;
 Keep and its existing dependencies must also be enabled. Normal products select the
 `disabled` Binder source, which has neither fault command nor storage-lock call.
-Debuggable state alone cannot enable the facility.
+Debuggable state alone cannot enable the facility. The separately selected
+[owner admission CE trial](../../../plans/2026-09-19-owner-admission-ce-trial.md) composes
+these existing controls with the new work vehicle. It does not remove the active Keep
+requirement, add a command or change the delegated Android operation.
 
 The [approved scope and verification plan](../../../plans/2026-09-14-lab-lifecycle-faults.md)
 remain authoritative for the experiment. Host checks and separate normal/lab image

@@ -3,6 +3,8 @@
 from pathlib import Path
 import unittest
 import re
+import subprocess
+import tempfile
 
 ROOT=Path(__file__).resolve().parents[3]
 VEHICLE=ROOT/'tests/owner-work-launch'
@@ -21,6 +23,34 @@ class WorkLaunchVehicleTests(unittest.TestCase):
         rc=(VEHICLE/'work-launch.rc').read_text()
         self.assertIn('delegated_scope 268435456 0 64 8',rc)
         self.assertIn('    capabilities\n',rc)
+
+    def test_real_make_ce_composition_preserves_required_guards(self):
+        product=ROOT/'products/andrix_gos_cf_arm64_only_phone.mk'
+        with tempfile.TemporaryDirectory() as directory:
+            makefile=Path(directory)/'Makefile'
+            makefile.write_text('soong_config_set_bool = $(eval CFG_$(2) := $(3))\ninclude '+str(product)+
+                '\nall:\n\t@printf "%s\\n" "$(CFG_owner_work_ce_proof)|$(CFG_owner_fault_tests)|$(CFG_owner_keep)|$(CFG_owner_work_proof)"\n')
+            base={'TARGET_PRODUCT':'andrix_gos_cf_arm64_only_phone','TARGET_BUILD_VARIANT':'userdebug',
+                  'ANDRIX_OWNER_SESSION':'true','ANDRIX_OWNER_LIFECYCLE':'true','ANDRIX_OWNER_COMPILER':'true',
+                  'ANDRIX_DELEGATED_SERVICE_PROOF':'true','ANDRIX_OWNER_WORK_PROOF':'true',
+                  'ANDRIX_OWNER_WORK_CE_PROOF':'true','ANDRIX_OWNER_KEEP':'true','ANDRIX_OWNER_FAULT_TESTS':'true'}
+            for changes,passed,selection in [
+                ({},True,'true|true|true|true'),
+                ({'TARGET_BUILD_VARIANT':'eng'},True,'true|true|true|true'),
+                ({'TARGET_BUILD_VARIANT':'user'},False,None),
+                ({'TARGET_PRODUCT':'other'},False,None),
+                ({'ANDRIX_OWNER_KEEP':''},False,None),
+                ({'ANDRIX_OWNER_FAULT_TESTS':''},False,None),
+                ({'ANDRIX_OWNER_WORK_PROOF':''},False,None),
+                ({'ANDRIX_DELEGATED_SERVICE_PROOF':''},False,None),
+                ({'ANDRIX_OWNER_WORK_CE_PROOF':''},False,None),
+                ({'ANDRIX_OWNER_SCOPE_PROOF':'true'},False,None),
+                ({'ANDRIX_WORK_FACTORY_PROOF':'delegated'},False,None),
+                ({'ANDRIX_OWNER_KEEP':'','ANDRIX_OWNER_FAULT_TESTS':'','ANDRIX_OWNER_WORK_CE_PROOF':''},True,'false|false||true')]:
+                values=dict(base,**changes)
+                result=subprocess.run(['make','--no-print-directory','-f',str(makefile),*[k+'='+v for k,v in values.items()]],capture_output=True,text=True,timeout=10)
+                self.assertEqual(result.returncode==0,passed,result.stdout+result.stderr)
+                if passed:self.assertEqual(result.stdout.strip(),selection)
 
     def test_control_and_owner_data_are_not_the_same_boundary(self):
         policy=(VEHICLE/'sepolicy/work_launch.te').read_text()
