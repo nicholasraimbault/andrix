@@ -86,3 +86,11 @@ timeout won before recovery completed. Old request release after regrant and fre
 were therefore not reached. Those partial results and the failed observer assumption
 remain preserved. The next fresh fixture uses an observed SystemUI keypad instead of
 unreliable keyboard text delivery and checks the actual revocation epoch semantics.
+
+The follow-up verified normal keypad entry and useful owner work, but stopped before
+invoking any CE fault. The legacy coordinator exited and its Keep grant was gone at the
+fault preflight. The unchanged active consent check refused to proceed. The particular
+cause of that coordinator exit was not established. This is not a CE result or a reason
+to relax the guard. The next fresh sequence completes lockscreen preparation before
+capturing the Keep/admission baseline, then performs the finite fault and recovery
+sequence without further setup between those controls.
