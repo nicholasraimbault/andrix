@@ -3,7 +3,9 @@
 #include <cstddef>
 #include <cstdint>
 namespace andrix::work_probe {
-constexpr uint32_t kMagic = 0x574c5052;
+// Version 2 carries an explicit retained output length, including embedded NULs.
+// Refuse old peers rather than interpreting their C string snapshots as bytes.
+constexpr uint32_t kMagic = 0x574c5032;
 constexpr size_t kBody = 8192, kOutput = 4096;
 enum class Operation : uint32_t {
   Inspect = 1,
@@ -30,7 +32,7 @@ struct Snapshot {
   uint32_t started = 0, creator_pending = 0, staged = 0, queued = 0,
            committed = 0, stopped = 0, reaped = 0, no_process = 0, empty = 0,
            retired = 0, blocked = 0, gate_refused = 0, authority_failed = 0,
-           authority_ready = 0;
+           authority_ready = 0, output_size = 0, reserved = 0;
   char output[kOutput]{};
 };
 }  // namespace andrix::work_probe

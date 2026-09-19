@@ -421,6 +421,7 @@ proof::Snapshot snapshot(const std::shared_ptr<Work>& work, int error = 0) {
   state.stopped = work->gate->phase() == AdmissionPhase::Stopped;
   state.authority_ready = platform->ready();
   state.authority_failed = platform->failed();
+  state.output_size = static_cast<uint32_t>(work->output.size());
   memcpy(state.output, work->output.data(), work->output.size());
   return state;
 }

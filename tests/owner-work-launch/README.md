@@ -45,6 +45,14 @@ return the original work state; conflicting descriptions are refused. Discovery 
 `BOOT.INSTANCE.0`; mutating commands require the returned exact manager reference.
 Kernel credentials, not any of those numbers, authorize the lab caller.
 
+The snapshot's output is a bounded diagnostic tail, not complete stream delivery or a
+persistent transcript. `output_bytes` counts received bytes and `output_size` declares
+the retained window. Protocol version 2 refuses old peers and serializes all retained
+bytes, including NUL. JSON code points 0 through 255 represent byte values, so consumers
+can recover bytes with a Latin-1 mapping rather than assuming UTF-8. The earlier client
+silently truncated this window at a NUL during the CE trial. Fixing that observer does
+not change admission, execution or cleanup policy.
+
 Fault flags deliberately distinguish their scope:
 
 - `HoldCreation` holds a completion after real fork and placement. It does not claim an
@@ -64,6 +72,10 @@ after are required. No absent endpoint is promoted to an authority denial.
 Source `fbccb19` completed the [first finite Android owner launch trial](../../plans/2026-09-19-owner-launch-qualification.md)
 with fresh matching images. Actual owner programs/profiles, application negatives,
 queued wake rejection, independent work, detached lifetime and manager cleanup were
-observed. Genuine CE withdrawal/regrant for this path, broader failures and the public
-work/Console API remain unqualified. Source or compilation alone supplies none of those
-runtime results.
+observed. Later [CE trials](../../plans/2026-09-19-owner-admission-ce-trial.md) observed
+real withdrawal, original request refusal after normal PIN regrant, and fresh owner
+execution in a new epoch. The fourth scripted trial still failed on the diagnostic
+client's NUL truncation, before its final planned hierarchy census. Its useful results
+and failure remain separate. The corrected full CE sequence, broader failures and the
+public work/Console API remain unqualified. Source or compilation alone supplies none
+of those runtime results.
