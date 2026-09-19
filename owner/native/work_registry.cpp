@@ -663,9 +663,10 @@ std::vector<WorkSnapshot> WorkRegistry::List() const {
 }
 WorkStartReply WorkRegistry::Start(
     const WorkControl& work, const std::vector<uint8_t>& encoded_description,
-    const WorkIoBinding& stdio) {
+    const WorkIoLease& inputs) {
   if (!work || work.record_->owner.lock() != state_)
     return {WorkRegistryResult::Foreign};
+  const auto& stdio = inputs.binding();
   if (!stdio) return {WorkRegistryResult::Invalid};
   if (!stdio.closed_plan() && stdio.identity().manager != state_->manager)
     return {WorkRegistryResult::Foreign};
@@ -686,7 +687,7 @@ WorkStartReply WorkRegistry::Start(
                 : WorkRegistryResult::Conflict};
   }
   record.SettleUnstarted();
-  if (state_->closed || record.state.complete ||
+  if (state_->closed || record.state.complete || !inputs.available() ||
       record.gate->phase() == AdmissionPhase::Stopped)
     return {WorkRegistryResult::Closed};
   if (record.gate->phase() != AdmissionPhase::Unbound)
@@ -700,7 +701,7 @@ WorkStartReply WorkRegistry::Start(
   record.state.stdio = stdio.identity();
   record.state.start_accepted = true;
   record.state.admission_pending = true;
-  return {WorkRegistryResult::Accepted, WorkBackend(work.record_)};
+  return {WorkRegistryResult::Accepted, WorkBackend(work.record_), inputs};
 }
 WorkRegistryResult WorkRegistry::Forget(const WorkControl& work) {
   if (!work || work.record_->owner.lock() != state_)

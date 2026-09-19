@@ -2,8 +2,10 @@
 
 Status: internal crossing and standard stream components are implemented. They are not
 an installed Work service, released wire API or Console replacement. Host component,
-real Linux socket and sanitizer checks pass. Android compilation, compiled policy and
-runtime gates for this source remain separate.
+real Linux socket and sanitizer checks pass. The first source `070a842` also passed
+normal and selected Android native/policy gates, but a later EOF regression exposed a
+stream lifetime gap. The lease correction below is not qualified by that earlier build.
+There is still no new Android runtime result.
 
 ## Goal and ownership
 
@@ -126,15 +128,38 @@ mutex without releasing the occupied import slot prematurely. Counter exhaustion
 new identities rather than wrapping.
 
 An already captured import ticket returns the existing binding without importing new
-supplied descriptors. It does not pretend to compare two arbitrary descriptor sets for
-equivalence. The public protocol must preserve that distinction after lost replies.
+supplied descriptors. A capture still in progress reports Pending. Neither result pretends
+to compare two arbitrary descriptor sets for equivalence. The public protocol must preserve
+that distinction after lost replies.
 
-`Start` now compares both immutable description bytes and the actual binding object.
-Another binding is a conflict, even if descriptor numbers, inode metadata or supplied
-numeric binding IDs match. Validation and request allocation precede control locks.
-The accepted work and backend lease retain their binding. Forgetting input discovery does
-not revoke descriptors already held by work or other exact handles, and those references
-keep bounded capacity occupied. This is not whole work Stop or terminal hangup.
+`Start` compares immutable description bytes and the actual binding identity. Another
+binding is a conflict, even if descriptor numbers, inode metadata or supplied numeric
+binding IDs match. Validation and request allocation precede control locks. A new Start
+requires a live descriptor lease. An identical accepted retry can use a retained identity
+without regaining access to already released descriptors.
+
+### Metadata must not keep pipes open
+
+The first implementation put identity and open file descriptions in the same retained
+object. A real pipe regression at `070a842` demonstrated the error: retaining completed
+work metadata kept the writer open, so a read returned `EAGAIN` instead of EOF after the
+input registration was forgotten. Earlier compilation and finite tests had not covered
+that lifetime. The failed regression is retained.
+
+`WorkIoBinding` now retains identity only. `WorkIoLease` separately retains actual file
+descriptions for a creator/handoff operation. Start returns that live lease alongside the
+backend ticket; it does not store the lease in historical work metadata. The adapter must
+release it after descriptor handoff or definite cancellation, not wait for result GC.
+Forgetting an input registration releases its descriptors outside the mutex. Already held
+creator leases keep their actual resources until their own handoff or release completes.
+The recipient then owns its received descriptors normally.
+
+Both metadata and actual leases keep bounded identity slots occupied. A descriptor set
+retains that identity through every final close, including a stalled close. But metadata
+references alone no longer retain any FDs. New pipe controls verify EOF while work,
+backend and input identity records remain alive, with and without a separate recipient
+holding the handed off writer. Normal file offsets and exact retry identity still hold.
+This is descriptor ownership, not whole work Stop or forced terminal hangup.
 
 The default internal plan explicitly closes all standard descriptors. General descriptor
 maps and application specific stream delivery remain later integration work. The existing
@@ -144,13 +169,17 @@ private launcher has not yet been changed to implement every new binding choice.
 
 Host controls exercise actual packet sockets, SCM_RIGHTS, kernel credentials, ordinary
 processes and threads, binary framing, malformed message FD closure and descriptor sharing
-within one principal. Credential spoof attempts are rejected by the kernel. Supplied role
-matching cases remain distinct from actual Android MAC authorization.
+within one principal. Credential spoof attempts are rejected by the kernel. Explicit
+ancillary truncation closes delivered FDs. A descriptor import is refused at `EMFILE`,
+while a subsequent frame that imports no descriptors is still received. This is a bounded
+transport control, not end to end Stop or Android MAC qualification. Supplied role matching
+cases remain distinct from actual Android authorization.
 
 The IO controls exercise real pipes/files, caller FD reuse, equal inode metadata with
 different open file descriptions, normal shared offsets, binding conflicts, pinned capacity,
-explicit closed roles, invalid access modes and 200 selected capture/cancel races. The
-updated registry retains its earlier 600 selected Start/Stop/allocation races. Optimized,
+explicit closed roles, invalid access modes, EOF independent of metadata retention,
+200 selected duplicate import races and 200 capture/cancel races. The updated registry
+retains its earlier 600 selected Start/Stop/allocation races. Optimized,
 ASan/UBSan and separate ThreadSanitizer runs pass for these components. These finite runs
 are not exhaustive scheduling, Android resource cleanup or phone qualification.
 
@@ -159,8 +188,15 @@ failed checks retained. No warning or sanitizer check was disabled. No persisten
 activity history or output capture was added. The [accepted recording policy](../docs/architecture.md#work-records-and-diagnostics)
 still governs the separate diagnostic writer work.
 
-Next build and inspect matching native components and selected policy. Then implement the
-bounded authenticated dispatcher, stream import retry mapping and actual resource adapter.
+At `070a842`, normal and selected compilation/policy inspection passed, as did eight
+actually frozen Soong host executables. The selected public endpoint had the required
+creation/use restrictions and was absent from normal policy. Core/LMKD adaptations were
+restored and framework/Soong fences passed. Those results remain specific to that source,
+including its subsequently exposed EOF lifetime limitation.
+
+Rebuild the corrected native components against the unchanged, explicitly referenced
+policy source. Then implement the bounded authenticated dispatcher, stream import retry
+mapping and actual resource adapter.
 Use exact issued work controls for Stop, separate creator and cleanup lanes, genuine
 original epoch admission and truthful resource retirement. Exercise authorized owner
 clients, ordinary application negatives, client loss and rediscovery, independent Stop,

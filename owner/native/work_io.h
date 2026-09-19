@@ -10,6 +10,7 @@ namespace andrix {
 namespace work_io_detail {
 struct Pool;
 struct Binding;
+struct Descriptors;
 }  // namespace work_io_detail
 
 struct WorkIoIdentity {
@@ -19,6 +20,7 @@ struct WorkIoIdentity {
 enum class WorkIoResult {
   Accepted,
   Existing,
+  Pending,
   Invalid,
   Foreign,
   Stale,
@@ -28,21 +30,15 @@ enum class WorkIoResult {
   Io
 };
 
-// Immutable binding to actual retained open file descriptions. File data,
-// offsets and file status flags still have normal shared Unix semantics.
-// There is no claim that fstat metadata or an FD number identifies that
-// binding.
+// Immutable identity/role token, not ownership of live descriptors. Keeping
+// work metadata must not suppress pipe EOF or terminal hangup.
 class WorkIoBinding {
  public:
   WorkIoBinding() = default;
-  // Explicit no-descriptor plan, not inheritance of the manager's stdio.
   static WorkIoBinding Closed();
   explicit operator bool() const { return closed_plan_ || bool(binding_); }
   bool closed_plan() const { return closed_plan_; }
   WorkIoIdentity identity() const;
-  // Borrow only while this value is held. -1 deliberately closes that standard
-  // descriptor. Never close, replace or change flags on this borrowed number.
-  int descriptor(size_t standard) const;
   bool operator==(const WorkIoBinding& other) const {
     return closed_plan_ == other.closed_plan_ && binding_ == other.binding_;
   }
@@ -52,6 +48,33 @@ class WorkIoBinding {
   explicit WorkIoBinding(std::shared_ptr<work_io_detail::Binding> binding);
   std::shared_ptr<work_io_detail::Binding> binding_;
   bool closed_plan_ = false;
+};
+
+// A separate live descriptor lease for the actual creator/handoff operation.
+// Drop it after successful descriptor handoff or definite cancellation, not
+// when historical work metadata is finally forgotten. File contents, offsets
+// and status flags retain ordinary shared Unix semantics.
+class WorkIoLease {
+ public:
+  WorkIoLease() = default;
+  static WorkIoLease Closed();
+  static WorkIoLease Reference(const WorkIoBinding& binding);
+  const WorkIoBinding& binding() const { return binding_; }
+  bool available() const {
+    return binding_.closed_plan() || bool(descriptors_);
+  }
+  // Borrow only while this live lease is retained. -1 deliberately closes that
+  // standard descriptor. Never close/replace/change flags on a borrowed number.
+  int descriptor(size_t standard) const;
+  // Releases resources, retaining only the immutable token for exact retries.
+  void Release();
+
+ private:
+  friend class WorkIoPool;
+  WorkIoLease(WorkIoBinding binding,
+              std::shared_ptr<work_io_detail::Descriptors> descriptors);
+  WorkIoBinding binding_;
+  std::shared_ptr<work_io_detail::Descriptors> descriptors_;
 };
 class WorkIoReservation {
  public:
@@ -77,10 +100,10 @@ struct WorkIoUsage {
   bool closed = false;
 };
 
-// Internal standard-stream slice, not a complete arbitrary-FD public API.
-// The authenticated ingress must bound its own temporary SCM_RIGHTS receipts.
-// Reserve accounts a retained set BEFORE Capture duplicates descriptors outside
-// the pool mutex. Capture can run once per ticket. A timeout does not reset it.
+// Internal standard stream slice, not a complete arbitrary FD public API.
+// Authenticated ingress also bounds its temporary SCM_RIGHTS receipts.
+// Reserve accounts a set before Capture duplicates outside the pool mutex.
+// Capture claims once per ticket; timeout does not reset an outstanding copy.
 class WorkIoPool {
  public:
   static constexpr size_t kMaximumBindings = 256;
@@ -89,19 +112,20 @@ class WorkIoPool {
   WorkIoPool(const WorkIoPool&) = delete;
   WorkIoPool& operator=(const WorkIoPool&) = delete;
   WorkIoReply Reserve();
-  // The caller retains ownership and keeps these numbers stable through this
-  // call (normally the private received-message object does so). -1 is Closed.
-  // No user data is read/written, no flags/offsets are changed on the OFD.
-  // Existing means no new descriptors were imported, not that supplied FDs
-  // were compared for equivalence. Start retries use the returned binding.
+  // Caller owns and keeps these numbers stable through this call. -1 is Closed.
+  // No user data is read/written or OFD flags/offsets changed. Existing means
+  // no new import, NOT equivalence of the newly supplied descriptor numbers.
   WorkIoReply Capture(const WorkIoReservation& ticket,
                       const std::array<int, 3>& descriptors);
-  // Cancellation before Capture prevents its claim. Once Capture claimed the
-  // slot, cancellation retains it until that actual operation finishes.
   bool Cancel(const WorkIoReservation& ticket);
   WorkIoBinding Find(WorkIoIdentity identity) const;
-  // Drop discovery, not borrowed FD authority. Already held values/jobs retain
-  // their actual descriptors, and pin capacity until those values are gone.
+  // Metadata only, including forgotten bindings still pinned by existing work.
+  // This cannot obtain descriptors or authorize a new Start by itself.
+  WorkIoBinding FindReference(WorkIoIdentity identity) const;
+  WorkIoLease Lease(const WorkIoBinding& binding) const;
+  // Drop registration and release its descriptors outside the mutex. Existing
+  // creator leases remain live. Metadata references alone do not hold FDs open,
+  // but both metadata and actual leases still prevent identity/slot recycling.
   bool Forget(const WorkIoBinding& binding);
   WorkIoUsage usage() const;
   void Close();

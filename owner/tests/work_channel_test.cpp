@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
+#include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/wait.h>
@@ -39,7 +40,7 @@ void raw(int fd, const WorkFrameHeader& input, std::span<const uint8_t> body,
          std::span<const int> rights, bool empty = false) {
   iovec data[] = {{const_cast<WorkFrameHeader*>(&input), sizeof(input)},
                   {const_cast<uint8_t*>(body.data()), body.size()}};
-  alignas(cmsghdr) char buffer[CMSG_SPACE(8 * sizeof(int))]{};
+  alignas(cmsghdr) char buffer[CMSG_SPACE(32 * sizeof(int))]{};
   msghdr message{};
   message.msg_iov = data;
   message.msg_iovlen = empty ? 0 : body.empty() ? 1 : 2;
@@ -167,6 +168,13 @@ void framing_and_fd_closure() {
   raw(pair[0], bad, {}, excess);
   assert(ReceiveCorrelatedWorkFrame(pair[1], *peer, message) == EPROTO);
   assert(descriptor_count() == before);
+  std::array<int, 32> truncated;
+  truncated.fill(null);
+  bad.descriptors =
+      3;  // Header itself is valid; ancillary space is insufficient.
+  raw(pair[0], bad, {}, truncated);
+  assert(ReceiveCorrelatedWorkFrame(pair[1], *peer, message) == EPROTO);
+  assert(descriptor_count() == before);
   raw(pair[0], header(), {}, rights, true);
   assert(ReceiveCorrelatedWorkFrame(pair[1], *peer, message) == ECONNRESET);
   assert(descriptor_count() == before);
@@ -199,6 +207,47 @@ void framing_and_fd_closure() {
   close(null);
   close(pair[0]);
   close(pair[1]);
+}
+void control_frame_under_descriptor_pressure() {
+  pid_t child = fork();
+  assert(child >= 0);
+  if (!child) {
+    rlimit limit;
+    assert(getrlimit(RLIMIT_NOFILE, &limit) == 0 && limit.rlim_max >= 64);
+    limit.rlim_cur = 64;
+    assert(setrlimit(RLIMIT_NOFILE, &limit) == 0);
+    int pair[2];
+    assert(socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, pair) == 0);
+    assert(ConfigureWorkPeerSocket(pair[0]) == 0 &&
+           ConfigureWorkPeerSocket(pair[1]) == 0);
+    int error;
+    auto peer = WorkPeerEndpoint::Capture(pair[1], error);
+    assert(peer);
+    std::vector<int> fill;
+    for (;;) {
+      int fd = open("/dev/null", O_RDWR | O_CLOEXEC);
+      if (fd < 0) {
+        assert(errno == EMFILE);
+        break;
+      }
+      fill.push_back(fd);
+    }
+    assert(!fill.empty());
+    std::array<int, 3> rights{fill[0], fill[0], fill[0]};
+    assert(SendWorkFrame(pair[0], header(1), {}, rights) == 0);
+    WorkFrame message;
+    assert(ReceiveCorrelatedWorkFrame(pair[1], *peer, message) == EPROTO);
+    assert(SendWorkFrame(pair[0], header(2)) == 0);
+    assert(ReceiveCorrelatedWorkFrame(pair[1], *peer, message) == 0 &&
+           message.header().correlation == 2);
+    for (int fd : fill) close(fd);
+    close(pair[0]);
+    close(pair[1]);
+    _exit(0);
+  }
+  int status;
+  assert(waitpid(child, &status, 0) == child && WIFEXITED(status) &&
+         WEXITSTATUS(status) == 0);
 }
 void separate_process_and_forwarded_connection() {
   int listener = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
@@ -335,12 +384,13 @@ int main() {
   const size_t before = descriptor_count();
   policy_units();
   framing_and_fd_closure();
+  control_frame_under_descriptor_pressure();
   separate_process_and_forwarded_connection();
   assert(descriptor_count() == before);
   puts(
       "{\"actual_kernel_credentials_and_connection_correlation\":true,"
       "\"same_principal_forwarded_connection_accepted\":true,"
-      "\"same_process_thread_allowed\":true,"
+      "\"same_process_thread_allowed\":true,\"control_frame_at_EMFILE\":true,"
       "\"malformed_received_FDs_closed\":true,\"claimed_credentials_not_"
       "trusted\":true,\"Android_MAC_or_forced_PID_reuse_qualified\":false}");
 }

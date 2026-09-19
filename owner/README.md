@@ -63,7 +63,11 @@ adapter, not Android or kernel measurements.
 The next [gateway and stream slice](../plans/2026-09-19-work-gateway-boundary.md) adds kernel
 credential checks, explicit socket context authorization, bounded packet framing and
 owned standard stream bindings. Start matches the actual binding as well as request bytes.
-Host socket/process and sanitizer checks are separate from Android MAC qualification.
+Live creator/handoff leases are separate from identity retained in work metadata, so
+retaining results does not keep pipe writers open. The first native/policy gates passed
+at `070a842`; a subsequent EOF regression exposed that lifetime issue and is retained.
+The correction has its own gates. Host socket/process and sanitizer checks are separate
+from Android MAC qualification.
 No new control service, public descriptor import or persistent recorder is installed.
 The authenticated dispatcher and real backend still need integration and qualification.
 

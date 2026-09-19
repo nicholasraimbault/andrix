@@ -192,6 +192,7 @@ class WorkBackend {
   explicit operator bool() const { return bool(record_); }
   WorkIdentity identity() const;
   const std::vector<uint8_t>& description() const;
+  // Identity only. Metadata never owns the creator's live standard descriptors.
   const WorkIoBinding& stdio() const;
   // Borrow only while this backend lease lives. The platform/launcher may
   // retain references for their actual obligations, never expose them to an
@@ -223,6 +224,9 @@ class WorkBackend {
 struct WorkStartReply {
   WorkRegistryResult result = WorkRegistryResult::Invalid;
   WorkBackend backend{};
+  // The adapter transfers this lease to the actual creator and releases it
+  // after descriptor handoff/cancellation. Do not retain it as result metadata.
+  WorkIoLease stdio_lease{};
 };
 
 class WorkObservation {
@@ -281,11 +285,14 @@ class WorkRegistry {
   std::vector<WorkSnapshot> List() const;
   // Request bytes and the actual immutable standard-stream binding are both
   // accepted once. A new binding with matching numeric metadata is not a retry.
-  // Default is explicitly closed stdio, never inherited coordinator handles.
-  // General descriptor maps and authenticated public import remain separate.
+  // New Start requires a live lease. A token without descriptors can report an
+  // identical accepted retry, never create new work from retired input
+  // resources. Default is explicitly closed stdio, never inherited coordinator
+  // handles. General descriptor maps and authenticated public import remain
+  // separate.
   WorkStartReply Start(const WorkControl& work,
                        const std::vector<uint8_t>& encoded_description,
-                       const WorkIoBinding& stdio = WorkIoBinding::Closed());
+                       const WorkIoLease& stdio = WorkIoLease::Closed());
   // Complete work only. Removes discovery/retry visibility, not any kernel
   // resource. Existing handles remain exact and keep this bounded slot owned.
   WorkRegistryResult Forget(const WorkControl& work);

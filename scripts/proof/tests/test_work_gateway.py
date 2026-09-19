@@ -28,6 +28,7 @@ class WorkGatewayTests(unittest.TestCase):
         self.assertTrue(result['actual_kernel_credentials_and_connection_correlation'])
         self.assertTrue(result['same_principal_forwarded_connection_accepted'])
         self.assertTrue(result['same_process_thread_allowed'])
+        self.assertTrue(result['control_frame_at_EMFILE'])
         self.assertTrue(result['malformed_received_FDs_closed'])
         self.assertFalse(result['Android_MAC_or_forced_PID_reuse_qualified'])
 
@@ -37,7 +38,9 @@ class WorkGatewayTests(unittest.TestCase):
         self.assertTrue(result['retained_OFDs_not_numeric_FDs'])
         self.assertTrue(result['Start_matches_actual_binding'])
         self.assertTrue(result['mutable_Unix_offsets_preserved'])
+        self.assertTrue(result['metadata_does_not_suppress_EOF'])
         self.assertEqual(result['finite_capture_cancel_races'], 200)
+        self.assertEqual(result['finite_duplicate_import_races'], 200)
         self.assertFalse(result['Android_MAC_or_real_work_backend_qualified'])
 
     def test_no_binder_filter_relaxation_or_legacy_routing(self):
