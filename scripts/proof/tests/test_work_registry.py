@@ -17,7 +17,7 @@ class WorkRegistryTests(unittest.TestCase):
             command = ['g++', '-std=c++20', '-O2', '-Wall', '-Wextra', '-Werror',
                        '-UNDEBUG', '-pthread', '-I'+str(NATIVE),
                        *[str(NATIVE/name) for name in ['work_registry.cpp', 'work_admission.cpp',
-                                                      'launch_description.cpp']],
+                                                      'launch_description.cpp', 'work_io.cpp']],
                        str(ROOT/'owner/tests/work_registry_test.cpp'), '-o', str(binary)]
             result = subprocess.run(command, capture_output=True, text=True, timeout=180)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -49,7 +49,7 @@ class WorkRegistryTests(unittest.TestCase):
         build = (ROOT/'owner/Android.bp').read_text()
         registry = build[build.index('name: "andrix_work_registry",'):]
         registry = registry[:registry.index('\n}')]
-        self.assertIn('whole_static_libs: ["andrix_launch_description"]', registry)
+        self.assertIn('whole_static_libs: ["andrix_launch_description", "andrix_work_io"]', registry)
         source = (NATIVE/'work_registry.cpp').read_text()
         for token in ['fopen(', 'open(', 'write(', 'printf(', 'LOG(', 'fork(', 'execve(']:
             self.assertNotIn(token, source)

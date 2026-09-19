@@ -9,6 +9,7 @@
 
 #include "launch_description.h"
 #include "work_admission.h"
+#include "work_io.h"
 
 namespace andrix {
 namespace work_detail {
@@ -91,6 +92,8 @@ struct WorkSnapshot {
   uint64_t stream = 0, request_sequence = 0;
   bool start_accepted = false, admission_pending = false,
        creator_pending = false;
+  bool stdio_configured = false, stdio_closed_plan = false;
+  WorkIoIdentity stdio{};
   // Claim is permission, not an ordinary exec acknowledgement. Gate closure
   // alone is not whole-work Stop (ordinary initial exit closes entry only).
   bool entry_claimed = false, entry_gate_closed = false;
@@ -189,6 +192,7 @@ class WorkBackend {
   explicit operator bool() const { return bool(record_); }
   WorkIdentity identity() const;
   const std::vector<uint8_t>& description() const;
+  const WorkIoBinding& stdio() const;
   // Borrow only while this backend lease lives. The platform/launcher may
   // retain references for their actual obligations, never expose them to an
   // owner caller or retain unaccounted weak references after retirement.
@@ -275,11 +279,13 @@ class WorkRegistry {
   bool CancelReservation(const WorkReservation& ticket);
   WorkControl Find(WorkIdentity identity) const;
   std::vector<WorkSnapshot> List() const;
-  // Existing codec validates ordinary executable/argv/env/cwd data. This slice
-  // does not import caller FDs. A future stream adapter must include immutable
-  // stream bindings in retry matching, not just compare descriptor numbers.
+  // Request bytes and the actual immutable standard-stream binding are both
+  // accepted once. A new binding with matching numeric metadata is not a retry.
+  // Default is explicitly closed stdio, never inherited coordinator handles.
+  // General descriptor maps and authenticated public import remain separate.
   WorkStartReply Start(const WorkControl& work,
-                       const std::vector<uint8_t>& encoded_description);
+                       const std::vector<uint8_t>& encoded_description,
+                       const WorkIoBinding& stdio = WorkIoBinding::Closed());
   // Complete work only. Removes discovery/retry visibility, not any kernel
   // resource. Existing handles remain exact and keep this bounded slot owned.
   WorkRegistryResult Forget(const WorkControl& work);

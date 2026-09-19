@@ -54,6 +54,7 @@ struct Record {
   mutable std::mutex mutex;
   WorkSnapshot state;
   std::vector<uint8_t> description;
+  WorkIoBinding stdio;
   std::atomic<uint32_t> requests{0};
   uint64_t sequence = 0, observation = 0, cleanup = 0;
   bool observation_invalid = false, creator_charged = false;
@@ -249,6 +250,10 @@ WorkIdentity WorkBackend::identity() const {
 const std::vector<uint8_t>& WorkBackend::description() const {
   static const std::vector<uint8_t> empty;
   return record_ ? record_->description : empty;
+}
+const WorkIoBinding& WorkBackend::stdio() const {
+  static const WorkIoBinding empty;
+  return record_ ? record_->stdio : empty;
 }
 const std::shared_ptr<WorkAdmission>& WorkBackend::gate() const {
   static const std::shared_ptr<WorkAdmission> empty;
@@ -657,20 +662,26 @@ std::vector<WorkSnapshot> WorkRegistry::List() const {
                   // snapshot.
 }
 WorkStartReply WorkRegistry::Start(
-    const WorkControl& work, const std::vector<uint8_t>& encoded_description) {
+    const WorkControl& work, const std::vector<uint8_t>& encoded_description,
+    const WorkIoBinding& stdio) {
   if (!work || work.record_->owner.lock() != state_)
+    return {WorkRegistryResult::Foreign};
+  if (!stdio) return {WorkRegistryResult::Invalid};
+  if (!stdio.closed_plan() && stdio.identity().manager != state_->manager)
     return {WorkRegistryResult::Foreign};
   LaunchDescription decoded;
   LaunchFailure failure;
   if (!DecodeLaunch(encoded_description, state_->limits.launch, decoded,
                     failure))
     return {WorkRegistryResult::Invalid};
+  // Validation and allocation do not hold registry/record control locks.
+  auto prepared_description = encoded_description;
   auto& record = *work.record_;
   std::lock_guard registry_lock(state_->mutex);
   std::lock_guard record_lock(record.mutex);
   if (record.state.forgotten) return {WorkRegistryResult::Stale};
   if (record.state.start_accepted) {
-    return {record.description == encoded_description
+    return {record.description == encoded_description && record.stdio == stdio
                 ? WorkRegistryResult::Existing
                 : WorkRegistryResult::Conflict};
   }
@@ -682,7 +693,11 @@ WorkStartReply WorkRegistry::Start(
     return {WorkRegistryResult::WrongState};
   if (!record.budget->Acquire()) return {WorkRegistryResult::Capacity};
   record.creator_charged = true;
-  record.description = encoded_description;
+  record.description = std::move(prepared_description);
+  record.stdio = stdio;
+  record.state.stdio_configured = true;
+  record.state.stdio_closed_plan = stdio.closed_plan();
+  record.state.stdio = stdio.identity();
   record.state.start_accepted = true;
   record.state.admission_pending = true;
   return {WorkRegistryResult::Accepted, WorkBackend(work.record_)};

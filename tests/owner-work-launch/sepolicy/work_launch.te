@@ -24,6 +24,21 @@ allow andrix_owner andrix_work_io:unix_stream_socket { read write getattr getopt
 allowxperm { andrixd andrix_owner } andrix_work_io:unix_stream_socket ioctl unpriv_unix_sock_ioctls;
 neverallow { andrix_terminal untrusted_app_all isolated_app_all } andrix_work_io:unix_stream_socket { read write };
 
+# Candidate public Unix request endpoint. This is distinct from the private
+# coordinator/bootstrap channel. Only trusted management code can create it.
+# Accepted sockets inherit the connecting client's MLS level; the deliberate
+# cross-MLS interface is typed independently of owner home data and payload IO.
+type andrix_work_api_socket, file_type, mlstrustedobject;
+allow andrixd andrix_work_api_socket:unix_stream_socket create_stream_socket_perms;
+allowxperm andrixd andrix_work_api_socket:unix_stream_socket ioctl unpriv_unix_sock_ioctls;
+allow { andrix_owner andrix_terminal } andrix_work_api_socket:unix_stream_socket connectto;
+neverallow { domain -andrixd } andrix_work_api_socket:unix_stream_socket { create bind listen accept read write };
+neverallow { domain -andrixd -andrix_owner -andrix_terminal } andrix_work_api_socket:unix_stream_socket connectto;
+# The socket label is not a fresh task SID. Public peer authorization checks
+# actual UID/GID on every message. Same-principal descriptor sharing remains
+# subject to MAC use checks. No numeric PID is used as a caller's authority.
+# Keep direct Binder, private launch channels and supervisor controls denied.
+
 system_internal_prop(andrix_work_ctl_prop)
 set_prop(shell, andrix_work_ctl_prop)
 neverallow { domain -init -shell } andrix_work_ctl_prop:property_service set;

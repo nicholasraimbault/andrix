@@ -4,7 +4,10 @@ Status: first internal implementation in `owner/native/work_registry.{h,cpp}`. A
 `fd75e1e`, 423 host tests, optimized and sanitizer checks, ARM64 library compilation and
 the actual frozen Soong host test pass. The component owns real registry records, request
 bytes and gate references. It is not yet connected to an Android service or public caller
-crossing. Supplied backend facts are not kernel or Android qualification.
+crossing. Supplied backend facts are not kernel or Android qualification. The later
+[gateway and stream slice](2026-09-19-work-gateway-boundary.md) extends Start matching to
+actual owned input bindings. The earlier component result alone does not qualify those
+changes or their integration.
 
 ## Goal and ownership
 
@@ -95,10 +98,12 @@ or scope, definite absence, and an unknown result. Dropping a lease or reaching 
 is not cessation. Unknown resources remain visibly blocked and owned for the enclosing
 cleanup boundary, not silently forgotten or replaced.
 
-This slice validates executable, argv, environment and cwd bytes. It does not import caller
-stream descriptors. Before accepting that public API, an adapter must capture immutable
-stream bindings and include them in retry matching. Descriptor numbers or equal inode
-metadata alone are not interchangeable stream identities.
+The first slice validated executable, argv, environment and cwd bytes without importing
+caller stream descriptors. The subsequent gateway slice now adds a bounded owned standard
+stream pool and includes the actual binding in Start matching. The default internal plan
+explicitly closes standard descriptors, rather than inheriting manager handles. Descriptor
+numbers or equal inode metadata alone are not interchangeable stream identities. Public
+import, general descriptor maps and actual launch adapter integration remain unqualified.
 
 ## Stop, exit and final state
 

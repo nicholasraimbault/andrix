@@ -58,10 +58,14 @@ Start matching, exact retained controls and creator/observation/cleanup bookkeep
 At `fd75e1e`, 423 host tests, optimized/ASan/UBSan/ThreadSanitizer controls, ARM64 library
 compilation and the actual frozen Soong host test pass. Normal native binaries match the
 retained reference. Process and resource facts in those checks are supplied by the test
-adapter, not
-Android or kernel measurements. No new control service, caller authentication, descriptor
-import or persistent recorder is installed. The public crossing and real backend still
-need integration and qualification.
+adapter, not Android or kernel measurements.
+
+The next [gateway and stream slice](../plans/2026-09-19-work-gateway-boundary.md) adds kernel
+credential checks, explicit socket context authorization, bounded packet framing and
+owned standard stream bindings. Start matches the actual binding as well as request bytes.
+Host socket/process and sanitizer checks are separate from Android MAC qualification.
+No new control service, public descriptor import or persistent recorder is installed.
+The authenticated dispatcher and real backend still need integration and qualification.
 
 ## Components
 
