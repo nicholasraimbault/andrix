@@ -52,3 +52,18 @@ policy stayed identical to the first service image. The known identity transport
 then passed on a fresh offline fixture. That Android result does not schedule the paused
 allocator interleaving; it shows the corrected manager still provides the earlier finite
 transport behavior.
+
+## Evidence closing followup
+
+The image sealer wrote its final stdout inside the directory being sealed. That log no
+longer matched its recorded empty hash, and a completion status was added after sealing.
+The original bundle and manifest were preserved without repair. Two complete verification
+passes found only those differences; all other listed image records, symlinks, native
+artifact reports and runtime staging references matched. The independent runtime bundle
+also matched every listed hash and its complete file set.
+
+A separately sealed correction records the observed inventory and discrepancy. It does
+not make the original manifest valid retroactively or add a new Android test result.
+The [reusable sealing procedure](../docs/development-artifacts.md#close-evidence-without-hashing-live-outputs)
+now includes output location and alias guards. Eight new guard tests bring the host suite
+to 443 passing checks, separately from the Android qualification above.

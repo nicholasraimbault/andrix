@@ -25,6 +25,29 @@ a positive control. Hash the actual policy, inspector and supporting library inp
 A matching report produced through shared stale state is not independent evidence.
 Corrections to an earlier inspection belong in a new record, never an amended seal.
 
+## Close evidence without hashing live outputs
+
+Finish and close every producer before building the manifest. Keep the sealer's stdout,
+stderr, completion status, receipts and JSON result outside the input tree. A log hashed
+while empty can change when the sealer prints its result, even if the command exits zero.
+Keep a correction's source and result paths distinct from the original bundle's paths.
+
+Check output destinations before opening or redirecting them. The
+[`require_external_outputs`](../scripts/proof/evidence_outputs.py) helper rejects contained
+paths, symlink destinations into the input tree and existing hard link aliases. A check of
+inherited output descriptors provides an additional safeguard. It cannot undo a file already
+truncated by shell redirection or establish that other processes and pipeline writers ceased.
+
+After sealing, compare every listed file hash, the complete file set and exact symlink
+targets. A matching checksum for `SHA256SUMS` authenticates neither its listed bytes nor the
+absence of later files. Check artifact reports and downstream staging references separately.
+
+If the seal fails, preserve the original manifest and files unchanged. Put the discrepancy,
+extra files, source references and newly observed inventory in a separate correction bundle.
+Close that bundle's writers before sealing it, with all sealer outputs outside it. A new
+attestation records the current verified state; it does not make the original seal valid
+retroactively or prove historical authorship against a compromised host.
+
 ## Measure storage accurately
 
 `du`, apparent file sizes and filesystem free space answer different questions.
