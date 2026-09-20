@@ -101,6 +101,10 @@ the current interface has no stream discovery operation to resolve that case. Th
 closes its stream early and publishes a Start reference only after acknowledgement. Those
 remaining client/recovery issues are not solved by this richer protocol exercise.
 
+A later [catalog capture correction](2026-09-20-work-catalog-capture.md) covers a host
+race where lookup after Forget could recreate noncollectable metadata. It is not part of
+this Android trial or the `4829af5` image.
+
 Next address initial identity recovery and stream lifetime, then actual Console/isolated
 callers, additional descriptors and complete terminal behavior. Pending admission/entry
 across CE recovery, broader failure/pressure/suspend behavior and physical phones retain

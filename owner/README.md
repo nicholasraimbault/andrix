@@ -84,9 +84,11 @@ The [new service CE controls](../plans/2026-09-20-work-service-ce.md) also pass 
 work withdrawal, enclosing retirement and normal credential/fresh execution recovery.
 The [known identity transport controls](../plans/2026-09-20-work-service-uncertain-replies.md)
 also pass for unread replies, exact retries, retained controls and raw stale namespace
-refusal. Initial identity recovery, stream lifetime, further admission races and terminal
-behavior remain. Console is unchanged. No persistent recorder or default installed product
-API is added.
+refusal. A later [catalog capture correction](../plans/2026-09-20-work-catalog-capture.md)
+stops forgotten records from being wrapped again after collection; that host race is not
+in the `4829af5` image. Initial identity recovery, stream lifetime, further admission
+races and terminal behavior remain. Console is unchanged. No persistent recorder or default
+installed product API is added.
 
 ## Components
 

@@ -103,6 +103,12 @@ WorkHandle WorkCatalog::Capture(const WorkControl& control) {
   for (auto& work : state_->works)
     if (work && work->control.identity() == control.identity())
       return WorkHandle(work);
+  // Registry lookup pins only the Record, not its canonical catalog Work.
+  // Forget/Collect may have retired that Work before this publication lock.
+  // Its sticky registry state must not be wrapped again with fresh defaults.
+  // Collect shares this lock, so a surviving canonical Work cannot disappear
+  // between this check and insertion. Existing retained handles stay valid.
+  if (control.Inspect().forgotten) return {};
   for (auto& work : state_->works)
     if (!work) {
       work = std::move(candidate);
@@ -124,6 +130,8 @@ WorkCatalogReply WorkCatalog::Reserve(uint64_t stream, uint64_t sequence) {
   }
   auto handle = Capture(reply.control);
   if (reply.control && !handle) {
+    if (reply.control.Inspect().forgotten)
+      return {WorkRegistryResult::Stale, reply.work, {}, 0};
     reply.control.Stop();
     return {WorkRegistryResult::Capacity, reply.work, {}, ENOSPC};
   }

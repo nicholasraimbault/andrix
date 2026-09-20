@@ -77,6 +77,9 @@ class WorkCatalog {
   // A stream/sequence retry returns the original request. Gate allocation is
   // outside registry/control locks. CloseStream cancels unfinished allocations.
   WorkCatalogReply Reserve(uint64_t stream, uint64_t sequence);
+  // A lookup started before Forget may still obtain the retained canonical
+  // handle. It must never recreate catalog metadata after that handle's Work
+  // has been collected, even if its temporary registry control is still live.
   WorkHandle Find(WorkIdentity work);
   std::vector<WorkCatalogSnapshot> List();
   // One preparation attempt per reserved work. Descriptors are borrowed from

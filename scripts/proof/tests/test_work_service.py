@@ -13,7 +13,7 @@ BASE = ['work_catalog.cpp', 'work_registry.cpp', 'work_io.cpp', 'work_admission.
 
 
 class WorkServiceTests(unittest.TestCase):
-    def compile_and_run(self, test, sources):
+    def compile_and_run(self, test, sources, json_lines=False):
         with tempfile.TemporaryDirectory() as directory:
             binary = Path(directory)/test
             result = subprocess.run(['g++', '-std=c++20', '-O2', '-Wall', '-Wextra', '-Werror', '-UNDEBUG', '-pthread',
@@ -24,7 +24,21 @@ class WorkServiceTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=45)
             self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
-            return json.loads(result.stdout)
+            return ([json.loads(line) for line in result.stdout.splitlines()]
+                    if json_lines else json.loads(result.stdout))
+
+    def test_catalog_capture_cannot_recreate_collected_forgotten_work(self):
+        rows = self.compile_and_run('work_catalog_capture_test', BASE, json_lines=True)
+        self.assertEqual([row['operation'] for row in rows[:2]], ['Find', 'Reserve'])
+        for row in rows[:2]:
+            self.assertTrue(row['registry_control_pinned'])
+            self.assertFalse(row['late_handle'])
+            self.assertTrue(row['capacity_reusable'])
+        self.assertEqual(rows[1]['late_result'], 5)  # WorkRegistryResult::Stale
+        self.assertTrue(rows[-1]['catalog_capture_retirement'])
+        self.assertEqual(rows[-1]['concurrent_rounds'], 200)
+        self.assertFalse(rows[-1]['production_capture_code_instrumented'])
+        self.assertFalse(rows[-1]['Android_runtime_qualified'])
 
     def test_catalog_inputs_retry_and_disconnect_ordering(self):
         result = self.compile_and_run('work_catalog_test', BASE+['work_service_protocol.cpp'])
