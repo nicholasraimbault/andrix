@@ -40,6 +40,7 @@
 #include "instance_state.h"
 #include "lmkd_service.h"
 #include "service.h"
+#include "service_handoff.h"
 #include "service_utils.h"
 
 namespace android::init {
@@ -58,10 +59,7 @@ constexpr size_t kMaximumInstances = 4;
 constexpr uint64_t kMaximumWorkers = 3;
 constexpr uint32_t kQuantum = 32;
 constexpr auto kCleanupDeadline = 30s;
-struct ReadyMessage {
-    uint64_t magic = 0x44454c4547415445ULL;
-    uint64_t boot = 0, instance = 0, device = 0, inode = 0;
-};
+using ReadyMessage = sup::ServiceReadyMessage;
 Epoll* event_loop = nullptr;
 std::function<void()> wake_main;
 unique_fd timer;

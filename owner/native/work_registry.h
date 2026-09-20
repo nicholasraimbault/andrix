@@ -131,6 +131,10 @@ class WorkControl {
   // Always closes the actual entry gate before returning. True means the
   // first Owner stop request, NOT process termination or cleanup completion.
   bool Stop() const;
+  // Management cancellation of an unaccepted reservation. Serialized with
+  // Start acceptance, never stops an already accepted work on client loss.
+  // Unlike Stop this metadata operation takes the record mutex.
+  bool CancelUnstarted() const;
   WorkSnapshot Inspect() const;
 
  private:
@@ -194,6 +198,7 @@ class WorkBackend {
   const std::vector<uint8_t>& description() const;
   // Identity only. Metadata never owns the creator's live standard descriptors.
   const WorkIoBinding& stdio() const;
+  WorkSnapshot Inspect() const;
   // Borrow only while this backend lease lives. The platform/launcher may
   // retain references for their actual obligations, never expose them to an
   // owner caller or retain unaccounted weak references after retirement.

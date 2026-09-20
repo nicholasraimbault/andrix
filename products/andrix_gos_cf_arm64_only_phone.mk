@@ -182,6 +182,16 @@ $(call soong_config_set_bool,andrix,owner_work_proof,true)
 PRODUCT_PACKAGES += andrix-work-launcher andrix-work-entry andrix-work-launch-proof andrix-work-launch-client
 endif
 
+# Selected real registry/service integration. Does not route legacy Console.
+$(call soong_config_set_bool,andrix,owner_work_service_proof,false)
+ifeq ($(ANDRIX_OWNER_WORK_SERVICE_PROOF),true)
+ifneq ($(ANDRIX_OWNER_WORK_PROOF),true)
+$(error ANDRIX_OWNER_WORK_SERVICE_PROOF requires the qualified launch boundary selection)
+endif
+$(call soong_config_set_bool,andrix,owner_work_service_proof,true)
+PRODUCT_PACKAGES += andrix-work-manager andrix-work
+endif
+
 # Compiler payload is a separate opt-in within the owner environment. Unflagged
 # builds retain the original small APEX and do not require the staged compiler.
 ifeq ($(ANDRIX_OWNER_COMPILER),true)

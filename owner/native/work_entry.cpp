@@ -22,9 +22,11 @@ namespace {
   _exit(126);
 }
 }  // namespace
-int main(int argc, char**) {
-  if (argc != 1 || !andrix::ManagementDescriptorsClosed(3))
+int main(int argc, char** argv) {
+  if (argc != 2 || !argv[1] || argv[1][0] < '0' || argv[1][0] > '7' ||
+      argv[1][1] || !andrix::ManagementDescriptorsClosed(3))
     fail("fixed owner entry descriptors");
+  const unsigned closed_stdio = static_cast<unsigned>(argv[1][0] - '0');
   for (int fd = 0; fd <= 3; ++fd)
     if (fcntl(fd, F_GETFD) < 0) fail("missing declared owner descriptor");
   auto profile = andrix::CheckOwnerEntry();
@@ -59,6 +61,14 @@ int main(int argc, char**) {
   for (auto& value : description.environment)
     environment.push_back(value.data());
   environment.push_back(nullptr);
+  // Bionic's fixed entry startup may have opened /dev/null for missing stdio.
+  // Preserve the requested kernel exec handoff instead of leaking those
+  // intermediate replacements into a payload that does not establish its own
+  // stdio. The payload's runtime may itself reopen null, as Bionic normally
+  // does.
+  for (int fd = 0; fd < 3; ++fd)
+    if ((closed_stdio & (1U << fd)) && close(fd) && errno != EBADF)
+      fail("ordinary closed standard descriptor");
   execve(description.executable.c_str(), arguments.data(), environment.data());
   fail("ordinary program exec");
 }

@@ -1,0 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+filegroup {
+    name: "andrix_work_service_init",
+    srcs: ["work-service.rc"],
+}

@@ -147,7 +147,7 @@ int wait_packet(int fd, pid_t child, Work& work, WorkLaunchMessage& received,
 }
 bool exact(const WorkLaunchPacket& a, const WorkLaunchPacket& b) {
   return a.work == b.work && a.epoch == b.epoch && a.aggregate == b.aggregate &&
-         a.scope == b.scope;
+         a.scope == b.scope && a.stdio_closed == b.stdio_closed;
 }
 void run_work(std::shared_ptr<Work> work) {
   const auto name = "work_" + std::to_string(work->gate->work().serial);

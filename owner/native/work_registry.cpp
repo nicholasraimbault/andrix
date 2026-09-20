@@ -230,6 +230,14 @@ WorkIdentity WorkControl::identity() const {
 bool WorkControl::Stop() const {
   return record_ && record_->Stop(WorkStopSource::Owner);
 }
+bool WorkControl::CancelUnstarted() const {
+  if (!record_) return false;
+  std::lock_guard lock(record_->mutex);
+  if (record_->state.start_accepted) return false;
+  record_->Stop(WorkStopSource::Manager);
+  record_->SettleUnstarted();
+  return true;
+}
 WorkSnapshot WorkControl::Inspect() const {
   return record_ ? record_->Snapshot() : WorkSnapshot{};
 }
@@ -254,6 +262,9 @@ const std::vector<uint8_t>& WorkBackend::description() const {
 const WorkIoBinding& WorkBackend::stdio() const {
   static const WorkIoBinding empty;
   return record_ ? record_->stdio : empty;
+}
+WorkSnapshot WorkBackend::Inspect() const {
+  return record_ ? record_->Snapshot() : WorkSnapshot{};
 }
 const std::shared_ptr<WorkAdmission>& WorkBackend::gate() const {
   static const std::shared_ptr<WorkAdmission> empty;

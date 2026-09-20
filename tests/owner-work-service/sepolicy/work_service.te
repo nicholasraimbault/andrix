@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: Apache-2.0
+# Selected service integration only, not a default product authority change.
+system_internal_prop(andrix_work_endpoint_prop)
+set_prop(andrixd, andrix_work_endpoint_prop)
+get_prop(andrix_owner, andrix_work_endpoint_prop)
+get_prop(andrix_terminal, andrix_work_endpoint_prop)
+neverallow { domain -init -andrixd } andrix_work_endpoint_prop:property_service set;
+neverallow { untrusted_app_all isolated_app_all } andrix_work_endpoint_prop:file { open read map };
+
+# Ordinary request bytes originate in a caller-owned sealed memfd. This grants
+# no data execution or mapping to the coordinator, and no mutable gate access
+# to the owner. The existing private handoff supplies its own read-only copy.
+allow andrix_owner self:memfd_file { create open read write getattr };
+allow andrixd andrix_owner:memfd_file { read getattr };
+
+# SCM_RIGHTS receipt checks backing-object access, not just fd use. Delegate
+# only use of already-open owner streams. In particular do NOT give the
+# coordinator file open/map/execute or pathname mutation authority on home.
+allow andrixd andrix_home_file:file { read write append getattr };
+allow andrixd andrix_home_file:fifo_file { read write append getattr };
+allow andrixd andrix_owner:fifo_file { read write append getattr };
+allow andrixd andrix_owner:{ unix_stream_socket unix_dgram_socket tcp_socket udp_socket } { read write getattr };
+allow andrixd andrix_owner_devpts:chr_file { read write getattr };
+allow andrixd { andrix_file andrix_lib }:file { read getattr };
+neverallow andrixd andrix_home_file:file { open map execute execute_no_trans entrypoint create unlink rename setattr };
+neverallow andrixd andrix_home_file:fifo_file { open create unlink rename setattr };
+neverallow andrixd andrix_owner_devpts:chr_file { open ioctl };
+neverallow andrixd andrix_owner:process ptrace;

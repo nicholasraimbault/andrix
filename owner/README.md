@@ -69,8 +69,11 @@ at `070a842`; a subsequent EOF regression exposed that lifetime issue and is ret
 Corrected `0e6f7a8` passed 426 host tests, sanitizer controls, ARM64 compilation and three
 frozen Soong host tests with an explicit unchanged policy reference. Host socket/process
 checks remain separate from Android MAC runtime qualification.
-No new control service, public descriptor import or persistent recorder is installed.
-The authenticated dispatcher and real backend still need integration and qualification.
+The [selected work service](../plans/2026-09-20-work-service-integration.md) now provides
+a separate dispatcher, native client and actual resource backend. The additional
+`ANDRIX_OWNER_WORK_SERVICE_PROOF` selection does not route legacy Console through it.
+Host component/kernel controls pass; Android native/policy/runtime qualification remains.
+No persistent recorder is added, and this is not a default installed product API.
 
 ## Components
 

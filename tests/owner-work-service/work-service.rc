@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
+# Separately selected real registry path, legacy Console remains unchanged.
+service andrix-work-manager /system_ext/bin/andrix-work-manager
+    class late_start
+    user system_ext_andrix
+    group system_ext_andrix inet
+    disabled
+    capabilities
+    seclabel u:r:andrixd:s0
+    priority 10
+    oom_score_adjust 700
+    task_profiles SCHED_SP_BACKGROUND ProcessCapacityLow
+    rlimit core 0 0
+    rlimit nofile 128 128
+    rlimit nproc 32 32
+    rlimit fsize 67108864 67108864
+    delegated_scope 268435456 0 64 8

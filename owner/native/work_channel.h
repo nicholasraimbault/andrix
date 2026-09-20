@@ -23,11 +23,12 @@ struct WorkFrameHeader {
 };
 static_assert(sizeof(WorkFrameHeader) == 40);
 constexpr size_t kWorkFrameBytes = 64 * 1024;
-constexpr size_t kWorkFrameDescriptors = 3;
+// Sealed ordinary description plus up to three standard stream descriptors.
+constexpr size_t kWorkFrameDescriptors = 4;
 
 class WorkFrame {
  public:
-  WorkFrame() = default;
+  WorkFrame() { descriptors_.fill(-1); }
   ~WorkFrame();
   WorkFrame(const WorkFrame&) = delete;
   WorkFrame& operator=(const WorkFrame&) = delete;
@@ -43,7 +44,7 @@ class WorkFrame {
   WorkFrameHeader header_{};
   std::array<uint8_t, kWorkFrameBytes> bytes_{};
   size_t size_ = 0, count_ = 0;
-  std::array<int, kWorkFrameDescriptors> descriptors_{-1, -1, -1};
+  std::array<int, kWorkFrameDescriptors> descriptors_;
 };
 
 int SendWorkFrame(int socket, const WorkFrameHeader& header,

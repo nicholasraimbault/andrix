@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
+andrix.work.endpoint u:object_r:andrix_work_endpoint_prop:s0 exact string
+ctl.start$andrix-work-manager u:object_r:andrix_work_ctl_prop:s0
+ctl.stop$andrix-work-manager u:object_r:andrix_work_ctl_prop:s0

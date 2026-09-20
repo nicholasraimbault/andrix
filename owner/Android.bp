@@ -167,6 +167,69 @@ cc_test_host {
     static_libs: ["andrix_work_registry"],
 }
 
+cc_library_static {
+    name: "andrix_work_catalog",
+    host_supported: true,
+    cpp_std: "c++20",
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+    srcs: ["native/work_catalog.cpp"],
+    whole_static_libs: ["andrix_work_registry"],
+    export_include_dirs: ["native"],
+}
+cc_library_static {
+    name: "andrix_work_runtime",
+    host_supported: true,
+    cpp_std: "c++20",
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+    srcs: ["native/work_runtime.cpp"],
+    whole_static_libs: ["andrix_work_registry", "andrix_work_launch_protocol", "andrix_delegated_scope"],
+    export_static_lib_headers: ["andrix_delegated_scope"],
+    export_include_dirs: ["native"],
+}
+cc_library_static {
+    name: "andrix_work_service_protocol",
+    host_supported: true,
+    cpp_std: "c++20",
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+    srcs: ["native/work_service_protocol.cpp"],
+    export_include_dirs: ["native"],
+}
+cc_test_host {
+    name: "andrix_work_catalog_test",
+    compile_multilib: "first",
+    gtest: false,
+    cpp_std: "c++20",
+    cflags: ["-Wall", "-Wextra", "-Werror", "-UNDEBUG"],
+    srcs: ["tests/work_catalog_test.cpp"],
+    static_libs: ["andrix_work_catalog", "andrix_work_service_protocol"],
+}
+cc_test_host {
+    name: "andrix_work_runtime_test",
+    compile_multilib: "first",
+    gtest: false,
+    cpp_std: "c++20",
+    cflags: ["-Wall", "-Wextra", "-Werror", "-UNDEBUG"],
+    srcs: ["tests/work_runtime_test.cpp"],
+    static_libs: ["andrix_work_catalog", "andrix_work_runtime"],
+}
+cc_binary {
+    name: "andrix-work-manager",
+    defaults: ["andrix_owner_defaults", "andrix_lifecycle_build"],
+    srcs: ["native/work_manager.cpp"],
+    static_libs: ["andrix_work_catalog", "andrix_work_runtime", "andrix_work_channel", "andrix_work_service_protocol"],
+    shared_libs: ["libbase", "libbinder_ndk", "liblog", "libselinux"],
+    init_rc: [":andrix_work_service_init"],
+}
+cc_binary {
+    name: "andrix-work",
+    system_ext_specific: true,
+    cpp_std: "c++20",
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+    srcs: ["native/work_client.cpp"],
+    static_libs: ["andrix_work_channel", "andrix_work_service_protocol", "andrix_launch_description"],
+    shared_libs: ["libbase"],
+}
+
 // These fixed entries are not product packages without the separate vehicle.
 cc_binary {
     name: "andrix-work-launcher",

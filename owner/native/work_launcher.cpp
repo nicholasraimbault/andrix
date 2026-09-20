@@ -67,7 +67,7 @@ void receive(LaunchPeer peer, WorkLaunchMessage& message) {
 }
 bool same(const WorkLaunchPacket& a, const WorkLaunchPacket& b) {
   return a.work == b.work && a.epoch == b.epoch && a.aggregate == b.aggregate &&
-         a.scope == b.scope;
+         a.scope == b.scope && a.stdio_closed == b.stdio_closed;
 }
 bool alias(int a, int b) {
   struct stat first{}, second{};
@@ -101,12 +101,16 @@ int main(int argc, char**) {
   WorkLaunchMessage request;
   receive({parent, kOwnerUid, kOwnerUid}, request);
   if (request.packet.operation != WorkLaunchOperation::Prepare ||
-      request.count != kLaunchFdCount || request.packet.epoch.user != 0)
+      request.count != ExpectedWorkLaunchFdCount(request.packet) ||
+      request.packet.epoch.user != 0)
     fail("complete primary-user launch handoff");
   identity = request.packet;
   bound = true;
   for (size_t stream = static_cast<size_t>(LaunchFd::Input);
        stream < kLaunchFdCount; ++stream) {
+    if (identity.stdio_closed &
+        (1U << (stream - static_cast<size_t>(LaunchFd::Input))))
+      continue;
     for (size_t management = 0;
          management < static_cast<size_t>(LaunchFd::Input); ++management)
       if (alias(request.descriptors[stream], request.descriptors[management]))
@@ -163,15 +167,26 @@ int main(int argc, char**) {
   parent_identity.reset();
   const int description_fd =
       request.descriptors[static_cast<size_t>(LaunchFd::Description)];
-  if (dup2(request.descriptors[static_cast<size_t>(LaunchFd::Input)], 0) != 0 ||
-      dup2(request.descriptors[static_cast<size_t>(LaunchFd::Output)], 1) !=
-          1 ||
-      dup2(request.descriptors[static_cast<size_t>(LaunchFd::Error)], 2) != 2 ||
-      dup2(description_fd, 3) != 3 || syscall(SYS_close_range, 4, ~0U, 0))
+  // The bootstrap keeps its null stdio until entry is claimed. Only now may
+  // the immutable stream plan replace or explicitly close standard roles.
+  for (int stream = 0; stream < 3; ++stream) {
+    if (identity.stdio_closed & (1U << stream)) {
+      if (close(stream)) _exit(126);
+    } else if (dup2(request.descriptors[static_cast<size_t>(LaunchFd::Input) +
+                                        stream],
+                    stream) != stream)
+      _exit(126);
+  }
+  if (dup2(description_fd, 3) != 3 || syscall(SYS_close_range, 4, ~0U, 0))
     _exit(126);
-  // Only stdio and a write-sealed ordinary description cross the MAC exec.
+  // Only declared open stdio and a write-sealed ordinary description cross the
+  // MAC exec.
   char entry[] = "/system_ext/bin/andrix-work-entry";
-  char* arguments[] = {entry, nullptr};
+  // Bionic may reopen closed stdio during this fixed MAC exec. Carry only the
+  // validated ordinary mask so the owner entry reapplies it at the payload
+  // exec.
+  char closed[] = {static_cast<char>('0' + identity.stdio_closed), '\0'};
+  char* arguments[] = {entry, closed, nullptr};
   char* environment[] = {nullptr};
   execve(entry, arguments, environment);
   dprintf(2, "andrix fixed owner entry exec failed: %d\n", errno);
