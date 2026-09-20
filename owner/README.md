@@ -82,8 +82,11 @@ tests and a fresh matching image/runtime trial with identical binary policy and 
 signal denials. Closed stdin handoff and Bionic startup were also checked separately.
 The [new service CE controls](../plans/2026-09-20-work-service-ce.md) also pass for accepted
 work withdrawal, enclosing retirement and normal credential/fresh execution recovery.
-Pending admission races, uncertain replies, retained controls and terminal behavior remain.
-Console is unchanged. No persistent recorder or default installed product API is added.
+The [known identity transport controls](../plans/2026-09-20-work-service-uncertain-replies.md)
+also pass for unread replies, exact retries, retained controls and raw stale namespace
+refusal. Initial identity recovery, stream lifetime, further admission races and terminal
+behavior remain. Console is unchanged. No persistent recorder or default installed product
+API is added.
 
 ## Components
 

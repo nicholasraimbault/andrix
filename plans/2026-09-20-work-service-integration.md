@@ -1,11 +1,12 @@
 # Selected work service integration
 
 Status: the dispatcher, native client, bounded catalog and resource backend are implemented
-behind a separate selection. At `04348a5`, 431 host tests, component sanitizer checks,
-normal/selected Android native and compiled policy gates, and eleven actual frozen host
-executables pass. The unchanged backend also passed real Linux cgroup controls under
-optimized and ThreadSanitizer builds. This is not a fresh Android image/runtime result,
-physical phone qualification or the default Console service.
+behind a separate selection. The component gates at `04348a5` were followed by the
+[finite Android runtime](2026-09-20-work-service-runtime.md),
+[CE](2026-09-20-work-service-ce.md) and
+[uncertain reply/control](2026-09-20-work-service-uncertain-replies.md) results below.
+Their limits remain explicit. This is not physical phone qualification or the default
+Console service.
 
 ## Goal and ownership
 
@@ -190,7 +191,11 @@ closed stdin at ordinary exec handoff from the Bionic payload's subsequent start
 A later [service CE trial](2026-09-20-work-service-ce.md) passes the finite accepted work
 withdrawal, enclosing retirement, old endpoint refusal and normal credential/fresh work
 recovery controls at `4829af5`, with the original consent guards unchanged.
-Before any default change, extend qualification to uncertain submissions, retained stale
-handles, pending admission/entry across recovery and further failure/cleanup races. The diagnostic event catalogue/writer
+The [known identity uncertain reply and retained control trial](2026-09-20-work-service-uncertain-replies.md)
+subsequently passes against the unchanged service. It exercises killed submitters, exact
+reconciliation/retries, actual retained sockets and raw stale namespace requests. It does
+not solve loss of the initial stream/reservation reply or every copy of request identity.
+Before any default change, address initial identity recovery, stream lifetime, pending
+admission/entry across recovery and further failure/cleanup races. The diagnostic event catalogue/writer
 and ordinary terminal integration also remain unfinished. No persistent activity/output
 history, automatic network exposure or wake authority is added by this service.

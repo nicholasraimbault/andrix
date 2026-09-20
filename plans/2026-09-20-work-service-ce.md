@@ -85,7 +85,9 @@ request transport, broader storage failure, suspend/pressure or physical phones.
 [earlier fixed vehicle CE result](2026-09-19-owner-admission-ce-trial.md) retains its own
 scope and does not fill those new service gaps.
 
-Next qualify uncertain submissions and retained controls, actual Console/isolated callers,
-additional descriptor types and complete terminal behavior. Minimal protected diagnostics
-remain separate work. Persistent activity/output history is still off and unimplemented.
+A later [known identity transport trial](2026-09-20-work-service-uncertain-replies.md)
+adds unread reply, retry and retained control checks, without repeating or extending this
+CE race scope. Next address initial identity recovery and stream lifetime, actual
+Console/isolated callers, additional descriptors and complete terminal behavior. Minimal
+protected diagnostics remain separate work. Persistent activity/output history is still off and unimplemented.
 Existing plain/Keep and Console paths remain until their replacement qualifies.

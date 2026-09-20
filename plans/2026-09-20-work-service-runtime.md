@@ -139,6 +139,8 @@ normal credential/fresh owner execution recovery at `4829af5`. Pending admission
 races across recovery remain separate gates. The earlier fixed vehicle result is not used
 to fill those gaps.
 
-Next qualify uncertain submissions, retained stale controls, actual Console/isolated
-callers, broader descriptor types, failure/pressure/suspend conditions and terminal
-integration. No default Console migration or phone deployment follows from these finite passes.
+The later [known identity transport trial](2026-09-20-work-service-uncertain-replies.md)
+adds unread reply, exact retry, retained control and raw stale namespace controls against
+the same service source. Initial identity recovery, stream lifetime, actual Console/isolated
+callers, broader descriptors, failure/pressure/suspend conditions and terminal integration
+remain. No default Console migration or phone deployment follows from these finite passes.

@@ -45,6 +45,8 @@ identity. Streams still require explicit closure; there is no durable receipt cl
 The two management workers are also exercised as a barrier so an older conversation
 cannot be an unobserved alternative pin during the retained control capacity check.
 
-The exercise requires its own fresh controlled runtime qualification. Its printed booleans
-are assertions to assess alongside raw service/kernel/lifetime observations, not blanket
-transport, process reuse or phone proof.
+The [finite Android result](../../plans/2026-09-20-work-service-uncertain-replies.md) passes
+against the matching `4829af5` service, with the probe compiled by the owner SDK in the
+fresh guest. The earlier compilation observer deadline remains an incomplete attempt.
+Printed booleans are assertions assessed alongside source, service/kernel/lifetime and
+closure observations, not blanket transport, process reuse or phone proof.
