@@ -74,8 +74,12 @@ a separate dispatcher, native client and actual resource backend. The additional
 `ANDRIX_OWNER_WORK_SERVICE_PROOF` selection does not route legacy Console through it.
 At `04348a5`, 431 host tests, finite sanitizer/kernel controls, normal/selected Android
 native-policy gates and eleven frozen host executables pass. The service waits for init's
-activation receipt. Fresh Android images/runtime qualification remain, with Console still
-unchanged. No persistent recorder is added; this is not a default installed product API.
+activation receipt. A fresh matching `58b9d94` image passed the
+[first finite Android service controls](../plans/2026-09-20-work-service-runtime.md).
+Stopped log review identified an unnecessary denied direct signal after owner transition;
+captured scope termination worked. The routing correction and further CE/failure controls
+need qualification. Console remains unchanged. No persistent recorder or default installed
+product API is added.
 
 ## Components
 

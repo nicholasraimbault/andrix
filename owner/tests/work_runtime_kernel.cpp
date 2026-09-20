@@ -13,6 +13,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <array>
 #include <atomic>
 #include <cassert>
 #include <condition_variable>
@@ -169,6 +170,7 @@ struct Authority final : WorkRuntimeAuthority {
   }
 };
 struct Observer final : WorkRuntimeObserver {
+  std::array<std::atomic<unsigned>, 64> initial_signals{};
   std::mutex mutex;
   std::condition_variable changed;
   WorkRuntimePoint point = WorkRuntimePoint::BeforeScope;
@@ -182,6 +184,11 @@ struct Observer final : WorkRuntimeObserver {
     released = false;
   }
   void At(WorkRuntimePoint next, WorkIdentity work) override {
+    if (next == WorkRuntimePoint::BeforeInitialSignal) {
+      assert(work.serial < initial_signals.size());
+      ++initial_signals[work.serial];
+      return;
+    }
     std::unique_lock lock(mutex);
     if (next != point || work.serial != serial || released) return;
     arrived = true;
@@ -314,28 +321,36 @@ int manager(int aggregate, int parent, const char* executable) {
   observer.Release();
   retired(late);
   assert(late.work.Inspect().work.initial == WorkInitialState::Absent);
+  assert(observer.initial_signals[first.work.identity().serial].load() == 0);
   forget(first);
   forget(late);
-
-  observer.Hold(WorkRuntimePoint::AfterPlacement, sequence + 1);
-  auto bootstrap_held = begin("sleep");
-  until([&] { return observer.Arrived(); }, "live placed bootstrap held");
-  auto initial = runtime.Inspect(bootstrap_held.work.identity()).initial_pid;
-  assert(initial > 1);
-  int initial_fd = static_cast<int>(syscall(SYS_pidfd_open, initial, 0));
-  assert(initial_fd >= 0);
-  pollfd initial_wait{initial_fd, POLLIN, 0};
-  assert(poll(&initial_wait, 1, 0) == 0);
-  bootstrap_held.work.Stop();
-  assert(poll(&initial_wait, 1, 5000) == 1);
-  assert(bootstrap_held.work.Inspect().work.creator_pending);
-  observer.Release();
-  retired(bootstrap_held);
-  assert(!bootstrap_held.work.Inspect().work.entry_claimed &&
-         bootstrap_held.work.Inspect().work.initial_exit ==
-             (WorkExit{WorkExitKind::Signal, SIGKILL}));
-  close(initial_fd);
-  forget(bootstrap_held);
+  for (auto point :
+       {WorkRuntimePoint::BeforePlacement, WorkRuntimePoint::AfterPlacement}) {
+    observer.Hold(point, sequence + 1);
+    auto bootstrap_held = begin("sleep");
+    const auto serial = bootstrap_held.work.identity().serial;
+    until([&] { return observer.Arrived(); },
+          "live bootstrap held around placement");
+    auto initial = runtime.Inspect(bootstrap_held.work.identity()).initial_pid;
+    assert(initial > 1);
+    int initial_fd = static_cast<int>(syscall(SYS_pidfd_open, initial, 0));
+    assert(initial_fd >= 0);
+    pollfd initial_wait{initial_fd, POLLIN, 0};
+    assert(poll(&initial_wait, 1, 0) == 0);
+    bootstrap_held.work.Stop();
+    assert(poll(&initial_wait, 1, 5000) == 1);
+    assert(bootstrap_held.work.Inspect().work.creator_pending);
+    assert(runtime.Inspect(bootstrap_held.work.identity()).kill_error == 0);
+    observer.Release();
+    retired(bootstrap_held);
+    assert(!bootstrap_held.work.Inspect().work.entry_claimed &&
+           bootstrap_held.work.Inspect().work.initial_exit ==
+               (WorkExit{WorkExitKind::Signal, SIGKILL}));
+    assert((observer.initial_signals[serial].load() > 0) ==
+           (point == WorkRuntimePoint::BeforePlacement));
+    close(initial_fd);
+    forget(bootstrap_held);
+  }
 
   observer.Hold(WorkRuntimePoint::BeforeObserve, sequence + 1);
   auto held = begin("descendant");
@@ -354,6 +369,7 @@ int manager(int aggregate, int parent, const char* executable) {
   marker(other);
   other.work.Stop();
   retired(other);
+  assert(observer.initial_signals[other.work.identity().serial].load() == 0);
   assert(held.work.Inspect().work.observation_pending);
   observer.Release();
   retired(held);
@@ -369,7 +385,8 @@ int manager(int aggregate, int parent, const char* executable) {
   forget(ordinary_exit);
   assert(runtime.drained());
   puts(
-      "{\"live_bootstrap_stopped_before_late_handoff\":true,"
+      "{\"direct_initial_signal_only_before_placement\":true,"
+      "\"live_bootstrap_stopped_before_late_handoff\":true,"
       "\"real_cgroup_runtime\":true,\"ordinary_initial_exit_preserves_"
       "descendant\":true,\"stop_during_held_creator\":true,\"independent_stop_"
       "during_held_observation\":true,\"late_observation_not_reclaimed_as_"

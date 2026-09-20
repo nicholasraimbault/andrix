@@ -71,6 +71,7 @@ struct Initial {
   explicit Initial(pid_t pid) : pid(pid) {}
   const pid_t pid;
   Fd pidfd;
+  std::atomic<bool> placed{false};
 };
 struct State;
 struct Job {
@@ -121,6 +122,9 @@ void* terminate(void* argument) {
   auto job = call->job;
   while (!job->cease_killer.load()) {
     if (job->backend.termination_requested()) {
+      // A requester can be descheduled between its metadata bit and gate Stop.
+      // Close permission ourselves before sampling placement and signalling.
+      job->backend.gate()->Stop();
       std::shared_ptr<Initial> initial;
       std::shared_ptr<group::CapturedCgroup> scope;
       {
@@ -129,13 +133,18 @@ void* terminate(void* argument) {
         scope = job->scope;
       }
       job->kill_pending.store(true);
-      // The initial child may not have finished placement yet. Its pidfd is
-      // published once ready; no numeric signal fallback or early reap exists.
-      if (initial && initial->pidfd.get() >= 0 &&
-          syscall(SYS_pidfd_send_signal, initial->pidfd.get(), SIGKILL, nullptr,
-                  0) &&
-          errno != ESRCH)
-        job->kill_error.store(errno);
+      // Use the initial pidfd only for the placement gap, while the bootstrap
+      // is still trusted management code. Once placed, the retained scope is
+      // the termination authority. Do not ask for direct signalling across the
+      // owner MAC transition or widen policy to make that unnecessary path
+      // work.
+      if (initial && !initial->placed.load() && initial->pidfd.get() >= 0) {
+        observe(*call->state, *job, WorkRuntimePoint::BeforeInitialSignal);
+        if (syscall(SYS_pidfd_send_signal, initial->pidfd.get(), SIGKILL,
+                    nullptr, 0) &&
+            errno != ESRCH)
+          job->kill_error.store(errno);
+      }
       if (scope) {
         auto result = scope->Kill();
         if (result.code != group::GroupError::None &&
@@ -280,6 +289,8 @@ void* supervise(void* argument) {
       std::lock_guard lock(job->mutex);
       job->initial = initial;  // Immutable pidfd from here, never replaced.
     }
+    observe(*state, *job, WorkRuntimePoint::BeforePlacement);
+    if (job->backend.termination_requested()) return ECANCELED;
     Fd placement(
         openat(root.get(), "cgroup.procs", O_WRONLY | O_CLOEXEC | O_NOFOLLOW));
     if (placement.get() < 0) return errno;
@@ -287,6 +298,8 @@ void* supervise(void* argument) {
     ssize_t placed = write(placement.get(), pid.data(), pid.size());
     if (placed != static_cast<ssize_t>(pid.size()))
       return placed < 0 ? errno : EIO;
+    // Publish completion before any staging/release/entry can occur.
+    initial->placed.store(true);
     observe(*state, *job, WorkRuntimePoint::AfterPlacement);
     if (job->backend.termination_requested() ||
         gate->phase() == AdmissionPhase::Stopped)

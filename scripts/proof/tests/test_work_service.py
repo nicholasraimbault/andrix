@@ -49,6 +49,16 @@ class WorkServiceTests(unittest.TestCase):
         self.assertIn('service.getInt("control_connect_errno") == 13', java)
         self.assertIn('Missing service is not denial', java)
 
+    def test_termination_routes_follow_positive_placement(self):
+        source = ''.join((NATIVE/'work_runtime.cpp').read_text().split())
+        termination = source[source.index('void*terminate('):source.index('boolsame(')]
+        self.assertLess(termination.index('gate()->Stop()'), termination.index('initial->placed.load()'))
+        self.assertIn('initial&&!initial->placed.load()&&initial->pidfd.get()>=0', termination)
+        self.assertIn('scope->Kill()', termination)
+        creation = source[source.index('autocreate='):source.index('interror=create()')]
+        self.assertLess(creation.index('initial->placed.store(true)'), creation.index('SendWorkLaunch('))
+        self.assertLess(creation.index('initial->placed.store(true)'), creation.index('authority->Release('))
+
     def test_runtime_kernel_driver_requires_owned_delegation(self):
         result = subprocess.run([sys.executable, '-I', '-B', str(ROOT/'tests/owner-work-service/runtime_kernel.py')],
                                 capture_output=True, text=True, timeout=15)

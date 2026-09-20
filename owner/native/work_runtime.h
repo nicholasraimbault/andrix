@@ -34,7 +34,9 @@ enum class WorkRuntimePoint {
   AfterScope,
   AfterPlacement,
   BeforeObserve,
-  BeforeReclaim
+  BeforeReclaim,
+  BeforePlacement,
+  BeforeInitialSignal
 };
 class WorkRuntimeObserver {
  public:
@@ -57,8 +59,9 @@ struct WorkRuntimeConfig {
 // One creator/supervision lane and an independent exact termination lane per
 // accepted work. Kernel I/O never holds the table/publication/control mutexes.
 // The creator is the sole initial-child reaper and does not reap during a
-// possibly outstanding numeric-PID placement. All signalling uses retained
-// pidfds or the captured cgroup, never a numeric PID/PGID fallback.
+// possibly outstanding numeric-PID placement. The initial pidfd covers only
+// the placement gap; after positive placement use the captured cgroup. No
+// numeric PID/PGID fallback or owner-domain direct-signal permission is needed.
 class WorkRuntime {
  public:
   WorkRuntime(WorkRuntimeConfig config,

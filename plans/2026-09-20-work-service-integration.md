@@ -176,8 +176,15 @@ to the retained reference. Core/LMKD adaptations were restored, framework fences
 and Soong remained unchanged. Earlier compile signedness and invalid fixture limit failures
 remain recorded; their checks were not suppressed. No image or VM ran in these phases.
 
-Before any default change: build fresh matching images and run Android controls for real owner clients,
-ordinary application negatives, caller stream types, client loss, exact stale references,
-independent Stop and genuine CE withdrawal/recovery. The diagnostic event catalogue/writer
+A subsequent fresh matching `58b9d94` image passed the
+[first finite Android service controls](2026-09-20-work-service-runtime.md). Real owner
+clients, ordinary app endpoint negatives, file/pipe/PTY streams, independent work, completed
+client exit/caller environment retirement, stale reference lookup and detached descendants
+were observed. Stopped logs found denied direct initial signals after owner transition,
+although captured cgroup termination succeeded. Placement based routing removes that
+unnecessary request without widening MAC. The correction needs its own Android checks.
+
+Before any default change, extend qualification to uncertain submissions, retained stale
+handles, genuine CE withdrawal/recovery and further failure/cleanup races. The diagnostic event catalogue/writer
 and ordinary terminal integration also remain unfinished. No persistent activity/output
 history, automatic network exposure or wake authority is added by this service.
