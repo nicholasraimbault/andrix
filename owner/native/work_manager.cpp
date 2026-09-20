@@ -20,6 +20,7 @@
 #include <charconv>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -143,6 +144,8 @@ void connection(Server& server, unique_fd socket, bool control_only) {
                                           peer_error);
   if (!peer) return;
   WorkHandle bound;
+  std::optional<WorkStreamScope> provisional_streams;
+  if (!control_only) provisional_streams.emplace(server.catalog);
   std::vector<WorkHandle> reservations;
   reservations.reserve(kRecords);
   uint64_t last_request = now();
@@ -197,7 +200,7 @@ void connection(Server& server, unique_fd socket, bool control_only) {
       add_report(server, bound, reply);
     } else {
       if (operation == WorkServiceOperation::OpenStream) {
-        reply.stream = server.catalog.OpenStream();
+        reply.stream = provisional_streams->OpenStream();
         if (!reply.stream) reply.result = WorkRegistryResult::Capacity;
       } else if (operation == WorkServiceOperation::CloseStream) {
         if (!server.catalog.CloseStream(request.stream))
@@ -221,6 +224,16 @@ void connection(Server& server, unique_fd socket, bool control_only) {
           }
           add_report(server, reserved.work, reply);
         }
+      } else if (operation == WorkServiceOperation::LookupRequest) {
+        // This is observation, not submission ownership. Do not add the
+        // returned work to this conversation's cancellation set.
+        auto found =
+            server.catalog.LookupRequest(request.stream, request.sequence);
+        reply.result = found.result;
+        reply.stream = request.stream;
+        reply.serial = found.identity.serial;
+        reply.error = found.error;
+        add_report(server, found.work, reply);
       } else if (operation == WorkServiceOperation::List) {
         for (auto& item : server.catalog.List())
           reply.works.push_back({item, server.runtime.Inspect(item.work.work)});
@@ -276,6 +289,9 @@ void connection(Server& server, unique_fd socket, bool control_only) {
       server.catalog.CancelInputs(bound);
     frame.Reset();
   }
+  // No further packets from this conversation will be dispatched. Releasing
+  // unused stream metadata grants nothing and cannot consume issued tickets.
+  if (provisional_streams) provisional_streams->CloseUnused();
   frame.Reset();
   // Do not retain a prepared writer after its submitting client disappears.
   // This races Start through the registry's exact unstarted cancellation, not

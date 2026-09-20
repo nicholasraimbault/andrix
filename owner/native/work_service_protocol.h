@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include <optional>
 #include <span>
+#include <string>
+#include <string_view>
 #include <vector>
 
 #include "work_catalog.h"
@@ -25,8 +28,20 @@ enum class WorkServiceOperation : uint32_t {
   Start,
   Stop,
   Forget,
-  List
+  List,
+  LookupRequest
 };
+// Volatile request identity, not a bearer capability or durable receipt.
+// Kept separately from a work reference so a lost Reserve reply is queryable.
+struct WorkRequestReference {
+  WorkServiceIdentity service;
+  uint64_t stream = 0, sequence = 0;
+  bool operator==(const WorkRequestReference&) const = default;
+};
+std::string FormatWorkRequestReference(const WorkRequestReference& reference);
+std::optional<WorkRequestReference> ParseWorkRequestReference(
+    std::string_view text);
+
 struct WorkServiceRequest {
   WorkServiceIdentity service;
   uint64_t stream = 0, sequence = 0, serial = 0, input = 0;

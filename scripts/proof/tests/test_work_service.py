@@ -29,16 +29,47 @@ class WorkServiceTests(unittest.TestCase):
 
     def test_catalog_capture_cannot_recreate_collected_forgotten_work(self):
         rows = self.compile_and_run('work_catalog_capture_test', BASE, json_lines=True)
-        self.assertEqual([row['operation'] for row in rows[:2]], ['Find', 'Reserve'])
-        for row in rows[:2]:
+        self.assertEqual([row['operation'] for row in rows[:3]], ['Find', 'Reserve', 'Lookup'])
+        for row in rows[:3]:
             self.assertTrue(row['registry_control_pinned'])
             self.assertFalse(row['late_handle'])
             self.assertTrue(row['capacity_reusable'])
         self.assertEqual(rows[1]['late_result'], 5)  # WorkRegistryResult::Stale
+        self.assertEqual(rows[2]['late_result'], 5)
         self.assertTrue(rows[-1]['catalog_capture_retirement'])
         self.assertEqual(rows[-1]['concurrent_rounds'], 200)
         self.assertFalse(rows[-1]['production_capture_code_instrumented'])
         self.assertFalse(rows[-1]['Android_runtime_qualified'])
+
+    def test_request_identity_recovery_and_provisional_stream_lifetime(self):
+        result = self.compile_and_run('work_request_recovery_test', BASE+['work_service_protocol.cpp'])
+        self.assertEqual(result['unused_stream_closure_cycles'], 100)
+        self.assertEqual(result['unused_close_reserve_races'], 200)
+        self.assertTrue(result['lookup_never_allocates'])
+        self.assertTrue(result['closed_stream_result_recovery'])
+        self.assertTrue(result['query_does_not_adopt_submission'])
+        self.assertTrue(result['retained_stream_independent_of_work_stop'])
+        self.assertTrue(result['reference_codec'])
+        self.assertFalse(result['Android_runtime_qualified'])
+
+    def test_recovery_dispatch_and_client_publication_order(self):
+        manager = (NATIVE/'work_manager.cpp').read_text()
+        query = manager[manager.index('} else if (operation == WorkServiceOperation::LookupRequest)'):
+                        manager.index('} else if (operation == WorkServiceOperation::List)')]
+        self.assertIn('server.catalog.LookupRequest', query)
+        self.assertNotIn('reservations.push_back', query)
+        self.assertNotIn('CancelUnstarted()', query)
+        self.assertNotIn('catalog.Reserve(', query)
+        self.assertIn('provisional_streams->OpenStream()', manager)
+        self.assertIn('provisional_streams->CloseUnused()', manager)
+        client = (NATIVE/'work_client.cpp').read_text()
+        self.assertLess(client.index('andrix-work: request %s'),
+                        client.index('management.Call(WorkServiceOperation::Reserve'))
+        self.assertLess(client.index('andrix-work: reserved '),
+                        client.index('management.Call(WorkServiceOperation::Prepare'))
+        self.assertIn('operation == "request-info"', client)
+        self.assertIn('operation == "stream-close"', client)
+        self.assertIn('WorkServiceOperation::LookupRequest', client)
 
     def test_catalog_inputs_retry_and_disconnect_ordering(self):
         result = self.compile_and_run('work_catalog_test', BASE+['work_service_protocol.cpp'])

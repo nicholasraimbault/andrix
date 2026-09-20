@@ -87,8 +87,11 @@ also pass for unread replies, exact retries, retained controls and raw stale nam
 refusal. A later [catalog capture correction](../plans/2026-09-20-work-catalog-capture.md)
 stops forgotten records from being wrapped again after collection. Matching `985c9a4`
 images later passed native/policy gates and the known identity transport controls; the
-paused catalog interleaving remains a host result. Initial identity recovery, stream lifetime, further admission
-races and terminal behavior remain. Console is unchanged. No persistent recorder or default
+paused catalog interleaving remains a host result. The
+[initial request recovery slice](../plans/2026-09-20-work-request-recovery.md) now adds
+lookup without allocation, provisional unused streams and early CLI references. Its new
+Android socket/CLI cases, further admission races and terminal behavior remain unqualified.
+Console is unchanged. No persistent recorder or default
 installed product API is added.
 
 ## Components

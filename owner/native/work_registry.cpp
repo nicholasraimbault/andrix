@@ -553,6 +553,22 @@ bool WorkRegistry::CloseStream(const WorkRequestStream& stream) {
       slot.cancelled = true;
   return true;
 }
+bool WorkRegistry::StreamUnused(const WorkRequestStream& stream) const {
+  if (!stream || stream.stream_->owner.lock() != state_) return false;
+  std::lock_guard lock(state_->mutex);
+  return !state_->closed && !stream.stream_->closed &&
+         stream.stream_->high_water == 0;
+}
+bool WorkRegistry::CloseStreamIfUnused(const WorkRequestStream& stream) {
+  if (!stream || stream.stream_->owner.lock() != state_) return false;
+  std::lock_guard lock(state_->mutex);
+  if (state_->closed || stream.stream_->closed || stream.stream_->high_water)
+    return false;
+  // Reserve publishes high_water before issuing an allocation ticket under
+  // this same lock. Closing here therefore cannot release an issued operation.
+  stream.stream_->closed = true;
+  return true;
+}
 WorkReserveReply WorkRegistry::Reserve(const WorkRequestStream& stream,
                                        uint64_t sequence) {
   if (!stream || stream.stream_->owner.lock() != state_)
@@ -608,6 +624,35 @@ WorkReserveReply WorkRegistry::Reserve(const WorkRequestStream& stream,
   lock.unlock();  // Destruction can unmap/close a retired gate, never under
                   // this mutex.
   return reply;
+}
+WorkReserveReply WorkRegistry::LookupRequest(uint64_t stream,
+                                             uint64_t sequence) const {
+  if (!stream || !sequence) return {WorkRegistryResult::Invalid};
+  std::lock_guard lock(state_->mutex);
+  if (stream > state_->stream_serial) return {WorkRegistryResult::Foreign};
+  // Records retain their request key independently of stream table recycling.
+  // A closed stream may still have an outstanding allocation or accepted work.
+  for (const auto& slot : state_->slots) {
+    if (slot.phase == ReservationState::Empty || slot.stream != stream ||
+        slot.request_sequence != sequence)
+      continue;
+    if (slot.phase == ReservationState::Allocating)
+      return {WorkRegistryResult::Pending, slot.work};
+    if (slot.phase == ReservationState::Failed)
+      return {WorkRegistryResult::Closed, slot.work, {}, {}, slot.error};
+    std::lock_guard record_lock(slot.record->mutex);
+    if (slot.record->state.forgotten)
+      return {WorkRegistryResult::Stale, slot.work};
+    return {
+        WorkRegistryResult::Existing, slot.work, {}, WorkControl(slot.record)};
+  }
+  for (const auto& item : state_->streams)
+    if (item && item->serial == stream && !state_->closed && !item->closed)
+      return {sequence > item->high_water ? WorkRegistryResult::NotFound
+                                          : WorkRegistryResult::Stale};
+  // No retained result from a retired stream. This never reopens issuance and
+  // does not establish whether an older, now forgotten request executed.
+  return {WorkRegistryResult::Stale};
 }
 WorkReserveReply WorkRegistry::ReservationFinished(
     const WorkReservation& ticket, std::shared_ptr<WorkAdmission> gate,

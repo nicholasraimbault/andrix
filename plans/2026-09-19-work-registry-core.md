@@ -52,6 +52,13 @@ A lost reply does not release an outstanding operation. Closing a request stream
 new reservations and cancels pending allocation, but does not Stop accepted work. Current
 control and work discovery remain independent of that stream's lifetime.
 
+The later [initial identity recovery slice](2026-09-20-work-request-recovery.md) makes an
+unused stream provisional in the selected dispatcher until a reservation is issued. Its
+issuing conversation can then release abandoned OpenStream capacity without closing a used
+stream. A separate read-only lookup can find retained requests even after stream table
+recycling. Those changes have their own qualification scope, not an extension of this
+earlier component result.
+
 ### Reserve capacity before allocating the gate
 
 `Reserve` first reserves a bounded slot and issues one allocation ticket. The trusted

@@ -52,7 +52,8 @@ struct ResultRow {
   bool late_record_forgotten = false, capacity_reusable = false;
   Result late_result = Result::Invalid, next_result = Result::Invalid;
 };
-ResultRow collected_before_capture(bool reserve_retry) {
+enum class CapturePath { Find, Reserve, Lookup };
+ResultRow collected_before_capture(CapturePath path) {
   WorkCatalog catalog(7, limits());
   auto stream = catalog.OpenStream();
   auto work = reserve(catalog, stream);
@@ -65,11 +66,13 @@ ResultRow collected_before_capture(bool reserve_retry) {
   // Find's first allocation is Capture's candidate Work, after registry.Find
   // has returned its Record-only control. Reserve first allocates Collect's
   // retirement vector, then its Existing path reaches the same candidate.
-  pause.remaining = reserve_retry ? 2 : 1;
+  pause.remaining = path == CapturePath::Reserve ? 2 : 1;
   std::thread finder([&] {
     pause_allocation = &pause;
-    if (reserve_retry) {
-      auto reply = catalog.Reserve(stream, 1);
+    if (path != CapturePath::Find) {
+      auto reply = path == CapturePath::Reserve
+                       ? catalog.Reserve(stream, 1)
+                       : catalog.LookupRequest(stream, 1);
       late_result = reply.result;
       late = std::move(reply.work);
     } else {
@@ -176,14 +179,18 @@ void print(const char* operation, const ResultRow& row) {
 }  // namespace
 int main() {
   alarm(30);
-  const auto find = collected_before_capture(false);
-  const auto retry = collected_before_capture(true);
+  const auto find = collected_before_capture(CapturePath::Find);
+  const auto retry = collected_before_capture(CapturePath::Reserve);
+  const auto lookup = collected_before_capture(CapturePath::Lookup);
   print("Find", find);
   print("Reserve", retry);
+  print("Lookup", lookup);
   if (!find.pinned_during_pause || find.late_handle ||
       !find.capacity_reusable || !retry.pinned_during_pause ||
       retry.late_handle || !retry.capacity_reusable ||
-      retry.late_result != Result::Stale)
+      retry.late_result != Result::Stale || !lookup.pinned_during_pause ||
+      lookup.late_handle || !lookup.capacity_reusable ||
+      lookup.late_result != Result::Stale)
     return 1;
   existing_canonical_handle();
   concurrent_capture_retirement();

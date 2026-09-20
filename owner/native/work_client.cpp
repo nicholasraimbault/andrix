@@ -86,7 +86,8 @@ class Client {
         received.descriptor_count() ||
         !DecodeWorkServiceReply(received.body(), reply) ||
         (operation != WorkServiceOperation::Hello && reply.service != identity))
-      die("invalid or stale manager reply");
+      die("invalid reply; request outcome unknown; do not resubmit as new "
+          "work");
     return reply;
   }
   void Close() { socket_.reset(); }
@@ -123,9 +124,22 @@ void print_reference(int fd, Reference reference) {
           static_cast<unsigned long long>(reference.service.manager),
           static_cast<unsigned long long>(reference.serial));
 }
-void print(const WorkServiceReply& reply) {
-  printf("{\"result\":%u,\"error\":%d,\"works\":[",
-         static_cast<unsigned>(reply.result), reply.error);
+void print(const WorkServiceReply& reply,
+           const WorkRequestReference* request = nullptr) {
+  printf("{\"result\":%u,\"error\":%d,", static_cast<unsigned>(reply.result),
+         reply.error);
+  if (request) {
+    printf("\"request\":\"%s\",\"reference\":",
+           FormatWorkRequestReference(*request).c_str());
+    if (reply.serial) {
+      printf("\"");
+      fflush(stdout);
+      print_reference(1, {reply.service, reply.serial});
+      printf("\",");
+    } else
+      printf("null,");
+  }
+  printf("\"works\":[");
   bool first = true;
   for (const auto& report : reply.works) {
     const auto& work = report.catalog.work;
@@ -135,7 +149,8 @@ void print(const WorkServiceReply& reply) {
     fflush(stdout);
     print_reference(1, {reply.service, work.work.serial});
     printf(
-        "\",\"started\":%s,\"gate_closed\":%s,\"entry_claimed\":%s,\"stop_"
+        "\",\"request\":\"%s\",\"started\":%s,\"gate_closed\":%s,\"entry_"
+        "claimed\":%s,\"stop_"
         "sources\":%u,"
         "\"creator_pending\":%s,\"initial\":%u,\"exit_kind\":%u,\"exit_value\":"
         "%d,"
@@ -145,6 +160,9 @@ void print(const WorkServiceReply& reply) {
         "s,"
         "\"launch_error\":%d,\"cleanup_error\":%d,\"runtime_error\":%d,\"kill_"
         "error\":%d",
+        FormatWorkRequestReference(
+            {reply.service, work.stream, work.request_sequence})
+            .c_str(),
         work.start_accepted ? "true" : "false",
         work.entry_gate_closed ? "true" : "false",
         work.entry_claimed ? "true" : "false", work.stop_sources,
@@ -219,13 +237,35 @@ int main(int argc, char** argv) {
   }
   if (argument == argc)
     die("usage: run|start [--cwd DIR] -- EXEC ARGS... | list | "
-        "info|stop|wait|forget REFERENCE");
+        "info|stop|wait|forget REFERENCE | "
+        "request-info|stream-close REQUEST_REFERENCE");
   std::string operation = argv[argument++];
   if (operation == "list") {
     if (argument != argc) die("unexpected list arguments");
     Client management(endpoint);
     print(management.Call(WorkServiceOperation::List, {}));
     return 0;
+  }
+  if (operation == "request-info" || operation == "stream-close") {
+    if (argument + 1 != argc) die("one exact request reference is required");
+    auto reference = ParseWorkRequestReference(argv[argument]);
+    if (!reference) die("invalid request reference");
+    Client management(endpoint);
+    if (management.identity != reference->service)
+      die("stale request belongs to another environment");
+    WorkServiceRequest request;
+    request.stream = reference->stream;
+    request.sequence = operation == "request-info" ? reference->sequence : 0;
+    auto reply = management.Call(operation == "request-info"
+                                     ? WorkServiceOperation::LookupRequest
+                                     : WorkServiceOperation::CloseStream,
+                                 request);
+    print(reply, &*reference);
+    // Pending/NotFound/Stale are observations, never an implicit new request.
+    return reply.result == WorkRegistryResult::Accepted ||
+                   reply.result == WorkRegistryResult::Existing
+               ? 0
+               : 1;
   }
   if (operation == "info" || operation == "stop" || operation == "wait" ||
       operation == "forget") {
@@ -289,14 +329,23 @@ int main(int argc, char** argv) {
   WorkServiceRequest request;
   request.stream = stream_reply.stream;
   request.sequence = 1;
+  // Volatile caller output, not a durable receipt. Attempt publication before
+  // Reserve so a lost work identity can be queried without allocating again.
+  // Closed/discarded stderr cannot promise recovery and is not a history store.
+  auto request_reference =
+      FormatWorkRequestReference({management.identity, request.stream, 1});
+  dprintf(2, "andrix-work: request %s\n", request_reference.c_str());
   auto reserved = management.Call(WorkServiceOperation::Reserve, request);
   if ((reserved.result != WorkRegistryResult::Accepted &&
        reserved.result != WorkRegistryResult::Existing) ||
       !reserved.serial)
     die("work reservation", reserved.error);
+  Reference work{management.identity, reserved.serial};
+  dprintf(2, "andrix-work: reserved ");
+  print_reference(2, work);
+  dprintf(2, "\n");
   request.sequence = 0;
   management.Call(WorkServiceOperation::CloseStream, request);
-  Reference work{management.identity, reserved.serial};
   Client controls(endpoint + ".ctl");
   bind(controls, work);
   std::array<int, 4> descriptors{description.get(), -1, -1, -1};

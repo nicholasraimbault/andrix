@@ -2,7 +2,9 @@
 #include "work_service_protocol.h"
 
 #include <bit>
+#include <charconv>
 #include <climits>
+#include <iterator>
 #include <limits>
 #include <utility>
 
@@ -166,6 +168,34 @@ bool report(Reader& in, WorkServiceIdentity service, WorkServiceReport& value) {
   return true;
 }
 }  // namespace
+std::string FormatWorkRequestReference(const WorkRequestReference& reference) {
+  if (!valid(reference.service) || !reference.stream || !reference.sequence)
+    return {};
+  return std::to_string(reference.service.boot) + "." +
+         std::to_string(reference.service.environment) + "." +
+         std::to_string(reference.service.manager) + "." +
+         std::to_string(reference.stream) + "." +
+         std::to_string(reference.sequence);
+}
+std::optional<WorkRequestReference> ParseWorkRequestReference(
+    std::string_view text) {
+  WorkRequestReference value;
+  uint64_t* fields[] = {&value.service.boot, &value.service.environment,
+                        &value.service.manager, &value.stream, &value.sequence};
+  for (size_t n = 0; n < std::size(fields); ++n) {
+    auto dot = text.find('.');
+    if ((n == std::size(fields) - 1) != (dot == text.npos)) return {};
+    auto part = text.substr(0, dot);
+    if (part.empty() || part.size() > 20) return {};
+    auto parsed =
+        std::from_chars(part.data(), part.data() + part.size(), *fields[n]);
+    if (parsed.ec != std::errc{} || parsed.ptr != part.data() + part.size() ||
+        !*fields[n])
+      return {};
+    if (dot != text.npos) text.remove_prefix(dot + 1);
+  }
+  return value;
+}
 std::vector<uint8_t> EncodeWorkServiceRequest(
     const WorkServiceRequest& request) {
   std::vector<uint8_t> bytes;
@@ -218,6 +248,7 @@ bool ValidWorkServiceRequest(WorkServiceOperation operation,
       return request.stream && !request.sequence && !request.serial &&
              !request.input;
     case WorkServiceOperation::Reserve:
+    case WorkServiceOperation::LookupRequest:
       return request.stream && request.sequence && !request.serial &&
              !request.input;
     case WorkServiceOperation::Start:
@@ -261,7 +292,7 @@ bool DecodeWorkServiceReply(std::span<const uint8_t> bytes,
   auto count = in.word();
   auto reserved = in.word();
   if (!in.good || !valid(value.service) || reserved ||
-      result > static_cast<uint32_t>(WorkRegistryResult::Incomplete) ||
+      result > static_cast<uint32_t>(WorkRegistryResult::NotFound) ||
       error > INT_MAX || count > kWorkServiceMaximumReports)
     return false;
   value.result = static_cast<WorkRegistryResult>(result);

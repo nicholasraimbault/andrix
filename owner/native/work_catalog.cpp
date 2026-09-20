@@ -3,6 +3,7 @@
 
 #include <fcntl.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cerrno>
 #include <condition_variable>
@@ -82,6 +83,13 @@ uint64_t WorkCatalog::OpenStream() {
 bool WorkCatalog::CloseStream(uint64_t stream) {
   return state_->registry.CloseStream(state_->registry.FindStream(stream));
 }
+bool WorkCatalog::StreamUnused(uint64_t stream) const {
+  return state_->registry.StreamUnused(state_->registry.FindStream(stream));
+}
+bool WorkCatalog::CloseStreamIfUnused(uint64_t stream) {
+  return state_->registry.CloseStreamIfUnused(
+      state_->registry.FindStream(stream));
+}
 void WorkCatalog::Collect() {
   std::vector<std::shared_ptr<Work>> retired;
   retired.reserve(state_->works.size());
@@ -133,6 +141,18 @@ WorkCatalogReply WorkCatalog::Reserve(uint64_t stream, uint64_t sequence) {
     if (reply.control.Inspect().forgotten)
       return {WorkRegistryResult::Stale, reply.work, {}, 0};
     reply.control.Stop();
+    return {WorkRegistryResult::Capacity, reply.work, {}, ENOSPC};
+  }
+  return {reply.result, reply.work, std::move(handle), reply.error};
+}
+WorkCatalogReply WorkCatalog::LookupRequest(uint64_t stream,
+                                            uint64_t sequence) {
+  auto reply = state_->registry.LookupRequest(stream, sequence);
+  auto handle = Capture(reply.control);
+  if (reply.control && !handle) {
+    if (reply.control.Inspect().forgotten)
+      return {WorkRegistryResult::Stale, reply.work, {}, 0};
+    // A query must not Stop work or silently acquire submission ownership.
     return {WorkRegistryResult::Capacity, reply.work, {}, ENOSPC};
   }
   return {reply.result, reply.work, std::move(handle), reply.error};
@@ -315,5 +335,24 @@ void WorkCatalog::Close() {
   state_->closed.store(true);
   state_->registry.Close();
   state_->io.Close();
+}
+WorkStreamScope::WorkStreamScope(WorkCatalog& catalog) : catalog_(catalog) {
+  streams_.reserve(WorkRegistry::kMaximumStreams);
+}
+WorkStreamScope::~WorkStreamScope() { CloseUnused(); }
+uint64_t WorkStreamScope::OpenStream() {
+  // Closed or used streams no longer need provisional ownership. Used is
+  // sticky; losing this bookkeeping entry cannot close a used stream later.
+  std::erase_if(streams_, [&](uint64_t stream) {
+    return !catalog_.StreamUnused(stream);
+  });
+  if (streams_.size() == WorkRegistry::kMaximumStreams) return 0;
+  uint64_t stream = catalog_.OpenStream();
+  if (stream) streams_.push_back(stream);
+  return stream;
+}
+void WorkStreamScope::CloseUnused() {
+  for (auto stream : streams_) catalog_.CloseStreamIfUnused(stream);
+  streams_.clear();
 }
 }  // namespace andrix

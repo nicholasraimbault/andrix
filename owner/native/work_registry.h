@@ -44,7 +44,10 @@ enum class WorkRegistryResult {
   Closed,
   Conflict,
   WrongState,
-  Incomplete
+  Incomplete,
+  // No retained attempt for this not-yet-issued sequence in an open stream.
+  // This is an observation, not a fence against a request arriving later.
+  NotFound
 };
 enum class WorkInitialState {
   NotRequested,
@@ -279,7 +282,15 @@ class WorkRegistry {
   // Authenticated reconnection only. A numeric stream ID is not permission.
   WorkRequestStream FindStream(uint64_t identity) const;
   bool CloseStream(const WorkRequestStream& stream);
+  // The service may treat an opened but unused stream as provisional until
+  // its conversation ends. Issued reservations keep the stream reconnectable.
+  bool StreamUnused(const WorkRequestStream& stream) const;
+  bool CloseStreamIfUnused(const WorkRequestStream& stream);
   WorkReserveReply Reserve(const WorkRequestStream& stream, uint64_t sequence);
+  // Read-only recovery of the original key, even after stream closure/reuse.
+  // Never issues a ticket or reopens a stream. Stale is not proof that an old
+  // request never ran. Pending allocation stays owned until actual completion.
+  WorkReserveReply LookupRequest(uint64_t stream, uint64_t sequence) const;
   // Real WorkAdmission::Reserve runs outside this component's locks, once per
   // allocation ticket. Failed/late completion still consumes its exact slot.
   WorkReserveReply ReservationFinished(const WorkReservation& ticket,

@@ -74,9 +74,14 @@ class WorkCatalog {
   bool valid() const;
   uint64_t OpenStream();
   bool CloseStream(uint64_t stream);
+  bool StreamUnused(uint64_t stream) const;
+  bool CloseStreamIfUnused(uint64_t stream);
   // A stream/sequence retry returns the original request. Gate allocation is
   // outside registry/control locks. CloseStream cancels unfinished allocations.
   WorkCatalogReply Reserve(uint64_t stream, uint64_t sequence);
+  // Observation only, not adoption into a submitting conversation. Neither
+  // NotFound nor Stale licenses automatic resubmission under a new key.
+  WorkCatalogReply LookupRequest(uint64_t stream, uint64_t sequence);
   // A lookup started before Forget may still obtain the retained canonical
   // handle. It must never recreate catalog metadata after that handle's Work
   // has been collected, even if its temporary registry control is still live.
@@ -110,6 +115,25 @@ class WorkCatalog {
  private:
   WorkHandle Capture(const WorkControl& control);
   std::shared_ptr<work_catalog_detail::Catalog> state_;
+};
+
+// One management conversation's provisional stream ownership. The catalog must
+// outlive this single-lane helper. Other conversations may concurrently use a
+// stream; only the registry's atomic unused check can close it on loss. Used
+// streams require explicit CloseStream and remain reconnectable. Numeric IDs
+// here are issued, non-reused metadata, not authentication or resource handles.
+class WorkStreamScope {
+ public:
+  explicit WorkStreamScope(WorkCatalog& catalog);
+  ~WorkStreamScope();
+  WorkStreamScope(const WorkStreamScope&) = delete;
+  WorkStreamScope& operator=(const WorkStreamScope&) = delete;
+  uint64_t OpenStream();
+  void CloseUnused();
+
+ private:
+  WorkCatalog& catalog_;
+  std::vector<uint64_t> streams_;
 };
 
 }  // namespace andrix
