@@ -38,6 +38,21 @@ class WorkServiceTests(unittest.TestCase):
         self.assertTrue(result['creator_ticket_retained_on_submit_refusal'])
         self.assertFalse(result['real_kernel_runtime_qualified'])
 
+    def test_ordinary_transport_probe_codec_and_link(self):
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory)/'transport_probe'
+            result = subprocess.run(['g++', '-std=c++20', '-O2', '-Wall', '-Wextra', '-Werror',
+                '-I'+str(NATIVE), str(ROOT/'tests/owner-work-service/transport_probe.cpp'),
+                *[str(NATIVE/name) for name in ['work_peer.cpp', 'work_channel.cpp',
+                    'work_service_protocol.cpp', 'launch_description.cpp']], '-o', str(binary)],
+                capture_output=True, text=True, timeout=120)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            result = subprocess.run([str(binary), '--self-test'], capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
+            report = json.loads(result.stdout)
+            self.assertTrue(report['transport_probe_codec_and_link'])
+            self.assertFalse(report['Android_runtime_qualified'])
+
     def test_optional_service_negative_requires_live_owner_control(self):
         native = (ROOT/'tests/owner-negative/probe.cpp').read_text()
         java = (ROOT/'tests/owner-negative/src/dev/andrix/proof/ownernegative/OwnerNegative.java').read_text()
