@@ -186,7 +186,10 @@ void connection(Server& server, unique_fd socket, bool control_only) {
         bound.Stop();  // No registry lookup, admission, FD import or writer
                        // lock.
       } else if (operation == WorkServiceOperation::Forget) {
-        reply.result = server.catalog.Forget(bound);
+        reply.result = server.runtime.Inspect(bound.identity()).phase ==
+                               WorkRuntimePhase::Missing
+                           ? server.catalog.Forget(bound)
+                           : WorkRegistryResult::Incomplete;
       } else if (operation != WorkServiceOperation::Inspect) {
         reply.result = WorkRegistryResult::WrongState;
       }
@@ -360,6 +363,33 @@ int main(int argc, char** argv) {
                          std::to_string(identity.manager);
   unique_fd management = listener(endpoint),
             controls = listener(endpoint + ".ctl");
+  supervision::ServiceReadyMessage receipt;
+  receipt.magic = supervision::kServiceReadyRequestActivation;
+  receipt.boot = identity.boot;
+  receipt.instance = identity.environment;
+  receipt.device = runtime.aggregate_identity.device;
+  receipt.inode = runtime.aggregate_identity.inode;
+  require(send(ready.get(), &receipt, sizeof(receipt), MSG_NOSIGNAL) ==
+              sizeof(receipt),
+          "generic readiness");
+  const uint64_t activation_issued = now();
+  for (;;) {
+    int error =
+        supervision::ReceiveServiceActivation(ready.get(), receipt, {1, 0, 0});
+    if (!error) break;
+    if (error != EAGAIN && error != EINTR) {
+      errno = error;
+      fail("generic activation receipt");
+    }
+    if (authority->platform.failed()) _exit(0);
+    require(now() - activation_issued < 10000, "activation receipt deadline");
+    pollfd wait{ready.get(), POLLIN, 0};
+    if (poll(&wait, 1, 20) < 0 && errno != EINTR)
+      fail("activation receipt wait");
+  }
+  ready.reset();
+  // No public accept/dispatch or locator publication before init's actual
+  // profile/readiness/activation decision on this exact private handoff.
   for (size_t index = 0; index < kManagementWorkers; ++index)
     std::thread(accept_loop, server, management.get(), false).detach();
   for (size_t index = 0; index < kControlWorkers; ++index)
@@ -373,15 +403,6 @@ int main(int argc, char** argv) {
   }).detach();
   require(android::base::SetProperty(kEndpointProperty, endpoint),
           "publish protected locator");
-  supervision::ServiceReadyMessage receipt;
-  receipt.boot = identity.boot;
-  receipt.instance = identity.environment;
-  receipt.device = runtime.aggregate_identity.device;
-  receipt.inode = runtime.aggregate_identity.inode;
-  require(send(ready.get(), &receipt, sizeof(receipt), MSG_NOSIGNAL) ==
-              sizeof(receipt),
-          "generic readiness");
-  ready.reset();
   for (;;) {
     // The real adapter already closes original gates on failure. Do not wait
     // for any input read, recorder, client or work kernel worker. Android owns

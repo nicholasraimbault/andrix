@@ -29,7 +29,7 @@ cc_library_static {
     bootstrap: true,
     cpp_std: "c++20",
     cflags: ["-Wall", "-Wextra", "-Werror"],
-    srcs: ["native/captured_cgroup.cpp", "native/instance_state.cpp", "native/cleanup_worker.cpp"],
+    srcs: ["native/captured_cgroup.cpp", "native/instance_state.cpp", "native/cleanup_worker.cpp", "native/service_handoff.cpp"],
     export_include_dirs: ["native"],
 }
 
@@ -60,6 +60,16 @@ cc_test_host {
     cpp_std: "c++20",
     cflags: ["-Wall", "-Wextra", "-Werror", "-UNDEBUG"],
     srcs: ["tests/cleanup_worker_test.cpp"],
+    static_libs: ["andrix_delegated_scope"],
+}
+
+cc_test_host {
+    name: "andrix_service_handoff_test",
+    compile_multilib: "first",
+    gtest: false,
+    cpp_std: "c++20",
+    cflags: ["-Wall", "-Wextra", "-Werror", "-UNDEBUG"],
+    srcs: ["tests/service_handoff_test.cpp"],
     static_libs: ["andrix_delegated_scope"],
 }
 

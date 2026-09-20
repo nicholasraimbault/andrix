@@ -188,6 +188,7 @@ struct DelegatedInstance : std::enable_shared_from_this<DelegatedInstance> {
     bool activation_released = false;
     pid_t initial_pid = 0;
     bool assigned = false, bootstrap_ready = false, root_allocated = false;
+    bool activation_ack_required = false;
     bool kill_needed = false, kill_completed = false, confirm_needed = false;
     bool fully_retired = false, finalizing = false, startup_failed = false, quarantined = false;
     bool worker_initialized = false, worker_exited = false, worker_closing = false;
@@ -224,6 +225,7 @@ struct DelegatedInstance : std::enable_shared_from_this<DelegatedInstance> {
         if (cleanup_deadline == boot_clock::time_point{})
             cleanup_deadline = boot_clock::now() + kCleanupDeadline;
         state.stop(state.identity());
+        CloseEvent(ready);  // A waiting bootstrap must not accept late activation.
         kill_needed = true;
         const bool held = activation.has_value();
         if (activation) {
@@ -295,11 +297,14 @@ void DelegatedInstance::ParentReady() {
         } else
             invalid = true;
     }
-    CloseEvent(ready);
-    if (state.stop_latched() || !initial_pid) return;
+    if (state.stop_latched() || !initial_pid) {
+        CloseEvent(ready);
+        return;
+    }
     if (count != static_cast<ssize_t>(sizeof(message)) ||
         packet.msg_flags & (MSG_TRUNC | MSG_CTRUNC) || invalid || !caller || !scope ||
-        message.magic != 0x44454c4547415445ULL || message.boot != state.identity().boot() ||
+        (message.magic != sup::kServiceReady && message.magic != sup::kServiceReadyRequestActivation) ||
+        message.boot != state.identity().boot() ||
         message.instance != state.identity().serial() ||
         message.device != scope->identity().device || message.inode != scope->identity().inode) {
         Failed("bootstrap readiness credentials/framing/scope mismatch");
@@ -319,7 +324,9 @@ void DelegatedInstance::ParentReady() {
         Failed("bootstrap readiness task SID mismatch");
         return;
     }
+    activation_ack_required = message.magic == sup::kServiceReadyRequestActivation;
     bootstrap_ready = true;
+    if (!activation_ack_required) CloseEvent(ready);  // Existing one-way readiness vehicle.
 }
 
 bool DelegatedInstance::SpawnWorker() {
@@ -627,6 +634,21 @@ void DelegatedInstance::Tick() {
         if (activation_released && bootstrap_ready && !state.active()) {
             state.verify_profile(state.identity());
             if (state.complete_setup(state.identity())) state.activate(state.identity());
+            if (state.active() && activation_ack_required) {
+                ReadyMessage receipt;
+                receipt.magic = sup::kServiceActivation;
+                receipt.boot = state.identity().boot();
+                receipt.instance = state.identity().serial();
+                receipt.device = scope->identity().device;
+                receipt.inode = scope->identity().inode;
+                const ssize_t sent = send(ready.get(), &receipt, sizeof(receipt), MSG_DONTWAIT | MSG_NOSIGNAL);
+                CloseEvent(ready);
+                if (sent != static_cast<ssize_t>(sizeof(receipt))) {
+                    Failed("activation receipt send failed");
+                    return;
+                }
+                activation_ack_required = false;
+            }
             Publish();
         }
         return;
@@ -827,7 +849,7 @@ Result<void> DelegatedService::Prepare(Service& service, std::vector<Descriptor>
             errno = socket_error;
             return ErrnoError() << "readiness socket";
         }
-        if (sup::ConfigureWorkerSocket(current->ready.get()))
+        if (sup::ConfigureWorkerSocket(current->ready.get()) || sup::ConfigureWorkerSocket(child.get()))
             return Error() << "readiness credentials";
         auto weak = std::weak_ptr<DelegatedInstance>(current);
         const int expected_ready = current->ready.get();

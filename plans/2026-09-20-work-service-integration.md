@@ -3,8 +3,10 @@
 Status: the dispatcher, native client, bounded catalog and resource backend are implemented
 behind a separate selection. All 430 host tests, optimized/ASan/UBSan/ThreadSanitizer
 component checks and real Linux cgroup controls, including an instrumented runtime run,
-pass. Android compilation/policy and fresh Android runtime gates remain separate.
-This is not the default Console service or physical phone qualification.
+pass. Source `0cc7385` passed normal and selected Android native/policy gates and ten
+frozen host executables. Subsequent review added the activation acknowledgement and
+runtime retirement fences below; they require matching checks. Fresh Android runtime
+and physical phone qualification are still absent. This is not the default Console service.
 
 ## Goal and ownership
 
@@ -16,6 +18,13 @@ policy or terminal state. The new `andrix-work-manager` is separately selected; 
 
 The service consumes the generic init handoff and checks the actual aggregate and limits.
 The shared generic readiness structure contains only environment and kernel object identity.
+An optional generic activation receipt follows the actual init readiness/profile decision.
+The new service must receive that exact receipt from PID 1 on its inherited private
+channel before accepting public requests or publishing its locator. Sending readiness is
+not evidence that init accepted it. Stop/failure closes the channel without granting
+activation. Existing one way readiness vehicles remain explicit compatibility behavior;
+init still receives no work ID or CE policy.
+
 A protected property publishes a random service endpoint locator. It is not authentication.
 Clients authenticate the kernel credentials and typed socket endpoint, then match the exact
 boot/environment/manager namespace on every operation. Old references do not rebind after
@@ -32,7 +41,9 @@ The internal wire schema uses explicit little endian fields. Hello establishes t
 namespace. OpenStream/Reserve preserve the existing ordered request identity rules.
 Prepare carries a sealed ordinary description and explicitly assigned standard descriptors.
 Start names the resulting input identity, never caller FD numbers. Inspect/List do not
-create work. Stop, Forget and wait results remain distinct.
+create work. Stop, Forget and wait results remain distinct. Forget also requires the
+runtime slot to have retired after actual thread exit, not just a completed core snapshot.
+A blocked runtime obligation must remain discoverable.
 
 A management conversation owns its unaccepted reservations. On connection loss it cancels
 only reservations that have not won Start acceptance. This decision is serialized with

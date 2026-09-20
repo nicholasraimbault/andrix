@@ -29,6 +29,9 @@ class NativeSupervisionTests(unittest.TestCase):
     def test_captured_group_parser_and_refusal(self):
         self.compile_and_run('captured_cgroup')
 
+    def test_private_service_activation_receipt(self):
+        self.compile_and_run('service_handoff')
+
     def test_private_cleanup_worker_channel(self):
         self.compile_and_run('cleanup_worker', ('captured_cgroup',))
 
