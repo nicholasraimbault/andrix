@@ -18,11 +18,14 @@ public final class OwnerNegative extends Instrumentation {
     static { System.loadLibrary("andrix_owner_negative"); }
     private static native String nativeProbe();
     private static native String nativeWorkLaunchProbe(String serviceReference);
+    private static native String nativeWorkServiceProbe(String endpoint);
     private String workLaunchReference;
+    private String workServiceEndpoint;
 
     @Override public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
         workLaunchReference = arguments == null ? null : arguments.getString("work_launch_reference");
+        workServiceEndpoint = arguments == null ? null : arguments.getString("work_service_endpoint");
         start();
     }
 
@@ -69,6 +72,20 @@ public final class OwnerNegative extends Instrumentation {
                         && work.getInt("entry_exec_errno") == 13
                         && work.getInt("ctl_start_result") != 0
                         && work.getInt("ctl_stop_result") != 0;
+            }
+            if (workServiceEndpoint != null) {
+                String serviceText = nativeWorkServiceProbe(workServiceEndpoint);
+                if (serviceText == null) throw new IllegalStateException("work service observation failed");
+                JSONObject service = new JSONObject(serviceText);
+                report.put("work_service", service);
+                // The owner client must prove both live listeners and a populated
+                // protected locator in the same window. Missing service is not denial.
+                rejected = rejected && service.getInt("uid") == Process.myUid()
+                        && service.getInt("management_connect_errno") == 13
+                        && service.getInt("control_connect_errno") == 13
+                        && service.getInt("locator_length") == 0
+                        && service.getInt("ctl_start_result") != 0
+                        && service.getInt("ctl_stop_result") != 0;
             }
             report.put("status", rejected ? "NEGATIVES_OBSERVED_REQUIRE_POSITIVE_CONTROL" : "FAIL");
             result.putString("owner_negative", report.toString());

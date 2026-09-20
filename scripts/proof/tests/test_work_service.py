@@ -38,6 +38,17 @@ class WorkServiceTests(unittest.TestCase):
         self.assertTrue(result['creator_ticket_retained_on_submit_refusal'])
         self.assertFalse(result['real_kernel_runtime_qualified'])
 
+    def test_optional_service_negative_requires_live_owner_control(self):
+        native = (ROOT/'tests/owner-negative/probe.cpp').read_text()
+        java = (ROOT/'tests/owner-negative/src/dev/andrix/proof/ownernegative/OwnerNegative.java').read_text()
+        self.assertIn('nativeWorkServiceProbe', native)
+        self.assertIn('"andrix.work.endpoint"', native)
+        self.assertIn('"andrix-work-manager"', native)
+        self.assertIn('work_service_endpoint', java)
+        self.assertIn('service.getInt("management_connect_errno") == 13', java)
+        self.assertIn('service.getInt("control_connect_errno") == 13', java)
+        self.assertIn('Missing service is not denial', java)
+
     def test_runtime_kernel_driver_requires_owned_delegation(self):
         result = subprocess.run([sys.executable, '-I', '-B', str(ROOT/'tests/owner-work-service/runtime_kernel.py')],
                                 capture_output=True, text=True, timeout=15)
