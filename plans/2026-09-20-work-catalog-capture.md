@@ -46,4 +46,9 @@ the tests and is not clearance.
 
 This does not claim Android scheduling of the paused allocation, loss of initial
 stream/reservation identity, durable receipts or complete catalog exhaustion coverage.
-The selected service image at `4829af5` does not include this catalog correction.
+A later matching `985c9a4` selected image includes this catalog correction. Normal and
+selected native/policy gates passed, including the frozen Soong capture test. Binary
+policy stayed identical to the first service image. The known identity transport controls
+then passed on a fresh offline fixture. That Android result does not schedule the paused
+allocator interleaving; it shows the corrected manager still provides the earlier finite
+transport behavior.

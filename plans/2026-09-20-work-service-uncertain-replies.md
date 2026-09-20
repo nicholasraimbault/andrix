@@ -102,8 +102,9 @@ closes its stream early and publishes a Start reference only after acknowledgeme
 remaining client/recovery issues are not solved by this richer protocol exercise.
 
 A later [catalog capture correction](2026-09-20-work-catalog-capture.md) covers a host
-race where lookup after Forget could recreate noncollectable metadata. It is not part of
-this Android trial or the `4829af5` image.
+race where lookup after Forget could recreate noncollectable metadata. Matching `985c9a4`
+images later repeated these known identity transport controls. The paused catalog
+interleaving remains a host result.
 
 Next address initial identity recovery and stream lifetime, then actual Console/isolated
 callers, additional descriptors and complete terminal behavior. Pending admission/entry

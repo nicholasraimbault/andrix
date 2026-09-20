@@ -196,8 +196,9 @@ subsequently passes against the unchanged service. It exercises killed submitter
 reconciliation/retries, actual retained sockets and raw stale namespace requests. It does
 not solve loss of the initial stream/reservation reply or every copy of request identity.
 A later [catalog capture correction](2026-09-20-work-catalog-capture.md) stops forgotten
-records from being wrapped again after `Collect`. That host race is not claimed as an
-Android scheduling result, and it is not in the `4829af5` image.
+records from being wrapped again after `Collect`. Matching `985c9a4` images include that
+change and passed native/policy gates plus the known identity transport controls. The
+paused catalog interleaving remains a host result.
 Before any default change, address initial identity recovery, stream lifetime, pending
 admission/entry across recovery and further failure/cleanup races. The diagnostic event catalogue/writer
 and ordinary terminal integration also remain unfinished. No persistent activity/output
