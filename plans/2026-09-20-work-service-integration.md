@@ -187,7 +187,10 @@ sanitizer/kernel controls and a fresh matching image/runtime trial. Binary polic
 identical and the earlier signal denials were absent. That trial also directly distinguishes
 closed stdin at ordinary exec handoff from the Bionic payload's subsequent startup handling.
 
+A later [service CE trial](2026-09-20-work-service-ce.md) passes the finite accepted work
+withdrawal, enclosing retirement, old endpoint refusal and normal credential/fresh work
+recovery controls at `4829af5`, with the original consent guards unchanged.
 Before any default change, extend qualification to uncertain submissions, retained stale
-handles, genuine CE withdrawal/recovery and further failure/cleanup races. The diagnostic event catalogue/writer
+handles, pending admission/entry across recovery and further failure/cleanup races. The diagnostic event catalogue/writer
 and ordinary terminal integration also remain unfinished. No persistent activity/output
 history, automatic network exposure or wake authority is added by this service.

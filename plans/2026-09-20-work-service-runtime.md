@@ -3,7 +3,7 @@
 Status: fresh Android trials at `58b9d94` and corrected `4829af5` passed the finite
 controls below. The first trial's denied direct signal route remains recorded. The
 correction passed a new matching image/runtime check without changing policy. This is
-not complete Work API, interactive terminal, CE fault, pressure or phone qualification.
+not blanket Work API, interactive terminal, lifecycle, pressure or phone qualification.
 
 ## Purpose and setup
 
@@ -133,7 +133,12 @@ The manager's lack of home file open/map/execute authority was checked in the ac
 compiled policy with `open_perms`, and the loaded image matched that policy. A separate
 runtime attempt by the manager to open a home path was not performed.
 
-Next exercise genuine CE withdrawal and normal recovery through the new service,
-uncertain submissions, retained stale control handles, actual Console/isolated caller
-controls, broader descriptor types, failure/pressure/suspend conditions and terminal integration. The earlier CE trial does not qualify these changed service
-sources. No default Console migration or phone deployment follows from this finite pass.
+A later fresh [service CE trial](2026-09-20-work-service-ce.md) passes accepted work
+withdrawal, exact enclosing retirement before explicit Stop, old endpoint refusal and
+normal credential/fresh owner execution recovery at `4829af5`. Pending admission and entry
+races across recovery remain separate gates. The earlier fixed vehicle result is not used
+to fill those gaps.
+
+Next qualify uncertain submissions, retained stale controls, actual Console/isolated
+callers, broader descriptor types, failure/pressure/suspend conditions and terminal
+integration. No default Console migration or phone deployment follows from these finite passes.

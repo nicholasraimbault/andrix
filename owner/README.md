@@ -80,8 +80,10 @@ Stopped log review identified an unnecessary denied direct signal after owner tr
 captured scope termination worked. The routing correction at `4829af5` passed 433 host
 tests and a fresh matching image/runtime trial with identical binary policy and no earlier
 signal denials. Closed stdin handoff and Bionic startup were also checked separately.
-Further CE/failure and terminal controls remain. Console is unchanged. No persistent
-recorder or default installed product API is added.
+The [new service CE controls](../plans/2026-09-20-work-service-ce.md) also pass for accepted
+work withdrawal, enclosing retirement and normal credential/fresh execution recovery.
+Pending admission races, uncertain replies, retained controls and terminal behavior remain.
+Console is unchanged. No persistent recorder or default installed product API is added.
 
 ## Components
 
