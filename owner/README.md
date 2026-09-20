@@ -72,8 +72,10 @@ checks remain separate from Android MAC runtime qualification.
 The [selected work service](../plans/2026-09-20-work-service-integration.md) now provides
 a separate dispatcher, native client and actual resource backend. The additional
 `ANDRIX_OWNER_WORK_SERVICE_PROOF` selection does not route legacy Console through it.
-Host component/kernel controls pass; Android native/policy/runtime qualification remains.
-No persistent recorder is added, and this is not a default installed product API.
+At `04348a5`, 431 host tests, finite sanitizer/kernel controls, normal/selected Android
+native-policy gates and eleven frozen host executables pass. The service waits for init's
+activation receipt. Fresh Android images/runtime qualification remain, with Console still
+unchanged. No persistent recorder is added; this is not a default installed product API.
 
 ## Components
 

@@ -223,8 +223,10 @@ reference is explicit, with only implementation/tests/docs changed since `070a84
 a new policy build or a new image. Framework fences passed and Core/LMKD/Soong remained
 unchanged. No Android VM or physical device ran in either phase.
 
-Next implement the bounded authenticated dispatcher, stream import retry mapping and
-actual resource adapter.
+The subsequent [selected service integration](2026-09-20-work-service-integration.md)
+implements the dispatcher, preparation/input mapping and actual resource adapter. Its
+additional component and kernel results are recorded separately. Fresh Android runtime
+qualification remains required.
 Use exact issued work controls for Stop, separate creator and cleanup lanes, genuine
 original epoch admission and truthful resource retirement. Exercise authorized owner
 clients, ordinary application negatives, client loss and rediscovery, independent Stop,

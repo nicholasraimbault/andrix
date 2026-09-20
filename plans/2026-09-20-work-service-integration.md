@@ -1,12 +1,11 @@
 # Selected work service integration
 
 Status: the dispatcher, native client, bounded catalog and resource backend are implemented
-behind a separate selection. All 430 host tests, optimized/ASan/UBSan/ThreadSanitizer
-component checks and real Linux cgroup controls, including an instrumented runtime run,
-pass. Source `0cc7385` passed normal and selected Android native/policy gates and ten
-frozen host executables. Subsequent review added the activation acknowledgement and
-runtime retirement fences below; they require matching checks. Fresh Android runtime
-and physical phone qualification are still absent. This is not the default Console service.
+behind a separate selection. At `04348a5`, 431 host tests, component sanitizer checks,
+normal/selected Android native and compiled policy gates, and eleven actual frozen host
+executables pass. The unchanged backend also passed real Linux cgroup controls under
+optimized and ThreadSanitizer builds. This is not a fresh Android image/runtime result,
+physical phone qualification or the default Console service.
 
 ## Goal and ownership
 
@@ -116,8 +115,11 @@ Merely allowing the coordinator to use the sender's FD is not sufficient. The se
 service policy therefore permits use of already opened owner streams, while explicitly
 forbidding coordinator open, map, execution and pathname mutation on owner home files.
 Owner PTY use does not grant coordinator open/ioctl, and owner process ptrace stays denied.
-The policy's `open_perms` capability is required for this separation and needs compiled
-and runtime verification. No neverallow is removed to manufacture receipt success.
+The policy's `open_perms` capability is required for this separation. Conversion of the
+actual compiled policy back to CIL verified it, and expanded rule checks verified both
+the intended FD access and denied open/map/execute/ptrace permissions. Actual Android
+receipt behavior still needs runtime verification. No neverallow is removed to manufacture
+success.
 
 This gives trusted management code authority to use an explicitly supplied descriptor for
 its lifetime. The implementation only duplicates/transfers standard streams; it does not
@@ -166,8 +168,15 @@ ownership until actual completion. The optimized and ThreadSanitizer runtime exe
 both reached final retirement and EOF while metadata remained. Its authority epoch and bootstrap profile are host fixture inputs, not genuine Android
 lifecycle/MAC proof. Resource bounds and owned cleanup remain mandatory.
 
-Before any default change: finish matching host/sanitizer/kernel checks, normal and selected
-Android native/policy gates, then fresh images and Android controls for real owner clients,
+The first `0cc7385` native/policy build passed ten frozen host executables. Review then
+added the generic activation receipt and composite Forget fence. Corrected `04348a5`
+passed 431 host tests and its own normal/selected native-policy gates, including eleven
+frozen host executables. Normal legacy coordinator/runner binaries remained byte identical
+to the retained reference. Core/LMKD adaptations were restored, framework fences passed,
+and Soong remained unchanged. Earlier compile signedness and invalid fixture limit failures
+remain recorded; their checks were not suppressed. No image or VM ran in these phases.
+
+Before any default change: build fresh matching images and run Android controls for real owner clients,
 ordinary application negatives, caller stream types, client loss, exact stale references,
 independent Stop and genuine CE withdrawal/recovery. The diagnostic event catalogue/writer
 and ordinary terminal integration also remain unfinished. No persistent activity/output
