@@ -1,7 +1,7 @@
 # Initial request identity and stream lifetime
 
-Status: implemented in the selected service candidate, with host component checks.
-This extends the [known identity transport controls](2026-09-20-work-service-uncertain-replies.md).
+Status: implemented at `26812e5`, with 445 host checks, sanitizer controls, normal/selected
+Android native and policy gates, and thirteen frozen host executables. This extends the [known identity transport controls](2026-09-20-work-service-uncertain-replies.md).
 The earlier Android image does not qualify these changes.
 
 ## Problem and boundary
@@ -107,10 +107,16 @@ Dispatcher nonadoption and CLI publication ordering also have source checks.
 445 host tests passed in 214.533 s. AddressSanitizer, UndefinedBehaviorSanitizer and
 ThreadSanitizer cover the recovery and capture binaries. A GCC syntax check failed on a Clang attribute in Android's libbase
 header; the pinned Clang syntax check passed without suppressing that warning or changing
-the header. This is not yet a complete Android manager/client compilation or runtime gate.
+the header. Both Android native selections subsequently compiled the new manager/client
+and component libraries. Normal and selected policy checks passed with unchanged binary
+policy. All thirteen frozen Soong host executables passed, including request recovery and
+the expanded capture race test. Normal legacy owner binaries, Console APK and lifecycle
+jar matched their retained reference. Core/LMKD adaptations were restored and framework/
+Soong fences passed. These are compilation and host execution gates, not a new Android
+image or runtime result.
 
-Next compile both Android selections and exercise actual lost OpenStream and Reserve
-replies, query connection loss without cancellation, and the CLI recovery path. Those cases
+Next build a matching image and exercise actual lost OpenStream and Reserve replies,
+query connection loss without cancellation, and the CLI recovery path. Those cases
 must distinguish pending from final outcomes and retain the earlier accepted work/retry
 and stale control behavior. All identity loss, optional durable recovery, further caller
 and terminal integration, and CE/pressure/phone behavior remain separate work.

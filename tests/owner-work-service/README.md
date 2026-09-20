@@ -33,9 +33,10 @@ The [initial identity recovery slice](../../plans/2026-09-20-work-request-recove
 request lookup without allocation, provisional unused stream cleanup on conversation loss,
 and early request/work references on the CLI's stderr. This is volatile, best effort output,
 not a durable receipt. `stream-close` closes the whole stream, not just one sequence, and
-never substitutes for work Stop. These changes have host checks but are not in the earlier
-qualified Android image. The component checks supply conversation end; actual new socket
-loss and CLI controls remain to be run.
+never substitutes for work Stop. At `26812e5`, host checks, both Android native/policy
+selections and thirteen frozen host executables pass. These changes are not in the earlier
+qualified Android image. Component checks supply conversation end; actual new socket loss
+and CLI controls remain to be run.
 
 The Linux `runtime_kernel.py` driver refuses execution outside its exact owned delegation.
 Its supplied epoch/profile cannot establish Android authority or MAC qualification.
