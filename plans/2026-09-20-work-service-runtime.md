@@ -1,9 +1,9 @@
 # Work service runtime qualification
 
-Status: the first fresh Android trial at `58b9d94` passed the finite controls below.
-Stopped log review also found an unnecessary, denied direct signal route. That limitation
-is retained, and the routing correction needs its own checks. This is not complete Work
-API, interactive terminal, CE fault, pressure or phone qualification.
+Status: fresh Android trials at `58b9d94` and corrected `4829af5` passed the finite
+controls below. The first trial's denied direct signal route remains recorded. The
+correction passed a new matching image/runtime check without changing policy. This is
+not complete Work API, interactive terminal, CE fault, pressure or phone qualification.
 
 ## Purpose and setup
 
@@ -80,12 +80,45 @@ New host kernel controls hold a live bootstrap both before and after placement. 
 check that the early case actually takes the initial pidfd route, while the placed and
 entered cases do not. Successful scope termination alone would not distinguish those
 routes. The correction passes 433 host tests and focused sanitizer checks. Optimized and
-ThreadSanitizer real kernel executions pass these selected cases. They are not a substitute
-for a new matching Android image/runtime check of the correction.
+ThreadSanitizer real kernel executions pass these selected cases. The second Android
+trial below supplies separate runtime evidence, not an inference from those host results.
 
 Other stopped logs contain owner search denials for shell test/data directories. No
 failure from them was visible in the listed controls. Their exact originating call sites
 were not independently traced, and permissions were not widened.
+
+## Corrected image and second Android trial
+
+A fresh complete selected image at `4829af5` passed native/policy/Java artifact checks
+and eleven frozen host executables. Its binary SELinux policy was byte identical to the
+first service image. There was no new complete normal image; default legacy source and
+retained normal artifact correspondence were checked separately.
+
+A fresh offline emulator repeated the listed owner, app, stream, independent work,
+reference, descendant and retirement controls. Stopped logs contained none of the earlier
+coordinator to owner SIGKILL denials. Source routing, actual host route counts and these
+Android observations are complementary evidence. The Android trial did not separately
+force the unplaced initial pidfd signal path, and absence of a log line alone is not a
+proof of all possible execution paths.
+
+Two additional controls distinguish closed stdin at exec from payload runtime behavior:
+
+- The owner compiled a small static AArch64 syscall program. An owner side ELF check
+  verified that it had no `PT_INTERP`. Through the actual service and `work_entry.cpp`
+  path with `--closed-stdio 1`, it observed kernel `fcntl(F_GETFD)` return `EBADF` for
+  descriptor zero and emitted its success marker.
+- The ordinary Bionic payload with the same declared mask observed readable stdin EOF
+  and completed its owner profile checks. Its startup may establish `/dev/null` again.
+  This does not contradict closure at the exec handoff and does not disable Bionic's
+  startup hardening.
+
+This directly checks one closed standard role on Android. It is not a claim that all
+payload runtimes preserve closed descriptors, an exhaustive descriptor map, or a new ABI.
+The other mask combinations retain their separate native protocol test scope.
+
+The second trial again ended with an independently empty owned hierarchy, unchanged
+boot/framework/platform bookends, stopped VM/capture and matching frozen inputs. No new
+CE withdrawal fault was invoked.
 
 ## Assessment and remaining gates
 
@@ -100,8 +133,7 @@ The manager's lack of home file open/map/execute authority was checked in the ac
 compiled policy with `open_perms`, and the loaded image matched that policy. A separate
 runtime attempt by the manager to open a home path was not performed.
 
-Next qualify the placement based termination correction in a fresh matching image. Then
-exercise genuine CE withdrawal and normal recovery through the new service, uncertain
-submissions, retained stale control handles, broader failure/pressure/suspend conditions
-and terminal integration. The earlier CE trial does not qualify these changed service
+Next exercise genuine CE withdrawal and normal recovery through the new service,
+uncertain submissions, retained stale control handles, actual Console/isolated caller
+controls, broader descriptor types, failure/pressure/suspend conditions and terminal integration. The earlier CE trial does not qualify these changed service
 sources. No default Console migration or phone deployment follows from this finite pass.

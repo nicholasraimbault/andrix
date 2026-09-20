@@ -182,7 +182,10 @@ clients, ordinary app endpoint negatives, file/pipe/PTY streams, independent wor
 client exit/caller environment retirement, stale reference lookup and detached descendants
 were observed. Stopped logs found denied direct initial signals after owner transition,
 although captured cgroup termination succeeded. Placement based routing removes that
-unnecessary request without widening MAC. The correction needs its own Android checks.
+unnecessary request without widening MAC. Corrected `4829af5` passed 433 host tests,
+sanitizer/kernel controls and a fresh matching image/runtime trial. Binary policy remained
+identical and the earlier signal denials were absent. That trial also directly distinguishes
+closed stdin at ordinary exec handoff from the Bionic payload's subsequent startup handling.
 
 Before any default change, extend qualification to uncertain submissions, retained stale
 handles, genuine CE withdrawal/recovery and further failure/cleanup races. The diagnostic event catalogue/writer

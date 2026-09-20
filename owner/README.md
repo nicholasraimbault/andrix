@@ -77,9 +77,11 @@ native-policy gates and eleven frozen host executables pass. The service waits f
 activation receipt. A fresh matching `58b9d94` image passed the
 [first finite Android service controls](../plans/2026-09-20-work-service-runtime.md).
 Stopped log review identified an unnecessary denied direct signal after owner transition;
-captured scope termination worked. The routing correction and further CE/failure controls
-need qualification. Console remains unchanged. No persistent recorder or default installed
-product API is added.
+captured scope termination worked. The routing correction at `4829af5` passed 433 host
+tests and a fresh matching image/runtime trial with identical binary policy and no earlier
+signal denials. Closed stdin handoff and Bionic startup were also checked separately.
+Further CE/failure and terminal controls remain. Console is unchanged. No persistent
+recorder or default installed product API is added.
 
 ## Components
 
