@@ -6,8 +6,10 @@ proposals. No new image, signing operation or component restart is qualified her
 
 The [pinned SystemUI assessment](2026-09-21-systemui-component-assessment.md) now identifies
 the persistent app update restriction, staged installation path, file/signature/version
-checks and restoration data risks. Its recommended first proof uses a staged APK update
-and reboot, not an assumed ordinary install followed by process restart.
+checks and restoration data risks. A followup also found an earlier keyguard permission
+gate that defeats assuming a SystemUI factory uninstall fallback. Its recommended first
+proof uses a staged APK update and reboot, not an assumed ordinary install followed by
+process restart.
 
 ## Goal and boundary
 
@@ -52,8 +54,10 @@ Do not make a complete OS generation necessary for every subsequent UI iteration
    native jobs; fresh execution afterward is not continuity of their old identities.
 6. Introduce a noncrashing functional fault and restore known good source at a newer
    version through the declared route. This is not exact older-APK rollback or a crash loop
-   recovery proof. Qualify the independent factory fallback separately, including data loss.
-   Observe the restored behavior, not just install success.
+   recovery proof. First demonstrate the independent host controlled forward restoration
+   while the UI still works. Do not rely on the protected factory uninstall path or treat
+   resetting a disposable fixture as data preserving OS recovery. Observe behavior, not
+   just install success.
 7. Recheck native work, account/CE state, app boundaries and final resource retirement.
 
 These controls do not promise live replacement of all framework code. A system_server

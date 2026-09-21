@@ -5,6 +5,11 @@ installation, remount, reboot or runtime experiment was performed for this asses
 This refines the [workshop component plan](2026-09-21-workshop-components.md), not the
 accepted vision or the owner's authority to change the OS.
 
+Followup source review corrected an omission in the first assessment: the proposed factory
+uninstall escape encounters an earlier keyguard protection gate. It is withdrawn as an
+assumed SystemUI recovery route. The original assessment remains preserved; no runtime
+failure or successful recovery is being inferred from this correction.
+
 ## Recommendation
 
 Start with the existing **staged APK update and reboot** path on a disposable Cuttlefish
@@ -101,28 +106,52 @@ Prebuild a sequence such as:
 
 - Factory baseline, version 37 in the inspected artifact.
 - A, version 38, a small visible clock or status bar marker while preserving normal behavior.
-- B, version 39, a deliberately incorrect but noncrashing marker/rendering result.
-- C, version 40, restoring A's known good source behavior.
+- R, version 39, restoring the known good factory source behavior through another staged
+  update. Prove this host controlled path before introducing the bad variant.
+- B, version 40, a deliberately incorrect but noncrashing marker/rendering result.
+- C, version 41, restoring the same known good source behavior as R.
 
 Numbers are examples tied to this baseline, not a product versioning scheme. Verify each
-APK's actual signer, manifest, version and payload. C is a new artifact restoring known
-good code, not byte-identical rollback to A. First use a functional fault, not an uncontrolled
-persistent crash loop. This deliberately does not qualify recovery from every startup crash.
+APK's actual signer, manifest, version and payload. R and C are new artifacts restoring
+known good code, not byte-identical rollback to an older APK. They require a working
+independent host connection, Package Manager and staged activation path; none is guaranteed
+merely by possession of a signed APK. If the preflight restoration cannot be demonstrated,
+do not proceed to B. First use a functional fault, not an uncontrolled persistent crash
+loop. This deliberately does not qualify recovery from every startup crash.
 
-### Emergency factory fallback requires separate qualification
+### Factory uninstall is not an assumed escape route
 
-`pm uninstall-system-updates com.android.systemui` is a candidate independent host recovery
-route. Never omit the package argument: the shell implementation otherwise enumerates system
-updates. The inspected implementation calls uninstall with flags zero for user 0.
-`DeletePackageHelper` requires an administrative user for this system downgrade, freezes
-all affected users, removes the update and invokes restoration of the disabled system package.
+`pm uninstall-system-updates com.android.systemui` must not be relied on as the SystemUI
+fallback. `DeletePackageHelper.deletePackageLIF` at lines 390–396 rejects a system package
+with `CONTROL_KEYGUARD` granted in user0 before calling `mayDeletePackageLocked`. This
+condition has no caller UID or uninstall flag exception; it checks the user0 grant even
+when another user is the deletion target.
 
-Crucially, `deleteInstalledSystemPackage` clears `DELETE_KEEP_DATA` if the factory version
-is lower or the appId differs. `allowClearUserData=false` does not justify promising that
-this downgrade preserves SystemUI data. Shared system package restoration can affect all
-users, not only the current UI account.
+SystemUI requests `CONTROL_KEYGUARD`; the framework defines it as a signature permission.
+Its verified factory signer matches the platform certificate, and the inspected signature
+grant policy supports that normal grant, including a request present in the factory package.
+This establishes the expected refusal, not a fresh measurement of the installed permission
+state. Observe the actual grant in runtime preflight, but do not assume it absent in order
+to make a recovery plan work. Root/shell installer authority alone does not avoid this gate.
 
-The inspected shell method returns **1 on its success path and 0 on handled failure**.
+The helper's generic system downgrade machinery exists below that gate. If reached for an
+eligible package, it requires an administrative user, removes the update and restores the
+disabled factory package. `deleteInstalledSystemPackage` clears `DELETE_KEEP_DATA` if the
+factory version is lower or the appId differs. Those conditional data loss findings remain
+valid; they do not establish that SystemUI can reach the fallback. Shared system package
+restoration can affect all users, not only the current UI account.
+
+A refused uninstall is not necessarily free of side effects. The outer deletion path can
+freeze and kill package processes before reaching this guard. Do not use an attempted
+uninstall as a harmless permission probe or infer unchanged process state from refusal.
+
+Forward package replacement uses a separate commit path in `InstallPackageHelper`, so
+this deletion guard alone does not invalidate the staged higher-version proposal. That
+path still needs its own actual qualification; no guard removal, permission stripping,
+manual package database editing or blind deletion of `/data/app` is adopted here.
+
+An investigation must always name the exact package; omitting the argument enumerates
+system updates. The inspected shell method returns **1 on its success path and 0 on handled failure**.
 It can also print Success when there is no updated system package to remove. A collector
 must therefore inspect the actual package path/version/hash and restored behavior, not
 substitute a conventional exit-zero test or a success string for restoration evidence.
@@ -146,8 +175,10 @@ without claiming the entire mutable workshop mode or native sudo interface is co
 
 1. **Baseline and recovery preflight.** Verify the full chosen image inventory and tools,
    APK signers/versions, shell installer authority, package state and an independent host
-   connection. Declare the reset/restoration fallback before introducing an update. Record
-   user, boot, framework, verification mode and native execution positives.
+   connection. Include the actual user0 keyguard permission grant. Declare how to abandon
+   and preserve the disposable fixture if Package Manager or staged restoration is lost;
+   resetting a fixture is not recovery of an owner's existing data. Record user, boot,
+   framework, verification mode and native execution positives.
 2. **Negative controls.** A correctly prepared nonstaged replacement should encounter the
    persistent app guard. Separately exercise a staged wrong signer and a missing/mismatched
    sidecar without conflating the reason for refusal. Retain exact session identities and
@@ -157,10 +188,12 @@ without claiming the entire mutable workshop mode or native sudo interface is co
    applied and the still active baseline. Reboot within the same declared fixture, wait for
    actual application, identify the active APK/UID/MAC and observe the visible change.
    Explicitly start fresh native work and verify its prior saved data.
-4. **B then C: bad behavior and restoration.** Repeat staging/activation for the noncrashing
-   bad variant and the prepared known good restoration. Observe the bad behavior and its
-   removal, rather than only reading package versions. Record preference/data behavior
-   without generalizing a few retained settings into complete migration guarantees.
+4. **R, then B and C: preflight restoration and bad behavior.** Demonstrate the independent
+   host controlled forward restoration with R first. Only after that succeeds introduce
+   the noncrashing B and restore through C. Observe behavior, not just package versions.
+   Record preference/data behavior without generalizing a few retained settings into
+   complete migration guarantees. If the declared recovery prerequisites fail, stop and
+   preserve the incomplete attempt rather than improvising a bypass.
 5. **Close.** Check the Android UI/framework, declared package state, native environment,
    session outcomes and owned resources. Reboots are expected parts of this one experiment,
    not old state relabelled as a fresh trial. No pending session or old process absence alone
