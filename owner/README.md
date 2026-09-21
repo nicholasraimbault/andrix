@@ -1,9 +1,13 @@
 # Owner-session prototype
 
-Andrix-owned system_ext components on GrapheneOS's maintained base, with the
-opt-in private-policy bridge below. Vanadium, phone services, platform signer and
-ordinary-app execution policy are not replaced.
-See the [milestone](../plans/2026-09-10-owner-session.md) for scope and qualification.
+This directory holds the native Unix subsystem of the
+[owner composable Android OS](../docs/vision.md), not the whole product boundary.
+The current prototype uses system_ext components on the maintained GrapheneOS source
+base and the opt-in policy bridge below. In that qualified prototype, Vanadium, phone
+services, platform signer and ordinary app execution policy are not replaced. That is a
+scope statement, not a permanent ban on owner authorized platform changes.
+See the [milestone](../plans/2026-09-10-owner-session.md) for scope and qualification and
+[the revised roadmap](../plans/current.md) for the new platform priority.
 
 **Development opt-in:** `ANDRIX_OWNER_SESSION=true` with the existing
 `andrix_gos_cf_arm64_only_phone-cur-userdebug` product. The baseline without that

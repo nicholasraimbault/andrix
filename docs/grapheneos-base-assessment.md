@@ -1,5 +1,12 @@
 # GrapheneOS as Andrix's Android/Pixel base
 
+Historical assessment and source observations. The
+[2026-09-21 accepted revision](../plans/2026-09-21-owner-composable-android.md) retains
+GrapheneOS as the initial engineering foundation but supersedes this document's small
+owner computing layer ceiling and glibc/Wayland product research direction. Andrix owns
+its full OS goals, policies and component workflows. The observations and earlier decision
+below keep their original scope; they do not qualify the expanded workshop or account model.
+
 ## Recommendation
 
 **GO for a bounded GrapheneOS-derived migration trial.** For a Pixel-first Andrix,

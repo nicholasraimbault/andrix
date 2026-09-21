@@ -5,12 +5,16 @@ not a claim that the current prototype implements or proves them. There is no
 supported Andrix release yet. Live implementation and proof state belong in
 [`plans/current.md`](../plans/current.md). The [design evidence register](design-evidence.md)
 tracks which mechanisms are prototypes, what their tests establish, what those results
-imply and which long term intentions are accepted or still proposed.
+imply and which long term intentions are accepted or still proposed. The
+[owner composable Android vision](vision.md) and its
+[2026-09-21 decision record](../plans/2026-09-21-owner-composable-android.md) expand the
+product boundary while retaining the Unix work and its evidence.
 
 ## Design method
 
-Andrix is making Android a general purpose, owner controlled Unix computer. Long term
-correctness, coherence, maintainability and owner control determine the design.
+Andrix is an owner controlled Android OS, including its native Unix environment and
+Android application and system components. Long term correctness, coherence,
+maintainability and owner control determine the design.
 Neither time and effort already spent nor the cost or difficulty of replacement is
 a reason to retain an inferior design or take an architectural shortcut.
 
@@ -49,7 +53,7 @@ by itself. Small patches, familiar conventions, existing code and previous effor
 not substitutes for this reasoning.
 
 Apply the same discipline to platform integration, trust and updates, resources, files,
-networking, tools, terminals and agent authority. Review existing decisions against
+networking, tools, terminals and administration authority. Review existing decisions against
 their rationale and current evidence; do not assume they were accidental or discard
 accepted requirements without an explicit revision. The register is the review map,
 not a claim that all areas have already completed this assessment.
@@ -61,19 +65,32 @@ platform responsibility or product restrictions must be made and accepted explic
 
 ## Foundation
 
-Andrix's Android/Pixel platform follows an explicitly pinned public GrapheneOS
-Android 17 release and its reviewed Pixel support inputs, on Android's ACK/GKI
-kernel with the target modules and disclosed firmware required by the hardware.
-The target is ARM64 with one Android userspace and ABI using Bionic and Android's
-system linker. Android retains init, ART, Binder, SELinux, SurfaceFlinger, Package
-Manager, application identities, profiles and the phone runtime.
+Andrix initially uses an explicitly pinned public GrapheneOS source release as a
+maintained Android integration foundation. AOSP remains the underlying platform;
+GrapheneOS contributes source, hardening and Pixel device knowledge, not a permanent
+ceiling on Andrix's goals or policies. The current Android 17 pin is a reproducible
+anchor, not an indefinite release policy.
 
-Andrix maintains a small, attributable downstream layer for owner computing,
-network/release policy and independently verified fixes. The owner adopted this
-sourcing decision after the [base assessment](grapheneos-base-assessment.md);
-implementation proceeds through the [isolated migration trial](../plans/2026-09-08-grapheneos-migration.md).
-The earlier direct-AOSP checkout and proof results remain a separate preserved
-baseline, not evidence that the new base is already built or qualified.
+Andrix owns its full OS integration, package choices, signing, release and recovery
+responsibilities. Changes to SystemUI, the framework, init, installation or policy are
+legitimate product work when the capability and coherent design require them. A small
+downstream layer is no longer a product boundary. Maintainable, attributable changes
+remain valuable; source ownership does not require rewriting useful upstream components.
+The [base assessment](grapheneos-base-assessment.md) and
+[migration](../plans/2026-09-08-grapheneos-migration.md) retain their historical scope.
+Direct AOSP remains an alternative if observed compatibility or maintenance costs warrant it.
+
+The supported native target is ARM64/Bionic with Android's system linker, in one Android
+userspace on its Linux kernel. Init, ART, Binder, SELinux, SurfaceFlinger, Package Manager,
+application identities and the phone runtime remain the platform. Andrix is not a guest
+distribution, a VM based owner environment or a parallel glibc/desktop product. These are
+product design choices, not prohibitions on owner experiments.
+
+Cuttlefish/QEMU is the first development and testing environment. Pixel integration follows
+when the platform is more mature, using matching device/vendor, kernel/module and firmware
+inputs. Hardware requirements still inform the design now. Closed firmware remains a real
+boundary; neither source availability nor an emulator pass qualifies a physical phone or
+confers the guarantees of an official GrapheneOS release.
 
 The owner Unix runs as native Android processes in this system. Official images,
 bundled apps and services make no automatic direct connections to Google-operated
@@ -91,71 +108,181 @@ forwarded device/user data. Open-source AOSP inputs may still come from
 Google-hosted repositories as recorded source supply. User-installed applications
 remain the owner's choice.
 
-Andrix retains genuine hardware-backed attestation as an owner-verification
-capability, with remote key provisioning through GrapheneOS's proxy under this
-networking policy. Attestation does not gate ordinary owner computing or impose
-an external certification requirement on legitimate owner-controlled builds.
+Genuine hardware attestation remains an owner verification capability where supported.
+Boot and modification state must be reported honestly, including workshop operation.
+The currently accepted GrapheneOS remote key provisioning proxy choice remains subject
+to this networking policy and the eventual device/service review. Attestation does not gate ordinary owner
+computing, impersonate an official build or impose external certification on legitimate
+owner controlled systems.
 
 ## Authority, identity and state
 
-The human owner is the legitimate authority. Daily processes receive bounded
-Android authority; the owner retains constitutional control of build,
-installation, trust roots and recovery. Android UID, profile, SELinux and
-Binder identity remain authoritative.
+The human owner is the legitimate authority over the device. Daily programs receive
+ordinary user authority. Shared system installation, platform signing and elevation are
+explicit administrative capabilities; ordinary app installation and app signing do not
+thereby require a root session. Android UID, user lifecycle, SELinux and Binder
+identity remain authoritative for the running system. The owner can deliberately change
+the system and its policy; that does not make every ordinary process an administrator.
 
-The system has three tiers: immutable trusted system state; one stable owner
-Unix identity with a credential-encrypted home, normal processes and direct
-ARM64/Bionic execution; and isolated Android application identities. Crossings
-use explicit Binder operations, file descriptors, URI grants or equivalent
-scoped capabilities.
+### Accounts
 
-Trusted native components mediate explicit Android crossings from the owner domain.
-Their roles and authority are deliberate boundaries, not permission to execute owner
-commands with coordinator privileges. The current `andrixd` process layout is a
-prototype, not a requirement to combine work, launch and terminal responsibilities in
-one process. Android retains installation, signing, init and platform policy authority.
+One person may use many accounts, or several people may use separate accounts. Each full
+Android user has an integrated Unix login identity, credential encrypted home, processes,
+jobs and preferences. Accounts share the OS and baseline system components without sharing
+private homes or work control. Actual credentials and MAC boundaries must separate them;
+changing HOME while retaining one common UID is insufficient.
+
+Use Android's genuine account and CE lifecycle, not a disconnected account system beside
+it. Account switching, background execution, explicit session end and CE withdrawal have
+different meanings. Resource constraints are explicit, not a product limit inherited from
+a user0 prototype. The current implementation does not yet qualify this account model.
+See the [account plan](../plans/2026-09-21-android-unix-accounts.md).
+
+APKs retain Android application identities. Installation or owner signing does not make an
+ordinary APK a Unix login or grant it platform privileges. Native execution and APKs are
+both first class interfaces to the same OS. Trusted crossings use explicit operations,
+file descriptors or scoped capabilities, never caller supplied IDs as authentication.
+
+### Administrative elevation
+
+An authorized device administrator can execute general administrative commands, including
+root commands or a root shell. Elevation is not limited to a curated action menu. It is
+also not permanent root for daily work, automatic authority for every account, or a hook
+layer on somebody else's installed ROM.
+
+The authorization path must establish the request and a complete execution context before
+administrative code runs. Ordinary work submission cannot select elevated credentials or
+borrow coordinator authority. The current `andrixd` layout is a prototype, not a mandate
+to combine jobs, administration and terminal presentation in one process. Authentication,
+consent duration, role construction and recovery require a separate
+[authority design](../plans/2026-09-21-owner-authority.md).
+
+### Signing and trust
+
+Distribution signatures establish that inputs came from Andrix. Individual owners must
+also have a practical path to controlling their installed system's signing and deployment
+authority. A universal private platform key is not distributed to all owners. Ordinary app
+keys, platform APK identities, APEX signing and verified boot are distinct relationships,
+not interchangeable proof of authority.
+
+On-device component signing is a goal. Platform private material must not silently become
+available to everyday programs. Protected signing, initial personalization, certificate
+continuity, backup and recovery remain design work. This replaces the earlier absolute
+requirement that all private signing keys stay off the phone, not the requirement to
+protect keys or provide recovery material when the phone is unavailable.
+
+Signed software is not automatically safe. The trusted computing base includes code,
+policy, services and hardware/firmware relied on for the relevant guarantee. Ordinary
+accounts must be isolated, but protection against an actively malicious platform
+administrator is not promised. Administrative access does not itself supply a locked
+account's CE keys.
+
+## Workshop and locked operation
+
+Workshop operation is a legitimate mode of Andrix. It supports bootloader unlock and
+disabling boot verification enforcement for mutable OS partitions on the chosen target. SELinux enforcement,
+application isolation and credential encryption remain defaults. APK/APEX verification
+and boot verification are separate mechanisms; workshop setup is not a blanket instruction
+to disable every check or make every process privileged.
+
+The mode has weaker physical tamper and theft protection than a correctly locked system.
+It is not equivalent to locked GrapheneOS, and no categorical advantage over every rooted
+ROM is claimed. Owners can deliberately change more of the system, with the loss of
+particular guarantees made explicit.
+
+A locked configuration with owner controlled keys is a later mode of the same underlying
+OS and package model, not the only legitimate product configuration. Hardware root
+support, closed vendor components, rollback protection and recovery need actual device
+qualification. Planning either mode is not authorization to flash a handset or change
+current qualification inputs.
+
+## Component composition and development
+
+The owner can modify and replace applications, SystemUI, Settings, launchers, native services
+and platform components. `/usr` is one maintained component among them. The supported path
+must identify source/configuration, dependencies, build and signing inputs, installation
+authority, activation and recovery. Source access without a practical change workflow is
+not sufficient ownership.
+
+Build and replace individual components where compatible. Some changes require related
+components, framework restart or reboot. Neither SystemUI's APK packaging nor a successful
+installation establishes restart safety; system_server changes do not universally imply
+a kernel reboot either. The first [workshop proof](../plans/2026-09-21-workshop-components.md)
+will establish a small SystemUI change and restoration route on Cuttlefish.
+
+On-device editing, building, signing and installation of ordinary native/APK components is
+an explicit end goal. Host assisted workflows may come first and remain useful. The
+prototype's full image build/qualification procedure is not a permanent requirement for
+every UI tweak. Controlled qualification still requires declared, frozen inputs and
+honest evidence for each changed component.
+
+## Updates and installation
+
+Andrix follows a rolling release direction with compatible component sets and recoverable
+activation. Where contracts permit, update a component independently. Where they do not,
+update a compatible group. Rolling cadence does not make arbitrary partial upgrades safe.
+Define transaction and health boundaries, restart needs, interruption handling and recovery
+for each class; do not assume a package install or an old code image rolls back user data
+migrations or firmware state.
+
+Owner modifications are explicit component selections and reproducible build inputs.
+Updates must not silently replace them. Expose incompatibilities, rebuild/merge requirements
+and security fixes absent from a local version. Owners may choose unsupported combinations,
+but the supported update path must not misrepresent their compatibility or protection.
+
+Checking, downloading and staging follow owner policy. Disruptive activation, including
+service restart, work interruption or reboot, follows explicit consent or a configured
+policy. Permission to stage does not silently authorize interruption.
+
+The recommended installer supplies a usable phone and Unix environment with replaceable
+defaults. An advanced path lets the owner assemble choices. Both use the same OS and
+component model, with selections changeable after installation. Exact package formats,
+installer interfaces and update machinery remain in the
+[rolling composition plan](../plans/2026-09-21-rolling-composition.md).
 
 ## Trusted `/usr`
 
-`/usr` is a read-only view of authenticated Android system modules. Android
-`/etc` remains Android's; owner code and packages remain separate from system
-content.
+`/usr` is normally a read only view of authenticated system components. Android `/etc`
+remains Android's; writable owner programs, data and package selections remain distinct
+from the authenticated base. An authorized owner can replace that base or deliberately
+modify it in workshop mode; read only daily access is not an owner control ceiling.
 
-The accepted first generation is one reboot-staged `dev.andrix.usr` APEX built
-and signed on the build host. Official and owner-controlled trust roots are
-valid, and private signing keys stay off the phone. Platform trust, init and
-policy changes travel through an image or OTA.
-
-A generation commits after platform health and Andrix self-tests pass. Recovery
-can return to the prior complete system generation while leaving owner home and
-packages unchanged.
+The first generation is one reboot staged `dev.andrix.usr` APEX built and signed on a host.
+It remains a useful implementation and evidence baseline, not the only permissible update
+format, signing location or system generation boundary. Broader native package operations,
+component activation and recovery need their own transaction and compatibility proofs.
 
 ## Owner userland
 
-Direct execution and managed packages are separate capabilities. The public
-base is the API-37 NDK/Bionic ABI plus versioned Andrix C APIs and AIDL process
-boundaries.
+Direct execution and managed packages are separate capabilities. Bionic and Android's
+system linker are the supported native foundation. The current prototype targets the
+API-37 NDK surface plus versioned Andrix C APIs and AIDL boundaries; that version is an
+implementation anchor, not a requirement to freeze the OS indefinitely.
 
 The complete environment includes a shell, core tools, PTYs, an editor, build
 and debugging tools, archives, offline package operations, resource inspection,
 a supportable on-device ARM64/Bionic compiler and later SSH into the same owner
-environment.
+environment. Android APK build and signing tools belong in the development roadmap too;
+they are not implied by the existing native C/C++ compiler result.
 
-Managed packages use complete versioned objects, pinned profile generations,
-package-private libraries and owner-only relative RUNPATHs. Transactions
-provide atomicity and rollback. Deliberately executed owner code shares owner
-authority; automatic untrusted hooks use proved Android isolation. Unsigned
-software remains an owner choice.
+Managed packages need complete versioned objects, explicit dependencies and compatible
+profiles. Package private libraries and owner relative RUNPATHs remain tools for native
+software without replacing Android's runtime. Transaction atomicity, rollback and data
+migration must be designed and qualified rather than inferred from package installation.
+Deliberately executed code shares its user's authority; automatic untrusted hooks need
+proved isolation. Unsigned native software remains an owner choice. Neither execution
+path requires becoming a platform package merely to run ordinary owner code.
 
 ## Work supervision
 
 Android supervises the owner environment. Andrix manages work inside it. The kernel
-enforces containment, and Console is a client. This ownership model is accepted; the
-combined delegation, activation and cleanup contract still needs design and qualification.
-The [contract draft and failure matrix](../plans/2026-09-17-delegated-supervision-contract.md)
-are the current design surface, not an accepted wire API or qualified implementation.
-The [comparative experiments](../plans/2026-09-17-work-factory-comparison.md) establish
-useful mechanisms, not a production implementation of this contract.
+enforces containment, and Console is a client. This ownership model remains accepted
+within the expanded OS vision. The
+[contract and failure matrix](../plans/2026-09-17-delegated-supervision-contract.md),
+[comparative experiments](../plans/2026-09-17-work-factory-comparison.md) and subsequent
+service results have distinct implementation and qualification scopes. None selects an
+unchangeable process layout or turns the subsystem into the whole product. See
+[current work](../plans/current.md) for remaining gates.
 
 ### Android's service boundary
 
@@ -202,11 +329,13 @@ descriptors and execution state must be established before owner code runs. Iden
 changes and descriptor sanitization are steps of that complete transition, not general
 privileged mutation operations offered to callers.
 
-The privileged interface selects only declared profiles and fixed trusted bootstraps.
-It does not accept an arbitrary privileged program, UID or filesystem path. The ordinary
-owner work API does accept executable, argument, environment and working directory
-requests. Those inputs may direct owner execution, never redirect privileged bootstrap
-execution or select its authority.
+The ordinary work launch interface selects only its declared profiles and fixed trusted
+bootstraps. Caller executable, argument, environment and working directory inputs direct
+ordinary execution, not privileged bootstrap execution or selection of its authority.
+This restriction is not a ban on general administrative commands. Separately authorized
+elevation can establish an administrative profile and execute the owner's chosen command.
+It must not silently turn ordinary work submission into root access or expose partially
+constructed privilege transitions.
 
 Android's framework remains the source of genuine user and CE authority. The manager
 and launch/input gates enforce its freshness and revocation; init does not gain Andrix
@@ -214,8 +343,9 @@ CE admission policy. A positive check is not permanent permission, and a late re
 cannot revive a stopped or revoked identity.
 
 A work scope defines lifetime and resource accounting, not automatic mutual security
-isolation between programs deliberately run as the same owner. Untrusted hooks, agent
-principals and other isolated work require their own explicit authority boundaries.
+isolation between programs deliberately run as the same user. Untrusted hooks and other
+isolated work require explicit authority boundaries. Sharing one Unix identity is not
+proof that hostile programs are isolated from each other.
 
 ### Work records and diagnostics
 
@@ -293,18 +423,19 @@ use Android supervision and return after unlock. Android init remains PID 1.
 
 Ordinary owner processes have outbound networking and may use ephemeral
 loopback listeners. External or persistent exposure is explicit. Isolated
-jobs, package hooks and agent jobs receive scoped network grants.
+jobs and package hooks receive scoped network grants.
 
-Owner home and ordinary SSH become available after first unlock. Screen relock
-preserves ordinary jobs and enabled services, blocks locked-UI attachment and
-new SSH by default, and follows visible owner policy for existing SSH. CE-key
-state is proved and reported independently of relock policy. Reboot ends
-ordinary jobs.
+Each account's home and ordinary SSH availability follow that Android user's actual
+unlock and CE authority. Screen relock preserves ordinary jobs and enabled services,
+blocks locked UI attachment and new SSH by default, and follows visible owner policy
+for existing SSH. Account switching is not itself proof of CE withdrawal or an explicit
+whole work Stop. Android user stop, resource policy and actual credential withdrawal
+remain lifecycle events the design must handle. Reboot ends ordinary jobs.
 
 ## Agents
 
-Owner operations remain available independently of any agent or model
-provider. Agents act as attributable principals through scoped, revocable
-delegation and the same inspectable OS operations available to other authorized
-clients. The owner supplies intent and authority; the operating system supplies
-enforcement, state, evidence and recovery.
+Dedicated agent orchestration and delegation architecture is deferred. Build human
+accounts, ordinary programs and inspectable OS interfaces first. Owner operations must
+not require an agent or model provider. Future automation may use those interfaces, but
+a running program does not establish human presence or silently inherit authorization
+to elevate. Additional unattended authority policy would need its own decision and tests.

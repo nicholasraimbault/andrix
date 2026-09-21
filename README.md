@@ -1,8 +1,13 @@
 # Andrix
 
-Andrix is an experimental open-source project to make Android a general-purpose
-mobile computer: one native Android/Bionic system with an owner-controlled Unix
-environment.
+**Andrix is Android you own.** It is an experimental open source OS project for a
+phone its owner can program, compose and administer: one Android/Bionic system,
+with native Unix execution and APKs equally important.
+
+The [accepted vision](docs/vision.md) includes changing Android itself, from a launcher
+or SystemUI to native services and platform components. Good defaults should make it a
+usable phone; those defaults remain replaceable. Daily work uses ordinary accounts,
+with deliberate elevation for system administration.
 
 ## Status: early development
 
@@ -16,6 +21,11 @@ screen relock. Return creates a fresh presentation of the same work; explicit St
 or End terminates it. The tested lifecycle and notification controls have a bounded
 emulator scope. Keep remains off by default while additional failure cases are
 qualified.
+
+The expanded component change workflow, Unix environments for multiple Android users,
+general elevation, owner signing, rolling updates and recommended/custom installer are
+accepted goals, not completed features. The next platform proof is on Cuttlefish, not
+an immediate phone deployment.
 
 This repository contains source and verification tooling, **not a supported OS
 release or a phone installation image**. There is no buildable Pixel deployment
@@ -32,12 +42,19 @@ that is the sound way to build the system. See the
 
 ## Repository scope
 
-This is the Andrix layer, placed at `vendor/andrix` in a separately verified Android
-checkout. It does not contain the full platform tree, private signing keys, build
+This repository currently holds Andrix components and integration inputs, placed at
+`vendor/andrix` in a separately verified Android checkout. That layout is not the
+product boundary: Andrix owns its full OS design, policy, packages, signing and updates.
+It initially uses a pinned GrapheneOS source release as a useful engineering foundation,
+not a ceiling on owner capabilities or a claim of official GrapheneOS support.
+
+The repository does not contain the full platform tree, private signing keys, build
 images, credentials or raw lab captures. GrapheneOS `2026081300`, based on
 `android-17.0.0_r1`, is a reproducible migration anchor, not a permanent update policy.
-Earlier direct-AOSP experiments remain distinct from the adopted foundation.
+Cuttlefish/QEMU is the first testing environment; a mature Pixel product is later work.
+Earlier direct AOSP experiments and Unix proofs remain distinct preserved results.
 
+- [Product vision](docs/vision.md) and [accepted revision](plans/2026-09-21-owner-composable-android.md)
 - [Current product progress and remaining work](plans/current.md)
 - [Prototypes, evidence and long term intent](docs/design-evidence.md)
 - [Accepted architecture](docs/architecture.md)
