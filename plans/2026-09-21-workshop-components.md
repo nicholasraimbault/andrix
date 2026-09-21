@@ -9,7 +9,9 @@ the persistent app update restriction, staged installation path, file/signature/
 checks and restoration data risks. A followup also found an earlier keyguard permission
 gate that defeats assuming a SystemUI factory uninstall fallback. Its recommended first
 proof uses a staged APK update and reboot, not an assumed ordinary install followed by
-process restart.
+process restart. The [execution plan](2026-09-21-systemui-execution-plan.md) now pins the
+candidate baseline, source variants, staging commands and restoration acceptance gates.
+Its source recipe is generated and checked, not applied, built or installed.
 
 ## Goal and boundary
 

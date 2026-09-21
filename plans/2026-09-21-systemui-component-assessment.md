@@ -220,5 +220,7 @@ Before execution, select the baseline, development signing scope, source fixture
 controller/session/reboot handling, storage/resource budget and restoration acceptance
 criteria. No build, signing, installation or reboot is authorized by this source assessment
 alone. Actual failure to support the staged path would require a revised proposal, not a
-relaxed oracle. General on-device elevation/signing, multiple account qualification, fast
-persistent app replacement and Pixel behavior remain separate gates.
+relaxed oracle. The [execution plan](2026-09-21-systemui-execution-plan.md) records the next
+candidate recipe and command protocol; its preparation does not execute those operations.
+General on-device elevation/signing, multiple account qualification, fast persistent app
+replacement and Pixel behavior remain separate gates.

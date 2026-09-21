@@ -9,7 +9,8 @@ Andrix from a Unix focused layer to an owner composable Android OS. Its platform
 separate from the retained Unix milestones:
 
 - [Workshop component workflow](2026-09-21-workshop-components.md), the next Cuttlefish proof,
-  with its [SystemUI source assessment](2026-09-21-systemui-component-assessment.md).
+  with its [SystemUI source assessment](2026-09-21-systemui-component-assessment.md) and
+  [execution plan](2026-09-21-systemui-execution-plan.md).
 - [Owner authority and signing](2026-09-21-owner-authority.md).
 - [Android accounts with Unix](2026-09-21-android-unix-accounts.md).
 - [Rolling composition and installation](2026-09-21-rolling-composition.md).
