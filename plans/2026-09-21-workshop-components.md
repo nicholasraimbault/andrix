@@ -4,6 +4,11 @@ Status: accepted capability and next proof target under the
 [vision revision](2026-09-21-owner-composable-android.md). Procedure and implementation are
 proposals. No new image, signing operation or component restart is qualified here.
 
+The [pinned SystemUI assessment](2026-09-21-systemui-component-assessment.md) now identifies
+the persistent app update restriction, staged installation path, file/signature/version
+checks and restoration data risks. Its recommended first proof uses a staged APK update
+and reboot, not an assumed ordinary install followed by process restart.
+
 ## Goal and boundary
 
 On Cuttlefish/QEMU, change a small visible part of SystemUI, build that component, install
@@ -38,12 +43,17 @@ Do not make a complete OS generation necessary for every subsequent UI iteration
 1. Boot a matching baseline and record the relevant framework, user and component state.
 2. Compile and run an ordinary native owner program as a positive control.
 3. Build a small recognizable SystemUI change against that platform generation.
-4. Install the correctly signed component. Retain a wrong signer or malformed package
-   negative control without broadening ordinary application authority.
-5. Observe the UI change and actual process/restart scope. Record which applications,
-   surfaces, work and framework processes survived or were recreated.
-6. Introduce a recoverable broken component and restore the known good version through
-   the declared independent route. Observe the restored behavior, not just install success.
+4. Stage the correctly signed higher-version APK and its verified sidecar. Observe ready
+   separately from applied. Retain distinct nonstaged, wrong signer and sidecar negative
+   controls without broadening ordinary application authority.
+5. Activate through the proposed reboot path, then observe the UI change and actual scope.
+   Record which applications,
+   surfaces, work and framework processes survived or were recreated. Reboot ends old
+   native jobs; fresh execution afterward is not continuity of their old identities.
+6. Introduce a noncrashing functional fault and restore known good source at a newer
+   version through the declared route. This is not exact older-APK rollback or a crash loop
+   recovery proof. Qualify the independent factory fallback separately, including data loss.
+   Observe the restored behavior, not just install success.
 7. Recheck native work, account/CE state, app boundaries and final resource retirement.
 
 These controls do not promise live replacement of all framework code. A system_server
