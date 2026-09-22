@@ -42,7 +42,8 @@ class StagedSession:
 ROW = re.compile(
     r'sessionId = ([0-9]+); appPackageName = ([A-Za-z0-9_.]+); '
     r'isStaged = (true|false); isReady = (true|false); '
-    r'isApplied = (true|false); isFailed = (true|false); errorMsg = ([^;]*);')
+    r'isApplied = (true|false); isFailed = (true|false); errorMsg = (.*?);'
+    r'(?=\s*sessionId = |$)')
 
 
 def parent_sessions(code, output):
@@ -145,6 +146,7 @@ def intended_rejection(label, message):
         return 'Persistent apps are not updateable.' in message
     if label == 'wrong-signer':
         return ('New package has a different signature: '+PACKAGE in message
+                or 'Existing package '+PACKAGE+' signatures do not match newer version; ignoring!' in message
                 or 'System package update '+PACKAGE+" signature doesn't match the signature of system image package" in message)
     if label == 'missing-sidecar':
         return ('fs-verity not set up for system package update' in message

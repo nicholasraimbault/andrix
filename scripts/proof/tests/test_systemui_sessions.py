@@ -22,10 +22,19 @@ class Tests(unittest.TestCase):
             wrapped='\n'.join(raw[n:n+width] for n in range(0,len(raw),width))
             self.assertEqual([r.identity for r in parent_sessions(1,wrapped)],[12345,456])
     def test_bad_listing_and_exit(self):
-        for code,text in [(0,row()),(-1,row()),(255,row()),(1,'Failure [binder]'),(1,'sessionId = 1; not found'),(1,row()+row()),(1,row(ready='true',failed='true')),(1,row(error='unexpected;embedded delimiter'))]:
+        for code,text in [(0,row()),(-1,row()),(255,row()),(1,'Failure [binder]'),(1,'sessionId = 1; not found'),(1,row()+row()),(1,row(ready='true',failed='true'))]:
             with self.assertRaises(ValueError):parent_sessions(code,text)
         self.assertEqual(parent_sessions(1,''),[])
         with self.assertRaises(ValueError):require_state([],12345,'applied')
+    def test_semicolons_in_failed_session_cause(self):
+        cause='Reverting back to safe state. Reason for revert: Existing package com.android.systemui signatures do not match newer version; ignoring!'
+        text=row(ready='false',failed='true',error=cause)+row(456)
+        wrapped='\n'.join(text.replace('\n','')[n:n+120] for n in range(0,len(text.replace('\n','')),120))
+        records=parent_sessions(1,wrapped)
+        self.assertEqual(require_state(records,12345,'failed').error,cause)
+        self.assertTrue(require_state(records,456,'ready').ready)
+        self.assertTrue(intended_rejection('wrong-signer',cause))
+
     def test_exact_package_and_id(self):
         for records,identity in [(parent_sessions(1,row()),999),(parent_sessions(1,row(package='other.app')),12345),(parent_sessions(1,row(package='null',ready='false')),12345)]:
             with self.assertRaises(ValueError):require_state(records,identity,'ready')

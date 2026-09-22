@@ -112,9 +112,27 @@ saved data afterward. The platform checkpoint path may itself reboot after a fai
 installation. That must be observed, not mistaken for successful activation or a guaranteed
 single reboot.
 
-Remaining gate: run the revised sequence on fresh guest state. It allows up to two negative
-activation attempts before the four positive A/R/B/C steps. Do not patch a running policy,
-relabel an active staging file or reuse a consumed failed fixture.
+The third guest made that negative activation attempt. Package Manager rejected the
+installed package signature mismatch, and the platform performed a checkpoint abort and
+recovery reboot. The observer then stopped because it incorrectly required CE availability
+immediately at boot completion. The genuine lifecycle report was initially unavailable and
+later available, followed by a normal swipe unlock and original clock. This is not a pass
+for the omitted native/data brackets or the remaining component sequence.
+
+The next observer keeps boot completion separate from CE authority. It checks genuine CE
+availability before native submission, after the UI observation. Pure observation may be
+retried against the same boot and package, using fresh evidence names; unknown native
+submission or reboot is not replayed. It also handles semicolons in the actual signer
+refusal text. The full host suite passes 470 checks, with 23 supplied observer checks.
+
+The boot logs also retain an existing session restoration warning: trying to enable file
+verification again on an already protected staged APK returns `File exists`. The current
+platform continued through its package parsing fallback and signature refusal. That warning
+has not been hidden or fixed by this policy change.
+
+Remaining gate: complete the revised sequence on fresh guest state. It allows up to two
+negative activation attempts before the four positive A/R/B/C steps. Do not patch a running
+policy, relabel an active staging file or reuse a consumed failed fixture.
 
 The observer should capture an exact session's actual failure cause when a session
 vanishes during the shell command's readiness wait. Absence or a generic command failure
