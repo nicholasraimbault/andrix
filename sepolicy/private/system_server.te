@@ -1,0 +1,9 @@
+# Nonincremental staged APKs use staging_data_file, not apk_tmp_file.
+# PackageInstaller enables fs-verity before parsing an APK with a v4 sidecar.
+# V4 verification then measures the kernel digest and compares it with that
+# sidecar. Keep verification and the existing installer authority checks intact.
+# Existing platform policy already grants creation and access to these files.
+allowxperm system_server staging_data_file:file ioctl {
+    FS_IOC_ENABLE_VERITY
+    FS_IOC_MEASURE_VERITY
+};
