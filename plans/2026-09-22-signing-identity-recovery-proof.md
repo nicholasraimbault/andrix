@@ -1,7 +1,8 @@
 # Public signing identities and independent recovery
 
-Status: artifact inventory and a finite host recovery vehicle pass. No personal installation
-has been provisioned and no protected Android signer is qualified.
+Status: artifact inventory, a finite host recovery vehicle and ordinary Android age
+interoperability pass. No personal installation has been provisioned and no protected
+Android signer is qualified.
 
 This implements the first bounded controls under the
 [accepted portable recovery default](2026-09-22-installation-key-recovery.md).
@@ -113,6 +114,45 @@ physical erasure. Python memory in this host vehicle is not a protected secret h
 The full host suite passed 494 checks, including 18 supplied identity/manifest controls.
 Two initial model fixture errors were retained and corrected. Supplied records, artifact
 verification, real encryption/signing tests and future Android runtime tests remain separate.
+
+## Ordinary Android execution
+
+The same age source compiled as Android ARM64 PIE executables using the Android linker.
+A fresh guest ran age and age-keygen through the existing ordinary owner work service.
+There was no policy change, package installation or reboot in this control.
+
+A checked ordinary owner profile compiled a bounded input receiver. An exact private ADB
+reverse mapping and host loopback listener delivered only the frozen public tool archive;
+its hash was checked before extraction. The mapping and server thread were then retired.
+Seven supplied observer checks and five real Linux transfer controls preceded this run.
+
+Eight actual tool jobs completed. Disposable native hybrid identities enabled encryption
+on Android and decryption on the host, then encryption on the host and decryption on
+Android. The 168 byte test payload included NUL and other binary bytes. Wrong recipient
+and corrupt ciphertext controls exited with their intended cryptographic errors, while the
+prior successful plaintext hash remained unchanged. The disposable device credential was
+logically removed, all opened caller and work service environments retired, and the final
+owned hierarchy was empty.
+No private credential or raw key payload was recorded. The host equality check was recorded
+without retaining its private decryption identity for a later repeat of that operation.
+
+Two limits are explicit:
+
+- Log review found 90 directory search denials across the compiler, linker, profile,
+  receiver and age executables. Matching denials are present in the earlier package
+  regression. The source contains matching test directory probes during linker
+  configuration selection; no syscall stack was captured. The first assessment's broad
+  zero denial assertion failed and is retained. A separate scoped assessment records the
+  denials while qualifying the successful crypto controls. No permission was added or log
+  suppressed. This is not a denial free runtime result.
+- The initial copy stage recorded requested resource limits but missed actual cgroup
+  readback before its unit disappeared. A separate complete staged input verification ran
+  under measured limits before launch. This does not invent the missing historical
+  measurement. Runtime resource readback and closure were captured separately.
+
+The result establishes ordinary native interoperability, not AndroidKeyStore import,
+protected private material, trusted signing approval or durable provisioning. Those are
+still distinct gates.
 
 ## Remaining gates
 

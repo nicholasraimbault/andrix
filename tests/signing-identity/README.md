@@ -30,6 +30,10 @@ The real recovery controls exercise five keys, six uses, challenge signing and s
 refusals, including a fresh valid ciphertext with substituted contents and a damaged final
 chunk after valid plaintext was emitted by raw age. No partial private output is published.
 This is not proof of protected Android custody, atomic provisioning or physical erasure.
+The same source also compiled and ran as ordinary Android native age tools in a separate
+finite interoperability test. That result likewise does not establish protected signing or
+key import. Its directory probe denials and staging observation limit are retained in the
+qualification record.
 
 Run the supplied parser/model checks with:
 
