@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "tool": "filippo.io/age",
+  "release": "v1.3.2",
+  "upstream_revision": "b74dce4cdbe35b5e5f66c06d9612b72f89028758",
+  "source_url": "https://proxy.golang.org/filippo.io/age/@v/v1.3.2.zip",
+  "source_zip_sha256": "531f9b8b966827d356766c024a1ae86bbcaef21caf58ccbe56f378f0a6ce59f7",
+  "go_mod_sha256": "05dbd7dee5f80e6cf918465356ea24ec0077bcbdc487741e632405d23e81a2bc",
+  "go_sum_sha256": "5480abea1030f2e6984601f8ef1c00337cf53dfa969e80a2447be8d45cebf3b6",
+  "source_minimum_go": "1.25.0",
+  "upstream_release_toolchain_directive": "go1.27.0",
+  "observed_proof_compiler": "go1.25.4",
+  "compiler_selection": "GOTOOLCHAIN=local; not upstream release binary equivalence",
+  "dependencies": "exact upstream go.sum; locally supplied module bytes, no shell network or automatic toolchain download",
+  "crypto_scope": "native age hybrid recipient for disposable recovery controls",
+  "product_hardware_custody_qualified": false
+}

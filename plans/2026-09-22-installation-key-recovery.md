@@ -90,10 +90,15 @@ session observation and explicit interruption/recovery transactions can use an o
 signing identity. The completed development key proofs remain separate from personal key
 custody qualification.
 
-First inventory the trust relationships of the selected installation inputs and define
-exact public identity records. Then select a maintained recovery container and protected
-signing mechanism against the accepted requirements, with an explicit rationale and tests.
-Do not invent cryptography or assume hardware generated keys can be exported later.
+The first [identity and recovery vehicle](2026-09-22-signing-identity-recovery-proof.md)
+observes selected artifact identities and tests independent host recovery with age, OpenSSL
+and the pinned AVB encoder. A public manifest commitment binds exact identities and signing
+uses; decryption alone does not establish which installation the owner intended to recover.
+The host result is not protected device custody or a complete installation trust inventory.
+
+Complete the relevant trust inventory and qualify device import, protected signing and
+durable provisioning against the accepted requirements. Do not invent cryptography or
+assume hardware generated keys can be exported later.
 
 Use disposable development identities to test provisioning, independent recovery to the
 same public identities, wrong credentials, corrupt or incomplete bundles, interrupted
