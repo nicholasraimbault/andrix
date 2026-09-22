@@ -37,4 +37,32 @@ class Tests(unittest.TestCase):
         for code,text in [(1,READY),(0,'Success\nnoise'),(1,'Error [-1] [failed]'),(-15,''),(0,'')]:
             self.assertEqual(commit_observation(code,text),'unknown')
 
+
+from scripts.proof.systemui_sessions import historical_failure, intended_rejection
+
+class HistoricalTests(unittest.TestCase):
+    def dump(self, message, status=-7, installer=2000, package='com.android.systemui', applied='false'):
+        body=(f'userId=0 mOriginalInstallerUid=2000 mInstallerUid={installer} '\
+              f'mFinalStatus={status} mFinalMessage={message} mParentSessionId=-1 '\
+              f'mSessionApplied={applied} mSessionFailed=true mSessionReady=false '\
+              f'mAppPackageName={package} mInitialVerificationPolicy=0 ')
+        return 'Historical install sessions:\n  Session 71:\n'+''.join('    '+body[n:n+116]+'\n' for n in range(0,len(body),116))+'Legacy install sessions:\n'
+    def test_exact_historical_cause(self):
+        text='New package has a different signature: com.android.systemui'
+        found=historical_failure(0,self.dump(text),71)
+        self.assertEqual(found.message,text)
+        self.assertTrue(intended_rejection('wrong-signer',found.message))
+    def test_reject_wrong_identity_principal_and_success(self):
+        for text,ident in [(self.dump('error'),72),(self.dump('error',installer=0),71),(self.dump('error',status=1),71),(self.dump('error',package='other.app'),71),(self.dump('error',applied='true'),71),(self.dump('error').replace('Legacy install sessions:',''),71)]:
+            with self.assertRaises(ValueError):historical_failure(0,text,ident)
+    def test_io_error_is_not_a_signer_negative(self):
+        text='INSTALL_FAILED_BAD_SIGNATURE: Failed to enable fs-verity to verify with idsig: Permission denied'
+        self.assertFalse(intended_rejection('wrong-signer',text))
+        self.assertFalse(intended_rejection('missing-sidecar',text))
+        self.assertTrue(intended_rejection('missing-sidecar',"fs-verity not set up for system package update: APK doesn't have fs-verity: /data/app-staging/session_71/base.apk"))
+    def test_absence_duplicate_truncation_or_command_failure_not_rejection(self):
+        text=self.dump('error')
+        for code,data in [(1,text),(0,''),(0,text.replace('  Session 71:', '  Session 71:\n  Session 71:')),(0,text.replace('mFinalStatus=', 'mFinalStatus=-7 mFinalStatus='))]:
+            with self.assertRaises(ValueError):historical_failure(code,data,71)
+
 if __name__=='__main__':unittest.main()

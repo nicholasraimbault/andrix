@@ -81,3 +81,73 @@ def require_state(rows, identity, state, package=PACKAGE):
     if not getattr(row, state):
         raise ValueError('Requested session state not observed')
     return row
+
+
+@dataclass(frozen=True)
+class HistoricalFailure:
+    identity: int
+    installer_uid: int
+    user: int
+    package: str
+    status: int
+    message: str
+
+
+def historical_failure(code, output, identity, package=PACKAGE):
+    """Inspect an exact removed session, not absence from the live session list.
+
+    Pinned `dumpsys package installs` supplies these volatile historical records.
+    This is not durable receipt recovery. Ambiguous/truncated formats are refused.
+    """
+    if code != 0 or len(output) > 4 * 1024 * 1024:
+        raise ValueError('Historical session dump unavailable')
+    if output.count('Historical install sessions:') != 1:
+        raise ValueError('No unique historical session section')
+    section = output.split('Historical install sessions:', 1)[1]
+    if section.count('Legacy install sessions:') != 1:
+        raise ValueError('Historical session dump truncated or ambiguous')
+    section = section.split('Legacy install sessions:', 1)[0]
+    headers = list(re.finditer(r'(?m)^\s*Session ([0-9]+):[ \t]*$', section))
+    matches = [i for i, header in enumerate(headers) if int(header[1]) == identity]
+    if len(matches) != 1:
+        raise ValueError('Exact historical session not found uniquely')
+    i = matches[0]
+    raw = section[headers[i].end():headers[i+1].start() if i+1 < len(headers) else len(section)]
+    # The dump uses indentation and hard wrapping, possibly inside a field name.
+    # Keep the original command output separately; this is the parsing view only.
+    text = ''.join(line.lstrip() for line in raw.splitlines())
+
+    def scalar(name, expression):
+        values = re.findall(r'(?<![A-Za-z0-9_])'+re.escape(name)+r'=('+expression+r')(?=\s|$)', text)
+        if len(values) != 1:
+            raise ValueError('Historical field missing or ambiguous: '+name)
+        return values[0]
+
+    user = int(scalar('userId', r'[0-9]+'))
+    installer = int(scalar('mInstallerUid', r'[0-9]+'))
+    original = int(scalar('mOriginalInstallerUid', r'[0-9]+'))
+    target = scalar('mAppPackageName', r'[A-Za-z0-9_.]+')
+    status = int(scalar('mFinalStatus', r'-?[0-9]+'))
+    applied = scalar('mSessionApplied', r'true|false')
+    ready = scalar('mSessionReady', r'true|false')
+    if (user != 0 or installer != 2000 or original != 2000 or target != package
+            or status >= 0 or applied != 'false' or ready != 'false'):
+        raise ValueError('Historical record is not this shell/user/package rejection')
+    messages = re.findall(r'(?<![A-Za-z0-9_])mFinalMessage=(.*?)\s+mParentSessionId=', text)
+    if len(messages) != 1 or not messages[0] or messages[0] == 'null':
+        raise ValueError('No unambiguous terminal failure cause')
+    return HistoricalFailure(identity, installer, user, target, status, messages[0])
+
+
+def intended_rejection(label, message):
+    """Match the cause, not generic status names such as BAD_SIGNATURE."""
+    if label == 'nonstaged':
+        return 'Persistent apps are not updateable.' in message
+    if label == 'wrong-signer':
+        return ('New package has a different signature: '+PACKAGE in message
+                or 'System package update '+PACKAGE+" signature doesn't match the signature of system image package" in message)
+    if label == 'missing-sidecar':
+        return ('fs-verity not set up for system package update' in message
+                and "APK doesn't have fs-verity:" in message
+                and 'Permission denied' not in message)
+    raise ValueError('Unknown negative control')

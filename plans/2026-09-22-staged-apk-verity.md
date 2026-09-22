@@ -2,8 +2,8 @@
 
 Status: the first SystemUI runtime stopped at an earlier SELinux refusal. The narrow
 correction passes normal and selected Android policy compilation. Both decoded policies
-add exactly the two required ioctls, with no other access changes. A new matching image and
-runtime are still required.
+add exactly the two required ioctls, with no other access changes. A matching selected
+image is now built and verified. A fresh runtime is still required.
 
 ## Observed failure
 
@@ -86,13 +86,20 @@ although the accepted owner bridge deliberately changes `private/domain.te`. It 
 before compilation. That failed record is retained. The corrected observer verifies the
 existing bridge through its digest guarded inspector, rather than reverting or ignoring it.
 
-Remaining gates:
+A subsequent selected image contains that exact compiled policy. Thirteen frozen native
+controls passed, and the original factory SystemUI version 37 was rebuilt and verified
+byte for byte against the component baseline. Temporary init/LMKD adaptations were restored.
+No complete normal image was produced in this step. The new image is not runtime qualified.
 
-1. Produce and verify a coherent image with the corrected policy. Do not patch a running
-   policy or relabel an active staging file to get the test through.
-2. Reuse the sealed APK pairs only after confirming the new image's factory package and
-   dependency compatibility. Keep source, signing and file verification guards.
-3. Run the declared sequence on fresh guest state, not the consumed failed fixture.
+The observer now checks exact historical session identity, shell installer identity, user,
+package and terminal cause when the shell loses live `SessionInfo`. It rejects generic
+`BAD_SIGNATURE` as a wrong signer result, since file verification setup failures use that
+code too. Four additional parser tests bring the full host suite to 469 checks. Fifteen
+supplied observer checks passed. Historical observations are volatile, not durable receipts.
+
+Remaining gate: run the declared sequence on fresh guest state with this coherent image
+and the compatible sealed APK pairs. Do not patch a running policy, relabel an active
+staging file or reuse the consumed failed fixture.
 
 The observer should capture an exact session's actual failure cause when a session
 vanishes during the shell command's readiness wait. Absence or a generic command failure
