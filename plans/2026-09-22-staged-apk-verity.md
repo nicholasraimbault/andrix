@@ -97,9 +97,24 @@ package and terminal cause when the shell loses live `SessionInfo`. It rejects g
 code too. Four additional parser tests bring the full host suite to 469 checks. Fifteen
 supplied observer checks passed. Historical observations are volatile, not durable receipts.
 
-Remaining gate: run the declared sequence on fresh guest state with this coherent image
-and the compatible sealed APK pairs. Do not patch a running policy, relabel an active
-staging file or reuse the consumed failed fixture.
+The next fresh guest passed the baseline and ordinary update refusal again. Its staged
+wrong signer APK/v4 pair reached ready without the earlier file verification denial. The
+observer had incorrectly expected rejection before that state, so this attempt stopped and
+abandoned the exact session successfully. It did not activate that APK or reboot. The
+failure and readiness record remain separate from any later successful test.
+
+`PackageSessionVerifier` can mark an APK session ready before the installed package
+replacement checks run. `StagingManager` installs its APKs during boot. Ready therefore does
+not establish signer compatibility with the installed package. The revised negative
+controls must observe their exact rejection cause either before readiness or during the
+activation attempt, plus the unchanged factory package, working UI, native execution and
+saved data afterward. The platform checkpoint path may itself reboot after a failed
+installation. That must be observed, not mistaken for successful activation or a guaranteed
+single reboot.
+
+Remaining gate: run the revised sequence on fresh guest state. It allows up to two negative
+activation attempts before the four positive A/R/B/C steps. Do not patch a running policy,
+relabel an active staging file or reuse a consumed failed fixture.
 
 The observer should capture an exact session's actual failure cause when a session
 vanishes during the shell command's readiness wait. Absence or a generic command failure
