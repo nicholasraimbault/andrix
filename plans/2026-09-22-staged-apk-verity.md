@@ -1,7 +1,9 @@
 # Staged APK file verification integration
 
-Status: the first SystemUI runtime stopped at an earlier SELinux refusal. A narrow policy
-correction is implemented in source, not yet qualified by compiled policy or a new runtime.
+Status: the first SystemUI runtime stopped at an earlier SELinux refusal. The narrow
+correction passes normal and selected Android policy compilation. Both decoded policies
+add exactly the two required ioctls, with no other access changes. A new matching image and
+runtime are still required.
 
 ## Observed failure
 
@@ -71,16 +73,26 @@ The correction belongs to common platform integration, not the Unix work supervi
 special test caller. The current board already includes that policy directory outside the
 owner environment selection. No new policy selection switch is needed.
 
-## Gates before another runtime
+## Qualification and remaining gates
 
-1. Compile normal and selected Android policy with existing neverallow checks intact.
-2. Compare the decoded compiled policy against the corresponding qualified baseline.
-   Require only the two intended extended ioctl additions, with other access unchanged.
-3. Produce and verify a coherent image with the corrected policy. Do not patch a running
+The host suite passed 465 checks. Normal and selected Android policy builds passed with
+existing neverallow checks. Each decoded binary policy differs from its corresponding
+qualified baseline by exactly one extended rule, covering only `0x6685` and `0x6686` for
+`system_server` on `staging_data_file:file`. No rule was removed and the existing boundary
+checks passed. Framework and the accepted owner policy bridge remained unchanged.
+
+An initial observer incorrectly required an entirely clean upstream policy checkout,
+although the accepted owner bridge deliberately changes `private/domain.te`. It stopped
+before compilation. That failed record is retained. The corrected observer verifies the
+existing bridge through its digest guarded inspector, rather than reverting or ignoring it.
+
+Remaining gates:
+
+1. Produce and verify a coherent image with the corrected policy. Do not patch a running
    policy or relabel an active staging file to get the test through.
-4. Reuse the sealed APK pairs only after confirming the new image's factory package and
+2. Reuse the sealed APK pairs only after confirming the new image's factory package and
    dependency compatibility. Keep source, signing and file verification guards.
-5. Run the declared sequence on fresh guest state, not the consumed failed fixture.
+3. Run the declared sequence on fresh guest state, not the consumed failed fixture.
 
 The observer should capture an exact session's actual failure cause when a session
 vanishes during the shell command's readiness wait. Absence or a generic command failure
