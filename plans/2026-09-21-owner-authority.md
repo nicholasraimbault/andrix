@@ -36,6 +36,9 @@ available to ordinary programs in the home directory. A protected signing facili
 explicit owner authorization is a candidate. Key custody, exportability, backup, recovery
 when the device cannot boot and compatibility with later locked operation remain open.
 Protecting keys does not mean making the owner dependent on an unavailable vendor service.
+The [installation identity recovery proposal](2026-09-22-installation-key-recovery.md)
+is the next explicit decision before implementing personal key provisioning. It recommends
+an owner held encrypted backup by default, but that default is not yet accepted.
 
 ## Update and failure behavior
 

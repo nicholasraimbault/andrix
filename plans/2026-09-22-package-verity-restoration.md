@@ -1,8 +1,7 @@
 # Idempotent file verification setup for restored APK sessions
 
-Status: the local framework patch, exact method tests and guarded source cycle pass.
-The corrected framework and matching selected image are built. Runtime remains to be
-qualified.
+Status: the local framework patch, exact method tests, guarded source cycle, matching
+selected image and finite Android regression passed.
 
 ## Observed problem
 
@@ -70,7 +69,7 @@ including the upstream duplicate setup failure, successful repeated/restored set
 missing sidecars, mixed batches and inspection/setup errors. These supplied state tests
 are not kernel or cryptographic qualification.
 
-## Qualification and remaining gate
+## Qualification
 
 Apply, inspect, revert and reapply passed against the actual pinned framework, with the
 accepted CE changes preserved. The exact upstream method model failed on `EEXIST`; the
@@ -89,11 +88,32 @@ identified limits of the sealing argument. Primary review also checked the physi
 staging directory setup and the higher level V4 error/fallback handling. These are source
 findings, not runtime clearance.
 
-The remaining gate is a fresh regression guest. Exercise A38 and good source restoration
-R39, and require normal restored validation without the redundant enable error or missing
-`PackageLite` fallback. Retain signer and missing sidecar controls, and add a deliberately
-mismatched pair made from the existing A APK and R sidecar. A correct kernel flag alone
-must not make an invalid pair or unauthorized signer acceptable.
+A fresh guest completed the regression on the matching `34fbb7d` image:
+
+- A38 activated with the visible clock marker, then R39 restored the original behavior.
+  Active package bytes, UID/MAC, real CE authority, fresh native execution and saved data
+  were checked.
+- Ordinary nonstaged SystemUI replacement remained refused.
+- Wrong signer and missing sidecar inputs remained refused during activation, with the
+  existing checkpoint recovery and subsequent factory/UI/native/data positives.
+- The deliberately mismatched A APK and R sidecar were rejected before readiness with
+  `Actual digest does not match the v4 signature`. The exact historical session supplied
+  that cause when the shell's live session lookup no longer could.
+- The complete guest log contained neither the old redundant enable `File exists` error
+  nor the missing `PackageLite` restoration fallback. Signature and file verification
+  errors for the deliberately invalid inputs remained visible.
+
+The final owned hierarchy was empty, shutdown completed, volatile RAM backing disappeared,
+and the frozen inputs and complete packet capture were checked before sealing the record.
+Three read only hierarchy observations reported success without producing a file. Those
+failures were retained and later observation used new evidence names. One prematurely
+queued next control was refused by the phase guard before creating any transaction. The
+later intended transaction was submitted once, after the prerequisite observations passed.
+
+The full host suite passed 476 checks, with 24 supplied observer checks and 13 frozen
+native controls in the selected image. The runtime qualifies this finite restored session
+path and its invalid input controls. It does not establish arbitrary concurrency, every
+filesystem, personal signing custody, data migration or general crash recovery.
 
 No live policy patch, global error suppression or change to ordinary user authority is part
 of this correction. The completed earlier component proof and its warnings remain intact.
