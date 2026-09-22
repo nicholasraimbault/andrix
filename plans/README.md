@@ -14,8 +14,9 @@ separate from the retained Unix milestones:
   [staged verification policy correction](2026-09-22-staged-apk-verity.md) and the
   [finite SystemUI runtime qualification](2026-09-22-systemui-component-runtime.md), then
   the [session restoration correction](2026-09-22-package-verity-restoration.md).
-- [Installation signing identity recovery](2026-09-22-installation-key-recovery.md) is a
-  pending design decision, not a selected key provisioning policy.
+- [Installation signing identity recovery](2026-09-22-installation-key-recovery.md) accepts
+  portable encrypted recovery and protected device signing as the default. Provisioning
+  mechanisms remain to be implemented and qualified.
 - [Owner authority and signing](2026-09-21-owner-authority.md).
 - [Android accounts with Unix](2026-09-21-android-unix-accounts.md).
 - [Rolling composition and installation](2026-09-21-rolling-composition.md).

@@ -1,23 +1,38 @@
 # Installation signing identity and recovery
 
-Status: proposed default awaiting an owner decision. No personal installation keys have
-been generated or provisioned. This is a decision under the accepted
-[authority and signing contract](2026-09-21-owner-authority.md), not a request for permission
-to run another laboratory test.
+Status: accepted default on 2026-09-22 under the
+[authority and signing contract](2026-09-21-owner-authority.md). Provisioning remains to be
+implemented. No personal installation keys have been generated or provisioned.
 
-## Decision needed
+## Accepted decision
 
-Should the recommended personal installation support recovering the same signing identity
-from an owner held encrypted backup, or deliberately bind that identity to one device
-without a recoverable private key copy?
+**The recommended personal installation provides a portable encrypted recovery bundle
+under the owner's control, with a separately protected signing copy on the device.**
+Recovery of the same installation signing identity must not depend on the original device
+remaining usable or on approval from Andrix or a vendor service.
 
-**Recommendation: require a portable encrypted recovery bundle by default**, with a
-separately protected signing copy on the device. A device bound mode could remain a later
-advanced choice. The backup would contain high authority key material, never a universal
+Daily programs do not receive platform signing material or authority merely because they
+run in an owner's account. Signing and deployment require deliberate administrative
+authorization. The recovery bundle contains high authority material, never a universal
 project private key and never plaintext material silently placed in an ordinary home.
 
-This decides the recovery requirement before implementing the personal key provisioner and
-backup format. It does not decide every UI, encryption parameter or hardware backend.
+This is the recommended recovery policy, not a prohibition on an owner choosing a device
+bound mode later. It selects the recovery requirement before the personal key provisioner
+and backup format. UI details, encryption parameters, hardware backends and recovery
+verification remain engineering work rather than capabilities inferred from this decision.
+
+## Rationale
+
+The owner should retain practical authority to maintain the system after hardware loss or
+reinstallation. Preserving signing identity also avoids making every recovery depend on
+unqualified key rotation across Android's different package and boot trust relationships.
+The cost is a valuable backup outside the original hardware boundary, whose protection and
+loss behavior must be designed and tested explicitly.
+
+This combines established ownership patterns rather than requiring a new cryptographic
+primitive: owner controlled boot and package trust, protected routine use and independent
+recovery. The Android implementation must still respect its actual identity and authority
+relationships.
 
 ## The alternatives
 
@@ -68,14 +83,25 @@ backup and an imported device copy; it does not imply export of a hardware gener
 Hardware support and assurance still require separate qualification. Cuttlefish does not
 establish those hardware properties.
 
-## Work that can proceed independently
+## Next implementation gates
 
 Component source/artifact manifests, compatibility checks, operation ownership, staged
 session observation and explicit interruption/recovery transactions can use an opaque
-signing identity without deciding its custody. The completed development key proofs
-remain useful, but do not choose this personal installation policy.
+signing identity. The completed development key proofs remain separate from personal key
+custody qualification.
 
-The choice becomes necessary for the next implementation step that creates long lived
-personal installation identities and determines what a recovery bundle can restore.
-Default recoverability should not be decided accidentally by whichever key generation API
-is easiest to call first.
+First inventory the trust relationships of the selected installation inputs and define
+exact public identity records. Then select a maintained recovery container and protected
+signing mechanism against the accepted requirements, with an explicit rationale and tests.
+Do not invent cryptography or assume hardware generated keys can be exported later.
+
+Use disposable development identities to test provisioning, independent recovery to the
+same public identities, wrong credentials, corrupt or incomplete bundles, interrupted
+writes and refused ordinary callers. Recovery tests must not depend on retaining the
+original signer process or device storage. Personal keys, credentials and raw recovery
+material must never enter source control or public evidence.
+
+Successful recovery of private material does not authorize installation or activation.
+Initial personalization and any later key migration still need their own compatibility,
+interruption and recovery checks. No live rekeying or user data recovery is qualified by
+accepting this default.

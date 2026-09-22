@@ -33,12 +33,15 @@ Preserve third party application identities rather than indiscriminately resigni
 
 On-device component signing is a goal, but platform private material must not be silently
 available to ordinary programs in the home directory. A protected signing facility with
-explicit owner authorization is a candidate. Key custody, exportability, backup, recovery
-when the device cannot boot and compatibility with later locked operation remain open.
-Protecting keys does not mean making the owner dependent on an unavailable vendor service.
-The [installation identity recovery proposal](2026-09-22-installation-key-recovery.md)
-is the next explicit decision before implementing personal key provisioning. It recommends
-an owner held encrypted backup by default, but that default is not yet accepted.
+explicit owner authorization is a candidate mechanism. The
+[accepted installation identity recovery default](2026-09-22-installation-key-recovery.md)
+requires an owner held portable encrypted backup and a protected device signing copy.
+Recovery must not depend on the original device remaining usable or on vendor approval.
+
+The recovery format, authorization mechanism, hardware backend and compatibility with
+later locked operation still require design and qualification. A device bound mode remains
+a possible advanced choice, not the recommended default. No personal key provisioning or
+live rekeying is qualified by this policy decision.
 
 ## Update and failure behavior
 

@@ -69,9 +69,12 @@ Having an account does not automatically confer administration or signing author
 
 Andrix distribution signatures establish provenance. The individual owner must have a
 practical path to controlling the installed system's trust and deployment authority.
-There is no universal private platform key handed to every user. Key custody, protected
-signing and recovery must serve that ownership without silently giving everyday programs
-the power to sign trusted system replacements.
+There is no universal private platform key handed to every user. The accepted default is
+an owner held portable encrypted recovery bundle and a protected device signing copy.
+Recovering installation signing authority must not require the original hardware or vendor
+approval. Key custody and recovery must serve that ownership without silently giving
+everyday programs the power to sign trusted system replacements. This is a product
+requirement, not a claim that personal key provisioning or user data recovery is implemented.
 
 ## Useful defaults, replaceable choices
 

@@ -166,10 +166,17 @@ keys, platform APK identities, APEX signing and verified boot are distinct relat
 not interchangeable proof of authority.
 
 On-device component signing is a goal. Platform private material must not silently become
-available to everyday programs. Protected signing, initial personalization, certificate
-continuity, backup and recovery remain design work. This replaces the earlier absolute
-requirement that all private signing keys stay off the phone, not the requirement to
-protect keys or provide recovery material when the phone is unavailable.
+available to everyday programs. The [accepted recovery default](../plans/2026-09-22-installation-key-recovery.md)
+is an owner held portable encrypted recovery bundle, with a separately protected signing
+copy on the device. Recovery of the installation signing identity must not require the
+original hardware or approval from Andrix or a vendor service. An account does not by itself
+confer signing or deployment authority.
+
+Protected signing mechanisms, initial personalization, certificate continuity and the
+recovery format remain implementation and qualification work. A signing identity backup
+is not a backup of CE keys, hardware bound application secrets or user data. This replaces
+the earlier absolute requirement that all private signing keys stay off the phone, not
+the requirement to protect keys or support independent recovery.
 
 Signed software is not automatically safe. The trusted computing base includes code,
 policy, services and hardware/firmware relied on for the relevant guarantee. Ordinary
