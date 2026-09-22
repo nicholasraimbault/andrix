@@ -11,7 +11,8 @@ separate from the retained Unix milestones:
 - [Workshop component workflow](2026-09-21-workshop-components.md), the next Cuttlefish proof,
   with its [SystemUI source assessment](2026-09-21-systemui-component-assessment.md) and
   [execution plan](2026-09-21-systemui-execution-plan.md), followed by the
-  [staged verification policy correction](2026-09-22-staged-apk-verity.md).
+  [staged verification policy correction](2026-09-22-staged-apk-verity.md) and the
+  [finite SystemUI runtime qualification](2026-09-22-systemui-component-runtime.md).
 - [Owner authority and signing](2026-09-21-owner-authority.md).
 - [Android accounts with Unix](2026-09-21-android-unix-accounts.md).
 - [Rolling composition and installation](2026-09-21-rolling-composition.md).

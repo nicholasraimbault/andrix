@@ -11,7 +11,9 @@ gate that defeats assuming a SystemUI factory uninstall fallback. Its recommende
 proof uses a staged APK update and reboot, not an assumed ordinary install followed by
 process restart. The [execution plan](2026-09-21-systemui-execution-plan.md) now pins the
 candidate baseline, source variants, staging commands and restoration acceptance gates.
-Its source recipe is generated and checked, not applied, built or installed.
+The [finite runtime qualification](2026-09-22-systemui-component-runtime.md) now covers
+component builds, staged installation, visible changes and forward source restoration.
+It does not complete owner key custody, general elevation or the workshop product.
 
 ## Goal and boundary
 

@@ -3,7 +3,9 @@
 Status: the first SystemUI runtime stopped at an earlier SELinux refusal. The narrow
 correction passes normal and selected Android policy compilation. Both decoded policies
 add exactly the two required ioctls, with no other access changes. A matching selected
-image is now built and verified. A fresh runtime is still required.
+image was built and verified. The subsequent
+[finite SystemUI runtime](2026-09-22-systemui-component-runtime.md) passed the corrected
+activation, rejection and forward restoration controls.
 
 ## Observed failure
 
@@ -130,9 +132,11 @@ verification again on an already protected staged APK returns `File exists`. The
 platform continued through its package parsing fallback and signature refusal. That warning
 has not been hidden or fixed by this policy change.
 
-Remaining gate: complete the revised sequence on fresh guest state. It allows up to two
-negative activation attempts before the four positive A/R/B/C steps. Do not patch a running
-policy, relabel an active staging file or reuse a consumed failed fixture.
+A fourth fresh guest completed the two negative activation attempts and all four positive
+A/R/B/C steps, with actual package, UI, native/data and final closure checks. The
+[runtime qualification](2026-09-22-systemui-component-runtime.md) records the finite scope
+and retained observation failures. No running policy patch, active file relabel or consumed
+guest reuse was used.
 
 The observer should capture an exact session's actual failure cause when a session
 vanishes during the shell command's readiness wait. Absence or a generic command failure

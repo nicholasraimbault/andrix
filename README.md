@@ -22,10 +22,14 @@ or End terminates it. The tested lifecycle and notification controls have a boun
 emulator scope. Keep remains off by default while additional failure cases are
 qualified.
 
-The expanded component change workflow, Unix environments for multiple Android users,
-general elevation, owner signing, rolling updates and recommended/custom installer are
-accepted goals, not completed features. The next platform proof is on Cuttlefish, not
-an immediate phone deployment.
+A first [SystemUI component workflow](plans/2026-09-22-systemui-component-runtime.md)
+passed on Cuttlefish: focused builds, staged APK activation, visible changes and forward
+restoration, with native execution and saved test data checked afterward. It used host
+assistance and development keys, not a finished owner signing or elevation interface.
+
+General component tooling, Unix environments for multiple Android users, elevation,
+protected owner signing, rolling updates and the recommended/custom installer remain
+accepted goals, not completed features.
 
 This repository contains source and verification tooling, **not a supported OS
 release or a phone installation image**. There is no buildable Pixel deployment
