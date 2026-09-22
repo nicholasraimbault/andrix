@@ -139,13 +139,20 @@ def inspect(root):
     staged = source.run(project, *flags, 'diff', '--no-ext-diff', '--no-textconv',
                         '--cached', '--name-only', '--')[1].decode().splitlines()
     others = source.run(project, 'ls-files', '--others', '--exclude-standard')[1].decode().splitlines()
-    expected_modified = sorted(name for name in FILES if states[name] == 'ADAPTED')
+    # Framework adaptations share one exact tree fence. Recognizing the package
+    # companion requires its pinned original/candidate bytes, not a path exception.
+    import package_verity
+    _, _, package = package_verity.inspect_file(project)
+    expected_modified = [name for name in FILES if states[name] == 'ADAPTED']
+    if package['state'] == 'ADAPTED':
+        expected_modified.append(package_verity.FILE)
     expected_others = [ADDED] if states[ADDED] == 'ADAPTED' else []
-    if staged or sorted(modified) != expected_modified or others != expected_others:
+    if staged or sorted(modified) != sorted(expected_modified) or others != expected_others:
         raise ValueError('other staged/tracked/untracked framework changes')
     state = next(iter(set(states.values()))) if len(set(states.values())) == 1 else 'PARTIAL'
     return project, original, target, {'project': PROJECT, 'head': HEAD, 'state': state,
         'files': states, 'profile_sha256': sha(PROFILE.read_bytes()),
+        'package_verity_companion': package,
         'new_apk_authority': False, 'synchronous_cleanup_barrier': False, 'runtime_proved': False}
 
 

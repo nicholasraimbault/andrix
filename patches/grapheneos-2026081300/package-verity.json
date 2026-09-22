@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "project": "frameworks/base",
+  "head": "aab06a8bd44c4c2b58eeec780fde83baa9d43a40",
+  "file": "services/core/java/com/android/server/pm/PackageInstallerSession.java",
+  "upstream_sha256": "5ff683567eef824f49bb0e6f1eb9cee1c506ad6ac688970d20802506564a1216",
+  "candidate_sha256": "fb26726b625a3d5bd558fed57c22ac06927defb45d3535fa57479693bf865d02",
+  "patch_sha256": "a2c07d00c3413dc1179a88806c665d7f486adad5a260268dd19b3293f5fcf63d",
+  "method_fixture_sha256": "fc5a6ee947650f82191f19fef0c4671492476d98bd491788430e160c14339e58",
+  "scope": "idempotent fs-verity setup for persisted APK sessions, no signature or policy bypass",
+  "upstream_method_sha256": "de5928ae3053be6f65f8c0851e684cafac6129d3041695cb9f995ce0fbb63cbe"
+}

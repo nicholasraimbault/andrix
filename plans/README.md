@@ -12,7 +12,8 @@ separate from the retained Unix milestones:
   with its [SystemUI source assessment](2026-09-21-systemui-component-assessment.md) and
   [execution plan](2026-09-21-systemui-execution-plan.md), followed by the
   [staged verification policy correction](2026-09-22-staged-apk-verity.md) and the
-  [finite SystemUI runtime qualification](2026-09-22-systemui-component-runtime.md).
+  [finite SystemUI runtime qualification](2026-09-22-systemui-component-runtime.md), then
+  the [session restoration correction](2026-09-22-package-verity-restoration.md).
 - [Owner authority and signing](2026-09-21-owner-authority.md).
 - [Android accounts with Unix](2026-09-21-android-unix-accounts.md).
 - [Rolling composition and installation](2026-09-21-rolling-composition.md).

@@ -1,0 +1,122 @@
+// SPDX-License-Identifier: Apache-2.0
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+public final class VeritySetupHarness {
+    @interface GuardedBy { String value(); }
+    static final class V4Signature { static final String EXT = ".idsig"; }
+    static final class PackageManager { static final int INSTALL_FAILED_BAD_SIGNATURE = -118; }
+    static class PackageManagerException extends Exception {
+        final int error;
+        PackageManagerException(int error, String message) { super(message); this.error = error; }
+    }
+    static final class PrepareFailure extends PackageManagerException {
+        PrepareFailure(int error, String message) { super(error, message); }
+    }
+    static final class Metrics {
+        long bytes;
+        int calls;
+        void onFsVerityEnabledApksSizeBytesCalculated(long value) { bytes = value; calls++; }
+    }
+    static final class VerityUtils {
+        static final Set<String> enabled = new HashSet<>();
+        static int checks;
+        static int enables;
+        static boolean inspectionError;
+        static boolean enableError;
+        static boolean hasFsverity(String path) {
+            checks++;
+            return !inspectionError && enabled.contains(path);
+        }
+        static void setUpFsverity(String path) throws IOException {
+            enables++;
+            if (enableError) throw new IOException("EACCES");
+            if (!enabled.add(path)) throw new IOException("EEXIST");
+        }
+        static void reset() {
+            enabled.clear(); checks = enables = 0; inspectionError = enableError = false;
+        }
+    }
+    final Metrics mMetrics = new Metrics();
+    final List<File> files = new ArrayList<>();
+    List<File> getAddedApksLocked() { return files; }
+
+@METHOD@
+
+    static void need(boolean value) { if (!value) throw new AssertionError(); }
+    File apk(Path root, String name, int length, boolean sidecar) throws IOException {
+        Path path = root.resolve(name);
+        Files.write(path, new byte[length]);
+        if (sidecar) Files.write(root.resolve(name + ".idsig"), new byte[]{1});
+        File file = path.toFile(); files.add(file); return file;
+    }
+    static void expectFailure(VeritySetupHarness h, String cause) throws Exception {
+        try {
+            h.enableFsVerityToAddedApksWithIdsig();
+            throw new AssertionError("failure silently accepted");
+        } catch (PrepareFailure error) {
+            need(error.error == PackageManager.INSTALL_FAILED_BAD_SIGNATURE);
+            need(error.getMessage().contains(cause));
+            need(h.mMetrics.calls == 0);
+        }
+    }
+    public static void main(String[] args) throws Exception {
+        Path root = Path.of(args[0]); Files.createDirectories(root);
+        VerityUtils.reset();
+        VeritySetupHarness restored = new VeritySetupHarness();
+        File r = restored.apk(root, "restored.apk", 5, true);
+        VerityUtils.enabled.add(r.getPath());
+        restored.enableFsVerityToAddedApksWithIdsig();
+        need(VerityUtils.enables == 0 && restored.mMetrics.bytes == 5);
+        if (args.length > 1 && args[1].equals("restored")) {
+            System.out.println("RESTORED_METHOD_MODEL_PASS"); return;
+        }
+
+        VerityUtils.reset();
+        VeritySetupHarness fresh = new VeritySetupHarness();
+        File a = fresh.apk(root, "fresh.apk", 7, true);
+        fresh.enableFsVerityToAddedApksWithIdsig();
+        need(VerityUtils.enables == 1 && VerityUtils.enabled.contains(a.getPath()));
+        need(fresh.mMetrics.bytes == 7 && fresh.mMetrics.calls == 1);
+        fresh.enableFsVerityToAddedApksWithIdsig();
+        need(VerityUtils.enables == 1 && fresh.mMetrics.bytes == 7 && fresh.mMetrics.calls == 2);
+
+        VerityUtils.reset();
+        VeritySetupHarness absent = new VeritySetupHarness();
+        absent.apk(root, "without-sidecar.apk", 9, false);
+        absent.enableFsVerityToAddedApksWithIdsig();
+        need(VerityUtils.checks == 0 && VerityUtils.enables == 0 && absent.mMetrics.calls == 0);
+
+        VerityUtils.reset();
+        VeritySetupHarness mixed = new VeritySetupHarness();
+        File old = mixed.apk(root, "old.apk", 4, true);
+        mixed.apk(root, "new.apk", 6, true);
+        mixed.apk(root, "unsigned-sidecar-absent.apk", 13, false);
+        VerityUtils.enabled.add(old.getPath());
+        mixed.enableFsVerityToAddedApksWithIdsig();
+        need(VerityUtils.enables == 1 && mixed.mMetrics.bytes == 10);
+
+        VerityUtils.reset();
+        VeritySetupHarness denied = new VeritySetupHarness();
+        denied.apk(root, "denied.apk", 3, true); VerityUtils.enableError = true;
+        expectFailure(denied, "EACCES");
+
+        VerityUtils.reset();
+        VeritySetupHarness uncertain = new VeritySetupHarness();
+        File u = uncertain.apk(root, "uncertain.apk", 3, true);
+        VerityUtils.enabled.add(u.getPath()); VerityUtils.inspectionError = true;
+        expectFailure(uncertain, "EEXIST");
+
+        VerityUtils.reset();
+        VeritySetupHarness empty = new VeritySetupHarness();
+        empty.enableFsVerityToAddedApksWithIdsig();
+        need(empty.mMetrics.calls == 0 && VerityUtils.enables == 0);
+        System.out.println("JAVA_METHOD_MODEL_PASS_NO_KERNEL_OR_SIGNATURE_CLAIM");
+    }
+}

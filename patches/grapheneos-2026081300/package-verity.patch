@@ -1,0 +1,17 @@
+--- a/services/core/java/com/android/server/pm/PackageInstallerSession.java
++++ b/services/core/java/com/android/server/pm/PackageInstallerSession.java
+@@ -1839,7 +1839,13 @@
+             List<File> files = getAddedApksLocked();
+             for (var file : files) {
+                 if (new File(file.getPath() + V4Signature.EXT).exists()) {
+-                    VerityUtils.setUpFsverity(file.getPath());
++                    // A sealed staged session is validated again after reboot. The APK may
++                    // already have fs-verity enabled; enabling it again would fail with EEXIST.
++                    // This is not signature validation: the subsequent APK parse still checks
++                    // the v4 signature and its digest against the kernel measurement.
++                    if (!VerityUtils.hasFsverity(file.getPath())) {
++                        VerityUtils.setUpFsverity(file.getPath());
++                    }
+                     fsVerityEnabledApksSizeBytes += file.length();
+                 }
+             }

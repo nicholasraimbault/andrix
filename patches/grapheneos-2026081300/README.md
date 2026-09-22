@@ -1,13 +1,34 @@
-# Opt-in native owner policy integration
+# Pinned Android source integration
 
-This is **one new, digest-guarded private-policy bridge**, not the preserved old
-18-file AOSP patch series. It applies only to `system/sepolicy` at the pinned
-GrapheneOS `2026081300` revision recorded in `owner-session-policy.json`.
+Each adaptation has an exact source profile, a narrow patch and a dedicated inspector.
+These are deliberate Andrix integration inputs, not permission to accept arbitrary changes
+in an upstream checkout.
+
+## Framework companions
+
+`owner-lifecycle.*` integrates genuine CE authority observation. Use
+`scripts/proof/android_lifecycle.py` to check, apply or revert its exact files.
+
+`package-verity.*` makes restored APK file verification setup idempotent while leaving the
+subsequent signature and digest checks in place. Use `scripts/proof/package_verity.py`.
+See the [restoration design](../../plans/2026-09-22-package-verity-restoration.md) and
+[exact method tests](../../tests/staged-apk-verity/README.md).
+
+Both inspectors check the complete known framework change set. Recognizing the companion
+requires its exact original or candidate bytes. Unknown changes, staged changes and
+unrelated files are refused. Build preparation must require the adaptations it uses, not
+infer their presence from a successful check of a different companion.
+
+## Native owner policy bridge
+
+This is one digest guarded private policy bridge, not the preserved old 18 file AOSP
+patch series. It applies only to `system/sepolicy` at the pinned GrapheneOS `2026081300`
+revision recorded in `owner-session-policy.json`.
 
 The policy compiler correctly rejected trusted-daemon execution of writable data.
 An initial app-workload approach then ran into Android's launcher and inherited
 zygote/run-as rules. Andrix is instead adding the distinct **native owner** tier
-from the accepted architecture—not borrowing an APK, zygote, run-as or shell
+from the accepted architecture, without borrowing an APK, zygote, run-as or shell
 identity. The bridge explicitly defines that new boundary.
 
 Under `andrix_owner_session=true` only, it:
@@ -40,4 +61,4 @@ This adaptation means the base's all-project *tracked-clean* result no longer
 applies unchanged to that project. Keep the unchanged manifest HEAD and this
 explicit file/patch receipt separate; use the dedicated check for the adapted
 project. Rebase deliberately if upstream bytes change. Compilation and runtime
-qualification remain necessary—this source bridge alone is not a security PASS.
+qualification remain necessary. This source bridge alone is not a security PASS.
