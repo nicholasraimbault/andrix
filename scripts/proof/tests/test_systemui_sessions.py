@@ -74,4 +74,11 @@ class HistoricalTests(unittest.TestCase):
         for code,data in [(1,text),(0,''),(0,text.replace('  Session 71:', '  Session 71:\n  Session 71:')),(0,text.replace('mFinalStatus=', 'mFinalStatus=-7 mFinalStatus='))]:
             with self.assertRaises(ValueError):historical_failure(code,data,71)
 
+
+class MismatchedPairTests(unittest.TestCase):
+    def test_specific_digest_failure_not_generic_parse_or_permission_error(self):
+        self.assertTrue(intended_rejection('mismatched-sidecar','Failed to collect certificates from base.apk using APK Signature Scheme v4: Actual digest does not match the v4 signature'))
+        for value in ['INSTALL_FAILED_BAD_SIGNATURE', 'Failed to collect certificates', 'Actual digest does not match the v4 signature: Permission denied']:
+            self.assertFalse(intended_rejection('mismatched-sidecar',value))
+
 if __name__=='__main__':unittest.main()

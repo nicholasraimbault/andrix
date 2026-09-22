@@ -1,7 +1,8 @@
 # Idempotent file verification setup for restored APK sessions
 
-Status: local framework patch and exact method tests implemented. Android compilation
-and runtime remain to be qualified.
+Status: the local framework patch, exact method tests and guarded source cycle pass.
+The corrected framework and matching selected image are built. Runtime remains to be
+qualified.
 
 ## Observed problem
 
@@ -69,17 +70,30 @@ including the upstream duplicate setup failure, successful repeated/restored set
 missing sidecars, mixed batches and inspection/setup errors. These supplied state tests
 are not kernel or cryptographic qualification.
 
-## Remaining gates
+## Qualification and remaining gate
 
-1. Check apply, inspect, revert and reapply against the pinned framework without losing the
-   accepted CE changes or permitting any unrecognized source change.
-2. Run the host suite and compile the adapted framework with the existing policy and warning
-   checks. Keep source, binary and runtime claims distinct.
-3. Build a coherent matching image under the established resource guards.
-4. In a fresh guest, exercise a staged update and good source restoration. Require normal
-   restored session validation with no redundant enable error or missing `PackageLite` fallback.
-5. Retain signer, missing sidecar and mismatched sidecar negatives. A correct digest flag
-   alone must not make an invalid pair or unauthorized signer acceptable.
+Apply, inspect, revert and reapply passed against the actual pinned framework, with the
+accepted CE changes preserved. The exact upstream method model failed on `EEXIST`; the
+candidate model passed its restored/repeated and error cases. The host suite passed 475
+checks, then 476 after adding the mismatched sidecar cause check.
+
+The matching selected image compiled the corrected framework and passed 13 frozen native
+controls. Inspection of the actual compiled Package Installer class found the existing
+verification state branch skipping the setup call. The original factory SystemUI APK still
+matched its byte identical version 37 baseline. The compiled SELinux policy is unchanged
+from the previously qualified staging correction. Temporary init/LMKD adaptations were
+restored; the two declared framework companions remain applied and fenced.
+
+A scoped independent source review found no concrete bypass in the local change and
+identified limits of the sealing argument. Primary review also checked the physical
+staging directory setup and the higher level V4 error/fallback handling. These are source
+findings, not runtime clearance.
+
+The remaining gate is a fresh regression guest. Exercise A38 and good source restoration
+R39, and require normal restored validation without the redundant enable error or missing
+`PackageLite` fallback. Retain signer and missing sidecar controls, and add a deliberately
+mismatched pair made from the existing A APK and R sidecar. A correct kernel flag alone
+must not make an invalid pair or unauthorized signer acceptable.
 
 No live policy patch, global error suppression or change to ordinary user authority is part
 of this correction. The completed earlier component proof and its warnings remain intact.

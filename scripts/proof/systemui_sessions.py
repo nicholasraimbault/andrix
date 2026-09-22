@@ -152,4 +152,7 @@ def intended_rejection(label, message):
         return ('fs-verity not set up for system package update' in message
                 and "APK doesn't have fs-verity:" in message
                 and 'Permission denied' not in message)
+    if label == 'mismatched-sidecar':
+        return ('Actual digest does not match the v4 signature' in message
+                and 'Permission denied' not in message)
     raise ValueError('Unknown negative control')
