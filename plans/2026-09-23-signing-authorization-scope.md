@@ -22,6 +22,13 @@ Keeping that exact key operation gate means separately authenticating the requir
 The host format probe did not exercise a different Android authentication policy. The
 Cuttlefish controls also did not establish physical hardware enforcement.
 
+The source distinguishes operation binding from elapsed authentication age. Timeout zero
+omits AUTH_TIMEOUT and selects deferred operation authentication. The reference backend
+checks the operation token on subsequent calls without an elapsed age check in that branch.
+Operation availability and retirement remain separate constraints. A positive timeout instead
+selects cached token lookup and age checking. It changes key authorization semantics, not
+just the presentation of a prompt.
+
 ## Recommendation
 
 Make the default approval unit one complete immutable signing transaction:
