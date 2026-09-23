@@ -2,7 +2,10 @@
 
 Status: accepted product contract from the
 [vision revision](2026-09-21-owner-composable-android.md). Package formats, compatibility
-metadata, transaction protocols and installer implementation remain proposals.
+metadata, transaction protocols and installer implementation remain proposals. The
+[composition architecture assessment](2026-09-23-composition-architecture-assessment.md)
+compares concrete approaches and recommends a coherent owner model with native Android
+activation and explicit qualification gates. It does not select a package tool or version scheme.
 
 ## Owner experience
 

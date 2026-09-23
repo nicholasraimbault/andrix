@@ -29,7 +29,9 @@ separate from the retained Unix milestones:
   proofs are not a production signer or a new administrative policy.
 - [Owner authority and signing](2026-09-21-owner-authority.md).
 - [Android accounts with Unix](2026-09-21-android-unix-accounts.md).
-- [Rolling composition and installation](2026-09-21-rolling-composition.md).
+- [Rolling composition and installation](2026-09-21-rolling-composition.md), with a
+  [long term architecture assessment](2026-09-23-composition-architecture-assessment.md)
+  covering source variants, exact artifacts, version selection and native activation.
 - [Later Pixel integration](2026-09-21-pixel-integration.md).
 
 Accepted capability does not select an unproved mechanism or authorize a deployment action.
