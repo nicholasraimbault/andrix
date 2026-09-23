@@ -48,6 +48,22 @@ Close that bundle's writers before sealing it, with all sealer outputs outside i
 attestation records the current verified state; it does not make the original seal valid
 retroactively or prove historical authorship against a compromised host.
 
+## Keep credentials out of command records
+
+A wrapper's private input path does not control every logger. In the inspected Android
+source, adbd logs service command arguments independently. Key codes and touch coordinates
+can reconstruct a PIN even when its literal value never appears in a command.
+
+Use a constant service command and send credential dependent input through private stdin.
+Retain the connection through complete remote execution. Do not publish subprocess output
+or exception messages that can contain private arguments or partial data. Refuse unexpected
+input debug logging rather than suppress it, then assess the actual captured records. These
+checks do not establish secure heap storage or exclude every form of process inspection.
+
+If an earlier capture contains credentials, restrict it as sensitive operating material.
+Preserve its original seal and issue a separate correction. Do not silently rewrite the
+capture or continue claiming the logging boundary succeeded.
+
 ## Measure storage accurately
 
 `du`, apparent file sizes and filesystem free space answer different questions.
