@@ -1,8 +1,10 @@
 # Public signing identities and independent recovery
 
 Status: artifact inventory, a finite host recovery vehicle and ordinary Android age
-interoperability pass. No personal installation has been provisioned and no protected
-Android signer is qualified.
+interoperability pass. No personal installation has been provisioned. Later
+[protected request](2026-09-22-protected-signing-request.md) and
+[ordinary APK artifact](2026-09-23-protected-apk-artifact.md) controls are qualified in
+separate finite scopes, not inferred from this recovery vehicle.
 
 This implements the first bounded controls under the
 [accepted portable recovery default](2026-09-22-installation-key-recovery.md).
@@ -27,9 +29,13 @@ expectations. That failed command remains recorded. A separate check followed th
 images and verified their signatures, parent key bindings and image hashes/trees. This is
 image consistency, not proof of the firmware's trusted key or hardware rollback state.
 
-The inventory does not yet include APKs inside APEX payloads, complete signer rotation
-lineages or actual device key ownership. It is not a complete personalization or rekeying
-plan. In particular, do not replace every observed third party identity indiscriminately.
+That initial inventory did not include APKs inside APEX payloads or verify payload AVB
+signatures. The later [payload and nested APK inventory](2026-09-23-apex-trust-inventory.md)
+adds 33 APKs, verifies all 94 payload signatures and hash trees against container key
+declarations, and observes available lineages at SDK 37. Historical installed signer state,
+all platform selections and actual device key ownership remain distinct. Neither inventory
+is a complete personalization or rekeying plan. Do not replace every observed third party
+identity indiscriminately.
 
 ## Recovery vehicle
 
@@ -156,11 +162,13 @@ still distinct gates.
 
 ## Remaining gates
 
-- Complete the relevant installation trust inventory, including selected nested APKs and
-  key rotation relationships, before personalizing a whole installation.
-- Verify device import, signing algorithms and public identity preservation through the
-  [protected request vehicle](2026-09-22-protected-signing-request.md). Prove ordinary callers
-  cannot borrow signing authority.
+- Turn the [expanded public inventory](2026-09-23-apex-trust-inventory.md) into an explicit
+  installation signing role map before personalization. Preserve the distinction between
+  available artifact lineages and historical installed state.
+- Extend the finite [protected request](2026-09-22-protected-signing-request.md) and
+  [APK artifact](2026-09-23-protected-apk-artifact.md) controls to the complete required
+  algorithms, roles and device custody conditions. Their lab entry points are not a
+  production enrollment or ordinary caller authorization interface.
 - Bind authorization to the exact operation and artifacts, separately from cryptographic
   key recovery. Define complete administrative context and lifetime behavior.
 - Design durable provisioning and recovery publication, cancellation and interrupted write

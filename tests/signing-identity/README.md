@@ -9,7 +9,14 @@ APEX container for one explicitly selected Android SDK level and emits public ce
 and SubjectPublicKeyInfo observations. It does not enumerate complete rotation lineages,
 authorize the signer or inspect APKs inside an APEX payload.
 
-`signing_identity.py` parses that exact observation schema, aapt2 manifest identity fields
+`ApkLineageProbe.java` separately reports lineages exposed by successful verification at
+one SDK, including per signer targeting and capability declarations. Its scheme flags mean
+verified at that SDK, not every signing block present. `apex_inventory.py` checks this schema
+and bounded debugfs directory observations. The
+[expanded inventory](../../plans/2026-09-23-apex-trust-inventory.md) covers the selected APEX
+payloads and their nested regular APKs, not all container formats or installed history.
+
+`signing_identity.py` parses the original exact observation schema, aapt2 manifest identity fields
 and certificate MAC selectors. It keeps certificate, public key and AVB encoding hashes
 separate. Its supplied tests are parser checks, not cryptographic verification.
 
@@ -39,7 +46,7 @@ Run the supplied parser/model checks with:
 
 ```sh
 python3 -B -m unittest scripts.proof.tests.test_signing_identity \
-    scripts.proof.tests.test_signing_recovery
+    scripts.proof.tests.test_signing_recovery scripts.proof.tests.test_apex_inventory
 ```
 
 Real cryptographic controls additionally require the qualified age/age-keygen executables,
