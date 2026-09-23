@@ -29,6 +29,22 @@ class SigningCustodyTests(unittest.TestCase):
             self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
             self.assertIn('SIGNING_REQUEST_MODEL_PASS races=400', ran.stdout)
 
+    def test_artifact_snapshot_retains_worker_ownership_through_cancellation(self):
+        javac, java = shutil.which('javac'), shutil.which('java')
+        self.assertIsNotNone(javac); self.assertIsNotNone(java)
+        with tempfile.TemporaryDirectory() as directory:
+            args = [javac, '-J-Xmx128m', '--release', '17', '-Xlint:all', '-Werror',
+                    '-d', directory, str(PACKAGE / 'SigningRequest.java'),
+                    str(PACKAGE / 'ArtifactRequest.java'), str(FIXTURE / 'ArtifactRequestTest.java')]
+            compiled = subprocess.run(args, capture_output=True, text=True, timeout=40)
+            self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
+            ran = subprocess.run([java, '-Xmx128m', '-ea', '-cp', directory,
+                                  'dev.andrix.proof.signingcustody.ArtifactRequestTest'],
+                                 capture_output=True, text=True, timeout=30)
+            self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+            self.assertIn('ARTIFACT_REQUEST_MODEL_PASS races=400', ran.stdout)
+            self.assertIn('no_Android_or_protected_signing_claim', ran.stdout)
+
     def test_lab_apks_do_not_join_a_shared_uid_or_platform_product(self):
         for path in [FIXTURE / 'AndroidManifest.xml', FIXTURE / 'negative/AndroidManifest.xml']:
             root = ET.parse(path).getroot()
