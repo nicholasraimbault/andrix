@@ -1,0 +1,195 @@
+# Current work
+
+## Governing direction
+
+Build the [owner composable Android OS](../docs/vision.md) accepted in the
+[vision revision](2026-09-21-owner-composable-android.md). Andrix owns its platform design,
+policies, packages, signing, updates and recovery. GrapheneOS is the initial engineering
+foundation, not a permanent policy ceiling. Native Unix programs and APKs are equally
+important parts of one Android/Bionic system.
+
+Daily programs use ordinary authority. General administration, including arbitrary root
+commands and shells, requires deliberate authorization. Source availability alone is not
+practical ownership: changing a component needs an understandable build, authorization,
+installation, activation and recovery path.
+
+Follow the [design method](../docs/architecture.md#design-method). Proofs inform the design;
+they do not require retaining prototype code or turning test limits into product restrictions.
+Correctness, coherence and owner control guide reuse, refactoring and replacement.
+
+## Prototype and design tracking
+
+The [design evidence register](../docs/design-evidence.md) connects observed results,
+accepted contracts, proposed mechanisms and remaining gates. Dated plans describe reusable
+methods and scoped outcomes. Neither a successful fixture nor acceptance of a requirement
+qualifies a production implementation automatically.
+
+Detailed operating records, local configuration, credentials and raw captures remain private.
+
+## Current milestone
+
+The current focus is a coherent owner component workflow and its
+[composition architecture assessment](2026-09-23-composition-architecture-assessment.md).
+The assessment recommends separating owner intent, resolved build inputs, exact artifact
+bundles, compatibility, authorization and observed deployment. It compares distribution
+recipes, functional build/store models and image deployment without selecting Nix, a package
+language, a store implementation or a version encoding.
+
+The deciding gates are:
+
+1. Preserve an owner modified SystemUI across a compatible upstream update, and expose a
+   conflicting or incompatible update rather than silently discarding the change.
+2. Complete a durable component transaction with exact artifacts, all required signatures,
+   publication, native installation and recovery from interrupted or uncertain outcomes.
+3. Establish real APK, APEX and image activation boundaries, including shared package code
+   versus per user data and the limits of restoring an earlier software composition.
+
+An APK versionCode is an installation ordering input, not a complete source or owner
+selection model. Image assembly from cached components need not recompile the whole OS.
+Framework integration is legitimate where it produces the cleaner complete contract.
+The exact mechanisms remain under investigation.
+
+## Product checkpoint
+
+There is no supported Andrix release or buildable Pixel deployment product. Current results
+are bounded emulator, host and artifact qualifications, not general hardware or phone claims.
+
+### Native development and work
+
+The ARM64/Bionic prototype supplies a terminal/editor, C/C++ compilation, Make, LLDB and
+tmux under an ordinary owner identity. Android application boundaries and authenticated
+read only `/usr` remain intact. The original Keep path remains off by default while the
+separate work and terminal model is developed.
+
+Selected service controls have exercised ordinary owner execution, detached descendants,
+independent Stop, genuine CE withdrawal and recovery, stale identities and cleanup. Their
+qualification and remaining limits are summarized below and in the design evidence register.
+
+### System component modification
+
+The [SystemUI component loop](2026-09-22-systemui-component-runtime.md) passed focused builds,
+staged APK activation, visible changes and forward source restoration on one compatible
+platform cohort. Native execution and saved data were checked afterward. Higher version
+restorations were new artifacts containing good source, not arbitrary APK or data rollback.
+
+Wrong signer, absent sidecar and mismatched sidecar controls were refused in their recorded
+scopes. The [file verification restoration correction](2026-09-22-package-verity-restoration.md)
+removed redundant setup without changing subsequent signature or digest verification.
+Ready remains distinct from applied, compatible or healthy.
+
+### Signing identity and artifact flow
+
+The [portable recovery default](2026-09-22-installation-key-recovery.md) is accepted: an owner
+held encrypted recovery bundle and a protected device signing copy. Recovery must not depend
+on the original hardware or vendor approval. Signing identity recovery is not CE data backup,
+hardware bound app secret recovery or live rekeying.
+
+The [recovery vehicle](2026-09-22-signing-identity-recovery-proof.md) exercised independent
+recovery of disposable identities and ordinary Android crypto interoperability. The
+[protected request vehicle](2026-09-22-protected-signing-request.md) then qualified finite
+AndroidKeyStore import, exact approval, credential authentication, signing and refusal controls.
+
+The [APK artifact flow](2026-09-23-protected-apk-artifact.md) qualified capture of an immutable
+project APK, protected signing, verification, export, ordinary installation and execution with
+the expected identity. Decline, authentication cancellation, retained request retry, changed
+context refusal, completed view replay, broker replacement and cleanup were tested in their
+stated scopes. This does not qualify a general platform signer or owner enrollment service.
+
+The [expanded public trust inventory](2026-09-23-apex-trust-inventory.md) covers 180 APK files
+and 94 APEX containers with 72 certificate identities, including 33 APKs inside APEX payloads.
+Payload signatures, hash trees and declared key bindings were verified. These are public
+artifact relationships, not proof that the owner possesses every observed key or that every
+artifact is active. Available SDK 37 lineages are not historical installed state.
+
+The latest recorded full host suite has 520 checks. Host tests, artifact inspection and actual
+Android controls remain separate evidence layers.
+
+## Authority and privacy boundaries
+
+The [accepted signing default](2026-09-23-signing-authorization-scope.md) is one explicit
+approval and fresh credential authentication for a complete protected signing transaction.
+It does not select a timed key policy, grant authority to later requests or make ordinary
+application builds privileged. Platform transaction token issuance and timed key use remain
+unqualified alternatives; the current prototype's key policy is unchanged.
+
+No personal installation identity has been provisioned. Complete component signing formats,
+installation trust roles, durable publication, accepted operation loss and hardware custody
+remain separate work. The lab shell interface is not a product owner interface.
+
+Earlier credential recording checks overstated their scope: adbd could record credential
+dependent command arguments despite exclusion from a wrapper's own log. Those claims were
+corrected, and sensitive captures remain private. The reusable
+[recording method](../docs/development-artifacts.md#keep-credentials-out-of-command-records)
+uses constant service arguments and private stdin, with guarded input and inspection of actual
+captures. It does not promise universal absence of logging, memory disclosure or physical copies.
+
+## Retained Unix milestone
+
+The accepted model is that Android supervises environments, Andrix manages work, the kernel
+enforces containment and Console is a client. Terminal detach, terminal hangup, initial process
+exit and complete work Stop remain distinct. Continuation, restart, wake, network exposure and
+locked input are separate permissions.
+
+The selected work service is not yet the replacement Console path. Existing plain and Keep
+behavior remains until its successor is qualified. Fixed slots, property transport, lab
+request counts and proof resource limits are not permanent product policy.
+
+## Unix qualification history and remaining gates
+
+The detailed mechanism results remain in their respective plans:
+
+- [Work and terminal separation](2026-09-16-work-terminal-separation.md) and
+  [supervision design](2026-09-16-unix-work-supervision.md).
+- [Factory comparison](2026-09-17-work-factory-comparison.md),
+  [delegated contract](2026-09-17-delegated-supervision-contract.md) and
+  [finite Android service qualification](2026-09-18-delegated-service-qualification.md).
+- [Admission gate](2026-09-18-work-admission-gate.md),
+  [ordinary owner launch](2026-09-19-owner-launch-qualification.md) and
+  [original admission across CE withdrawal](2026-09-19-owner-admission-ce-trial.md).
+- [Registry](2026-09-19-work-registry-core.md),
+  [gateway and descriptor ownership](2026-09-19-work-gateway-boundary.md),
+  [service integration](2026-09-20-work-service-integration.md) and
+  [runtime controls](2026-09-20-work-service-runtime.md).
+- [Service CE behavior](2026-09-20-work-service-ce.md),
+  [uncertain replies](2026-09-20-work-service-uncertain-replies.md),
+  [catalog capture](2026-09-20-work-catalog-capture.md) and
+  [initial request identity recovery](2026-09-20-work-request-recovery.md).
+
+Remaining gates include complete stream/reservation recovery with the actual CLI, further
+pending creation and entry races across CE changes, terminal integration, resource pressure,
+suspend, storage failure and forced identity reuse. Request lookup does not authorize a new
+submission. Stop acceptance does not establish process exit, an empty group or cleanup retirement.
+
+The [record retention contract](2026-09-19-work-result-retention.md) keeps minimal security
+records separate from optional persistent activity history and output capture. Storage and
+recording must not block control operations or become ambient authority.
+
+## Supporting workstreams
+
+- [Owner authority and signing](2026-09-21-owner-authority.md): general elevation, individual
+  installation authority, protected signing and independent recovery.
+- [Android accounts with Unix](2026-09-21-android-unix-accounts.md): actual per user credentials,
+  MAC, homes, work and CE lifecycle, not multiple pathnames under one principal.
+- [Rolling composition and installation](2026-09-21-rolling-composition.md): retained owner
+  choices, compatible sets and controlled activation under one recommended/custom model.
+- [Pixel integration](2026-09-21-pixel-integration.md): physical phone qualification and later
+  owner keyed locked operation, distinct from the current workshop proofs.
+
+On-device ordinary component development remains an end goal. Host assistance does not become
+a permanent requirement because the current proofs use it. Unsigned native programs and general
+administration remain owner capabilities; ordinary software does not automatically become a
+platform package. A parallel glibc distribution and alternative desktop compositor are not
+product tracks. Dedicated agent architecture remains outside the current product work.
+
+## Foundations and references
+
+- [Product vision](../docs/vision.md), [accepted architecture](../docs/architecture.md) and
+  [design evidence register](../docs/design-evidence.md).
+- [Workshop component workflow](2026-09-21-workshop-components.md).
+- [GrapheneOS migration](2026-09-08-grapheneos-migration.md) and
+  [Android lifecycle integration](2026-09-13-android-lifecycle.md).
+- [Native compiler](2026-09-11-native-compiler.md), [C++ defaults](2026-09-11-cxx-defaults.md),
+  [Make](2026-09-11-native-build-tools.md) and [debugger](2026-09-12-native-debugger.md).
+- [Terminal and input](2026-09-10-owner-tools.md), [cold attachment](2026-09-11-cold-attachment.md)
+  and [native tmux](2026-09-13-retained-terminal.md).
+- [Reusable development artifact handling](../docs/development-artifacts.md).

@@ -14,8 +14,8 @@ the owner's verified GitHub-linked noreply identity.
 
 ## Frozen proof inputs
 
-The [revision map](source-revision-map.tsv) links original pre-publication
-build/proof revisions to corresponding public code snapshots. For these pins,
+The [revision map](source-revision-map.tsv) links original build/proof revisions and source
+pins referenced by public documents to corresponding public code snapshots. For these pins,
 Android product/APEX/init/SELinux inputs and proof/test sources were compared
 by path, file mode and Git blob ID. They are unchanged. Whole tree hashes can
 differ because operator files and publication-only documentation are not build
@@ -45,13 +45,20 @@ remain outside the public repository.
 
 ## Documentation history
 
-Historical operator-journal versions were removed from the public documentation
-history. Clean product summaries and reusable procedures are introduced at the
-current documentation checkpoint, not projected backward into earlier source
-commits. Operational-only commits that became empty were omitted.
+Historical operating journals and local test setup details were removed from affected public
+documentation paths. Their reviewed product summaries and reusable methods are introduced at
+a later documentation checkpoint, not projected backward into earlier source commits.
+Documentation commits that became empty were omitted.
 
-Product source, build inputs and licenses are unchanged at corresponding source
-checkpoints; accepted architecture history is retained. Commit identities changed,
-so original artifact producer IDs must not be relabelled as new builds. Complete
-original history and the detailed revision correspondence remain private. The
-public producer map above points to the corresponding current source snapshots.
+All other files, including product source, build inputs, licenses, the canonical architecture,
+vision and contributor instructions, retain their path, mode and blob identity at corresponding
+source checkpoints. The current checkout differs only in this provenance explanation and the
+revision map. Complete original history and the full revision correspondence remain private.
+
+Original artifact producer identities and frozen artifacts were not rewritten. A mapped source
+snapshot is not a newly qualified build. The public map contains source pins already referenced
+by the project; it is not an archive of the removed operating records. Commit identities changed,
+so existing clones must resynchronize or rebase rather than merge the old history back.
+
+Removing references from the published branch does not erase copies already held by other
+clones, forks or hosting caches.
