@@ -143,73 +143,70 @@ public final class ApkArtifactSigner {
         return new Metadata(name, version, minimum, target);
     }
 
-    /** Claims only this worker ticket. A false return owns no cleanup for another worker. */
-    static boolean execute(ArtifactRequest artifact, byte[] certificateBytes, Backend backend)
+    /** Runs only inside the coordinator's already claimed worker ticket.
+     * The coordinator retains ownership through submission completion and final metadata.
+     */
+    static void executeClaimed(ArtifactRequest artifact, byte[] certificateBytes, Backend backend)
             throws Exception {
-        if (!artifact.claimWorker()) return false;
+        if (!artifact.workerOwned() || !artifact.workerStarted()
+                || artifact.state() != ArtifactRequest.State.PREPARING) {
+            throw new IllegalStateException("artifact worker not claimed");
+        }
+        if (ACTIVE.get() != null || artifact.cancellationRequested()) {
+            throw new IllegalStateException("overlapping or cancelled artifact");
+        }
+        byte[] input = artifact.apk();
+        Metadata metadata = inspect(input);
+        if (!metadata.packageName.equals(artifact.packageName())
+                || metadata.versionCode != artifact.versionCode()
+                || !sha256(input).equals(artifact.artifactSha256())) {
+            throw new IllegalArgumentException("artifact metadata changed");
+        }
+        if (certificateBytes == null || certificateBytes.length == 0 || certificateBytes.length > 65536) {
+            throw new IllegalArgumentException("artifact certificate bound");
+        }
+        byte[] certificateCopy = certificateBytes.clone();
+        if (!sha256(certificateCopy).equals(artifact.certificateSha256())) {
+            throw new IllegalArgumentException("expected artifact certificate");
+        }
+        ByteArrayInputStream encoded = new ByteArrayInputStream(certificateCopy);
+        X509Certificate certificate = (X509Certificate) CertificateFactory.getInstance("X.509")
+                .generateCertificate(encoded);
+        if (encoded.available() != 0 || !Arrays.equals(certificateCopy, certificate.getEncoded())
+                || !(certificate.getPublicKey() instanceof RSAPublicKey)
+                || ((RSAPublicKey) certificate.getPublicKey()).getModulus().bitLength() != 2048) {
+            throw new IllegalArgumentException("unqualified artifact key or certificate encoding");
+        }
+        Binding binding = new Binding(artifact, backend);
+        BoundedSink output = new BoundedSink();
+        ApkSigner.SignerConfig config = new ApkSigner.SignerConfig.Builder("ANDRIX_TEST",
+                new KeyConfig.Kms(PROVIDER_TYPE, artifact.id()), List.of(certificate)).build();
+        ACTIVE.set(binding);
         try {
-            if (ACTIVE.get() != null || artifact.cancellationRequested()) {
-                throw new IllegalStateException("overlapping or cancelled artifact");
+            new ApkSigner.Builder(List.of(config))
+                    .setInputApk(DataSources.asDataSource(ByteBuffer.wrap(input).asReadOnlyBuffer()))
+                    .setOutputApk(output).setMinSdkVersion(37)
+                    .setV1SigningEnabled(false).setV2SigningEnabled(true)
+                    .setV3SigningEnabled(false).setV4SigningEnabled(false)
+                    .setOtherSignersSignaturesPreserved(false).build().sign();
+            if (binding.calls != 1 || !artifact.beginFinalizing()) {
+                throw new SignatureException("artifact completion refused");
             }
-            byte[] input = artifact.apk();
-            Metadata metadata = inspect(input);
-            if (!metadata.packageName.equals(artifact.packageName())
-                    || metadata.versionCode != artifact.versionCode()
-                    || !sha256(input).equals(artifact.artifactSha256())) {
-                throw new IllegalArgumentException("artifact metadata changed");
+            ApkVerifier.Result result = new ApkVerifier.Builder(output)
+                    .setMinCheckedPlatformVersion(37).setMaxCheckedPlatformVersion(37).build().verify();
+            if (!result.isVerified() || !result.isVerifiedUsingV2Scheme()
+                    || result.isVerifiedUsingV1Scheme() || result.isVerifiedUsingV3Scheme()
+                    || result.getSignerCertificates().size() != 1
+                    || !Arrays.equals(result.getSignerCertificates().get(0).getEncoded(), certificateCopy)) {
+                throw new SignatureException("complete artifact verification failed");
             }
-            if (certificateBytes == null || certificateBytes.length == 0 || certificateBytes.length > 65536) {
-                throw new IllegalArgumentException("artifact certificate bound");
+            byte[] complete = new byte[(int) output.size()];
+            output.copyTo(0, complete.length, ByteBuffer.wrap(complete));
+            if (!artifact.completeVerifiedOutput(complete)) {
+                throw new SignatureException("artifact publication refused");
             }
-            byte[] certificateCopy = certificateBytes.clone();
-            if (!sha256(certificateCopy).equals(artifact.certificateSha256())) {
-                throw new IllegalArgumentException("expected artifact certificate");
-            }
-            ByteArrayInputStream encoded = new ByteArrayInputStream(certificateCopy);
-            X509Certificate certificate = (X509Certificate) CertificateFactory.getInstance("X.509")
-                    .generateCertificate(encoded);
-            if (encoded.available() != 0 || !Arrays.equals(certificateCopy, certificate.getEncoded())
-                    || !(certificate.getPublicKey() instanceof RSAPublicKey)
-                    || ((RSAPublicKey) certificate.getPublicKey()).getModulus().bitLength() != 2048) {
-                throw new IllegalArgumentException("unqualified artifact key or certificate encoding");
-            }
-            Binding binding = new Binding(artifact, backend);
-            BoundedSink output = new BoundedSink();
-            ApkSigner.SignerConfig config = new ApkSigner.SignerConfig.Builder("ANDRIX_TEST",
-                    new KeyConfig.Kms(PROVIDER_TYPE, artifact.id()), List.of(certificate)).build();
-            ACTIVE.set(binding);
-            try {
-                new ApkSigner.Builder(List.of(config))
-                        .setInputApk(DataSources.asDataSource(ByteBuffer.wrap(input).asReadOnlyBuffer()))
-                        .setOutputApk(output).setMinSdkVersion(37)
-                        .setV1SigningEnabled(false).setV2SigningEnabled(true)
-                        .setV3SigningEnabled(false).setV4SigningEnabled(false)
-                        .setOtherSignersSignaturesPreserved(false).build().sign();
-                if (binding.calls != 1 || !artifact.beginFinalizing()) {
-                    throw new SignatureException("artifact completion refused");
-                }
-                ApkVerifier.Result result = new ApkVerifier.Builder(output)
-                        .setMinCheckedPlatformVersion(37).setMaxCheckedPlatformVersion(37).build().verify();
-                if (!result.isVerified() || !result.isVerifiedUsingV2Scheme()
-                        || result.isVerifiedUsingV1Scheme() || result.isVerifiedUsingV3Scheme()
-                        || result.getSignerCertificates().size() != 1
-                        || !Arrays.equals(result.getSignerCertificates().get(0).getEncoded(), certificateCopy)) {
-                    throw new SignatureException("complete artifact verification failed");
-                }
-                byte[] complete = new byte[(int) output.size()];
-                output.copyTo(0, complete.length, ByteBuffer.wrap(complete));
-                if (!artifact.completeVerifiedOutput(complete)) {
-                    throw new SignatureException("artifact publication refused");
-                }
-            } finally {
-                ACTIVE.remove();
-            }
-            return true;
         } finally {
-            // fail() does not replace an already published terminal result. It
-            // acknowledges cancellation when preparation or verification failed.
-            artifact.fail();
-            if (!artifact.retireWorker()) throw new IllegalStateException("artifact worker retirement");
+            ACTIVE.remove();
         }
     }
 

@@ -1,10 +1,12 @@
 # Disposable Android signing custody vehicle
 
 The version 2 disposable Android import and approved signature flow is qualified in the
-[request plan](../../plans/2026-09-22-protected-signing-request.md). The version 3
+[request plan](../../plans/2026-09-22-protected-signing-request.md). The version 4
 [APK artifact extension](../../plans/2026-09-23-protected-apk-artifact.md) is a candidate with
 host and public SDK checks, not an Android artifact result yet. This is not a personal key
-provisioner, product signing service, general root service or installer.
+provisioner, product signing service, general root service or installer. The earlier version 3
+artifact APK build was inspected but not used for a guest trial; retirement ordering was
+corrected before that runtime gate.
 
 `AndrixSigningCustodyProof`, `AndrixSigningCustodyNegative` and `AndrixArtifactPayload` are
 ordinary lab APKs. They have separate application UIDs and no shared UID. None is included in PRODUCT_PACKAGES.

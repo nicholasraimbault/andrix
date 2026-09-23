@@ -12,6 +12,12 @@ import java.util.concurrent.RejectedExecutionException;
 final class ArtifactCoordinator {
     private final LinkedHashMap<String, ArtifactRequest> requests = new LinkedHashMap<>();
     private final LinkedHashMap<String, String> failures = new LinkedHashMap<>();
+    private static final class Dispatch {
+        final ArtifactRequest request;
+        boolean submissionOwned = true;
+        boolean workerFinished;
+        Dispatch(ArtifactRequest request) { this.request = request; }
+    }
     // Separate from the key signing executor, whose result this worker awaits.
     private final ExecutorService worker;
 
@@ -49,24 +55,50 @@ final class ArtifactCoordinator {
             }
             throw unsubmitted;
         }
+        Dispatch dispatch = new Dispatch(request);
         try {
             worker.execute(() -> {
-                try {
-                    if (!ApkArtifactSigner.execute(request, certificateCopy, backend)) {
-                        recordFailure(request, new IllegalStateException("worker claim refused"));
-                    }
-                } catch (Throwable failure) { recordFailure(request, failure); }
+                if (!request.claimWorker()) {
+                    return; // A duplicate callback cannot mutate or retire the actual worker.
+                }
+                try { ApkArtifactSigner.executeClaimed(request, certificateCopy, backend); }
+                catch (Throwable failure) { recordFailure(request, failure); }
+                finally {
+                    request.fail(); // Terminal COMPLETE is preserved.
+                    workerFinished(dispatch);
+                }
             });
         } catch (RejectedExecutionException rejected) {
             // A contractual rejection establishes no queued worker was accepted.
-            request.fail();
-            if (!request.retireWorker()) throw new IllegalStateException("unqueued artifact ticket");
             recordFailure(request, rejected);
+            request.fail();
+            workerFinished(dispatch);
         } catch (RuntimeException | Error uncertain) {
             // Do not equate an arbitrary executor failure with nonacceptance.
-            // Keep the registered ticket owned for inspection or broker loss.
+            // Keep the registered ticket until its actual worker finishes.
             recordFailure(request, uncertain);
             throw uncertain;
+        } finally {
+            submissionFinished(dispatch);
+        }
+    }
+
+    private synchronized void workerFinished(Dispatch dispatch) {
+        dispatch.workerFinished = true;
+        retireIfFinished(dispatch);
+    }
+
+    private synchronized void submissionFinished(Dispatch dispatch) {
+        dispatch.submissionOwned = false;
+        retireIfFinished(dispatch);
+    }
+
+    private void retireIfFinished(Dispatch dispatch) {
+        // The worker and the submitting executor call may finish in either order.
+        // Final metadata and the submission outcome precede ticket retirement.
+        if (dispatch.workerFinished && !dispatch.submissionOwned
+                && !dispatch.request.retireWorker()) {
+            throw new IllegalStateException("artifact dispatch retirement");
         }
     }
 

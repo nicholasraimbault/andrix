@@ -48,7 +48,28 @@ public final class CoordinatorStatusTest {
         thread.join(5000); need(!thread.isAlive());
         if (failure.get() != null) throw new AssertionError(failure.get());
     }
+    private static void finalMetadataPrecedesRetirement() throws Exception {
+        Queued executor = new Queued(); ArtifactCoordinator ledger = new ArtifactCoordinator(executor);
+        ArtifactRequest request = create(); ledger.submit(request, new byte[]{1}, (a, s) -> {});
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread worker;
+        synchronized (ledger) {
+            worker = task(executor.pending, failure);
+            long end = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (worker.getState() != Thread.State.BLOCKED && worker.isAlive()
+                    && System.nanoTime() < end) Thread.sleep(1);
+            need(worker.getState() == Thread.State.BLOCKED && request.workerStarted());
+            // The signer test shape throws. Its real caller is blocked while
+            // recording final metadata, so the artifact ticket must remain owned.
+            need(request.workerOwned());
+        }
+        joined(worker, failure);
+        need(request.state() == ArtifactRequest.State.FAILED && !request.workerOwned());
+        executor.pending = null;
+    }
+
     public static void main(String[] args) throws Exception {
+        finalMetadataPrecedesRetirement();
         Queued queue = new Queued(); ArtifactCoordinator coordinator = new ArtifactCoordinator(queue);
         ArtifactRequest artifact = create(); coordinator.submit(artifact, new byte[]{1}, (a, s) -> {});
         SigningRequest child = attach(artifact); AtomicReference<Throwable> failure = new AtomicReference<>();
@@ -85,6 +106,6 @@ public final class CoordinatorStatusTest {
             }
             joined(completion, errors); need(!ledger.ownsWork()); executor.pending = null;
         }
-        System.out.println("ARTIFACT_METADATA_PASS atomic_snapshot_rounds=200 no_child_monitor_under_coordinator no_APK_or_JSON_runtime_claim");
+        System.out.println("ARTIFACT_METADATA_PASS atomic_snapshot_rounds=200 no_child_monitor_under_coordinator final_metadata_before_retirement no_APK_or_JSON_runtime_claim");
     }
 }

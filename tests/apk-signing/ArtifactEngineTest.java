@@ -62,10 +62,19 @@ public final class ArtifactEngineTest {
         };
     }
 
+    // Test driver owns this direct worker. Production retirement belongs to
+    // ArtifactCoordinator, including its executor submission handoff.
+    private static boolean execute(ArtifactRequest artifact, byte[] cert,
+            ApkArtifactSigner.Backend backend) throws Exception {
+        if (!artifact.claimWorker()) return false;
+        try { ApkArtifactSigner.executeClaimed(artifact, cert, backend); return true; }
+        finally { artifact.fail(); need(artifact.retireWorker(), "test worker retirement"); }
+    }
+
     private static void cancelled(ArtifactRequest request, Mode mode) throws Exception {
         boolean rejected = false;
         int before = signatures;
-        try { ApkArtifactSigner.execute(request, certificate, backend(mode)); }
+        try { execute(request, certificate, backend(mode)); }
         catch (java.security.SignatureException expected) { rejected = true; }
         need(rejected && request.state() == ArtifactRequest.State.CANCELLED
                 && !request.workerOwned() && request.output() == null, "cancelled result retired without APK");
@@ -74,12 +83,18 @@ public final class ArtifactEngineTest {
     }
 
     private static final class Executor extends AbstractExecutorService {
-        enum Behavior { QUEUE, REJECT, ACCEPT_THEN_THROW }
+        enum Behavior { QUEUE, REJECT, ACCEPT_THEN_THROW, RUN_THEN_THROW }
         final ArrayDeque<Runnable> queue = new ArrayDeque<>();
         final Behavior behavior;
+        ArtifactRequest watched;
         Executor(Behavior behavior) { this.behavior = behavior; }
         @Override public void execute(Runnable work) {
             if (behavior == Behavior.REJECT) throw new RejectedExecutionException("known rejection");
+            if (behavior == Behavior.RUN_THEN_THROW) {
+                work.run();
+                need(watched.workerOwned(), "executor submission still owns completed worker ticket");
+                throw new IllegalStateException("submission failure after worker completion");
+            }
             queue.add(work);
             if (behavior == Behavior.ACCEPT_THEN_THROW) throw new IllegalStateException("unknown submission");
         }
@@ -128,6 +143,16 @@ public final class ArtifactEngineTest {
         uncertainExecutor.queue.remove().run();
         need(unknown.state() == ArtifactRequest.State.CANCELLED && !unknown.workerOwned(),
                 "retire only after the actual queued worker finishes");
+
+        Executor inlineExecutor = new Executor(Executor.Behavior.RUN_THEN_THROW);
+        ArtifactCoordinator inline = new ArtifactCoordinator(inlineExecutor);
+        ArtifactRequest completed = request("inline.1", apk); inlineExecutor.watched = completed;
+        try {
+            inline.submit(completed, certificate, backend(Mode.SIGN));
+            throw new AssertionError("expected submitter failure after completion");
+        } catch (IllegalStateException expected) { }
+        need(completed.state() == ArtifactRequest.State.COMPLETE && !completed.workerOwned()
+                && completed.output() != null, "published result survives failed submission receipt");
     }
 
     private static void run(String[] args) throws Exception {
@@ -153,12 +178,12 @@ public final class ArtifactEngineTest {
 
         byte[] caller = apk.clone(); ArtifactRequest positive = request("sign.1", caller);
         Arrays.fill(caller, (byte) 0);
-        need(ApkArtifactSigner.execute(positive, certificate, backend(Mode.SIGN)), "worker claimed");
+        need(execute(positive, certificate, backend(Mode.SIGN)), "worker claimed");
         need(positive.state() == ArtifactRequest.State.COMPLETE && !positive.workerOwned()
                 && signatures == 1 && positive.output() != null, "verified APK and worker retirement");
         byte[] signed = positive.output(); signed[0] ^= 1;
         need(signed[0] != positive.output()[0], "published output is a defensive copy");
-        need(!ApkArtifactSigner.execute(positive, certificate, backend(Mode.SIGN)), "completed job not replayed");
+        need(!execute(positive, certificate, backend(Mode.SIGN)), "completed job not replayed");
         Files.write(Path.of(args[1]).resolve("signed-artifact.apk"), positive.output(), StandardOpenOption.CREATE_NEW);
         cancelled(request("decline.1", apk), Mode.DECLINE);
         cancelled(request("cancel-sign.1", apk), Mode.CANCEL_SIGNING);
@@ -169,7 +194,7 @@ public final class ArtifactEngineTest {
                 certificateHash, ApkArtifactSigner.sha256(apk), apk);
         int before = signatures;
         try {
-            ApkArtifactSigner.execute(wrong, certificate, backend(Mode.SIGN));
+            execute(wrong, certificate, backend(Mode.SIGN));
             throw new AssertionError("wrong package metadata accepted");
         } catch (IllegalArgumentException expected) { }
         need(wrong.state() == ArtifactRequest.State.FAILED && !wrong.workerOwned()
