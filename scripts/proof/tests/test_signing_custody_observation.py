@@ -4,7 +4,7 @@ from pathlib import Path
 import sys
 import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from signing_custody import credential_target, provider_observation, recordable_ui_request
+from signing_custody import credential_target, provider_observation, recordable_ui_request, raw_input_command
 
 
 class CustodyObservationTests(unittest.TestCase):
@@ -41,6 +41,25 @@ class CustodyObservationTests(unittest.TestCase):
         self.assertEqual(record['context'], 'authenticate')
         record, allowed = recordable_ui_request(b'{"action":"swipe","x1":350,"y1":1200,"x2":350,"y2":400}')
         self.assertTrue(allowed)
+
+    def test_raw_input_transport_preserves_remote_lifetime_and_exit_status(self):
+        import shlex
+        remote = ['content', 'write', '--user', '0', '--uri',
+                  'content://dev.andrix.proof.signingcustody/import']
+        args = raw_input_command('/opt/host/bin/adb', '127.0.0.1:6520', remote)
+        self.assertEqual(args[:7], ['/opt/host/bin/adb', '-s', '127.0.0.1:6520',
+                                    'shell', '-T', '-e', 'none'])
+        self.assertEqual(shlex.split(args[7]), remote)
+        self.assertNotIn('exec-in', args)
+        self.assertNotIn('-x', args)
+
+    def test_raw_input_transport_does_not_adopt_arbitrary_endpoints_or_bad_arguments(self):
+        for adb, serial, remote in [('adb', '127.0.0.1:6520', ['cat']),
+                                    ('/adb', 'other-host:5555', ['cat']),
+                                    ('/adb', '127.0.0.1:6520', []),
+                                    ('/adb', '127.0.0.1:6520', ['bad\nargument']),
+                                    ('/adb', '127.0.0.1:6520', ['bad\x00argument'])]:
+            with self.assertRaises(ValueError): raw_input_command(adb, serial, remote)
 
     def window(self, nodes, focused='true', active='true', display='0'):
         return ('<displays><display id="' + display + '"><window focused="' + focused

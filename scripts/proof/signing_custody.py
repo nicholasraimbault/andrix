@@ -7,6 +7,7 @@ be paired with a fresh actual UI observation in the declared guest/user context.
 """
 from dataclasses import dataclass
 import re
+import shlex
 import xml.etree.ElementTree as ET
 try:
     from .signing_identity import strict_json
@@ -62,6 +63,22 @@ def recordable_ui_request(data):
         if not valid:
             return redacted, False
     return value, True
+
+
+def raw_input_command(adb, serial, remote_args):
+    """Keep the shell v2 session alive after stdin EOF and retain exit status.
+
+    exec-in is not interchangeable: it closes its raw exec connection when
+    copying stdin finishes, without waiting for the remote process. The caller
+    must supply private bytes separately on stdin, never as remote arguments.
+    """
+    if (not isinstance(adb, str) or not adb.startswith('/')
+            or serial != '127.0.0.1:6520'
+            or not isinstance(remote_args, list) or not remote_args
+            or any(not isinstance(arg, str) or not arg or '\x00' in arg or '\n' in arg
+                   for arg in remote_args)):
+        raise ValueError('Expected explicit private fixture transport and command')
+    return [adb, '-s', serial, 'shell', '-T', '-e', 'none', shlex.join(remote_args)]
 
 
 @dataclass(frozen=True)
