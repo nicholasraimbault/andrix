@@ -67,8 +67,12 @@ public final class ArtifactEngineTest {
     private static boolean execute(ArtifactRequest artifact, byte[] cert,
             ApkArtifactSigner.Backend backend) throws Exception {
         if (!artifact.claimWorker()) return false;
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
         try { ApkArtifactSigner.executeClaimed(artifact, cert, backend); return true; }
-        finally { artifact.fail(); need(artifact.retireWorker(), "test worker retirement"); }
+        finally {
+            need(Thread.currentThread().getContextClassLoader() == previous, "provider loader restored");
+            artifact.fail(); need(artifact.retireWorker(), "test worker retirement");
+        }
     }
 
     private static void cancelled(ArtifactRequest request, Mode mode) throws Exception {
@@ -203,15 +207,23 @@ public final class ArtifactEngineTest {
         System.out.println("ARTIFACT_ENGINE_HOST_PASS package=" + metadata.packageName
                 + " version=" + metadata.versionCode + " signed_sha256="
                 + ApkArtifactSigner.sha256(positive.output()) + " cancellation_cases=3"
-                + " coordinator_rejection_duplicate_unknown_controls=true");
+                + " coordinator_rejection_duplicate_unknown_controls=true"
+                + " captive_loader_overrides_missing_ambient_provider=true");
         System.out.println("NO_ANDROID_AUTHENTICATION_OR_PROTECTED_ARTIFACT_SIGNING_CLAIM");
     }
 
     public static void main(String[] args) {
-        try { run(args); }
-        catch (Throwable error) {
+        ClassLoader original = Thread.currentThread().getContextClassLoader();
+        ClassLoader absentProviders = new ClassLoader(null) { };
+        try {
+            Thread.currentThread().setContextClassLoader(absentProviders);
+            run(args);
+            need(Thread.currentThread().getContextClassLoader() == absentProviders, "caller loader preserved");
+        } catch (Throwable error) {
             System.err.println("ARTIFACT_ENGINE_HOST_FAILURE " + error.getClass().getName());
             System.exit(1);
+        } finally {
+            Thread.currentThread().setContextClassLoader(original);
         }
     }
 }

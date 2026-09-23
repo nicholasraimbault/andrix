@@ -99,6 +99,9 @@ class SigningCustodyTests(unittest.TestCase):
         self.assertIn('binding.backend.awaitSignature(artifact, signature)', source)
         self.assertLess(source.index('result.isVerified()'), source.index('artifact.completeVerifiedOutput'))
         self.assertIn('ACTIVE.remove()', source)
+        self.assertIn('setContextClassLoader(ApkArtifactSigner.class.getClassLoader())', source)
+        self.assertLess(source.index('setContextClassLoader(previousLoader)'),
+                        source.index('artifact.completeVerifiedOutput'))
         coordinator = (PACKAGE / 'ArtifactCoordinator.java').read_text()
         self.assertIn('dispatch.request.retireWorker()', coordinator)
         self.assertIn('dispatch.workerFinished && !dispatch.submissionOwned', coordinator)

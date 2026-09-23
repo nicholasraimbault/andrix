@@ -181,8 +181,14 @@ public final class ApkArtifactSigner {
         BoundedSink output = new BoundedSink();
         ApkSigner.SignerConfig config = new ApkSigner.SignerConfig.Builder("ANDRIX_TEST",
                 new KeyConfig.Kms(PROVIDER_TYPE, artifact.id()), List.of(certificate)).build();
-        ACTIVE.set(binding);
+        Thread thread = Thread.currentThread();
+        ClassLoader previousLoader = thread.getContextClassLoader();
+        // apksig uses ServiceLoader's ambient thread loader. Select only this
+        // captive application loader, never an APK input or inherited caller loader.
+        thread.setContextClassLoader(ApkArtifactSigner.class.getClassLoader());
+        byte[] complete = null;
         try {
+            ACTIVE.set(binding);
             new ApkSigner.Builder(List.of(config))
                     .setInputApk(DataSources.asDataSource(ByteBuffer.wrap(input).asReadOnlyBuffer()))
                     .setOutputApk(output).setMinSdkVersion(37)
@@ -200,13 +206,14 @@ public final class ApkArtifactSigner {
                     || !Arrays.equals(result.getSignerCertificates().get(0).getEncoded(), certificateCopy)) {
                 throw new SignatureException("complete artifact verification failed");
             }
-            byte[] complete = new byte[(int) output.size()];
+            complete = new byte[(int) output.size()];
             output.copyTo(0, complete.length, ByteBuffer.wrap(complete));
-            if (!artifact.completeVerifiedOutput(complete)) {
-                throw new SignatureException("artifact publication refused");
-            }
         } finally {
             ACTIVE.remove();
+            thread.setContextClassLoader(previousLoader);
+        }
+        if (complete == null || !artifact.completeVerifiedOutput(complete)) {
+            throw new SignatureException("artifact publication refused");
         }
     }
 
