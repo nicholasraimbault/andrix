@@ -1,8 +1,9 @@
 # Disposable Android signing custody vehicle
 
-Implementation in progress. See the
+The finite disposable Android import and approved signature flow is qualified in the
 [request and qualification plan](../../plans/2026-09-22-protected-signing-request.md).
-This is not a personal key provisioner, general root service or installer.
+This is not a personal key provisioner, product signing service, general root service or
+installer.
 
 `AndrixSigningCustodyProof` and `AndrixSigningCustodyNegative` are ordinary lab APKs. They
 have separate application UIDs and no shared UID. Neither is included in PRODUCT_PACKAGES.
@@ -30,9 +31,16 @@ PKCS#8 length and certificate DER length, then those exact byte strings. Extra/t
 and changed public commitments are refused. This is a local test transport, not a replacement
 for the portable encrypted recovery format.
 
-Host state checks run through `scripts/proof/tests/test_signing_custody.py`. Compiling against
-public Android SDK classes is not a device result. A device trial must separately establish
-specific preauthentication refusal, actual fresh credential approval, successful signing,
-foreign caller denials, cancellation/replay behavior and cleanup. Hardware properties,
-genuine CE withdrawal, production administrator enrollment and durable provisioning remain
-outside this initial vehicle.
+Host state checks run through `scripts/proof/tests/test_signing_custody.py`. Compilation is
+not a device result. The qualified fresh guest separately established exact import identity,
+specific unauthenticated refusal before and after a successful approved signature, foreign
+caller denials, decline, cancellation during authentication, completed request replay refusal,
+broker replacement and cleanup. Cancellation during claimed signing and accepted operation
+loss still need runtime controls. Hardware properties, actual CE withdrawal, production
+administrator enrollment and durable provisioning remain outside this vehicle.
+
+Credential dependent key codes and touch coordinates must also stay out of command records.
+The earlier private driver omitted its own log, but adbd independently recorded those
+arguments. Those disposable PIN captures remain private and are corrected separately.
+The qualified driver used constant service commands with private stdin and scoped raw log
+checks. It did not disable logging to hide the problem.
