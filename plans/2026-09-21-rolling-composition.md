@@ -35,6 +35,33 @@ supportable. Do not silently overwrite local software or imply that a pinned loc
 received security fixes that were never incorporated. An owner may deliberately force an
 unsupported combination, but the supported update path must not call it compatible.
 
+## Local revisions and upstream updates
+
+The SystemUI proof explicitly assigned APK versionCode values 37 through 41. Those were
+package ordering values, not Android release numbers or an automatic increment on every
+source edit. Higher version restorations carried known good code without claiming that
+Android installed an older APK or reversed its data migrations.
+
+A local version bump is not a complete update strategy. A later upstream source release can
+still declare a lower or equal APK version code. Normal replacement checks reject a lower
+code as a downgrade unless that operation is permitted. For matching updated system packages,
+a higher or equal copy on the data partition can also keep a new factory copy from becoming
+the active implementation. An OS update therefore does not prove that a local component
+received the new upstream fixes.
+
+The composition model must distinguish upstream source revision, owner changes and deployment
+revision. For components managed as owner builds, the candidate workflow is to incorporate
+compatible upstream changes, preserve or explicitly resolve the owner's modifications, build
+and sign the combined result, then assign an appropriate deployment version. The precise
+number allocation, compatibility rules and recovery behavior remain to be designed and tested.
+An APK versionCode alone is neither a source provenance record nor proof of security freshness.
+
+Do not apply blanket version rewriting to independent third party APKs. Preserve their developer
+identities and ordinary update path unless the owner deliberately selects a fork. Source merges,
+signer continuity, package/data compatibility and deployment ordering are separate concerns.
+Unresolved merges or incompatible framework changes must be visible, not silently hidden by a
+large local version number. The finite proof did not qualify this upstream integration workflow.
+
 ## Transactions and recovery
 
 Define commit boundaries, interruption behavior, capacity checks, rollback and data

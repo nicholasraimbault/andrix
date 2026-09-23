@@ -1,8 +1,9 @@
 # Signing authorization scope
 
-Status: proposal awaiting an owner decision on the default unit of authorization. The
-mechanism is not selected. The current qualified Android vehicle still requires authentication
-for each individual key operation. No key policy has been changed. The
+Status: the owner accepted one complete protected signing transaction as the default unit
+of approval and fresh credential authentication. The mechanism is not selected. The current
+qualified Android vehicle still requires authentication for each individual key operation.
+No key policy has been changed. The
 [portable recovery default](2026-09-22-installation-key-recovery.md) remains accepted.
 
 This concerns protected installation signing authority, not a requirement to authenticate
@@ -32,9 +33,9 @@ Operation availability and retirement remain separate constraints. A positive ti
 selects cached token lookup and age checking. It changes key authorization semantics, not
 just the presentation of a prompt. Cuttlefish did not establish physical hardware enforcement.
 
-## Recommended product policy
+## Accepted product policy
 
-Make the default approval unit one complete immutable signing transaction:
+The default approval unit is one complete immutable signing transaction:
 
 - One explicit confirmation of the input artifact, key identities, purposes, formats and
   requested outputs.
@@ -108,7 +109,7 @@ promotion, tests must establish:
 - Complete APK and sidecar verification before publication, with an independently trusted
   expected signing identity and no silent partial success.
 
-Accepting one transaction as the default unit would not accept a timed key policy, authorize
+The accepted transaction approval default does not accept a timed key policy, authorize
 personal key provisioning or qualify either candidate. If a weaker key boundary proves
 necessary, that tradeoff must return to the owner explicitly. The existing prototype remains
 unchanged while the alternatives are assessed.
