@@ -72,6 +72,16 @@ public final class SigningRequest {
     public synchronized State state() { return state; }
     public synchronized boolean cancellationRequested() { return cancellationRequested; }
 
+    /** Presentation selection only. This grants no approval or signing authority. */
+    public static boolean mayReplacePresentation(SigningRequest current, SigningRequest candidate) {
+        if (candidate == null) return false;
+        if (current == null || current == candidate) return true;
+        State old = current.state();
+        // Terminal states cannot reopen. A live request keeps its own display
+        // binding instead of adopting a newly delivered Activity intent.
+        return old == State.COMPLETE || old == State.CANCELLED || old == State.FAILED;
+    }
+
     /** Returns a copy of the public signature only after successful publication. */
     public synchronized byte[] signature() {
         return state == State.COMPLETE ? signature.clone() : null;

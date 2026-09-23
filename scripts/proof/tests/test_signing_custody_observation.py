@@ -4,7 +4,7 @@ from pathlib import Path
 import sys
 import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from signing_custody import credential_target, provider_observation, recordable_ui_request, raw_input_command
+from signing_custody import credential_target, provider_observation, recordable_ui_request, raw_input_command, compose_pin_observation
 
 
 class CustodyObservationTests(unittest.TestCase):
@@ -90,6 +90,51 @@ class CustodyObservationTests(unittest.TestCase):
         self.assertEqual(credential_target(self.window(nodes), 'authenticate'), 'systemui-pin-keypad')
         with self.assertRaises(ValueError): credential_target(self.window(nodes + nodes), 'authenticate')
         with self.assertRaises(ValueError): credential_target(self.window(self.field()), 'authenticate')
+
+    def compose_pad(self):
+        def node(name='', text='', bounds='[0,0][720,1280]', children='', click='false', desc=''):
+            return ('<node package="com.android.systemui" resource-id="' + name
+                    + '" text="' + text + '" enabled="true" clickable="' + click
+                    + '" content-desc="' + desc + '" bounds="' + bounds + '">' + children + '</node>')
+        buttons = []
+        for digit in range(10):
+            x = 300 if digit == 0 else 100 + ((digit - 1) % 3) * 200
+            y = 1000 if digit == 0 else 500 + ((digit - 1) // 3) * 150
+            bounds = f'[{x},{y}][{x+100},{y+100}]'
+            buttons.append(node(bounds=bounds, click='true', children=node(text=str(digit), bounds=bounds)))
+        buttons.append(node('com.android.systemui:id/key_enter', bounds='[500,1000][600,1100]',
+                            click='true', children=node(desc='Enter')))
+        pad = node('cred_pin_pad', bounds='[0,400][720,1200]', children=''.join(buttons))
+        content = node('logo_description', text='Andrix disposable signing proof')
+        content += node('title', text='Authorize disposable signing')
+        content += node('subtitle', text='Key 0123456789abcdef') + pad
+        return self.window(node('com.android.systemui:id/compose_credential_view', children=content))
+
+    def test_compose_pin_pad_uses_unique_observed_digit_geometry(self):
+        xml = self.compose_pad()
+        self.assertEqual(credential_target(xml, 'authenticate'), 'systemui-compose-pin-pad')
+        observed = compose_pin_observation(xml)
+        self.assertEqual(observed['digits']['0'], (350, 1050))
+        self.assertEqual(observed['digits']['1'], (150, 550))
+        self.assertEqual(observed['enter'], (550, 1050))
+        self.assertEqual(observed['application_label'], 'Andrix disposable signing proof')
+        self.assertEqual(observed['subtitle'], 'Key 0123456789abcdef')
+
+    def test_compose_pin_pad_refuses_ambiguous_wrong_or_disabled_controls(self):
+        xml = self.compose_pad()
+        for changed in [xml.replace('text="0"', 'text="1"'),
+                        xml.replace('package="com.android.systemui"', 'package="untrusted.app"'),
+                        xml.replace('clickable="true"', 'clickable="false"'),
+                        xml.replace('content-desc="Enter"', 'content-desc="Other"'),
+                        xml.replace('resource-id="cred_pin_pad"', 'resource-id="unknown"')]:
+            with self.subTest(xml=changed), self.assertRaises(ValueError): compose_pin_observation(changed)
+
+    def test_compose_pin_pad_refuses_overlap_geometry_and_inactive_window(self):
+        xml = self.compose_pad()
+        for changed in [xml.replace('[300,1000][400,1100]', '[500,1000][600,1100]'),
+                        xml.replace('[100,500][200,600]', '[700,500][800,600]'),
+                        xml.replace('active="true"', 'active="false"')]:
+            with self.subTest(xml=changed), self.assertRaises(ValueError): compose_pin_observation(changed)
 
     def test_nested_or_background_window_and_entities_are_refused(self):
         field = self.field()

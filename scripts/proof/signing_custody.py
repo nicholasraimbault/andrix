@@ -103,12 +103,10 @@ def provider_observation(code, output):
     raise ValueError('Unknown or ambiguous provider reply')
 
 
-def credential_target(xml, context):
+def _credential_nodes(xml):
     if (not isinstance(xml, str) or len(xml) > 4 * 1024 * 1024
             or '<!DOCTYPE' in xml.upper() or '<!ENTITY' in xml.upper()):
         raise ValueError('Unsupported credential hierarchy')
-    if context not in ['setup', 'authenticate']:
-        raise ValueError('Unsupported credential context')
     root = ET.fromstring(xml)
     if root.tag != 'displays':
         raise ValueError('A fresh all windows hierarchy is required')
@@ -121,7 +119,13 @@ def credential_target(xml, context):
         raise ValueError('No unique active focused credential window')
     # Do not borrow a matching field from another window or a nested child
     # window which is not the observed input target.
-    nodes = list(windows[0].find('hierarchy').iter('node'))
+    return list(windows[0].find('hierarchy').iter('node'))
+
+
+def credential_target(xml, context):
+    if context not in ['setup', 'authenticate']:
+        raise ValueError('Unsupported credential context')
+    nodes = _credential_nodes(xml)
     if context == 'setup':
         fields = [n for n in nodes if n.get('package') == 'com.android.settings'
                   and n.get('resource-id') == 'com.android.settings:id/password_entry'
@@ -141,4 +145,67 @@ def credential_target(xml, context):
                   and n.get('focused') == n.get('password') == 'true']
         if len(fields) == 1:
             return 'systemui-credential-field'
+        if ids.count('cred_pin_pad') == 1:
+            compose_pin_observation(xml)
+            return 'systemui-compose-pin-pad'
     raise ValueError('No unique observed credential target, no input authorized')
+
+
+def compose_pin_observation(xml):
+    """Observe named SystemUI Compose credential controls, without any PIN.
+
+    The caller must separately match the prompt's application/title/key to its
+    owned operation. Returned coordinates are public UI geometry, not a grant.
+    """
+    nodes = _credential_nodes(xml)
+    def one(name, within=nodes):
+        candidates = [n for n in within if n.get('package') == 'com.android.systemui'
+                      and n.get('enabled') == 'true' and n.get('resource-id') == name]
+        if len(candidates) != 1:
+            raise ValueError('Missing or ambiguous Compose credential control')
+        return candidates[0]
+    container = one('com.android.systemui:id/compose_credential_view')
+    pad = one('cred_pin_pad', list(container.iter('node')))
+    def bounds(node):
+        match = re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', node.get('bounds', ''))
+        if not match:
+            raise ValueError('Missing credential control bounds')
+        x1, y1, x2, y2 = map(int, match.groups())
+        if not 0 <= x1 < x2 <= 720 or not 0 <= y1 < y2 <= 1280:
+            raise ValueError('Unsupported credential display geometry')
+        return x1, y1, x2, y2
+    px1, py1, px2, py2 = bounds(pad)
+    rectangles = []
+    def center(node):
+        x1, y1, x2, y2 = bounds(node)
+        if not px1 <= x1 < x2 <= px2 or not py1 <= y1 < y2 <= py2:
+            raise ValueError('Control outside the observed PIN pad')
+        if any(x1 < right and left < x2 and y1 < bottom and top < y2
+               for left, top, right, bottom in rectangles):
+            raise ValueError('Overlapping credential controls')
+        rectangles.append((x1, y1, x2, y2))
+        return (x1 + x2) // 2, (y1 + y2) // 2
+    controls = list(pad.iter('node'))
+    digits = {}
+    for digit in '0123456789':
+        candidates = []
+        for node in controls:
+            if (node.get('package') != 'com.android.systemui' or node.get('enabled') != 'true'
+                    or node.get('clickable') != 'true'):
+                continue
+            labels = [n.get('text') for n in node.iter('node')
+                      if n.get('package') == 'com.android.systemui'
+                      and re.fullmatch(r'[0-9]', n.get('text', ''))]
+            if labels == [digit]:
+                candidates.append(node)
+        if len(candidates) != 1:
+            raise ValueError('Digit label does not uniquely identify a clickable control')
+        digits[digit] = center(candidates[0])
+    enter = one('com.android.systemui:id/key_enter', controls)
+    if enter.get('clickable') != 'true' or not any(
+            n.get('package') == 'com.android.systemui' and n.get('content-desc') == 'Enter'
+            for n in enter.iter('node')):
+        raise ValueError('No observed Enter control')
+    return {'digits': digits, 'enter': center(enter),
+            'application_label': one('logo_description').get('text', ''),
+            'title': one('title').get('text', ''), 'subtitle': one('subtitle').get('text', '')}

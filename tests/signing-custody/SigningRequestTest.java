@@ -100,6 +100,20 @@ public final class SigningRequestTest {
         SigningRequest next = new SigningRequest("instance.2", 2000, 0, "sign-probe", CERT, bytes);
         need(!copy.complete(new byte[]{1}) && !copy.claimSigning());
         need(next.state() == SigningRequest.State.PENDING);
-        System.out.println("SIGNING_REQUEST_MODEL_PASS races=400 no_Android_authentication_claim");
+        need(SigningRequest.mayReplacePresentation(null, next));
+        need(SigningRequest.mayReplacePresentation(next, next));
+        need(!SigningRequest.mayReplacePresentation(next, null));
+        need(!SigningRequest.mayReplacePresentation(next, copy)); // pending
+        need(next.beginAuthentication());
+        need(!SigningRequest.mayReplacePresentation(next, copy));
+        need(next.claimSigning());
+        need(!SigningRequest.mayReplacePresentation(next, copy));
+        need(next.cancel());
+        need(!SigningRequest.mayReplacePresentation(next, copy)); // cancellation is not retirement
+        need(next.complete(new byte[]{1}));
+        need(SigningRequest.mayReplacePresentation(next, copy)); // now terminal
+        need(SigningRequest.mayReplacePresentation(copy, next)); // published signature retained
+        need(copy.state() == SigningRequest.State.COMPLETE && next.state() == SigningRequest.State.CANCELLED);
+        System.out.println("SIGNING_REQUEST_MODEL_PASS races=400 presentation_not_authorization no_Android_authentication_claim");
     }
 }

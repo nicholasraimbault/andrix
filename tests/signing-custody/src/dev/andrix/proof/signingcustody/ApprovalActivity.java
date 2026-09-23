@@ -2,6 +2,7 @@
 package dev.andrix.proof.signingcustody;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.WindowManager;
@@ -28,12 +29,7 @@ public final class ApprovalActivity extends Activity {
             finish(); return;
         }
         broker = ProofBroker.get(this);
-        String id = getIntent().getStringExtra("request");
-        if (id == null || id.length() > SigningRequest.MAX_REQUEST_ID_CHARS) {
-            finish(); return;
-        }
-        try { request = broker.find(id); }
-        catch (RuntimeException refused) { finish(); return; }
+        if (!bindPresentation(getIntent())) { finish(); return; }
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(28, 48, 28, 28);
@@ -48,6 +44,26 @@ public final class ApprovalActivity extends Activity {
         cancel.setOnClickListener(view -> { broker.cancel(request.id()); refresh(); });
         layout.addView(cancel);
         ScrollView scroll = new ScrollView(this); scroll.addView(layout); setContentView(scroll);
+        refresh();
+    }
+
+    private boolean bindPresentation(Intent intent) {
+        String id = intent.getStringExtra("request");
+        if (id == null || id.length() > SigningRequest.MAX_REQUEST_ID_CHARS) return false;
+        final SigningRequest candidate;
+        try { candidate = broker.find(id); }
+        catch (RuntimeException refused) { return false; }
+        if (!SigningRequest.mayReplacePresentation(request, candidate)) return false;
+        request = candidate;
+        setIntent(intent);
+        return true;
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        // A new intent is only a request to view stored metadata. It cannot
+        // approve, replace the bytes of, or cancel an active operation.
+        if (broker != null) bindPresentation(intent);
         refresh();
     }
 

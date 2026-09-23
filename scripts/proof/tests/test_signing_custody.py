@@ -70,6 +70,10 @@ class SigningCustodyTests(unittest.TestCase):
         self.assertIn('FLAG_SECURE', activity)
         self.assertIn('setFilterTouchesWhenObscured(true)', activity)
         self.assertIn('broker.approve(this, request)', activity)
+        self.assertIn('onNewIntent(Intent intent)', activity)
+        self.assertIn('SigningRequest.mayReplacePresentation(request, candidate)', activity)
+        manifest = ET.parse(FIXTURE / 'AndroidManifest.xml').getroot()
+        self.assertEqual(manifest.find('application/activity').get(ANDROID + 'launchMode'), 'singleTop')
 
 
 if __name__ == '__main__': unittest.main()
