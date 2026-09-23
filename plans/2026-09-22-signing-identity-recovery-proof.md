@@ -158,8 +158,9 @@ still distinct gates.
 
 - Complete the relevant installation trust inventory, including selected nested APKs and
   key rotation relationships, before personalizing a whole installation.
-- Verify device import, signing algorithms and public identity preservation with disposable
-  fixtures. Prove ordinary callers cannot borrow signing authority.
+- Verify device import, signing algorithms and public identity preservation through the
+  [protected request vehicle](2026-09-22-protected-signing-request.md). Prove ordinary callers
+  cannot borrow signing authority.
 - Bind authorization to the exact operation and artifacts, separately from cryptographic
   key recovery. Define complete administrative context and lifetime behavior.
 - Design durable provisioning and recovery publication, cancellation and interrupted write

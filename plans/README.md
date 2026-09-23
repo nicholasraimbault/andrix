@@ -19,6 +19,8 @@ separate from the retained Unix milestones:
   mechanisms remain to be implemented and qualified. The first
   [identity inventory and independent recovery vehicle](2026-09-22-signing-identity-recovery-proof.md)
   supplies artifact observations and disposable host controls, not protected Android custody.
+  The next [protected signing request](2026-09-22-protected-signing-request.md) is a lab
+  implementation vehicle, not a production signer or new administrative policy.
 - [Owner authority and signing](2026-09-21-owner-authority.md).
 - [Android accounts with Unix](2026-09-21-android-unix-accounts.md).
 - [Rolling composition and installation](2026-09-21-rolling-composition.md).

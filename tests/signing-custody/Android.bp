@@ -1,0 +1,23 @@
+// SPDX-License-Identifier: Apache-2.0
+// Lab APKs only. Neither module is in PRODUCT_PACKAGES.
+android_test {
+    name: "AndrixSigningCustodyProof",
+    srcs: ["src/**/*.java"],
+    manifest: "AndroidManifest.xml",
+    sdk_version: "current",
+    min_sdk_version: "37",
+    target_sdk_version: "37",
+    certificate: ":dev.andrix.usr.certificate",
+    auto_gen_config: false,
+}
+
+android_test {
+    name: "AndrixSigningCustodyNegative",
+    srcs: ["negative/src/**/*.java"],
+    manifest: "negative/AndroidManifest.xml",
+    sdk_version: "current",
+    min_sdk_version: "37",
+    target_sdk_version: "37",
+    certificate: ":dev.andrix.usr.certificate",
+    auto_gen_config: false,
+}

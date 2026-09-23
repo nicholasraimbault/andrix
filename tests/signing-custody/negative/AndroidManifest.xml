@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.andrix.proof.signingnegative" android:versionCode="1" android:versionName="0.1-lab">
+    <uses-sdk android:minSdkVersion="37" android:targetSdkVersion="37" />
+    <queries><package android:name="dev.andrix.proof.signingcustody" /></queries>
+    <application android:label="Andrix signing boundary negative" android:allowBackup="false" />
+    <instrumentation android:name=".SigningNegative"
+        android:targetPackage="dev.andrix.proof.signingnegative"
+        android:functionalTest="true" android:handleProfiling="false" />
+</manifest>
