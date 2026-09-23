@@ -2,9 +2,9 @@
 
 The version 2 disposable Android import and approved signature flow is qualified in the
 [request plan](../../plans/2026-09-22-protected-signing-request.md). The version 5
-[APK artifact extension](../../plans/2026-09-23-protected-apk-artifact.md) is a candidate with
-host and public SDK checks, not an Android artifact result yet. This is not a personal key
-provisioner, product signing service, general root service or installer. The earlier version 3 and 4
+[APK artifact extension](../../plans/2026-09-23-protected-apk-artifact.md) has also passed its
+finite protected signing, export, ordinary installation and execution controls. This is not
+a personal key provisioner, product signing service, general root service or installer. The earlier version 3 and 4
 artifact APK builds were inspected but not used for a guest trial. Retirement ordering and
 explicit captive provider loader selection were corrected before that runtime gate.
 
