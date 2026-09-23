@@ -23,8 +23,9 @@ separate from the retained Unix milestones:
   finite disposable Android flow. The [APK artifact gate](2026-09-23-protected-apk-artifact.md)
   also qualified protected signing, verified export and ordinary installed execution for
   one captured project APK. The [APEX and nested APK inventory](2026-09-23-apex-trust-inventory.md)
-  extends the public role evidence. These are not a production signer or a new administrative
-  policy.
+  extends the public role evidence. The [authorization scope proposal](2026-09-23-signing-authorization-scope.md)
+  awaits an owner decision before changing the current key authentication policy. These
+  proofs are not a production signer or a new administrative policy.
 - [Owner authority and signing](2026-09-21-owner-authority.md).
 - [Android accounts with Unix](2026-09-21-android-unix-accounts.md).
 - [Rolling composition and installation](2026-09-21-rolling-composition.md).
