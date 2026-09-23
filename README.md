@@ -27,8 +27,10 @@ passed on Cuttlefish: focused builds, staged APK activation, visible changes and
 restoration, with native execution and saved test data checked afterward. It used host
 assistance and development keys, not a finished owner signing or elevation interface.
 
+A finite [protected APK signing flow](plans/2026-09-23-protected-apk-artifact.md) also passed
+using a disposable identity, exact owner approval and ordinary installed execution.
 General component tooling, Unix environments for multiple Android users, elevation,
-protected owner signing, rolling updates and the recommended/custom installer remain
+production owner signing, rolling updates and the recommended/custom installer remain
 accepted goals, not completed features.
 
 This repository contains source and verification tooling, **not a supported OS

@@ -10,7 +10,10 @@ runtime safety.
 GPLv3-only with an Apache-2.0 exception for these terminal libraries derived from
 Terminal Emulator for Android. `LICENSE` supplies the Apache-2.0 text. Only the
 terminal emulator/view and their tests/resources are selected here; the Termux APK,
-services, package environment and `termux-shared` library are not imported.
+services, package environment and `termux-shared` library are not imported. Relative links
+inside the preserved upstream statement refer to that repository's layout; the
+[`termux-shared` license](https://github.com/termux/termux-app/blob/3b66f8799635a4dba4a206563048ff0e6792c487/termux-shared/LICENSE.md)
+is available upstream, not a missing component of this selected import.
 
 **No Termux process launcher:** upstream `TerminalSession.java`, `JNI.java` and the
 JNI implementation are deliberately excluded. Andrix must supply the view's

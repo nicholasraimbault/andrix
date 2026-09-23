@@ -9,6 +9,9 @@ keys/.keygen.*/
 /dev/
 /.codex/
 /.omp/
+/.pi/
+/.claude/
+/CLAUDE.local.md
 
 # Local build outputs, runtime captures and credentials are never source.
 out/
