@@ -64,6 +64,9 @@ The exact window duration is an unmeasured implementation parameter, not selecte
 Before promotion, tests must establish:
 
 - Actual imported key policy and ordinary namespace isolation on the intended device.
+  Passing an existing AndroidKeyStorePrivateKey back to setEntry only updates certificates;
+  new KeyProtection arguments do not retrofit its authentication policy. Any policy change
+  needs an explicit provisioning path and readback, not an assumed setter effect.
 - Refusal without concrete approval, even when a recent unlock makes the hardware key usable.
 - Fresh confirmation and credential authentication of this transaction, with no grant
   borrowing by another pending request or another UID.
