@@ -34,7 +34,9 @@ public final class ApprovalActivity extends Activity {
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(28, 48, 28, 28);
         text = new TextView(this); text.setTextSize(17); text.setTextIsSelectable(true);
-        layout.addView(text);
+        ScrollView scroll = new ScrollView(this); scroll.addView(text);
+        layout.addView(scroll, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
         approve = new Button(this); approve.setText("Approve this exact request");
         approve.setFilterTouchesWhenObscured(true);
         approve.setOnClickListener(view -> { approve.setEnabled(false); broker.approve(this, request); });
@@ -43,7 +45,7 @@ public final class ApprovalActivity extends Activity {
         cancel.setFilterTouchesWhenObscured(true);
         cancel.setOnClickListener(view -> { broker.cancel(request.id()); refresh(); });
         layout.addView(cancel);
-        ScrollView scroll = new ScrollView(this); scroll.addView(layout); setContentView(scroll);
+        setContentView(layout);
         refresh();
     }
 
@@ -69,7 +71,19 @@ public final class ApprovalActivity extends Activity {
 
     void refresh() {
         if (isDestroyed() || text == null || request == null) return;
+        ArtifactRequest artifact = broker.artifactFor(request);
+        String artifactContext = artifact == null ? "" :
+                "APK: " + artifact.packageName() + "\nVersion: " + artifact.versionCode()
+                + "\nAPK SHA256:\n" + artifact.artifactSha256()
+                + "\nAPK bytes: " + artifact.apk().length
+                + "\nScheme: v2 only, SDK 37\nArtifact state: " + artifact.state()
+                + "\nArtifact worker owned: " + artifact.workerOwned() + "\n\n";
+        String consequence = artifact == null
+                ? "This signs only this immutable test payload."
+                : "This signs only the captured APK above. A signature is not a completed APK. "
+                  + "Only completely verified APK output can be exported.";
         text.setText("LAB ONLY: disposable signing\n\n"
+                + artifactContext
                 + "Request: " + request.id() + "\n"
                 + "Requester UID: " + request.requesterUid() + ", user " + request.androidUser() + "\n"
                 + "Purpose: " + request.purpose() + "\n\n"
@@ -77,12 +91,17 @@ public final class ApprovalActivity extends Activity {
                 + "Payload SHA256:\n" + request.payloadSha256() + "\n"
                 + "Payload bytes: " + request.payload().length + "\n\n"
                 + "State: " + request.state() + "\n\n"
-                + "This signs only this immutable test payload. It does not install software, "
-                + "grant root or authorize other requests. Device authentication follows approval.");
-        approve.setEnabled(request.state() == SigningRequest.State.PENDING);
+                + consequence + " It does not install software, grant root or authorize other requests. "
+                + "Device authentication follows approval.");
+        approve.setEnabled(request.state() == SigningRequest.State.PENDING
+                && (artifact == null || !artifact.cancellationRequested()));
+        boolean artifactPending = artifact != null && artifact.workerOwned()
+                && artifact.state() != ArtifactRequest.State.COMPLETE
+                && artifact.state() != ArtifactRequest.State.CANCELLED
+                && artifact.state() != ArtifactRequest.State.FAILED;
         cancel.setEnabled(request.state() == SigningRequest.State.PENDING
                 || request.state() == SigningRequest.State.AUTHENTICATING
-                || request.state() == SigningRequest.State.SIGNING);
+                || request.state() == SigningRequest.State.SIGNING || artifactPending);
     }
 
     @Override protected void onDestroy() {

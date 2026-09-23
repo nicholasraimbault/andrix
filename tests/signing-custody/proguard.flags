@@ -1,0 +1,2 @@
+# The captive local callback is loaded by apksig through ServiceLoader.
+-keep class dev.andrix.proof.signingcustody.ApkArtifactSigner$Provider { public <init>(); *; }

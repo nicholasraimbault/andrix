@@ -37,11 +37,13 @@ import java.util.LinkedHashMap;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 
 /** Lab only, one key in this APK's APP namespace. No installer or root authority. */
 final class ProofBroker {
     static final String ALIAS = "andrix.proof.disposable.signing";
     static final String PURPOSE = "sign-disposable-test-payload";
+    static final String ARTIFACT_PACKAGE = "dev.andrix.proof.artifactpayload";
     private static final byte[] MAGIC = "ANDRK001".getBytes(StandardCharsets.US_ASCII);
     private static final int MAX_IMPORT = 131072;
     private static ProofBroker instance;
@@ -54,9 +56,12 @@ final class ProofBroker {
     final String epoch = UUID.randomUUID().toString();
     private final Context context;
     private final ExecutorService signer = Executors.newSingleThreadExecutor();
+    private final ArtifactCoordinator artifacts = new ArtifactCoordinator();
     private final LinkedHashMap<String, SigningRequest> requests = new LinkedHashMap<>();
     private final LinkedHashMap<String, String> failures = new LinkedHashMap<>();
     private long next = 1;
+    private long approvedSignCalls;
+    private long approvedSignaturesProduced;
     private String expectedCertificate;
     private String expectedSpki;
     private String importState = "UNCONFIGURED";
@@ -105,7 +110,7 @@ final class ProofBroker {
     }
 
     synchronized JSONObject configure(String certificate, String spki) throws Exception {
-        require(!importPending && requests.isEmpty(), "operation still owned");
+        require(!importPending && requests.isEmpty() && !artifacts.ownsWork(), "operation still owned");
         require(certificate != null && certificate.matches("[0-9a-f]{64}")
                 && spki != null && spki.matches("[0-9a-f]{64}"), "public commitments required");
         if (expectedCertificate != null) {
@@ -124,8 +129,8 @@ final class ProofBroker {
     }
 
     synchronized ParcelFileDescriptor importPipe() throws Exception {
-        require(expectedCertificate != null && !importPending && requests.isEmpty(),
-                "import not available");
+        require(expectedCertificate != null && !importPending && requests.isEmpty()
+                && !artifacts.ownsWork(), "import not available");
         require(!store().containsAlias(ALIAS), "refusing to overwrite a key");
         ParcelFileDescriptor[] pipe = ParcelFileDescriptor.createReliablePipe();
         importPending = true;
@@ -266,6 +271,8 @@ final class ProofBroker {
                 .put("operation_owned", active != null)
                 .put("operation_preparing", active != null && active.preparing)
                 .put("operation_retiring", active != null && active.retiring)
+                .put("approved_sign_calls", approvedSignCalls)
+                .put("approved_signatures_produced", approvedSignaturesProduced)
                 .put("import_failure_classes", importFailure == null ? JSONObject.NULL : importFailure);
         KeyStore store = store();
         boolean present = store.containsAlias(ALIAS); result.put("key_present", present);
@@ -285,13 +292,13 @@ final class ProofBroker {
         }
         JSONArray rows = new JSONArray();
         for (SigningRequest request : requests.values()) rows.put(requestStatus(request));
-        result.put("requests", rows);
+        result.put("requests", rows).put("artifacts", artifacts.status());
         return result;
     }
 
     synchronized SigningRequest request(int uid, String purpose, String certificate, byte[] payload)
             throws Exception {
-        require(!importPending && active == null && requests.size() < 16
+        require(!importPending && active == null && !artifacts.ownsWork() && requests.size() < 16
                 && next > 0 && next < Long.MAX_VALUE,
                 "request capacity or import busy");
         for (SigningRequest old : requests.values()) {
@@ -308,6 +315,100 @@ final class ProofBroker {
         return request;
     }
 
+    ArtifactRequest requestArtifact(int uid, String id, String purpose, String certificate,
+            String expectedInput, byte[] apk) throws Exception {
+        require(ArtifactRequest.PURPOSE.equals(purpose), "wrong artifact purpose");
+        require(id != null && id.startsWith(epoch + ".apk."), "stale artifact namespace");
+        String nonce = id.substring((epoch + ".apk.").length());
+        require(UUID.fromString(nonce).toString().equals(nonce), "canonical artifact nonce required");
+        require(apk != null && apk.length > 0 && apk.length <= 64 * 1024, "artifact transport bound");
+        byte[] owned = apk.clone();
+        require(sha(owned).equals(expectedInput), "artifact input commitment");
+        ApkArtifactSigner.Metadata metadata = ApkArtifactSigner.inspect(owned);
+        require(ARTIFACT_PACKAGE.equals(metadata.packageName) && metadata.versionCode == 1,
+                "only the declared disposable artifact package");
+        synchronized (this) {
+            ArtifactRequest retained = artifacts.find(id);
+            if (retained != null) {
+                require(retained.requesterUid() == uid && retained.androidUser() == 0
+                        && retained.certificateSha256().equals(certificate)
+                        && retained.artifactSha256().equals(expectedInput)
+                        && retained.packageName().equals(metadata.packageName)
+                        && retained.versionCode() == metadata.versionCode, "changed artifact retry");
+                return retained; // Lookup of a concrete retained request, never another signing job.
+            }
+            require(!importPending && active == null && !artifacts.ownsWork() && requests.size() < 16,
+                    "artifact capacity or operation busy");
+            for (SigningRequest old : requests.values()) {
+                require(old.state() == SigningRequest.State.COMPLETE
+                        || old.state() == SigningRequest.State.CANCELLED
+                        || old.state() == SigningRequest.State.FAILED, "another request is active");
+            }
+            require(expectedCertificate != null && expectedCertificate.equals(certificate), "wrong artifact key");
+            KeyStore store = store(); checkedPrivateKey(store);
+            byte[] exactCertificate = checkedCertificate(store).getEncoded();
+            ArtifactRequest request = new ArtifactRequest(id, uid, 0, metadata.packageName,
+                    metadata.versionCode, certificate, expectedInput, owned);
+            artifacts.submit(request, exactCertificate, this::awaitArtifactSignature);
+            return request;
+        }
+    }
+
+    private void awaitArtifactSignature(ArtifactRequest artifact, SigningRequest signature)
+            throws InterruptedException {
+        synchronized (this) {
+            require(artifacts.find(artifact.id()) == artifact && artifact.workerOwned()
+                    && artifact.signatureRequest() == signature && !requests.containsKey(signature.id()),
+                    "artifact callback is not the captured worker");
+            requests.put(signature.id(), signature);
+            if (artifact.cancellationRequested()) signature.cancel();
+        }
+        boolean interrupted = false;
+        for (;;) {
+            synchronized (this) {
+                SigningRequest.State state = signature.state();
+                boolean terminal = state == SigningRequest.State.COMPLETE
+                        || state == SigningRequest.State.CANCELLED || state == SigningRequest.State.FAILED;
+                boolean operationOwned = active != null && active.request == signature;
+                if (terminal && !operationOwned) {
+                    if (state == SigningRequest.State.CANCELLED) artifact.cancel();
+                    break;
+                }
+            }
+            try { Thread.sleep(25); }
+            catch (InterruptedException lostWait) {
+                // Cancellation is not actual signer/abort retirement. Do not let
+                // the waiting artifact worker abandon that independent owner.
+                interrupted = true; artifact.cancel(); cancel(signature.id());
+            }
+        }
+        if (interrupted) throw new InterruptedException("artifact wait interrupted after retirement");
+    }
+
+    synchronized ArtifactRequest findArtifact(String id) {
+        ArtifactRequest result = artifacts.find(id);
+        require(result != null, "unknown or stale artifact");
+        return result;
+    }
+
+    synchronized JSONObject artifactStatus(String id) throws Exception {
+        return artifacts.status(findArtifact(id));
+    }
+
+    synchronized JSONObject artifactOutput(String id) throws Exception {
+        ArtifactRequest request = findArtifact(id);
+        require(request.state() == ArtifactRequest.State.COMPLETE && !request.workerOwned(),
+                "artifact output not complete and retired");
+        byte[] output = request.output();
+        require(output != null && output.length <= 256 * 1024, "artifact result transport bound");
+        return artifacts.status(request).put("apk_base64", Base64.encodeToString(output, Base64.NO_WRAP));
+    }
+
+    synchronized ArtifactRequest artifactFor(SigningRequest signature) {
+        ArtifactRequest artifact = artifacts.find(signature.id());
+        return artifact != null && artifact.signatureRequest() == signature ? artifact : null;
+    }
+
     synchronized SigningRequest find(String id) {
         SigningRequest result = requests.get(id);
         require(result != null, "unknown or stale request");
@@ -315,22 +416,29 @@ final class ProofBroker {
     }
 
     synchronized JSONObject requestStatus(SigningRequest request) throws Exception {
-        JSONObject result = new JSONObject();
-        result.put("id", request.id()).put("requester_uid", request.requesterUid())
-                .put("user", request.androidUser()).put("purpose", request.purpose())
-                .put("certificate_sha256", request.certificateSha256())
-                .put("payload_sha256", request.payloadSha256()).put("payload_bytes", request.payload().length)
-                .put("state", request.state().name()).put("cancel_requested", request.cancellationRequested());
-        byte[] signature = request.signature();
-        result.put("signature_base64", signature == null ? JSONObject.NULL
-                : Base64.encodeToString(signature, Base64.NO_WRAP));
-        result.put("failure_classes", failures.containsKey(request.id())
-                ? failures.get(request.id()) : JSONObject.NULL);
-        return result;
+        synchronized (request) {
+            JSONObject result = new JSONObject();
+            result.put("id", request.id()).put("requester_uid", request.requesterUid())
+                    .put("user", request.androidUser()).put("purpose", request.purpose())
+                    .put("certificate_sha256", request.certificateSha256())
+                    .put("payload_sha256", request.payloadSha256()).put("payload_bytes", request.payload().length)
+                    .put("state", request.state().name()).put("cancel_requested", request.cancellationRequested());
+            // An artifact's crypto result is internal until the complete APK has
+            // verified. Do not provide a raw-signature escape around its publication gate.
+            ArtifactRequest artifact = artifacts.find(request.id());
+            boolean artifactSignature = artifact != null && artifact.signatureRequest() == request;
+            byte[] signature = artifactSignature ? null : request.signature();
+            result.put("signature_withheld_by_artifact", artifactSignature)
+                    .put("signature_base64", signature == null ? JSONObject.NULL
+                            : Base64.encodeToString(signature, Base64.NO_WRAP));
+            result.put("failure_classes", failures.containsKey(request.id())
+                    ? failures.get(request.id()) : JSONObject.NULL);
+            return result;
+        }
     }
 
     synchronized JSONObject preAuthenticationNegative() throws Exception {
-        require(!importPending && active == null, "negative requires idle key");
+        require(!importPending && active == null && !artifacts.ownsWork(), "negative requires idle key");
         for (SigningRequest request : requests.values()) {
             require(request.state() == SigningRequest.State.COMPLETE
                     || request.state() == SigningRequest.State.CANCELLED
@@ -372,7 +480,10 @@ final class ProofBroker {
         synchronized (this) {
             // A stale or duplicate presentation cannot fail, replace or abort
             // someone else's live operation, including this request's signer.
+            ArtifactRequest artifact = artifacts.find(request.id());
             if (requests.get(request.id()) != request || active != null
+                    || (artifact != null && (artifact.signatureRequest() != request
+                        || artifact.cancellationRequested() || !artifact.workerOwned()))
                     || !request.beginAuthentication()) {
                 activity.refresh(); return;
             }
@@ -393,7 +504,8 @@ final class ProofBroker {
                 retire(current); activity.refresh(); return;
             }
             BiometricPrompt prompt = new BiometricPrompt.Builder(activity)
-                    .setTitle("Authorize disposable signing")
+                    .setTitle(ArtifactRequest.PURPOSE.equals(request.purpose())
+                            ? "Authorize disposable APK signing" : "Authorize disposable signing")
                     .setSubtitle("Key " + request.certificateSha256().substring(0, 16))
                     .setDescription("Payload " + request.payloadSha256())
                     .setAllowedAuthenticators(BiometricManager.Authenticators.DEVICE_CREDENTIAL)
@@ -417,10 +529,15 @@ final class ProofBroker {
                             }
                             if (!claimed) { retire(current); activity.refresh(); return; }
                             try { signer.execute(() -> finishSignature(activity, current)); }
-                            catch (RuntimeException rejected) {
+                            catch (RejectedExecutionException rejected) {
                                 request.fail();
                                 synchronized (ProofBroker.this) { failures.put(request.id(), errorClasses(rejected)); }
                                 retire(current); activity.refresh();
+                            } catch (RuntimeException | Error uncertain) {
+                                // An arbitrary executor failure is not a nonacceptance
+                                // receipt. Preserve SIGNING and the operation owner.
+                                synchronized (ProofBroker.this) { failures.put(request.id(), errorClasses(uncertain)); }
+                                activity.refresh();
                             }
                         }
                         @Override public void onAuthenticationError(int errorCode, CharSequence message) {
@@ -445,7 +562,9 @@ final class ProofBroker {
         SigningRequest request = current.request;
         try {
             current.signature.update(request.payload());
+            synchronized (this) { approvedSignCalls++; }
             byte[] result = current.signature.sign();
+            synchronized (this) { approvedSignaturesProduced++; }
             Signature verify = Signature.getInstance("SHA256withRSA");
             verify.initVerify(current.certificate); verify.update(request.payload());
             require(verify.verify(result), "signature does not match expected public identity");
@@ -486,7 +605,14 @@ final class ProofBroker {
     void cancel(String id) {
         final Operation current;
         synchronized (this) {
-            SigningRequest request = find(id); request.cancel();
+            ArtifactRequest artifact = artifacts.find(id);
+            SigningRequest request = requests.get(id);
+            require(request != null || artifact != null, "unknown or stale request");
+            if (artifact != null) {
+                artifact.cancel();
+                if (request == null) request = artifact.signatureRequest();
+            }
+            if (request != null) request.cancel();
             current = active != null && active.request == request ? active : null;
         }
         if (current != null) {
@@ -496,7 +622,7 @@ final class ProofBroker {
     }
 
     synchronized JSONObject deleteKey() throws Exception {
-        require(!importPending && active == null, "operation remains owned");
+        require(!importPending && active == null && !artifacts.ownsWork(), "operation remains owned");
         for (SigningRequest request : requests.values()) {
             require(request.state() == SigningRequest.State.COMPLETE
                     || request.state() == SigningRequest.State.CANCELLED

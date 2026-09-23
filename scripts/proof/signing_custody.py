@@ -23,6 +23,11 @@ UI_FIELDS = {
     'custody-request': {'label'}, 'custody-open': {'label'}, 'custody-cancel': {'label'},
     'custody-observe': {'label', 'state'}, 'custody-replay': {'label'},
     'custody-restart': {'label'}, 'custody-finish': set(), 'finish': set(),
+    'artifact-request': {'label'}, 'artifact-open': {'label'},
+    'artifact-observe': {'label', 'state'}, 'artifact-cancel': {'label'},
+    'artifact-retry': {'label'}, 'artifact-replay': {'label'},
+    'artifact-restart': {'label'}, 'artifact-install': {'label'},
+    'artifact-status': {'label'}, 'artifact-finish': set(),
 }
 
 

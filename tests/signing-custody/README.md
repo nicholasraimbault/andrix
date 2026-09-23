@@ -1,12 +1,13 @@
 # Disposable Android signing custody vehicle
 
-The finite disposable Android import and approved signature flow is qualified in the
-[request and qualification plan](../../plans/2026-09-22-protected-signing-request.md).
-This is not a personal key provisioner, product signing service, general root service or
-installer.
+The version 2 disposable Android import and approved signature flow is qualified in the
+[request plan](../../plans/2026-09-22-protected-signing-request.md). The version 3
+[APK artifact extension](../../plans/2026-09-23-protected-apk-artifact.md) is a candidate with
+host and public SDK checks, not an Android artifact result yet. This is not a personal key
+provisioner, product signing service, general root service or installer.
 
-`AndrixSigningCustodyProof` and `AndrixSigningCustodyNegative` are ordinary lab APKs. They
-have separate application UIDs and no shared UID. Neither is included in PRODUCT_PACKAGES.
+`AndrixSigningCustodyProof`, `AndrixSigningCustodyNegative` and `AndrixArtifactPayload` are
+ordinary lab APKs. They have separate application UIDs and no shared UID. None is included in PRODUCT_PACKAGES.
 The only requested permission is the signing APK's normal USE_BIOMETRIC permission.
 
 The proof provider checks the actual Binder shell UID, debug build and user0 before decoding
@@ -24,6 +25,13 @@ The separate negative APK tests provider/import refusal and APP namespace isolat
 also creates, uses and deletes its own disposable key with the same alias to demonstrate
 that a name is not cross application key authority. No existing project or personal key
 should be used as this test identity.
+
+The artifact extension uses a captive local apksig provider, not a network KMS. It parses
+metadata from an owned APK snapshot, binds the generated signing data to that exact artifact,
+and withholds raw inner signatures from the public response API. A complete verified output
+and a retired worker are required before APK export. Retrying the same retained artifact
+identity cannot create another signing worker. The payload APK only reports ordinary
+installed execution and its public signing identity.
 
 Private key bytes must not appear in test arguments, logs, source assets or public evidence.
 The import frame uses an eight byte `ANDRK001` magic, big endian uint32 version 1, private

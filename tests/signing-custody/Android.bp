@@ -4,6 +4,9 @@ android_test {
     name: "AndrixSigningCustodyProof",
     srcs: ["src/**/*.java"],
     manifest: "AndroidManifest.xml",
+    static_libs: ["apksig"],
+    services: ["services/com.android.apksig.kms.KmsSignerEngineProvider"],
+    optimize: { proguard_flags_files: ["proguard.flags"] },
     sdk_version: "current",
     min_sdk_version: "37",
     target_sdk_version: "37",
@@ -15,6 +18,17 @@ android_test {
     name: "AndrixSigningCustodyNegative",
     srcs: ["negative/src/**/*.java"],
     manifest: "negative/AndroidManifest.xml",
+    sdk_version: "current",
+    min_sdk_version: "37",
+    target_sdk_version: "37",
+    certificate: ":dev.andrix.usr.certificate",
+    auto_gen_config: false,
+}
+
+android_test {
+    name: "AndrixArtifactPayload",
+    srcs: ["artifact/src/**/*.java"],
+    manifest: "artifact/AndroidManifest.xml",
     sdk_version: "current",
     min_sdk_version: "37",
     target_sdk_version: "37",

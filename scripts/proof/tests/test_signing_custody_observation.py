@@ -42,6 +42,20 @@ class CustodyObservationTests(unittest.TestCase):
         record, allowed = recordable_ui_request(b'{"action":"swipe","x1":350,"y1":1200,"x2":350,"y2":400}')
         self.assertTrue(allowed)
 
+    def test_artifact_actions_carry_only_declared_operation_labels(self):
+        import json
+        for action in ['artifact-request', 'artifact-open', 'artifact-cancel', 'artifact-retry',
+                       'artifact-replay', 'artifact-restart', 'artifact-install', 'artifact-status']:
+            value = {'action': action, 'label': 'fixture'}
+            observed, accepted = recordable_ui_request(json.dumps(value).encode())
+            self.assertTrue(accepted); self.assertEqual(observed, value)
+            observed, accepted = recordable_ui_request(json.dumps({**value, 'private_key': 'secret'}).encode())
+            self.assertFalse(accepted); self.assertNotIn('secret', repr(observed))
+        observed, accepted = recordable_ui_request(b'{"action":"artifact-observe","label":"fixture","state":"COMPLETE"}')
+        self.assertTrue(accepted)
+        observed, accepted = recordable_ui_request(b'{"action":"artifact-finish"}')
+        self.assertTrue(accepted)
+
     def test_raw_input_transport_preserves_remote_lifetime_and_exit_status(self):
         import shlex
         remote = ['content', 'write', '--user', '0', '--uri',

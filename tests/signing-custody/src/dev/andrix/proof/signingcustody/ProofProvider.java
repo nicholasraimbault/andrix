@@ -68,11 +68,32 @@ public final class ProofProvider extends ContentProvider {
                     SigningRequest request = broker.request(caller, extras.getString("purpose"),
                             extras.getString("certificate_sha256"), payload);
                     result = broker.requestStatus(request); break;
+                case "artifact-request":
+                    fields(extras, "request_id", "purpose", "certificate_sha256", "input_sha256", "apk_base64");
+                    String encodedApk = extras.getString("apk_base64");
+                    if (encodedApk == null || encodedApk.length() > 87384) {
+                        throw new IllegalArgumentException("artifact transport bound");
+                    }
+                    byte[] apk = Base64.decode(encodedApk, Base64.NO_WRAP);
+                    if (!Base64.encodeToString(apk, Base64.NO_WRAP).equals(encodedApk)) {
+                        throw new IllegalArgumentException("noncanonical artifact encoding");
+                    }
+                    ArtifactRequest artifact = broker.requestArtifact(caller, extras.getString("request_id"),
+                            extras.getString("purpose"), extras.getString("certificate_sha256"),
+                            extras.getString("input_sha256"), apk);
+                    result = broker.artifactStatus(artifact.id()); break;
+                case "artifact-inspect":
+                    fields(extras); result = broker.artifactStatus(arg); break;
+                case "artifact-output":
+                    fields(extras); result = broker.artifactOutput(arg); break;
+                case "artifact-cancel":
+                    fields(extras); broker.findArtifact(arg); broker.cancel(arg);
+                    result = broker.artifactStatus(arg); break;
                 case "inspect":
                     fields(extras); result = broker.requestStatus(broker.find(arg)); break;
                 case "cancel":
-                    fields(extras); broker.cancel(arg);
-                    result = broker.requestStatus(broker.find(arg)); break;
+                    fields(extras); SigningRequest cancelled = broker.find(arg); broker.cancel(arg);
+                    result = broker.requestStatus(cancelled); break;
                 case "cancel-import":
                     fields(extras); result = broker.cancelImport(); break;
                 case "without-authentication":
