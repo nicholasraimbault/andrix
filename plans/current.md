@@ -48,9 +48,12 @@ universal update mechanism is selected.
 
 The [ordinary principal reference plan](2026-09-24-native-principal-reference.md) now has a
 bounded source vehicle: optional permission UI and a separately invoked ART command, using
-stock `run-as` only as a diagnostic entry. Fifty host parser/guard checks and compilation
-against the public SDK passed. APK inspection and Android runtime remain separate gates;
-this does not qualify the debug domain, private framework bootstrap or a production launcher.
+stock `run-as` only as a diagnostic entry. Fifty host parser/guard checks and public SDK
+compilation passed. Three ordinary APK artifacts were built and verified, including their
+package, permission, signer and debug flag distinctions. The standalone build used API 36
+compile/code generation inputs with API 37 minimum and target declarations unchanged.
+Android execution still needs a fresh admitted guest. This does not qualify the debug domain,
+private framework bootstrap, native C binding or production launcher.
 
 The deciding gates are:
 

@@ -77,3 +77,22 @@ framework lookup is reflective, so public SDK compilation does not prove that lo
 succeed on a device. APK packaging, signatures, manifest identities and debug flags must also
 be inspected before runtime. Soong module definitions and a manual SDK build are distinct
 build paths; do not claim that testing one exercised the other.
+
+## Preparation checkpoint
+
+Fifty host parser and guard checks passed. The three ordinary APKs were then built from
+source revision `cbe739e` and verified with the expected disposable certificate, exact package
+and permission declarations, debug flag differences, one optional Activity and no shared UID,
+service, receiver or provider. At the selected SDK 37 verification point, v3 verified. No Android
+execution or Soong module build result is implied.
+
+The standalone build used finalized public API 36 stubs and the selected R8/D8 prebuilt with
+code generation floor 36. All used public API symbols compiled. The manifests still require
+and target API 37; no application target or platform policy was lowered. Compile inputs,
+code generation compatibility and runtime target are distinct facts.
+
+The initial packaging attempt exposed an older D8 copy in the SDK tools tree. A later observer
+also assumed the wrong `aapt2 dump` field names and boolean representation. Corrected tooling
+and inspection were separate attempts with their original failures preserved. Use the pinned
+build system's compiler and the actual tool schema, not a filename or guessed output format
+as proof of compatibility. Reflective bootstrap and device policy remain runtime gates.
