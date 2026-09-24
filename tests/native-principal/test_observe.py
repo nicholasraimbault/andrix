@@ -2,7 +2,7 @@
 import copy
 import json
 import unittest
-from observe import active_notification, completed, events
+from observe import active_notification, bound_context, completed, events
 
 PKG = 'dev.andrix.proof.principal'
 
@@ -12,7 +12,8 @@ def fixture(uid=10001):
     entry = dict(base, phase='entry', selinux_context='u:r:runas_app:s0:c1,c257')
     entry['kernel_fields'] = {'Uid': ' '.join([str(uid)] * 4), 'Gid': ' '.join([str(uid)] * 4),
                              'CapInh': '0', 'CapPrm': '0', 'CapEff': '0', 'CapAmb': '0'}
-    return [entry, dict(base, phase='context', context_package=PKG),
+    return [entry, dict(base, phase='context', context_package=PKG, context_uid=uid,
+                        attribution_uid=uid, attribution_package=PKG),
             dict(base, phase='complete', active_at_last_observation=True)]
 
 
@@ -44,13 +45,33 @@ class ObservationTests(unittest.TestCase):
         for text in ['', 'x' * 131073, '{"schema":true}', '{"schema":2}']:
             with self.assertRaises(ValueError): events(text)
 
+    def test_native_refusal_requires_correct_caller_binding(self):
+        peer = PKG + 'peer'
+        rows = fixture(10002)[:2]
+        rows[1].update(context_package=peer, attribution_package=peer)
+        rows.append(dict(schema=1, phase='post', nonce='fixture', status='refused_or_failed'))
+        self.assertEqual(bound_context(rows, 10002, PKG, 'fixture', 'post', peer)['context_package'], peer)
+        for key, value in [('context_uid', 10001), ('context_package', PKG),
+                           ('attribution_uid', 10001), ('attribution_package', 'android')]:
+            bad = copy.deepcopy(rows); bad[1][key] = value
+            with self.assertRaises(ValueError): bound_context(bad, 10002, PKG, 'fixture', 'post', peer)
+        rows[-1]['nonce'] = 'different'
+        with self.assertRaises(ValueError): bound_context(rows, 10002, PKG, 'fixture', 'post', peer)
+        old = fixture(); old[1]['attribution_package'] = 'android'
+        with self.assertRaises(ValueError): completed(old, 10001, PKG, 'fixture', 'post')
+        wrong_order = fixture(); wrong_order[0], wrong_order[1] = wrong_order[1], wrong_order[0]
+        with self.assertRaises(ValueError): completed(wrong_order, 10001, PKG, 'fixture', 'post')
+
     def test_only_active_exact_service_record_counts(self):
         header = 'Current Notification Manager state:\n'
-        record = f'    NotificationRecord(0x123: pkg={PKG} user=UserHandle{{0}} id=7301 tag=fixture importance=3 key=0|{PKG}|7301|fixture|10001: Notification())\n'
+        record = f'    NotificationRecord(0x00000123: pkg={PKG} user=UserHandle{{0}} id=7301 tag=fixture importance=3 key=0|{PKG}|7301|fixture|10001: Notification())\n'
         yes = header + '  Notification List:\n' + record + '  \n'
         self.assertTrue(active_notification(yes, 10001, 0, PKG, 'fixture'))
         self.assertFalse(active_notification(yes, 10002, 0, PKG, 'fixture'))
         self.assertFalse(active_notification(yes, 10001, 0, PKG, 'different'))
+        spoof = record.replace('pkg=' + PKG, 'pkg=other.package').replace('key=0|', 'key=1|')
+        spoof = spoof.replace('Notification()', f'Notification(group= key=0|{PKG}|7301|fixture|10001: )')
+        self.assertFalse(active_notification(header + '  Notification List:\n' + spoof, 10001, 0, PKG, 'fixture'))
         self.assertFalse(active_notification(header + '  Enqueued Notification List:\n' + record, 10001, 0, PKG, 'fixture'))
         self.assertFalse(active_notification(header + '  History:\n' + record, 10001, 0, PKG, 'fixture'))
         for bad in ['service unavailable', yes + '  Notification List:\n', header + '  Notification List:\n' + record * 2]:

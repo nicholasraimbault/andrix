@@ -229,6 +229,26 @@ package's resources, overriding an identity label or granting more permissions i
 production integration contract. A private framework factory may be another diagnostic vehicle,
 but it is not a stable native API or an accepted production mechanism by itself.
 
+## Corrected reference candidate
+
+The next source revision resolves exactly one fixture package through Package Manager for the
+actual process UID. Its application metadata must match that full UID. It obtains resource
+metadata through the checked `ActivityThread.getPackageInfo` path without `CONTEXT_INCLUDE_CODE`
+or `CONTEXT_IGNORE_SECURITY`, then uses the private `ContextImpl.createAppContext` factory with no
+system container and no supplied operation package override. Both package/UID and operation
+attribution must match before notification use.
+
+This requires reflective Java access to a private factory in the inspected framework. It does
+not configure hidden API exemptions, load foreign application code, mutate identity fields or
+change native policy checks. If access refuses, the diagnostic stops. It remains a reference
+candidate, not a public SDK or production interface. The source passed 68 host checks and public
+SDK compilation; four observer tests include the previously observed attribution mismatch.
+
+The foreign package negative now keeps the real caller's own context and uses the documented
+`notifyAsPackage` delegation entry without configuring a delegation grant. Its own granted
+positive must work first. A local context mismatch, an earlier bootstrap failure or an
+unexpectedly returning foreign call cannot count as a native authorization refusal.
+
 ## Promotion condition
 
 Only the observed identity, notification policy and UI/command separation can be qualified

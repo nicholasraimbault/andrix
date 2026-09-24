@@ -19,6 +19,9 @@ oracles and limits.
 - `ProbeIdentity` checks this vehicle's observed ordinary application UID/GID tuple, zero
   effective/permitted/inheritable/ambient capabilities and `runas_app` label before using
   the capability. It records, rather than invents, the other kernel policy fields.
+- `ProbePrincipal` checks that Package Manager resolves exactly one fixture package for
+  the actual process UID, that its application metadata matches that full UID, and that
+  context and operation attribution agree. These are local consistency checks, not grants.
 - `ProbeArguments` bounds the finite actions, package names, public nonce and observation
   interval. It is not an authorization API.
 - `ProbeModelTest` checks the parsers and local guard on a host. It cannot establish Android
@@ -37,8 +40,12 @@ The command takes:
 PrincipalCommand info|post|cancel|observe FIXTURE_PACKAGE PUBLIC_NONCE [OBSERVE_MS]
 ```
 
-Only the three declared fixture package names are accepted. Each post uses the exact public
-nonce as its notification tag and the fixture's fixed notification ID. The observation
+Only the three declared fixture package names are accepted. The argument selects the target,
+not the caller. The caller's principal is resolved independently through Package Manager and
+the actual UID. Info, cancellation and observation require the caller's own target. A foreign
+post uses Android's documented `notifyAsPackage` delegation entry as a negative control, with
+no delegate grant configured. An unexpected return is not reported as a successful refusal.
+Each post uses the exact public nonce as its tag and the fixture's fixed notification ID. The observation
 interval is bounded. The command prints JSON lines with phases, actual identity observations,
 context metadata and notification observations. It reads only its own fixed `/proc` paths;
 it does not record arbitrary command arguments or environment contents. The diagnostic
@@ -70,8 +77,8 @@ nonce merely because the transport did not return.
 
 ## Host checks
 
-The pure helpers need only a JDK. Compile `ProbeArguments.java`, `ProbeIdentity.java` and
-`ProbeModelTest.java` into a fresh output directory, then run
+The pure helpers need only a JDK. Compile `ProbeArguments.java`, `ProbeIdentity.java`,
+`ProbePrincipal.java` and `ProbeModelTest.java` into a fresh output directory, then run
 `dev.andrix.proof.principal.ProbeModelTest`. The output explicitly disclaims runtime evidence.
 Use a bounded heap and execution deadline.
 
@@ -80,6 +87,22 @@ framework lookup is reflective, so public SDK compilation does not prove that lo
 succeed on a device. APK packaging, signatures, manifest identities and debug flags must also
 be inspected before runtime. Soong module definitions and a manual SDK build are distinct
 build paths; do not claim that testing one exercised the other.
+
+## Corrected reference binding
+
+The initial package-resource wrapper retained its system container's operation package.
+The corrected vehicle resolves the actual UID's single fixture package, obtains matching
+application metadata, uses `ActivityThread.getPackageInfo` with resource access but no code
+inclusion, and calls the private `ContextImpl.createAppContext` factory with two arguments.
+The factory has no inherited system container and no supplied operation package override. Context and
+attribution UID/package must agree before any notification operation.
+
+Reflection permits Java package visibility for this diagnostic factory. It does not install
+ART hidden API exemptions, request `CONTEXT_INCLUDE_CODE` or `CONTEXT_IGNORE_SECURITY`, use
+`getPackageInfoNoCheck`, overwrite identity fields or alter native grants and caller validation.
+A lookup or access failure stops the vehicle. This is a diagnostic for the inspected framework
+version, not a public SDK or production Andrix API contract. The corrected source passed 68 host guard checks
+and public API 36 compilation before packaging; those are not runtime qualification.
 
 ## Preparation checkpoint
 

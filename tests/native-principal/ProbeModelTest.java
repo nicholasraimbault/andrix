@@ -77,6 +77,27 @@ public final class ProbeModelTest {
             identity(10001).fields().put("Uid", "0 0 0 0");
             throw new AssertionError("mutable observation map");
         } catch (UnsupportedOperationException expected) { checks++; }
+        need(ProbePrincipal.fixtureForUid(new String[] {ProbeArguments.PRINCIPAL})
+                .equals(ProbeArguments.PRINCIPAL));
+        refused(() -> ProbePrincipal.fixtureForUid(null));
+        refused(() -> ProbePrincipal.fixtureForUid(new String[0]));
+        refused(() -> ProbePrincipal.fixtureForUid(new String[] {ProbeArguments.PRINCIPAL, ProbeArguments.PEER}));
+        refused(() -> ProbePrincipal.fixtureForUid(new String[] {"android"}));
+        refused(() -> ProbePrincipal.fixtureForUid(new String[] {null}));
+        for (int uid : new int[] {10001, 1010001}) {
+            ProbePrincipal.requireOwnContext(uid, ProbeArguments.PRINCIPAL, uid,
+                    ProbeArguments.PRINCIPAL, uid, ProbeArguments.PRINCIPAL);
+            need(true);
+            refused(() -> ProbePrincipal.requireOwnApplication(uid, uid + 100000));
+            refused(() -> ProbePrincipal.requireOwnContext(uid, ProbeArguments.PRINCIPAL, uid,
+                    ProbeArguments.PRINCIPAL, uid, "android"));
+            refused(() -> ProbePrincipal.requireOwnContext(uid, ProbeArguments.PRINCIPAL, uid,
+                    ProbeArguments.PEER, uid, ProbeArguments.PRINCIPAL));
+            refused(() -> ProbePrincipal.requireOwnContext(uid, ProbeArguments.PRINCIPAL, uid,
+                    ProbeArguments.PRINCIPAL, uid + 1, ProbeArguments.PRINCIPAL));
+        }
+        refused(() -> ProbePrincipal.requireOwnApplication(1001000, 1001000));
+        refused(() -> ProbePrincipal.requireOwnApplication(-89999, -89999));
         System.out.println("PRINCIPAL_MODEL_PASS checks=" + checks
                 + " no_Android_runtime_or_permission_claim");
     }
