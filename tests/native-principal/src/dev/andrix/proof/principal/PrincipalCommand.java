@@ -12,6 +12,7 @@ import android.os.Process;
 import android.os.SystemClock;
 import android.os.UserHandle;
 import android.service.notification.StatusBarNotification;
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
@@ -52,6 +53,9 @@ public final class PrincipalCommand {
             facts.put("context_package", context.getPackageName());
             facts.put("context_uid", context.getApplicationInfo().uid);
             facts.put("target_sdk", context.getApplicationInfo().targetSdkVersion);
+            facts.put("attribution_uid", context.getAttributionSource().getUid());
+            facts.put("attribution_package", context.getAttributionSource().getPackageName());
+            facts.put("attribution_tag", context.getAttributionSource().getAttributionTag());
             facts.put("notification_permission", context.checkSelfPermission(
                     Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED);
             emit(facts);
@@ -67,7 +71,7 @@ public final class PrincipalCommand {
                 phase = "create_channel";
                 manager.createNotificationChannel(new NotificationChannel(CHANNEL,
                         "Andrix principal reference", NotificationManager.IMPORTANCE_DEFAULT));
-                phase = "post";
+                phase = "build_notification";
                 // Ordinary notification. No media/call style, foreground-service flag or intent.
                 Notification notification = new Notification.Builder(context, CHANNEL)
                         .setSmallIcon(android.R.drawable.stat_notify_more)
@@ -75,6 +79,7 @@ public final class PrincipalCommand {
                         .setContentText("Public fixture " + arguments.nonce)
                         .setOnlyAlertOnce(true)
                         .build();
+                phase = "post";
                 manager.notify(arguments.nonce, ProbeArguments.NOTIFICATION_ID, notification);
                 JSONObject submitted = base(arguments, "submission_returned");
                 submitted.put("not_a_delivery_acknowledgement", true);
@@ -117,6 +122,18 @@ public final class PrincipalCommand {
                 result.put("phase", phase);
                 result.put("status", "refused_or_failed");
                 result.put("error_class", failure.getClass().getName());
+                // Only this disposable, fixed-input fixture. Not a product logging default.
+                String message = failure.getMessage();
+                if (message != null) result.put("diagnostic_message",
+                        message.substring(0, Math.min(512, message.length())));
+                JSONArray stack = new JSONArray();
+                StackTraceElement[] frames = failure.getStackTrace();
+                for (int i = 0; i < Math.min(12, frames.length); i++) {
+                    StackTraceElement frame = frames[i];
+                    stack.put(frame.getClassName() + "." + frame.getMethodName()
+                            + ":" + frame.getLineNumber());
+                }
+                result.put("diagnostic_stack", stack);
                 if (arguments != null) result.put("nonce", arguments.nonce);
                 emit(result);
             } catch (Throwable ignored) {

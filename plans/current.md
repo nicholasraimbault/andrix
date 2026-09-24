@@ -52,8 +52,12 @@ stock `run-as` only as a diagnostic entry. Fifty host parser/guard checks and pu
 compilation passed. Three ordinary APK artifacts were built and verified, including their
 package, permission, signer and debug flag distinctions. The standalone build used API 36
 compile/code generation inputs with API 37 minimum and target declarations unchanged.
-Android execution still needs a fresh admitted guest. This does not qualify the debug domain,
-private framework bootstrap, native C binding or production launcher.
+The first fresh emulator run established standalone own-package context creation and the
+nondebuggable/shell identity entry controls. It stopped on `SecurityException` during the
+combined notification construction/submission phase, before a granted positive. Notification
+policy, revocation and secondary-user results remain unqualified. Observed inherited shell
+groups and cgroup placement also confirm that this is not the production launch profile.
+The next diagnostic must localize the exception without disabling policy checks.
 
 The deciding gates are:
 

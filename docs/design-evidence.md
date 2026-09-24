@@ -153,7 +153,15 @@ physical phone deployment at this checkpoint.
   unchanged API 37 minimum and target declarations. Earlier compiler selection and artifact
   observer failures remain separate. Neither compilation nor artifact verification is an
   Android permission, UI delivery, Soong module or process lifetime result.
-- **Next gate:** qualify the exact prepared artifacts and useful native capability
+- **Initial runtime:** a fresh emulator run of the reference at APK producer `cbe739e`
+  and observer `d4923a4` reached own-package contexts for two ordinary app UIDs without
+  starting their Activities. Nondebuggable entry and direct shell payload controls refused.
+  The debug route retained shell supplementary groups and launcher cgroup placement, not a
+  sanitized production profile. Notification construction/submission raised `SecurityException`
+  before the granted positive was attempted. That does not identify the permission or binding
+  layer and does not qualify notification delivery, revocation or another user. Exact cleanup
+  and VM retirement succeeded; the original partial result remains a failure of the full matrix.
+- **Next gate:** localize the exception and qualify useful native capability
   access under Android policy, the [account mapping](../plans/2026-09-21-android-unix-accounts.md) and
   [general elevation](../plans/2026-09-21-owner-authority.md) independently. Existing
   ordinary app/coordinator negatives do not establish those new boundaries.

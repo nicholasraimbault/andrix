@@ -1,7 +1,9 @@
 # Ordinary principal reference experiment
 
-Status: bounded diagnostic plan and source vehicle. Host parser checks and public SDK
-compilation are preparatory evidence, not an Android permission or lifecycle result.
+Status: bounded diagnostic plan and source vehicle, with an initial partial emulator result.
+Host parser checks, public SDK compilation and artifact verification passed. The initial
+runtime established standalone context creation and entry controls, but not notification
+permission behavior or a production launch profile.
 No production principal mechanism or key policy is selected. This plan authorizes no
 personal phone operation, personal key provisioning or change to verification policy.
 
@@ -145,6 +147,46 @@ containment observation, not retroactive proof that an earlier per-command Stop 
 Use bounded private diagnostic records with no credentials, raw private files or location
 contents. Do not turn the fixture's JSON observations into a product activity logging default.
 A source/compiler/artifact result and an Android runtime result remain separate outcomes.
+
+## Initial runtime result
+
+The first fresh emulator run used APK source `cbe739e` and observer source `d4923a4` against
+the previously qualified image lineage. Three exact APKs installed with distinct ordinary
+application UIDs and matching installed bytes. No fixture Activity was started, and no APK
+process was observed before the standalone commands.
+
+Both debuggable subjects ran the ART command with matching real/effective/saved/filesystem
+UID/GID tuples, zero effective/permitted/inheritable/ambient capabilities and the expected
+`runas_app` context. Each obtained its own package context, application UID, target SDK and
+notification permission state. The nondebuggable entry refused execution, and the command's
+identity guard refused a direct shell invocation before capability use.
+
+This was not a normal application launch profile. The observed commands retained shell
+supplementary groups, the inherited launcher cgroup placement, a nonempty bounding set,
+`NoNewPrivs=0` and `Seccomp=0`. The pinned `run-as.cpp:147–163` explicitly retains the caller's
+supplementary groups and adds the shared application group. Do not describe the debug entry
+as a sanitized production account transition or infer power/foreground behavior from its UID.
+
+The notification channel creation call returned. The first denied-permission attempt then
+reported `java.lang.SecurityException` in the probe's `post` phase. In that tested APK, the
+phase covered both notification construction and submission, and the probe recorded the
+exception class but not a useful origin. The trial stopped there. No grant positive, notification
+service observation, foreign-package post, revocation or secondary-user control was reached.
+The exception alone is not a qualified `POST_NOTIFICATIONS` denial or proof of a failed
+principal model.
+
+SELinux remained enforcing. Startup logged policy denials for some private framework resource
+operations, but those logs do not establish the exception's cause. No hidden API, permission,
+MAC, verification or foreground checks were disabled. The three package uninstall operations
+returned success. Cuttlefish, its runner and packet capture stopped, and the disposable RAM
+backing disappeared. The matrix result remains **incomplete**, with its original failure
+retained separately from cleanup success.
+
+The follow-up source now separates construction from submission and records bounded
+attribution and exception diagnostics. It passed the same fifty host guard checks and public
+API 36 compilation. That is not a follow-up runtime result. The next attempt must obtain a
+same-subject granted positive before classifying a denied request. It must use fresh guest state and preserve the debug-profile limitations.
+It must not reinterpret the first result as a permission pass or change policy to obtain one.
 
 ## Promotion condition
 

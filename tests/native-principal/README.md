@@ -41,7 +41,10 @@ Only the three declared fixture package names are accepted. Each post uses the e
 nonce as its notification tag and the fixture's fixed notification ID. The observation
 interval is bounded. The command prints JSON lines with phases, actual identity observations,
 context metadata and notification observations. It reads only its own fixed `/proc` paths;
-it does not record arbitrary command arguments or environment contents.
+it does not record arbitrary command arguments or environment contents. The diagnostic
+follow-up distinguishes construction from submission and bounds an exception message to
+512 characters and its origin to twelve class/method/line frames. This is only for the
+fixed-input disposable fixture, not a product logging policy.
 
 `submission_returned` means the API call returned. It does **not** mean a notification was
 posted, displayed or healthy. Observe the exact package/tag/ID separately through the command,
