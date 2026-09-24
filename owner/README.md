@@ -7,7 +7,10 @@ base and the opt-in policy bridge below. In that qualified prototype, Vanadium, 
 services, platform signer and ordinary app execution policy are not replaced. That is a
 scope statement, not a permanent ban on owner authorized platform changes.
 See the [milestone](../plans/2026-09-10-owner-session.md) for scope and qualification and
-[the revised roadmap](../plans/current.md) for the new platform priority.
+[the revised roadmap](../plans/current.md) for the new platform priority. The
+[native runtime integration proposal](../plans/2026-09-24-native-runtime-integration.md)
+compares how to replace the fixed identity/profile assumptions while preserving the work,
+Stop, CE and descriptor ownership contracts. It remains a proposal and is not implemented by this prototype.
 
 **Development opt-in:** `ANDRIX_OWNER_SESSION=true` with the existing
 `andrix_gos_cf_arm64_only_phone-cur-userdebug` product. The baseline without that

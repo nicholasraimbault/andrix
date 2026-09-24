@@ -183,8 +183,15 @@ physical phone deployment at this checkpoint.
   attempts are retained, including the unrelated shared memory diagnostic limitation and
   an ignored Home action. This is not real sensor, UI consent, power/VPN or production launch
   qualification.
-- **Next gate:** design the supported native entry, API binding and foreground contract using
-  those actual Android authorities. Qualify the
+- **Integration proposal:** the [native runtime contract proposal](../plans/2026-09-24-native-runtime-integration.md)
+  recommends a Package Manager backed native principal role and compares framework entry,
+  ordinary managed helpers and native runtime representatives without selecting their physical
+  layout. Source inspection found guarded native application attachment, native zygote support
+  and an incomplete isolated native service lifecycle in the pinned platform. These are reuse
+  candidates, not runtime qualification. The proposal preserves complete launch, truthful UID
+  policy, captured work ownership, cgroup coordination and authentic platform bootstrap state.
+- **Next gate:** review that direction, characterize the available runtime routes and implement
+  the supported native entry, API binding and foreground contract. Qualify the
   [account mapping](../plans/2026-09-21-android-unix-accounts.md) and
   [general elevation](../plans/2026-09-21-owner-authority.md) independently. Existing
   ordinary app/coordinator negatives do not establish those new boundaries.

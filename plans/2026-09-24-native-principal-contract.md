@@ -134,7 +134,10 @@ These can be combined where justified. None is selected. A broker is not intrins
 and a framework modification is not intrinsically a hack. The decisive condition is a coherent
 identity and authority contract that can be carried across Android releases. The
 [source comparison](2026-09-24-integration-mechanism-assessment.md) begins separating the
-representation, binding and lifetime mechanisms against actual framework checks.
+representation, binding and lifetime mechanisms against actual framework checks. The later
+[native runtime integration proposal](2026-09-24-native-runtime-integration.md) refines the
+entry, binding, presentation and retirement responsibilities using the measured references.
+Its recommended first path still requires review; it does not select a production mechanism.
 
 ## 7. Deciding tests and open choices
 

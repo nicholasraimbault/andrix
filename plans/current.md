@@ -67,9 +67,15 @@ requests and retirement. A permitted peer, native registration state and fresh m
 against false conclusions from silence. Earlier failures remain separate. The debug launch
 profile and incomplete private bootstrap are still not a production native environment.
 
-The next design step is a coherent supported native entry, API binding and foreground contract,
-using these measured Android authorities rather than accumulating policy exceptions. Real
-sensors, VPN, power/accounting and further user/lifecycle cases remain independent gates.
+The [native runtime integration proposal](2026-09-24-native-runtime-integration.md) now sets out
+that entry, binding and foreground contract for review. It recommends starting with a Package
+Manager backed native principal role, compares direct native integration and managed/native
+runtime representatives, and preserves work/CE/Stop ownership. The pinned platform already has
+a guarded native application attachment and native zygote route for isolated APK services;
+that source is a reuse candidate, not a qualified ordinary owner launch. Actual process/UID
+policy, one coherent cgroup hierarchy, authentic runtime state and presentation delegation must
+fit together. The proposal is not accepted architecture or a new authority grant. Real sensors,
+VPN, power/accounting and further user/lifecycle cases remain independent gates.
 
 The deciding gates are:
 
