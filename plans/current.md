@@ -53,11 +53,13 @@ compilation passed. Three ordinary APK artifacts were built and verified, includ
 package, permission, signer and debug flag distinctions. The standalone build used API 36
 compile/code generation inputs with API 37 minimum and target declarations unchanged.
 The first fresh emulator run established standalone own-package context creation and the
-nondebuggable/shell identity entry controls. It stopped on `SecurityException` during the
-combined notification construction/submission phase, before a granted positive. Notification
-policy, revocation and secondary-user results remain unqualified. Observed inherited shell
-groups and cgroup placement also confirm that this is not the production launch profile.
-The next diagnostic must localize the exception without disabling policy checks.
+nondebuggable/shell identity entry controls. The first attempt stopped on an unlocalized
+`SecurityException`. A second fresh diagnostic, with the notification permission granted,
+identified the cause: the context retained operation package `android` under the ordinary app
+UID. Notification Manager rejected that mismatch. The binding needs a real principal context,
+not additional permission or weakened validation. Notification delivery, revocation and another
+user remain unqualified. Inherited shell groups and cgroup placement also confirm that the debug
+entry is not the production launch profile.
 
 The deciding gates are:
 

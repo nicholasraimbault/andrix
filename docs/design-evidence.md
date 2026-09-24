@@ -158,10 +158,13 @@ physical phone deployment at this checkpoint.
   starting their Activities. Nondebuggable entry and direct shell payload controls refused.
   The debug route retained shell supplementary groups and launcher cgroup placement, not a
   sanitized production profile. Notification construction/submission raised `SecurityException`
-  before the granted positive was attempted. That does not identify the permission or binding
-  layer and does not qualify notification delivery, revocation or another user. Exact cleanup
-  and VM retirement succeeded; the original partial result remains a failure of the full matrix.
-- **Next gate:** localize the exception and qualify useful native capability
+  before the granted positive was attempted. That initial result did not identify the layer.
+  A second fresh diagnostic at `01da2ca` observed the notification grant as true, but attribution
+  package `android` under the ordinary app UID. Notification Manager rejected the operation
+  package mismatch, as its source ownership checks require. Context creation had retained the
+  system container's operation identity. Both results and successful cleanup/VM retirement
+  are retained separately. Neither qualifies delivery, revocation or another user.
+- **Next gate:** construct a reference binding with the correct principal identity and qualify useful native capability
   access under Android policy, the [account mapping](../plans/2026-09-21-android-unix-accounts.md) and
   [general elevation](../plans/2026-09-21-owner-authority.md) independently. Existing
   ordinary app/coordinator negatives do not establish those new boundaries.

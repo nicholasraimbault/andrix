@@ -1,9 +1,10 @@
 # Ordinary principal reference experiment
 
-Status: bounded diagnostic plan and source vehicle, with an initial partial emulator result.
-Host parser checks, public SDK compilation and artifact verification passed. The initial
-runtime established standalone context creation and entry controls, but not notification
-permission behavior or a production launch profile.
+Status: bounded diagnostic plan and source vehicle, with two partial emulator results.
+Host parser checks, public SDK compilation and artifact verification passed. Runtime established
+standalone context creation and entry controls. A fresh diagnostic then localized an operation
+package mismatch in the probe's binding, not a missing notification grant. Notification delivery
+and a production launch profile remain unqualified.
 No production principal mechanism or key policy is selected. This plan authorizes no
 personal phone operation, personal key provisioning or change to verification policy.
 
@@ -187,6 +188,46 @@ attribution and exception diagnostics. It passed the same fifty host guard check
 API 36 compilation. That is not a follow-up runtime result. The next attempt must obtain a
 same-subject granted positive before classifying a denied request. It must use fresh guest state and preserve the debug-profile limitations.
 It must not reinterpret the first result as a permission pass or change policy to obtain one.
+
+## Diagnostic runtime result
+
+A second fresh guest used diagnostic source `01da2ca`. The same entry controls and standalone
+context queries behaved as before. Explicit privileged fixture setup granted
+`POST_NOTIFICATIONS`, and the command observed that grant as true. Notification construction
+completed, but actual `enqueueNotificationWithTag` still failed with:
+
+```text
+Caller android:10146 cannot post for pkg dev.andrix.proof.principal in user 0
+```
+
+The diagnostic recorded actual UID and attribution UID `10146`, package context
+`dev.andrix.proof.principal`, but **attribution package `android`**. This is a binding defect,
+not evidence that the permission grant was missing. The native service refused the mismatch;
+it did not grant the ordinary UID the system package's identity.
+
+The source explains the behavior at framework revision
+`aab06a8bd44c4c2b58eeec780fde83baa9d43a40`:
+
+- `ContextImpl.createPackageContextAsUser`, around lines 3147–3153, creates a context using
+  the existing context as its container. Around lines 3975–3980, that constructor retains
+  the container's base/operation package. Creating package resources from a system context
+  therefore does not construct the principal's own operation identity.
+- `NotificationManager.notifyAsUser`, around lines 937–945, passes both the context package
+  and operation package to the service.
+- `NotificationManagerService.resolveNotificationUid`, around lines 10150–10174, checks
+  package/UID ownership and valid delegation. The observed exception matches its refusal.
+
+Both attempts remain incomplete for notification delivery, revocation, foreign-package and
+secondary-user controls. Both ended with exact fixture uninstall acknowledgements, an unchanged
+boot and enforcing policy, and closed VM/runner/capture processes. No policy checks were disabled.
+The first ambiguous result is retained, not retrospectively relabelled as this diagnosed result.
+
+The next reference binding must construct the actual principal's operation identity from
+native authoritative package/UID state. It must expose that identity for observation and keep
+service-side ownership, attribution and revocation checks intact. Merely obtaining another
+package's resources, overriding an identity label or granting more permissions is not a
+production integration contract. A private framework factory may be another diagnostic vehicle,
+but it is not a stable native API or an accepted production mechanism by itself.
 
 ## Promotion condition
 
