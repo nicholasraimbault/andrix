@@ -1,8 +1,8 @@
 # Design evidence register
 
-Andrix's goal is a mature, general purpose, owner controlled Unix computer on mobile.
-The current prototypes are instruments for learning how to build that system, not the
-architecture we must preserve. Correctness and coherence take priority over the time
+Andrix's goal is a mature, owner controlled Android OS with first class native Unix programs
+and APKs. The current prototypes are instruments for learning how to build that system,
+not the architecture we must preserve. Correctness and coherence take priority over the time
 or effort needed to replace them.
 
 This is the running map from experiments and implementation to evidence, design lessons
@@ -72,7 +72,7 @@ physical phone deployment at this checkpoint.
 | [R15](#r15-webview-updates-and-rollback) | WebView updates/rollback | Historical direct AOSP experiments | Retain lessons, no automatic GrapheneOS adoption |
 | [R16](#r16-verification-machinery) | Verification machinery | Host models, artifact tools, emulator controllers | Retain strict evidence boundaries, improve fixtures |
 | [R17](#r17-phone-release-and-later-capabilities) | Phone release and later capabilities | Requirements/readiness work | Later Pixel work, not a current deployment |
-| [R18](#r18-os-composition-and-administration) | OS composition and administration | Accepted expanded vision and planned workshop proof | Cuttlefish component workflow next, mechanisms unproved |
+| [R18](#r18-os-composition-and-administration) | OS composition and administration | Scoped component proofs and proposed integration contracts | Define trust and selection, then qualify maintained updates and recovery |
 
 ## R01 Android foundation
 
@@ -129,8 +129,14 @@ physical phone deployment at this checkpoint.
   Extend the model to full Android users with their own Unix environments, not copies of a
   home under one common UID. Account membership is separate from administrative authority.
   The prototype UID number, fixed entry API and Console implementation are not the product goal.
-- **Next gate:** qualify the [account mapping](../plans/2026-09-21-android-unix-accounts.md)
-  and [general elevation](../plans/2026-09-21-owner-authority.md) independently. Existing
+- **Contract proposal:** the
+  [native principal contract](../plans/2026-09-24-native-principal-contract.md) defines the
+  proposed identity and policy responsibilities for useful ordinary native Android access.
+  UID mapping and process supervision alone do not establish permission, attribution,
+  VPN or power policy integration. No principal representation is selected by the proposal.
+- **Next gate:** qualify useful native capability access under Android policy, the
+  [account mapping](../plans/2026-09-21-android-unix-accounts.md) and
+  [general elevation](../plans/2026-09-21-owner-authority.md) independently. Existing
   ordinary app/coordinator negatives do not establish those new boundaries.
 
 ## R04 User and CE authority
@@ -724,6 +730,15 @@ physical phone deployment at this checkpoint.
   and observed deployment, with ordinary planning/builds and explicit authority crossings.
   It does not select Nix, a package language, numeric version encoding or native generation
   mechanism. Image assembly from cached components need not be a complete source rebuild.
+- **Contract proposal:** the
+  [owner trust, selection and deployment contract](../plans/2026-09-24-owner-composition-contract.md)
+  separates role scoped installation authority, owner intent, native selected/observed state
+  and durable operation ownership. It keeps personalization, delegated trust, version
+  projection and image/component mechanisms open. It also separates ordinary signing
+  protection from a possible later claim against a compromised main OS. These are proposed
+  responsibilities and gates, not new key policy, a universal rollback mechanism or runtime
+  qualification. External intent records and Android backed mediation are not rejected
+  merely because they live outside a native service.
 - **Intent, accepted:** Andrix owns its whole OS; native execution and APKs are equally
   important. Ordinary identities remain separate from explicit general administration.
   Multiple accounts, ordinary development on the device, retained owner component choices,
@@ -735,8 +750,9 @@ physical phone deployment at this checkpoint.
   host signed `/usr` update model are not architectural ceilings. Preserve their evidence
   while designing the coherent replacement. GrapheneOS remains a useful foundation, not a
   permanent policy limit. General root administration is not restricted to a curated menu.
-- **Next gate:** preserve an owner variant across a compatible upstream update or expose its
-  conflict; qualify a durable complete component transaction; then establish actual APK,
+- **Next gate:** review the proposed native principal and trust/selection contracts; carry an
+  owner variant and upstream fixes across real updates or expose its conflict; qualify a
+  durable complete component transaction; then establish actual APK,
   APEX and image activation/recovery boundaries. Continue
   [authority/signing](../plans/2026-09-21-owner-authority.md),
   [accounts](../plans/2026-09-21-android-unix-accounts.md) and

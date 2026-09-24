@@ -3,6 +3,9 @@
 Status: accepted ownership requirements under the
 [vision revision](2026-09-21-owner-composable-android.md). Mechanisms and provisioning are
 unimplemented proposals, not new runtime permissions or signing authorization.
+The proposed [owner trust, selection and deployment contract](2026-09-24-owner-composition-contract.md)
+refines the responsibilities and failure cases without selecting a signing topology or
+changing the accepted approval and recovery defaults.
 
 ## Contract
 

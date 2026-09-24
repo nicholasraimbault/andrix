@@ -28,21 +28,32 @@ Detailed operating records, local configuration, credentials and raw captures re
 
 ## Current milestone
 
-The current focus is a coherent owner component workflow and its
-[composition architecture assessment](2026-09-23-composition-architecture-assessment.md).
-The assessment recommends separating owner intent, resolved build inputs, exact artifact
-bundles, compatibility, authorization and observed deployment. It compares distribution
-recipes, functional build/store models and image deployment without selecting Nix, a package
-language, a store implementation or a version encoding.
+The current work is to define the integration contracts for a sustainable owner controlled
+Android lineage before expanding the composition machinery. Android is the settled platform.
+The proposed [native principal contract](2026-09-24-native-principal-contract.md) covers ordinary
+owner programs as subjects of Android policy. The proposed
+[owner trust, selection and deployment contract](2026-09-24-owner-composition-contract.md)
+covers installation authority, native state, durable effects and recovery. These are drafts
+for review, not newly accepted architecture or runtime qualification.
+
+They refine the [composition assessment](2026-09-23-composition-architecture-assessment.md),
+which separates owner intent, resolved inputs, exact artifacts, compatibility, authorization
+and observed deployment. No principal representation, key topology, package language, store,
+version encoding or universal update mechanism is selected.
 
 The deciding gates are:
 
-1. Preserve an owner modified SystemUI across a compatible upstream update, and expose a
-   conflicting or incompatible update rather than silently discarding the change.
-2. Complete a durable component transaction with exact artifacts, all required signatures,
+1. Establish useful ordinary native Android capability access with coherent identity,
+   permission, attribution, revocation, user, network and lifecycle policy. Direct native
+   execution remains independent of separate APK registration for every program.
+2. Carry an owner platform variant and upstream fixes across real upstream changes, making
+   conflicts and missing fixes visible. Compare explicit trust and selection alternatives
+   rather than beginning with version code manipulation.
+3. Complete a durable component transaction with exact artifacts, all required signatures,
    publication, native installation and recovery from interrupted or uncertain outcomes.
-3. Establish real APK, APEX and image activation boundaries, including shared package code
-   versus per user data and the limits of restoring an earlier software composition.
+4. Establish real APK, APEX and image activation boundaries, including shared package code
+   versus per user data and the limits of restoring an earlier software composition. State
+   the signing threat boundary for later locked operation separately from workshop signing.
 
 An APK versionCode is an installation ordering input, not a complete source or owner
 selection model. Image assembly from cached components need not recompile the whole OS.

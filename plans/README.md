@@ -27,14 +27,19 @@ separate from the retained Unix milestones:
   separates the accepted transaction approval default from candidate key mechanisms.
   Neither a timed key window nor platform transaction token issuance is selected. These
   proofs are not a production signer or a new administrative policy.
-- [Owner authority and signing](2026-09-21-owner-authority.md).
-- [Android accounts with Unix](2026-09-21-android-unix-accounts.md).
+- [Owner authority and signing](2026-09-21-owner-authority.md), with the proposed
+  [owner trust, selection and deployment contract](2026-09-24-owner-composition-contract.md).
+- [Android accounts with Unix](2026-09-21-android-unix-accounts.md), with the proposed
+  [native principal and Android policy contract](2026-09-24-native-principal-contract.md).
 - [Rolling composition and installation](2026-09-21-rolling-composition.md), with a
   [long term architecture assessment](2026-09-23-composition-architecture-assessment.md)
   covering source variants, exact artifacts, version selection and native activation.
 - [Later Pixel integration](2026-09-21-pixel-integration.md).
 
-Accepted capability does not select an unproved mechanism or authorize a deployment action.
+The proposed integration contracts define responsibilities and deciding gates. They do not
+promote a principal representation, signing topology or composition mechanism into the accepted
+architecture. Accepted capability does not select an unproved mechanism or authorize a
+deployment action.
 
 The [design evidence register](../docs/design-evidence.md) is the maintained bridge
 between prototypes/tests and long term intent. Update the relevant entries alongside

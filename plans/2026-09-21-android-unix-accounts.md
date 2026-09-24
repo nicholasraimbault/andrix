@@ -3,6 +3,9 @@
 Status: multiple accounts are part of the accepted
 [vision](../docs/vision.md), not a product restriction to one human. Existing Unix
 qualification is limited to the primary Android user; this plan is not a multiuser pass.
+The proposed [native principal contract](2026-09-24-native-principal-contract.md) extends the
+design questions to Android permission, attribution, network and power policy without
+selecting a principal representation or claiming new runtime behavior.
 
 ## Contract and ownership
 

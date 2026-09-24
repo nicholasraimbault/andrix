@@ -6,6 +6,9 @@ metadata, transaction protocols and installer implementation remain proposals. T
 [composition architecture assessment](2026-09-23-composition-architecture-assessment.md)
 compares concrete approaches and recommends a coherent owner model with native Android
 activation and explicit qualification gates. It does not select a package tool or version scheme.
+The later proposed [trust, selection and deployment contract](2026-09-24-owner-composition-contract.md)
+specifies state owners, authority crossings and uncertain operation handling for that model;
+it does not select the realization.
 
 ## Owner experience
 
