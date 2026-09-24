@@ -60,11 +60,16 @@ service records were independently decoded. No fixture Activity or foreground se
 Privileged fixture grants are not user consent UI proof, and service retention is not visible
 notification delivery. Shell groups/cgroup inheritance and the private factory remain diagnostic
 limits, not a production launch profile. The
-[location reference](2026-09-24-native-principal-location.md) now has a bounded mock provider
-vehicle and host checks for location arguments and observations. Its next gate is a fresh
-runtime measuring real foreground state and live permission revocation, with a delivery witness
-and current registration state, not silence alone. A coherent native launch and binding contract
-remains the goal rather than policy exceptions.
+[location reference](2026-09-24-native-principal-location.md) has now passed its finite mock
+provider matrix: background delivery under an explicit grant, live fine revocation and regrant
+on the same listener, foreground grant behavior across observed UID transitions, denied new
+requests and retirement. A permitted peer, native registration state and fresh markers guarded
+against false conclusions from silence. Earlier failures remain separate. The debug launch
+profile and incomplete private bootstrap are still not a production native environment.
+
+The next design step is a coherent supported native entry, API binding and foreground contract,
+using these measured Android authorities rather than accumulating policy exceptions. Real
+sensors, VPN, power/accounting and further user/lifecycle cases remain independent gates.
 
 The deciding gates are:
 

@@ -1,9 +1,9 @@
 # Native principal location reference
 
-Status: the first substantive run established bounded background fine location delivery,
-live fine permission withdrawal/regrant and an initial foreground contrast. The full matrix
-remains incomplete because the attempted return Home did not leave foreground and mock operation
-restoration did not match the original mode. Earlier failures before location setup remain preserved. The
+Status: the corrected finite mock location reference passed in a fresh emulator. It exercised
+background grants, an existing fine request's live revocation/regrant, actual foreground UID
+transitions, denied new requests and retirement. Four earlier incomplete attempts remain
+preserved. This is not real sensor, consent UI, production launch or general power qualification. The
 [notification reference](2026-09-24-native-principal-reference.md) qualified one capability
 under a correct package/UID binding. This next case tests actual location permission, AppOps
 foreground state and an existing request's revocation. It does not select a production launch
@@ -193,6 +193,51 @@ condition did not pass: the original default operation mode was `deny`, but the 
 requested the distinct literal mode `default`. The correction restores the observed native
 mode, with a regression for that distinction, rather than clearing AppOps history or treating
 both values as identical. The original partial result remains unchanged.
+
+## Qualified finite result
+
+A fresh guest using APK and observer source `2b5212f` completed the matrix. The principal and
+peer were ordinary, distinct Android application UIDs using the previously measured reference
+binding. Neither fixture Activity was running when the background commands registered.
+
+The retained records establish:
+
+- Without coarse/fine permission, the native listener registration was refused. The same
+  binding later supplied the successful counterpart.
+- With ordinary fine and background grants, both independent commands received fresh mock
+  markers. AppOps configuration, native background/permitted/active state and peer delivery
+  were observed, not inferred from command return or a PID alone.
+- Fine withdrawal made the existing fine registration not permitted and inactive. Its process
+  and heartbeat continued. The peer received the new marker while the principal did not in
+  the bounded window. Regranting fine restored fresh delivery on the same listener identity.
+- With background permission removed, fine/coarse AppOps modes were `foreground`. The
+  principal could not receive new markers while background, then did receive them after its
+  Activity made the UID `TOP` and the native registration permitted/active.
+- The observed close button finished only the Activity. The UID became `CACHED_RECENT`; after
+  native permission/activity settlement, the principal again did not receive the new marker
+  while the peer did. Reopening the Activity restored delivery on the same native listener.
+- A new request after both fine and coarse revocation was refused at the native API boundary.
+
+Ten injected markers included separately labelled transition sentinels. Those sentinels allowed
+legitimate cached delivery after reactivation without confusing it with a fresh positive or a
+revocation failure. Current provider rows, callback streams, grant snapshots, configured AppOps,
+UID states and device conditions were checked before/after the scoped windows. The raw records
+were assessed again independently of the controller's success flags.
+
+Both listeners were removed and their callback executors retired before completion. The mock
+provider was detached, the original location setting and native mock operation mode were
+restored, and all three package uninstalls were acknowledged. The boot and enforcing policy
+bookends matched; VM, runner and capture closed and the volatile RAM backing disappeared.
+Original inputs were reverified. No principal received mock provider or bypass authority, and
+no foreground AppOps mode was forced to `allow` to make a case pass.
+
+This supports Android permission and AppOps authority continuing to govern an independently
+executing recognized principal, including an already registered request. It does not settle how
+the production owner environment will represent foreground interaction. The Activity supplied
+an explicitly observed comparison condition, not a requirement for dummy UI or a shipping
+execution mechanism. The private factory, inherited debug groups/cgroups and incomplete
+application runtime bootstrap remain integration limits to replace with a coherent supported
+native entry and binding.
 
 ## Promotion limits
 

@@ -139,7 +139,11 @@ distinction between a native default operation mode and the literal `default` mo
 The seven location observer tests and five notification observer tests cover stream identity,
 partial writes, counters, permission snapshots, controller device observations, current registration versus event log,
 ambiguous dump refusal and AppOps UID precedence. All Java compiles against public API 36.
-These are preparation checks, not a location runtime result.
+Those host checks are preparation, not runtime proof. The later fresh emulator run at
+`2b5212f` passed the finite mock location matrix, including an existing fine listener's live
+revocation/regrant and actual UID foreground transitions. It retained a live peer witness,
+separate sentinels for cached data and native registration observations. Setup and listeners were
+cleaned up. The plan preserves earlier incomplete attempts and the production/runtime limits.
 
 ## Preparation checkpoint
 

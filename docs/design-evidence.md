@@ -173,11 +173,18 @@ physical phone deployment at this checkpoint.
   started. User/package cleanup and VM retirement completed. This qualifies that bounded
   reference path, not visible SystemUI delivery, owner consent UI, live location revocation,
   a stable native API or the production launch profile. Earlier failures remain unchanged.
-- **Next gate:** the [bounded location reference](../plans/2026-09-24-native-principal-location.md)
-  prepares controlled mock input, a peer delivery witness, actual UID/registration state and
-  finite request retirement. Its Java host checks and observer tests are preparation, not
-  location qualification. Qualify location, foreground state and live revocation, and develop
-  the native launch and supported binding contract. Qualify the
+- **Location reference:** the [bounded location matrix](../plans/2026-09-24-native-principal-location.md)
+  at `2b5212f` passed with fixed mock input, a peer delivery witness, current UID/registration
+  state and finite retirement. Ordinary background grants delivered fresh markers. Revoking
+  fine permission deactivated an existing fine listener without killing its process; regrant
+  restored delivery. Foreground grants followed observed Activity/UID transitions while the
+  native listener remained the same. New requests without location permission were refused.
+  Native mock/setup state was restored and the fixtures retired. Four earlier incomplete
+  attempts are retained, including the unrelated shared memory diagnostic limitation and
+  an ignored Home action. This is not real sensor, UI consent, power/VPN or production launch
+  qualification.
+- **Next gate:** design the supported native entry, API binding and foreground contract using
+  those actual Android authorities. Qualify the
   [account mapping](../plans/2026-09-21-android-unix-accounts.md) and
   [general elevation](../plans/2026-09-21-owner-authority.md) independently. Existing
   ordinary app/coordinator negatives do not establish those new boundaries.
