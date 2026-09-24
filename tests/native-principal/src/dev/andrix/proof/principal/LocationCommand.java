@@ -2,7 +2,6 @@
 package dev.andrix.proof.principal;
 
 import android.Manifest;
-import android.app.KeyguardManager;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.location.Location;
@@ -10,7 +9,6 @@ import android.location.LocationListener;
 import android.location.LocationManager;
 import android.location.LocationRequest;
 import android.os.Process;
-import android.os.PowerManager;
 import android.os.SystemClock;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -76,6 +74,7 @@ public final class LocationCommand {
         ProbePrincipal.requireOwnContext(Process.myUid(), context.getApplicationInfo().packageName,
                 context.getApplicationInfo().uid, context.getPackageName(),
                 context.getAttributionSource().getUid(), context.getAttributionSource().getPackageName());
+        phase = "context_observation";
         JSONObject facts = permissions(context);
         facts.put("context_package", context.getPackageName());
         facts.put("context_uid", context.getApplicationInfo().uid);
@@ -196,14 +195,7 @@ public final class LocationCommand {
     }
 
     private static JSONObject permissions(Context context) throws Exception {
-        PowerManager power = context.getSystemService(PowerManager.class);
-        KeyguardManager keyguard = context.getSystemService(KeyguardManager.class);
-        if (power == null || keyguard == null) throw new IllegalStateException("device state service absent");
-        return new JSONObject().put("interactive", power.isInteractive())
-                .put("power_save", power.isPowerSaveMode())
-                .put("location_power_save_mode", power.getLocationPowerSaveMode())
-                .put("keyguard_locked", keyguard.isKeyguardLocked())
-                .put("coarse_granted", granted(context, Manifest.permission.ACCESS_COARSE_LOCATION))
+        return new JSONObject().put("coarse_granted", granted(context, Manifest.permission.ACCESS_COARSE_LOCATION))
                 .put("fine_granted", granted(context, Manifest.permission.ACCESS_FINE_LOCATION))
                 .put("background_granted", granted(context, Manifest.permission.ACCESS_BACKGROUND_LOCATION));
     }

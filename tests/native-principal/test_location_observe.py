@@ -2,7 +2,7 @@
 import copy
 import json
 import unittest
-from location_observe import ATTRIBUTION, PROVIDER, registration_state, stream, appop_mode
+from location_observe import ATTRIBUTION, PROVIDER, registration_state, stream, appop_mode, device_state
 
 PKG = 'dev.andrix.proof.principal'
 UID = 10146
@@ -16,15 +16,13 @@ def rows():
         'CapInh': '0', 'CapPrm': '0', 'CapEff': '0', 'CapAmb': '0'}, selinux_context='u:r:runas_app:s0:c146,c256'),
         dict(base, phase='context', context_package=PKG, context_uid=UID, attribution_uid=UID,
              attribution_package=PKG, attribution_tag=ATTRIBUTION, coarse_granted=True,
-             fine_granted=True, background_granted=True, interactive=True, power_save=False,
-             keyguard_locked=False, location_power_save_mode=0),
+             fine_granted=True, background_granted=True),
         dict(base, phase='provider', fixed_provider_present=True),
         dict(base, phase='registered', request_returned_not_delivery=True, listener_diagnostic_hash=HASH),
         dict(base, phase='callback', callback_count=1, mock=True, marker_time_ms=1234567,
              location_elapsed_realtime_ns=1000000000),
         dict(base, phase='heartbeat', callback_count=1, coarse_granted=True,
-             fine_granted=False, background_granted=True, interactive=True, power_save=False,
-             keyguard_locked=False, location_power_save_mode=0),
+             fine_granted=False, background_granted=True),
         dict(base, phase='cleanup', callback_count=1, registered=True, remove_updates_returned=True, executor_retired=True),
         dict(base, phase='complete', callback_count=1)]
     return number(values)
@@ -67,8 +65,7 @@ class LocationObserverTests(unittest.TestCase):
                 (1, 'context_uid', 1000), (3, 'nonce', 'other'), (3, 'sequence', True),
                 (4, 'mock', False), (4, 'latitude', 1.0), (4, 'marker_time_ms', '1234'),
                 (4, 'callback_count', 5), (5, 'fine_granted', 0), (6, 'executor_retired', False),
-                (2, 'fixed_provider_present', False), (5, 'action', 'info'),
-                (5, 'power_save', 0), (5, 'location_power_save_mode', True)]:
+                (2, 'fixed_provider_present', False), (5, 'action', 'info')]:
             values = rows(); values[index][key] = value
             with self.assertRaises(ValueError): stream(encode(values), 'fixture', UID, PKG, complete=True)
         values = rows(); values[0]['kernel_fields']['Gid'] = '0 0 0 0'
@@ -102,6 +99,23 @@ class LocationObserverTests(unittest.TestCase):
         self.assertEqual(appop_mode('COARSE_LOCATION: allow (running)\n', 'COARSE_LOCATION'), 'allow')
         for bad in ['', 'No operations.', 'Uid mode: FINE_LOCATION: allow\nUid mode: FINE_LOCATION: ignore\n', 'FINE_LOCATION: unknown\n']:
             with self.assertRaises(ValueError): appop_mode(bad, 'FINE_LOCATION')
+
+    def test_device_conditions_come_from_controller_diagnostics(self):
+        power = ('Power Manager State:\n  mWakefulness=Awake\n  mWakefulnessChanging=false\n'
+                 'Battery saver state machine:\n  Enabled=false\n    full=false\n    adaptive=false\n')
+        window = ('WINDOW MANAGER POLICY STATE (dumpsys window policy)\n    KeyguardServiceDelegate\n'
+                  '      showing=false\n      inputRestricted=false\n      systemReady=true\n'
+                  '      bootCompleted=true\n      screenState=SCREEN_STATE_ON\n'
+                  '      interactiveState=INTERACTIVE_STATE_AWAKE\n')
+        state = device_state(power, window)
+        self.assertTrue(state['interactive'] and state['keyguard_ready'] and state['keyguard_awake'])
+        self.assertFalse(state['power_save'] or state['keyguard_showing'])
+        self.assertTrue(device_state(power.replace('full=false', 'full=true'), window)['power_save'])
+        self.assertTrue(device_state(power, window.replace('showing=false', 'showing=true'))['keyguard_showing'])
+        for bad in ['', power.replace('Enabled=false', 'Enabled=unknown'), power + '  mWakefulness=Awake\n']:
+            with self.assertRaises(ValueError): device_state(bad, window)
+        for bad in ['', window + '    KeyguardServiceDelegate\n', window.replace('systemReady=true\n', '')]:
+            with self.assertRaises(ValueError): device_state(power, bad)
 
     def test_provider_dump_ambiguity_is_not_absence(self):
         for text in [dump(listener(uid=1000)), dump(listener(identity='FFFFFFFF')),

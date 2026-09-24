@@ -122,7 +122,9 @@ The [location reference plan](../../plans/2026-09-24-native-principal-location.m
 now factored into `PrincipalContext`. The provider is fixed to `andrix_principal_test`.
 A command cannot select GPS or another provider. The separate shell fixture supplies only
 synthetic data. The client records mock status, timestamp correlation markers, callback counts,
-permission/device state and actual identity, never coordinates or a raw `Location` string.
+its permission state and actual identity, never coordinates or a raw `Location` string.
+Device power/keyguard conditions are observed by the controller's native service diagnostics,
+not by adding unrelated context-service dependencies to the principal command.
 
 The command owns one listener and callback executor, has a finite client deadline and removes
 its listener before reporting retirement. It sets no service expiry/count limit that could
@@ -133,8 +135,8 @@ markers are required to interpret missing callbacks.
 
 `LocationArgumentsTest` has 282 host checks. The shared principal checks still pass 68 checks.
 Two controller argument tests catch malformed generated nonces before device submission.
-The six location observer tests and five notification observer tests cover stream identity,
-partial writes, counters, permission/device snapshots, current registration versus event log,
+The seven location observer tests and five notification observer tests cover stream identity,
+partial writes, counters, permission snapshots, controller device observations, current registration versus event log,
 ambiguous dump refusal and AppOps UID precedence. All Java compiles against public API 36.
 These are preparation checks, not a location runtime result.
 

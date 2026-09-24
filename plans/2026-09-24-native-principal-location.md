@@ -1,7 +1,8 @@
 # Native principal location reference
 
-Status: bounded experiment plan and host preparation. The first guest attempt stopped at
-argument validation before location setup, so it supplies no location policy result. The
+Status: bounded experiment plan and host preparation. Two initial guests stopped before
+location setup: first at controller argument validation, then at an added keyguard diagnostic.
+Neither supplies a location policy result. The
 [notification reference](2026-09-24-native-principal-reference.md) qualified one capability
 under a correct package/UID binding. This next case tests actual location permission, AppOps
 foreground state and an existing request's revocation. It does not select a production launch
@@ -144,6 +145,20 @@ the display label, and validates all native argument vectors on the host before 
 Host tests exercise the actual constructor path. Its early cleanup summary also distinguishes
 an unchanged setting from a setting that required restoration. The original failure and summary
 are retained; neither is a location capability result or reason to weaken the argument guard.
+
+## Diagnostic placement correction
+
+The next fresh guest accepted the corrected arguments, but constructing `KeyguardManager`
+for extra device telemetry failed with `ApplicationSharedMemory not initialized`. The private
+reference factory is not a complete ordinary application runtime bootstrap. The exception
+occurred before location-manager access, not as a refusal of location permission.
+
+The client now remains focused on location and its own permissions. The controller observes
+awake state, battery saver and keyguard state through native power and window policy diagnostics.
+No application shared memory is fabricated, cache flag disabled or framework singleton patched
+to get past the diagnostic. The original result remains preserved. This separation avoids making
+an unrelated telemetry service a prerequisite for the capability under test; it does not claim
+that all Android context services work from the reference bootstrap.
 
 ## Promotion limits
 

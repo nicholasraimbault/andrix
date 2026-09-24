@@ -54,11 +54,8 @@ def stream(raw, nonce, uid, package, *, action='watch', complete=False):
         if type(row.get('callback_count')) is not int or row['callback_count'] != callbacks or callbacks > 128:
             raise ValueError('callback accounting mismatch')
         if phase in ['context', 'heartbeat']:
-            if any(type(row.get(key)) is not bool for key in ['coarse_granted', 'fine_granted', 'background_granted',
-                                                             'interactive', 'power_save', 'keyguard_locked']):
-                raise ValueError('invalid permission/device observation')
-            if type(row.get('location_power_save_mode')) is not int or not 0 <= row['location_power_save_mode'] <= 4:
-                raise ValueError('invalid location power state')
+            if any(type(row.get(key)) is not bool for key in ['coarse_granted', 'fine_granted', 'background_granted']):
+                raise ValueError('invalid permission observation')
         if 'status' in row:
             if row['status'] != 'refused_or_failed' or phase == 'complete':
                 raise ValueError('unknown failure status')
@@ -167,3 +164,46 @@ def appop_mode(text, operation):
     match = re.fullmatch(r'No operations\.\nDefault mode: (allow|ignore|deny|default|foreground)\n?', text)
     if match: return match[1]
     raise ValueError('unrecognized app operation state')
+
+
+def device_state(power, window_policy):
+    """Controller observations, not an extra framework dependency in the principal process."""
+    if (not isinstance(power, str) or not isinstance(window_policy, str)
+            or len(power) > 1024 * 1024 or len(window_policy) > 1024 * 1024
+            or not power.startswith('Power Manager State:\n')
+            or not window_policy.startswith('WINDOW MANAGER POLICY STATE (dumpsys window policy)')):
+        raise ValueError('unknown power/window diagnostic format')
+    wake = re.findall(r'^  mWakefulness=([A-Za-z]+)$', power, re.M)
+    changing = re.findall(r'^  mWakefulnessChanging=(true|false)$', power, re.M)
+    if len(wake) != 1 or len(changing) != 1 or power.count('Battery saver state machine:') != 1:
+        raise ValueError('incomplete power state')
+    parts = power.split('Battery saver state machine:\n', 1)
+    if len(parts) != 2: raise ValueError('incomplete battery saver heading')
+    section = parts[1].split('\n')
+    if len(section) < 3:
+        raise ValueError('missing battery saver state')
+    enabled = re.fullmatch(r'  Enabled=(true|false)', section[0])
+    full = re.fullmatch(r'    full=(true|false)', section[1])
+    adaptive = re.fullmatch(r'    adaptive=(true|false)(?: \(advertise=(?:true|false)\))?', section[2])
+    if not all([enabled, full, adaptive]):
+        raise ValueError('invalid battery saver state')
+    lines = window_policy.split('\n')
+    found = [(i, re.fullmatch(r'( +)KeyguardServiceDelegate', line)) for i, line in enumerate(lines)]
+    found = [(i, match) for i, match in found if match]
+    if len(found) != 1: raise ValueError('keyguard delegate observation missing/ambiguous')
+    index, match = found[0];prefix = match[1] + '  ';values = {}
+    for line in lines[index+1:]:
+        if not line.startswith(prefix): break
+        name, separator, value = line[len(prefix):].partition('=')
+        if not separator or name in values: raise ValueError('invalid keyguard state')
+        values[name] = value
+    required = ['showing', 'inputRestricted', 'systemReady', 'bootCompleted']
+    if any(values.get(name) not in ['true', 'false'] for name in required):
+        raise ValueError('incomplete keyguard state')
+    return {'interactive': wake[0] == 'Awake' and changing[0] == 'false',
+            'power_save': enabled[1] == 'true' or full[1] == 'true' or adaptive[1] == 'true',
+            'keyguard_showing': values['showing'] == 'true',
+            'keyguard_input_restricted': values['inputRestricted'] == 'true',
+            'keyguard_ready': values['systemReady'] == values['bootCompleted'] == 'true',
+            'keyguard_screen_on': values.get('screenState') == 'SCREEN_STATE_ON',
+            'keyguard_awake': values.get('interactiveState') == 'INTERACTIVE_STATE_AWAKE'}
