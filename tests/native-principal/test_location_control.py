@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import unittest
-from location_control import info_nonce, location_arguments
+from location_control import info_nonce, location_arguments, close_control
+from location_observe import appop_mode
 
 
 class LocationControlTests(unittest.TestCase):
@@ -11,6 +12,21 @@ class LocationControlTests(unittest.TestCase):
         self.assertNotEqual(info_nonce('r41', 16), info_nonce('r41', 17))
         self.assertEqual(location_arguments('watch', 'r41_principal_live', 300000),
                          ['watch', 'r41_principal_live', '300000'])
+
+    def test_only_an_observed_fixture_close_button_can_be_selected(self):
+        pkg = 'dev.andrix.proof.principal'
+        node = '<node package="' + pkg + '" text="Close permission UI" class="android.widget.Button" enabled="true" clickable="true" bounds="[10,20][110,80]" />'
+        self.assertEqual(close_control('<hierarchy>' + node + '</hierarchy>', pkg), (60, 50))
+        for xml in ['<hierarchy />', '<hierarchy>' + node * 2 + '</hierarchy>',
+                    node.replace('enabled="true"', 'enabled="false"'),
+                    node.replace(pkg, 'another.package'), node.replace('[110,80]', '[10,80]')]:
+            with self.assertRaises(ValueError): close_control(xml, pkg)
+
+    def test_restore_uses_native_default_mode_not_the_literal_default_sentinel(self):
+        before = 'No operations.\nDefault mode: deny\n'
+        self.assertEqual(appop_mode(before, 'MOCK_LOCATION'), 'deny')
+        self.assertNotEqual(appop_mode('MOCK_LOCATION: default; time=1s ago\n', 'MOCK_LOCATION'), appop_mode(before, 'MOCK_LOCATION'))
+        self.assertEqual(appop_mode('MOCK_LOCATION: deny; time=1s ago\n', 'MOCK_LOCATION'), appop_mode(before, 'MOCK_LOCATION'))
 
     def test_bad_generated_or_manual_arguments_fail_before_device_submission(self):
         for args in [('info', 'r40_provider-absent-before', 0), ('info', 'n', 1),

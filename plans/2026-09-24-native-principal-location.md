@@ -1,8 +1,9 @@
 # Native principal location reference
 
-Status: bounded experiment plan and host preparation. Initial guests stopped before location
-setup on a controller nonce, an added keyguard diagnostic, and a controller dump format check.
-These supply no location policy result. The
+Status: the first substantive run established bounded background fine location delivery,
+live fine permission withdrawal/regrant and an initial foreground contrast. The full matrix
+remains incomplete because the attempted return Home did not leave foreground and mock operation
+restoration did not match the original mode. Earlier failures before location setup remain preserved. The
 [notification reference](2026-09-24-native-principal-reference.md) qualified one capability
 under a correct package/UID binding. This next case tests actual location permission, AppOps
 foreground state and an existing request's revocation. It does not select a production launch
@@ -109,8 +110,8 @@ UID as background and its existing registration as not permitted/inactive, with 
 callbacks despite witness delivery.
 
 Start the optional principal Activity normally. Require its actual foreground UID state and
-permitted/active registration before using new marker callbacks as a positive. Then return
-Home, observe the real background state and AppOps settlement, and repeat the negative with
+permitted/active registration before using new marker callbacks as a positive. Then close the fixture Activity normally, observe the real background state and AppOps
+settlement, and repeat the negative with
 new markers. A foreground restoration on the same registration supplies another positive
 against a dead listener. Do not use a fixed sleep as the oracle for foreground state. These
 transitions deliberately reuse the one captured registration; they do not adopt a leftover
@@ -164,6 +165,34 @@ The controller then refused the native power dump's outer banner, which its synt
 had omitted. A separate read only reassessment of the retained complete power/window dumps
 confirmed the required device state. The parser and regression fixture now include the actual
 entry point envelope. That correction did not continue or relabel the consumed guest.
+
+## Partial location result and controller correction
+
+A later fresh guest ran the actual location requests. Both ordinary principals received the
+fixed mock markers while the service recorded them as background, permitted and active, with
+fine/background grants and configured AppOps `allow`. Fine revocation made the principal's
+existing fine registration not permitted and inactive without killing its command. The peer
+continued receiving newly injected markers while the principal did not during the observed
+window. Regranting fine on the same listener restored fresh marker delivery.
+
+Removing background permission changed the configured modes to `foreground`. The principal's
+background registration became not permitted/inactive and stopped receiving the new markers,
+while the peer remained a live delivery witness. Starting the optional Activity normally made
+the principal UID `TOP`, activated the same registration and restored fresh delivery.
+
+The controller's Home key then did not change foreground state. Android logged that Home was
+not available while user setup was in progress, and the registration remained foreground and
+permitted. This is not a failure of foreground permission withdrawal: that transition never
+occurred. The corrected UI supplies a normal button that calls `Activity.finish()`. The
+controller must observe that exact enabled fixture control and the resulting UID state; it
+will not force stop the package or alter setup/foreground policy to obtain the transition.
+
+Both native listeners and their executors retired, the mock provider was removed, location
+settings were restored and the packages were uninstalled. One mock-operation restoration
+condition did not pass: the original default operation mode was `deny`, but the controller
+requested the distinct literal mode `default`. The correction restores the observed native
+mode, with a regression for that distinction, rather than clearing AppOps history or treating
+both values as identical. The original partial result remains unchanged.
 
 ## Promotion limits
 

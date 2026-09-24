@@ -23,3 +23,26 @@ def info_nonce(run_tag, command_number):
     nonce = f'{run_tag}_info_{command_number}'
     location_arguments('info', nonce, 0)
     return nonce
+
+
+def close_control(xml, package):
+    """One observed ordinary fixture button. Never a credential or generic input helper."""
+    import xml.etree.ElementTree as ET
+    if (not isinstance(xml, str) or len(xml) > 256 * 1024 or '<!DOCTYPE' in xml
+            or package not in ['dev.andrix.proof.principal', 'dev.andrix.proof.principalpeer',
+                               'dev.andrix.proof.principalclosed']):
+        raise ValueError('invalid fixture UI observation')
+    tree = ET.fromstring(xml)
+    matches = [node for node in tree.iter('node')
+               if node.get('package') == package and node.get('text') == 'Close permission UI'
+               and node.get('class') == 'android.widget.Button'
+               and node.get('enabled') == 'true' and node.get('clickable') == 'true']
+    if len(matches) != 1:
+        raise ValueError('missing or ambiguous fixture close button')
+    match = re.fullmatch(r'\[([0-9]+),([0-9]+)\]\[([0-9]+),([0-9]+)\]', matches[0].get('bounds', ''))
+    if match is None:
+        raise ValueError('missing close-button geometry')
+    left, top, right, bottom = map(int, match.groups())
+    if not (0 <= left < right <= 8192 and 0 <= top < bottom <= 8192):
+        raise ValueError('invalid close-button geometry')
+    return (left + right) // 2, (top + bottom) // 2

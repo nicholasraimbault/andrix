@@ -12,7 +12,7 @@ oracles and limits.
   and UID, requests notification or foreground location permission only on button presses,
   and opens Android's application settings. It does not start or supervise command processes.
   Its visibility can affect the UID's foreground policy, so it must not stand in for evidence
-  about independent background work.
+  about independent background work. Its close button finishes only the Activity, not a command.
 - `PrincipalCommand` is an ART command invoked separately through the platform's `run-as`
   debug entry and `app_process`. Private framework bootstrap access may be unavailable.
   It must fail rather than change hidden API, permission, MAC or verification policy.
@@ -134,7 +134,8 @@ exemption or qualify physical sensor cadence. Service state, a live peer witness
 markers are required to interpret missing callbacks.
 
 `LocationArgumentsTest` has 282 host checks. The shared principal checks still pass 68 checks.
-Two controller argument tests catch malformed generated nonces before device submission.
+Controller tests catch malformed generated nonces, ambiguous UI close controls and the
+distinction between a native default operation mode and the literal `default` mode.
 The seven location observer tests and five notification observer tests cover stream identity,
 partial writes, counters, permission snapshots, controller device observations, current registration versus event log,
 ambiguous dump refusal and AppOps UID precedence. All Java compiles against public API 36.

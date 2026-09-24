@@ -64,6 +64,7 @@ public final class PrincipalActivity extends Activity {
                 Manifest.permission.ACCESS_COARSE_LOCATION,
                 Manifest.permission.ACCESS_FINE_LOCATION));
         addButton(column, "Open application settings", v -> openApplicationSettings());
+        addButton(column, "Close permission UI", v -> finish());
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFitsSystemWindows(true);
