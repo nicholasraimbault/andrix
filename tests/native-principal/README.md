@@ -84,7 +84,12 @@ Use a bounded heap and execution deadline.
 
 The complete Java source can be compiled against the selected public Android SDK. The private
 framework lookup is reflective, so public SDK compilation does not prove that lookup will
-succeed on a device. APK packaging, signatures, manifest identities and debug flags must also
+succeed on a device. `test_observe.py` also tests the independent event and service observer.
+It consumes the pinned unfiltered Notification Manager protobuf, not human readable record
+text. Only `POSTED` records count. Missing service sections, malformed or truncated messages,
+wrong UID/user keys and ambiguous terminal events are failures, not evidence of absence.
+The controller must retain the actual unfiltered command and successful transport result.
+APK packaging, signatures, manifest identities and debug flags must also
 be inspected before runtime. Soong module definitions and a manual SDK build are distinct
 build paths; do not claim that testing one exercised the other.
 

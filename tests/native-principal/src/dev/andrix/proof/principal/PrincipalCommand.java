@@ -135,7 +135,7 @@ public final class PrincipalCommand {
                 failure = failure.getCause();
             }
             try {
-                JSONObject result = new JSONObject();
+                JSONObject result = arguments == null ? new JSONObject() : base(arguments, phase);
                 result.put("schema", 1);
                 result.put("phase", phase);
                 result.put("status", "refused_or_failed");

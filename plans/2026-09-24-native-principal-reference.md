@@ -242,7 +242,11 @@ This requires reflective Java access to a private factory in the inspected frame
 not configure hidden API exemptions, load foreign application code, mutate identity fields or
 change native policy checks. If access refuses, the diagnostic stops. It remains a reference
 candidate, not a public SDK or production interface. The source passed 68 host checks and public
-SDK compilation; four observer tests include the previously observed attribution mismatch.
+SDK compilation. Five observer tests include the earlier attribution mismatch, complete
+failure event identity, ambiguous terminal records and structured notification observations.
+The service observer now parses the pinned unfiltered notification protobuf. Only records in
+`POSTED` state count; partial data, missing sections, inconsistent target keys and duplicate
+records are not accepted as absence. Human readable dump text is no longer the oracle.
 
 The foreign package negative now keeps the real caller's own context and uses the documented
 `notifyAsPackage` delegation entry without configuring a delegation grant. Its own granted
