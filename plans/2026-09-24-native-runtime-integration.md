@@ -1,8 +1,9 @@
 # Native runtime integration proposal
 
-Status: proposal for owner review. The notification and mock location references are measured;
-the production mechanisms below are not implemented or qualified. Accepted architecture is
-unchanged. This document recommends an initial integration direction, not UID allocation,
+Status: the owner approved bounded disposable integration experiments after independent review.
+This is not acceptance of a production representation or authority profile. The notification and
+mock location references are measured; the mechanisms below are not implemented or qualified.
+Accepted architecture is unchanged. This document recommends an initial integration direction, not UID allocation,
 package formats, signer topology, a software store or new administrative policy.
 
 ## 1. Capability being built
@@ -317,7 +318,8 @@ that yields one clearer complete authority and lifecycle contract.
 
 ## 10. Next bounded integration gates
 
-1. **Characterize the available routes.** Inspect actual build/flag availability and run a
+1. **Characterize the available routes.** The [finite runtime fixture](../tests/native-runtime/README.md)
+   starts this gate without changing platform policy. Inspect actual build/flag availability and run a
    minimal native service lifecycle/profile control, without changing a frozen image's flags.
    Compare an ordinary managed helper using the real SDK bootstrap where appropriate.
    Establish what attaches, which identity/profile it receives, what callbacks exist and how

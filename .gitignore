@@ -36,3 +36,7 @@ out/
 .env
 .env.*
 .DS_Store
+
+# Python interpreter caches are generated, not source.
+__pycache__/
+*.py[cod]

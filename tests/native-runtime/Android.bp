@@ -1,0 +1,25 @@
+// SPDX-License-Identifier: Apache-2.0
+// These modules are fixtures, not a supported native entry or principal service.
+cc_library_shared {
+    name: "libandrixruntimeprobe",
+    srcs: ["native/runtime_service.cpp"],
+    sdk_version: "current",
+    min_sdk_version: "37",
+    stl: "none",
+    cpp_std: "c++17",
+    shared_libs: ["libandroid", "libbinder_ndk", "liblog"],
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+}
+
+android_test {
+    name: "AndrixNativeRuntimeReference",
+    srcs: ["src/**/*.java"],
+    manifest: "AndroidManifest.xml",
+    sdk_version: "current",
+    min_sdk_version: "37",
+    jni_libs: ["libandrixruntimeprobe"],
+    use_embedded_native_libs: false,
+    optimize: { enabled: false },
+    dex_preopt: { enabled: false },
+    test_suites: ["general-tests"],
+}

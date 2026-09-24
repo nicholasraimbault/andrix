@@ -74,8 +74,12 @@ runtime representatives, and preserves work/CE/Stop ownership. The pinned platfo
 a guarded native application attachment and native zygote route for isolated APK services;
 that source is a reuse candidate, not a qualified ordinary owner launch. Actual process/UID
 policy, one coherent cgroup hierarchy, authentic runtime state and presentation delegation must
-fit together. The proposal is not accepted architecture or a new authority grant. Real sensors,
-VPN, power/accounting and further user/lifecycle cases remain independent gates.
+fit together. The owner has approved bounded disposable experiments, not a production
+representation or authority profile. The [runtime route fixture](../tests/native-runtime/README.md)
+starts by comparing an ordinary managed service with the existing isolated native service route
+on an unchanged image. Its instrumentation and lifecycle controls are not an ordinary Unix entry
+or foreground policy pass. Real sensors, VPN, power/accounting and further user/lifecycle cases
+remain independent gates.
 
 The deciding gates are:
 

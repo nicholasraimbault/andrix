@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.andrix.proof.nativeruntime" android:versionCode="1" android:versionName="1">
+    <uses-sdk android:minSdkVersion="37" android:targetSdkVersion="37" />
+    <application android:label="Andrix runtime reference" android:debuggable="false"
+        android:allowBackup="false" android:extractNativeLibs="true">
+        <service android:name=".ManagedProbeService" android:exported="false"
+            android:process=":managed" />
+        <service android:name=".NativeProbeService" android:exported="false"
+            android:process=":native" android:nativeService="true" android:isolatedProcess="true">
+            <property android:name="android.app.PROPERTY_NATIVE_SERVICE_LIBRARY_NAME"
+                android:value="libandrixruntimeprobe.so" />
+        </service>
+    </application>
+    <instrumentation android:name=".RuntimeInstrumentation"
+        android:targetPackage="dev.andrix.proof.nativeruntime"
+        android:label="Finite runtime characterization" />
+</manifest>
