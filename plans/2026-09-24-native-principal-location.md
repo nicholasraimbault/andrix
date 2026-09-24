@@ -1,6 +1,7 @@
 # Native principal location reference
 
-Status: bounded experiment plan, not a runtime result. The
+Status: bounded experiment plan and host preparation. The first guest attempt stopped at
+argument validation before location setup, so it supplies no location policy result. The
 [notification reference](2026-09-24-native-principal-reference.md) qualified one capability
 under a correct package/UID binding. This next case tests actual location permission, AppOps
 foreground state and an existing request's revocation. It does not select a production launch
@@ -130,6 +131,19 @@ whole guest shutdown is containment, not retroactive proof of an individual Stop
 After requests retire, remove only the fixture provider, restore the changed settings and
 uninstall the exact fixture packages. Verify acknowledgement and state separately. Preserve
 partial/failing results. Use a fresh admitted guest and never reuse consumed queues or disks.
+
+## Initial controller correction
+
+The first fresh guest installed the exact fixtures, but the controller reused a readable
+command label containing hyphens as the native command's nonce. The native argument guard
+correctly refused it. No provider, location setting, permission grant or listener mutation
+was issued. The packages were uninstalled and the guest, runner and capture closed.
+
+The corrected controller derives the nonce from its run and command number, independently of
+the display label, and validates all native argument vectors on the host before submission.
+Host tests exercise the actual constructor path. Its early cleanup summary also distinguishes
+an unchanged setting from a setting that required restoration. The original failure and summary
+are retained; neither is a location capability result or reason to weaken the argument guard.
 
 ## Promotion limits
 

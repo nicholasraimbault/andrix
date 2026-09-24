@@ -132,6 +132,7 @@ exemption or qualify physical sensor cadence. Service state, a live peer witness
 markers are required to interpret missing callbacks.
 
 `LocationArgumentsTest` has 282 host checks. The shared principal checks still pass 68 checks.
+Two controller argument tests catch malformed generated nonces before device submission.
 The six location observer tests and five notification observer tests cover stream identity,
 partial writes, counters, permission/device snapshots, current registration versus event log,
 ambiguous dump refusal and AppOps UID precedence. All Java compiles against public API 36.
