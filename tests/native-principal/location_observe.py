@@ -170,7 +170,7 @@ def device_state(power, window_policy):
     """Controller observations, not an extra framework dependency in the principal process."""
     if (not isinstance(power, str) or not isinstance(window_policy, str)
             or len(power) > 1024 * 1024 or len(window_policy) > 1024 * 1024
-            or not power.startswith('Power Manager State:\n')
+            or not power.startswith('POWER MANAGER (dumpsys power)\n\nPower Manager State:\n')
             or not window_policy.startswith('WINDOW MANAGER POLICY STATE (dumpsys window policy)')):
         raise ValueError('unknown power/window diagnostic format')
     wake = re.findall(r'^  mWakefulness=([A-Za-z]+)$', power, re.M)

@@ -101,7 +101,7 @@ class LocationObserverTests(unittest.TestCase):
             with self.assertRaises(ValueError): appop_mode(bad, 'FINE_LOCATION')
 
     def test_device_conditions_come_from_controller_diagnostics(self):
-        power = ('Power Manager State:\n  mWakefulness=Awake\n  mWakefulnessChanging=false\n'
+        power = ('POWER MANAGER (dumpsys power)\n\nPower Manager State:\n  mWakefulness=Awake\n  mWakefulnessChanging=false\n'
                  'Battery saver state machine:\n  Enabled=false\n    full=false\n    adaptive=false\n')
         window = ('WINDOW MANAGER POLICY STATE (dumpsys window policy)\n    KeyguardServiceDelegate\n'
                   '      showing=false\n      inputRestricted=false\n      systemReady=true\n'

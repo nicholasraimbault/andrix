@@ -1,8 +1,8 @@
 # Native principal location reference
 
-Status: bounded experiment plan and host preparation. Two initial guests stopped before
-location setup: first at controller argument validation, then at an added keyguard diagnostic.
-Neither supplies a location policy result. The
+Status: bounded experiment plan and host preparation. Initial guests stopped before location
+setup on a controller nonce, an added keyguard diagnostic, and a controller dump format check.
+These supply no location policy result. The
 [notification reference](2026-09-24-native-principal-reference.md) qualified one capability
 under a correct package/UID binding. This next case tests actual location permission, AppOps
 foreground state and an existing request's revocation. It does not select a production launch
@@ -159,6 +159,11 @@ No application shared memory is fabricated, cache flag disabled or framework sin
 to get past the diagnostic. The original result remains preserved. This separation avoids making
 an unrelated telemetry service a prerequisite for the capability under test; it does not claim
 that all Android context services work from the reference bootstrap.
+
+The controller then refused the native power dump's outer banner, which its synthetic fixture
+had omitted. A separate read only reassessment of the retained complete power/window dumps
+confirmed the required device state. The parser and regression fixture now include the actual
+entry point envelope. That correction did not continue or relabel the consumed guest.
 
 ## Promotion limits
 
