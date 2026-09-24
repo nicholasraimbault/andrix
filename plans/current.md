@@ -38,8 +38,13 @@ for review, not newly accepted architecture or runtime qualification.
 
 They refine the [composition assessment](2026-09-23-composition-architecture-assessment.md),
 which separates owner intent, resolved inputs, exact artifacts, compatibility, authorization
-and observed deployment. No principal representation, key topology, package language, store,
-version encoding or universal update mechanism is selected.
+and observed deployment. The [source mechanism comparison](2026-09-24-integration-mechanism-assessment.md)
+now distinguishes principal representation, API binding and execution lifetime, and maps
+separate package, privilege, image and APEX trust checks. It proposes a recognized ordinary
+principal reference case, followed by location and mobile policy tests. These are source
+findings and proposed experiments, not runtime results or a selected production mechanism.
+No principal representation, key topology, package language, store, version encoding or
+universal update mechanism is selected.
 
 The deciding gates are:
 

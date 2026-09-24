@@ -31,6 +31,9 @@ separate from the retained Unix milestones:
   [owner trust, selection and deployment contract](2026-09-24-owner-composition-contract.md).
 - [Android accounts with Unix](2026-09-21-android-unix-accounts.md), with the proposed
   [native principal and Android policy contract](2026-09-24-native-principal-contract.md).
+  The [integration mechanism assessment](2026-09-24-integration-mechanism-assessment.md)
+  compares actual native identity, permission, trust and selection paths before choosing
+  a representation or update mechanism.
 - [Rolling composition and installation](2026-09-21-rolling-composition.md), with a
   [long term architecture assessment](2026-09-23-composition-architecture-assessment.md)
   covering source variants, exact artifacts, version selection and native activation.

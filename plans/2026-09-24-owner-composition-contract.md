@@ -110,8 +110,9 @@ not a claim that an issued signature or committed deployment has ceased to exist
 | Delegated owner deployment trust | Keep suitable distribution identities while native enforcement recognizes explicitly authorized owner variants or trust relationships. Define each change to privilege, signer, shared UID, MAC, APEX and boot checks. A detached approval is not already such an implementation. |
 | A role specific combination | Use different mechanisms where their native responsibilities differ. Explain the complete trust path and rotation/recovery behavior; do not conceal ambiguity behind a single installation key label. |
 
-None is selected here. Compare them against the same owner variant, upstream update,
-ordinary app denial and recovery cases. Native framework changes are legitimate when they
+None is selected here. The [source comparison](2026-09-24-integration-mechanism-assessment.md)
+maps several existing checks and their distinct trust inputs. Compare candidates against the
+same owner variant, upstream update, ordinary app denial and recovery cases. Native framework changes are legitimate when they
 produce a cleaner contract. Global verification bypasses and package database edits are not
 a managed trust design. The accepted workshop mode can deliberately reduce boot verification;
 that declared mode does not silently disable APK/APEX checks or acquire assurances of locked operation.

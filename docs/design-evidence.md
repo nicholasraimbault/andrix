@@ -134,6 +134,14 @@ physical phone deployment at this checkpoint.
   proposed identity and policy responsibilities for useful ordinary native Android access.
   UID mapping and process supervision alone do not establish permission, attribution,
   VPN or power policy integration. No principal representation is selected by the proposal.
+- **Mechanism source evidence:** the
+  [integration comparison](../plans/2026-09-24-integration-mechanism-assessment.md) inspected
+  exact committed permission, notification, location, attribution, AppOps and VPN paths.
+  UID permission fallback, package ownership and operation policy are distinct checks.
+  Default VPN user ranges do not establish package list behavior or packet enforcement.
+  A notification test can exercise its permission path without qualifying location,
+  foreground importance or power behavior. These are source findings, not a new native
+  principal implementation or a reason to grant an ordinary UID a system bypass.
 - **Next gate:** qualify useful native capability access under Android policy, the
   [account mapping](../plans/2026-09-21-android-unix-accounts.md) and
   [general elevation](../plans/2026-09-21-owner-authority.md) independently. Existing
@@ -739,6 +747,14 @@ physical phone deployment at this checkpoint.
   responsibilities and gates, not new key policy, a universal rollback mechanism or runtime
   qualification. External intent records and Android backed mediation are not rejected
   merely because they live outside a native service.
+- **Mechanism source evidence:** the
+  [integration comparison](../plans/2026-09-24-integration-mechanism-assessment.md) separates
+  installed signer compatibility, permission grants, MAC matching, trusted factory image
+  scanning, APEX payload key selection and OTA payload verification. Factory image trust
+  is not an interchangeable ordinary APK installation path. Existing system reconciliation
+  code does not qualify lossless rekeying, and an added signer rule cannot replace all the
+  other checks. No key topology, native selection implementation or data rollback guarantee
+  follows from this comparison.
 - **Intent, accepted:** Andrix owns its whole OS; native execution and APKs are equally
   important. Ordinary identities remain separate from explicit general administration.
   Multiple accounts, ordinary development on the device, retained owner component choices,

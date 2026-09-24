@@ -132,7 +132,9 @@ their [accepted distinctions](../docs/architecture.md#lifecycle-and-networking).
 
 These can be combined where justified. None is selected. A broker is not intrinsically wrong,
 and a framework modification is not intrinsically a hack. The decisive condition is a coherent
-identity and authority contract that can be carried across Android releases.
+identity and authority contract that can be carried across Android releases. The
+[source comparison](2026-09-24-integration-mechanism-assessment.md) begins separating the
+representation, binding and lifetime mechanisms against actual framework checks.
 
 ## 7. Deciding tests and open choices
 
