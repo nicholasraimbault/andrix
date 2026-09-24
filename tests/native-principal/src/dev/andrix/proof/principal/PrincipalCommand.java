@@ -6,9 +6,7 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Context;
-import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
-import android.os.Looper;
 import android.os.Process;
 import android.os.SystemClock;
 import android.service.notification.StatusBarNotification;
@@ -18,7 +16,6 @@ import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
 import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 
 /** Lab command for run-as + app_process. This is not a product native binding.
@@ -27,7 +24,6 @@ import java.nio.charset.StandardCharsets;
  */
 public final class PrincipalCommand {
     private static final String CHANNEL = "andrix_principal_probe";
-    private static final String ATTRIBUTION = "native-principal-proof";
 
     private PrincipalCommand() {}
 
@@ -48,7 +44,7 @@ public final class PrincipalCommand {
             emit(entry);
 
             phase = "package_context";
-            Context context = packageContext();
+            Context context = PrincipalContext.create();
             JSONObject facts = base(arguments, "context");
             facts.put("context_package", context.getPackageName());
             facts.put("context_uid", context.getApplicationInfo().uid);
@@ -161,38 +157,6 @@ public final class PrincipalCommand {
         }
     }
 
-    private static Context packageContext() throws Exception {
-        if (Looper.getMainLooper() == null) Looper.prepareMainLooper();
-        Class<?> activityThread = Class.forName("android.app.ActivityThread");
-        Object thread = activityThread.getMethod("systemMain").invoke(null);
-        Context systemContext = (Context) activityThread.getMethod("getSystemContext").invoke(thread);
-        PackageManager packages = systemContext.getPackageManager();
-        String principal = ProbePrincipal.fixtureForUid(packages.getPackagesForUid(Process.myUid()));
-        ApplicationInfo application = packages.getApplicationInfo(principal, 0);
-        ProbePrincipal.requireOwnApplication(Process.myUid(), application.uid);
-        if (!principal.equals(application.packageName)) {
-            throw new SecurityException("Package Manager returned a different application");
-        }
-
-        Class<?> compatibility = Class.forName("android.content.res.CompatibilityInfo");
-        Object defaults = compatibility.getField("DEFAULT_COMPATIBILITY_INFO").get(null);
-        // The checked package-info path, with resource-only flags. No INCLUDE_CODE,
-        // IGNORE_SECURITY, getPackageInfoNoCheck, foreign package or caller-supplied identity.
-        Object loaded = activityThread.getMethod("getPackageInfo", ApplicationInfo.class,
-                compatibility, int.class).invoke(thread, application, defaults, 0);
-        Class<?> loadedApk = Class.forName("android.app.LoadedApk");
-        Class<?> contextImpl = Class.forName("android.app.ContextImpl");
-        Method create = contextImpl.getDeclaredMethod("createAppContext", activityThread, loadedApk);
-        // Bounded access to Java package visibility for this private diagnostic factory.
-        // This does not exempt ART hidden APIs or change native permission/MAC enforcement.
-        // Refuse if the lookup/access fails. Never override the operation-package field.
-        create.setAccessible(true);
-        Context context = (Context) create.invoke(null, thread, loaded);
-        ProbePrincipal.requireOwnContext(Process.myUid(), principal, context.getApplicationInfo().uid,
-                context.getPackageName(), context.getAttributionSource().getUid(),
-                context.getAttributionSource().getPackageName());
-        return context.createAttributionContext(ATTRIBUTION);
-    }
 
     private static boolean contains(StatusBarNotification[] values, ProbeArguments args) {
         for (StatusBarNotification value : values) {

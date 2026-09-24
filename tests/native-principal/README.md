@@ -115,6 +115,28 @@ cancellation and denial of new requests after revocation were independently obse
 fixture Activity was started. See the execution plan for the retained earlier failures,
 limits of privileged fixture grants, and the unchanged debug entry and private API limits.
 
+## Location vehicle
+
+The [location reference plan](../../plans/2026-09-24-native-principal-location.md) adds a finite
+`LocationCommand info|watch PUBLIC_NONCE [DURATION_MS]`. It reuses the same private binding,
+now factored into `PrincipalContext`. The provider is fixed to `andrix_principal_test`.
+A command cannot select GPS or another provider. The separate shell fixture supplies only
+synthetic data. The client records mock status, timestamp correlation markers, callback counts,
+permission/device state and actual identity, never coordinates or a raw `Location` string.
+
+The command owns one listener and callback executor, has a finite client deadline and removes
+its listener before reporting retirement. It sets no service expiry/count limit that could
+silently explain a negative. The output/callback bounds instead fail the client explicitly.
+Configured one second minimum interval and zero displacement do not grant a background throttle
+exemption or qualify physical sensor cadence. Service state, a live peer witness and fresh
+markers are required to interpret missing callbacks.
+
+`LocationArgumentsTest` has 282 host checks. The shared principal checks still pass 68 checks.
+The six location observer tests and five notification observer tests cover stream identity,
+partial writes, counters, permission/device snapshots, current registration versus event log,
+ambiguous dump refusal and AppOps UID precedence. All Java compiles against public API 36.
+These are preparation checks, not a location runtime result.
+
 ## Preparation checkpoint
 
 Fifty host parser and guard checks passed. The three ordinary APKs were then built from

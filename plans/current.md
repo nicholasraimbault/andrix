@@ -59,8 +59,12 @@ posts after revocation, and separate grant behavior in a fresh secondary Android
 service records were independently decoded. No fixture Activity or foreground service was used.
 Privileged fixture grants are not user consent UI proof, and service retention is not visible
 notification delivery. Shell groups/cgroup inheritance and the private factory remain diagnostic
-limits, not a production launch profile. Next is location, foreground state and live revocation,
-with a coherent native launch and binding contract rather than policy exceptions.
+limits, not a production launch profile. The
+[location reference](2026-09-24-native-principal-location.md) now has a bounded mock provider
+vehicle and host checks for location arguments and observations. Its next gate is a fresh
+runtime measuring real foreground state and live permission revocation, with a delivery witness
+and current registration state, not silence alone. A coherent native launch and binding contract
+remains the goal rather than policy exceptions.
 
 The deciding gates are:
 

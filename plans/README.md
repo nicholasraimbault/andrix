@@ -36,6 +36,9 @@ separate from the retained Unix milestones:
   a representation or update mechanism. The
   [ordinary principal reference experiment](2026-09-24-native-principal-reference.md)
   defines a bounded debug entry and permission probe, not the production launch mechanism.
+  Its finite notification result is followed by the
+  [location reference plan](2026-09-24-native-principal-location.md), which separates grant,
+  foreground state, callback delivery, revocation and retirement observations.
 - [Rolling composition and installation](2026-09-21-rolling-composition.md), with a
   [long term architecture assessment](2026-09-23-composition-architecture-assessment.md)
   covering source variants, exact artifacts, version selection and native activation.
