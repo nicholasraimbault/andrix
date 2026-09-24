@@ -109,6 +109,12 @@ A lookup or access failure stops the vehicle. This is a diagnostic for the inspe
 version, not a public SDK or production Andrix API contract. The corrected source passed 68 host guard checks
 and public API 36 compilation before packaging; those are not runtime qualification.
 
+A subsequent fresh emulator trial at `c1a51ff` passed the finite notification service controls
+in user 0 and a new secondary user. The exact own posted records, foreign package refusal,
+cancellation and denial of new requests after revocation were independently observed. No
+fixture Activity was started. See the execution plan for the retained earlier failures,
+limits of privileged fixture grants, and the unchanged debug entry and private API limits.
+
 ## Preparation checkpoint
 
 Fifty host parser and guard checks passed. The three ordinary APKs were then built from

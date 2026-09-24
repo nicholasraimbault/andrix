@@ -1,10 +1,9 @@
 # Ordinary principal reference experiment
 
-Status: bounded diagnostic plan and source vehicle, with two partial emulator results.
-Host parser checks, public SDK compilation and artifact verification passed. Runtime established
-standalone context creation and entry controls. A fresh diagnostic then localized an operation
-package mismatch in the probe's binding, not a missing notification grant. Notification delivery
-and a production launch profile remain unqualified.
+Status: the corrected reference passed the finite notification service matrix in a fresh
+emulator, including another Android user. Two earlier partial results remain preserved.
+The result qualifies this bounded debug entry and private framework binding, not a production
+launch profile, native C API, visible SystemUI delivery or foreground/power policy.
 No production principal mechanism or key policy is selected. This plan authorizes no
 personal phone operation, personal key provisioning or change to verification policy.
 
@@ -231,7 +230,7 @@ but it is not a stable native API or an accepted production mechanism by itself.
 
 ## Corrected reference candidate
 
-The next source revision resolves exactly one fixture package through Package Manager for the
+The corrected source resolves exactly one fixture package through Package Manager for the
 actual process UID. Its application metadata must match that full UID. It obtains resource
 metadata through the checked `ActivityThread.getPackageInfo` path without `CONTEXT_INCLUDE_CODE`
 or `CONTEXT_IGNORE_SECURITY`, then uses the private `ContextImpl.createAppContext` factory with no
@@ -252,6 +251,52 @@ The foreign package negative now keeps the real caller's own context and uses th
 `notifyAsPackage` delegation entry without configuring a delegation grant. Its own granted
 positive must work first. A local context mismatch, an earlier bootstrap failure or an
 unexpectedly returning foreign call cannot count as a native authorization refusal.
+
+## Corrected runtime result
+
+A third fresh guest used APK and observer source `c1a51ff`. The private factory was accessible
+under the unchanged standalone runtime policy. Kernel UID, Package Manager application UID,
+context package and operation attribution agreed before notification operations. No fixture
+Activity was started, and no APK process was observed in the before/after process snapshots.
+
+The bounded controls passed:
+
+| Control | Observation |
+| --- | --- |
+| Principal and peer, own package, granted permission | Both commands observed their exact active notification; the service protobuf independently contained the expected `POSTED` record, UID/user key, package and operation package |
+| Peer attempts principal package | Native enqueue rejected it with `SecurityException`, after the peer's own granted positive; no corresponding `POSTED` target record was observed |
+| Own cancellation | The command and service observed the exact record removed |
+| User 0 permission revoked | A new ordinary post returned without a posted record; the command observed the permission as denied |
+| Fresh full secondary user | Its actual user/serial, unlocked state, distinct full UID and matching context attribution were observed |
+| Secondary user denied, granted, then revoked | New posts were absent, present and absent respectively in command and service observations |
+| Secondary grant versus user 0 | User 0 still could not post using its own revoked grant while the secondary user's grant was active |
+| Entry controls | The nondebuggable package and direct shell payload were refused as intended |
+
+All nine service observations were rechecked from the retained raw unfiltered protobufs by a
+separate protobuf library decoder, not just the trial's summary booleans. Grant operations were
+privileged test setup, not proof of the owner's permission UI. The record observations establish
+service acceptance/retention, not that SystemUI visibly presented a notification. They do not
+show native computation persisting after command exit.
+
+The secondary user stop/removal and all three exact package uninstalls were acknowledged.
+The boot and enforcing-policy bookends matched, Cuttlefish/runner/capture exited zero and the
+disposable RAM backing disappeared. The frozen inputs were reverified. Two host assessment
+tooling errors after the run, a protobuf library API mismatch and an ambiguous filename glob,
+were retained separately and corrected before the final assessment. They did not change the
+guest run or upgrade an earlier failed trial.
+
+The limitations remain deliberate. `run-as` still retains shell supplementary groups and
+launcher cgroup placement, and this standalone process is not a normal application launch
+profile. The factory is private and specific to the pinned framework. No hidden API exemptions,
+service caller checks, SELinux policy or runtime permission rules were disabled. The experiment
+does not qualify live request revocation, location, VPN, power/accounting, credential withdrawal,
+user deletion/reuse safety or a production principal representation.
+
+This supports the separation of identity, API binding and UI lifetime: an Android recognized
+subject can use this capability from independent execution when its actual operation identity
+is correct. The next deciding case is location with controlled test data, real foreground state
+and live revocation, alongside a coherent production launch profile and supported binding.
+It does not require packaging every owner executable as an APK or retaining a UI process.
 
 ## Promotion condition
 

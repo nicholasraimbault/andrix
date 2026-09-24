@@ -164,8 +164,18 @@ physical phone deployment at this checkpoint.
   package mismatch, as its source ownership checks require. Context creation had retained the
   system container's operation identity. Both results and successful cleanup/VM retirement
   are retained separately. Neither qualifies delivery, revocation or another user.
-- **Next gate:** construct a reference binding with the correct principal identity and qualify useful native capability
-  access under Android policy, the [account mapping](../plans/2026-09-21-android-unix-accounts.md) and
+- **Corrected reference runtime:** source `c1a51ff` resolves the actual UID's fixture package
+  through Package Manager and uses a private application context factory without inheriting the
+  system operation package. The notification service matrix passed in a fresh guest: three own
+  granted positives, foreign package refusal after an own positive, cancellation, denial of new
+  posts after revocation, and separate grant behavior for a newly created full Android user.
+  Nine raw service protobuf observations were checked by two decoders. No fixture Activity was
+  started. User/package cleanup and VM retirement completed. This qualifies that bounded
+  reference path, not visible SystemUI delivery, owner consent UI, live location revocation,
+  a stable native API or the production launch profile. Earlier failures remain unchanged.
+- **Next gate:** qualify location, actual foreground state and live revocation, and develop the
+  native launch and supported binding contract. Qualify the
+  [account mapping](../plans/2026-09-21-android-unix-accounts.md) and
   [general elevation](../plans/2026-09-21-owner-authority.md) independently. Existing
   ordinary app/coordinator negatives do not establish those new boundaries.
 

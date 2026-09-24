@@ -52,14 +52,15 @@ stock `run-as` only as a diagnostic entry. Fifty host parser/guard checks and pu
 compilation passed. Three ordinary APK artifacts were built and verified, including their
 package, permission, signer and debug flag distinctions. The standalone build used API 36
 compile/code generation inputs with API 37 minimum and target declarations unchanged.
-The first fresh emulator run established standalone own-package context creation and the
-nondebuggable/shell identity entry controls. The first attempt stopped on an unlocalized
-`SecurityException`. A second fresh diagnostic, with the notification permission granted,
-identified the cause: the context retained operation package `android` under the ordinary app
-UID. Notification Manager rejected that mismatch. The binding needs a real principal context,
-not additional permission or weakened validation. Notification delivery, revocation and another
-user remain unqualified. Inherited shell groups and cgroup placement also confirm that the debug
-entry is not the production launch profile.
+Two initial runs established entry controls and then localized an incorrect inherited
+operation package. The corrected reference at `c1a51ff` now passed the finite notification
+service matrix: own granted positives, foreign package refusal, cancellation, denial of new
+posts after revocation, and separate grant behavior in a fresh secondary Android user. Exact active
+service records were independently decoded. No fixture Activity or foreground service was used.
+Privileged fixture grants are not user consent UI proof, and service retention is not visible
+notification delivery. Shell groups/cgroup inheritance and the private factory remain diagnostic
+limits, not a production launch profile. Next is location, foreground state and live revocation,
+with a coherent native launch and binding contract rather than policy exceptions.
 
 The deciding gates are:
 
