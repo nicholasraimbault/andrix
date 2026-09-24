@@ -142,8 +142,15 @@ physical phone deployment at this checkpoint.
   A notification test can exercise its permission path without qualifying location,
   foreground importance or power behavior. These are source findings, not a new native
   principal implementation or a reason to grant an ordinary UID a system bypass.
-- **Next gate:** qualify useful native capability access under Android policy, the
-  [account mapping](../plans/2026-09-21-android-unix-accounts.md) and
+- **Reference vehicle preparation:** the
+  [ordinary principal experiment](../plans/2026-09-24-native-principal-reference.md) adds
+  an optional permission Activity and a separately invoked ART command. Fifty host argument
+  and kernel observation guard checks passed, as did public SDK compilation. Stock `run-as`
+  selects a debug domain with additional debugging access; it is not the final owner launcher.
+  Reflective framework context bootstrap may still fail at runtime. Neither source inspection
+  nor compilation is an Android permission, UI delivery or process lifetime result.
+- **Next gate:** inspect the exact reference artifacts and qualify useful native capability
+  access under Android policy, the [account mapping](../plans/2026-09-21-android-unix-accounts.md) and
   [general elevation](../plans/2026-09-21-owner-authority.md) independently. Existing
   ordinary app/coordinator negatives do not establish those new boundaries.
 

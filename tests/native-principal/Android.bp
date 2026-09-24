@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: Apache-2.0
+// Disposable diagnostic applications only. Not part of PRODUCT_PACKAGES.
+java_defaults {
+    name: "andrix_principal_probe_defaults",
+    srcs: ["src/**/*.java"],
+    resource_dirs: ["res"],
+    sdk_version: "current",
+    min_sdk_version: "37",
+    target_sdk_version: "37",
+    certificate: "testkey",
+    optimize: { enabled: false },
+}
+
+android_test_helper_app {
+    name: "AndrixPrincipalProbe",
+    defaults: ["andrix_principal_probe_defaults"],
+    manifest: "AndroidManifest.xml",
+}
+
+android_test_helper_app {
+    name: "AndrixPrincipalPeer",
+    defaults: ["andrix_principal_probe_defaults"],
+    manifest: "peer/AndroidManifest.xml",
+}
+
+android_test_helper_app {
+    name: "AndrixPrincipalClosed",
+    defaults: ["andrix_principal_probe_defaults"],
+    manifest: "closed/AndroidManifest.xml",
+}

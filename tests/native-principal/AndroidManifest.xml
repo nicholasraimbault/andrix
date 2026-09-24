@@ -1,0 +1,26 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.andrix.proof.principal" android:versionCode="1" android:versionName="0.1-probe">
+    <uses-sdk android:minSdkVersion="37" android:targetSdkVersion="37" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <queries>
+        <package android:name="dev.andrix.proof.principal" />
+        <package android:name="dev.andrix.proof.principalpeer" />
+        <package android:name="dev.andrix.proof.principalclosed" />
+    </queries>
+    <attribution android:tag="native-principal-proof" android:label="@string/attribution_label" />
+    <application android:label="Andrix principal probe" android:debuggable="true"
+        android:allowBackup="false" android:supportsRtl="true"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <activity android:name="dev.andrix.proof.principal.PrincipalActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
