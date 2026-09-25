@@ -1,6 +1,7 @@
 # Native identity slot storage component
 
-Status: implemented storage/record component with host checks. It is not yet the PMS consumer,
+Status: implemented storage/record component with host checks and an actual Android module build.
+It is not yet the PMS consumer,
 allocator recovery integration or native account activation. The existing adapted manager still
 uses `packages.xml` until its migration is connected and qualified. This is implementation of the
 [recovery boundary](2026-09-25-native-recovery-boundary.md), not a second UID allocator or grant
@@ -90,6 +91,13 @@ These are not power-loss, Android ABX/fs-verity, SELinux, PMS or device lifecycl
 
 The combined focused suite runs 21 checks, including the existing manager/allocator/strict writer
 checks and unchanged CE, package verification and disabled native entry guards.
+
+The actual Android `services.core` target built successfully from `3ee50f3`, with both helpers and
+their nested classes in its final jar. The initial artifact collector looked for a javac output
+instead of the final combined jar; that collection failure is retained separately from the
+successful compile. The correct artifact was then captured and verified against that build's
+source and time boundaries. The exact native adaptation was reverted afterward, preserving the
+existing CE and Package Installer changes. No image, emulator or physical device ran this store.
 
 ## Next integration boundary
 

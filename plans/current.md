@@ -42,7 +42,8 @@ Accepted policy remains unchanged. The [terminal parser logging correction](2026
 now has a matching failing control, 156 passing host parser/adapter checks and a successful
 `AndrixTerminal` Android module build with artifact verification. Device logging and broader
 runtime privacy remain separately unqualified. The [native identity record and slot storage component](2026-09-25-native-identity-store.md)
-now has actual Java codec and filesystem checks. Its PMS consumer, allocation recovery, data
+now has actual Java codec/filesystem checks and a successful Android `services.core` module
+build. Its PMS consumer, allocation recovery, data
 quarantine and lifecycle integration are the next boundary. No new factory or account path was
 activated.
 

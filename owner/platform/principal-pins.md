@@ -95,7 +95,7 @@ The [recovery redesign](../../plans/2026-09-25-native-recovery-boundary.md) prop
 reservations into a small Package Manager owned store with stable UID slots and recovery copies.
 That would separate allocation safety from damaged account details and ordinary settings
 recovery. Its [record and storage component](../../plans/2026-09-25-native-identity-store.md)
-is now implemented and host tested, but is not connected to this PMS consumer. The behavior below
+is now implemented, host tested and Android module compiled, but is not connected to this PMS consumer. The behavior below
 still describes the active adapted manager and its embedded XML path. Compiling the new helpers
 does not migrate that state or enable native accounts.
 
@@ -132,8 +132,9 @@ were exercised with real host files and writing descriptors plus explicit Androi
 Those checks do not qualify Android ABX, fs-verity or device filesystem crash behavior.
 
 The adapted Android `services.core` module compiled successfully against the pinned platform.
-Its resulting jar contains the three native principal implementation classes and their nested
-types. This is an actual framework module build, not a full image or device runtime pass. An
+Its resulting jar originally contained the three native principal implementation classes and
+nested types. The later `3ee50f3` build also compiles `NativeIdentityRecords` and `NativeIdentityStore`,
+without switching the existing PMS consumer to that store. This is an actual framework module build, not a full image or device runtime pass. An
 initial compile failure exposed an unavailable Java `O_DIRECTORY` constant and unqualified
 error constants; separate corrected inputs passed without suppressing the errors.
 

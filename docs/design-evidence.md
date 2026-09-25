@@ -220,7 +220,7 @@ retain their own producers and scopes.
   complete corrupt state recovery/older reader protection is qualified. No native manager factory
   or ordinary APK designation authority was enabled.
 - **Separate storage component:** the [native identity slot store](../plans/2026-09-25-native-identity-store.md)
-  now has real Java codec and host filesystem checks. Stable slot/index holds are distinct from
+  now has real Java codec/host filesystem checks and an actual Android `services.core` build. Stable slot/index holds are distinct from
   binding eligibility and counter availability. First publication, checked backup preparation,
   header-only damage and retirement ordering have bounded coverage. Its PMS consumer is not yet
   connected; these results do not replace the current settings implementation or qualify Android
