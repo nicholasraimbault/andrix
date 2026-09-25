@@ -56,8 +56,10 @@ must reduce real authority and failure coupling without creating needless IPC an
    recovery and from volatile manager/work instances.
 4. **Epoch bound authority and exact supervision**, preserving revocation while investigating
    how to remove unnecessary dependence on short observation reply deadlines.
-5. **Explicit managed native environment leases**, protected ordinary publication and real
-   reader retention, alongside unrestricted ordinary owner files.
+5. **Explicit managed retention**, protected ordinary publication and real reader ownership,
+   alongside ordinary owner files. The later [cost review](2026-09-25-native-package-retention.md)
+   recommends current selections for interactive work, conservative automatic retention and
+   explicitly pinned environments, rather than pinning every shell by default.
 6. **Per class component transactions** that know their identity, data, reader, API and disruption
    consequences. Signing, native commit and actual retirement remain separate facts.
 
@@ -349,9 +351,16 @@ another user's data. Minimal protected DE holder/object references may retain pu
 objects while private users are locked, without copying commands, contents or private projects
 into DE. Privacy and access checks are part of the design, not inferred from a digest.
 
-### Exact environments and real retention
+### Current selections, exact environments and real retention
 
-Recommend an explicit managed environment generation leased at work admission. The store
+The [retention refinement](2026-09-25-native-package-retention.md) now recommends two explicit
+modes. Ordinary interactive work follows current selections for new commands, with a conservative
+store owned retention window covering the selections it could have used. Pinned builds/services
+hold exact environment generations and do not hold back every future current selection. This is
+a revised proposal, not an implemented or accepted production default. Both modes establish their
+retention before entry, keep unknown obligations across failure and coordinate with collection.
+
+For the pinned mode, an explicit managed environment generation is leased at work admission. The store
 authority issues and records the lease before the entry gate can be claimed, bound to exact work/environment scope
 identity. The manager holds a reference, but the authoritative lease record must outlive or be
 recoverable independently of that manager. An issuer restart cannot interpret missing volatile
@@ -361,7 +370,7 @@ fork/exec and later supported library lookup therefore have a stable managed clo
 actual linker behavior; exact package references remain an alternative to a scoped generation
 library view. Do not globally widen Android namespaces.
 
-A long lived shell can explicitly adopt a new generation through a scoped operation which adds
+A pinned long lived shell can explicitly adopt a new generation through a scoped operation which adds
 its lease before changing the shell environment. Existing children keep their old environment.
 If an engineering bound prevents another lease, refuse/defer adoption or start a fresh scope.
 **Never discard an old live lease with a warning to make room.** The owner can see what retains
@@ -373,9 +382,13 @@ pending operations and live scopes retain their closures. Manager failure releas
 captured enclosing retirement is confirmed. Future scheduled execution has its own durable root.
 A `/proc` scan is diagnostic, not proof that no later exec or dlopen will need an object.
 
-This trades automatic updates inside old shells for explicit consistent environments. Direct
-mutable files stay available. A deliberate "follow current" mode may be compared, but cannot
-quietly inherit stronger consistency or collection guarantees.
+Pinned mode trades automatic updates inside old shells for explicit consistent environments.
+Current mode keeps conventional command selection and uses conservative retention, not a claim
+that every path lookup sees one generation. It can retain churn until the oldest current mode
+scope retires. Transfers into another scope need the corresponding reference or bound; arbitrary
+path strings are not leases. Direct mutable files stay available. Neither mode silently inherits
+the other's guarantees. Measure holdback before adding per-command dispatch or new filesystem
+machinery solely to obtain finer collection.
 
 ## 9. System changes use the runtime model, not a competing one
 
@@ -440,7 +453,7 @@ away. A constant `factory + 1` rule is a candidate to test, not the product's ve
 | Change | Required interpretation |
 | --- | --- |
 | Ordinary owner file/build | Normal Unix mutation/exec, not platform installation |
-| Managed native generation | New work uses the selected generation; existing scope leases remain; explicit adoption adds a lease |
+| Managed native generation | Current mode new commands follow the current selection while old exact objects remain under its retention contract. Pinned environments change only through a new scope or explicit adoption. No live hold is evicted |
 | Ordinary editor/terminal APK | Android code effects can span all users with that package. Lost client presentation or submission does not cancel already accepted independent work |
 | Account policy carrier metadata | Maintain under native account maintenance capabilities and the appropriate installation authority. A shared carrier update reaches every affected user/incarnation. Include each in the plan; conflict with a retiring account defers/refuses the global change, not a fictitious per-user exclusion. Keep designation and UID stable; evaluate semantic deltas |
 | Permission change | Real Android permission/API policy governs. If that policy decides to kill the UID, the decision must reach native scopes by exact Stop, not only known Java app processes. Not every change is assumed to require a kill |
@@ -517,9 +530,10 @@ Implement and qualify joined journeys, rather than accumulating disconnected pro
 2. **Authority under stress:** real permission/credential changes, CE withdrawal, delayed observation,
    blocked I/O, CPU/memory/pids pressure, helper and manager/framework death. Verify exact Stop,
    retirement and no stale revival. Test a second Android user and user ID reuse separately.
-3. **Managed native generations:** old shell/late exec/dlopen, new profile publication, explicit
-   adoption, refused adoption at capacity, collection racing launch, manager death and locked
-   users holding shared dependencies. No observation scan stands in for a lease.
+3. **Managed native generations:** current mode and pinned shell/late exec/dlopen, new profile
+   publication, explicit pinned adoption, refused adoption at capacity, conservative holdback,
+   cross-scope references, collection racing launch, manager death and locked users holding shared
+   dependencies. No observation scan stands in for retention authority.
 4. **One complete owner component transaction:** immutable build/import, one approved multi-format
    signing transaction, native installation, declared activation, actual health and independent
    repair. Distinguish lost replies and partial outputs from completed outcomes.
