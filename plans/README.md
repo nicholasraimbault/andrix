@@ -7,7 +7,10 @@ They are not execution diaries or runtime inventories.
 The owner requested an architecture wide pause and
 [deliberate decision audit](2026-09-25-deliberate-decision-audit.md) before further recovery
 implementation. Its 58 grouped decisions cover all 18 evidence areas without silently changing
-accepted policy or claiming complete platform qualification.
+accepted policy or claiming complete platform qualification. The subsequent
+[integrated platform model](2026-09-25-integrated-platform-model.md) consolidates the runtime and
+composition boundaries, including live authority, API effects, environment leases and deployment
+retirement, into one proposal for review rather than a list of independent fixes.
 
 The [2026-09-21 accepted vision revision](2026-09-21-owner-composable-android.md) expands
 Andrix from a Unix focused layer to an owner composable Android OS. Its platform work is

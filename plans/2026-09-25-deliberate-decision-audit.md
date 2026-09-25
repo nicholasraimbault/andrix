@@ -394,6 +394,10 @@ its consequences to the owner.
 
 ## Recommended order after this review
 
+The subsequent [integrated platform model](2026-09-25-integrated-platform-model.md) connects these
+findings into one ownership, lifecycle and deployment proposal. Use its complete journeys to test
+that the corrections compose; the list below is not a mandate to build independent patches.
+
 1. Resolve the concrete terminal logging defect and define the missing direct terminal recovery
    contract, without making the terminal own work lifetime.
 2. Settle the native subject and controller/supervisor/UID state binding, including recoverable

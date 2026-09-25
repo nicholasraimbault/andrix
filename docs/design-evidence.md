@@ -57,7 +57,11 @@ The [deliberate decision audit](../plans/2026-09-25-deliberate-decision-audit.md
 18 areas and the accepted architecture through 58 grouped decisions at the owner's request.
 It identifies retained requirements, avoidable couplings, open choices and missing evidence,
 including a host reproduced terminal parser logging gap. It does not change accepted policy,
-implement the proposed remedies or qualify the whole platform. Historical observations below
+implement the proposed remedies or qualify the whole platform. The
+[integrated platform model](../plans/2026-09-25-integrated-platform-model.md) then connects the
+state owners, authority bindings, effect lifetimes, resource and generation leases, signing and
+native activation/recovery contracts. It is a consolidated proposal with deciding journeys, not
+new execution evidence or approval of its production mechanisms. Historical observations below
 retain their own producers and scopes.
 
 ## At a glance

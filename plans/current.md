@@ -28,13 +28,18 @@ Detailed operating records, local configuration, credentials and raw captures re
 
 ## Current review
 
-Implementation is paused at the owner's request for the
-[deliberate decision audit](2026-09-25-deliberate-decision-audit.md). It covers the accepted
-architecture and all 18 evidence areas through 58 grouped decisions, with selected source
-checks and one bounded host reproduction. It is not whole platform or phone clearance.
-The review distinguishes sound requirements, avoidable prototype coupling, necessary tradeoffs,
-unselected mechanisms and qualification gaps. Accepted architecture and policy remain unchanged.
-The native reservation redesign below is still a proposal, not newly activated code.
+Implementation remains paused for collaborative architecture review. The
+[deliberate decision audit](2026-09-25-deliberate-decision-audit.md) covers the accepted architecture
+and all 18 evidence areas through 58 grouped decisions, with selected source checks and one bounded
+host reproduction. It is not whole platform or phone clearance.
+
+The resulting [integrated platform model](2026-09-25-integrated-platform-model.md) now joins native
+identity, work, UID policy, API effects, managed environment leases, signing, deployment and recovery
+in one proposed ownership and lifecycle model. It contains recommended implementation hypotheses,
+credible alternatives, event/disruption matrices and complete journeys that should falsify or
+support the design. It is not a new accepted architecture or a claim that the joins work yet.
+Accepted policy remains unchanged. The terminal defect is unfixed, the native reservation redesign
+is unimplemented, and no new factory or account path was activated.
 
 ## Current milestone
 
