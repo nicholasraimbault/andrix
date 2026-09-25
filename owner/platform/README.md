@@ -1,5 +1,10 @@
 # Android-owned lifecycle integration candidate
 
+The newer [native principal reservation component](principal-pins.md) implements the first
+Package Manager identity lifetime boundary for the ordinary principal launch path. Its host
+checks and Android module build are separate from the earlier lifecycle runtime records below.
+It does not broaden the existing UID 7500 endpoint or enable native account startup.
+
 See the [initial lifecycle baseline](../../plans/2026-09-13-android-lifecycle.md#observed-image-and-runtime-result)
 and subsequent [opt-in Keep result](../../plans/2026-09-14-keep.md#observed-opt-in-keep-result).
 Image `8a9a2ab` additionally exercised notification-backed kept work/return/Stop and

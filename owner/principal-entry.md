@@ -6,8 +6,10 @@ The owner authorized disposable development of the
 production account representation or a general credential setter.
 
 This is launch code, not a new diagnostic application. It extends the existing work runtime
-rather than assigning Unix job lifetime to an Android isolated service. API bindings and the
-platform account authority remain separate work.
+rather than assigning Unix job lifetime to an Android isolated service. The
+[Package Manager reservation component](platform/principal-pins.md) now implements the first
+part of the Android identity lifetime boundary. Owner designation, the manager factory and API
+bindings remain separate work.
 
 ## Implemented boundary
 
@@ -75,9 +77,11 @@ No product installs these new binaries or supplies their new MAC domains. This c
 publish a principal service, mutate package state or broaden the existing lifecycle service.
 Before activation, the following must be connected and checked:
 
-1. An authoritative native account designation and UID lifetime contract in Android. Package
-   removal, replacement or reuse cannot race surviving native work. A package snapshot followed
-   by an asynchronous Stop is not a UID reservation.
+1. Complete the authoritative native account designation and UID lifetime contract in Android.
+   The Package Manager reservation component now supplies pins, durable retirement markers and
+   allocator/package fences, but needs device qualification and the recovery/boot barrier.
+   Package removal, replacement or reuse cannot race surviving native work. A package snapshot
+   followed by an asynchronous Stop is not a UID reservation.
 2. A trusted platform factory that resolves the real subject, user serial and native role,
    explicitly establishes groups even when empty, clears capabilities and constructs the
    protected manager/resource environment. No caller supplied UID or label becomes authority.

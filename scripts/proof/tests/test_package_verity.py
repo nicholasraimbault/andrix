@@ -82,7 +82,9 @@ class PackageVerityTests(unittest.TestCase):
                 if args[0]=='ls-files':return 0,'\n'.join(others).encode()
                 raise AssertionError(args)
             known={'state':'ADAPTED','file':verity.FILE}
-            with mock.patch.object(lifecycle, 'profile', return_value={}), mock.patch.object(lifecycle, 'targets', return_value=target), mock.patch.object(lifecycle.source, 'filter_overrides', return_value=[]), mock.patch.object(lifecycle.source, 'run', side_effect=run), mock.patch.object(verity,'inspect_file',return_value=(b'old',b'new',known)):
+            import native_principal_pins as native
+            native_state={'state':'UPSTREAM','files':{name:'UPSTREAM' for name in (*native.FILES,*native.ADDED)}}
+            with mock.patch.object(lifecycle, 'profile', return_value={}), mock.patch.object(lifecycle, 'targets', return_value=target), mock.patch.object(lifecycle.source, 'filter_overrides', return_value=[]), mock.patch.object(lifecycle.source, 'run', side_effect=run), mock.patch.object(verity,'inspect_file',return_value=(b'old',b'new',known)), mock.patch.object(native,'inspect_files',return_value=({}, {}, native_state)):
                 self.assertEqual(lifecycle.inspect(root)[3]['state'],'ADAPTED')
                 modified.append('unrelated.java')
                 with self.assertRaises(ValueError):lifecycle.inspect(root)

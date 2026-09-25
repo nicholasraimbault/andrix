@@ -14,7 +14,12 @@ subsequent signature and digest checks in place. Use `scripts/proof/package_veri
 See the [restoration design](../../plans/2026-09-22-package-verity-restoration.md) and
 [exact method tests](../../tests/staged-apk-verity/README.md).
 
-Both inspectors check the complete known framework change set. Recognizing the companion
+`native-principal-pins.*` adds the internal Package Manager reservation component for native
+account identity lifetime. Use `scripts/proof/native_principal_pins.py`. The
+[implementation and limits](../../owner/platform/principal-pins.md) distinguish checked settings
+persistence and allocator fencing from the still disabled native account/factory path.
+
+All framework inspectors check the complete known change set. Recognizing the companion
 requires its exact original or candidate bytes. Unknown changes, staged changes and
 unrelated files are refused. Build preparation must require the adaptations it uses, not
 infer their presence from a successful check of a different companion.
@@ -24,6 +29,10 @@ infer their presence from a successful check of a different companion.
 This is one digest guarded private policy bridge, not the preserved old 18 file AOSP
 patch series. It applies only to `system/sepolicy` at the pinned GrapheneOS `2026081300`
 revision recorded in `owner-session-policy.json`.
+
+This policy bridge describes the existing reserved UID vehicle. The newer ordinary principal
+entry is a separate inactive implementation and has not replaced these roles or their Binder
+denial.
 
 The policy compiler correctly rejected trusted-daemon execution of writable data.
 An initial app-workload approach then ran into Android's launcher and inherited

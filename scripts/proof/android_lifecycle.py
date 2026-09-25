@@ -143,16 +143,22 @@ def inspect(root):
     # companion requires its pinned original/candidate bytes, not a path exception.
     import package_verity
     _, _, package = package_verity.inspect_file(project)
+    import native_principal_pins
+    _, _, native_pins = native_principal_pins.inspect_files(project)
     expected_modified = [name for name in FILES if states[name] == 'ADAPTED']
     if package['state'] == 'ADAPTED':
         expected_modified.append(package_verity.FILE)
+    expected_modified.extend(name for name in native_principal_pins.FILES
+                             if native_pins['files'][name] == 'ADAPTED')
     expected_others = [ADDED] if states[ADDED] == 'ADAPTED' else []
-    if staged or sorted(modified) != sorted(expected_modified) or others != expected_others:
+    expected_others.extend(name for name in native_principal_pins.ADDED
+                           if native_pins['files'][name] == 'ADAPTED')
+    if staged or sorted(modified) != sorted(expected_modified) or sorted(others) != sorted(expected_others):
         raise ValueError('other staged/tracked/untracked framework changes')
     state = next(iter(set(states.values()))) if len(set(states.values())) == 1 else 'PARTIAL'
     return project, original, target, {'project': PROJECT, 'head': HEAD, 'state': state,
         'files': states, 'profile_sha256': sha(PROFILE.read_bytes()),
-        'package_verity_companion': package,
+        'package_verity_companion': package, 'native_principal_pins_companion': native_pins,
         'new_apk_authority': False, 'synchronous_cleanup_barrier': False, 'runtime_proved': False}
 
 

@@ -96,6 +96,15 @@ on Android. The authoritative account designation/UID lifetime, trusted manager 
 principal aware lifecycle binding, native API adapters and policy/resource integration remain
 required before activation. No product selects the new entry yet.
 
+The [Package Manager native reservation component](../owner/platform/principal-pins.md) now
+adds persistent identity pins, allocator fencing, exact handles and durable retirement markers
+inside Android's own settings. Normal uninstall, replacement and clear data paths are fenced
+against live reservations. JVM/component checks passed and the actual Android `services.core`
+module compiled. This is not a device runtime pass, an owner designation interface or a manager
+factory. Complete settings loss/corruption, older readers and the native boot/recovery barrier
+remain activation gates; the initial adapter supports only user 0. Existing CE and Package
+Installer adaptations were preserved.
+
 The deciding gates are:
 
 1. Establish useful ordinary native Android capability access with coherent identity,

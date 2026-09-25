@@ -200,8 +200,14 @@ physical phone deployment at this checkpoint.
   and captured Stop path. It is not installed or enabled. Host checks and the legacy Linux
   cgroup backend regression do not establish the missing Package Manager UID lease, factory,
   principal lifecycle authority or Android policy.
-- **Next gate:** connect those authoritative platform pieces, API binding and foreground
-  contracts, then qualify the
+- **Package Manager implementation:** [native identity reservations](../owner/platform/principal-pins.md)
+  now persist in PMS settings, fence its allocator, retain exact pending/retiring handles and
+  preserve retirement markers across restore. Mutator coordination and checked writer durability
+  have host coverage. The adapted `services.core` module compiled, but no Android runtime or
+  complete corrupt state recovery/older reader protection is qualified. No native manager factory
+  or ordinary APK designation authority was enabled.
+- **Next gate:** complete the remaining authority and recovery connections, API binding and
+  foreground contracts, then qualify the
   [account mapping](../plans/2026-09-21-android-unix-accounts.md) and
   [general elevation](../plans/2026-09-21-owner-authority.md) independently. Existing
   ordinary app/coordinator negatives do not establish those new boundaries.

@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "project": "frameworks/base",
+  "head": "aab06a8bd44c4c2b58eeec780fde83baa9d43a40",
+  "patch_sha256": "98d98330c0bc7df8559aaeff5ae7e9fd27038eb2578eb32d5eed4442db4242ba",
+  "files": [
+    {
+      "path": "services/core/java/com/android/server/pm/AppIdSettingMap.java",
+      "upstream_sha256": "ee6d013c3f4e2378f9ecfd25a053490f552812004bb6c89d8e06488299ed5c19",
+      "candidate_sha256": "40a52b98608b887f0568978f631606222a82b3de503327db4ad65db0de3e015a"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/Settings.java",
+      "upstream_sha256": "bff2de579d206a39be81ef0b798df8f6e845d2f28efbbcd63554ccffbddae5a1",
+      "candidate_sha256": "2ed63af89a03645736d5223cd052dd845093254f3644238f26e22656b14a7193"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/PackageManagerService.java",
+      "upstream_sha256": "93a003dd464be4b89f778194e20f4624c20e69eaaacc5d832be0ff7b4935e20a",
+      "candidate_sha256": "8b7c89ac4b872da7912face078a683b596952e20ab97e1b66fb79623a980537d"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/DeletePackageHelper.java",
+      "upstream_sha256": "a6dc313dcfa5699e72813d03a7ebe30293120f76d500e323ade95fd2a6eb4189",
+      "candidate_sha256": "b7fe15d16398d535a556580fb576325c4f892d9d6b0c45433ba8da4426c59f79"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/InstallPackageHelper.java",
+      "upstream_sha256": "d1463b2b228e9c3c429ad0d3f6858053b31e597fb03c22a02b4ec8d3e2383932",
+      "candidate_sha256": "0313dadea0c840aad3eb423453f52531488e4c58182a48faad97f147ecd90d63"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/ResilientAtomicFile.java",
+      "upstream_sha256": "9c63bdd710fc2a72a2a7e83c809fae93523334023e521148350b68805b85170b",
+      "candidate_sha256": "b9b0a369d3519713d16de6bf7ec574bcad5ae6c8d3132121a6124b8b2f4d1130"
+    }
+  ],
+  "added": [
+    {
+      "path": "services/core/java/com/android/server/pm/NativePrincipalPins.java",
+      "source": "owner/platform/framework/NativePrincipalPins.java",
+      "sha256": "524c96e86a0bab54e072454f7b25130479d60a34d8230d9441930b27947df606"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/NativePrincipalPinsXml.java",
+      "source": "owner/platform/framework/NativePrincipalPinsXml.java",
+      "sha256": "41a3e354442ce90252e3c21dda375f1b77489c04fe36d5b4bc1ec778c979364c"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/NativePrincipalManager.java",
+      "source": "owner/platform/framework/NativePrincipalManager.java",
+      "sha256": "363b64170734b55a8064383a60ba2d1e052bce1e021e86b1e791564248fc2f51"
+    }
+  ],
+  "scope": "Internal PMS native-principal reservation component, not a public designation/launch API or runtime qualification",
+  "user_scope": "initial user0 only; UserManager reuse barrier required before other users",
+  "activation_fences": [
+    "owner account designation/factory not connected",
+    "corrupt or lost PMS settings and incompatible readers need native recovery/boot barrier",
+    "native Work/CE/profile and complete policy/resource integration not qualified"
+  ],
+  "fixtures": [
+    {
+      "path": "services/core/java/com/android/server/pm/AppIdSettingMap.java",
+      "source": "owner/tests/platform/AppIdSettingMap.java.inc",
+      "sha256": "40a52b98608b887f0568978f631606222a82b3de503327db4ad65db0de3e015a"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/ResilientAtomicFile.java",
+      "source": "owner/tests/platform/ResilientAtomicFile.java.inc",
+      "sha256": "b9b0a369d3519713d16de6bf7ec574bcad5ae6c8d3132121a6124b8b2f4d1130"
+    }
+  ]
+}
