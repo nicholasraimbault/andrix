@@ -89,7 +89,7 @@ The native extension is written after the ordinary package, shared user and key 
 unsupported or invalid but structurally readable native section is rejected locally, rather than
 making Package Manager delete both settings copies. The parser keeps the surrounding package
 state. A sticky fence is set for that rejection, duplicate native sections, or a larger settings
-read failure after native metadata was seen. It blocks native prepare, activation and retirement
+read failure, including one before the native section was seen. It blocks native prepare, activation and retirement
 until a recovery path exists. It does not refuse every app ID at boot: doing that would turn
 normal scan failures into APK/data deletion or a failed boot.
 

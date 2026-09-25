@@ -300,7 +300,7 @@
                                  originalFirstInstallTimes);
                      } else if (tagName.equals("permissions")) {
                          mPermissions.readPermissions(parser);
-@@ -3708,10 +3818,19 @@
+@@ -3708,10 +3818,17 @@
                      }
                  }
  
@@ -311,11 +311,9 @@
 +                refreshNativePrincipalAppIdsLPw();
              } catch (IOException | XmlPullParserException | ArrayIndexOutOfBoundsException
                       | IllegalArgumentException e) {
-+                // Fence native activation across fallback reads; unknown reservations require recovery.
-+                if (sawNativePins) {
-+                    mNativePrincipalRecoveryBlocked = true;
-+                    refreshNativePrincipalAppIdsLPw();
-+                }
++                // Every failed settings read needs native recovery, even before our tag.
++                mNativePrincipalRecoveryBlocked = true;
++                refreshNativePrincipalAppIdsLPw();
                  // Remove corrupted file and retry.
                  atomicFile.failRead(str, e);
  

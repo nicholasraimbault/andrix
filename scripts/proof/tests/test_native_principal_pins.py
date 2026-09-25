@@ -96,8 +96,17 @@ class NativePrincipalPinsTests(unittest.TestCase):
             work = Path(temporary)
             writer = work / 'ResilientAtomicFile.java'
             writer.write_bytes(integration.FIXTURES[integration.PREFIX + 'ResilientAtomicFile.java'].read_bytes())
+            fragments = '\n'.join(line[1:] for line in integration.PATCH.read_text().splitlines()
+                                  if line.startswith((' ', '+')) and not line.startswith('+++'))
+            start = fragments.index('                // Every failed settings read needs native recovery, even before our tag.')
+            end = fragments.index('                // Remove corrupted file and retry.', start)
+            fence = fragments[start:end]
+            self.assertNotIn('if (sawNativePins)', fence)
+            recovery = work / 'NativePrincipalReadFailureTest.java'
+            template = (ROOT / 'owner/tests/platform/NativePrincipalReadFailureTest.java.in').read_text()
+            recovery.write_text(template.replace('@FAILURE_FENCE@', fence))
             sources = [ROOT / 'owner/platform/framework/NativePrincipalPins.java',
-                       ROOT / 'owner/platform/framework/NativePrincipalPinsXml.java', writer,
+                       ROOT / 'owner/platform/framework/NativePrincipalPinsXml.java', writer, recovery,
                        *sorted((ROOT / 'owner/tests/platform/native_principal_xml_stubs').rglob('*.java')),
                        ROOT / 'owner/tests/platform/NativePrincipalPersistenceTest.java']
             subprocess.run(['javac', '-J-Xmx256m', '--release', '17', '-Xlint:all', '-Werror', '-d', str(work),
@@ -107,6 +116,11 @@ class NativePrincipalPinsTests(unittest.TestCase):
             result = subprocess.run(['java', '-Xmx256m', '-ea', '-cp', str(work),
                                      'com.android.server.pm.NativePrincipalPersistenceTest', str(files)],
                                     capture_output=True, text=True, timeout=60)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn('unqualified', result.stdout)
+            result = subprocess.run(['java', '-Xmx256m', '-ea', '-cp', str(work),
+                                     'com.android.server.pm.NativePrincipalReadFailureTest'],
+                                    capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn('unqualified', result.stdout)
 

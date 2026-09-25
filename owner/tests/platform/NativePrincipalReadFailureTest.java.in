@@ -1,0 +1,42 @@
+// SPDX-License-Identifier: Apache-2.0
+// Executes the inserted Settings failure fence with a host XML facade, not PMS boot behavior.
+package com.android.server.pm;
+
+import android.util.Xml;
+import com.android.modules.utils.TypedXmlPullParser;
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
+
+public final class NativePrincipalReadFailureTest {
+    private boolean mNativePrincipalRecoveryBlocked;
+    private int refreshes;
+    private void refreshNativePrincipalAppIdsLPw() { refreshes++; }
+    private void run() throws Exception {
+        boolean sawNativePins = false;
+        String settings = "<packages><package name=\"broken\"></wrong>"
+                + "<andrix-native-principals version=\"1\" lastId=\"0\" recoveryBlocked=\"false\"/>"
+                + "</packages>";
+        TypedXmlPullParser parser = Xml.resolvePullParser(new ByteArrayInputStream(
+                settings.getBytes(StandardCharsets.UTF_8)));
+        try {
+            int event;
+            while ((event = parser.next()) != XmlPullParser.END_DOCUMENT) {
+                if (event == XmlPullParser.START_TAG && NativePrincipalPinsXml.TAG.equals(parser.getName())) {
+                    sawNativePins = true;
+                    NativePrincipalPinsXml.readForSettings(parser);
+                }
+            }
+            throw new AssertionError("malformed package XML accepted");
+        } catch (XmlPullParserException error) {
+@FAILURE_FENCE@
+        }
+        assert !sawNativePins && mNativePrincipalRecoveryBlocked && refreshes == 1;
+    }
+    public static void main(String[] args) throws Exception {
+        if (!NativePrincipalReadFailureTest.class.desiredAssertionStatus()) throw new AssertionError("-ea");
+        new NativePrincipalReadFailureTest().run();
+        System.out.println("Settings failure before native metadata fences activation; PMS runtime unqualified");
+    }
+}
