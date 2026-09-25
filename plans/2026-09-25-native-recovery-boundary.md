@@ -1,86 +1,123 @@
-# Native account recovery boundary
+# Native identity recovery and fault containment
 
-Status: implementation boundary awaiting an owner policy decision. No native factory is
-active. This is not a new accepted restriction or a device recovery qualification.
+Status: proposed persistence redesign after source review. The current implementation still
+stores native reservations in `packages.xml`. The separate store described here is not yet
+implemented or qualified. No native factory is active and no new UID range or catastrophic
+recovery policy has been selected.
 
-## Implemented preparation
+## Scope
 
-Package Manager now reserves native identities through its own allocator and persists
-retirement before removal can proceed. The next authority step captures an exact installed
-subject for a separate designation decision. It compares the actual installed object, UID,
-user serial, version and current signer set, rather than accepting reconstructed numbers.
-Selecting a subject neither authorizes it nor reserves a UID. A restored reservation is not
-an automatically recovered designation.
+Supported Andrix operation must handle interrupted writes, process restarts and damaged metadata
+without silently reassigning native identity. Reusing Andrix user data under an unsupported OS
+is not a supported compatibility promise. Moving to such a system needs an explicit owner
+approved wipe or supported migration. Andrix's own updates and rollback targets still need
+compatible state handling.
 
-The manager factory can reuse init's delegated supervision and credential transition. Source
-inspection confirmed that init already calls `setgroups` for an empty vector and applies an
-explicit empty capability set through `SetCapsForExec`. Duplicating those setters is not
-necessary. The manager must still verify the resulting credentials after exec. Native zygote's
-empty group handling is different, and isolated native service lifetime is not this factory.
+No measured field failure rate is available for complete Android identity record loss. Treat
+loss of every authoritative record and its recovery copies as a disaster case, not the premise
+around which every normal boot is designed. The earlier choice between stopping the phone and
+guessing new IDs was too broad for the next integration milestone.
 
-system_server is a zygote child, not an init service named `system_server`. A factory request
-needs actual transport credentials, SID and captured process lifetime. A PID label or service
-name cannot supply them. Existing manager work ends when its framework authority dies; a new
-framework instance cannot silently adopt it.
+## The useful separation
 
-## The remaining recovery problem
+Two different facts are needed:
 
-The inspected framework is pinned at `aab06a8bd44c4c2b58eeec780fde83baa9d43a40`.
-`Settings.readSettingsLPw` treats missing settings copies as first boot. A completely missing
-`packages.xml` also loses the native reservation section. Older readers ignore unknown
-sections and omit them when writing. The current native error latch cannot reconstruct records
-that are no longer present.
+1. **This app ID is held and must not be allocated to someone else.**
+2. **This particular principal is authorized to run under it now.**
 
-This is not just an availability problem for native processes. `AppDataHelper.prepareAppData`
-can migrate package data to a newly allocated app ID. `clearKeystoreData` separately clears a
-`Domain.APP` namespace identified by the Android UID. Keystore's ownership check for that domain
-compares the caller UID with the key namespace. A numeric UID assigned to a different subject
-cannot be assumed harmless merely because the native manager is stopped. This is a source
-identified risk, not a reproduced key disclosure on a device.
+A small durable reservation can preserve the first fact even if the richer account record cannot
+establish the second. Then the affected native account is unavailable, but its identity stays
+protected and ordinary Android operation can continue. A reservation is not installed state,
+a permission grant, owner consent or a live process lease.
 
-A separate reservation ledger owned and enforced by Package Manager can isolate reservations
-from routine package database recovery. It would contain reservations and their lineage, not
-another installed package database, permission store or UID allocator. It still cannot recover
-ownership after every authoritative copy is lost. An older OS which does not enforce the ledger
-can also ignore it while running. Supported composition must check compatibility, rather than
-claim that a side file constrains old code.
+The existing `NativePrincipalManager.Selection` supplies a further boundary: the designation
+controller must bind its decision to the actual installed object, UID, user serial, version and
+current signer set. A selection neither authorizes the account nor reserves the UID. A restored
+reservation cannot automatically recover designation or execution authority.
 
-A scan of `/proc` is not a live UID lease. Nor can a bounded salvage parser prove that it found
-all lost reservations. Warm restart must coordinate captured init instances before replacing
-native authority. Known reservation IDs can remain excluded from allocation while other
-Android subjects continue normally. These are engineering obligations, not a reason to ask
-again whether ordinary native programs should use their actual Android permissions.
+## Recommended shape
 
-## Decision needed before activating the recovery boundary
+Package Manager owns one small native reservation store outside the frequently rewritten
+`packages.xml`. It remains the sole UID allocator. There is no second installed package database
+or permission store.
 
-When valid state still identifies the protected UIDs, close only affected native accounts and
-retain their reservations. Normal Android operation need not be blocked by that condition.
+Use stable slots keyed by app ID, with normal recovery copies. The protected slot name retains
+minimal allocation occupancy even when its record contents cannot be parsed. The record carries
+the principal ID, package, user and serial, signer binding, lifecycle phase and persistence
+generation. Filesystem layout and encoding remain implementation details to verify.
 
-When no authoritative record can establish which UIDs still own native account resources,
-there is a different choice. Continuing normal allocation can assign an old identity to a new
-subject. Refusing all allocations from inside normal package scanning is not acceptable either:
-scan failures can delete valid APKs or data.
+- Durably establish the slot and its recovery copies before any native exposure.
+- Keep the slot name stable while replacing account metadata atomically.
+- Preserve unreadable records for recovery, rather than deleting the reservation on a read error.
+- Durably record RETIRING before quiescence or removal proceeds.
+- Remove the reservation only after actual work, manager, API and data obligations are complete,
+  and confirm durable removal before permitting reuse.
+- Load allocation holds before package scans can allocate new IDs. Do not let them reject the
+  legitimate installed mapping while Package Manager reads its settings.
+- Restore a principal's own UID only through a trusted stored binding and verified current
+  package/user/signing identity. A package name alone is insufficient.
+- Restore account state as inactive. Live designation, CE authority and captured manager
+  supervision are still required before execution.
 
-Recommended boundary:
+Two copies provide recovery from the specified copy failures, not protection from destruction
+of their entire filesystem. Conflicting records cannot be combined into a new grant. A damaged
+counter or lineage can close native account creation while known slots still protect their IDs.
 
-- Stop automatic startup before unsafe identity allocation and enter an explicit recovery state.
-- Preserve data and keys. Do not automatically wipe, change ownership, assign a replacement UID
-  or replay native work.
-- Resume normal startup only after coherent identity state is restored or the owner deliberately
-  authorizes a different recovery outcome.
+## Intended failure behavior
 
-This may prevent normal phone startup until recovery completes. That availability tradeoff is
-a product decision, not something the factory should hide in an error handler. It does not
-remove deliberate general administration; choosing to override it changes the guarantees.
+| Failure | Intended result |
+| --- | --- |
+| Framework restart | Old work is retired through captured init instances. A new framework cannot adopt it merely by matching a PID or UID. |
+| Interrupted creation | Any retained slot continues to hold the ID. No execution without complete durable publication and live authority. |
+| Interrupted retirement | The retirement marker persists. The old account cannot return as active. Reconcile exact retirement before final removal. |
+| One bad record or copy | Recover from a validated copy where possible. Otherwise keep the ID held and only the affected native account unavailable. |
+| Both record bodies unreadable, slot identity intact | Keep the negative reservation. Do not infer positive ownership or permission from the slot name. |
+| Ordinary package settings recovery | Native reservations are not erased by recovery of the unrelated settings document. New allocation skips their IDs. |
+| Missing or inconsistent native lineage/counter | Close native creation and recovery grants, preserve known holds and do not invent a new lineage that adopts old resources. |
+| Destruction of all reservation evidence and recovery copies | General disaster recovery remains necessary. This design does not claim to reconstruct authority from nothing. |
 
-The question is whether that recovery default is acceptable. Phone operation continuing despite
-unresolved ownership would require a different explicit risk policy. No such alternative has
-been selected.
+These are design targets, not runtime results. An ID conflict or exhaustion must not flow into
+Android's ordinary invalid APK deletion path. Uncertain account identity is also not permission
+to automatically change the native home's owner, lend old keys to a new signer or replay work.
+Any backing package data migration needs its own explicit recovery contract.
 
-## Still separate
+## Why not infer identities from surviving files?
 
-This decision does not select account UI, production key topology, permission defaults,
-permanent quotas, a path spelling for the home, or broad Force stop/Clear storage semantics.
-Those must not be smuggled into a bootstrap profile. Home CE identity, principal lifecycle
-binding, resource and SELinux integration, maintained API bindings and device qualification
-remain implementation work.
+The pinned framework at `aab06a8bd44c4c2b58eeec780fde83baa9d43a40` can rebuild package state when
+settings copies are absent. `AppDataHelper.prepareAppData` can migrate package data to a new app
+ID; keystore clearing is separate, and `Domain.APP` ownership checks use the UID. This establishes
+a source identified risk, not a reproduced key disclosure.
+
+A package data directory's name and inode owner do not preserve the old signer identity.
+Assigning that UID to a newly found APK of the same name could transfer authority to a different
+signer. Such evidence can at most contribute to conservative quarantine. Neither a guessed
+highest observed UID plus a margin nor a `/proc` snapshot establishes a safe allocation boundary
+or a live lease. CE home metadata must not be assumed accessible before unlock.
+
+A compact monolithic native ledger with recovery copies remains a reasonable baseline. Per ID
+slots are preferred if their modest structural separation makes a bad record stay local to one
+account and preserves allocation occupancy independently of record parsing. They are one logical
+Package Manager store, not a collection of competing journals.
+
+A fixed native subset of the ordinary app ID range would provide stronger structural separation,
+but introduces allocation, account creation, migration and capacity policy. Permanent ID
+retirement also consumes finite identifier space. Neither is selected merely to cover this rare
+failure. General restoration of every Android app identity or redesigning keystore is not a
+prerequisite for the native account milestone.
+
+## Verification before activation
+
+The implementation needs a precise crash matrix for record creation, both copy acknowledgements,
+retirement markers and final removal. Verify that no acknowledged live reservation becomes free
+through an interrupted write or a supported copy failure. Exercise missing/corrupt records,
+conflicting generations, package settings recovery, verified restoration of the original subject,
+wrong signers, stale selections, ordinary allocation and exhaustion without APK or data deletion.
+
+Init's actual captured slot table, not reconstructed PID evidence, remains the warm restart
+boundary. UID reuse must also wait for real API and data retirement, including UID keyed keystore
+state and the exclusion of new producers during removal. These obligations are not discharged
+by a process exit notification or a successful settings write.
+
+After those checks, continue the protected manager, CE home, lifecycle, resource, policy and API
+binding integration. The unsupported downgrade scenario and an impossible promise to survive
+arbitrary destruction of all authority should not block that bounded work.

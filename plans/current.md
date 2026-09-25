@@ -105,10 +105,14 @@ factory. Complete settings loss/corruption, older readers and the native boot/re
 remain activation gates; the initial adapter supports only user 0. Existing CE and Package
 Installer adaptations were preserved. Exact installed subject selection now binds designation
 to the installed object, signer set, version, UID and user serial, without making selection a
-grant. The [recovery boundary](2026-09-25-native-recovery-boundary.md) identifies the decision
-needed before activation when every authoritative identity record is lost: preserving ownership
-may require explicit recovery instead of normal phone startup. No recovery default was silently
-selected.
+grant. The [recovery redesign](2026-09-25-native-recovery-boundary.md) now proposes a small native
+reservation store owned by Package Manager, separate from ordinary package settings. Stable UID
+slots and recovery copies would preserve allocation holds even when account details are damaged,
+so the affected native account can stay unavailable without stopping the phone. This is not yet
+implemented or qualified. Unsupported OS data reuse is outside the supported migration path;
+total destruction of every authority copy is a disaster case, not a reason to block ordinary
+integration. No fixed UID range, permanent nonreuse policy or catastrophic recovery default was
+silently selected.
 
 The deciding gates are:
 

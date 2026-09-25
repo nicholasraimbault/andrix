@@ -91,6 +91,11 @@ drop another retiring account which still owns work.
 
 ## Recovery and activation limits
 
+The [recovery redesign](../../plans/2026-09-25-native-recovery-boundary.md) proposes moving these
+reservations into a small Package Manager owned store with stable UID slots and recovery copies.
+That would separate allocation safety from damaged account details and ordinary settings
+recovery. It is not implemented yet. The behavior below describes the current code.
+
 The native extension is written after the ordinary package, shared user and key state. An
 unsupported or invalid but structurally readable native section is rejected locally, rather than
 making Package Manager delete both settings copies. The parser keeps the surrounding package
