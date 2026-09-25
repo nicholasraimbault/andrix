@@ -26,9 +26,9 @@ qualifies a production implementation automatically.
 
 Detailed operating records, local configuration, credentials and raw captures remain private.
 
-## Current review
+## Current implementation
 
-Implementation remains paused for collaborative architecture review. The
+The owner endorsed the consolidated direction and resumed bounded implementation. The
 [deliberate decision audit](2026-09-25-deliberate-decision-audit.md) covers the accepted architecture
 and all 18 evidence areas through 58 grouped decisions, with selected source checks and one bounded
 host reproduction. It is not whole platform or phone clearance.
@@ -38,8 +38,10 @@ identity, work, UID policy, API effects, managed environment leases, signing, de
 in one proposed ownership and lifecycle model. It contains recommended implementation hypotheses,
 credible alternatives, event/disruption matrices and complete journeys that should falsify or
 support the design. It is not a new accepted architecture or a claim that the joins work yet.
-Accepted policy remains unchanged. The terminal defect is unfixed, the native reservation redesign
-is unimplemented, and no new factory or account path was activated.
+Accepted policy remains unchanged. The [terminal parser logging correction](2026-09-25-terminal-diagnostics-privacy.md)
+now has a matching failing control and 156 passing host parser/adapter checks. Android artifact and
+runtime checks remain separately scoped. The next slice is the native reservation store and its
+platform lifecycle integration. No new factory or account path was activated.
 
 ## Current milestone
 

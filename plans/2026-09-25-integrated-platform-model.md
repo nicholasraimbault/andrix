@@ -5,8 +5,10 @@ Status: consolidated design proposal following the
 collaborative design and challenge before implementation resumes. Accepted requirements remain
 in the [architecture](../docs/architecture.md). This proposal does not select production permission
 defaults, signer topology, key policy, UID ranges, resource constants or a package language. It
-adds no runtime qualification. The terminal logging defect remains unfixed and the native
-reservation store and factory remain inactive or unimplemented as described in current work.
+adds no runtime qualification. The owner subsequently endorsed the direction and resumed bounded
+implementation. The [terminal logging correction](2026-09-25-terminal-diagnostics-privacy.md)
+records its own verification; the native reservation store and factory remain inactive or
+unimplemented as described in current work.
 
 ## 1. The recommendation
 
@@ -570,5 +572,6 @@ steps are engineering work to measure, not a new questionnaire. General root, sh
 semantics, genuine CE authority, portable recovery and whole transaction signing approval are
 not reopened as accidental choices.
 
-Implementation remains paused for review of this consolidated proposal. No current timer, key
-policy, quota, UID allocation range, package lifecycle guard or cleanup fence is weakened by it.
+Bounded implementation has resumed after owner review. Its results must be qualified against this
+model rather than inferred from it. No current timer, key policy, quota, UID allocation range,
+package lifecycle guard or cleanup fence is weakened by this proposal.

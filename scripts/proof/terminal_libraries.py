@@ -94,7 +94,11 @@ def main():
         adapters = ROOT/'owner/tests/terminal-host'
         sources = list(core.glob('*.java')) + list(tests.glob('*.java')) + list(adapters.rglob('*.java'))
         sources.extend((ROOT/'owner/terminal/adapter').glob('*.java'))
-        sources.extend((ROOT/'owner/terminal/protocol').glob('*.java'))
+        # Parser/adapter tests use only these portable protocols. WorkReference
+        # and WorkTracker depend on generated Android AIDL and have their own
+        # tests; including their directory by glob is not a host SDK fixture.
+        sources.extend(ROOT/'owner/terminal/protocol'/name
+                       for name in ('InputQueue.java', 'OutputProtocol.java'))
         classes = ['com.termux.terminal.'+p.stem for p in sorted(tests.glob('*Test.java'))]
         classes.extend(['com.termux.terminal.TerminalReplayTest',
                         'com.termux.terminal.TerminalSessionAdapterTest'])

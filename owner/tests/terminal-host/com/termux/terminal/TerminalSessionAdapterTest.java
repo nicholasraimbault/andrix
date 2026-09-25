@@ -4,6 +4,7 @@ package com.termux.terminal;
 import dev.andrix.terminal.protocol.InputQueue;
 import junit.framework.TestCase;
 import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -19,6 +20,66 @@ public final class TerminalSessionAdapterTest extends TestCase {
         @Override public void pasteRequested(TerminalSession s) { pastes++; }
         @Override public void inputRejected(TerminalSession s) { rejected++; }
     }
+    public void testParserDiagnosticsDoNotLogTerminalContents() throws Exception {
+        String canary = "audit_private_canary_xx"; // Odd length reaches the unguarded DCS error.
+        assertEquals(1, canary.length() % 2);
+        StringBuilder encoded = new StringBuilder();
+        for (byte value : canary.getBytes(StandardCharsets.UTF_8)) {
+            encoded.append(Character.forDigit((value & 0xff) >>> 4, 16));
+            encoded.append(Character.forDigit(value & 15, 16));
+        }
+        String[] cases = {
+            "\033P+q" + canary + "\033\\",
+            "\033P+qzz" + canary + "x\033\\", // Invalid hex, with an even length.
+            "\033P+q" + encoded + "\033\\", // Unknown decoded name, through Log.w.
+            "\033]52;c;" + canary + "*\007", // Invalid Base64 clipboard request.
+        };
+        PrintStream original = System.err;
+        ByteArrayOutputStream captured = new ByteArrayOutputStream();
+        try (PrintStream diagnostic = new PrintStream(captured, true, StandardCharsets.UTF_8)) {
+            System.setErr(diagnostic);
+            for (String text : cases) {
+                byte[] data = text.getBytes(StandardCharsets.UTF_8);
+                Host controlHost = new Host();
+                TerminalSession control = new TerminalSession(controlHost, 80, 24, 8, 16);
+                // Deliberate oracle: the unchanged parser's null-client route really
+                // reaches Android Log, represented by the existing host facade.
+                control.getEmulator().updateTerminalSessionClient(null);
+                captured.reset();
+                control.applyOutput(data, 0, data.length);
+                assertTrue("Logging negative has no matching positive", captured.toString(
+                        StandardCharsets.UTF_8).contains(canary));
+
+                Host host = new Host();
+                TerminalSession protectedSession = new TerminalSession(host, 80, 24, 8, 16);
+                captured.reset();
+                // Fragmented delivery must have the same privacy boundary.
+                for (int i = 0; i < data.length; ++i) protectedSession.applyOutput(data, i, 1);
+                assertEquals("Parser output reached shared logging", "", captured.toString(
+                        StandardCharsets.UTF_8));
+                assertEquals(0, host.copies); assertEquals(0, host.pastes);
+                byte[] visible = "visible\033[?25l\033[?25h".getBytes(StandardCharsets.UTF_8);
+                protectedSession.applyOutput(visible, 0, visible.length);
+                assertTrue(TerminalViewportText.capture(protectedSession.getEmulator(), 0)
+                        .contains("visible"));
+                assertEquals(control.getEmulator().getCursorStyle(),
+                        protectedSession.getEmulator().getCursorStyle());
+            }
+        } finally { System.setErr(original); }
+    }
+
+    public void testParserDiagnosticFloodStaysLocal() throws Exception {
+        TerminalSession session = new TerminalSession(new Host(), 80, 24, 8, 16);
+        byte[] data = "\033P+qodd\033\\".getBytes(StandardCharsets.UTF_8);
+        PrintStream original = System.err;
+        ByteArrayOutputStream captured = new ByteArrayOutputStream();
+        try (PrintStream diagnostic = new PrintStream(captured, true, StandardCharsets.UTF_8)) {
+            System.setErr(diagnostic);
+            for (int i = 0; i < 1000; ++i) session.applyOutput(data, 0, data.length);
+            assertEquals("", captured.toString(StandardCharsets.UTF_8));
+        } finally { System.setErr(original); }
+    }
+
     public void testEscapeClipboardIsNotUserClipboardAction() {
         Host host = new Host(); TerminalSession s = new TerminalSession(host, 80, 24, 8, 16);
         byte[] copy = "\033]52;c;aGVsbG8=\007".getBytes(StandardCharsets.UTF_8);

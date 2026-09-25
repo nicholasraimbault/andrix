@@ -581,7 +581,11 @@ retain their own producers and scopes.
   content. A bounded JVM reproduction with dummy canary data reached the logging facade;
   ordinary text was a negative control. This is not an Android logd observation. The
   [audit](../plans/2026-09-25-deliberate-decision-audit.md#f1-the-terminal-adapter-can-leak-parser-payloads-into-logging)
-  proposes an explicit redacted adapter and regressions. No implementation fix is claimed.
+  identified the need for an explicit first party adapter. The subsequent
+  [correction](../plans/2026-09-25-terminal-diagnostics-privacy.md) supplies a nonnull diagnostic
+  sink without changing pinned upstream bytes. Its actual parser controls failed before the fix
+  and all 156 host checks pass afterward, including fragmented malformed input and a flood. This
+  does not claim Android logd or complete terminal privacy qualification.
 - **Implication:** transport delivery, parser acknowledgement, input permission and screen
   reconstruction are different facts. A successful retry does not explain an earlier failure.
 - **Intent, accepted:** usable [owner terminals independent of work lifetime](architecture.md#lifecycle-and-networking),

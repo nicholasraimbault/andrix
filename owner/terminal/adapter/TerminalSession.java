@@ -19,6 +19,33 @@ public final class TerminalSession {
         void inputRejected(TerminalSession source);
     }
 
+    // Parser diagnostics can contain untrusted terminal output, including
+    // malformed escape payloads and exception text. A null client makes the
+    // upstream Logger fall back to shared Android logging. Supply an explicit
+    // sink instead. Parser errors are not protected authority events and are
+    // not an implicit request to record the owner's terminal contents.
+    // Other callbacks retain the previous null-client behavior; TerminalOutput
+    // and applyOutput below own presentation and explicit clipboard routing.
+    private static final TerminalSessionClient PARSER_CLIENT = new TerminalSessionClient() {
+        @Override public void onTextChanged(TerminalSession session) { }
+        @Override public void onTitleChanged(TerminalSession session) { }
+        @Override public void onSessionFinished(TerminalSession session) { }
+        @Override public void onCopyTextToClipboard(TerminalSession session, String text) { }
+        @Override public void onPasteTextFromClipboard(TerminalSession session) { }
+        @Override public void onBell(TerminalSession session) { }
+        @Override public void onColorsChanged(TerminalSession session) { }
+        @Override public void onTerminalCursorStateChange(boolean visible) { }
+        @Override public void setTerminalShellPid(TerminalSession session, int pid) { }
+        @Override public Integer getTerminalCursorStyle() { return null; }
+        @Override public void logError(String tag, String message) { }
+        @Override public void logWarn(String tag, String message) { }
+        @Override public void logInfo(String tag, String message) { }
+        @Override public void logDebug(String tag, String message) { }
+        @Override public void logVerbose(String tag, String message) { }
+        @Override public void logStackTraceWithMessage(String tag, String message, Exception e) { }
+        @Override public void logStackTrace(String tag, Exception e) { }
+    };
+
     private final Host host;
     private final TerminalEmulator emulator;
 
@@ -39,7 +66,7 @@ public final class TerminalSession {
             @Override public void onColorsChanged() { host.changed(TerminalSession.this); }
         };
         emulator = new TerminalEmulator(output, columns(columns), rows(rows),
-                Math.max(1, cellWidth), Math.max(1, cellHeight), 512, null);
+                Math.max(1, cellWidth), Math.max(1, cellHeight), 512, PARSER_CLIENT);
     }
 
     public static int columns(int value) { return Math.max(10, Math.min(400, value)); }

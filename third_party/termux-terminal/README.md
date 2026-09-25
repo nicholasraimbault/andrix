@@ -25,7 +25,11 @@ stream. It must not move execution into the console APK or hand it the PTY maste
 not in the pinned source set. Native Android integration is under qualification;
 portable parser checks alone do not establish a working View/IME or owner session.
 The adapter gives escape-triggered output a separate sink that ignores automatic
-OSC clipboard requests; explicit view copy/paste is a different UI action.
+OSC clipboard requests; explicit view copy/paste is a different UI action. It also supplies an
+explicit parser client which discards content-bearing diagnostics rather than allowing the
+upstream null-client fallback to Android Log. The first party
+[privacy regression](../../plans/2026-09-25-terminal-diagnostics-privacy.md) records the scope;
+this does not assert that every Android/View logging path has been qualified.
 
 Keep upstream files byte-identical, including the existing trailing whitespace in
 `TextSelectionCursorController.java`. First-party whitespace checks and upstream

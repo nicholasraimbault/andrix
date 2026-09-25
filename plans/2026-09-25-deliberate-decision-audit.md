@@ -10,6 +10,10 @@ selected implementation paths. It is not a complete audit of Android, every sour
 every historical experiment or a physical phone. Independent reviews informed this assessment;
 the conclusions below are the primary assessment, not automatic acceptance of those reports.
 
+Subsequent implementation: the [terminal logging correction](2026-09-25-terminal-diagnostics-privacy.md)
+now records its own host regression results. The findings below retain this audit's baseline and
+do not retroactively claim that its original code passed.
+
 ## Answer
 
 **No blanket claim that every current mechanism is a clean, uncompromised solution is justified.**
@@ -409,8 +413,9 @@ that the corrections compose; the list below is not a mandate to build independe
 5. Qualify pressure, suspend, multiuser, VPN, real phone, physical signing and update behavior
    before making a supported release claim.
 
-Implementation of the new recovery design remains paused for the owner's review of this audit.
-No accepted architecture was edited, no policy was weakened, no personal keys were provisioned
+Implementation was paused for this audit. The owner subsequently reviewed the consolidated design
+and resumed bounded implementation; each correction records its own evidence. No accepted
+architecture was edited by the audit, no policy was weakened, no personal keys were provisioned
 and no physical device operation was performed. The only new execution in this review was the
 bounded host parser logging reproduction described in F1; it is not another Android runtime pass.
 
