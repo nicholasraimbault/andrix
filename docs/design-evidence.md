@@ -194,8 +194,14 @@ physical phone deployment at this checkpoint.
   gate remains false: Android killed the isolated process as no longer needed before its destroy
   callback was observed. Complete launch profiles, captured work ownership, cgroup coordination
   and authentic platform bootstrap state remain necessary.
-- **Next gate:** review that direction, characterize the available runtime routes and implement
-  the supported native entry, API binding and foreground contract. Qualify the
+- **Implementation:** the [principal launch path](../owner/principal-entry.md) now extends the
+  work runtime with a separate immutable principal/home handoff, actual credential checks,
+  ordinary Binder transport policy and descriptor closure. It retains the existing admission
+  and captured Stop path. It is not installed or enabled. Host checks and the legacy Linux
+  cgroup backend regression do not establish the missing Package Manager UID lease, factory,
+  principal lifecycle authority or Android policy.
+- **Next gate:** connect those authoritative platform pieces, API binding and foreground
+  contracts, then qualify the
   [account mapping](../plans/2026-09-21-android-unix-accounts.md) and
   [general elevation](../plans/2026-09-21-owner-authority.md) independently. Existing
   ordinary app/coordinator negatives do not establish those new boundaries.

@@ -2,6 +2,7 @@
 // Refusal/ownership checks only. Real cgroup execution is a separate fixture.
 #include "work_runtime.h"
 
+#include <fcntl.h>
 #include <unistd.h>
 
 #include <cassert>
@@ -38,6 +39,20 @@ int main() {
   config.cleanup = {8, 64, 512, 4096, 32};
   WorkRuntime runtime(config, authority);
   assert(!runtime.valid());
+  PrincipalProfile principal;
+  principal.binding = {1, 1, 0, 0, 10146, 10146, "dev.andrix.nativeaccount"};
+  principal.selinux_context = "u:r:andrix_native:s0";
+  assert(ValidPrincipalProfile(principal));
+  assert(!authority->AcceptsPrincipal(principal));
+  auto principal_config = config;
+  principal_config.principal = principal;
+  principal_config.principal_home = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  assert(principal_config.principal_home >= 0);
+  {
+    WorkRuntime unbound(principal_config, authority);
+    assert(!unbound.valid() && authority->calls == 0);
+  }
+  close(principal_config.principal_home);
   WorkCatalog catalog(1, {1, 1, 1, {}, 10, 10, 10});
   auto reserved = catalog.Reserve(catalog.OpenStream(), 1);
   LaunchFailure failure;

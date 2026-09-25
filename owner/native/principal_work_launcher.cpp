@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// Fixed trusted coordinator-role staging entry. Never executes caller code
-// here.
+// Fixed ordinary-principal staging entry. The platform must already have
+// specialized a protected manager at the principal UID. No UID/group mutation,
+// root launch API or caller-selected credentials are exposed here.
 #include <android-base/unique_fd.h>
 #include <android/log.h>
 #include <fcntl.h>
@@ -20,6 +21,8 @@
 #include <string_view>
 
 #include "launch_description.h"
+#include "principal_credentials.h"
+#include "principal_profile.h"
 #include "session_core.h"
 #include "work_admission.h"
 #include "work_launch_protocol.h"
@@ -36,9 +39,9 @@ bool bound = false;
   // Staging stdio is deliberately null. Preserve the exact failed guard in
   // Android's existing coordinator log channel; no caller environment is
   // logged.
-  __android_log_print(ANDROID_LOG_ERROR, "AndrixWorkStage", "%s (%d)", reason,
+  __android_log_print(ANDROID_LOG_ERROR, "AndrixPrincipalStage", "%s (%d)", reason,
                       error);
-  dprintf(2, "andrix work staging refused: %s (%d)\n", reason, error);
+  dprintf(2, "andrix principal staging refused: %s (%d)\n", reason, error);
   if (bound) {
     auto packet = identity;
     packet.operation = WorkLaunchOperation::Failed;
@@ -93,29 +96,42 @@ int main(int argc, char**) {
   char* sid = nullptr;
   if (getsockopt(3, SOL_SOCKET, SO_PEERCRED, &creator, &size) ||
       size != sizeof(creator) || creator.pid != parent ||
-      creator.uid != kOwnerUid || creator.gid != kOwnerUid ||
+      creator.uid != getuid() || creator.gid != getgid() ||
       getpeercon(3, &sid) || !sid)
     fail("coordinator endpoint identity");
-  const bool coordinator = std::string_view(sid) == "u:r:andrixd:s0";
+  const std::string coordinator_context(sid);
   freecon(sid);
-  if (!coordinator) fail("coordinator endpoint role");
   WorkLaunchMessage request;
-  receive({parent, kOwnerUid, kOwnerUid}, request);
+  receive({parent, getuid(), getgid()}, request);
   if (request.packet.operation != WorkLaunchOperation::Prepare ||
       request.count != ExpectedWorkLaunchFdCount(request.packet) ||
-      request.packet.principal_profile != 0 || request.packet.epoch.user != 0)
-    fail("complete primary-user launch handoff");
+      request.packet.principal_profile != 1)
+    fail("complete principal launch handoff");
   identity = request.packet;
   bound = true;
+  PrincipalProfile principal;
+  int profile_error = 0;
+  if (!ReadPrincipalLaunch(request.descriptors[static_cast<size_t>(LaunchFd::Principal)],
+                           identity.work, identity.epoch, principal, profile_error))
+    fail("bound principal profile", profile_error);
+  if (coordinator_context != PrincipalManagerContext(principal))
+    fail("coordinator endpoint role");
+  auto credential_error = CheckPrincipalCredentials(principal, PrincipalStage::Manager);
+  if (!credential_error.empty()) fail(credential_error.c_str());
+  auto home_error = CheckPrincipalHome(
+      request.descriptors[static_cast<size_t>(LaunchFd::Home)], principal);
+  if (!home_error.empty()) fail(home_error.c_str());
   for (size_t stream = static_cast<size_t>(LaunchFd::Input);
        stream <= static_cast<size_t>(LaunchFd::Error); ++stream) {
     if (identity.stdio_closed &
         (1U << (stream - static_cast<size_t>(LaunchFd::Input))))
       continue;
-    for (size_t management = 0;
-         management < static_cast<size_t>(LaunchFd::Input); ++management)
+    for (size_t management = 0; management < kLaunchFdCount; ++management) {
+      if (management >= static_cast<size_t>(LaunchFd::Input) &&
+          management <= static_cast<size_t>(LaunchFd::Error)) continue;
       if (alias(request.descriptors[stream], request.descriptors[management]))
-        fail("stream aliases management object");
+        fail("stream aliases management or profile object");
+    }
     if (alias(request.descriptors[stream], 3) ||
         alias(request.descriptors[stream], parent_identity.get()))
       fail("stream aliases control handle");
@@ -128,10 +144,12 @@ int main(int argc, char**) {
   }
   if (setpriority(PRIO_PROCESS, 0, 10) || setsid() < 0)
     fail("staging scheduling/session", errno);
-  auto profile = CheckLaunchStage(
+  auto profile = CheckCapturedWorkScope(
       request.descriptors[static_cast<size_t>(LaunchFd::Aggregate)],
       request.descriptors[static_cast<size_t>(LaunchFd::Scope)],
       identity.aggregate, identity.scope);
+  if (!profile.empty()) fail(profile.c_str());
+  profile = CheckWorkLimits();
   if (!profile.empty()) fail(profile.c_str());
   LaunchDescription description;
   LaunchFailure description_error;
@@ -148,13 +166,16 @@ int main(int argc, char**) {
   auto gate = WorkAdmission::Adopt(request.Take(LaunchFd::Gate), identity.work,
                                    identity.epoch, error);
   if (!gate) fail("original admission gate", error);
-  if (!install_worker_filter() || prctl(PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0) != 1)
-    fail("owner restrictions before transition");
+  // Only this ordinary role is selected by PrincipalManagerContext above.
+  // Actual MAC authorization remains platform policy, not these label bytes.
+  if (setexeccon(principal.selinux_context.c_str()) || !install_principal_filter() ||
+      prctl(PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0) != 1)
+    fail("principal restrictions before transition");
   auto staged = identity;
   staged.operation = WorkLaunchOperation::Staged;
   if (SendWorkLaunch(3, staged)) fail("staging reply");
   WorkLaunchMessage wake;
-  receive({parent, kOwnerUid, kOwnerUid}, wake);
+  receive({parent, getuid(), getgid()}, wake);
   if (wake.packet.operation != WorkLaunchOperation::Wake ||
       !same(wake.packet, identity) || wake.count)
     fail("exact launch wake");
@@ -166,30 +187,34 @@ int main(int argc, char**) {
   // No owner environment, path evaluation or executable selection has run yet.
   gate.reset();
   parent_identity.reset();
-  const int description_fd =
-      request.descriptors[static_cast<size_t>(LaunchFd::Description)];
-  // The bootstrap keeps its null stdio until entry is claimed. Only now may
-  // the immutable stream plan replace or explicitly close standard roles.
+  // Duplicate data roles first so installing the fixed entry descriptor layout
+  // cannot overwrite another retained source FD. No management capability may
+  // survive the MAC transition.
+  unique_fd description_fd(fcntl(request.descriptors[static_cast<size_t>(LaunchFd::Description)],
+                                  F_DUPFD_CLOEXEC, 64));
+  unique_fd principal_fd(fcntl(request.descriptors[static_cast<size_t>(LaunchFd::Principal)],
+                                F_DUPFD_CLOEXEC, 64));
+  unique_fd home_fd(fcntl(request.descriptors[static_cast<size_t>(LaunchFd::Home)],
+                           F_DUPFD_CLOEXEC, 64));
+  if (description_fd < 0 || principal_fd < 0 || home_fd < 0) _exit(126);
   for (int stream = 0; stream < 3; ++stream) {
     if (identity.stdio_closed & (1U << stream)) {
       if (close(stream)) _exit(126);
-    } else if (dup2(request.descriptors[static_cast<size_t>(LaunchFd::Input) +
-                                        stream],
-                    stream) != stream)
-      _exit(126);
+    } else if (dup2(request.descriptors[static_cast<size_t>(LaunchFd::Input) + stream],
+                    stream) != stream) _exit(126);
   }
-  if (dup2(description_fd, 3) != 3 || syscall(SYS_close_range, 4, ~0U, 0))
-    _exit(126);
-  // Only declared open stdio and a write-sealed ordinary description cross the
-  // MAC exec.
-  char entry[] = "/system_ext/bin/andrix-work-entry";
-  // Bionic may reopen closed stdio during this fixed MAC exec. Carry only the
-  // validated ordinary mask so the owner entry reapplies it at the payload
-  // exec.
-  char closed[] = {static_cast<char>('0' + identity.stdio_closed), '\0'};
-  char* arguments[] = {entry, closed, nullptr};
+  if (dup2(description_fd.get(), 3) != 3 || dup2(principal_fd.get(), 4) != 4 ||
+      dup2(home_fd.get(), 5) != 5 || syscall(SYS_close_range, 6, ~0U, 0)) _exit(126);
+  char entry[] = "/system_ext/bin/andrix-principal-entry";
+  std::string closed = std::to_string(identity.stdio_closed);
+  std::string manager = std::to_string(identity.work.manager);
+  std::string serial = std::to_string(identity.work.serial);
+  std::string platform = std::to_string(identity.epoch.platform);
+  std::string generation = std::to_string(identity.epoch.generation);
+  std::string user = std::to_string(identity.epoch.user);
+  char* arguments[] = {entry, closed.data(), manager.data(), serial.data(),
+                       platform.data(), generation.data(), user.data(), nullptr};
   char* environment[] = {nullptr};
   execve(entry, arguments, environment);
-  dprintf(2, "andrix fixed owner entry exec failed: %d\n", errno);
   _exit(126);
 }

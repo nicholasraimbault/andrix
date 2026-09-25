@@ -14,8 +14,8 @@ namespace andrix {
 static_assert(std::is_trivially_copyable_v<WorkLaunchPacket>);
 namespace {
 bool ValidPacket(const WorkLaunchPacket& packet) {
-  return packet.magic == 0x414e44584c41554eULL && packet.version == 2 &&
-         !packet.reserved && !packet.reserved2 &&
+  return packet.magic == 0x414e44584c41554eULL && packet.version == 3 &&
+         !packet.reserved && packet.principal_profile <= 1 &&
          !(packet.stdio_closed & ~kWorkLaunchStdioMask) &&
          packet.work.manager && packet.work.serial && packet.epoch.platform &&
          packet.epoch.generation && packet.epoch.user >= 0 &&
@@ -25,12 +25,16 @@ bool ValidPacket(const WorkLaunchPacket& packet) {
 }
 bool ClosedRole(const WorkLaunchPacket& packet, size_t role) {
   constexpr size_t first = static_cast<size_t>(LaunchFd::Input);
-  return role >= first && (packet.stdio_closed & (1U << (role - first)));
+  if (role == static_cast<size_t>(LaunchFd::Principal) ||
+      role == static_cast<size_t>(LaunchFd::Home))
+    return packet.principal_profile == 0;
+  return role >= first && role <= static_cast<size_t>(LaunchFd::Error) &&
+         (packet.stdio_closed & (1U << (role - first)));
 }
 }  // namespace
 size_t ExpectedWorkLaunchFdCount(const WorkLaunchPacket& packet) {
   return packet.operation == WorkLaunchOperation::Prepare
-             ? kLaunchFdCount -
+             ? kLaunchFdCount - (packet.principal_profile == 0 ? 2 : 0) -
                    std::popcount(packet.stdio_closed & kWorkLaunchStdioMask)
              : 0;
 }

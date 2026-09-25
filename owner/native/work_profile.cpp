@@ -14,6 +14,7 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <charconv>
 #include <cstring>
@@ -81,21 +82,7 @@ std::string identity_and_limits(const char* expected_role) {
   const bool correct = std::string_view(role) == expected_role;
   freecon(role);
   if (!correct) return "wrong launch role";
-  for (auto [resource, bound] : {std::pair{RLIMIT_NPROC, rlim_t(kProcessLimit)},
-                                 {RLIMIT_NOFILE, rlim_t(kDescriptorLimit)},
-                                 {RLIMIT_CORE, rlim_t(0)},
-                                 {RLIMIT_FSIZE, rlim_t(67108864)}}) {
-    rlimit actual{};
-    if (getrlimit(resource, &actual) || actual.rlim_cur != bound ||
-        actual.rlim_max != bound)
-      return "declared launch rlimit missing";
-  }
-  errno = 0;
-  int nice = getpriority(PRIO_PROCESS, getpid());
-  if (errno || nice != 10) return "declared launch priority missing";
-  if (!number(read_file(AT_FDCWD, "/proc/self/oom_score_adj"), 700))
-    return "declared memory priority missing";
-  return {};
+  return CheckWorkLimits();
 }
 std::string membership() {
   auto text = read_file(AT_FDCWD, "/proc/self/cgroup");
@@ -122,6 +109,29 @@ std::string CheckLaunchStage(int aggregate_fd, int scope_fd,
                              LaunchObjectIdentity expected_scope) {
   auto error = identity_and_limits("u:r:andrixd:s0");
   if (!error.empty()) return error;
+  return CheckCapturedWorkScope(aggregate_fd, scope_fd, expected_aggregate,
+                                expected_scope);
+}
+std::string CheckWorkLimits() {
+  for (auto [resource, bound] : {std::pair{RLIMIT_NPROC, rlim_t(kProcessLimit)},
+                                 {RLIMIT_NOFILE, rlim_t(kDescriptorLimit)},
+                                 {RLIMIT_CORE, rlim_t(0)},
+                                 {RLIMIT_FSIZE, rlim_t(67108864)}}) {
+    rlimit actual{};
+    if (getrlimit(resource, &actual) || actual.rlim_cur != bound ||
+        actual.rlim_max != bound)
+      return "declared launch rlimit missing";
+  }
+  errno = 0;
+  int nice = getpriority(PRIO_PROCESS, getpid());
+  if (errno || nice != 10) return "declared launch priority missing";
+  if (!number(read_file(AT_FDCWD, "/proc/self/oom_score_adj"), 700))
+    return "declared memory priority missing";
+  return {};
+}
+std::string CheckCapturedWorkScope(int aggregate_fd, int scope_fd,
+                                  LaunchObjectIdentity expected_aggregate,
+                                  LaunchObjectIdentity expected_scope) {
   LaunchObjectIdentity aggregate, scope;
   if (!directory(aggregate_fd, aggregate) || !directory(scope_fd, scope) ||
       aggregate != expected_aggregate || scope != expected_scope ||
@@ -177,6 +187,10 @@ std::string CheckOwnerEntry() {
   return {};
 }
 bool ManagementDescriptorsClosed(int description) {
+  if (description < 0) return OnlyDeclaredDescriptors({});
+  return OnlyDeclaredDescriptors(std::span<const int>(&description, 1));
+}
+bool OnlyDeclaredDescriptors(std::span<const int> allowed) {
   DIR* directory = opendir("/proc/self/fd");
   if (!directory) return false;
   bool valid = true;
@@ -192,7 +206,8 @@ bool ManagementDescriptorsClosed(int description) {
     const char* end = entry->d_name + strlen(entry->d_name);
     auto parsed = std::from_chars(entry->d_name, end, fd);
     if (parsed.ec != std::errc{} || parsed.ptr != end || fd < 0 ||
-        (fd > 2 && fd != description && fd != dirfd(directory)))
+        (fd > 2 && fd != dirfd(directory) &&
+         std::find(allowed.begin(), allowed.end(), fd) == allowed.end()))
       valid = false;
   }
   if (closedir(directory)) valid = false;

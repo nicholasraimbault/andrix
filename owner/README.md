@@ -10,7 +10,9 @@ See the [milestone](../plans/2026-09-10-owner-session.md) for scope and qualific
 [the revised roadmap](../plans/current.md) for the new platform priority. The
 [native runtime integration proposal](../plans/2026-09-24-native-runtime-integration.md)
 compares how to replace the fixed identity/profile assumptions while preserving the work,
-Stop, CE and descriptor ownership contracts. It remains a proposal and is not implemented by this prototype.
+Stop, CE and descriptor ownership contracts. The [principal launch implementation](principal-entry.md) now adds a separate inactive entry
+path to the work runtime. It does not yet provide an authoritative account factory, UID lease,
+Android API binding or qualified device launch.
 
 **Development opt-in:** `ANDRIX_OWNER_SESSION=true` with the existing
 `andrix_gos_cf_arm64_only_phone-cur-userdebug` product. The baseline without that

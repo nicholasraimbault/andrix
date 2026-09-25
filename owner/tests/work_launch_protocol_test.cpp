@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 #include <array>
+#include <bit>
 #include <cassert>
 #include <cerrno>
 #include <cstring>
@@ -63,7 +64,8 @@ void raw_send(int socket, const void* bytes, size_t size,
 }
 WorkLaunchPacket request_packet() {
   WorkLaunchPacket request;
-  assert(request.version == 2 && request.stdio_closed == 0);
+  assert(request.version == 3 && request.stdio_closed == 0);
+  request.principal_profile = 1;
   request.work = {11, 1};
   request.epoch = {91, 8, 0};
   request.aggregate = {7, 10};
@@ -87,8 +89,8 @@ void masks(int sender, int receiver, LaunchPeer peer, const Roles& originals) {
     for (int fd : roles)
       if (fd >= 0) compact[count++] = fd;
     assert(ExpectedWorkLaunchFdCount(request) == count);
-    if (mask == 0) assert(count == 7);
-    if (mask == 7) assert(count == 4);
+    if (mask == 0) assert(count == 9);
+    if (mask == 7) assert(count == 6);
     // Check both the actual sender and independently constructed compact wire
     // order. Receiver roles must retain identity even with holes in stdio.
     for (bool raw : {false, true}) {
@@ -99,7 +101,7 @@ void masks(int sender, int receiver, LaunchPeer peer, const Roles& originals) {
       WorkLaunchMessage result;
       assert(!ReceiveWorkLaunch(receiver, peer, result));
       assert(result.count == count && result.packet.stdio_closed == mask &&
-             result.packet.version == 2 && result.packet.work == request.work &&
+             result.packet.version == 3 && result.packet.work == request.work &&
              result.packet.epoch == request.epoch &&
              result.packet.aggregate == request.aggregate &&
              result.packet.scope == request.scope);
@@ -148,10 +150,40 @@ void masks(int sender, int receiver, LaunchPeer peer, const Roles& originals) {
     taken = result.Take(LaunchFd::Error);
     same_object(taken, originals[static_cast<size_t>(LaunchFd::Error)]);
     assert(result.descriptors[static_cast<size_t>(LaunchFd::Error)] == -1 &&
-           result.count == 6);
+           result.count == 8);
   }
   assert(descriptors() == baseline + 1);
   assert(!close(taken) && descriptors() == baseline);
+}
+void legacy_profile(int sender, int receiver, LaunchPeer peer, const Roles& originals) {
+  const size_t baseline = descriptors();
+  for (uint32_t mask = 0; mask < 8; ++mask) {
+    auto request = request_packet();
+    request.principal_profile = 0;
+    request.stdio_closed = mask;
+    auto roles = fixed_roles(originals, mask);
+    roles[static_cast<size_t>(LaunchFd::Principal)] = -1;
+    roles[static_cast<size_t>(LaunchFd::Home)] = -1;
+    assert(ExpectedWorkLaunchFdCount(request) == size_t(7 - std::popcount(mask)));
+    assert(!SendWorkLaunch(sender, request, roles.data(), roles.size()));
+    {
+      WorkLaunchMessage result;
+      assert(!ReceiveWorkLaunch(receiver, peer, result));
+      assert(result.packet.principal_profile == 0);
+      assert(result.descriptors[static_cast<size_t>(LaunchFd::Principal)] == -1);
+      assert(result.descriptors[static_cast<size_t>(LaunchFd::Home)] == -1);
+      for (size_t role = 0; role < kLaunchFdCount; ++role)
+        if (roles[role] >= 0) same_object(result.descriptors[role], roles[role]);
+    }
+    assert(descriptors() == baseline);
+    for (auto role : {LaunchFd::Principal, LaunchFd::Home}) {
+      auto bad = roles;
+      bad[static_cast<size_t>(role)] = originals[static_cast<size_t>(role)];
+      assert(SendWorkLaunch(sender, request, bad.data(), bad.size()) == EINVAL);
+    }
+    request.principal_profile = 1;
+    assert(SendWorkLaunch(sender, request, roles.data(), roles.size()) == EINVAL);
+  }
 }
 void sender_roles(int sender, int receiver, LaunchPeer peer,
                   const Roles& originals) {
@@ -258,7 +290,7 @@ void receiver_rejections(int sender, int receiver, LaunchPeer peer,
   request.reserved = 1;
   invalid_packet(request);
   request = request_packet();
-  request.reserved2 = 1;
+  request.principal_profile = 2;
   invalid_packet(request);
   request = request_packet();
   request.error = EIO;
@@ -359,6 +391,7 @@ int main() {
     close(pipe[1]);
   }
   masks(pair[0], pair[1], peer, originals);
+  legacy_profile(pair[0], pair[1], peer, originals);
   sender_roles(pair[0], pair[1], peer, originals);
   receiver_rejections(pair[0], pair[1], peer, originals);
   auto request = request_packet();

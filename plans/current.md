@@ -28,8 +28,9 @@ Detailed operating records, local configuration, credentials and raw captures re
 
 ## Current milestone
 
-The current work is to define the integration contracts for a sustainable owner controlled
-Android lineage before expanding the composition machinery. Android is the settled platform.
+The current work is implementing the native entry and Android integration for a sustainable
+owner controlled Android lineage, while qualifying its authority contracts before activation.
+Android is the settled platform.
 The proposed [native principal contract](2026-09-24-native-principal-contract.md) covers ordinary
 owner programs as subjects of Android policy. The proposed
 [owner trust, selection and deployment contract](2026-09-24-owner-composition-contract.md)
@@ -84,6 +85,16 @@ isolated process was killed as `ISOLATED NOT NEEDED` after unbind, with no obser
 callback, so the complete lifecycle matrix remains false. This narrows reuse: native attachment
 is real, but isolated component lifetime is not the Unix work contract. Real sensors, VPN,
 power/accounting and further user/lifecycle cases remain independent gates.
+
+The [first principal launch implementation](../owner/principal-entry.md) is now connected to the
+work runtime as a separate inactive path. It carries an immutable principal binding and captured
+home through the private handoff, verifies actual credentials, preserves independent Stop and
+closes control descriptors before ordinary execution. The manager remains at the principal UID;
+individual work does not select or switch privileged credentials. The legacy reserved UID path
+retains its Binder denial. Host and Linux supervision regressions do not qualify this new path
+on Android. The authoritative account designation/UID lifetime, trusted manager specialization,
+principal aware lifecycle binding, native API adapters and policy/resource integration remain
+required before activation. No product selects the new entry yet.
 
 The deciding gates are:
 

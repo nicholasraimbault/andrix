@@ -2,8 +2,9 @@
 
 Status: the owner approved bounded disposable integration experiments after independent review.
 This is not acceptance of a production representation or authority profile. The notification and
-mock location references are measured; the proposed production mechanisms remain unimplemented
-and unqualified.
+mock location references are measured. The [first principal launch implementation](../owner/principal-entry.md)
+is inactive and has host coverage; production authority, API binding and Android launch remain
+unqualified.
 Accepted architecture is unchanged. This document recommends an initial integration direction, not UID allocation,
 package formats, signer topology, a software store or new administrative policy.
 

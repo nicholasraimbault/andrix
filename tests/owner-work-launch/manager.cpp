@@ -147,7 +147,8 @@ int wait_packet(int fd, pid_t child, Work& work, WorkLaunchMessage& received,
 }
 bool exact(const WorkLaunchPacket& a, const WorkLaunchPacket& b) {
   return a.work == b.work && a.epoch == b.epoch && a.aggregate == b.aggregate &&
-         a.scope == b.scope && a.stdio_closed == b.stdio_closed;
+         a.scope == b.scope && a.stdio_closed == b.stdio_closed &&
+         a.principal_profile == b.principal_profile;
 }
 void run_work(std::shared_ptr<Work> work) {
   const auto name = "work_" + std::to_string(work->gate->work().serial);
@@ -253,9 +254,9 @@ void run_work(std::shared_ptr<Work> work) {
     int descriptors[] = {gate_fd.get(),         description.get(),
                          aggregate.get(),       root.get(),
                          stream_child[0].get(), stream_child[1].get(),
-                         stream_child[2].get()};
+                         stream_child[2].get(), -1, -1};
     int error = SendWorkLaunch(parent_channel.get(), request, descriptors,
-                               kLaunchFdCount);
+                               std::size(descriptors));
     if (error) return error;
     for (auto& endpoint : stream_child) endpoint.reset();
     shutdown(stream_parent[0].get(), SHUT_WR);

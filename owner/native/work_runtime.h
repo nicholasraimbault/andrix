@@ -4,9 +4,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "captured_cgroup.h"
+#include "principal_profile.h"
 #include "work_launch_protocol.h"
 #include "work_registry.h"
 #include "work_runtime_state.h"
@@ -21,6 +23,11 @@ struct State;
 class WorkRuntimeAuthority {
  public:
   virtual ~WorkRuntimeAuthority() = default;
+  // Local binding check only, not an IPC lookup or a new permission grant.
+  // A principal authority must affirm the exact immutable profile and keep
+  // its designation/UID lifetime and user/CE authority live in the admission
+  // methods below. Existing CE-only authorities deliberately return false.
+  virtual bool AcceptsPrincipal(const PrincipalProfile&) const { return false; }
   virtual AdmissionResult Admit(const std::shared_ptr<WorkAdmission>& gate) = 0;
   virtual AdmissionResult Prepared(
       const std::shared_ptr<WorkAdmission>& gate) = 0;
@@ -52,6 +59,15 @@ struct WorkRuntimeConfig {
   LaunchObjectIdentity aggregate_identity;
   // Trusted fixed bootstrap selection, not part of ordinary request bytes.
   std::string launcher;
+  // One immutable principal binding per trusted manager incarnation. Absent
+  // retains the existing reserved-UID vehicle. This is not caller input and
+  // does not create a principal lease: the platform authority must bind the
+  // profile, revoke admission on its loss and prevent unsafe UID reuse.
+  std::optional<PrincipalProfile> principal;
+  // Captured account home, borrowed and duplicated at construction. Required
+  // only with principal. It is ordinary directory authority, not evidence of
+  // current CE availability and not a fallback to package app data.
+  int principal_home = -1;
   supervision::CleanupLimits cleanup{};
   uint64_t handshake_millis = 10000, operation_millis = 10000;
   WorkRuntimeObserver* observer = nullptr;  // Must outlive runtime/drain.

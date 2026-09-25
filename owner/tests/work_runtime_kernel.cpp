@@ -68,7 +68,8 @@ int bootstrap() {
   assert(ConfigureWorkLaunchSocket(3) == 0);
   WorkLaunchMessage request;
   packet(3, {getppid(), getuid(), getgid()}, request);
-  assert(request.packet.operation == WorkLaunchOperation::Prepare);
+  assert(request.packet.operation == WorkLaunchOperation::Prepare &&
+         request.packet.principal_profile == 0);
   char membership[512]{};
   int current = open("/proc/self/cgroup", O_RDONLY | O_CLOEXEC);
   assert(current >= 0);
@@ -101,7 +102,8 @@ int bootstrap() {
   assert(wake.packet.operation == WorkLaunchOperation::Wake &&
          wake.packet.work == request.packet.work &&
          wake.packet.epoch == request.packet.epoch &&
-         wake.packet.stdio_closed == request.packet.stdio_closed);
+         wake.packet.stdio_closed == request.packet.stdio_closed &&
+         wake.packet.principal_profile == request.packet.principal_profile);
   if (gate->ClaimEntry(request.packet.work, request.packet.epoch, now()) !=
       EntryResult::Entered)
     return 126;

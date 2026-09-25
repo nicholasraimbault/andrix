@@ -200,16 +200,19 @@ bool ReadLaunch(int fd, LaunchLimits limits, LaunchDescription& result,
                 LaunchFailure& failure) {
   failure = {};
   if (!valid_limits(limits)) return fail(failure, LaunchError::Invalid);
+  if (fd < 0) return fail(failure, LaunchError::Io, EBADF);
+  // The size is authoritative only after shrink/grow/write seals are in
+  // place. A producer can otherwise resize and seal between fstat and fcntl,
+  // making a valid old prefix appear to be the complete immutable record.
+  const int seals = fcntl(fd, F_GET_SEALS);
+  if (seals < 0 || (seals & kSeals) != kSeals)
+    return fail(failure, LaunchError::NotSealed, seals < 0 ? errno : 0);
   struct stat info{};
-  if (fd < 0 || fstat(fd, &info))
-    return fail(failure, LaunchError::Io, fd < 0 ? EBADF : errno);
+  if (fstat(fd, &info)) return fail(failure, LaunchError::Io, errno);
   if (!S_ISREG(info.st_mode) ||
       info.st_size < static_cast<off_t>(kHeaderBytes) ||
       static_cast<uint64_t>(info.st_size) > limits.bytes)
     return fail(failure, LaunchError::Limit);
-  const int seals = fcntl(fd, F_GET_SEALS);
-  if (seals < 0 || (seals & kSeals) != kSeals)
-    return fail(failure, LaunchError::NotSealed, seals < 0 ? errno : 0);
   std::vector<uint8_t> bytes(static_cast<size_t>(info.st_size));
   size_t offset = 0;
   while (offset < bytes.size()) {

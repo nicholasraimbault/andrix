@@ -79,7 +79,7 @@ class WorkServiceTests(unittest.TestCase):
         self.assertFalse(result['Android_authentication_or_runtime_backend_qualified'])
 
     def test_runtime_refusal_retains_creator_ownership(self):
-        result = self.compile_and_run('work_runtime_test', BASE+['work_runtime.cpp', 'work_launch_protocol.cpp'])
+        result = self.compile_and_run('work_runtime_test', BASE+['work_runtime.cpp', 'work_launch_protocol.cpp', 'principal_profile.cpp'])
         self.assertTrue(result['creator_ticket_retained_on_submit_refusal'])
         self.assertFalse(result['real_kernel_runtime_qualified'])
 

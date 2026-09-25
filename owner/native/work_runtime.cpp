@@ -67,6 +67,14 @@ bool directory(int fd, LaunchObjectIdentity& identity) {
               static_cast<uint64_t>(info.st_ino)};
   return identity.device && identity.inode;
 }
+bool principal_identity(const PrincipalProfile& profile) {
+  uid_t real, effective, saved;
+  gid_t greal, geffective, gsaved;
+  return !getresuid(&real, &effective, &saved) &&
+         !getresgid(&greal, &geffective, &gsaved) &&
+         real == profile.binding.uid && effective == real && saved == real &&
+         greal == profile.binding.gid && geffective == greal && gsaved == greal;
+}
 struct Initial {
   explicit Initial(pid_t pid) : pid(pid) {}
   const pid_t pid;
@@ -103,7 +111,7 @@ struct State {
         jobs(this->config.jobs) {}
   const WorkRuntimeConfig config;
   const std::shared_ptr<WorkRuntimeAuthority> authority;
-  Fd aggregate, parent;
+  Fd aggregate, parent, home;
   bool valid = false;
   bool closed = false;
   mutable std::mutex mutex;
@@ -160,7 +168,8 @@ void* terminate(void* argument) {
 bool same(const WorkLaunchPacket& left, const WorkLaunchPacket& right) {
   return left.work == right.work && left.epoch == right.epoch &&
          left.aggregate == right.aggregate && left.scope == right.scope &&
-         left.stdio_closed == right.stdio_closed;
+         left.stdio_closed == right.stdio_closed &&
+         left.principal_profile == right.principal_profile;
 }
 int receive(int socket, pid_t child, const Job& job, uint64_t timeout,
             WorkLaunchMessage& reply) {
@@ -215,7 +224,7 @@ void* supervise(void* argument) {
     return nullptr;
   }
   job->phase.store(WorkRuntimePhase::Creating);
-  Fd root, channel, parent_channel, description;
+  Fd root, channel, parent_channel, description, principal;
   std::shared_ptr<group::CapturedCgroup> scope;
   std::shared_ptr<Initial> initial;
   bool allocation_started = false;
@@ -227,6 +236,14 @@ void* supervise(void* argument) {
       return EINVAL;
     description.reset(SealLaunch(decoded, {}, failure));
     if (description.get() < 0) return failure.error ? failure.error : EIO;
+    const auto epoch = gate->epoch();
+    if (!epoch) return ESTALE;
+    if (state->config.principal) {
+      int profile_error = 0;
+      principal.reset(SealPrincipalLaunch(
+          {gate->work(), *epoch, *state->config.principal}, profile_error));
+      if (principal.get() < 0) return profile_error ? profile_error : EINVAL;
+    }
     observe(*state, *job, WorkRuntimePoint::BeforeScope);
     if (job->backend.termination_requested()) return ECANCELED;
     const std::string name =
@@ -304,8 +321,6 @@ void* supervise(void* argument) {
     if (job->backend.termination_requested() ||
         gate->phase() == AdmissionPhase::Stopped)
       return ECANCELED;
-    auto epoch = gate->epoch();
-    if (!epoch) return ESTALE;
     int gate_error = 0;
     Fd exported(gate->Export(gate_error));
     if (exported.get() < 0) return gate_error;
@@ -314,13 +329,16 @@ void* supervise(void* argument) {
     request.epoch = *epoch;
     request.aggregate = state->config.aggregate_identity;
     request.scope = {identity.device, identity.inode};
+    request.principal_profile = state->config.principal ? 1 : 0;
     std::array<int, kLaunchFdCount> descriptors{exported.get(),
                                                 description.get(),
                                                 state->aggregate.get(),
                                                 root.get(),
                                                 -1,
                                                 -1,
-                                                -1};
+                                                -1,
+                                                principal.get(),
+                                                state->home.get()};
     for (size_t standard_index = 0; standard_index < 3; ++standard_index) {
       int fd = job->stdio.descriptor(standard_index);
       descriptors[static_cast<size_t>(LaunchFd::Input) + standard_index] = fd;
@@ -332,6 +350,7 @@ void* supervise(void* argument) {
     job->stdio
         .Release();  // SCM_RIGHTS owns the handoff, no metadata writer leak.
     description.reset();
+    principal.reset();
     WorkLaunchMessage staged;
     error = receive(parent_channel.get(), child, *job,
                     state->config.handshake_millis, staged);
@@ -348,6 +367,7 @@ void* supervise(void* argument) {
   int error = create();
   job->stdio.Release();
   description.reset();
+  principal.reset();
   channel.reset();
   parent_channel.reset();
   if (error) {
@@ -526,7 +546,13 @@ WorkRuntime::WorkRuntime(WorkRuntimeConfig config,
                          std::shared_ptr<WorkRuntimeAuthority> authority) {
   using namespace work_runtime_detail;
   if (!config.jobs || config.jobs > WorkRegistry::kMaximumRecords ||
-      !authority || config.launcher.empty() || !config.handshake_millis ||
+      !authority || config.launcher.empty() ||
+      (config.principal &&
+       (!ValidPrincipalProfile(*config.principal) || config.principal_home < 0 ||
+        !authority->AcceptsPrincipal(*config.principal) ||
+        !principal_identity(*config.principal))) ||
+      (!config.principal && config.principal_home != -1) ||
+      !config.handshake_millis ||
       config.handshake_millis > 60000 || !config.operation_millis ||
       config.operation_millis > 60000 || config.cleanup.max_depth > 64 ||
       !config.cleanup.max_directory_visits ||
@@ -539,6 +565,16 @@ WorkRuntime::WorkRuntime(WorkRuntimeConfig config,
   }
   state_ = std::make_shared<State>(std::move(config), std::move(authority));
   if (state_->jobs.empty()) return;
+  if (state_->config.principal) {
+    state_->home.reset(fcntl(state_->config.principal_home, F_DUPFD_CLOEXEC, 3));
+    struct stat info{};
+    const int flags = fcntl(state_->home.get(), F_GETFL);
+    const auto& principal = state_->config.principal->binding;
+    if (state_->home.get() < 0 || flags < 0 || (flags & O_PATH) ||
+        (flags & O_ACCMODE) != O_RDONLY || fstat(state_->home.get(), &info) ||
+        !S_ISDIR(info.st_mode) || info.st_uid != principal.uid)
+      return;
+  }
   state_->aggregate.reset(fcntl(state_->config.aggregate, F_DUPFD_CLOEXEC, 3));
   state_->parent.reset(
       fcntl(state_->config.work_namespace, F_DUPFD_CLOEXEC, 3));
