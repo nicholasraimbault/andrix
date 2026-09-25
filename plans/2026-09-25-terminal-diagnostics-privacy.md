@@ -1,7 +1,7 @@
 # Terminal parser diagnostics stay out of shared logging
 
-Status: implementation with host regression coverage. The Android module build and device
-logging checks have separate status below. This repairs the existing minimal recording policy;
+Status: implementation with host regression coverage and a successful Android module build.
+Device logging checks remain separately unqualified. This repairs the existing minimal recording policy;
 it does not introduce a new recording default or alter the work lifetime contract.
 
 ## Defect and correction
@@ -38,6 +38,14 @@ An earlier runner attempt failed to compile because its broad protocol glob incl
 AIDL dependent work classes. That failed attempt remains separate. The parser runner now names
 its actual portable `InputQueue` and `OutputProtocol` dependencies. Work reference/tracker tests
 retain their own scope; this change does not substitute host AIDL mocks for Android behavior.
+
+## Android artifact
+
+The actual `AndrixTerminal` module built successfully from `d41da94` against the pinned Android
+platform. Its compiled terminal library contains the explicit client, with no Android Log calls
+in that client's diagnostic methods. The factory APK verifies under APK Signature Scheme v3 and
+contains no test canaries. This is a module and artifact result, not an installed update, new
+image or device logd test. The existing development certificate is unchanged.
 
 ## Remaining boundary
 

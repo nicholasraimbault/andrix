@@ -39,8 +39,9 @@ in one proposed ownership and lifecycle model. It contains recommended implement
 credible alternatives, event/disruption matrices and complete journeys that should falsify or
 support the design. It is not a new accepted architecture or a claim that the joins work yet.
 Accepted policy remains unchanged. The [terminal parser logging correction](2026-09-25-terminal-diagnostics-privacy.md)
-now has a matching failing control and 156 passing host parser/adapter checks. Android artifact and
-runtime checks remain separately scoped. The next slice is the native reservation store and its
+now has a matching failing control, 156 passing host parser/adapter checks and a successful
+`AndrixTerminal` Android module build with artifact verification. Device logging and broader
+runtime privacy remain separately unqualified. The next slice is the native reservation store and its
 platform lifecycle integration. No new factory or account path was activated.
 
 ## Current milestone
