@@ -10,7 +10,11 @@ implementation. Its 58 grouped decisions cover all 18 evidence areas without sil
 accepted policy or claiming complete platform qualification. The subsequent
 [integrated platform model](2026-09-25-integrated-platform-model.md) consolidates the runtime and
 composition boundaries, including live authority, API effects, environment leases and deployment
-retirement, into one proposal for review rather than a list of independent fixes.
+retirement, into one proposal for review rather than a list of independent fixes. The owner
+endorsed that direction and resumed bounded implementation. The
+[terminal diagnostic correction](2026-09-25-terminal-diagnostics-privacy.md) and
+[native identity storage component](2026-09-25-native-identity-store.md) record their own evidence
+and remaining integration gates, not automatic qualification of the complete model.
 
 The [2026-09-21 accepted vision revision](2026-09-21-owner-composable-android.md) expands
 Andrix from a Unix focused layer to an owner composable Android OS. Its platform work is

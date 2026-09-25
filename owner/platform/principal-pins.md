@@ -94,7 +94,10 @@ drop another retiring account which still owns work.
 The [recovery redesign](../../plans/2026-09-25-native-recovery-boundary.md) proposes moving these
 reservations into a small Package Manager owned store with stable UID slots and recovery copies.
 That would separate allocation safety from damaged account details and ordinary settings
-recovery. It is not implemented yet. The behavior below describes the current code.
+recovery. Its [record and storage component](../../plans/2026-09-25-native-identity-store.md)
+is now implemented and host tested, but is not connected to this PMS consumer. The behavior below
+still describes the active adapted manager and its embedded XML path. Compiling the new helpers
+does not migrate that state or enable native accounts.
 
 The native extension is written after the ordinary package, shared user and key state. An
 unsupported or invalid but structurally readable native section is rejected locally, rather than

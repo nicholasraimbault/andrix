@@ -20,7 +20,7 @@ class NativePrincipalPinsTests(unittest.TestCase):
     def test_exact_source_profile_and_fixtures(self):
         profile = integration.profile()
         self.assertEqual(len(profile['files']), 6)
-        self.assertEqual(len(profile['added']), 3)
+        self.assertEqual(len(profile['added']), 5)
         self.assertEqual(len(profile['fixtures']), 2)
         with self.assertRaises(ValueError):
             integration.targets({name: b'wrong source' for name in integration.FILES}, profile)

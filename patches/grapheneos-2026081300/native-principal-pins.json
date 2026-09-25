@@ -50,6 +50,16 @@
       "path": "services/core/java/com/android/server/pm/NativePrincipalManager.java",
       "source": "owner/platform/framework/NativePrincipalManager.java",
       "sha256": "88cce6d8ae2d4047d802ca58b0241465ce75a58e811fdaba7c86bb88b139f749"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/NativeIdentityRecords.java",
+      "source": "owner/platform/framework/NativeIdentityRecords.java",
+      "sha256": "d1f27faf117161d556776d89ed69bee7f28079de79c1625d9a01702440418ff6"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/NativeIdentityStore.java",
+      "source": "owner/platform/framework/NativeIdentityStore.java",
+      "sha256": "cb5b3867f65f01b92f183c247628e8a5086c491225df154809238668abe81f2e"
     }
   ],
   "scope": "Internal PMS native-principal reservation component, not a public designation/launch API or runtime qualification",

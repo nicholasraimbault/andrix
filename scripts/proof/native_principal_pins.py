@@ -19,7 +19,8 @@ FILES = tuple(PREFIX + name + '.java' for name in (
     'AppIdSettingMap', 'Settings', 'PackageManagerService', 'DeletePackageHelper',
     'InstallPackageHelper', 'ResilientAtomicFile'))
 ADDED = {PREFIX + name + '.java': ROOT / 'owner/platform/framework' / (name + '.java')
-         for name in ('NativePrincipalPins', 'NativePrincipalPinsXml', 'NativePrincipalManager')}
+         for name in ('NativePrincipalPins', 'NativePrincipalPinsXml', 'NativePrincipalManager',
+                      'NativeIdentityRecords', 'NativeIdentityStore')}
 FIXTURES = {PREFIX + name + '.java': ROOT / 'owner/tests/platform' / (name + '.java.inc')
             for name in ('AppIdSettingMap', 'ResilientAtomicFile')}
 PROFILE = ROOT / 'patches/grapheneos-2026081300/native-principal-pins.json'

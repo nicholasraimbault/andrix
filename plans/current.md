@@ -41,8 +41,10 @@ support the design. It is not a new accepted architecture or a claim that the jo
 Accepted policy remains unchanged. The [terminal parser logging correction](2026-09-25-terminal-diagnostics-privacy.md)
 now has a matching failing control, 156 passing host parser/adapter checks and a successful
 `AndrixTerminal` Android module build with artifact verification. Device logging and broader
-runtime privacy remain separately unqualified. The next slice is the native reservation store and its
-platform lifecycle integration. No new factory or account path was activated.
+runtime privacy remain separately unqualified. The [native identity record and slot storage component](2026-09-25-native-identity-store.md)
+now has actual Java codec and filesystem checks. Its PMS consumer, allocation recovery, data
+quarantine and lifecycle integration are the next boundary. No new factory or account path was
+activated.
 
 ## Current milestone
 
@@ -126,8 +128,9 @@ to the installed object, signer set, version, UID and user serial, without makin
 grant. The [recovery redesign](2026-09-25-native-recovery-boundary.md) now proposes a small native
 reservation store owned by Package Manager, separate from ordinary package settings. Stable UID
 slots and recovery copies would preserve allocation holds even when account details are damaged,
-so the affected native account can stay unavailable without stopping the phone. This is not yet
-implemented or qualified. Unsupported OS data reuse is outside the supported migration path;
+so the affected native account can stay unavailable without stopping the phone. The separate
+[storage component](2026-09-25-native-identity-store.md) is now host tested, but this recovery
+behavior is not yet connected to PMS or qualified on Android. Unsupported OS data reuse is outside the supported migration path;
 total destruction of every authority copy is a disaster case, not a reason to block ordinary
 integration. No fixed UID range, permanent nonreuse policy or catastrophic recovery default was
 silently selected.
