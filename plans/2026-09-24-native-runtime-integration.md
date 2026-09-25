@@ -2,7 +2,8 @@
 
 Status: the owner approved bounded disposable integration experiments after independent review.
 This is not acceptance of a production representation or authority profile. The notification and
-mock location references are measured; the mechanisms below are not implemented or qualified.
+mock location references are measured; the proposed production mechanisms remain unimplemented
+and unqualified.
 Accepted architecture is unchanged. This document recommends an initial integration direction, not UID allocation,
 package formats, signer topology, a software store or new administrative policy.
 
@@ -177,8 +178,13 @@ compare before inventing parallel process machinery:
   Prototype support is not a promise of complete compatibility with application services.
 
 The source CP2A release configuration enables the native framework prototype flag as read only.
-This is source configuration evidence, not an observation of the feature on our retained image.
-No live flag changes or native service runtime qualification have been performed here.
+This is source configuration evidence. The later [runtime characterization](../tests/native-runtime/README.md#observed-result)
+observed an actual isolated native service entry and Binder reply, but not the complete callback
+matrix. The shell flag reader was unavailable without root, and no live flag changes were made.
+Android killed the native process as `ISOLATED NOT NEEDED` after unbind before a destroy callback
+was observed. A managed SDK service completed its callback sequence. These findings strengthen
+the need to separate component lifetime from Unix work ownership; they do not qualify an ordinary
+native account entry or its permission, foreground and resource contract.
 
 The credible execution alternatives are therefore:
 

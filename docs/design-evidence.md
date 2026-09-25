@@ -188,8 +188,12 @@ physical phone deployment at this checkpoint.
   ordinary managed helpers and native runtime representatives without selecting their physical
   layout. Source inspection found guarded native application attachment, native zygote support
   and an incomplete isolated native service lifecycle in the pinned platform. These are reuse
-  candidates, not runtime qualification. The proposal preserves complete launch, truthful UID
-  policy, captured work ownership, cgroup coordination and authentic platform bootstrap state.
+  candidates, not an ordinary native entry qualification. The first
+  [runtime route comparison](../tests/native-runtime/README.md#observed-result) observed native
+  isolated entry/Binder communication and normal managed SDK initialization. Its full callback
+  gate remains false: Android killed the isolated process as no longer needed before its destroy
+  callback was observed. Complete launch profiles, captured work ownership, cgroup coordination
+  and authentic platform bootstrap state remain necessary.
 - **Next gate:** review that direction, characterize the available runtime routes and implement
   the supported native entry, API binding and foreground contract. Qualify the
   [account mapping](../plans/2026-09-21-android-unix-accounts.md) and

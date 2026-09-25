@@ -78,8 +78,12 @@ fit together. The owner has approved bounded disposable experiments, not a produ
 representation or authority profile. The [runtime route fixture](../tests/native-runtime/README.md)
 starts by comparing an ordinary managed service with the existing isolated native service route
 on an unchanged image. Its instrumentation and lifecycle controls are not an ordinary Unix entry
-or foreground policy pass. Real sensors, VPN, power/accounting and further user/lifecycle cases
-remain independent gates.
+or foreground policy pass. Its first runtime comparison now observed both routes starting and
+answering Binder calls. The managed service received a complete SDK bootstrap. The native
+isolated process was killed as `ISOLATED NOT NEEDED` after unbind, with no observed destroy
+callback, so the complete lifecycle matrix remains false. This narrows reuse: native attachment
+is real, but isolated component lifetime is not the Unix work contract. Real sensors, VPN,
+power/accounting and further user/lifecycle cases remain independent gates.
 
 The deciding gates are:
 

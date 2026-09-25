@@ -61,3 +61,44 @@ The native library uses API 37 `ANativeService` and Binder NDK entry points. The
 explicitly documents a limited native service NDK subset. This gate does not claim arbitrary
 NDK APIs work without ART. Soong definitions are supplied, but a standalone artifact build is
 not a full Soong or ROM build qualification.
+
+## Observed result
+
+The fixture at `b16cc7b` compiled with the pinned API 37 SDK and ordinary disposable signer.
+Five Python observer tests passed. Two fresh emulator trials were retained on the unchanged
+platform image. The first stopped before installation: shell `aflags list` returned exit zero
+but printed `Error: must be root`. That was an unavailable observer, not an enabled/disabled
+flag result. The next trial retained that limitation and tested actual component behavior.
+
+Both service routes started, appeared in ActivityManager and returned valid Binder profiles.
+The managed service had the ordinary package UID, correct context attribution and a successful
+`KeyguardManager` construction through the real SDK bootstrap. The native service had an
+isolated UID, the `isolated_app` MAC role and `/system/bin/zygote_next` as its executable. Its
+own bounded maps scan reported no `libart.so` mapping. Shell access to the processes' maps was
+refused, and native `dumpsys meminfo` returned only a header. Neither unavailable observation
+is independent evidence of ART absence.
+
+All five capability sets were zero and seccomp mode was 2. NNP was 0. The native service's
+supplementary groups included `AID_RESERVED_DISK` and `AID_READPROC`, unlike the managed
+service. These are observed profiles, not an approved native account profile. The native
+launch source supplies an empty supplementary group list and only calls `setgroups` for a
+nonempty list. This is another reason not to assume a complete desired profile from the
+presence of native specialization code.
+
+**The complete callback gate did not pass.** The managed service produced create, bind,
+unbind and destroy records before instrumentation finish. The native service produced create,
+bind and unbind, but its destroy callback was not observed. ActivityManager and the retained
+exit record identified `ISOLATED NOT NEEDED` before instrumentation finished. A native log
+showed `scheduleDestroyService`; scheduling was not callback completion. The pinned
+`services/core/java/com/android/server/am/psc/OomAdjuster.java:1469–1479` explicitly kills an
+isolated process with no remaining services and no special isolated entry point.
+
+All original captured processes were already gone before the host's later explicit cleanup.
+That cleanup was not credited with causing those exits. Uninstall, VM retirement and volatile
+RAM disappearance were confirmed. Both trials remain false for their original complete
+matrix; the useful startup and lifecycle findings do not rewrite either outcome.
+
+The result supports comparing reusable native attachment and managed SDK initialization.
+It does not qualify a native login, a stable C capability adapter, ordinary Unix fork/exec,
+permission/foreground semantics or account lifecycle. In particular, isolated service lifetime
+and a requested destroy callback cannot substitute for captured work ownership and Stop.
