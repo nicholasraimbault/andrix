@@ -4,6 +4,11 @@
 Dated milestones retain scope, design decisions, concise outcomes and open gates.
 They are not execution diaries or runtime inventories.
 
+The owner requested an architecture wide pause and
+[deliberate decision audit](2026-09-25-deliberate-decision-audit.md) before further recovery
+implementation. Its 58 grouped decisions cover all 18 evidence areas without silently changing
+accepted policy or claiming complete platform qualification.
+
 The [2026-09-21 accepted vision revision](2026-09-21-owner-composable-android.md) expands
 Andrix from a Unix focused layer to an owner composable Android OS. Its platform work is
 separate from the retained Unix milestones:

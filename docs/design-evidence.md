@@ -51,6 +51,15 @@ product intent without adding implementation evidence. R18 tracks that platform 
 separately from the retained Unix subsystem. There is no supported release or qualified
 physical phone deployment at this checkpoint.
 
+## Cross-area review
+
+The [deliberate decision audit](../plans/2026-09-25-deliberate-decision-audit.md) reviews all
+18 areas and the accepted architecture through 58 grouped decisions at the owner's request.
+It identifies retained requirements, avoidable couplings, open choices and missing evidence,
+including a host reproduced terminal parser logging gap. It does not change accepted policy,
+implement the proposed remedies or qualify the whole platform. Historical observations below
+retain their own producers and scopes.
+
 ## At a glance
 
 | ID | Area | Current vehicle | Disposition |
@@ -248,8 +257,10 @@ physical phone deployment at this checkpoint.
 
 ## R05 Work and terminal lifetime
 
-- **Vehicle:** plain work tied to Console process lifetime and explicit Keep using tmux.
-  `TerminalProcessState` now separates terminal process role from the retention flag.
+- **Vehicle:** legacy plain work tied to Console process lifetime and explicit Keep using tmux,
+  plus the separately selected native work service described below. `TerminalProcessState`
+  separates terminal process role from retention in the legacy vehicle; the newer service's
+  independent work lifetime is not yet the Console's default path.
 - **Evidence:** [Keep](../plans/2026-09-14-keep.md) and
   [retained presentation](../plans/2026-09-13-retained-terminal.md) exercised return, relock,
   frontend retirement, Stop and reboot in the emulator. The
@@ -380,8 +391,9 @@ physical phone deployment at this checkpoint.
 
 ## R06 Work discovery, admission and Stop
 
-- **Vehicle:** `WorkInfo`, `describeWork`, exact Binder/work ID `stopWork`, and Console's bounded
-  metadata tracker. Work creation still occurs through legacy Attach/New kept operations.
+- **Vehicle:** the legacy `WorkInfo`, `describeWork`, exact Binder/work ID `stopWork` and Console
+  tracker coexist with the selected authenticated work service below. Console creation still
+  uses legacy Attach/New kept operations; the newer service is not its default backend.
   A separate [bounded registry core](../plans/2026-09-19-work-registry-core.md) implements
   the next internal reservation/control and completion bookkeeping boundary.
 - **Evidence:** [source `13a1af0`](../plans/2026-09-16-work-terminal-separation.md#observed-candidate-behavior)
@@ -509,8 +521,9 @@ physical phone deployment at this checkpoint.
 ## R08 Resource policy
 
 - **Vehicle:** [fixed native proof bounds](../owner/README.md#bounds-and-lifecycle): 256 MiB aggregate
-  memory, 32 tasks, 128 descriptors, 64 MiB per file, no core dumps and fixed scheduling/OOM policy.
-  The per-file limit is not a total storage quota.
+  memory, NPROC 32, 128 descriptors, 64 MiB per file, no core dumps and fixed scheduling/OOM policy.
+  NPROC counts threads across the real UID, not just one work cgroup. The per-file limit is not
+  a total storage quota.
 - **Evidence:** guard and worker tests exercise admission/restrictions; emulator checks observed
   inherited limits and complete init cleanup. The listed tools ran under this profile.
   Both factory trials also checked protected aggregate and individual work bounds and
@@ -527,8 +540,10 @@ physical phone deployment at this checkpoint.
 
 ## R09 Program entry and environment
 
-- **Vehicle:** the [fixed runner](../owner/native/runner.cpp) enters the owner domain, validates
-  home/bounds, constructs an environment and starts a shell or fixed tmux operation.
+- **Vehicle:** the legacy [fixed runner](../owner/native/runner.cpp), the separately qualified
+  ordinary description/launch path and selected work service, and the new inactive ordinary
+  principal entry. The legacy runner enters the owner domain, validates home/bounds, constructs
+  an environment and starts a shell or fixed tmux operation; it is not the final launch API.
 - **Evidence:** owner programs already run normally inside that shell, including native builds.
   The narrow entry and worker restrictions were checked separately from ordinary app execution.
   This is not evidence that the existing Binder entry is a complete program launch API.
@@ -557,6 +572,12 @@ physical phone deployment at this checkpoint.
   could outlast a received lease. Pending ownership/renewal and guarded promotion corrected it.
   tmux fresh redraw worked; a tail cannot reconstruct a lost parser. Broad IME/accessibility
   and arbitrary scheduler stalls remain unqualified.
+- **Audit finding:** the current adapter passes a null parser logging client. The pinned
+  library then falls back to Android Log, and some malformed termcap/DCS paths include output
+  content. A bounded JVM reproduction with dummy canary data reached the logging facade;
+  ordinary text was a negative control. This is not an Android logd observation. The
+  [audit](../plans/2026-09-25-deliberate-decision-audit.md#f1-the-terminal-adapter-can-leak-parser-payloads-into-logging)
+  proposes an explicit redacted adapter and regressions. No implementation fix is claimed.
 - **Implication:** transport delivery, parser acknowledgement, input permission and screen
   reconstruction are different facts. A successful retry does not explain an earlier failure.
 - **Intent, accepted:** usable [owner terminals independent of work lifetime](architecture.md#lifecycle-and-networking),

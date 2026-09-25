@@ -26,6 +26,16 @@ qualifies a production implementation automatically.
 
 Detailed operating records, local configuration, credentials and raw captures remain private.
 
+## Current review
+
+Implementation is paused at the owner's request for the
+[deliberate decision audit](2026-09-25-deliberate-decision-audit.md). It covers the accepted
+architecture and all 18 evidence areas through 58 grouped decisions, with selected source
+checks and one bounded host reproduction. It is not whole platform or phone clearance.
+The review distinguishes sound requirements, avoidable prototype coupling, necessary tradeoffs,
+unselected mechanisms and qualification gaps. Accepted architecture and policy remain unchanged.
+The native reservation redesign below is still a proposal, not newly activated code.
+
 ## Current milestone
 
 The current work is implementing the native entry and Android integration for a sustainable
