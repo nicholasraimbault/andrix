@@ -103,7 +103,12 @@ against live reservations. JVM/component checks passed and the actual Android `s
 module compiled. This is not a device runtime pass, an owner designation interface or a manager
 factory. Complete settings loss/corruption, older readers and the native boot/recovery barrier
 remain activation gates; the initial adapter supports only user 0. Existing CE and Package
-Installer adaptations were preserved.
+Installer adaptations were preserved. Exact installed subject selection now binds designation
+to the installed object, signer set, version, UID and user serial, without making selection a
+grant. The [recovery boundary](2026-09-25-native-recovery-boundary.md) identifies the decision
+needed before activation when every authoritative identity record is lost: preserving ownership
+may require explicit recovery instead of normal phone startup. No recovery default was silently
+selected.
 
 The deciding gates are:
 

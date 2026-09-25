@@ -2,7 +2,11 @@
 // Host facade only. Not Android behavior or authority.
 package com.android.server.pm;
 import com.android.server.pm.pkg.PackageUserStateInternal;
+import android.content.pm.Signature;
+import android.content.pm.SigningDetails;
 final class PackageSetting extends SettingBase {
+ long version=1; SigningDetails signing=new SigningDetails(new Signature(new byte[]{1,2,3}));
+ long getVersionCode(){return version;} SigningDetails getSigningDetails(){return signing;}
  private final String name; int appId; boolean shared,system,updated,apex,external;
  String volume; boolean parsed=true; final Pkg pkg=new Pkg(); final PackageUserStateInternal state=new PackageUserStateInternal();
  PackageSetting(String n){name=n;} String getPackageName(){return name;}

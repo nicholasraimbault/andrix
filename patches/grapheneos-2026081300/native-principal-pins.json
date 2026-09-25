@@ -49,7 +49,7 @@
     {
       "path": "services/core/java/com/android/server/pm/NativePrincipalManager.java",
       "source": "owner/platform/framework/NativePrincipalManager.java",
-      "sha256": "363b64170734b55a8064383a60ba2d1e052bce1e021e86b1e791564248fc2f51"
+      "sha256": "88cce6d8ae2d4047d802ca58b0241465ce75a58e811fdaba7c86bb88b139f749"
     }
   ],
   "scope": "Internal PMS native-principal reservation component, not a public designation/launch API or runtime qualification",

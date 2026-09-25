@@ -14,9 +14,15 @@ APK as an owner login. It is one prerequisite for the
 
 `NativePrincipalManager` is an internal system_server API registered after Package Manager
 construction. A trusted account authority must validate owner designation and signer/identity
-continuity before calling it. `prepare` compares the expected app ID and user serial with the
-actual installed subject under Package Manager's locks. These numbers are compared, not
-assigned by the caller.
+continuity before calling it. `select` captures the exact installed object, app ID, user serial,
+version and current signer certificate digests under Package Manager's locks. It grants nothing
+and reserves no UID. The authority binds its designation decision to that selection, then
+`prepare` rechecks the complete selection under the same mutation locks. Raw UID/package
+numbers are no longer accepted as a substitute. A replacement installation with the same
+numbers cannot inherit an old selection, and a retired selection cannot create a new account.
+Commit and current identity checks retain this binding. A restored pin is only metadata until
+the authority explicitly rebinds its recovered designation to a current selection. This is not
+a production signer rotation policy or an owner consent UI.
 
 The initial subject must be an installed ordinary package on internal storage, with no shared
 UID, archive, instant, system, updated system, APEX, static library or SDK library role. Its
@@ -111,7 +117,9 @@ that barrier.
 ## Verification and source integration
 
 The state machine, exact handles, allocator holes/appends, unknown write handling, target
-retirement, restart markers and concurrency passed JVM checks. XML and strict writer failures
+retirement, restart markers and concurrency passed JVM checks. Selection tests also cover
+changed signer/version/user serial, replaced package objects, foreign service handles, immutable
+signer metadata and refusal to recreate a retired account from its old selection. XML and strict writer failures
 were exercised with real host files and writing descriptors plus explicit Android API facades.
 Those checks do not qualify Android ABX, fs-verity or device filesystem crash behavior.
 

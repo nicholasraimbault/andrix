@@ -2,6 +2,7 @@
 package com.android.server.pm;
 
 import android.content.pm.UserInfo;
+import android.content.pm.Signature;
 import android.os.Process;
 import android.os.UserHandle;
 
@@ -9,6 +10,10 @@ import com.android.server.LocalServices;
 import com.android.server.pm.pkg.PackageUserStateInternal;
 
 import java.util.IdentityHashMap;
+import java.util.Set;
+import java.util.TreeSet;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 
 /**
  * Package Manager's internal native account identity reservation. Not a Binder
@@ -21,10 +26,35 @@ import java.util.IdentityHashMap;
  */
 @SuppressWarnings("try") // Scoped install-lock guards are used for their close operation.
 public final class NativePrincipalManager {
+    /**
+     * Exact installed subject selected for a separate owner designation decision.
+     * Selection is metadata, not consent, a pin or an execution credential.
+     * Private instance ownership prevents reconstructed/cross-service selections.
+     */
+    public static final class Selection {
+        public final String packageName;
+        public final int appId, userId;
+        public final long userSerial, versionCode;
+        public final Set<String> currentSignerSha256;
+        private final NativePrincipalManager owner;
+        private final PackageSetting setting;
+        private Handle prepared; // PMS mutation lock. One reservation result per selection.
+        private Selection(NativePrincipalManager owner, PackageSetting setting, int user,
+                long serial) {
+            this.owner = owner;
+            this.setting = setting;
+            packageName = setting.getPackageName();
+            appId = setting.getAppId(); userId = user; userSerial = serial;
+            versionCode = setting.getVersionCode();
+            currentSignerSha256 = signerDigests(setting);
+        }
+    }
+
     public static final class Handle {
         private final NativePrincipalManager owner;
         private final NativePrincipalPins.Pin pin;
         private boolean retirementCommitted;
+        private Selection selection; // Current service incarnation's designation binding.
         private boolean retired; // Guarded by the Package Manager mutation lock.
         private Handle(NativePrincipalManager owner, NativePrincipalPins.Pin pin) {
             this.owner = owner;
@@ -41,34 +71,53 @@ public final class NativePrincipalManager {
         this.pm = pm;
     }
 
-    /**
-     * Reserve the actual Package Manager app ID before any native process starts.
-     * The returned handle is PENDING until commit succeeds. A failed write does
-     * not release it or authorize a new request identity. Exact retry reuses it.
-     * Package name is a lookup input after trusted designation, never designation
-     * authority by itself. Expected IDs bind the trusted designation decision to
-     * the current subject; they are compared, never assigned by this API. Signer
-     * and owner intent validation remain the account authority's responsibility.
-     * This operation grants no Android permission.
-     */
-    public Handle prepare(String packageName, int userId, int expectedAppId, long expectedUserSerial) {
+    /** Capture identity for the trusted designation UI/controller, with no pin or grant. */
+    public Selection select(String packageName, int userId) {
         try (PackageManagerTracedLock ignored = pm.mInstallLock.acquireLock()) {
             synchronized (pm.mLock) {
                 requireRecoveryReady();
                 long serial = primaryUserSerial(userId);
                 PackageSetting setting = subject(packageName, userId);
-                if (setting.getAppId() != expectedAppId || serial != expectedUserSerial) {
-                    throw new IllegalStateException("Native account selection changed");
+                requireNoMutation(packageName);
+                return new Selection(this, setting, userId, serial);
+            }
+        }
+    }
+
+    /**
+     * Called by the trusted account authority after designation of THIS selection.
+     * It must authenticate owner intent itself: possession of a Selection is not
+     * consent. Installed object, UID, serial, version and exact current signer set
+     * are compared under the same mutation lock, never supplied as credentials.
+     * A changed selection requires a new decision. Signer rotation during normal
+     * account maintenance is separate from this exact initial selection contract.
+     * A failed write retains PENDING. A retired selection cannot create a new pin.
+     */
+    public Handle prepare(Selection selection) {
+        try (PackageManagerTracedLock ignored = pm.mInstallLock.acquireLock()) {
+            synchronized (pm.mLock) {
+                requireRecoveryReady();
+                if (selection == null || selection.owner != this) {
+                    throw new IllegalArgumentException("Foreign native principal selection");
                 }
-                if (pm.mFrozenPackages.containsKey(packageName)
-                        || pm.isInstallingNativePrincipalPackage(packageName)
-                        || pm.mSettings.nativePrincipalMutationInProgressLPr(packageName)) {
-                    throw new IllegalStateException("Package mutation is in progress");
+                PackageSetting setting = validateSelection(selection);
+                if (selection.prepared != null) {
+                    checked(selection.prepared);
+                    requireDesignationBinding(selection.prepared);
+                    if (selection.prepared.pin.phase() == NativePrincipalPins.Phase.RETIRING) {
+                        throw new IllegalStateException("Native account selection is retiring");
+                    }
+                    return selection.prepared;
                 }
                 NativePrincipalPins.Pin pin = pm.mSettings.nativePrincipalPinsLPr().prepare(
-                        packageName, setting.getAppId(), userId, serial);
+                        selection.packageName, setting.getAppId(), selection.userId,
+                        selection.userSerial);
+                Handle prepared = handle(pin);
+                if (prepared.selection == null) prepared.selection = selection;
+                else validateSelection(prepared.selection);
+                selection.prepared = prepared;
                 pm.mSettings.refreshNativePrincipalAppIdsLPw();
-                return handle(pin);
+                return prepared;
             }
         }
     }
@@ -85,6 +134,7 @@ public final class NativePrincipalManager {
                 requireRecoveryReady();
                 NativePrincipalPins pins = checked(handle);
                 NativePrincipalPins.Record record = handle.pin.record();
+                requireDesignationBinding(handle);
                 revalidate(record);
                 if (handle.pin.phase() == NativePrincipalPins.Phase.RETIRING) {
                     throw new IllegalStateException("Native principal is retiring");
@@ -117,6 +167,7 @@ public final class NativePrincipalManager {
             if (handle.pin.phase() != NativePrincipalPins.Phase.ACTIVE) {
                 throw new IllegalStateException("Native principal reservation is not active");
             }
+            requireDesignationBinding(handle);
             revalidate(handle.pin.record());
             return handle.pin.record();
         }
@@ -247,6 +298,60 @@ public final class NativePrincipalManager {
             throw new IllegalStateException("Native principal subject unavailable");
         }
         return setting;
+    }
+
+    private void requireDesignationBinding(Handle handle) {
+        if (handle.selection == null) {
+            throw new IllegalStateException("Restored pin needs an explicit designation binding");
+        }
+        validateSelection(handle.selection);
+    }
+
+    private PackageSetting validateSelection(Selection selection) {
+        PackageSetting setting = subject(selection.packageName, selection.userId);
+        if (setting != selection.setting || setting.getAppId() != selection.appId
+                || primaryUserSerial(selection.userId) != selection.userSerial
+                || setting.getVersionCode() != selection.versionCode
+                || !signerDigests(setting).equals(selection.currentSignerSha256)) {
+            throw new IllegalStateException("Native account selection changed");
+        }
+        requireNoMutation(selection.packageName);
+        return setting;
+    }
+
+    private void requireNoMutation(String packageName) {
+        if (pm.mFrozenPackages.containsKey(packageName)
+                || pm.isInstallingNativePrincipalPackage(packageName)
+                || pm.mSettings.nativePrincipalMutationInProgressLPr(packageName)) {
+            throw new IllegalStateException("Package mutation is in progress");
+        }
+    }
+
+    private static Set<String> signerDigests(PackageSetting setting) {
+        Signature[] signatures = setting.getSigningDetails().getSignatures();
+        if (signatures == null || signatures.length == 0) {
+            throw new IllegalStateException("Installed signing identity unavailable");
+        }
+        TreeSet<String> digests = new TreeSet<>();
+        try {
+            MessageDigest sha256 = MessageDigest.getInstance("SHA-256");
+            final char[] hex = "0123456789abcdef".toCharArray();
+            for (Signature signature : signatures) {
+                if (signature == null) throw new IllegalStateException("Missing installed signer");
+                byte[] digest = sha256.digest(signature.toByteArray());
+                char[] text = new char[digest.length * 2];
+                for (int i = 0; i < digest.length; ++i) {
+                    text[2 * i] = hex[(digest[i] & 0xff) >>> 4];
+                    text[2 * i + 1] = hex[digest[i] & 15];
+                }
+                if (!digests.add(new String(text))) {
+                    throw new IllegalStateException("Duplicate installed signer");
+                }
+            }
+        } catch (NoSuchAlgorithmException error) {
+            throw new IllegalStateException("SHA-256 unavailable", error);
+        }
+        return Set.copyOf(digests);
     }
 
     private void revalidate(NativePrincipalPins.Record record) {
