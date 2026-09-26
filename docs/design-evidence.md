@@ -232,6 +232,12 @@ retain their own producers and scopes.
   received the predicted different ID, and narrow repair preserved that new mapping. The original
   stalled reboot and fixture failures remain separate. Production
   designation, writer crash recovery and native execution remain unqualified. No factory is enabled.
+- **Real writer path:** the [separate lab writer vehicle](../plans/2026-09-26-native-writer-qualification.md)
+  built at `6caeedd` and exercised the actual manager in `system_server`. Publication, original
+  handle retry, explicit cold rebinding and controlled I/O refusal passed while retaining unrelated
+  records and original keys. A failed directory time bookend exposed a narrower filesystem
+  qualification limit. Neither timestamps nor a prior acknowledgement are live authority.
+  No power loss, interrupted creation/release completion or production designation is established.
 - **Next gate:** complete the remaining authority and recovery connections, API binding and
   foreground contracts, then qualify the
   [account mapping](../plans/2026-09-21-android-unix-accounts.md) and

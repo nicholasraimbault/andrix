@@ -11,7 +11,10 @@ boundary. The route and helper are absent from normal source inputs. The shared 
 refuses even the exact lab adaptation unless the caller explicitly requests lab admission.
 The optional patch changes only `PackageManagerShellCommand` and adds this helper. It does not
 change the writer being tested. The separate image built at `6caeedd` contains the route and helper
-in its actual services jar. That compilation is not a writer runtime result.
+in its actual services jar. Compilation alone is not a writer runtime result. The separate
+[bounded runtime assessment](../../../plans/2026-09-26-native-writer-qualification.md) records
+actual publication, retry, cold rebinding and access refusal, along with a failed directory time
+bookend. No general power loss or retirement qualification follows.
 
 ## Operation ownership
 
