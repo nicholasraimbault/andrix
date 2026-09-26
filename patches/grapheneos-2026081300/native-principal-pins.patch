@@ -620,7 +620,15 @@
                  if (DEBUG_REMOVE) {
 --- a/services/core/java/com/android/server/pm/InstallPackageHelper.java
 +++ b/services/core/java/com/android/server/pm/InstallPackageHelper.java
-@@ -256,6 +256,10 @@
+@@ -147,6 +147,7 @@
+ import android.os.Trace;
+ import android.os.UserHandle;
+ import android.os.UserManager;
++import android.os.storage.StorageManager;
+ import android.os.incremental.IncrementalManager;
+ import android.os.incremental.IncrementalStorage;
+ import android.system.ErrnoException;
+@@ -256,6 +257,10 @@
  
      // List of packages being installed
      private final Set<String> mInstallingPackages;
@@ -631,7 +639,7 @@
  
  
      // TODO(b/198166813): remove PMS dependency
-@@ -740,6 +744,15 @@
+@@ -740,6 +745,15 @@
              return Pair.create(PackageManager.INSTALL_FAILED_USER_RESTRICTED, intentSender);
          }
  
@@ -647,7 +655,7 @@
          final long callingId = Binder.clearCallingIdentity();
          try {
              boolean installed = false;
-@@ -844,17 +857,23 @@
+@@ -844,17 +858,23 @@
                  InstallRequest request = new InstallRequest(userId,
                          PackageManager.INSTALL_SUCCEEDED, pkgSetting.getPkg(), new int[]{ userId },
                          () -> {
@@ -677,7 +685,7 @@
          }
  
          return Pair.create(PackageManager.INSTALL_SUCCEEDED, intentSender);
-@@ -1354,6 +1373,12 @@
+@@ -1354,6 +1374,12 @@
          return true;
      }
  
@@ -690,7 +698,7 @@
      private boolean scanInstallPackages(List<InstallRequest> requests,
              Map<String, Boolean> createdAppId, Map<String, Settings.VersionInfo> versionInfos) {
          final Set<String> scannedPackages = new ArraySet<>(requests.size());
-@@ -1382,8 +1407,13 @@
+@@ -1382,8 +1408,13 @@
                                      + " in multi-package install request.");
                      return false;
                  }
@@ -706,7 +714,7 @@
                          request.setError("Scanning Failed.",
                                  new PackageManagerException(
                                          PackageManager.INSTALL_FAILED_DUPLICATE_PACKAGE,
-@@ -1395,6 +1425,7 @@
+@@ -1395,6 +1426,7 @@
                          return false;
                      }
                  }
@@ -714,7 +722,7 @@
                  if (!checkNoAppStorageIsConsistent(
                          request.getScanRequestOldPackage(), packageToScan)) {
                      // TODO: INSTALL_FAILED_UPDATE_INCOMPATIBLE is about incomptabible
-@@ -1459,8 +1490,28 @@
+@@ -1459,8 +1491,28 @@
      }
  
  
@@ -743,7 +751,7 @@
          // The package freezing is now run outside the mInstallLock since it doesn't interact
          // with installD.
          final List<CompletableFuture<Void>> freezerFutures = new ArrayList<>();
-@@ -1490,6 +1541,10 @@
+@@ -1490,6 +1542,10 @@
                          synchronized (mPm.mLock) {
                              try {
                                  Trace.traceBegin(TRACE_TAG_PACKAGE_MANAGER, "commitPackages");
@@ -754,7 +762,7 @@
                                  commitPackagesLocked(reconciledPackages,
                                          mPm.mUserManager.getUserIds());
                              } finally {
-@@ -1504,13 +1559,16 @@
+@@ -1504,13 +1560,16 @@
                          Slog.e(TAG, "Failed to freeze one or more packages", e);
                          onComplete.accept(false);
                      } else {
@@ -772,7 +780,7 @@
              // Postpone freezer until after reconcile
              for (ReconciledPackage reconciledPkg : reconciledPackages) {
                  InstallRequest installRequest = reconciledPkg.mInstallRequest;
-@@ -1534,20 +1592,22 @@
+@@ -1534,20 +1593,22 @@
          return true;
      }
  
@@ -805,7 +813,7 @@
              }
          }
          if (success) {
-@@ -1730,6 +1790,12 @@
+@@ -1730,6 +1791,12 @@
          }
  
          String pkgName = parsedPackage.getPackageName();
@@ -818,7 +826,7 @@
          request.setName(pkgName);
          if (parsedPackage.isTestOnly()) {
              if ((installFlags & PackageManager.INSTALL_ALLOW_TEST) == 0) {
-@@ -3804,6 +3870,11 @@
+@@ -3804,6 +3871,11 @@
              if (!ps.isSystem()) {
                  continue;
              }
@@ -830,7 +838,7 @@
  
              /*
               * If the package is scanned, it's not erased.
-@@ -3869,6 +3940,12 @@
+@@ -3869,6 +3941,12 @@
              int[] userIds, int scanFlags) {
          for (int i = possiblyDeletedUpdatedSystemApps.size() - 1; i >= 0; --i) {
              final String packageName = possiblyDeletedUpdatedSystemApps.get(i);
@@ -843,7 +851,7 @@
              final AndroidPackage pkg = mPm.mPackages.get(packageName);
              final String msg;
  
-@@ -4124,6 +4201,7 @@
+@@ -4124,6 +4202,7 @@
          Throwable throwable = result.throwable;
          int errorCode = PackageManager.INSTALL_SUCCEEDED;
          String errorMsg = null;
@@ -851,7 +859,7 @@
          ScanParams scanParams = result.scanParams;
  
          if (throwable == null) {
-@@ -4133,6 +4211,7 @@
+@@ -4133,6 +4212,7 @@
                          new UserHandle(UserHandle.USER_SYSTEM), scanParams.apexInfo);
              } catch (PackageManagerException e) {
                  errorCode = e.error;
@@ -859,7 +867,7 @@
                  errorMsg = "Failed to scan " + result.scanFile + ": " + e.getMessage();
                  Slog.w(TAG, errorMsg);
              } finally {
-@@ -4141,6 +4220,7 @@
+@@ -4141,6 +4221,7 @@
          } else if (throwable instanceof PackageManagerException) {
              PackageManagerException e = (PackageManagerException) throwable;
              errorCode = e.error;
@@ -867,7 +875,7 @@
              errorMsg = "Failed to parse " + result.scanFile + ": " + e.getMessage();
              Slog.w(TAG, errorMsg);
          } else {
-@@ -4155,6 +4235,22 @@
+@@ -4155,6 +4236,22 @@
          // Delete invalid userdata apps
          if ((scanParams.scanFlags & SCAN_AS_SYSTEM) == 0
                  && errorCode != PackageManager.INSTALL_SUCCEEDED) {
@@ -890,7 +898,7 @@
              logCriticalInfo(Log.WARN,
                      "Deleting invalid package at " + result.scanFile + " (" + errorMsg + ")");
              mRemovePackageHelper.removeCodePath(result.scanFile);
-@@ -4175,6 +4271,12 @@
+@@ -4175,6 +4272,12 @@
                  continue;
              }
              final File scanFile = expectingBetterPackages.valueAt(i);
@@ -903,7 +911,7 @@
  
              logCriticalInfo(Log.WARN, "Expected better " + packageName
                      + " but never showed up; reverting to system");
-@@ -4326,6 +4428,11 @@
+@@ -4326,6 +4429,11 @@
              boolean appIdCreated = false;
              try {
                  final String pkgName = scanResult.mPkgSetting.getPackageName();
@@ -915,7 +923,7 @@
                  final List<ReconciledPackage> reconcileResult =
                          ReconcilePackageUtils.reconcilePackages(
                                  Collections.singletonList(installRequest),
-@@ -4333,6 +4440,12 @@
+@@ -4333,6 +4441,12 @@
                                          mPm.getSettingsVersionForPackage(parsedPackage)),
                                  mSharedLibraries, mPm.mSettings.getKeySetManagerService(),
                                  mPm.mSettings, mPm.mInjector.getSystemConfig());
@@ -928,7 +936,7 @@
                  if ((scanFlags & SCAN_AS_APEX) == 0) {
                      appIdCreated = optimisticallyRegisterAppIds(installRequest);
                  } else {
-@@ -4581,6 +4694,13 @@
+@@ -4581,6 +4695,13 @@
              final boolean scanSystemPartition =
                  (parseFlags & ParsingPackageUtils.PARSE_IS_SYSTEM_DIR) != 0;
              final boolean isApkInApex = (parseFlags & ParsingPackageUtils.PARSE_APK_IN_APEX) != 0;
@@ -942,7 +950,7 @@
              if ((scanFlags & SCAN_BOOTING) != 0) {
                  if (scanSystemPartition) {
                      PackageVerityExt.addSystemPackage(parsedPackage);
-@@ -4734,8 +4854,13 @@
+@@ -4734,8 +4855,13 @@
              // two special cases:
              // 1) when scanning system, force re-collect only if system is upgrading.
              // 2) when scanning /data, force re-collect only if the package name is allowlisted.
@@ -958,7 +966,7 @@
              if (DEBUG_VERIFY && forceCollect) {
                  Slog.d(TAG, "Force collect certificate of " + parsedPackage.getPackageName());
              }
-@@ -4782,10 +4907,15 @@
+@@ -4782,10 +4908,15 @@
                              parsedPackage.getPackageName(), UserHandle.USER_ALL,
                              "scanPackageInternalLI", ApplicationExitInfo.REASON_OTHER,
                              null /* request */)) {

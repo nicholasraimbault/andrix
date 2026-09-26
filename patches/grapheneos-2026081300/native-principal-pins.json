@@ -2,7 +2,7 @@
   "version": 1,
   "project": "frameworks/base",
   "head": "aab06a8bd44c4c2b58eeec780fde83baa9d43a40",
-  "patch_sha256": "a6464250226909e0ec546ec94fce7be3f42e1dcdcdf0dfc99ce2f03c9ec36f2a",
+  "patch_sha256": "4846cec0e8d7363aa8f5c824c735dc1ce2584fceaab6c5377ff05f610d56bd2a",
   "files": [
     {
       "path": "services/core/java/com/android/server/pm/AppIdSettingMap.java",
@@ -27,7 +27,7 @@
     {
       "path": "services/core/java/com/android/server/pm/InstallPackageHelper.java",
       "upstream_sha256": "d1463b2b228e9c3c429ad0d3f6858053b31e597fb03c22a02b4ec8d3e2383932",
-      "candidate_sha256": "af890e56b8f2700447b8e26ef6b34e732c6c8bc983abdfb28691fb1bace6c007"
+      "candidate_sha256": "b69490503c616c32190231b0234f8c1a489ab938be873a4faaf66b12956a6e9f"
     },
     {
       "path": "services/core/java/com/android/server/pm/ResilientAtomicFile.java",
