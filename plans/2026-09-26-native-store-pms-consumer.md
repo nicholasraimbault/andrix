@@ -84,7 +84,8 @@ A guarded privileged PMS dump captures cached reservation metadata and the live 
 under the state lock, then prints outside that lock. This is diagnostic metadata, not a work or CE
 lease. It retains the existing dump permission gate. Host checks cover the added source guard and
 fixture protocols. The fixture compiles against the public SDK. The full image and separate APKs
-built at `fec0da7`; the bounded observations and retained failures are recorded in the
+built at `fec0da7`; the bounded identity mismatch, missing mapping, allocator exclusion, metadata repair and retained
+failure observations are recorded in the
 [boot recovery assessment](2026-09-26-native-identity-boot-recovery.md).
 
 ## Deliberate limits

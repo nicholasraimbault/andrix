@@ -47,8 +47,10 @@ build. The [PMS consumer integration](2026-09-26-native-store-pms-consumer.md) n
 host checks, including actual slot transactions beneath the manager, negative recovery state and
 code/data cleanup fences. Its actual Android `services.core` build passed at `e8dc35c`. The
 [bounded boot recovery vehicle](2026-09-26-native-identity-boot-recovery.md) now has a complete
-image at `fec0da7` and same guest observations of healthy bindings, reserve fallback, quarantine
-and retention of original data and keys after record repair. Failed trials remain separate.
+image at `fec0da7` and same guest observations of healthy bindings, reserve fallback, canonical
+signer/serial mismatches and quarantine. Removing one PMS mapping preserved the held UID and
+original data, while a new APK received the predicted different ID. Narrow current database repair
+restored the original keys without removing the new APK. Failed trials remain separate.
 Production designation, owned restoration and native lifecycle remain gates. No factory or native
 account entry was activated.
 

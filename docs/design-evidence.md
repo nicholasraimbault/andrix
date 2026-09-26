@@ -227,8 +227,10 @@ retain their own producers and scopes.
   replaces the embedded native section. Its actual `services.core` build passed at `e8dc35c`;
   its full image and separate fixture APKs built at `fec0da7`. The
   [bounded boot recovery assessment](../plans/2026-09-26-native-identity-boot-recovery.md) records
-  healthy bindings, reserve fallback and later same guest quarantine/data/key retention, while
-  preserving the original stalled reboot and failed unsynced fixture repair. Production
+  healthy bindings, reserve fallback, canonical signer/serial refusals, and same guest quarantine
+  with original data/key retention. A missing PMS mapping left the UID held; an ordinary install
+  received the predicted different ID, and narrow repair preserved that new mapping. The original
+  stalled reboot and fixture failures remain separate. Production
   designation, writer crash recovery and native execution remain unqualified. No factory is enabled.
 - **Next gate:** complete the remaining authority and recovery connections, API binding and
   foreground contracts, then qualify the

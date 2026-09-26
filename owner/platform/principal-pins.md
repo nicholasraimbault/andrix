@@ -6,7 +6,8 @@ Android `services.core` module at `3ee50f3`. Its subsequent
 [PMS consumer integration](../../plans/2026-09-26-native-store-pms-consumer.md) compiled at
 `e8dc35c`, after its own host checks and retained initial compile failures. The full image at
 `fec0da7` has a [bounded boot recovery assessment](../../plans/2026-09-26-native-identity-boot-recovery.md),
-not production designation or native execution qualification. No Binder endpoint, manifest declaration, signer or ordinary installation
+including canonical identity mismatch and missing PMS mapping/allocator observations, not
+production designation, grant preservation or native execution qualification. No Binder endpoint, manifest declaration, signer or ordinary installation
 can designate a native account. The first adapter supports user 0 and ordinary internal packages.
 
 This extends Package Manager's UID lifetime machinery. It does not allocate another UID space,
