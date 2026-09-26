@@ -1,7 +1,7 @@
 # Native identity writer qualification
 
-Status: bounded test vehicle implemented and host checked. Android compilation and the writer
-runtime trial are pending. This follows the [reader and recovery observations](2026-09-26-native-identity-boot-recovery.md).
+Status: bounded test vehicle implemented, host checked and compiled in a separate Android image.
+The writer runtime trial is pending. This follows the [reader and recovery observations](2026-09-26-native-identity-boot-recovery.md).
 Native execution remains disabled in every image, including this test image.
 
 ## Purpose
@@ -24,7 +24,9 @@ be explicit and match the exact optional patch and helper. The normal image alre
 checked in its sealed `services.jar`.
 
 The root caller and debuggable build checks are additional checks, not the separation boundary.
-The actual lab artifact still needs compilation and inspection. Its userdata remains lab state,
+The lab image built at `6caeedd` contains both the route and helper in its actual `services.jar`.
+The manager and fixture source adaptations were reversed only after the producer scope was empty.
+The existing CE and package verity adaptations remained unchanged. Its userdata remains lab state,
 including later diagnostic continuations. A persisted slot does not identify its test origin.
 Keep its lineage, exact record and image/APK producers in the external operation ledger.
 
@@ -56,6 +58,12 @@ check fails without a JDK. It does not turn skipped Java execution into success.
 An exact source application control proved that normal admission refuses the lab route, explicit
 lab admission accepts only the pinned source, and reversal preserves the existing CE and package
 verity adaptations. These are source and host checks, not Android writer execution.
+
+The strict observer requires the captured instance, nonce, selection intent and independent Android
+identity. It distinguishes direct commit replies from status based reconciliation using the issued
+request ledger, not the reply's self description. Exact paired record comparison also rejects extra
+slot directories, backup files, missing copies and symbolic paths. The host checks feed actual
+fixture replies into this observer.
 
 The disposable device trial must independently verify caller refusal, the recorded starting store,
 the actual selected Android identity, publication and same handle retry, unchanged unrelated

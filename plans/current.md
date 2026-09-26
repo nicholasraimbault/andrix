@@ -55,7 +55,8 @@ Production designation, owned restoration and native lifecycle remain gates. No 
 account entry was activated. The next bounded step is
 [real PMS writer qualification](2026-09-26-native-writer-qualification.md), through a separate
 lab route that cannot grant execution or release a reservation. Its host ownership controls
-and exact source admission checks pass; Android writer execution remains pending.
+and exact source admission checks pass. The separate Android lab image built at `6caeedd`;
+actual writer execution remains pending.
 
 ## Current milestone
 

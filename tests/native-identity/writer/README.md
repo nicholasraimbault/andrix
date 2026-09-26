@@ -10,7 +10,8 @@ The caller check requires actual Binder UID 0 and a debuggable build. This is no
 boundary. The route and helper are absent from normal source inputs. The shared framework guard
 refuses even the exact lab adaptation unless the caller explicitly requests lab admission.
 The optional patch changes only `PackageManagerShellCommand` and adds this helper. It does not
-change the writer being tested. The artifact still needs independent compilation and inspection.
+change the writer being tested. The separate image built at `6caeedd` contains the route and helper
+in its actual services jar. That compilation is not a writer runtime result.
 
 ## Operation ownership
 
@@ -67,6 +68,12 @@ A device run can qualify the real writer path, same instance retry and metadata 
 this case. A clean restart is not power loss or a mid publication crash test. Partial CREATING
 records and retirement tails remain held until an actual owned continuation exists. There is no
 command here that fabricates that ownership or completes retirement.
+
+The observer requires captured instance and nonce tokens for operation replies. Initial `info`
+has its own parser. Positive commit assessment also requires the intended creation/rebind mode,
+transport result and the request kind from the issued ledger. A status based reconciliation is
+identified separately from a direct commit reply. The store checker rejects extra files, backups,
+slot directories and symbolic paths, not just mismatched contents in the expected six files.
 
 The external lab ledger must retain the instance, nonce, selected subject, original record,
 store lineage and exact image/APK producers. A `Slot` does not record that a test created it.

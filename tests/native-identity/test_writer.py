@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Test fixture transport ownership over the real manager/store with host Android facades."""
 from pathlib import Path
+import base64
+import importlib.util
 import shutil
 import subprocess
 import tempfile
@@ -51,7 +53,8 @@ class WriterFixtureTests(unittest.TestCase):
                         'NativeIdentityStore', 'NativeIdentityPersistence', 'NativePrincipalRecovery')),
                      HERE / 'writer/NativePrincipalWriterFixture.java',
                      HERE / 'writer/NativePrincipalWriterFixtureTest.java',
-                     HERE / 'writer/NativePrincipalWriterFixtureFaultTest.java']
+                     HERE / 'writer/NativePrincipalWriterFixtureFaultTest.java',
+                     HERE / 'writer/NativePrincipalWriterFixtureTranscript.java']
             result = subprocess.run(['javac', '-J-Xmx256m', '--release', '17', '-Xlint:all', '-Werror',
                                      '-d', str(output), *map(str, files)],
                                     capture_output=True, text=True, timeout=120)
@@ -66,7 +69,34 @@ class WriterFixtureTests(unittest.TestCase):
                 refused = subprocess.run(args, capture_output=True, text=True, timeout=20)
                 self.assertNotEqual(refused.returncode, 0)
                 self.assertIn('-ea', refused.stderr)
-
+            transcript = subprocess.run(['java', '-Xmx256m', '-Djava.io.tmpdir=' + str(output), '-ea',
+                                         '-cp', str(output), 'com.android.server.pm.NativePrincipalWriterFixtureTranscript'],
+                                        capture_output=True, text=True, timeout=90)
+            self.assertEqual(transcript.returncode, 0, transcript.stdout + transcript.stderr)
+            spec = importlib.util.spec_from_file_location('writer_observe_actual', HERE / 'writer_observe.py')
+            observer = importlib.util.module_from_spec(spec); spec.loader.exec_module(observer)
+            instance, nonce = 'a' * 32, 'b' * 32
+            selected = {'app_id': 10148, 'user_id': 0, 'user_serial': 7, 'version_code': 1,
+                        'signer_sha256': '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81'}
+            seen = set()
+            for line in transcript.stdout.splitlines():
+                label, code, encoded, errors = line.split('\t'); code = int(code); self.assertNotIn(label, seen); seen.add(label)
+                text = base64.b64decode(encoded, validate=True).decode(); stderr = base64.b64decode(errors, validate=True).decode()
+                if label == 'denied': observer.caller_denied(text, stderr, code)
+                elif label == 'info': self.assertEqual(observer.parse_info(text)['instance'], instance)
+                elif label == 'stale': observer.refusal(text, 'STALE_INSTANCE', instance,
+                        requested_instance='c' * 32, returncode=code, stderr=stderr)
+                elif label in {'commit', 'status'}:
+                    observed = observer.assess_commit(text, instance=instance, nonce=nonce, selected=selected,
+                            expected_id=1, intent='select-new', transport_operation=label, returncode=code, stderr=stderr)
+                    self.assertEqual(observed['assessment_origin'], 'commit-reply' if label == 'commit' else 'status-reconciliation')
+                elif label == 'unknown':
+                    self.assertEqual(code, 1)
+                    self.assertEqual(stderr.strip(), 'native writer fixture outcome unknown: REPLY_UNAVAILABLE')
+                    self.assertNotIn('test detail', text + stderr)
+                    with self.assertRaises(ValueError): observer.parse(text, instance=instance, nonce=nonce, selected=selected)
+                else: observer.parse(text, instance=instance, nonce=nonce, selected=selected)
+            self.assertEqual(seen, {'denied', 'info', 'stale', 'select', 'prepare', 'commit', 'status', 'unknown'})
 
 
 if __name__ == '__main__':

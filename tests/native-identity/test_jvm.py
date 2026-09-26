@@ -18,16 +18,17 @@ class FixtureJvmTests(unittest.TestCase):
             files = [ROOT / 'owner/platform/framework/NativeIdentityRecords.java',
                      HERE / 'src/dev/andrix/proof/uidstore/RecoveryRequest.java',
                      HERE / 'RecoveryRequestTest.java', HERE / 'FixtureStore.java',
-                     HERE / 'FixtureVariant.java', HERE / 'FixtureVariantTest.java']
+                     HERE / 'FixtureVariant.java', HERE / 'FixtureVariantTest.java',
+                     HERE / 'WriterStoreCheck.java', HERE / 'WriterStoreCheckTest.java']
             result = subprocess.run(['javac', '-J-Xmx256m', '--release', '17', '-Xlint:all', '-Werror',
                                      '-d', str(output), *map(str, files)],
                                     capture_output=True, text=True, timeout=90)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            for name in ('RecoveryRequestTest', 'FixtureVariantTest'):
-                result = subprocess.run(['java', '-Xmx256m', '-ea', '-cp', str(output), name],
+            for name in ('RecoveryRequestTest', 'FixtureVariantTest', 'WriterStoreCheckTest'):
+                result = subprocess.run(['java', '-Xmx256m', '-Djava.io.tmpdir=' + str(output), '-ea', '-cp', str(output), name],
                                         capture_output=True, text=True, timeout=60)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                refused = subprocess.run(['java', '-Xmx256m', '-cp', str(output), name],
+                refused = subprocess.run(['java', '-Xmx256m', '-Djava.io.tmpdir=' + str(output), '-cp', str(output), name],
                                          capture_output=True, text=True, timeout=60)
                 self.assertNotEqual(refused.returncode, 0)
                 self.assertIn('-ea', refused.stderr)
