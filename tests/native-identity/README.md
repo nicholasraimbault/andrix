@@ -89,9 +89,31 @@ including FBE and KeyMint storage, not just a userdata file.
 
 `settings_fault.py` removes only one top level fixture `<package>` element from a decoded copy.
 It preserves the semantics of all remaining certificate references, including their shared global
-indices, and refuses to orphan the removed package's signing keyset. It does not remove package
-restrictions, permission or domain state elsewhere. Wrong signer and serial records, kept intact
-rather than malformed, must separately exercise the corresponding scan fences.
+indices, and refuses to orphan the removed package's signing keyset. The inverse inserts only the
+original fixture element into the current XML, preserving later packages. It refuses an occupied
+name or app ID and changed or missing keyset material. A restored package must precede
+`keyset-settings`, which consumes the accumulated reference counts while parsing.
+
+Before removal, an equivalent control can reorder the fixture package and reindex certificates.
+An optional fresh ignored top level tag at the end witnesses main file parsing in the boot log.
+The marker alone does not prove all elements were accepted. Require unchanged package/shared UID
+maps and no new parse, certificate or destruction errors as well. Publish only the candidate main,
+keeping the current original reserve for fallback. A repair likewise keeps the current reserve,
+never an older database that would discard later installs.
+
+`quiesce_writer.c` is an optional disposable Android root fixture. It captures a live PID descriptor
+for the process hosting PMS, validates the UID, SELinux context and process name while that
+captured object is alive, then requests the fixed zygote service stops. It accepts completion only
+when the captured writer has exited and the selected services are stopped. A nonce binds its
+reply to this invocation. A failure or timeout does not permit metadata editing. This is not
+native work retirement, a UID release, or a general elevation endpoint.
+
+These tools do not restore package restrictions, separate permission state or domain state.
+`uid_observe.py` uses complete PMS package/shared UID dumps and the observed allocator cursor.
+An allocator exclusion claim requires a successful install at the predicted free ID. A lower hole,
+a cursor beyond the target, or a failed install makes that case inconclusive. Neither the parser
+nor the dump allocates an ID. Wrong signer and serial records, kept intact rather than malformed,
+separately exercise the corresponding scan fences.
 
 No runtime result is recorded by this source alone. Android boot, actual storage/keystore behavior,
 locked CE, secondary users, production designation, writer crash durability and native lifecycle
