@@ -37,6 +37,12 @@ class NativePrincipalPinsTests(unittest.TestCase):
         self.assertLess(patch.index('Native account backing package cannot be replaced by a system scan'),
                         patch.index('PackageVerityExt.addSystemPackage(parsedPackage)'))
         self.assertNotIn('INSTR_FLAG_DISABLE_HIDDEN_API_CHECKS', patch)
+        dump = patch[patch.index('protected void dump(FileDescriptor'):]
+        self.assertLess(dump.index('checkDumpAndUsageStatsPermission'),
+                        dump.index('--andrix-native-identities'))
+        self.assertIn('synchronized (mLock) { nativeMetadata = mSettings.nativeIdentityDumpLPr(); }', dump)
+        self.assertLess(dump.index('nativeIdentityDumpLPr(); }'), dump.index('pw.print(nativeMetadata)'))
+        self.assertIn('authority=not-reported', patch)
 
     def test_profile_drift_refused(self):
         original = json.loads(integration.PROFILE.read_text())

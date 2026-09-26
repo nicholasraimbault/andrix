@@ -60,7 +60,14 @@
          if (appId >= Process.FIRST_APPLICATION_UID) {
              final int size = mNonSystemSettings.size();
              final int index = appId - Process.FIRST_APPLICATION_UID;
-@@ -155,19 +180,24 @@
+@@ -151,23 +176,31 @@
+         }
+     }
+ 
++    /** Read-only diagnostic cursor from the live allocator, not a reservation or lease. */
++    int nativeIdentitySearchStart() { return mFirstAvailableAppId; }
++
+     /** Returns a new AppID or -1 if we could not find an available AppID to assign */
      public int acquireAndRegisterNewAppId(SettingBase obj) {
          final int size = mNonSystemSettings.size();
          for (int i = mFirstAvailableAppId - Process.FIRST_APPLICATION_UID; i < size; i++) {
@@ -102,7 +109,7 @@
  import android.os.FileUtils;
  import android.os.Handler;
  import android.os.Message;
-@@ -563,6 +564,361 @@
+@@ -563,6 +564,395 @@
      final WatchedArrayMap<String, SharedUserSetting> mSharedUsers = new WatchedArrayMap<>();
      @Watched(manual = true)
      private final AppIdSettingMap mAppIds;
@@ -373,6 +380,40 @@
 +                java.util.Set.of(setting.getPackageName())), setting.getPath());
 +    }
 +
++    /** Bounded metadata capture under mLock; print only after releasing that lock. */
++    String nativeIdentityDumpLPr() {
++        StringBuilder text = new StringBuilder("andrix-native-identities-v1\n");
++        if (mNativePrincipalPins == null || mNativeIdentityLoaded == null) {
++            return text.append("live_settings=false\n").toString();
++        }
++        text.append("live_settings=true\n");
++        text.append("authority=not-reported\n");
++        text.append("counter_known=").append(mNativePrincipalPins.hasKnownCounter()).append('\n');
++        text.append("cached_header=").append(mNativeIdentityLoaded.header.status).append('\n');
++        text.append("cached_enumeration_complete=").append(mNativeIdentityLoaded.enumerationComplete).append('\n');
++        text.append("creation_ready=").append(nativePrincipalCreationReadyLPr()).append('\n');
++        text.append("allocator_search_start=").append(mAppIds.nativeIdentitySearchStart()).append('\n');
++        text.append("unidentified_code=").append(mNativeRecoveryView.hasUnidentifiedCode()).append('\n');
++        java.util.Set<Integer> held = new java.util.TreeSet<>(mNativeStoreAppIds);
++        held.addAll(mNativePrincipalPins.reservedAppIds());
++        for (int appId : held) {
++            NativeIdentityStore.ReadResult<NativeIdentityRecords.Slot> slot = mNativeIdentityLoaded.slots.get(appId);
++            SettingBase mapping = mAppIds.getSetting(appId);
++            String name = mapping instanceof PackageSetting pkg ? pkg.getPackageName()
++                    : mapping instanceof SharedUserSetting shared ? shared.getName() : "";
++            if (name == null || name.length() > 255) name = "invalid";
++            byte[] nameBytes = name.getBytes(java.nio.charset.StandardCharsets.UTF_8);
++            if (nameBytes.length > 255) nameBytes = "invalid".getBytes(java.nio.charset.StandardCharsets.UTF_8);
++            String encoded = android.util.Base64.encodeToString(nameBytes, android.util.Base64.NO_WRAP);
++            String kind = mapping == null ? "empty" : mapping instanceof PackageSetting ? "package"
++                    : mapping instanceof SharedUserSetting ? "shared" : "other";
++            text.append("hold=").append(appId).append('\t').append(slot == null ? "MISSING" : slot.status.name())
++                    .append('\t').append(mNativePrincipalPins.isAppIdPinned(appId)).append('\t').append(kind)
++                    .append('\t').append(encoded).append('\n');
++        }
++        return text.toString();
++    }
++
 +    NativePrincipalRecovery nativeRecoveryView() { return mNativeRecoveryView; }
 +
 +    void deferNativePackage(String packageName, File codePath) {
@@ -464,7 +505,7 @@
  
      @Watched(manual = true)
      private final PccIdSettingMap mPccIds;
-@@ -828,6 +1184,7 @@
+@@ -828,6 +1218,7 @@
  
          mSharedUsers.snapshot(r.mSharedUsers);
          mAppIds = r.mAppIds.snapshot();
@@ -472,7 +513,7 @@
          mPccIds = r.mPccIds.snapshot();
  
          mRenamedPackages.snapshot(r.mRenamedPackages);
-@@ -1396,14 +1753,32 @@
+@@ -1396,14 +1787,32 @@
      boolean registerAppIdLPw(PackageSetting p, boolean forceNew) throws PackageManagerException {
          final boolean createdNew;
          if (p.getAppId() == 0 || forceNew) {
@@ -586,6 +627,19 @@
                  } //end run
              });
          }
+@@ -7095,6 +7125,12 @@
+         @Override
+         protected void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+             if (!DumpUtils.checkDumpAndUsageStatsPermission(mContext, TAG, pw)) return;
++            if (args != null && args.length == 1 && "--andrix-native-identities".equals(args[0])) {
++                final String nativeMetadata;
++                synchronized (mLock) { nativeMetadata = mSettings.nativeIdentityDumpLPr(); }
++                pw.print(nativeMetadata);
++                return;
++            }
+             final Computer snapshot = snapshotComputer();
+             final KnownPackages knownPackages = new KnownPackages(
+                     mDefaultAppProvider,
 --- a/services/core/java/com/android/server/pm/DeletePackageHelper.java
 +++ b/services/core/java/com/android/server/pm/DeletePackageHelper.java
 @@ -142,6 +142,9 @@

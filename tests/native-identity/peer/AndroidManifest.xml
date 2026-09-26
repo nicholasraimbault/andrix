@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.andrix.proof.uidstorepeer" android:versionCode="1" android:versionName="1">
+    <uses-sdk android:minSdkVersion="37" android:targetSdkVersion="37" />
+    <application android:label="Andrix identity recovery peer" android:debuggable="false"
+        android:allowBackup="false" android:testOnly="true" />
+    <instrumentation android:name="dev.andrix.proof.uidstore.RecoveryInstrumentation"
+        android:targetPackage="dev.andrix.proof.uidstorepeer" android:label="Finite independent UID observer" />
+</manifest>

@@ -69,6 +69,21 @@ continue where it is not affected. The deferred boot preparation batch is serial
 designation; its queueing is not treated as completion. Install-existing holds its mutation
 obligation through the asynchronous restore completion, not just the initiating Binder return.
 
+## Disposable boot observer preparation
+
+The next vehicle is [ordinary UID recovery instrumentation](../tests/native-identity/README.md).
+It uses dummy CE/DE canaries and a key in its own AndroidKeyStore namespace. Observation never
+regenerates fixture state. Its request ledger requires independent UID, user serial and APK signer
+capture references, a fresh request nonce and the original public key anchor. Its observer
+distinguishes an exact reported refusal from transport loss, and verifies signatures independently.
+The device controller still needs to connect these checks.
+
+A guarded privileged PMS dump captures cached reservation metadata and the live allocator cursor
+under the state lock, then prints outside that lock. This is diagnostic metadata, not a work or CE
+lease. It retains the existing dump permission gate. Host checks cover the added source guard and
+fixture protocols. The fixture also compiles against the public SDK. The additional diagnostic's
+Android build and the fixture's image and runtime results are still pending.
+
 ## Deliberate limits
 
 - The first adapter remains user 0 and an ordinary internal package. A dedicated policy carrier

@@ -2,22 +2,22 @@
   "version": 1,
   "project": "frameworks/base",
   "head": "aab06a8bd44c4c2b58eeec780fde83baa9d43a40",
-  "patch_sha256": "4846cec0e8d7363aa8f5c824c735dc1ce2584fceaab6c5377ff05f610d56bd2a",
+  "patch_sha256": "d9f4703cf2e88cf503084684412073918b11a541381fd75bc211300ca44be1d4",
   "files": [
     {
       "path": "services/core/java/com/android/server/pm/AppIdSettingMap.java",
       "upstream_sha256": "ee6d013c3f4e2378f9ecfd25a053490f552812004bb6c89d8e06488299ed5c19",
-      "candidate_sha256": "40a52b98608b887f0568978f631606222a82b3de503327db4ad65db0de3e015a"
+      "candidate_sha256": "ac0721c8c98e1efbe17b64358f29a30ae514ceddff51f48959bd6249b256e9f7"
     },
     {
       "path": "services/core/java/com/android/server/pm/Settings.java",
       "upstream_sha256": "bff2de579d206a39be81ef0b798df8f6e845d2f28efbbcd63554ccffbddae5a1",
-      "candidate_sha256": "305d323bc4dd2bc8c7f3c9f0c3d472ff1921531ebbac444eb1cf5557bb1eb161"
+      "candidate_sha256": "b865bd62d904d29bb2ee891e109881eb2e8fb04eee4acac824f964fbf3a1fb99"
     },
     {
       "path": "services/core/java/com/android/server/pm/PackageManagerService.java",
       "upstream_sha256": "93a003dd464be4b89f778194e20f4624c20e69eaaacc5d832be0ff7b4935e20a",
-      "candidate_sha256": "70be2e88d0f89390fd1e7b04a4bdbecef7c7ca563152e27243acb483f57bec89"
+      "candidate_sha256": "890e3f5070fc6ea6555ea197ef9c244aa69d4c2fb1b0b0f1c3aed170f5f84ec9"
     },
     {
       "path": "services/core/java/com/android/server/pm/DeletePackageHelper.java",
@@ -98,7 +98,7 @@
     {
       "path": "services/core/java/com/android/server/pm/AppIdSettingMap.java",
       "source": "owner/tests/platform/AppIdSettingMap.java.inc",
-      "sha256": "40a52b98608b887f0568978f631606222a82b3de503327db4ad65db0de3e015a"
+      "sha256": "ac0721c8c98e1efbe17b64358f29a30ae514ceddff51f48959bd6249b256e9f7"
     },
     {
       "path": "services/core/java/com/android/server/pm/ResilientAtomicFile.java",

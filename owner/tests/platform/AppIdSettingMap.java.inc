@@ -176,6 +176,9 @@ final class AppIdSettingMap {
         }
     }
 
+    /** Read-only diagnostic cursor from the live allocator, not a reservation or lease. */
+    int nativeIdentitySearchStart() { return mFirstAvailableAppId; }
+
     /** Returns a new AppID or -1 if we could not find an available AppID to assign */
     public int acquireAndRegisterNewAppId(SettingBase obj) {
         final int size = mNonSystemSettings.size();

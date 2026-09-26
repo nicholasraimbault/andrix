@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: Apache-2.0
+// Disposable ordinary-UID observers. Never PRODUCT_PACKAGES or native designation authority.
+java_defaults {
+    name: "andrix_native_identity_probe_defaults",
+    srcs: ["src/**/*.java"],
+    sdk_version: "current",
+    min_sdk_version: "37",
+    target_sdk_version: "37",
+    certificate: "testkey",
+    optimize: { enabled: false },
+    dex_preopt: { enabled: false },
+}
+
+android_test {
+    name: "AndrixNativeIdentityProbe",
+    defaults: ["andrix_native_identity_probe_defaults"],
+    manifest: "AndroidManifest.xml",
+    test_suites: ["general-tests"],
+}
+
+android_test {
+    name: "AndrixNativeIdentityPeer",
+    defaults: ["andrix_native_identity_probe_defaults"],
+    manifest: "peer/AndroidManifest.xml",
+    test_suites: ["general-tests"],
+}
