@@ -16,7 +16,9 @@ endorsed that direction and resumed bounded implementation. The
 [native identity storage component](2026-09-25-native-identity-store.md) record their own evidence
 and remaining integration gates, not automatic qualification of the complete model. The
 [PMS store consumer](2026-09-26-native-store-pms-consumer.md) then joins those records to actual
-allocation, mutation, recovery and cleanup boundaries.
+allocation, mutation, recovery and cleanup boundaries. The
+[bounded boot recovery trial](2026-09-26-native-identity-boot-recovery.md) then records disposable
+Android reader/quarantine and original data/key retention, with failed trials kept separate.
 
 The [2026-09-21 accepted vision revision](2026-09-21-owner-composable-android.md) expands
 Andrix from a Unix focused layer to an owner composable Android OS. Its platform work is

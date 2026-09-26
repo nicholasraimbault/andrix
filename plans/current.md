@@ -45,8 +45,12 @@ runtime privacy remain separately unqualified. The [native identity record and s
 now has actual Java codec/filesystem checks and a successful Android `services.core` module
 build. The [PMS consumer integration](2026-09-26-native-store-pms-consumer.md) now has 24 focused
 host checks, including actual slot transactions beneath the manager, negative recovery state and
-code/data cleanup fences. Its actual Android `services.core` build passed at `e8dc35c`. Boot
-recovery, owned restoration and lifecycle integration remain separate gates. No new factory or account path was activated.
+code/data cleanup fences. Its actual Android `services.core` build passed at `e8dc35c`. The
+[bounded boot recovery vehicle](2026-09-26-native-identity-boot-recovery.md) now has a complete
+image at `fec0da7` and same guest observations of healthy bindings, reserve fallback, quarantine
+and retention of original data and keys after record repair. Failed trials remain separate.
+Production designation, owned restoration and native lifecycle remain gates. No factory or native
+account entry was activated.
 
 ## Current milestone
 
@@ -132,8 +136,9 @@ reservation store owned by Package Manager, separate from ordinary package setti
 slots and recovery copies would preserve allocation holds even when account details are damaged,
 so the affected native account can stay unavailable without stopping the phone. The separate
 [storage component](2026-09-25-native-identity-store.md) is now module compiled. Its
-[PMS consumer](2026-09-26-native-store-pms-consumer.md) is implemented with host checks, but the
-recovery behavior is not yet Android runtime qualified. Unsupported OS data reuse is outside the supported migration path;
+[PMS consumer](2026-09-26-native-store-pms-consumer.md) is implemented and its
+[bounded reader/quarantine path](2026-09-26-native-identity-boot-recovery.md) has disposable Android
+observations. This is not production designation, writer crash recovery or complete native account qualification. Unsupported OS data reuse is outside the supported migration path;
 total destruction of every authority copy is a disaster case, not a reason to block ordinary
 integration. No fixed UID range, permanent nonreuse policy or catastrophic recovery default was
 silently selected.

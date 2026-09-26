@@ -225,7 +225,11 @@ retain their own producers and scopes.
   header-only damage and retirement ordering have bounded coverage. The later
   [PMS consumer](../plans/2026-09-26-native-store-pms-consumer.md) has 24 focused host checks and
   replaces the embedded native section. Its actual `services.core` build passed at `e8dc35c`;
-  boot and crash recovery remain unqualified. No native account factory is enabled.
+  its full image and separate fixture APKs built at `fec0da7`. The
+  [bounded boot recovery assessment](../plans/2026-09-26-native-identity-boot-recovery.md) records
+  healthy bindings, reserve fallback and later same guest quarantine/data/key retention, while
+  preserving the original stalled reboot and failed unsynced fixture repair. Production
+  designation, writer crash recovery and native execution remain unqualified. No factory is enabled.
 - **Next gate:** complete the remaining authority and recovery connections, API binding and
   foreground contracts, then qualify the
   [account mapping](../plans/2026-09-21-android-unix-accounts.md) and

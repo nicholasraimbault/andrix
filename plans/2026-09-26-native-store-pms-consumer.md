@@ -1,7 +1,8 @@
 # PMS consumes the separate native identity store
 
-Status: implementation, host checks and an actual Android `services.core` build. Runtime
-qualification remains separate. No product enables the native manager factory. This joins the
+Status: implementation, host checks, Android builds and a
+[bounded boot reader/quarantine trial](2026-09-26-native-identity-boot-recovery.md).
+Production designation and complete native runtime qualification remain separate. No product enables the native manager factory. This joins the
 [slot storage component](2026-09-25-native-identity-store.md) to Package Manager's identity and
 mutation paths. It is not a new UID allocator, installed package database or permission authority.
 
@@ -69,20 +70,22 @@ continue where it is not affected. The deferred boot preparation batch is serial
 designation; its queueing is not treated as completion. Install-existing holds its mutation
 obligation through the asynchronous restore completion, not just the initiating Binder return.
 
-## Disposable boot observer preparation
+## Disposable boot observations
 
-The next vehicle is [ordinary UID recovery instrumentation](../tests/native-identity/README.md).
+The vehicle is [ordinary UID recovery instrumentation](../tests/native-identity/README.md).
 It uses dummy CE/DE canaries and a key in its own AndroidKeyStore namespace. Observation never
 regenerates fixture state. Its request ledger requires independent UID, user serial and APK signer
 capture references, a fresh request nonce and the original public key anchor. Its observer
 distinguishes an exact reported refusal from transport loss, and verifies signatures independently.
-The device controller still needs to connect these checks.
+These checks now run in the disposable device controller. The original failed run and the later
+explicit continuations are reported separately.
 
 A guarded privileged PMS dump captures cached reservation metadata and the live allocator cursor
 under the state lock, then prints outside that lock. This is diagnostic metadata, not a work or CE
 lease. It retains the existing dump permission gate. Host checks cover the added source guard and
-fixture protocols. The fixture also compiles against the public SDK. The additional diagnostic's
-Android build and the fixture's image and runtime results are still pending.
+fixture protocols. The fixture compiles against the public SDK. The full image and separate APKs
+built at `fec0da7`; the bounded observations and retained failures are recorded in the
+[boot recovery assessment](2026-09-26-native-identity-boot-recovery.md).
 
 ## Deliberate limits
 
