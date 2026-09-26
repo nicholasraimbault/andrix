@@ -46,6 +46,12 @@ for a controlled recovery fault in a new disposable guest. Package, UID, signer 
 must first be observed from Android and checked against the artifact. Copying these bytes
 into a guest does not establish production native authority or test the production writer.
 
+`FixtureVariant.java` derives a canonical negative from the original captured fixture. It changes
+only the stored signer set or user serial, retaining the header bytes, UID, package, lineage,
+principal ID, generation and retirement state. Both rich copies remain valid and equal. This
+separates identity checks from malformed record rejection. Output must be fresh and outside the
+original input tree. Restore and verify the original binding before testing another fault.
+
 The controlled fixture layout belongs at `/data/system/native-principals`, with UID/GID 1000,
 directories mode 0700 and record files mode 0600. The lab controller must quiesce the relevant
 writer or stage offline, restore the actual policy label, require identical main/reserve input
