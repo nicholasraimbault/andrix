@@ -2,7 +2,7 @@
   "version": 1,
   "project": "frameworks/base",
   "head": "aab06a8bd44c4c2b58eeec780fde83baa9d43a40",
-  "patch_sha256": "c72d7d6bfc581b2591b700a414fc8813a81b20c4cc201057d5cb98e54a81e3f1",
+  "patch_sha256": "77be4d7f925fe78d683d32564db9739a766d9c560774ca1ddbd80d02882046f6",
   "files": [
     {
       "path": "services/core/java/com/android/server/pm/AppIdSettingMap.java",
@@ -12,7 +12,7 @@
     {
       "path": "services/core/java/com/android/server/pm/Settings.java",
       "upstream_sha256": "bff2de579d206a39be81ef0b798df8f6e845d2f28efbbcd63554ccffbddae5a1",
-      "candidate_sha256": "6f738737d7581da9d8b3279fedd38080d820cadc01f4dc3484e2e76b436a27f6"
+      "candidate_sha256": "998983ee2a11d2141de0450741b05bb916bd43a95fcc1f1080cf527c4adba364"
     },
     {
       "path": "services/core/java/com/android/server/pm/PackageManagerService.java",

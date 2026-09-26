@@ -94,7 +94,15 @@
      public AppIdSettingMap snapshot() {
 --- a/services/core/java/com/android/server/pm/Settings.java
 +++ b/services/core/java/com/android/server/pm/Settings.java
-@@ -563,6 +563,335 @@
+@@ -69,6 +69,7 @@
+ import android.os.Binder;
+ import android.os.Build;
+ import android.os.CreateAppDataArgs;
++import android.os.Environment;
+ import android.os.FileUtils;
+ import android.os.Handler;
+ import android.os.Message;
+@@ -563,6 +564,335 @@
      final WatchedArrayMap<String, SharedUserSetting> mSharedUsers = new WatchedArrayMap<>();
      @Watched(manual = true)
      private final AppIdSettingMap mAppIds;
@@ -430,7 +438,7 @@
  
      @Watched(manual = true)
      private final PccIdSettingMap mPccIds;
-@@ -828,6 +1157,7 @@
+@@ -828,6 +1158,7 @@
  
          mSharedUsers.snapshot(r.mSharedUsers);
          mAppIds = r.mAppIds.snapshot();
@@ -438,7 +446,7 @@
          mPccIds = r.mPccIds.snapshot();
  
          mRenamedPackages.snapshot(r.mRenamedPackages);
-@@ -1396,14 +1726,32 @@
+@@ -1396,14 +1727,32 @@
      boolean registerAppIdLPw(PackageSetting p, boolean forceNew) throws PackageManagerException {
          final boolean createdNew;
          if (p.getAppId() == 0 || forceNew) {
