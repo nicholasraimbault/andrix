@@ -3,6 +3,7 @@ package com.android.server.pm;
 
 import android.content.pm.UserInfo;
 import android.content.pm.Signature;
+import android.content.pm.SigningDetails;
 import android.os.Process;
 import android.os.UserHandle;
 
@@ -21,7 +22,7 @@ import java.security.NoSuchAlgorithmException;
  * Only a trusted account authority may call this after validating designation.
  * The initial platform adapter supports user 0. Other users require a separate
  * UserManager ID lifetime barrier before they can be admitted. Calls may block
- * on package persistence and must not hold AMS, WM, native work control or
+ * on native identity persistence and must not hold AMS, WM, native work control or
  * admission locks. This API must never run on the native Stop lane.
  */
 @SuppressWarnings("try") // Scoped install-lock guards are used for their close operation.
@@ -55,10 +56,15 @@ public final class NativePrincipalManager {
         private final NativePrincipalPins.Pin pin;
         private boolean retirementCommitted;
         private Selection selection; // Current service incarnation's designation binding.
+        private final String lineage;
+        private final Set<String> storedSignerSha256;
         private boolean retired; // Guarded by the Package Manager mutation lock.
-        private Handle(NativePrincipalManager owner, NativePrincipalPins.Pin pin) {
+        private Handle(NativePrincipalManager owner, NativePrincipalPins.Pin pin, String lineage,
+                Set<String> signers) {
             this.owner = owner;
             this.pin = pin;
+            this.lineage = lineage;
+            storedSignerSha256 = Set.copyOf(signers);
         }
     }
 
@@ -75,7 +81,6 @@ public final class NativePrincipalManager {
     public Selection select(String packageName, int userId) {
         try (PackageManagerTracedLock ignored = pm.mInstallLock.acquireLock()) {
             synchronized (pm.mLock) {
-                requireRecoveryReady();
                 long serial = primaryUserSerial(userId);
                 PackageSetting setting = subject(packageName, userId);
                 requireNoMutation(packageName);
@@ -96,7 +101,6 @@ public final class NativePrincipalManager {
     public Handle prepare(Selection selection) {
         try (PackageManagerTracedLock ignored = pm.mInstallLock.acquireLock()) {
             synchronized (pm.mLock) {
-                requireRecoveryReady();
                 if (selection == null || selection.owner != this) {
                     throw new IllegalArgumentException("Foreign native principal selection");
                 }
@@ -109,13 +113,22 @@ public final class NativePrincipalManager {
                     }
                     return selection.prepared;
                 }
-                NativePrincipalPins.Pin pin = pm.mSettings.nativePrincipalPinsLPr().prepare(
-                        selection.packageName, setting.getAppId(), selection.userId,
-                        selection.userSerial);
-                Handle prepared = handle(pin);
+                NativePrincipalPins pins = pm.mSettings.nativePrincipalPinsLPr();
+                NativePrincipalPins.Pin existing = pins.find(selection.packageName, selection.userId);
+                if (existing == null && (!pm.mSettings.nativePrincipalCreationReadyLPr()
+                        || pm.mSettings.isNativePrincipalAppIdLPr(setting.getAppId()))) {
+                    throw new IllegalStateException("Native identity issuance requires recovery");
+                }
+                NativePrincipalPins.Pin pin = pins.prepare(selection.packageName, setting.getAppId(),
+                        selection.userId, selection.userSerial);
+                Handle prepared = handle(pin, selection, existing == null);
+                if (!prepared.storedSignerSha256.equals(selection.currentSignerSha256)) {
+                    throw new IllegalStateException("Current signer does not match prior native binding");
+                }
                 if (prepared.selection == null) prepared.selection = selection;
                 else validateSelection(prepared.selection);
                 selection.prepared = prepared;
+                pm.mSettings.rememberNativeSubjectLPw(setting);
                 pm.mSettings.refreshNativePrincipalAppIdsLPw();
                 return prepared;
             }
@@ -123,29 +136,52 @@ public final class NativePrincipalManager {
     }
 
     /**
-     * Confirm reservation persistence in both Package Manager recovery copies.
+     * Confirm the exact binding in the separate Package Manager owned slot store.
      * True means a durable UID pin, not permission to run, a CE check or a complete
      * credential profile. Admission must still bind the exact manager/user epoch.
      * False leaves this exact handle pending, including uncertain publication.
      */
     public boolean commit(Handle handle) {
         try (PackageManagerTracedLock ignored = pm.mInstallLock.acquireLock()) {
+            final NativeIdentityPersistence persistence;
+            final NativePrincipalPins.Snapshot issued;
             synchronized (pm.mLock) {
-                requireRecoveryReady();
                 NativePrincipalPins pins = checked(handle);
-                NativePrincipalPins.Record record = handle.pin.record();
                 requireDesignationBinding(handle);
-                revalidate(record);
+                revalidate(handle.pin.record());
                 if (handle.pin.phase() == NativePrincipalPins.Phase.RETIRING) {
                     throw new IllegalStateException("Native principal is retiring");
                 }
-                if (!pm.mSettings.persistNativePrincipalPinsLPr(pm.snapshotComputer())) return false;
-                // Under the same package mutation lock, with no caller chosen UID.
-                revalidate(record);
+                persistence = pm.mSettings.nativeIdentityPersistenceLPr();
+                issued = pins.hasKnownCounter() ? pins.snapshotForWrite() : null;
+            }
+            // No PMS state/control lock is held during persistence.
+            boolean durable = persistBinding(handle, persistence, issued);
+            NativeIdentityStore.Loaded observed = persistence.load();
+            synchronized (pm.mLock) {
+                pm.mSettings.observeNativeIdentityStoreLPw(observed);
+                NativePrincipalPins pins = checked(handle);
+                if (!durable) return false;
+                // A changed subject after publication retains the original pin;
+                // it must never be reported as a new request with no effects.
+                try {
+                    requireDesignationBinding(handle);
+                    requirePublishedBinding(handle);
+                    revalidate(handle.pin.record());
+                } catch (IllegalStateException changed) { return false; }
                 pins.commit(handle.pin);
                 return true;
             }
         }
+    }
+
+    private boolean persistBinding(Handle handle, NativeIdentityPersistence persistence,
+            NativePrincipalPins.Snapshot issued) {
+        NativePrincipalPins.Record record = handle.pin.record();
+        if (persistence.binding(record) == null) {
+            if (issued == null || !persistence.reservePending(issued)) return false;
+        }
+        return persistence.publish(record, handle.storedSignerSha256);
     }
 
     /** Metadata for the exact handle. It is not proof of live native authority. */
@@ -162,12 +198,12 @@ public final class NativePrincipalManager {
      */
     public NativePrincipalPins.Record currentIdentity(Handle handle) {
         synchronized (pm.mLock) {
-            requireRecoveryReady();
             checked(handle);
             if (handle.pin.phase() != NativePrincipalPins.Phase.ACTIVE) {
                 throw new IllegalStateException("Native principal reservation is not active");
             }
             requireDesignationBinding(handle);
+            requirePublishedBinding(handle);
             revalidate(handle.pin.record());
             return handle.pin.record();
         }
@@ -189,7 +225,7 @@ public final class NativePrincipalManager {
             primaryUserSerial(userId);
             NativePrincipalPins.Pin pin = pm.mSettings.nativePrincipalPinsLPr().find(packageName,
                     userId);
-            return pin == null ? null : handle(pin);
+            return pin == null ? null : handle(pin, null, false);
         }
     }
 
@@ -201,13 +237,24 @@ public final class NativePrincipalManager {
      */
     public boolean beginRetirement(Handle handle) {
         try (PackageManagerTracedLock ignored = pm.mInstallLock.acquireLock()) {
+            final NativeIdentityPersistence persistence;
+            final NativePrincipalPins.Snapshot issued;
             synchronized (pm.mLock) {
-                requireRecoveryReady();
                 NativePrincipalPins pins = checked(handle);
                 pins.beginRetire(handle.pin);
-                if (!pm.mSettings.persistNativePrincipalPinsLPr(pm.snapshotComputer())) return false;
-                handle.retirementCommitted = true;
-                return true;
+                persistence = pm.mSettings.nativeIdentityPersistenceLPr();
+                issued = pins.hasKnownCounter() ? pins.snapshotForWrite() : null;
+            }
+            boolean present = persistence.binding(handle.pin.record()) != null;
+            if (!present) present = persistBinding(handle, persistence, issued);
+            boolean durable = present && persistence.markRetiring(handle.pin.record(),
+                    handle.storedSignerSha256);
+            NativeIdentityStore.Loaded observed = persistence.load();
+            synchronized (pm.mLock) {
+                pm.mSettings.observeNativeIdentityStoreLPw(observed);
+                checked(handle);
+                if (durable) handle.retirementCommitted = true;
+                return durable;
             }
         }
     }
@@ -219,26 +266,32 @@ public final class NativePrincipalManager {
      * a PID lookup, a timeout or a caller boolean. No public transport or
      * automatic close/finalizer exposes this operation.
      *
-     * The candidate omits ONLY this quiesced reservation. Other retiring pins
+     * The slot transaction omits ONLY this quiesced reservation. Other retiring pins
      * may still own work and remain durable. False retains the original pin and
      * still blocks reuse. Retry this same handle to reconcile an unknown result.
      */
     public boolean finishRetirementAfterQuiescence(Handle handle) {
         try (PackageManagerTracedLock ignored = pm.mInstallLock.acquireLock()) {
+            final NativeIdentityPersistence persistence;
             synchronized (pm.mLock) {
                 if (handle == null || handle.owner != this) {
                     throw new IllegalArgumentException("Foreign native principal handle");
                 }
                 if (handle.retired) return true;
-                requireRecoveryReady();
-                NativePrincipalPins pins = checked(handle);
+                checked(handle);
                 if (!handle.retirementCommitted) {
                     throw new IllegalStateException("Retirement marker is not durably confirmed");
                 }
-                NativePrincipalPins.Snapshot candidate = pins.snapshotWithout(handle.pin);
-                if (!pm.mSettings.persistNativePrincipalPinsLPr(pm.snapshotComputer(), candidate)) {
-                    return false;
-                }
+                persistence = pm.mSettings.nativeIdentityPersistenceLPr();
+            }
+            boolean durable = persistence.finishRetirement(handle.pin.record(), handle.lineage,
+                    handle.storedSignerSha256);
+            NativeIdentityStore.Loaded observed = persistence.load();
+            synchronized (pm.mLock) {
+                pm.mSettings.observeNativeIdentityStoreLPw(observed);
+                NativePrincipalPins pins = checked(handle);
+                if (!durable) return false;
+                pm.mSettings.finishNativeIdentityReleaseLPw(handle.pin.record(), observed);
                 pins.finishRetire(handle.pin);
                 pm.mSettings.refreshNativePrincipalAppIdsLPw();
                 handle.retired = true;
@@ -248,14 +301,32 @@ public final class NativePrincipalManager {
         }
     }
 
-    private void requireRecoveryReady() {
-        if (pm.mSettings.nativePrincipalRecoveryBlockedLPr()) {
-            throw new IllegalStateException("Native principal settings require recovery");
+    private Handle handle(NativePrincipalPins.Pin pin, Selection selection, boolean newlyIssued) {
+        Handle old = handles.get(pin);
+        if (old != null) return old;
+        NativeIdentityRecords.Slot prior = pm.mSettings.nativePrincipalStoredBindingLPr(pin.record());
+        final Handle created;
+        if (prior != null) created = new Handle(this, pin, prior.lineage, prior.signerSha256);
+        else {
+            if (selection == null || !newlyIssued) throw new IllegalStateException("Prior native identity unavailable");
+            created = new Handle(this, pin, pm.mSettings.nativeIdentityLineageLPr(),
+                    selection.currentSignerSha256);
         }
+        handles.put(pin, created);
+        return created;
     }
 
-    private Handle handle(NativePrincipalPins.Pin pin) {
-        return handles.computeIfAbsent(pin, key -> new Handle(this, key));
+    private void requirePublishedBinding(Handle handle) {
+        NativeIdentityRecords.Slot slot = pm.mSettings.nativePrincipalBindingLPr(handle.pin.record());
+        if (slot == null || !slot.lineage.equals(handle.lineage)
+                || !slot.signerSha256.equals(handle.storedSignerSha256)) {
+            throw new IllegalStateException("Prior native identity is not currently verified");
+        }
+        for (NativeIdentityRecords.UserEntry user : slot.users) {
+            if (user.id == handle.pin.record().id && user.retiring) {
+                throw new IllegalStateException("Native identity is retiring");
+            }
+        }
     }
 
     private NativePrincipalPins checked(Handle handle) {
@@ -305,6 +376,9 @@ public final class NativePrincipalManager {
             throw new IllegalStateException("Restored pin needs an explicit designation binding");
         }
         validateSelection(handle.selection);
+        if (!handle.selection.currentSignerSha256.equals(handle.storedSignerSha256)) {
+            throw new IllegalStateException("Native designation signer changed");
+        }
     }
 
     private PackageSetting validateSelection(Selection selection) {
@@ -328,7 +402,11 @@ public final class NativePrincipalManager {
     }
 
     private static Set<String> signerDigests(PackageSetting setting) {
-        Signature[] signatures = setting.getSigningDetails().getSignatures();
+        return signerDigests(setting.getSigningDetails());
+    }
+
+    static Set<String> signerDigests(SigningDetails details) {
+        Signature[] signatures = details == null ? null : details.getSignatures();
         if (signatures == null || signatures.length == 0) {
             throw new IllegalStateException("Installed signing identity unavailable");
         }

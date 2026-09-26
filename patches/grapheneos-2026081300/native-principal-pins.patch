@@ -1,7 +1,6 @@
 --- a/services/core/java/com/android/server/pm/AppIdSettingMap.java
 +++ b/services/core/java/com/android/server/pm/AppIdSettingMap.java
-@@ -22,8 +22,11 @@
- import com.android.server.utils.SnapshotCache;
+@@ -23,6 +23,9 @@
  import com.android.server.utils.WatchedArrayList;
  import com.android.server.utils.WatchedSparseArray;
  import com.android.server.utils.Watcher;
@@ -11,9 +10,7 @@
  
  /**
   * A wrapper over {@link WatchedArrayList} that tracks the current (app ID -> SettingBase) mapping
-  * for non-system apps. Also tracks system app settings in an {@link WatchedSparseArray}.
-@@ -39,8 +42,20 @@
-     private final SnapshotCache<WatchedArrayList<SettingBase>> mNonSystemSettingsSnapshot;
+@@ -40,6 +43,18 @@
      private final WatchedSparseArray<SettingBase> mSystemSettings;
      private final SnapshotCache<WatchedSparseArray<SettingBase>> mSystemSettingsSnapshot;
      private int mFirstAvailableAppId = Process.FIRST_APPLICATION_UID;
@@ -32,9 +29,7 @@
  
      AppIdSettingMap() {
          mNonSystemSettings = new WatchedArrayList<>();
-         mNonSystemSettingsSnapshot = new SnapshotCache.Auto<>(
-@@ -50,16 +65,18 @@
-                 mSystemSettings, mSystemSettings, "AppIdSettingMap.mSystemSettings");
+@@ -51,6 +66,7 @@
      }
  
      AppIdSettingMap(AppIdSettingMap orig) {
@@ -42,8 +37,7 @@
          mNonSystemSettings = orig.mNonSystemSettingsSnapshot.snapshot();
          mNonSystemSettingsSnapshot = new SnapshotCache.Sealed<>();
          mSystemSettings = orig.mSystemSettingsSnapshot.snapshot();
-         mSystemSettingsSnapshot = new SnapshotCache.Sealed<>();
-     }
+@@ -59,6 +75,7 @@
  
      /** Returns true if the requested AppID was valid and not already registered. */
      public boolean registerExistingAppId(int appId, SettingBase setting, Object name) {
@@ -51,9 +45,7 @@
          if (appId >= Process.FIRST_APPLICATION_UID) {
              int size = mNonSystemSettings.size();
              final int index = appId - Process.FIRST_APPLICATION_UID;
-             // fill the array until our index becomes valid
-@@ -134,8 +151,16 @@
-         }
+@@ -135,6 +152,14 @@
      }
  
      public void replaceSetting(int appId, SettingBase setting) {
@@ -68,9 +60,7 @@
          if (appId >= Process.FIRST_APPLICATION_UID) {
              final int size = mNonSystemSettings.size();
              final int index = appId - Process.FIRST_APPLICATION_UID;
-             if (index < size) {
-@@ -154,21 +179,26 @@
-     /** Returns a new AppID or -1 if we could not find an available AppID to assign */
+@@ -155,19 +180,24 @@
      public int acquireAndRegisterNewAppId(SettingBase obj) {
          final int size = mNonSystemSettings.size();
          for (int i = mFirstAvailableAppId - Process.FIRST_APPLICATION_UID; i < size; i++) {
@@ -102,24 +92,24 @@
      }
  
      public AppIdSettingMap snapshot() {
-         return new AppIdSettingMap(this);
 --- a/services/core/java/com/android/server/pm/Settings.java
 +++ b/services/core/java/com/android/server/pm/Settings.java
-@@ -562,8 +562,81 @@
-     @Watched
+@@ -563,6 +563,335 @@
      final WatchedArrayMap<String, SharedUserSetting> mSharedUsers = new WatchedArrayMap<>();
      @Watched(manual = true)
      private final AppIdSettingMap mAppIds;
-+    // Mutable PMS authority, deliberately not exposed by Computer snapshots.
-+    private NativePrincipalPins mNativePrincipalPins =
-+            new NativePrincipalPins(NativePrincipalPinsXml.CAPACITY);
-+    // Sticky native activation fence after malformed native metadata. Known
-+    // reservations remain held. Total/unknown settings loss still requires a
-+    // native boot/recovery barrier before any manager is activated; refusing
-+    // every app ID during boot would make the normal scan delete valid APKs.
-+    private boolean mNativePrincipalRecoveryBlocked;
-+    private NativePrincipalPins.Snapshot mNativePrincipalWriteOverride;
-+    private boolean mNativePrincipalWriteConfirmed;
++    // Native account state is not installed/grant truth or snapshot authority.
++    private NativePrincipalPins mNativePrincipalPins = new NativePrincipalPins(64);
++    private NativeIdentityStore mNativeIdentityStore;
++    private NativeIdentityPersistence mNativeIdentityPersistence;
++    private volatile NativePrincipalRecovery mNativeRecoveryView = NativePrincipalRecovery.empty();
++    private java.util.Map<String, Integer> mNativeDeOwnersAtBoot = java.util.Map.of();
++    private boolean mNativeDeEnumerationComplete = true;
++    private NativeIdentityStore.Loaded mNativeIdentityLoaded;
++    private final java.util.Map<Long, NativeIdentityRecords.Slot> mNativeRememberedBindings =
++            new java.util.HashMap<>();
++    // Conservatively retained until an exact confirmed retirement releases one.
++    private final java.util.Set<Integer> mNativeStoreAppIds = new java.util.TreeSet<>();
 +    private final ArrayMap<String, Integer> mNativePrincipalMutations = new ArrayMap<>();
 +
 +    final class NativePrincipalMutation implements AutoCloseable {
@@ -138,7 +128,7 @@
 +    }
 +
 +    NativePrincipalMutation beginNativePrincipalMutationLPw(String packageName) {
-+        if (nativePrincipalPinsLPr().isPackagePinned(packageName)) return null;
++        if (isNativePrincipalPackageLPr(packageName)) return null;
 +        int count = mNativePrincipalMutations.getOrDefault(packageName, 0);
 +        if (count == Integer.MAX_VALUE) throw new IllegalStateException("Native mutation capacity");
 +        mNativePrincipalMutations.put(packageName, count + 1);
@@ -149,7 +139,106 @@
 +        return mNativePrincipalMutations.containsKey(packageName);
 +    }
 +
-+    boolean nativePrincipalRecoveryBlockedLPr() { return mNativePrincipalRecoveryBlocked; }
++    /** Constructor only, before the install/state lock block. Reads, never mutates files. */
++    NativeIdentityStore.Loaded readNativeIdentityStoreForBoot() {
++        if (mNativeIdentityPersistence != null) throw new IllegalStateException("Native store loaded twice");
++        mNativeIdentityStore = new NativeIdentityStore(
++                new File(Environment.getDataSystemDirectory(), "native-principals"));
++        mNativeIdentityPersistence = new NativeIdentityPersistence(mNativeIdentityStore);
++        NativeIdentityStore.Loaded loaded = mNativeIdentityPersistence.load();
++        // This is negative preservation evidence, never signer/owner identity.
++        // Read only DE before the scan. CE remains with real storage authority.
++        if (!loaded.occupiedAppIds.isEmpty()) {
++            java.util.Map<String, Integer> owners = new java.util.TreeMap<>();
++            File parent = Environment.getDataUserDeDirectory(null, UserHandle.USER_SYSTEM);
++            File[] files = parent.listFiles();
++            mNativeDeEnumerationComplete = files != null;
++            if (files != null) for (File file : files) {
++                String name = file.getName();
++                if (name.endsWith(Environment.PCC_DATA_DIRECTORY_SUFFIX)
++                        && name.length() > Environment.PCC_DATA_DIRECTORY_SUFFIX.length()) {
++                    name = name.substring(0, name.length() - Environment.PCC_DATA_DIRECTORY_SUFFIX.length());
++                }
++                try {
++                    int uid = android.system.Os.lstat(file.getPath()).st_uid;
++                    if (loaded.occupiedAppIds.contains(UserHandle.getAppId(uid))) owners.put(name, uid);
++                } catch (android.system.ErrnoException unavailable) {
++                    if (unavailable.errno != android.system.OsConstants.ENOENT) owners.put(name, -1);
++                }
++            }
++            mNativeDeOwnersAtBoot = java.util.Map.copyOf(owners);
++        }
++        return loaded;
++    }
++
++    /** Constructor only: after package settings read, before any scan allocation. */
++    void applyNativeIdentityStoreLPw(NativeIdentityStore.Loaded loaded) {
++        java.util.List<NativePrincipalPins.Record> records = new java.util.ArrayList<>();
++        java.util.Set<Long> retiring = new java.util.TreeSet<>();
++        for (java.util.Map.Entry<Integer, NativeIdentityStore.ReadResult<NativeIdentityRecords.Slot>>
++                entry : loaded.slots.entrySet()) {
++            if (!loaded.bindingUsable(entry.getKey())) continue;
++            NativeIdentityRecords.Slot slot = entry.getValue().value;
++            for (NativeIdentityRecords.UserEntry user : slot.users) {
++                records.add(new NativePrincipalPins.Record(user.id, slot.packageName, slot.appId,
++                        user.userId, user.userSerial));
++                if (user.retiring) retiring.add(user.id);
++            }
++        }
++        records.sort(java.util.Comparator.comparingLong(record -> record.id));
++        NativePrincipalPins restored = new NativePrincipalPins(64);
++        if (loaded.creationReady()) {
++            restored.restore(new NativePrincipalPins.Snapshot(loaded.header.value.lastId,
++                    records, retiring));
++        } else {
++            restored.restoreBindingsWithoutCounter(records, retiring);
++        }
++        mNativePrincipalPins = restored;
++        observeNativeIdentityStoreLPw(loaded);
++        seedNativeRecoveryLPw();
++    }
++
++    boolean nativeScanSubjectAllowedLPr(PackageSetting candidate) {
++        if (!isNativePrincipalPackageLPr(candidate.getPackageName())
++                && !isNativePrincipalAppIdLPr(candidate.getAppId())) return true;
++        return nativeScanOwnerLPr(candidate) != null;
++    }
++
++    /** Only after normal APK verification/reconcile, before attaching any code. */
++    boolean nativeScanBindingAllowedLPr(PackageSetting candidate, android.content.pm.SigningDetails signer) {
++        if (!isNativePrincipalPackageLPr(candidate.getPackageName())
++                && !isNativePrincipalAppIdLPr(candidate.getAppId())) return true;
++        NativeIdentityRecords.Slot slot = nativeScanOwnerLPr(candidate);
++        if (slot == null) return false;
++        try { return slot.signerSha256.equals(NativePrincipalManager.signerDigests(signer)); }
++        catch (IllegalStateException unavailable) { return false; }
++    }
++
++    private NativeIdentityRecords.Slot nativeScanOwnerLPr(PackageSetting candidate) {
++        String name = candidate.getPackageName();
++        int appId = candidate.getAppId();
++        if (mNativeRecoveryView.defersName(name) || candidate.hasSharedUser()
++                || mNativeIdentityLoaded == null || !mNativeIdentityLoaded.bindingUsable(appId)) return null;
++        NativeIdentityRecords.Slot slot = mNativeIdentityLoaded.slots.get(appId).value;
++        SettingBase mapping = mAppIds.getSetting(appId);
++        // Empty-slot restoration is a separately owned recovery operation. Do
++        // not guess a fresh UID or mutate installed truth in the scan stream.
++        if (!(mapping instanceof PackageSetting owner) || owner.hasSharedUser()
++                || !owner.getPackageName().equals(name) || !slot.packageName.equals(name)) return null;
++        com.android.server.pm.UserManagerInternal users =
++                com.android.server.LocalServices.getService(com.android.server.pm.UserManagerInternal.class);
++        android.content.pm.UserInfo user = users == null ? null : users.getUserInfo(UserHandle.USER_SYSTEM);
++        if (user == null || user.partial || slot.users.size() != 1) return null;
++        NativeIdentityRecords.UserEntry binding = slot.users.get(0);
++        if (binding.userId != UserHandle.USER_SYSTEM || binding.userSerial != user.serialNumber
++                || binding.retiring) return null;
++        return slot;
++    }
++
++    boolean nativePrincipalCreationReadyLPr() {
++        return mNativeIdentityLoaded != null && mNativeIdentityLoaded.creationReady()
++                && nativePrincipalPinsLPr().hasKnownCounter();
++    }
 +
 +    NativePrincipalPins nativePrincipalPinsLPr() {
 +        if (mNativePrincipalPins == null) {
@@ -158,170 +247,233 @@
 +        return mNativePrincipalPins;
 +    }
 +
++    NativeIdentityPersistence nativeIdentityPersistenceLPr() {
++        if (mNativeIdentityPersistence == null) {
++            throw new IllegalStateException("Native persistence requires live Settings");
++        }
++        return mNativeIdentityPersistence;
++    }
++
++    NativeIdentityRecords.Slot nativePrincipalBindingLPr(NativePrincipalPins.Record record) {
++        if (mNativeIdentityLoaded == null || !mNativeIdentityLoaded.bindingUsable(record.appId)) return null;
++        NativeIdentityRecords.Slot slot = mNativeIdentityLoaded.slots.get(record.appId).value;
++        if (!slot.packageName.equals(record.packageName)) return null;
++        for (NativeIdentityRecords.UserEntry user : slot.users) {
++            if (user.id == record.id && user.userId == record.userId
++                    && user.userSerial == record.userSerial) return slot;
++        }
++        return null;
++    }
++
++    NativeIdentityRecords.Slot nativePrincipalStoredBindingLPr(NativePrincipalPins.Record record) {
++        NativeIdentityRecords.Slot slot = mNativeRememberedBindings.get(record.id);
++        if (slot == null || slot.appId != record.appId
++                || !slot.packageName.equals(record.packageName)) return null;
++        for (NativeIdentityRecords.UserEntry user : slot.users) {
++            if (user.id == record.id && user.userId == record.userId
++                    && user.userSerial == record.userSerial) return slot;
++        }
++        return null;
++    }
++
++    String nativeIdentityLineageLPr() {
++        if (!nativePrincipalCreationReadyLPr()) {
++            throw new IllegalStateException("Native issuance is unavailable");
++        }
++        return mNativeIdentityLoaded.header.value.lineage;
++    }
++
++    boolean isNativePrincipalAppIdLPr(int appId) {
++        return mNativeStoreAppIds.contains(appId) || nativePrincipalPinsLPr().isAppIdPinned(appId);
++    }
++
 +    boolean isNativePrincipalPackageLPr(String packageName) {
-+        return packageName != null && nativePrincipalPinsLPr().isPackagePinned(packageName);
++        if (packageName == null) return false;
++        if (mNativeRecoveryView.protectsName(packageName)
++                || nativePrincipalPinsLPr().isPackagePinned(packageName)) return true;
++        PackageSetting setting = getPackageLPr(packageName);
++        if (setting != null && isNativePrincipalAppIdLPr(setting.getAppId())) return true;
++        if (mNativeIdentityLoaded != null) {
++            for (NativeIdentityStore.ReadResult<NativeIdentityRecords.Slot> copies
++                    : mNativeIdentityLoaded.slots.values()) {
++                for (NativeIdentityRecords.Slot slot : copies.decodedCopies) {
++                    if (slot.packageName.equals(packageName)) return true;
++                }
++            }
++            for (NativeIdentityRecords.Header header : mNativeIdentityLoaded.header.decodedCopies) {
++                for (NativeIdentityRecords.HeaderEntry entry : header.entries) {
++                    if (entry.creationPackage.equals(packageName)) return true;
++                }
++            }
++        }
++        return false;
++    }
++
++    void observeNativeIdentityStoreLPw(NativeIdentityStore.Loaded loaded) {
++        mNativeIdentityLoaded = loaded;
++        // A failed/reduced read is not authority to forget a previous hold.
++        mNativeStoreAppIds.addAll(loaded.occupiedAppIds);
++        for (java.util.Map.Entry<Integer, NativeIdentityStore.ReadResult<NativeIdentityRecords.Slot>>
++                entry : loaded.slots.entrySet()) {
++            if (!loaded.bindingUsable(entry.getKey())) continue;
++            NativeIdentityRecords.Slot slot = entry.getValue().value;
++            for (NativeIdentityRecords.UserEntry user : slot.users) {
++                // Prior binding metadata for this live PMS instance, not a
++                // substitute for current eligibility or an authority grant.
++                mNativeRememberedBindings.putIfAbsent(user.id, slot);
++            }
++        }
++        refreshNativePrincipalAppIdsLPw();
++    }
++
++    /** Called only after the original owned retirement's checked store ACK. */
++    void finishNativeIdentityReleaseLPw(NativePrincipalPins.Record record, NativeIdentityStore.Loaded loaded) {
++        int appId = record.appId;
++        if (!loaded.enumerationComplete || loaded.header.status != NativeIdentityStore.Status.VALID
++                || loaded.occupiedAppIds.contains(appId)) {
++            throw new IllegalStateException("Native store retirement is not confirmed");
++        }
++        mNativeStoreAppIds.remove(appId);
++        mNativeRememberedBindings.remove(record.id);
++        observeNativeIdentityStoreLPw(loaded);
 +    }
 +
 +    void refreshNativePrincipalAppIdsLPw() {
-+        mAppIds.setNativePrincipalAppIds(nativePrincipalPinsLPr().reservedAppIds());
++        java.util.Set<Integer> held = new java.util.TreeSet<>(mNativeStoreAppIds);
++        held.addAll(nativePrincipalPinsLPr().reservedAppIds());
++        mAppIds.setNativePrincipalAppIds(held);
++        mNativeRecoveryView = mNativeRecoveryView.withHolds(held);
 +        onChanged();
 +    }
 +
-+    boolean persistNativePrincipalPinsLPr(Computer computer) {
-+        return persistNativePrincipalPinsLPr(computer, nativePrincipalPinsLPr().snapshotForWrite());
++    void rememberNativeSubjectLPw(PackageSetting setting) {
++        mNativeRecoveryView = mNativeRecoveryView.protectNames(java.util.Set.of(setting.getPackageName()))
++                .retainCode(setting.getPath());
 +    }
 +
-+    boolean persistNativePrincipalPinsLPr(Computer computer, NativePrincipalPins.Snapshot expected) {
-+        if (mNativePrincipalRecoveryBlocked) return false;
-+        if (mNativePrincipalWriteOverride != null) throw new IllegalStateException("Nested native write");
-+        mNativePrincipalWriteOverride = expected;
-+        try {
-+            writeLPr(computer, true);
-+            return mNativePrincipalWriteConfirmed && NativePrincipalPinsXml.confirm(mSettingsFilename,
-+                    mSettingsReserveCopyFilename, mPreviousSettingsFilename, expected);
-+        } finally {
-+            mNativePrincipalWriteOverride = null;
++    NativePrincipalRecovery nativeRecoveryView() { return mNativeRecoveryView; }
++
++    void deferNativePackage(String packageName, File codePath) {
++        synchronized (mLock) {
++            mNativeRecoveryView = mNativeRecoveryView.defer(packageName, codePath);
++        }
++    }
++
++    void noteUnresolvedNativeData() {
++        synchronized (mLock) { mNativeRecoveryView = mNativeRecoveryView.withUnidentifiedCode(); }
++    }
++
++    void retainNativeCode(File codePath) {
++        synchronized (mLock) { mNativeRecoveryView = mNativeRecoveryView.retainCode(codePath); }
++    }
++
++    private void seedNativeRecoveryLPw() {
++        java.util.Set<String> names = new java.util.TreeSet<>();
++        for (NativeIdentityStore.ReadResult<NativeIdentityRecords.Slot> copies
++                : mNativeIdentityLoaded.slots.values()) {
++            for (NativeIdentityRecords.Slot slot : copies.decodedCopies) names.add(slot.packageName);
++        }
++        for (NativeIdentityRecords.Header header : mNativeIdentityLoaded.header.decodedCopies) {
++            for (NativeIdentityRecords.HeaderEntry entry : header.entries) {
++                if (!entry.creationPackage.isEmpty()) names.add(entry.creationPackage);
++            }
++        }
++        for (int appId : mNativeStoreAppIds) {
++            SettingBase mapping = mAppIds.getSetting(appId);
++            if (mapping instanceof PackageSetting) {
++                PackageSetting pkg = (PackageSetting) mapping;
++                names.add(pkg.getPackageName());
++                mNativeRecoveryView = mNativeRecoveryView.retainCode(pkg.getPath());
++                NativeIdentityStore.ReadResult<NativeIdentityRecords.Slot> read =
++                        mNativeIdentityLoaded.slots.get(appId);
++                if (!mNativeIdentityLoaded.bindingUsable(appId) || pkg.hasSharedUser()
++                        || !read.value.packageName.equals(pkg.getPackageName())) {
++                    mNativeRecoveryView = mNativeRecoveryView.defer(pkg.getPackageName(), pkg.getPath());
++                }
++            } else {
++                mNativeRecoveryView = mNativeRecoveryView.withUnidentifiedCode();
++                if (mapping instanceof SharedUserSetting) {
++                    for (com.android.server.pm.pkg.PackageStateInternal pkg
++                            : ((SharedUserSetting) mapping).getPackageStates()) {
++                        names.add(pkg.getPackageName());
++                        mNativeRecoveryView = mNativeRecoveryView.defer(pkg.getPackageName(), pkg.getPath());
++                    }
++                }
++            }
++        }
++        names.addAll(mNativeDeOwnersAtBoot.keySet());
++        mNativeRecoveryView = mNativeRecoveryView.protectNames(names);
++        if (!mNativeDeEnumerationComplete) mNativeRecoveryView = mNativeRecoveryView.withUnidentifiedCode();
++        for (java.util.Map.Entry<String, Integer> footprint : mNativeDeOwnersAtBoot.entrySet()) {
++            PackageSetting pkg = getPackageLPr(footprint.getKey());
++            if (pkg == null || footprint.getValue() < 0
++                    || UserHandle.getUid(UserHandle.USER_SYSTEM, pkg.getAppId()) != footprint.getValue()) {
++                mNativeRecoveryView = mNativeRecoveryView.defer(footprint.getKey(),
++                        pkg == null ? null : pkg.getPath());
++            }
++        }
++        for (String name : names) {
++            PackageSetting pkg = getPackageLPr(name);
++            if (pkg != null) mNativeRecoveryView = mNativeRecoveryView.retainCode(pkg.getPath());
++        }
++        for (java.util.Map.Entry<Integer, NativeIdentityStore.ReadResult<NativeIdentityRecords.Slot>>
++                entry : mNativeIdentityLoaded.slots.entrySet()) {
++            if (!mNativeIdentityLoaded.bindingUsable(entry.getKey())) continue;
++            NativeIdentityRecords.Slot slot = entry.getValue().value;
++            PackageSetting pkg = getPackageLPr(slot.packageName);
++            if (pkg == null || pkg.getAppId() != slot.appId || pkg.hasSharedUser()) {
++                mNativeRecoveryView = mNativeRecoveryView.defer(slot.packageName,
++                        pkg == null ? null : pkg.getPath()).withUnidentifiedCode();
++            }
 +        }
 +    }
  
      @Watched(manual = true)
      private final PccIdSettingMap mPccIds;
- 
-@@ -827,8 +900,10 @@
-         mCrossProfileIntentResolversSnapshot = new SnapshotCache.Sealed<>();
+@@ -828,6 +1157,7 @@
  
          mSharedUsers.snapshot(r.mSharedUsers);
          mAppIds = r.mAppIds.snapshot();
 +        mNativePrincipalPins = null; // A package snapshot is not native lifetime authority.
-+        mNativePrincipalRecoveryBlocked = r.mNativePrincipalRecoveryBlocked;
          mPccIds = r.mPccIds.snapshot();
  
          mRenamedPackages.snapshot(r.mRenamedPackages);
-         mNextAppLinkGeneration.snapshot(r.mNextAppLinkGeneration);
-@@ -1399,8 +1474,18 @@
+@@ -1396,14 +1726,32 @@
+     boolean registerAppIdLPw(PackageSetting p, boolean forceNew) throws PackageManagerException {
+         final boolean createdNew;
+         if (p.getAppId() == 0 || forceNew) {
++            if (isNativePrincipalPackageLPr(p.getPackageName())) {
++                throw PackageManagerException.ofInternalError("Native identity requires recovery",
++                        PackageManagerException.INTERNAL_ERROR_NATIVE_IDENTITY_DEFERRED);
++            }
              // Assign new user ID
              p.setAppId(mAppIds.acquireAndRegisterNewAppId(p));
              createdNew = true;
          } else {
 +            // registerExistingAppId's false result normally means "already there".
 +            // A native reservation with no matching installed mapping is different.
-+            if (nativePrincipalPinsLPr().isAppIdPinned(p.getAppId())) {
++            if (isNativePrincipalAppIdLPr(p.getAppId())) {
 +                SettingBase current = mAppIds.getSetting(p.getAppId());
 +                if (!(current instanceof PackageSetting existing)
 +                        || !existing.getPackageName().equals(p.getPackageName())) {
-+                    throw new PackageManagerException(INSTALL_FAILED_INTERNAL_ERROR,
-+                            "Native principal app ID remains reserved");
++                    throw PackageManagerException.ofInternalError("Native principal app ID remains reserved",
++                            PackageManagerException.INTERNAL_ERROR_NATIVE_IDENTITY_DEFERRED);
 +                }
 +            }
              // Add new setting to list of user IDs
              createdNew = mAppIds.registerExistingAppId(p.getAppId(), p, p.getPackageName());
          }
          if (p.getAppId() < 0) {
-@@ -2983,8 +3068,12 @@
-         invalidatePackageCache(
-                 PackageMetrics.INVALIDATION_REASON_WRITE_SETTINGS);
- 
-         ArrayList<Signature> writtenSignatures = new ArrayList<>();
-+        NativePrincipalPins.Snapshot nativeSnapshot = mNativePrincipalWriteOverride != null
-+                ? mNativePrincipalWriteOverride : nativePrincipalPinsLPr().snapshotForWrite();
-+        final boolean nativeStrictWrite = nativeSnapshot.lastId != 0 || mNativePrincipalRecoveryBlocked;
-+        mNativePrincipalWriteConfirmed = false;
- 
-         try (ResilientAtomicFile atomicFile = getSettingsFile()) {
-             FileOutputStream str = null;
-             try {
-@@ -3064,14 +3153,20 @@
-                 mDomainVerificationManager.writeSettings(computer, serializer,
-                         false /* includeSignatures */, UserHandle.USER_ALL);
- 
-                 mKeySetManagerService.writeKeySetManagerServiceLPr(serializer);
-+                NativePrincipalPinsXml.write(serializer, nativeSnapshot, mNativePrincipalRecoveryBlocked);
- 
-                 serializer.endTag(null, "packages");
- 
-                 serializer.endDocument();
- 
--                atomicFile.finishWrite(str);
-+                if (nativeStrictWrite) {
-+                    atomicFile.finishWriteStrict(str);
-+                    mNativePrincipalWriteConfirmed = true;
-+                } else {
-+                    atomicFile.finishWrite(str);
-+                }
- 
-                 writeKernelMappingLPr();
-                 writePackageListLPr();
-                 writeAllUsersPackageRestrictionsLPr(sync);
-@@ -3082,11 +3177,13 @@
- 
-             } catch (java.io.IOException e) {
-                 Slog.wtf(PackageManagerService.TAG, "Unable to write package manager settings, "
-                         + "current changes will be lost at reboot", e);
--                if (str != null) {
-+                if (str != null && !nativeStrictWrite) {
-                     atomicFile.failWrite(str);
-                 }
-+                // Strict native writes preserve all uncertain recovery copies.
-+                // The exact pin remains held and cannot be activated or released.
-             }
-         }
- 
-         //Debug.stopMethodTracing();
-@@ -3581,8 +3678,11 @@
-         originalFirstInstallTimes.clear();
- 
-         ArrayMap<Long, Integer> keySetRefs = new ArrayMap<>();
-         ArrayList<Signature> readSignatures = new ArrayList<>();
-+        NativePrincipalPins.Snapshot nativePins =
-+                new NativePrincipalPins.Snapshot(0, java.util.List.of());
-+        boolean sawNativePins = false;
- 
-         try (ResilientAtomicFile atomicFile = getSettingsFile()) {
-             FileInputStream str = null;
-             try {
-@@ -3617,9 +3717,19 @@
-                         continue;
-                     }
- 
-                     String tagName = parser.getName();
--                    if (tagName.equals("package")) {
-+                    if (tagName.equals(NativePrincipalPinsXml.TAG)) {
-+                        if (sawNativePins) {
-+                            mNativePrincipalRecoveryBlocked = true;
-+                            NativePrincipalPinsXml.skipRejectedSection(parser, parser.getDepth());
-+                        } else {
-+                            sawNativePins = true;
-+                            NativePrincipalPinsXml.Parsed parsed = NativePrincipalPinsXml.readForSettings(parser);
-+                            nativePins = parsed.snapshot;
-+                            mNativePrincipalRecoveryBlocked |= parsed.recoveryBlocked;
-+                        }
-+                    } else if (tagName.equals("package")) {
-                         readPackageLPw(parser, readSignatures, keySetRefs, users,
-                                 originalFirstInstallTimes);
-                     } else if (tagName.equals("permissions")) {
-                         mPermissions.readPermissions(parser);
-@@ -3708,10 +3818,17 @@
-                     }
-                 }
- 
-                 str.close();
-+                NativePrincipalPins restored = new NativePrincipalPins(NativePrincipalPinsXml.CAPACITY);
-+                restored.restore(nativePins); // Restored pins never become launchable here.
-+                mNativePrincipalPins = restored;
-+                refreshNativePrincipalAppIdsLPw();
-             } catch (IOException | XmlPullParserException | ArrayIndexOutOfBoundsException
-                      | IllegalArgumentException e) {
-+                // Every failed settings read needs native recovery, even before our tag.
-+                mNativePrincipalRecoveryBlocked = true;
-+                refreshNativePrincipalAppIdsLPw();
-                 // Remove corrupted file and retry.
-                 atomicFile.failRead(str, e);
- 
-                 // Ignore the result to not mark this as a "first boot".
++            if (mNativeRecoveryView.hasHolds()) {
++                throw PackageManagerException.ofInternalError("Allocation deferred with native holds",
++                        PackageManagerException.INTERNAL_ERROR_NATIVE_IDENTITY_DEFERRED);
++            }
+             PackageManagerService.reportSettingsProblem(Log.WARN,
+                     "Package " + p.getPackageName() + " could not be assigned a valid UID");
+             throw new PackageManagerException(INSTALL_FAILED_INTERNAL_ERROR,
 --- a/services/core/java/com/android/server/pm/PackageManagerService.java
 +++ b/services/core/java/com/android/server/pm/PackageManagerService.java
-@@ -1840,8 +1840,9 @@
- 
+@@ -1841,6 +1841,7 @@
          m.selinuxChangeListener = selinuxChangeListener;
  
          m.installAllowlistedSystemPackages();
@@ -329,9 +481,27 @@
          IPackageManagerImpl iPackageManager = m.new IPackageManagerImpl();
          ServiceManager.addService("package", iPackageManager);
          final PackageManagerNative pmn = new PackageManagerNative(m);
-         ServiceManager.addService("package_native", pmn);
-@@ -3656,15 +3657,25 @@
+@@ -2212,6 +2213,9 @@
+             registerObservers(true);
          }
+ 
++        // Native metadata I/O stays outside both package locks. Applying the
++        // resulting holds waits until ordinary settings mappings are loaded.
++        final NativeIdentityStore.Loaded nativeIdentityAtBoot = mSettings.readNativeIdentityStoreForBoot();
+         Computer computer = mLiveComputer;
+         // CHECKSTYLE:OFF IndentationCheck
+         try (PackageManagerTracedLock installLock = mInstallLock.acquireLock()) {
+@@ -2256,6 +2260,9 @@
+             t.traceBegin("read user settings");
+             mFirstBoot = !mSettings.readLPw(computer,
+                     mInjector.getUserManagerInternal().getUsers(/* excludeDying= */ false));
++            // Constructor-only I/O, before any scan can allocate or reuse app IDs.
++            // Package settings recovery never deletes the separate native store.
++            mSettings.applyNativeIdentityStoreLPw(nativeIdentityAtBoot);
+             t.traceEnd();
+ 
+             if (mFirstBoot) {
+@@ -3657,6 +3664,10 @@
          return mDevicePolicyManager;
      }
  
@@ -342,7 +512,7 @@
      private boolean clearApplicationUserDataLIF(@NonNull Computer snapshot, String packageName,
              int userId, boolean restorePregrantedPermissions) {
          if (packageName == null) {
-             Slog.w(TAG, "Attempt to delete null packageName.");
+@@ -3664,6 +3675,12 @@
              return false;
          }
  
@@ -355,9 +525,7 @@
          // Try finding details about the requested package
          AndroidPackage pkg = snapshot.getPackage(packageName);
          if (pkg == null) {
-             Slog.w(TAG, "Package named '" + packageName + "' doesn't exist.");
-@@ -5156,8 +5167,20 @@
-             mHandler.post(new Runnable() {
+@@ -5157,6 +5174,18 @@
                  public void run() {
                      mHandler.removeCallbacks(this);
  
@@ -376,9 +544,7 @@
                      GosPackageStatePmHooks.onClearApplicationUserData(
                              PackageManagerService.this, packageName, userId);
  
-                     final boolean succeeded;
-@@ -5201,8 +5224,9 @@
-                         } catch (RemoteException e) {
+@@ -5202,6 +5231,7 @@
                              Log.i(TAG, "Observer no longer exists.");
                          }
                      } //end if observer
@@ -386,11 +552,9 @@
                  } //end run
              });
          }
- 
 --- a/services/core/java/com/android/server/pm/DeletePackageHelper.java
 +++ b/services/core/java/com/android/server/pm/DeletePackageHelper.java
-@@ -141,8 +141,11 @@
-         final boolean isInstallerPackage;
+@@ -142,6 +142,9 @@
          /** enabled state of the uninstalled application */
          synchronized (mPm.mLock) {
              final Computer computer = mPm.snapshotComputer();
@@ -400,9 +564,7 @@
              uninstalledPs = mPm.mSettings.getPackageLPr(packageName);
              if (uninstalledPs == null) {
                  Slog.w(TAG, "Not removing non-existent package " + packageName);
-                 return PackageManager.DELETE_FAILED_INTERNAL_ERROR;
-@@ -247,8 +250,13 @@
-             isInstallerPackage = mPm.mSettings.isInstallerPackage(packageName);
+@@ -248,6 +251,11 @@
          }
  
          try (PackageManagerTracedLock installLock = mPm.mInstallLock.acquireLock()) {
@@ -414,9 +576,7 @@
              if (DEBUG_REMOVE) Slog.d(TAG, "deletePackageX: pkg=" + packageName + " user=" + userId);
              try (PackageFreezer freezer = mPm.freezePackageForDelete(packageName, freezeUser,
                      deleteFlags, "deletePackageX", ApplicationExitInfo.REASON_OTHER)) {
-                 res = deletePackageLIF(packageName, UserHandle.of(removeUser), true, allUsers,
-@@ -378,8 +386,9 @@
-             boolean deleteCodeAndResources, @NonNull int[] allUserHandles, int flags,
+@@ -379,6 +387,7 @@
              @NonNull PackageRemovedInfo outInfo, boolean writeSettings, int callingUid) {
          final DeletePackageAction action;
          synchronized (mPm.mLock) {
@@ -424,11 +584,55 @@
              final PackageSetting ps = mPm.mSettings.getPackageLPr(packageName);
              if (ps == null) {
                  if (DEBUG_REMOVE) {
-                     Slog.d(TAG, "Attempted to remove non-existent package " + packageName);
 --- a/services/core/java/com/android/server/pm/InstallPackageHelper.java
 +++ b/services/core/java/com/android/server/pm/InstallPackageHelper.java
-@@ -1353,8 +1353,14 @@
+@@ -740,6 +740,15 @@
+             return Pair.create(PackageManager.INSTALL_FAILED_USER_RESTRICTED, intentSender);
          }
+ 
++        if (packageName == null) return Pair.create(PackageManager.INSTALL_FAILED_INVALID_URI, intentSender);
++        final Settings.NativePrincipalMutation nativeMutation;
++        try (PackageManagerTracedLock nativeAdmission = mPm.mInstallLock.acquireLock()) {
++            synchronized (mPm.mLock) {
++                nativeMutation = mPm.mSettings.beginNativePrincipalMutationLPw(packageName);
++            }
++        }
++        if (nativeMutation == null) return Pair.create(PackageManager.INSTALL_FAILED_INTERNAL_ERROR, intentSender);
++        boolean nativeMutationTransferred = false;
+         final long callingId = Binder.clearCallingIdentity();
+         try {
+             boolean installed = false;
+@@ -844,17 +853,23 @@
+                 InstallRequest request = new InstallRequest(userId,
+                         PackageManager.INSTALL_SUCCEEDED, pkgSetting.getPkg(), new int[]{ userId },
+                         () -> {
+-                            mPm.restorePermissionsAndUpdateRolesForNewUserInstall(packageName,
+-                                    userId);
+-                            if (onCompleteSender != null) {
+-                                onInstallComplete(PackageManager.INSTALL_SUCCEEDED, mContext,
+-                                        onCompleteSender);
+-                            }
++                            try {
++                                mPm.restorePermissionsAndUpdateRolesForNewUserInstall(packageName,
++                                        userId);
++                                if (onCompleteSender != null) {
++                                    onInstallComplete(PackageManager.INSTALL_SUCCEEDED, mContext,
++                                            onCompleteSender);
++                                }
++                            } finally { nativeMutation.close(); }
+                         }, pkgSetting.getAppId(), callingUid, pkgSetting.isSystem());
++                // A lost or late restore completion keeps its mutation hold.
++                // The initiating Binder return is not restore retirement.
++                nativeMutationTransferred = true;
+                 restoreAndPostInstall(request);
+             }
+         } finally {
+             Binder.restoreCallingIdentity(callingId);
++            if (!nativeMutationTransferred) nativeMutation.close();
+         }
+ 
+         return Pair.create(PackageManager.INSTALL_SUCCEEDED, intentSender);
+@@ -1354,6 +1369,12 @@
          return true;
      }
  
@@ -441,9 +645,7 @@
      private boolean scanInstallPackages(List<InstallRequest> requests,
              Map<String, Boolean> createdAppId, Map<String, Settings.VersionInfo> versionInfos) {
          final Set<String> scannedPackages = new ArraySet<>(requests.size());
-         for (InstallRequest request : requests) {
-@@ -1381,9 +1387,14 @@
-                                     + packageName
+@@ -1382,7 +1403,12 @@
                                      + " in multi-package install request.");
                      return false;
                  }
@@ -457,9 +659,7 @@
                      if (!mInstallingPackages.add(packageName)) {
                          request.setError("Scanning Failed.",
                                  new PackageManagerException(
-                                         PackageManager.INSTALL_FAILED_DUPLICATE_PACKAGE,
-@@ -1394,8 +1405,9 @@
-                                                 .INTERNAL_ERROR_DUPLICATE_INSTALLING_PACKAGE));
+@@ -1395,6 +1421,7 @@
                          return false;
                      }
                  }
@@ -467,9 +667,7 @@
                  if (!checkNoAppStorageIsConsistent(
                          request.getScanRequestOldPackage(), packageToScan)) {
                      // TODO: INSTALL_FAILED_UPDATE_INCOMPATIBLE is about incomptabible
-                     //  signatures. Is there a better error code?
-@@ -1458,10 +1470,28 @@
-         }
+@@ -1459,8 +1486,28 @@
      }
  
  
@@ -478,7 +676,9 @@
 +        boolean allowed = true;
 +        for (ReconciledPackage pkg : packages) {
 +            if (mPm.mSettings.isNativePrincipalPackageLPr(
-+                    pkg.mInstallRequest.getParsedPackage().getPackageName())) allowed = false;
++                    pkg.mInstallRequest.getParsedPackage().getPackageName())
++                    || mPm.mSettings.isNativePrincipalAppIdLPr(
++                    pkg.mInstallRequest.getScannedPackageSetting().getAppId())) allowed = false;
 +        }
 +        if (!allowed) {
 +            for (ReconciledPackage pkg : packages) {
@@ -496,9 +696,7 @@
          // The package freezing is now run outside the mInstallLock since it doesn't interact
          // with installD.
          final List<CompletableFuture<Void>> freezerFutures = new ArrayList<>();
-         for (ReconciledPackage reconciledPkg : reconciledPackages) {
-@@ -1489,8 +1519,12 @@
-                     try (PackageManagerTracedLock installLock = mPm.mInstallLock.acquireLock()) {
+@@ -1490,6 +1537,10 @@
                          synchronized (mPm.mLock) {
                              try {
                                  Trace.traceBegin(TRACE_TAG_PACKAGE_MANAGER, "commitPackages");
@@ -509,9 +707,7 @@
                                  commitPackagesLocked(reconciledPackages,
                                          mPm.mUserManager.getUserIds());
                              } finally {
-                                 Trace.traceEnd(TRACE_TAG_PACKAGE_MANAGER);
-@@ -1503,15 +1537,18 @@
-                     if (e != null) {
+@@ -1504,13 +1555,16 @@
                          Slog.e(TAG, "Failed to freeze one or more packages", e);
                          onComplete.accept(false);
                      } else {
@@ -529,9 +725,7 @@
              // Postpone freezer until after reconcile
              for (ReconciledPackage reconciledPkg : reconciledPackages) {
                  InstallRequest installRequest = reconciledPkg.mInstallRequest;
-                 String packageName = installRequest.getParsedPackage().getPackageName();
-@@ -1729,8 +1766,14 @@
-             }
+@@ -1730,6 +1784,12 @@
          }
  
          String pkgName = parsedPackage.getPackageName();
@@ -544,9 +738,111 @@
          request.setName(pkgName);
          if (parsedPackage.isTestOnly()) {
              if ((installFlags & PackageManager.INSTALL_ALLOW_TEST) == 0) {
-                 throw new PrepareFailure(INSTALL_FAILED_TEST_ONLY,
-@@ -4580,8 +4623,15 @@
-         try {
+@@ -3797,6 +3857,11 @@
+         for (int index = packageSettings.size() - 1; index >= 0; index--) {
+             final PackageSetting ps = packageSettings.valueAt(index);
+             final String packageName = ps.getPackageName();
++            if (mPm.mSettings.isNativePrincipalPackageLPr(packageName)
++                    || mPm.mSettings.isNativePrincipalAppIdLPr(ps.getAppId())) {
++                mPm.mSettings.deferNativePackage(packageName, ps.getPath());
++                continue;
++            }
+             /*
+              * If this is not a system app, it can't be a
+              * disable system app.
+@@ -3869,6 +3934,12 @@
+             int[] userIds, int scanFlags) {
+         for (int i = possiblyDeletedUpdatedSystemApps.size() - 1; i >= 0; --i) {
+             final String packageName = possiblyDeletedUpdatedSystemApps.get(i);
++            final PackageSetting heldDisabled = mPm.mSettings.getDisabledSystemPkgLPr(packageName);
++            if (mPm.mSettings.isNativePrincipalPackageLPr(packageName)
++                    || (heldDisabled != null && mPm.mSettings.isNativePrincipalAppIdLPr(heldDisabled.getAppId()))) {
++                mPm.mSettings.deferNativePackage(packageName, heldDisabled == null ? null : heldDisabled.getPath());
++                continue;
++            }
+             final AndroidPackage pkg = mPm.mPackages.get(packageName);
+             final String msg;
+ 
+@@ -4124,6 +4195,7 @@
+         Throwable throwable = result.throwable;
+         int errorCode = PackageManager.INSTALL_SUCCEEDED;
+         String errorMsg = null;
++        boolean nativeDeferred = false;
+         ScanParams scanParams = result.scanParams;
+ 
+         if (throwable == null) {
+@@ -4133,6 +4205,7 @@
+                         new UserHandle(UserHandle.USER_SYSTEM), scanParams.apexInfo);
+             } catch (PackageManagerException e) {
+                 errorCode = e.error;
++                nativeDeferred = e.internalErrorCode == PackageManagerException.INTERNAL_ERROR_NATIVE_IDENTITY_DEFERRED;
+                 errorMsg = "Failed to scan " + result.scanFile + ": " + e.getMessage();
+                 Slog.w(TAG, errorMsg);
+             } finally {
+@@ -4141,6 +4214,7 @@
+         } else if (throwable instanceof PackageManagerException) {
+             PackageManagerException e = (PackageManagerException) throwable;
+             errorCode = e.error;
++            nativeDeferred = e.internalErrorCode == PackageManagerException.INTERNAL_ERROR_NATIVE_IDENTITY_DEFERRED;
+             errorMsg = "Failed to parse " + result.scanFile + ": " + e.getMessage();
+             Slog.w(TAG, errorMsg);
+         } else {
+@@ -4155,6 +4229,16 @@
+         // Delete invalid userdata apps
+         if ((scanParams.scanFlags & SCAN_AS_SYSTEM) == 0
+                 && errorCode != PackageManager.INSTALL_SUCCEEDED) {
++            String packageName = result.parsedPackage == null ? null : result.parsedPackage.getPackageName();
++            NativePrincipalRecovery recovery = mPm.mSettings.nativeRecoveryView();
++            if (nativeDeferred || mPm.mSettings.isNativePrincipalPackageLPr(packageName)
++                    || recovery.keepsCodePath(result.scanFile)
++                    || recovery.preservesUnidentifiedCode(result.scanFile,
++                    Environment.getDataAppDirectory(StorageManager.UUID_PRIVATE_INTERNAL))) {
++                mPm.mSettings.deferNativePackage(packageName, result.scanFile);
++                Slog.w(TAG, "Package scan deferred for native identity recovery; code retained");
++                return;
++            }
+             logCriticalInfo(Log.WARN,
+                     "Deleting invalid package at " + result.scanFile + " (" + errorMsg + ")");
+             mRemovePackageHelper.removeCodePath(result.scanFile);
+@@ -4175,6 +4259,12 @@
+                 continue;
+             }
+             final File scanFile = expectingBetterPackages.valueAt(i);
++            final PackageSetting disabled = mPm.mSettings.getDisabledSystemPkgLPr(packageName);
++            if (mPm.mSettings.isNativePrincipalPackageLPr(packageName)
++                    || (disabled != null && mPm.mSettings.isNativePrincipalAppIdLPr(disabled.getAppId()))) {
++                mPm.mSettings.deferNativePackage(packageName, scanFile);
++                continue;
++            }
+ 
+             logCriticalInfo(Log.WARN, "Expected better " + packageName
+                     + " but never showed up; reverting to system");
+@@ -4326,6 +4416,11 @@
+             boolean appIdCreated = false;
+             try {
+                 final String pkgName = scanResult.mPkgSetting.getPackageName();
++                if (!mPm.mSettings.nativeScanSubjectAllowedLPr(scanResult.mPkgSetting)) {
++                    mPm.mSettings.deferNativePackage(pkgName, new File(parsedPackage.getPath()));
++                    throw PackageManagerException.ofInternalError("Native UID ownership requires recovery",
++                            PackageManagerException.INTERNAL_ERROR_NATIVE_IDENTITY_DEFERRED);
++                }
+                 final List<ReconciledPackage> reconcileResult =
+                         ReconcilePackageUtils.reconcilePackages(
+                                 Collections.singletonList(installRequest),
+@@ -4333,6 +4428,12 @@
+                                         mPm.getSettingsVersionForPackage(parsedPackage)),
+                                 mSharedLibraries, mPm.mSettings.getKeySetManagerService(),
+                                 mPm.mSettings, mPm.mInjector.getSystemConfig());
++                if (!mPm.mSettings.nativeScanBindingAllowedLPr(scanResult.mPkgSetting,
++                        reconcileResult.get(0).mSigningDetails)) {
++                    mPm.mSettings.deferNativePackage(pkgName, new File(parsedPackage.getPath()));
++                    throw PackageManagerException.ofInternalError("Native prior signer binding does not match",
++                            PackageManagerException.INTERNAL_ERROR_NATIVE_IDENTITY_DEFERRED);
++                }
+                 if ((scanFlags & SCAN_AS_APEX) == 0) {
+                     appIdCreated = optimisticallyRegisterAppIds(installRequest);
+                 } else {
+@@ -4581,6 +4682,13 @@
              final boolean scanSystemPartition =
                  (parseFlags & ParsingPackageUtils.PARSE_IS_SYSTEM_DIR) != 0;
              final boolean isApkInApex = (parseFlags & ParsingPackageUtils.PARSE_APK_IN_APEX) != 0;
@@ -560,11 +856,25 @@
              if ((scanFlags & SCAN_BOOTING) != 0) {
                  if (scanSystemPartition) {
                      PackageVerityExt.addSystemPackage(parsedPackage);
-                 } else {
+@@ -4734,8 +4842,13 @@
+             // two special cases:
+             // 1) when scanning system, force re-collect only if system is upgrading.
+             // 2) when scanning /data, force re-collect only if the package name is allowlisted.
+-            final boolean forceCollect = scanSystemPartition ? isUpgrade
+-                    : pkgAlreadyExists && needSignatureMatchToSystem(pkgSetting.getPackageName());
++            final boolean nativeHeld;
++            synchronized (mPm.mLock) {
++                nativeHeld = mPm.mSettings.isNativePrincipalPackageLPr(parsedPackage.getPackageName())
++                        || (pkgSetting != null && mPm.mSettings.isNativePrincipalAppIdLPr(pkgSetting.getAppId()));
++            }
++            final boolean forceCollect = nativeHeld || (scanSystemPartition ? isUpgrade
++                    : pkgAlreadyExists && needSignatureMatchToSystem(pkgSetting.getPackageName()));
+             if (DEBUG_VERIFY && forceCollect) {
+                 Slog.d(TAG, "Force collect certificate of " + parsedPackage.getPackageName());
+             }
 --- a/services/core/java/com/android/server/pm/ResilientAtomicFile.java
 +++ b/services/core/java/com/android/server/pm/ResilientAtomicFile.java
-@@ -19,8 +19,11 @@
- import android.annotation.NonNull;
+@@ -20,6 +20,9 @@
  import android.annotation.Nullable;
  import android.os.FileUtils;
  import android.os.ParcelFileDescriptor;
@@ -574,9 +884,7 @@
  import android.util.Log;
  import android.util.Slog;
  
- import com.android.internal.annotations.VisibleForTesting;
-@@ -30,8 +33,9 @@
- 
+@@ -31,6 +34,7 @@
  import java.io.Closeable;
  import java.io.File;
  import java.io.FileInputStream;
@@ -584,9 +892,7 @@
  import java.io.FileOutputStream;
  import java.io.IOException;
  
- final class ResilientAtomicFile implements Closeable {
-@@ -163,8 +167,59 @@
-             }
+@@ -164,6 +168,57 @@
          } catch (IOException e) {
              Slog.e(LOG_TAG, "Failed to write reserve copy " + mDebugName + ": " + mReserveCopy, e);
          }
@@ -644,4 +950,283 @@
      }
  
      public void failWrite(FileOutputStream str) {
-         if (mMainOutStream != str) {
+--- a/services/core/java/com/android/server/pm/AppDataHelper.java
++++ b/services/core/java/com/android/server/pm/AppDataHelper.java
+@@ -83,6 +83,71 @@
+         mArtManagerService = mInjector.getArtManagerService();
+     }
+ 
++    private boolean nativeDirectoryOwned(File file, int expectedUid) {
++        NativePrincipalRecovery recovery = mPm.mSettings.nativeRecoveryView();
++        if (!recovery.hasHolds()) return false;
++        try {
++            int uid = android.system.Os.lstat(file.getPath()).st_uid;
++            return recovery.protectsObservedUid(uid) && (expectedUid < 0 || uid != expectedUid);
++        } catch (android.system.ErrnoException unavailable) {
++            // Absence with CE available is not ownership. Other observation
++            // failures cannot authorize deletion of a potentially held object.
++            return unavailable.errno != android.system.OsConstants.ENOENT;
++        }
++    }
++
++    private boolean nativeDataConflict(String volumeUuid, String packageName, int userId,
++            int flags, int expectedUid) {
++        NativePrincipalRecovery recovery = mPm.mSettings.nativeRecoveryView();
++        if (!recovery.hasHolds()) return false;
++        if ((flags & StorageManager.FLAG_STORAGE_DE) != 0
++                && nativeDirectoryOwned(new File(Environment.getDataUserDeDirectory(volumeUuid, userId),
++                packageName), expectedUid)) return true;
++        if ((flags & StorageManager.FLAG_STORAGE_CE) != 0) {
++            if (!StorageManager.isCeStorageUnlocked(userId)) return recovery.hasUnresolvedHolds();
++            if (nativeDirectoryOwned(new File(Environment.getDataUserCeDirectory(volumeUuid, userId),
++                    packageName), expectedUid)) return true;
++        }
++        return false;
++    }
++
++    private boolean preserveNativeData(String packageName, String volumeUuid, int userId, int flags) {
++        NativePrincipalRecovery recovery = mPm.mSettings.nativeRecoveryView();
++        if (recovery.protectsName(packageName) || recovery.defersName(packageName)) return true;
++        PackageStateInternal state = mPm.snapshotComputer().getPackageStateInternal(packageName);
++        if (state != null && recovery.holdsAppId(state.getAppId())) return true;
++        return nativeDataConflict(volumeUuid, packageName, userId, flags, -1);
++    }
++
++    /** Negative preservation only. Directory UID/name never restores an identity. */
++    private void captureNativeDataFootprints(File directory, int userId) {
++        NativePrincipalRecovery recovery = mPm.mSettings.nativeRecoveryView();
++        if (!recovery.hasHolds()) return;
++        File[] files = directory.listFiles();
++        if (files == null) {
++            mPm.mSettings.noteUnresolvedNativeData();
++            return;
++        }
++        for (File file : files) {
++            String name = file.getName();
++            if (name.endsWith(Environment.PCC_DATA_DIRECTORY_SUFFIX)
++                        && name.length() > Environment.PCC_DATA_DIRECTORY_SUFFIX.length()) {
++                name = name.substring(0, name.length() - Environment.PCC_DATA_DIRECTORY_SUFFIX.length());
++            }
++            try {
++                int uid = android.system.Os.lstat(file.getPath()).st_uid;
++                if (!recovery.protectsObservedUid(uid)) continue;
++                PackageStateInternal state = mPm.snapshotComputer().getPackageStateInternal(name);
++                if (state == null || UserHandle.getUid(userId, state.getAppId()) != uid
++                        || recovery.defersName(name)) mPm.mSettings.deferNativePackage(name, null);
++            } catch (android.system.ErrnoException unavailable) {
++                if (unavailable.errno != android.system.OsConstants.ENOENT) {
++                    mPm.mSettings.deferNativePackage(name, null);
++                }
++            }
++        }
++    }
++
+     /**
+      * Prepare app data for the given app just after it was installed or
+      * upgraded. This method carefully only touches users that it's installed
+@@ -217,6 +282,14 @@
+     private @NonNull CompletableFuture<?> prepareAppData(@NonNull Installer.Batch batch,
+             @NonNull PackageSetting ps, int previousAppId, int userId, int flags) {
+         final String packageName = ps.getPackageName();
++        NativePrincipalRecovery nativeRecovery = mPm.mSettings.nativeRecoveryView();
++        if (nativeRecovery.defersName(packageName)
++                || (nativeRecovery.protectsName(packageName) && !nativeRecovery.holdsAppId(ps.getAppId()))
++                || nativeDataConflict(ps.getVolumeUuid(), packageName, userId, flags,
++                UserHandle.getUid(userId, ps.getAppId()))) {
++            mPm.mSettings.deferNativePackage(packageName, ps.getPath());
++            return CompletableFuture.failedFuture(new IllegalStateException("Native data preparation deferred"));
++        }
+ 
+         if (DEBUG_APP_DATA) {
+             Slog.v(TAG, "prepareAppData for " + packageName + " u" + userId + " 0x"
+@@ -247,6 +320,10 @@
+             // Note: this code block is executed with the Installer lock
+             // already held, since it's invoked as a side-effect of
+             // executeBatchLI()
++            if (e != null && preserveNativeData(packageName, volumeUuid, userId, flags)) {
++                mPm.mSettings.deferNativePackage(packageName, ps.getPath());
++                return;
++            }
+             if (e != null) {
+                 Slog.w(TAG, "Failed to create app data for " + packageName
+                         + ", but trying to recover: " + e);
+@@ -422,8 +499,22 @@
+                 + Integer.toHexString(flags) + " migrateAppData=" + migrateAppData);
+         List<String> result = onlyCoreApps ? new ArrayList<>() : null;
+ 
++        if ((flags & StorageManager.FLAG_STORAGE_CE) != 0 && StorageManager.isFileEncrypted()
++                && !StorageManager.isCeStorageUnlocked(userId)) {
++            throw new IllegalStateException("CE reconciliation without storage authority");
++        }
++        if ((flags & StorageManager.FLAG_STORAGE_DE) != 0) {
++            captureNativeDataFootprints(Environment.getDataUserDeDirectory(volumeUuid, userId), userId);
++        }
++        if ((flags & StorageManager.FLAG_STORAGE_CE) != 0) {
++            captureNativeDataFootprints(Environment.getDataUserCeDirectory(volumeUuid, userId), userId);
++        }
+         try {
+-            mInstaller.cleanupInvalidPackageDirs(volumeUuid, userId, flags);
++            // This API cannot exclude one UID. Defer the unfilterable sweep
++            // only during unresolved recovery; per-package work continues.
++            if (!mPm.mSettings.nativeRecoveryView().hasUnresolvedHolds()) {
++                mInstaller.cleanupInvalidPackageDirs(volumeUuid, userId, flags);
++            }
+         } catch (Installer.InstallerException e) {
+             logCriticalInfo(Log.WARN, "Failed to cleanup deleted dirs: " + e);
+         }
+@@ -449,6 +540,7 @@
+                     packageName = packageName.substring(
+                             0, packageName.lastIndexOf(Environment.PCC_DATA_DIRECTORY_SUFFIX));
+                 }
++                if (preserveNativeData(packageName, volumeUuid, userId, flags)) continue;
+                 try {
+                     assertPackageStorageValid(snapshot, volumeUuid, packageName, userId);
+                 } catch (PackageManagerException e) {
+@@ -472,6 +564,7 @@
+                     packageName = packageName.substring(
+                             0, packageName.lastIndexOf(Environment.PCC_DATA_DIRECTORY_SUFFIX));
+                 }
++                if (preserveNativeData(packageName, volumeUuid, userId, flags)) continue;
+                 try {
+                     assertPackageStorageValid(snapshot, volumeUuid, packageName, userId);
+                 } catch (PackageManagerException e) {
+@@ -569,12 +662,17 @@
+                     true /* onlyCoreApps */);
+         }
+         Future<?> prepareAppDataFuture = SystemServerInitThreadPool.submit(() -> {
++            // Admission and execution of this boot batch share the mutation
++            // lock. A native designation cannot enter between them.
++            try (PackageManagerTracedLock nativeMaintenance = mPm.mInstallLock.acquireLock()) {
+             TimingsTraceLog traceLog = new TimingsTraceLog("SystemServerTimingAsync",
+                     Trace.TRACE_TAG_PACKAGE_MANAGER);
+             traceLog.traceBegin("AppDataFixup");
+             try {
+-                mInstaller.fixupAppData(StorageManager.UUID_PRIVATE_INTERNAL,
+-                        StorageManager.FLAG_STORAGE_DE | StorageManager.FLAG_STORAGE_CE);
++                if (!mPm.mSettings.nativeRecoveryView().hasUnresolvedHolds()) {
++                    mInstaller.fixupAppData(StorageManager.UUID_PRIVATE_INTERNAL,
++                            StorageManager.FLAG_STORAGE_DE | StorageManager.FLAG_STORAGE_CE);
++                }
+             } catch (Installer.InstallerException e) {
+                 Slog.w(TAG, "Trouble fixing GIDs", e);
+             }
+@@ -598,11 +696,10 @@
+                     count++;
+                 }
+             }
+-            try (PackageManagerTracedLock installLock = mPm.mInstallLock.acquireLock()) {
+-                executeBatchLI(batch);
+-            }
++            executeBatchLI(batch);
+             traceLog.traceEnd();
+             Slog.i(TAG, "Deferred reconcileAppsData finished " + count + " packages");
++            }
+         }, "prepareAppData");
+         return prepareAppDataFuture;
+     }
+@@ -624,6 +721,7 @@
+         final PackageStateInternal packageStateInternal =
+                 snapshot.getPackageStateInternal(packageName);
+         for (int realUserId : mPm.resolveUserIds(userId)) {
++            if (preserveNativeData(packageName, volumeUuid, realUserId, flags)) continue;
+             final long ceDataInode = (packageStateInternal != null)
+                     ? packageStateInternal.getUserStateOrDefault(realUserId).getCeDataInode() : 0;
+             final long pccCeDataInode = (packageStateInternal != null)
+@@ -660,6 +758,7 @@
+         final PackageStateInternal packageStateInternal =
+                 snapshot.getPackageStateInternal(packageName);
+         for (int realUserId : mPm.resolveUserIds(userId)) {
++            if (preserveNativeData(packageName, volumeUuid, realUserId, flags)) continue;
+             final long ceDataInode = (packageStateInternal != null)
+                     ? packageStateInternal.getUserStateOrDefault(realUserId).getCeDataInode() : 0;
+             final long pccCeDataInode = (packageStateInternal != null)
+@@ -719,6 +818,9 @@
+         if (appId < 0) {
+             return;
+         }
++        // Checked at execution, including callbacks queued before designation.
++        // Native retirement uses its separately owned exact UID operation.
++        if (mPm.mSettings.nativeRecoveryView().protectsKeystore(appId)) return;
+ 
+         for (int realUserId : mPm.resolveUserIds(userId)) {
+             AndroidKeyStoreMaintenance.clearNamespace(
+--- a/services/core/java/com/android/server/pm/StorageEventHelper.java
++++ b/services/core/java/com/android/server/pm/StorageEventHelper.java
+@@ -333,6 +333,13 @@
+                 }
+             }
+ 
++            NativePrincipalRecovery nativeRecovery = mPm.mSettings.nativeRecoveryView();
++            if (!pathValid && (nativeRecovery.keepsCodePath(file)
++                    || nativeRecovery.preservesUnidentifiedCode(file,
++                    Environment.getDataAppDirectory(volumeUuid)))) {
++                mPm.mSettings.retainNativeCode(file);
++                continue;
++            }
+             if (!pathValid) {
+                 if (filesToDelete == null) {
+                     filesToDelete = new ArrayList<>();
+--- a/services/core/java/com/android/server/pm/RemovePackageHelper.java
++++ b/services/core/java/com/android/server/pm/RemovePackageHelper.java
+@@ -93,6 +93,15 @@
+         if (codePath == null || !codePath.exists()) {
+             return;
+         }
++        NativePrincipalRecovery nativeRecovery = mPm.mSettings.nativeRecoveryView();
++        final File possibleParent = codePath.getParentFile();
++        final boolean removesParent = codePath.isDirectory() && possibleParent != null
++                && possibleParent.getName().startsWith(RANDOM_DIR_PREFIX);
++        if (nativeRecovery.keepsCodePath(codePath)
++                || (removesParent && nativeRecovery.keepsCodePath(possibleParent))) {
++            Slog.w(TAG, "Code removal deferred for native identity recovery");
++            return;
++        }
+         if (codePath.isDirectory()) {
+             final File codePathParent = codePath.getParentFile();
+             final boolean needRemoveParent = codePathParent.getName().startsWith(RANDOM_DIR_PREFIX);
+@@ -259,6 +268,12 @@
+     public void clearPackageStateForUserLIF(PackageSetting ps, @CanBeALL @UserIdInt int userId,
+             int flags) {
+         final String packageName = ps.getPackageName();
++        NativePrincipalRecovery nativeRecovery = mPm.mSettings.nativeRecoveryView();
++        if (nativeRecovery.protectsName(packageName) || nativeRecovery.holdsAppId(ps.getAppId())) {
++            mPm.mSettings.deferNativePackage(packageName, ps.getPath());
++            Slog.w(TAG, "Package state clear deferred for native identity recovery");
++            return;
++        }
+         // Step 1: always destroy app profiles except when explicitly preserved
+         if ((flags & Installer.FLAG_CLEAR_APP_DATA_KEEP_ART_PROFILES) == 0) {
+             mAppDataHelper.destroyAppProfilesLIF(packageName);
+@@ -385,6 +400,12 @@
+             @CanBeALL @UserIdInt int targetUserId, @NonNull int[] allUserHandles,
+             @NonNull PackageRemovedInfo outInfo, int flags, boolean writeSettings) {
+         String packageName = deletedPs.getPackageName();
++        NativePrincipalRecovery nativeRecovery = mPm.mSettings.nativeRecoveryView();
++        if (nativeRecovery.protectsName(packageName) || nativeRecovery.holdsAppId(deletedPs.getAppId())) {
++            mPm.mSettings.deferNativePackage(packageName, deletedPs.getPath());
++            Slog.w(TAG, "Package removal deferred for native identity recovery");
++            return;
++        }
+         if (DEBUG_REMOVE) Slog.d(TAG, "removePackageDataLI: " + deletedPs);
+         final boolean shouldDeletePackageSetting =
+                 shouldDeletePackageSetting(deletedPs, targetUserId, allUserHandles, flags);
+--- a/services/core/java/com/android/server/pm/PackageManagerException.java
++++ b/services/core/java/com/android/server/pm/PackageManagerException.java
+@@ -66,6 +66,7 @@
+     public static final int INTERNAL_ERROR_MISSING_USER = -38;
+     public static final int INTERNAL_ERROR_ARCHIVE_NO_INSTALLER_TITLE = -39;
+     public static final int INTERNAL_ERROR_DUPLICATE_INSTALLING_PACKAGE = -40;
++    public static final int INTERNAL_ERROR_NATIVE_IDENTITY_DEFERRED = -41;
+ 
+     @IntDef(prefix = { "INTERNAL_ERROR_" }, value = {
+             INTERNAL_ERROR_NATIVE_LIBRARY_COPY,
+@@ -107,7 +108,8 @@
+             INTERNAL_ERROR_APEX_MORE_THAN_ONE_FILE,
+             INTERNAL_ERROR_MISSING_USER,
+             INTERNAL_ERROR_ARCHIVE_NO_INSTALLER_TITLE,
+-            INTERNAL_ERROR_DUPLICATE_INSTALLING_PACKAGE
++            INTERNAL_ERROR_DUPLICATE_INSTALLING_PACKAGE,
++            INTERNAL_ERROR_NATIVE_IDENTITY_DEFERRED
+     })
+     @Retention(RetentionPolicy.SOURCE)
+     public @interface InternalErrorCode {}

@@ -43,9 +43,10 @@ now has a matching failing control, 156 passing host parser/adapter checks and a
 `AndrixTerminal` Android module build with artifact verification. Device logging and broader
 runtime privacy remain separately unqualified. The [native identity record and slot storage component](2026-09-25-native-identity-store.md)
 now has actual Java codec/filesystem checks and a successful Android `services.core` module
-build. Its PMS consumer, allocation recovery, data
-quarantine and lifecycle integration are the next boundary. No new factory or account path was
-activated.
+build. The [PMS consumer integration](2026-09-26-native-store-pms-consumer.md) now has 22 focused
+host checks, including actual slot transactions beneath the manager, negative recovery state and
+code/data cleanup fences. Android compilation, boot recovery, owned restoration and lifecycle
+integration remain separate gates. No new factory or account path was activated.
 
 ## Current milestone
 
@@ -119,7 +120,7 @@ required before activation. No product selects the new entry yet.
 
 The [Package Manager native reservation component](../owner/platform/principal-pins.md) now
 adds persistent identity pins, allocator fencing, exact handles and durable retirement markers
-inside Android's own settings. Normal uninstall, replacement and clear data paths are fenced
+initially inside Android's own settings. Normal uninstall, replacement and clear data paths are fenced
 against live reservations. JVM/component checks passed and the actual Android `services.core`
 module compiled. This is not a device runtime pass, an owner designation interface or a manager
 factory. Complete settings loss/corruption, older readers and the native boot/recovery barrier
@@ -130,8 +131,9 @@ grant. The [recovery redesign](2026-09-25-native-recovery-boundary.md) now propo
 reservation store owned by Package Manager, separate from ordinary package settings. Stable UID
 slots and recovery copies would preserve allocation holds even when account details are damaged,
 so the affected native account can stay unavailable without stopping the phone. The separate
-[storage component](2026-09-25-native-identity-store.md) is now host tested, but this recovery
-behavior is not yet connected to PMS or qualified on Android. Unsupported OS data reuse is outside the supported migration path;
+[storage component](2026-09-25-native-identity-store.md) is now module compiled. Its
+[PMS consumer](2026-09-26-native-store-pms-consumer.md) is implemented with host checks, but the
+recovery behavior is not yet Android runtime qualified. Unsupported OS data reuse is outside the supported migration path;
 total destruction of every authority copy is a disaster case, not a reason to block ordinary
 integration. No fixed UID range, permanent nonreuse policy or catastrophic recovery default was
 silently selected.

@@ -19,17 +19,20 @@ import native_principal_pins as integration
 class NativePrincipalPinsTests(unittest.TestCase):
     def test_exact_source_profile_and_fixtures(self):
         profile = integration.profile()
-        self.assertEqual(len(profile['files']), 6)
-        self.assertEqual(len(profile['added']), 5)
+        self.assertEqual(len(profile['files']), 10)
+        self.assertEqual(len(profile['added']), 6)
         self.assertEqual(len(profile['fixtures']), 2)
         with self.assertRaises(ValueError):
             integration.targets({name: b'wrong source' for name in integration.FILES}, profile)
         patch = integration.PATCH.read_text()
-        self.assertIn('finishWriteStrict(str)', patch)
-        self.assertIn('mNativePrincipalWriteConfirmed', patch)
+        self.assertIn('applyNativeIdentityStoreLPw(nativeIdentityAtBoot)', patch)
+        self.assertIn('readNativeIdentityStoreForBoot()', patch)
+        self.assertIn('INTERNAL_ERROR_NATIVE_IDENTITY_DEFERRED', patch)
         self.assertIn('nativePrincipalMutationsAllowedLocked', patch)
         self.assertIn('mNativePrincipalMutations', patch)
-        self.assertIn('NativePrincipalPinsXml.readForSettings(parser)', patch)
+        self.assertNotIn('+                NativePrincipalPinsXml.write(', patch)
+        self.assertIn('nativeScanBindingAllowedLPr', patch)
+        self.assertIn('nativeRecoveryView().protectsKeystore(appId)', patch)
         self.assertIn('Native account backing package cannot be replaced by a system scan', patch)
         self.assertLess(patch.index('Native account backing package cannot be replaced by a system scan'),
                         patch.index('PackageVerityExt.addSystemPackage(parsedPackage)'))
@@ -55,9 +58,12 @@ class NativePrincipalPinsTests(unittest.TestCase):
         self.assertIn('beginRetirement(Handle handle)', manager)
         self.assertIn('finishRetirementAfterQuiescence(Handle handle)', manager)
         self.assertIn('if (!handle.retirementCommitted)', manager)
-        self.assertIn('pins.snapshotWithout(handle.pin)', manager)
-        self.assertLess(manager.index('persistNativePrincipalPinsLPr(pm.snapshotComputer(), candidate)'),
+        self.assertIn('persistence.finishRetirement(handle.pin.record(), handle.lineage', manager)
+        self.assertLess(manager.index('persistence.finishRetirement('),
                         manager.index('pins.finishRetire(handle.pin)'))
+        self.assertIn('requirePublishedBinding(handle)', manager)
+        self.assertIn('storedSignerSha256', manager)
+        self.assertNotIn('persistNativePrincipalPinsLPr', manager)
         self.assertIn('pm.mInstallLock.acquireLock()', manager)
         self.assertIn('pm.isInstallingNativePrincipalPackage', manager)
         self.assertIn('nativePrincipalMutationInProgressLPr', manager)
@@ -77,36 +83,36 @@ class NativePrincipalPinsTests(unittest.TestCase):
             work = Path(temporary)
             allocator = work / 'AppIdSettingMap.java'
             allocator.write_bytes(integration.FIXTURES[integration.PREFIX + 'AppIdSettingMap.java'].read_bytes())
-            sources = [ROOT / 'owner/platform/framework/NativePrincipalPins.java',
-                       ROOT / 'owner/platform/framework/NativePrincipalManager.java', allocator,
-                       *sorted((ROOT / 'owner/tests/platform/native_principal_stubs').rglob('*.java')),
+            writer = work / 'ResilientAtomicFile.java'
+            writer.write_bytes(integration.FIXTURES[integration.PREFIX + 'ResilientAtomicFile.java'].read_bytes())
+            stubs = {}
+            for name in ['native_principal_stubs', 'native_principal_xml_stubs']:
+                base = ROOT / 'owner/tests/platform' / name
+                for source in base.rglob('*.java'):
+                    if source.name != 'Xml.java':
+                        stubs[source.relative_to(base).as_posix()] = source
+            sources = [allocator, writer, *stubs.values(),
+                       *[ROOT / 'owner/platform/framework' / (name + '.java') for name in
+                         ['NativePrincipalPins', 'NativePrincipalManager', 'NativeIdentityRecords',
+                          'NativeIdentityStore', 'NativeIdentityPersistence', 'NativePrincipalRecovery']],
                        *[ROOT / 'owner/tests/platform' / (name + '.java') for name in
                          ['NativePrincipalPinsTest', 'NativePrincipalAllocatorTest', 'NativePrincipalManagerTest']]]
             subprocess.run(['javac', '-J-Xmx256m', '--release', '17', '-Xlint:all', '-Werror', '-d', str(work),
                             *map(str, sources)], check=True, capture_output=True, timeout=120)
             for name in ['NativePrincipalPinsTest', 'NativePrincipalAllocatorTest', 'NativePrincipalManagerTest']:
-                result = subprocess.run(['java', '-Xmx256m', '-ea', '-cp', str(work), 'com.android.server.pm.' + name],
+                result = subprocess.run(['java', '-Xmx256m', '-Djava.io.tmpdir=' + str(work), '-ea', '-cp', str(work), 'com.android.server.pm.' + name],
                                         capture_output=True, text=True, timeout=60)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertIn('unqualified', result.stdout)
 
     @unittest.skipUnless(shutil.which('javac') and shutil.which('java'), 'JDK required')
-    def test_xml_and_actual_writer_failure_checks_with_facades(self):
+    def test_legacy_xml_codec_and_actual_writer_with_facades(self):
         with tempfile.TemporaryDirectory() as temporary:
             work = Path(temporary)
             writer = work / 'ResilientAtomicFile.java'
             writer.write_bytes(integration.FIXTURES[integration.PREFIX + 'ResilientAtomicFile.java'].read_bytes())
-            fragments = '\n'.join(line[1:] for line in integration.PATCH.read_text().splitlines()
-                                  if line.startswith((' ', '+')) and not line.startswith('+++'))
-            start = fragments.index('                // Every failed settings read needs native recovery, even before our tag.')
-            end = fragments.index('                // Remove corrupted file and retry.', start)
-            fence = fragments[start:end]
-            self.assertNotIn('if (sawNativePins)', fence)
-            recovery = work / 'NativePrincipalReadFailureTest.java'
-            template = (ROOT / 'owner/tests/platform/NativePrincipalReadFailureTest.java.in').read_text()
-            recovery.write_text(template.replace('@FAILURE_FENCE@', fence))
             sources = [ROOT / 'owner/platform/framework/NativePrincipalPins.java',
-                       ROOT / 'owner/platform/framework/NativePrincipalPinsXml.java', writer, recovery,
+                       ROOT / 'owner/platform/framework/NativePrincipalPinsXml.java', writer,
                        *sorted((ROOT / 'owner/tests/platform/native_principal_xml_stubs').rglob('*.java')),
                        ROOT / 'owner/tests/platform/NativePrincipalPersistenceTest.java']
             subprocess.run(['javac', '-J-Xmx256m', '--release', '17', '-Xlint:all', '-Werror', '-d', str(work),
@@ -118,11 +124,7 @@ class NativePrincipalPinsTests(unittest.TestCase):
                                     capture_output=True, text=True, timeout=60)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn('unqualified', result.stdout)
-            result = subprocess.run(['java', '-Xmx256m', '-ea', '-cp', str(work),
-                                     'com.android.server.pm.NativePrincipalReadFailureTest'],
-                                    capture_output=True, text=True, timeout=30)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertIn('unqualified', result.stdout)
+
 
 
 if __name__ == '__main__':

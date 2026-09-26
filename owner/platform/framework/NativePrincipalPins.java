@@ -26,7 +26,9 @@ import java.util.TreeSet;
  *     ID. The same package and app ID may be pinned for several users.
  * <li>Pin IDs are positive and follow {@code lastId}; committed lineage counters
  *     survive restore. Undurable prepares are not cross-instance authority. A
- *     refused call consumes no ID.
+ *     refused call consumes no ID. If the counter is unavailable, independently
+ *     verified existing bindings can be restored without making up an issuance
+ *     floor; new issuance and whole-counter snapshots then refuse.
  * <li>Every pin counts toward the capacity.
  * </ul>
  *
@@ -48,7 +50,10 @@ import java.util.TreeSet;
  *     durably write the target-specific omission and call finishRetire.
  * </ol>
  * Lost writes/replies retain the exact pin. No GC, death, timeout or label releases
- * a reservation. This class does no I/O and checks no caller or live authority.
+ * a reservation. One instance holds one lineage. Repairing a lost counter requires
+ * a fresh instance and explicit invalidation of old handles, not patching an
+ * issuance floor into a live registry. This class does no I/O and checks no caller
+ * or live authority.
  *
  * <p>This object's monitor guards all state. Methods hold it only for memory operations, never
  * for I/O, callbacks or waits. Malformed input throws {@link IllegalArgumentException}, or
@@ -261,9 +266,10 @@ public final class NativePrincipalPins {
     private static final int MAX_PACKAGE_NAME_LENGTH = 255;
 
     private final int capacity;
-    // The three fields below are guarded by this. Restore replaces the whole index at once.
+    // These fields are guarded by this. Restore replaces the whole index at once.
     private Index index = new Index();
     private long lastId;
+    private boolean counterKnown = true;
     private boolean fresh = true; // No successful prepare or restore yet.
 
     /** @param capacity maximum number of pins in any phase, at least 1 */
@@ -296,12 +302,16 @@ public final class NativePrincipalPins {
             }
             return existing; // Exact retry of a PENDING or ACTIVE pin.
         }
+        if (!counterKnown) throw new IllegalStateException("Principal ID counter unavailable");
         String reason = index.conflict(packageName, appId);
         if (reason != null) throw new IllegalStateException(reason);
         if (index.ids.size() >= capacity) {
             throw new IllegalStateException("capacity reached: " + capacity);
         }
         if (lastId == Long.MAX_VALUE) throw new IllegalStateException("pin IDs exhausted");
+        if (index.ids.containsKey(lastId + 1)) {
+            throw new IllegalStateException("Principal ID issuance conflicts with an existing binding");
+        }
         Pin pin = new Pin(this, new Record(lastId + 1, packageName, appId, userId, userSerial));
         index.add(pin);
         lastId = pin.record.id;
@@ -339,7 +349,10 @@ public final class NativePrincipalPins {
         return Collections.unmodifiableSet(new TreeSet<>(index.appIds.keySet()));
     }
 
-    /** All held records in ID order, including persisted retirement markers. */
+    /**
+     * All held records in ID order, including retirement markers. Refuses if the
+     * counter is unknown; callers must not serialize a guessed allocation floor.
+     */
     public synchronized Snapshot snapshotForWrite() {
         return snapshotExcept(null);
     }
@@ -356,6 +369,7 @@ public final class NativePrincipalPins {
     }
 
     private Snapshot snapshotExcept(Pin omitted) {
+        if (!counterKnown) throw new IllegalStateException("Principal ID counter unavailable");
         List<Record> records = new ArrayList<>(index.ids.size());
         Set<Long> retiring = new TreeSet<>();
         for (Pin pin : index.ids.values()) {
@@ -368,7 +382,9 @@ public final class NativePrincipalPins {
 
     /**
      * Makes a PENDING pin ACTIVE. Repeating it for the same ACTIVE handle changes nothing. Call
-     * only after a snapshot containing the record is durable and the subject is revalidated.
+     * only after the exact record is durably confirmed and the subject is revalidated.
+     * With an unknown counter this requires the separate slot persistence path,
+     * not a fabricated whole-store snapshot.
      *
      * @throws IllegalStateException for a RETIRING, stale or foreign handle
      */
@@ -418,7 +434,25 @@ public final class NativePrincipalPins {
      * @throws IllegalStateException if this instance is not fresh or the records exceed capacity
      */
     public synchronized List<Pin> restore(Snapshot snapshot) {
-        Objects.requireNonNull(snapshot, "snapshot");
+        return restoreValidated(Objects.requireNonNull(snapshot, "snapshot"), true);
+    }
+
+    /**
+     * Restore independently verified slot bindings when the issuance counter is
+     * unavailable. No maximum observed ID is promoted into an allocation floor.
+     * Existing handles can be rebound/confirmed or retired through their exact
+     * slot operations, but new issuance and whole-counter snapshots refuse.
+     * The PMS consumer must still retain every additional negative store hold.
+     */
+    public synchronized List<Pin> restoreBindingsWithoutCounter(List<Record> records,
+            Set<Long> retiringIds) {
+        return restoreValidated(new Snapshot(0, records, retiringIds), false);
+    }
+
+    /** Counter availability, not a live authority or general recovery verdict. */
+    public synchronized boolean hasKnownCounter() { return counterKnown; }
+
+    private List<Pin> restoreValidated(Snapshot snapshot, boolean knownCounter) {
         if (!fresh) throw new IllegalStateException("restore needs a fresh instance");
         if (snapshot.lastId < 0) {
             throw new IllegalArgumentException("negative lastId: " + snapshot.lastId);
@@ -432,7 +466,7 @@ public final class NativePrincipalPins {
         for (Record record : snapshot.records) {
             // Records validate on construction. Durable input is checked again at this boundary.
             checkBinding(record.packageName, record.appId, record.userId, record.userSerial);
-            if (record.id <= 0 || record.id > snapshot.lastId) {
+            if (record.id <= 0 || (knownCounter && record.id > snapshot.lastId)) {
                 throw new IllegalArgumentException("ID outside 1..lastId: " + record);
             }
             if (restored.ids.containsKey(record.id)) {
@@ -454,7 +488,8 @@ public final class NativePrincipalPins {
             }
         }
         index = restored; // First change. Every check above has passed.
-        lastId = snapshot.lastId;
+        lastId = snapshot.lastId; // Remains an unusable zero when the counter is unknown.
+        counterKnown = knownCounter;
         fresh = false;
         return Collections.unmodifiableList(pins);
     }

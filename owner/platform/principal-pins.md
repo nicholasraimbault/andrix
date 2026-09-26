@@ -1,150 +1,121 @@
 # Package Manager native principal reservations
 
-Status: internal implementation and Android module build, not runtime qualification or native
-account activation. The first adapter supports Android user 0 only. No Binder or shell endpoint,
-manifest flag, package signer or ordinary installation can invoke this designation mechanism.
-The trusted owner account authority and native manager factory are not connected yet.
+Status: internal implementation and host checks, not native account activation. The
+[slot storage component](../../plans/2026-09-25-native-identity-store.md) compiled in the real
+Android `services.core` module at `3ee50f3`. Its subsequent
+[PMS consumer integration](../../plans/2026-09-26-native-store-pms-consumer.md) has separate
+verification status. No Binder endpoint, manifest declaration, signer or ordinary installation
+can designate a native account. The first adapter supports user 0 and ordinary internal packages.
 
-This component extends Package Manager's own UID lifetime machinery. It does not allocate a
-second set of UIDs, maintain fictional installed state, store permission grants or appoint an
-APK as an owner login. It is one prerequisite for the
-[ordinary principal launch path](../principal-entry.md).
+This extends Package Manager's UID lifetime machinery. It does not allocate another UID space,
+maintain fictional installed state, store permission grants or appoint an APK as a login. It is
+one prerequisite for the [ordinary principal launch path](../principal-entry.md).
 
-## Ownership and state
+## Selection and durable prior identity
 
-`NativePrincipalManager` is an internal system_server API registered after Package Manager
-construction. A trusted account authority must validate owner designation and signer/identity
-continuity before calling it. `select` captures the exact installed object, app ID, user serial,
-version and current signer certificate digests under Package Manager's locks. It grants nothing
-and reserves no UID. The authority binds its designation decision to that selection, then
-`prepare` rechecks the complete selection under the same mutation locks. Raw UID/package
-numbers are no longer accepted as a substitute. A replacement installation with the same
-numbers cannot inherit an old selection, and a retired selection cannot create a new account.
-Commit and current identity checks retain this binding. A restored pin is only metadata until
-the authority explicitly rebinds its recovered designation to a current selection. This is not
-a production signer rotation policy or an owner consent UI.
+`NativePrincipalManager` is an internal system_server API. A trusted account authority validates
+owner designation before calling it. `select` captures the exact installed object, actual app ID,
+user serial, version and immutable current signer set. Selection grants nothing and reserves no UID.
 
-The initial subject must be an installed ordinary package on internal storage, with no shared
-UID, archive, instant, system, updated system, APEX, static library or SDK library role. Its
-actual allocator slot must identify that PackageSetting. This is a bounded first integration,
-not a permanent product restriction on native account representation.
+`prepare` rechecks that selection under the package mutation locks. A replaced package object or
+changed signer/version/user cannot inherit it merely by using the same numbers. A retired selection
+cannot create a new account. A restored binding must also match the **stored prior signer set and
+lineage**, not just today's APK. Missing prior identity does not get filled from a current selection.
 
-`NativePrincipalPins` owns exact handles and reservation state:
+The initial subject excludes shared UID, archive, instant, system, updated system, APEX, external,
+SDK and static library roles. These are bounded adapter gates, not permanent native account policy.
+Other Android users need the real UserManager deletion/reuse barrier before admission.
 
-| Operation/state | Meaning |
+## Handles and phases
+
+`NativePrincipalPins` holds exact owned handles:
+
+| State or step | Meaning |
 | --- | --- |
-| Prepare / PENDING | The UID is held immediately. Persistence and current identity still require confirmation. |
-| Commit / ACTIVE | The reservation was durably written and the actual package/user identity revalidated. This is not execution, CE or foreground authority. |
-| Begin retirement / RETIRING | New activation is closed. The retirement marker must be durable before account removal or quiescence proceeds. |
-| Final omission | After confirmed work, manager, API and data obligations, publish a snapshot omitting only this exact retiring pin. Other retiring pins may still own work. |
-| Finish / RETIRED | Only after that publication is confirmed does the allocator reservation leave memory. The old handle cannot act on a replacement. |
+| PENDING | The app ID is held immediately. Persistence and current identity still need confirmation. |
+| ACTIVE | The reservation is durably confirmed and the installed subject revalidated. This is not CE, execution or foreground authority. |
+| RETIRING | New activation is closed irreversibly in memory. Its durable marker must be confirmed before destructive retirement proceeds. |
+| Final omission | Only after actual producer/work/API/key/data retirement and owner disposition may this exact binding be omitted. Other accounts remain held. |
+| RETIRED | Only after checked store release may the memory pin finish. Its old handle cannot target a replacement. |
 
-A lost write, reply, caller or handle never releases a reservation automatically. Exact local
-retries retain the same handle. On restore, retiring markers remain RETIRING; other records
-become PENDING and require revalidation. No restored record automatically becomes active.
-Counters survive an empty reservation set. Undurable prepares are not authority across service
-incarnations.
+Lost writes or replies keep the original handle and obligations. No GC, death, timeout or label
+releases a reservation. Restored records are PENDING or RETIRING, never ACTIVE.
 
-The Package Manager component does not itself prove that native processes or API effects have
-retired. That confirmation must come from the trusted account/supervision authority. There is
-no caller supplied `retired=true` bit and no automatic close/finalizer on the pin handle.
+Counter availability is distinct from binding availability. Independently verified existing
+records can be restored without a usable issuance counter. Existing handles can still be found,
+confirmed or retired through exact slot operations; new issuance and whole counter snapshots
+refuse. Nothing reconstructs the counter from the largest surviving ID. One registry instance
+holds one lineage, and counter repair cannot silently retarget existing handles.
 
-## Real allocator and package operations
+## Separate store and actual allocator
 
-Reservations are persisted inside `packages.xml`. The ordinary app ID allocator skips held IDs
-both in existing holes and while extending its array. Removing an installed setting need not
-create a fictional replacement setting: the UID can remain reserved while the installed lookup
-is absent. Explicit registration/replacement is fenced too. The existing high water mark is
-not mistaken for a durable reservation.
+`NativeIdentityRecords` and `NativeIdentityStore` implement the private slot/header format and
+checked persistence protocol. Numeric slot names and the index retain negative app ID occupancy
+when rich metadata is damaged. They are not positive owner identity. A good slot retains package,
+signer, user, incarnation and retirement metadata for verification against the real platform.
 
-Normal uninstall, code replacement and clear data paths check the actual reservation state,
-including PENDING and RETIRING. Acquisition takes the install lock and package mutation lock.
-Install admission coordinates with the installing package set. Clear data uses a captured
-mutation ticket inside its queued operation, before GOS hooks or the freezer run. Acquisition
-cannot race that ticket, and an ActivityManager wait is not moved under the install lock.
-A system image package with a pinned backing package's name is also refused before it can
-change the system package verification catalog or inherit the old data package's UID through
-a refused delete. Such a collision needs deliberate account/update maintenance.
-These are conservative package level fences for the initial implementation, not final UI or
-maintenance policy for every Android user.
+`NativeIdentityPersistence` performs exact reserve/publish/retire/release transactions. Header
+reservation includes all pending identities before advancing the counter, so commit in a different order
+does not strand an earlier prepared identity. A creation not yet published already retiring in
+memory still needs its own durable hold and marker, not omission from reservation bookkeeping.
 
-Force stop, disable, hide, suspend, permission changes, unusual package repair/move paths and
-native work retirement still need their full account lifecycle integration. Holding a UID does
-not by itself implement those semantics or make a cached package name live authority.
+The real PMS allocator skips the union of every store footprint and every memory pin, in holes
+and appended slots. An unavailable or reduced later read cannot forget a previous hold. Explicit
+registration/replacement fences remain; a held empty slot is not an ordinary duplicate setting.
+The store supplies no automatic fresh UID reassignment or installed PackageSetting.
 
-## Persistence is more than readback
+The old embedded `packages.xml` implementation was module qualified at `5284ca9`. The new consumer
+removes that native section and its global write/read coupling. The legacy codec remains as a
+historical host component, not a second active store.
 
-The ordinary Settings writer does not provide the acknowledgement this lifecycle requires.
-`FileUtils.sync` returns a boolean after catching an I/O exception, and the existing resilient
-writer does not check that result. A later reader can see matching cached bytes without proving
-that the original write completed durably.
+## Persistence and lock discipline
 
-The native reservation path therefore checks the actual main and reserve writing descriptors,
-keeps the preferred old backup until both writes complete, checks backup removal and syncs the
-parent directory. Strict write failure leaves the original reservation held. Readback of both
-copies and absence of the preferred backup then verify the exact serialized reservation and
-retirement markers. Readback is not a substitute for the writer acknowledgement.
+The store reader never calls the resilient reader's destructive fallback. A preferred backup
+cannot be skipped merely because it is unreadable. Different valid copies are a conflict.
 
-Normal Package Manager writes preserve all held records, including retirement markers. The
-final candidate drops only the target whose quiescence was confirmed. It cannot accidentally
-drop another retiring account which still owns work.
+Before rewriting, a checked seed preserves the chosen valid base. This prevents a corrupt main
+from becoming the preferred backup while the only intact reserve is deleted. First publication
+also uses a complete checked seed. Actual writing descriptors, atomic namespace changes and
+required directory syncs establish the acknowledgements. Readback is supplemental, not a
+substitute for the writer's result. Cross file prerequisites use checked confirmations too.
 
-## Recovery and activation limits
+Runtime I/O runs under the install lock but outside the PMS state lock and all work control lanes.
+Inputs are captured first and platform facts revalidated afterward. The boot store read precedes
+the constructor's package lock block; holds are applied after ordinary settings load and before
+scan allocation.
 
-The [recovery redesign](../../plans/2026-09-25-native-recovery-boundary.md) proposes moving these
-reservations into a small Package Manager owned store with stable UID slots and recovery copies.
-That would separate allocation safety from damaged account details and ordinary settings
-recovery. Its [record and storage component](../../plans/2026-09-25-native-identity-store.md)
-is now implemented, host tested and Android module compiled, but is not connected to this PMS consumer. The behavior below
-still describes the active adapted manager and its embedded XML path. Compiling the new helpers
-does not migrate that state or enable native accounts.
+## Recovery does not mean deletion or execution
 
-The native extension is written after the ordinary package, shared user and key state. An
-unsupported or invalid but structurally readable native section is rejected locally, rather than
-making Package Manager delete both settings copies. The parser keeps the surrounding package
-state. A sticky fence is set for that rejection, duplicate native sections, or a larger settings
-read failure, including one before the native section was seen. It blocks native prepare, activation and retirement
-until a recovery path exists. It does not refuse every app ID at boot: doing that would turn
-normal scan failures into APK/data deletion or a failed boot.
+`NativePrincipalRecovery` is an immutable negative view for scan, storage, preparation and key
+cleanup threads. It retains names and actual code paths without asserting installation or granting
+anything. App directory ownership is used only to withhold deletion or ownership change.
 
-Only reservations successfully understood by this reader can protect the allocator. This cut
-does not reconstruct unknown reservation metadata or provide format preserving rollback.
+Recovery refusal must preserve APK files, CE/DE data, metadata and UID keyed resources. It must also
+prevent foreign or mismatched code from running at the held ID. Guarding only APK deletion, or only
+keystore clearing, is insufficient. The consumer plan records the affected cleanup and admission
+paths and remaining qualification gates.
 
-**This is not a complete recovery barrier for unknown or entirely lost Package Manager state.**
-Nor can an older framework reader preserve fields it does not understand. Native environment
-reconciliation, settings loss/corruption recovery and compatible OS selection must be connected
-before a native manager can be activated. No code here silently treats missing records as proof
-that old native work ended. General owner administration remains possible, but changing these
-assumptions changes which guarantees apply.
+A missing installed mapping is currently quarantined. Restoring its exact old UID requires a
+separate verified ownership operation with an unambiguous captured candidate. A current APK,
+directory owner or guessed allocator floor cannot supply that proof.
 
-Other activation fences remain: owner designation, manager specialization and authentication,
-real user/CE authority, home storage identity, resource policy, API bindings and presentation.
-User IDs other than 0 require a UserManager deletion/reuse barrier. A serial number alone is not
-that barrier.
+CREATING is not permanent proof that nothing was exposed: an intact binding might have been
+rebound while the header was damaged. No generic CREATING cleanup or key clear on enable exists.
+Retained UID dependent data or keys keep the reservation.
 
-## Verification and source integration
+## Verification boundary
 
-The state machine, exact handles, allocator holes/appends, unknown write handling, target
-retirement, restart markers and concurrency passed JVM checks. Selection tests also cover
-changed signer/version/user serial, replaced package objects, foreign service handles, immutable
-signer metadata and refusal to recreate a retired account from its old selection. XML and strict writer failures
-were exercised with real host files and writing descriptors plus explicit Android API facades.
-Those checks do not qualify Android ABX, fs-verity or device filesystem crash behavior.
+Host tests run actual Java records, storage, transactions and manager logic with explicit Android
+and PMS facades. They cover strict codec negatives, actual file operations, unknown write outcomes,
+retirement order, prior signer continuity, unknown counters, immutable recovery views and allocator
+holds. They do not establish Android boot, filesystem power loss, permissions or lifecycle behavior.
 
-The adapted Android `services.core` module compiled successfully against the pinned platform.
-Its resulting jar originally contained the three native principal implementation classes and
-nested types. The later `3ee50f3` build also compiles `NativeIdentityRecords` and `NativeIdentityStore`,
-without switching the existing PMS consumer to that store. This is an actual framework module build, not a full image or device runtime pass. An
-initial compile failure exposed an unavailable Java `O_DIRECTORY` constant and unqualified
-error constants; separate corrected inputs passed without suppressing the errors.
+The digest guarded adaptation and profile are in
+[`native-principal-pins.patch`](../../patches/grapheneos-2026081300/native-principal-pins.patch).
+The guard accepts only exact pinned source and reviewed candidate bytes, together with the existing
+CE and Package Installer companions. The actual `AppIdSettingMap` and `ResilientAtomicFile` sources
+remain guarded host fixtures, not parallel rewrites.
 
-The digest guarded adaptation is in
-[`native-principal-pins.patch`](../../patches/grapheneos-2026081300/native-principal-pins.patch)
-and its profile. `scripts/proof/native_principal_pins.py` applies, checks or reverts only those
-exact files. The complete framework fence also verifies the existing CE and Package Installer
-companions. The native reservation adaptation was reverted after the module build; the earlier
-CE and Package Installer adaptations were preserved.
-
-The exact adapted `AppIdSettingMap` and `ResilientAtomicFile` sources are retained as Apache 2.0
-host fixtures with their upstream notices. The source guard checks them against the patched
-framework bytes, so the tests do not exercise a parallel rewrite.
+Owner designation, factory specialization, live user/CE authority, home provenance, UID policy,
+resource participation, API binding and presentation still have to be connected and qualified.
+General owner administration remains possible, but changing these assumptions changes the guarantees.

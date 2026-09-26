@@ -550,7 +550,7 @@ public final class NativePrincipalPinsTest {
         Set<String> methods = publicMethods(NativePrincipalPins.class);
         assert methods.equals(Set.of("prepare", "find", "findId", "isPackagePinned",
                 "isAppIdPinned", "reservedAppIds", "snapshotForWrite", "snapshotWithout", "commit", "beginRetire",
-                "finishRetire", "restore")) : methods;
+                "finishRetire", "restore", "restoreBindingsWithoutCounter", "hasKnownCounter")) : methods;
         assert publicMethods(Pin.class).equals(Set.of("record", "phase", "toString"));
         assert Arrays.asList(Phase.values())
                 .equals(List.of(Phase.PENDING, Phase.ACTIVE, Phase.RETIRING, Phase.RETIRED));
@@ -815,6 +815,49 @@ public final class NativePrincipalPinsTest {
         assert cycle.snapshotForWrite().equals(new Snapshot(2, List.of(current.record())));
     }
 
+    private static void existingBindingsWithoutCounter() {
+        NativePrincipalPins pins = new NativePrincipalPins(4);
+        assert pins.hasKnownCounter();
+        Record a = new Record(17, APP, 10123, 0, 7);
+        Record b = new Record(Long.MAX_VALUE, "dev.andrix.other", 10124, 0, 8);
+        List<Pin> restored = pins.restoreBindingsWithoutCounter(List.of(a, b), Set.of(b.id));
+        Pin first = restored.get(0), last = restored.get(1);
+        assert !pins.hasKnownCounter();
+        assert first.phase() == Phase.PENDING && last.phase() == Phase.RETIRING;
+        assert pins.findId(a.id) == first && pins.findId(b.id) == last;
+        assert pins.prepare(APP, 10123, 0, 7) == first;
+        assert pins.reservedAppIds().equals(Set.of(10123, 10124));
+        refused(pins::snapshotForWrite);
+        refused(() -> pins.snapshotWithout(last));
+        refused(() -> pins.prepare("dev.andrix.new", 10125, 0, 9));
+        refused(() -> pins.prepare("dev.andrix.other", 10124, 0, 8));
+        refused(() -> pins.commit(last));
+        // The separate slot transaction, not a guessed global snapshot, must
+        // provide the real durability and current-identity acknowledgement.
+        pins.commit(first);
+        assert first.phase() == Phase.ACTIVE;
+        pins.beginRetire(first);
+        pins.finishRetire(first); pins.finishRetire(last);
+        assert pins.reservedAppIds().isEmpty() && !pins.hasKnownCounter();
+        refused(() -> pins.prepare(APP, 10123, 0, 7));
+        refused(pins::snapshotForWrite);
+        refused(() -> pins.restore(new Snapshot(Long.MAX_VALUE, List.of())));
+        refused(() -> pins.restoreBindingsWithoutCounter(List.of(), Set.of()));
+
+        NativePrincipalPins empty = new NativePrincipalPins(1);
+        empty.restoreBindingsWithoutCounter(List.of(), Set.of());
+        assert !empty.hasKnownCounter();
+        refused(() -> empty.prepare(APP, 10123, 0, 7));
+        refused(empty::snapshotForWrite);
+
+        NativePrincipalPins invalidInput = new NativePrincipalPins(2);
+        invalid(() -> invalidInput.restoreBindingsWithoutCounter(List.of(a, a), Set.of()));
+        invalid(() -> invalidInput.restoreBindingsWithoutCounter(List.of(a), Set.of(18L)));
+        assert invalidInput.hasKnownCounter();
+        assert invalidInput.snapshotForWrite().equals(new Snapshot(0, List.of()));
+        assert invalidInput.prepare(APP, 10123, 0, 7).record().id == 1;
+    }
+
     public static void main(String[] args) throws Exception {
         requireAssertions();
         phaseTransitions();
@@ -826,6 +869,7 @@ public final class NativePrincipalPinsTest {
         retirementMarkersAndTargetOmission();
         reservedAppIdsBarrier();
         restoreNeverActivates();
+        existingBindingsWithoutCounter();
         emptySnapshotKeepsCounter();
         immutableValues();
         markerValidationAndCopies();

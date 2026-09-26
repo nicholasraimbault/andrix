@@ -17,10 +17,11 @@ HEAD = 'aab06a8bd44c4c2b58eeec780fde83baa9d43a40'
 PREFIX = 'services/core/java/com/android/server/pm/'
 FILES = tuple(PREFIX + name + '.java' for name in (
     'AppIdSettingMap', 'Settings', 'PackageManagerService', 'DeletePackageHelper',
-    'InstallPackageHelper', 'ResilientAtomicFile'))
+    'InstallPackageHelper', 'ResilientAtomicFile', 'AppDataHelper', 'StorageEventHelper',
+    'RemovePackageHelper', 'PackageManagerException'))
 ADDED = {PREFIX + name + '.java': ROOT / 'owner/platform/framework' / (name + '.java')
-         for name in ('NativePrincipalPins', 'NativePrincipalPinsXml', 'NativePrincipalManager',
-                      'NativeIdentityRecords', 'NativeIdentityStore')}
+         for name in ('NativePrincipalPins', 'NativePrincipalManager', 'NativeIdentityRecords',
+                      'NativeIdentityStore', 'NativeIdentityPersistence', 'NativePrincipalRecovery')}
 FIXTURES = {PREFIX + name + '.java': ROOT / 'owner/tests/platform' / (name + '.java.inc')
             for name in ('AppIdSettingMap', 'ResilientAtomicFile')}
 PROFILE = ROOT / 'patches/grapheneos-2026081300/native-principal-pins.json'

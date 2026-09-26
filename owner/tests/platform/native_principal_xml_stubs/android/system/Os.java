@@ -7,11 +7,13 @@ public final class Os {
  private static final IdentityHashMap<FileDescriptor,Path> paths=new IdentityHashMap<>();
  public static boolean failSync;
  public static int syncCalls, failSyncAt;
+ public static Object forbiddenMonitor;
  public static void chmod(String path,int mode)throws ErrnoException {
   try{Files.setAttribute(Path.of(path),"unix:mode",mode);}
   catch(IOException e){throw new ErrnoException("chmod",e);}
  }
  public static FileDescriptor open(String path,int flags,int mode)throws ErrnoException {
+  if(forbiddenMonitor!=null && Thread.holdsLock(forbiddenMonitor))throw new AssertionError("PMS state lock held during store I/O");
   try{FileDescriptor key=new FileDescriptor();channels.put(key,FileChannel.open(Path.of(path),StandardOpenOption.READ));paths.put(key,Path.of(path));return key;}
   catch(IOException e){throw new ErrnoException("open",e);}
  }

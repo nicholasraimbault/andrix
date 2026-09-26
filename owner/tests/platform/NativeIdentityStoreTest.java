@@ -52,11 +52,22 @@ public final class NativeIdentityStoreTest {
         assert !store.load().bindingUsable(APP);
         assert store.ensureFreshSlot(creating, APP);
         assert !store.ensureFreshSlot(creating, APP);
+        assert store.resumeCreatingDirectory(creating, APP);
+        Path unknownCreationFile = main(root, APP).getParent().resolve("unknown");
+        Files.writeString(unknownCreationFile, "not owned by the creation");
+        assert !store.resumeCreatingDirectory(creating, APP);
+        assert Files.exists(unknownCreationFile);
+        Files.delete(unknownCreationFile);
         Header live = new Header(LINEAGE, 1, List.of(entry(APP, SlotPhase.LIVE)));
         assert !store.writeHeader(creating, live); // No record, no publication.
         Slot pending = slot(1, List.of(new UserEntry(1, 0, 7, false)));
         // A torn unpublished seed is MISSING, not a torn authoritative main.
-        Files.write(Path.of(main(root, APP) + "-seed"), new byte[]{1, 2});
+        Path creationSeed = Path.of(main(root, APP) + "-seed");
+        Files.write(creationSeed, NativeIdentityRecords.encodeSlot(new Slot("f".repeat(32), APP,
+                PACKAGE, 1, SIGNERS, pending.users)));
+        assert !store.resumeCreatingDirectory(creating, APP);
+        Files.write(creationSeed, new byte[]{1, 2});
+        assert store.resumeCreatingDirectory(creating, APP);
         assert store.load().slots.get(APP).status == NativeIdentityStore.Status.MISSING;
         Os.syncCalls = 0; Os.failSyncAt = 5;
         assert !store.publishCreatingSlot(creating, pending);
@@ -191,6 +202,11 @@ public final class NativeIdentityStoreTest {
         write(root.resolve("slots/10124/record.bin"), bad);
         assert store.load().bindingUsable(APP);
         assert store.load().occupiedAppIds.equals(Set.of(APP, 10124));
+        assert !store.load().creationReady();
+        assert !store.writeHeader(live, new Header(LINEAGE, 2, live.entries));
+        assert !store.writeHeader(live, new Header(LINEAGE, 2, List.of(
+                entry(APP, SlotPhase.LIVE), new HeaderEntry(10125, SlotPhase.CREATING, 2,
+                "dev.andrix.fresh"))));
         Files.delete(root.resolve("slots/10124/record.bin"));
         Files.delete(root.resolve("slots/10124"));
 
@@ -214,10 +230,12 @@ public final class NativeIdentityStoreTest {
         Files.delete(foreign);
         assert store.removeReleasingSlot(releasing, APP);
         assert store.removeReleasingSlot(releasing, APP); // Exact filesystem continuation.
+        assert !store.confirmReleasedSlot(releasing, APP); // Still indexed.
         assert store.load().occupiedAppIds.equals(Set.of(APP)); // Index omission is separate.
         Header released = new Header(LINEAGE, 1, List.of());
         assert store.writeHeader(releasing, released);
         assert store.load().occupiedAppIds.isEmpty() && store.load().header.value.lastId == 1;
+        assert store.confirmReleasedSlot(released, APP);
         // A released principal ID cannot be smuggled into a new user entry just
         // because it is below the counter. Additions need an issuance proof.
         Header anotherCreating = new Header(LINEAGE, 2, List.of(

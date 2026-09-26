@@ -2,6 +2,9 @@
 package com.android.server.pm;
 
 import com.android.server.LocalServices;
+import android.system.Os;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -106,13 +109,13 @@ public final class NativePrincipalManagerTest {
         assert manager.identity(first).appId == 10123 && manager.identity(first).userSerial == 7;
         assert pm.mSettings.pins.reservedAppIds().equals(Set.of(10123));
         refused(() -> manager.currentIdentity(first));
-        pm.mSettings.writeOk = false;
-        pm.mSettings.storeOnFailure = true; // Publication may occur despite a lost acknowledgement.
+        Os.forbiddenMonitor = pm.mLock;
+        Os.failSync = true;
         assert !manager.commit(first);
+        Os.failSync = false;
         assert manager.phase(first) == NativePrincipalPins.Phase.PENDING;
         refused(() -> manager.currentIdentity(first));
         assert first == manager.prepare(manager.select(a.getPackageName(), 0));
-        pm.mSettings.writeOk = true;
         assert manager.commit(first);
         assert manager.currentIdentity(first).id == manager.identity(first).id;
         a.signing = new android.content.pm.SigningDetails(new android.content.pm.Signature(new byte[]{9}));
@@ -126,28 +129,26 @@ public final class NativePrincipalManagerTest {
         NativePrincipalManager.Handle second = manager.prepare(manager.select("dev.andrix.second", 0));
         assert manager.commit(second);
 
-        // The durable marker is a separate step before quiescence. An unknown
-        // marker outcome cannot authorize the final omission.
-        pm.mSettings.writeOk = false;
+        // The durable marker is separate from quiescence. A failed directory
+        // sync closes memory admission but does not authorize final omission.
+        Os.failSync = true;
         assert !manager.beginRetirement(first);
+        Os.failSync = false;
         assert manager.phase(first) == NativePrincipalPins.Phase.RETIRING;
         refused(() -> manager.commit(first));
         refused(() -> manager.finishRetirementAfterQuiescence(first));
-        pm.mSettings.writeOk = true;
         assert manager.beginRetirement(first);
         assert manager.beginRetirement(second);
         long secondId = manager.identity(second).id;
-        assert pm.mSettings.persisted.retiringIds.size() == 2;
-        // Simulated external quiescence of FIRST only. SECOND still owns its pin.
-        pm.mSettings.writeOk = false;
+        assert pm.mSettings.loaded.slots.get(10123).value.users.get(0).retiring;
+        assert pm.mSettings.loaded.slots.get(10124).value.users.get(0).retiring;
+        Os.failSync = true;
         assert !manager.finishRetirementAfterQuiescence(first);
+        Os.failSync = false;
         assert pm.mSettings.pins.reservedAppIds().equals(Set.of(10123, 10124));
-        assert pm.mSettings.persisted.records.size() == 1;
-        assert pm.mSettings.persisted.retiringIds.equals(Set.of(secondId));
-        pm.mSettings.writeOk = true;
         assert manager.finishRetirementAfterQuiescence(first);
-        assert manager.finishRetirementAfterQuiescence(first); // Exact local result reconciliation.
-        refused(() -> manager.prepare(selected)); // The old selection cannot recreate the account.
+        assert manager.finishRetirementAfterQuiescence(first);
+        refused(() -> manager.prepare(selected));
         assert pm.mSettings.pins.reservedAppIds().equals(Set.of(10124));
         refused(() -> manager.commit(first));
         assert manager.phase(second) == NativePrincipalPins.Phase.RETIRING;
@@ -157,29 +158,83 @@ public final class NativePrincipalManagerTest {
         NativePrincipalManager.Handle fresh = manager.prepare(manager.select(a.getPackageName(), 0));
         assert manager.identity(fresh).id > secondId;
         assert manager.commit(fresh);
-        PackageManagerService restoredPm = new PackageManagerService();
-        restoredPm.mSettings.add(a.getPackageName(), 10123);
-        restoredPm.mSettings.pins.restore(pm.mSettings.persisted);
-        restoredPm.mSettings.refreshNativePrincipalAppIdsLPw();
+        Path persistedRoot = pm.mSettings.root;
+        PackageManagerService restoredPm = new PackageManagerService(persistedRoot, false);
+        restoredPm.mSettings.add(a.getPackageName(), 10123); // Ordinary Settings read comes first.
+        restoredPm.mSettings.restoreAfterPackageSettings();
+        Os.forbiddenMonitor = restoredPm.mLock;
         NativePrincipalManager restored = new NativePrincipalManager(restoredPm);
         NativePrincipalManager.Handle recovery = restored.find(a.getPackageName(), 0);
         assert restored.phase(recovery) == NativePrincipalPins.Phase.PENDING;
-        refused(() -> restored.commit(fresh)); // A handle from another service incarnation.
-        refused(() -> restored.commit(recovery)); // Restored metadata is not recovered designation.
+        refused(() -> restored.commit(fresh));
+        refused(() -> restored.commit(recovery)); // A stored binding is not current designation.
+        PackageSetting restoredSubject = restoredPm.mSettings.getPackageLPr(a.getPackageName());
+        restoredSubject.signing = new android.content.pm.SigningDetails(
+                new android.content.pm.Signature(new byte[]{9}));
+        refused(() -> restored.prepare(restored.select(a.getPackageName(), 0)));
+        restoredSubject.signing = originalSigning;
         assert recovery == restored.prepare(restored.select(a.getPackageName(), 0));
         assert restored.commit(recovery);
         assert restored.beginRetirement(recovery);
-        PackageManagerService afterMarker = new PackageManagerService();
+
+        PackageManagerService afterMarker = new PackageManagerService(persistedRoot, false);
         afterMarker.mSettings.add(a.getPackageName(), 10123);
-        afterMarker.mSettings.pins.restore(restoredPm.mSettings.persisted);
-        afterMarker.mSettings.refreshNativePrincipalAppIdsLPw();
+        afterMarker.mSettings.restoreAfterPackageSettings();
+        Os.forbiddenMonitor = afterMarker.mLock;
         NativePrincipalManager markerManager = new NativePrincipalManager(afterMarker);
         NativePrincipalManager.Handle marker = markerManager.find(a.getPackageName(), 0);
         assert markerManager.phase(marker) == NativePrincipalPins.Phase.RETIRING;
         refused(() -> markerManager.commit(marker));
         refused(() -> markerManager.finishRetirementAfterQuiescence(marker));
-        assert markerManager.beginRetirement(marker); // Reconfirm exact persisted marker first.
+        assert markerManager.beginRetirement(marker);
         assert markerManager.finishRetirementAfterQuiescence(marker);
+        Os.forbiddenMonitor = null;
+
+        // Counter/header damage does not destroy prior signer/user binding.
+        PackageManagerService damaged = new PackageManagerService();
+        damaged.mSettings.add(a.getPackageName(), 10123);
+        NativePrincipalManager original = new NativePrincipalManager(damaged);
+        NativePrincipalManager.Handle source = original.prepare(original.select(a.getPackageName(), 0));
+        assert original.commit(source);
+        Path header = damaged.mSettings.root.resolve("store.bin");
+        Path reserve = damaged.mSettings.root.resolve("store.bin.reservecopy");
+        byte[] savedHeader = Files.readAllBytes(header);
+        Files.delete(header); Files.write(header, new byte[]{1});
+        Files.delete(reserve); Files.write(reserve, new byte[]{2});
+        PackageManagerService missingCounter = new PackageManagerService(damaged.mSettings.root, false);
+        missingCounter.mSettings.add(a.getPackageName(), 10123);
+        missingCounter.mSettings.add("dev.andrix.third", 10125);
+        missingCounter.mSettings.restoreAfterPackageSettings();
+        Os.forbiddenMonitor = missingCounter.mLock;
+        assert !missingCounter.mSettings.pins.hasKnownCounter();
+        NativePrincipalManager partial = new NativePrincipalManager(missingCounter);
+        NativePrincipalManager.Handle intact = partial.find(a.getPackageName(), 0);
+        assert intact == partial.prepare(partial.select(a.getPackageName(), 0));
+        assert partial.commit(intact);
+        refused(() -> partial.prepare(partial.select("dev.andrix.third", 0)));
+        assert partial.beginRetirement(intact);
+        assert !partial.finishRetirementAfterQuiescence(intact);
+        assert missingCounter.mSettings.storeHolds.contains(10123);
+        Files.delete(header); Files.write(header, savedHeader);
+        Files.delete(reserve); Files.write(reserve, savedHeader);
+        assert partial.finishRetirementAfterQuiescence(intact);
+        assert !missingCounter.mSettings.pins.hasKnownCounter(); // Never patched into live handles.
+        refused(() -> partial.prepare(partial.select("dev.andrix.third", 0)));
+        Os.forbiddenMonitor = null;
+
+        // Retirement of a prepared but never published identity still owns its
+        // reservation. It is not skipped while the issuance counter advances.
+        PackageManagerService early = new PackageManagerService();
+        early.mSettings.add("dev.andrix.early", 10126);
+        NativePrincipalManager earlyManager = new NativePrincipalManager(early);
+        NativePrincipalManager.Handle neverActive = earlyManager.prepare(
+                earlyManager.select("dev.andrix.early", 0));
+        Os.forbiddenMonitor = early.mLock;
+        assert earlyManager.beginRetirement(neverActive);
+        assert earlyManager.finishRetirementAfterQuiescence(neverActive);
+        assert early.mSettings.storeHolds.isEmpty();
+        Os.forbiddenMonitor = null;
+        assert Os.allClosed();
         System.out.println("Native PMS adapter handles/unknown writes/retirement/restart passed; Android unqualified");
     }
 }

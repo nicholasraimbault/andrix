@@ -2,7 +2,7 @@
   "version": 1,
   "project": "frameworks/base",
   "head": "aab06a8bd44c4c2b58eeec780fde83baa9d43a40",
-  "patch_sha256": "b175af9d32b18dce41963590e4e5a213305744a1b456910f082fa95b02d42035",
+  "patch_sha256": "c72d7d6bfc581b2591b700a414fc8813a81b20c4cc201057d5cb98e54a81e3f1",
   "files": [
     {
       "path": "services/core/java/com/android/server/pm/AppIdSettingMap.java",
@@ -12,12 +12,12 @@
     {
       "path": "services/core/java/com/android/server/pm/Settings.java",
       "upstream_sha256": "bff2de579d206a39be81ef0b798df8f6e845d2f28efbbcd63554ccffbddae5a1",
-      "candidate_sha256": "5730ebf5e425e4e65c667c47d39527efc3a6e2e2f325ca9182f07e95b1303446"
+      "candidate_sha256": "6f738737d7581da9d8b3279fedd38080d820cadc01f4dc3484e2e76b436a27f6"
     },
     {
       "path": "services/core/java/com/android/server/pm/PackageManagerService.java",
       "upstream_sha256": "93a003dd464be4b89f778194e20f4624c20e69eaaacc5d832be0ff7b4935e20a",
-      "candidate_sha256": "8b7c89ac4b872da7912face078a683b596952e20ab97e1b66fb79623a980537d"
+      "candidate_sha256": "ac8ef9d7a56ac00a20a45c6df73ae1e3dd4864e3e314f13daec3b10d6a75a74d"
     },
     {
       "path": "services/core/java/com/android/server/pm/DeletePackageHelper.java",
@@ -27,29 +27,44 @@
     {
       "path": "services/core/java/com/android/server/pm/InstallPackageHelper.java",
       "upstream_sha256": "d1463b2b228e9c3c429ad0d3f6858053b31e597fb03c22a02b4ec8d3e2383932",
-      "candidate_sha256": "0313dadea0c840aad3eb423453f52531488e4c58182a48faad97f147ecd90d63"
+      "candidate_sha256": "0d364b01bfcb3cc4c2ad83c091e1b433d7c45a72380ac44eee20f477d231a2c3"
     },
     {
       "path": "services/core/java/com/android/server/pm/ResilientAtomicFile.java",
       "upstream_sha256": "9c63bdd710fc2a72a2a7e83c809fae93523334023e521148350b68805b85170b",
       "candidate_sha256": "b9b0a369d3519713d16de6bf7ec574bcad5ae6c8d3132121a6124b8b2f4d1130"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/AppDataHelper.java",
+      "upstream_sha256": "e2a204f325e99013ba300238eed58f4741cacceba34c4d5df58f54d7e1aba5ca",
+      "candidate_sha256": "6e97cf887ca71a04dce2ef74f1d7318b82dbc1b4551c44c0669691d6cefc99a7"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/StorageEventHelper.java",
+      "upstream_sha256": "19f888d44c3d5a09aa080e52430e72213832087a5256277ecb80aecbb4d51d5e",
+      "candidate_sha256": "707fa89460b666f7c9796eb4df3e9f5cab7d0d2f165c0a33be2dc13361ab1001"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/RemovePackageHelper.java",
+      "upstream_sha256": "8a23ee4e3170cb9b765ddbed6e2745f155748c52c7ef8301ef4b4dfad02b5a67",
+      "candidate_sha256": "50d8be28742289b1e326d9d59864b7b2d08aa0c585e0965d26327ba960efe586"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/PackageManagerException.java",
+      "upstream_sha256": "db961c9ceda0e7d42799ebf32023d1b3cf993ccf90a9934ad3f6497800ef8a45",
+      "candidate_sha256": "1089b8032cf8087d8d7a4aae7fc0f2566f1c6ebfdd5e45b9a57b4f27524e174d"
     }
   ],
   "added": [
     {
       "path": "services/core/java/com/android/server/pm/NativePrincipalPins.java",
       "source": "owner/platform/framework/NativePrincipalPins.java",
-      "sha256": "524c96e86a0bab54e072454f7b25130479d60a34d8230d9441930b27947df606"
-    },
-    {
-      "path": "services/core/java/com/android/server/pm/NativePrincipalPinsXml.java",
-      "source": "owner/platform/framework/NativePrincipalPinsXml.java",
-      "sha256": "41a3e354442ce90252e3c21dda375f1b77489c04fe36d5b4bc1ec778c979364c"
+      "sha256": "88a0c7b9fec938611c167aa481d1260e5feb5d81885bd2c4ff45bca367ccfe6a"
     },
     {
       "path": "services/core/java/com/android/server/pm/NativePrincipalManager.java",
       "source": "owner/platform/framework/NativePrincipalManager.java",
-      "sha256": "88cce6d8ae2d4047d802ca58b0241465ce75a58e811fdaba7c86bb88b139f749"
+      "sha256": "5f8890152619fbb9b1a005d63322073a4ddfc83263b519790035b3f4728f2000"
     },
     {
       "path": "services/core/java/com/android/server/pm/NativeIdentityRecords.java",
@@ -59,7 +74,17 @@
     {
       "path": "services/core/java/com/android/server/pm/NativeIdentityStore.java",
       "source": "owner/platform/framework/NativeIdentityStore.java",
-      "sha256": "cb5b3867f65f01b92f183c247628e8a5086c491225df154809238668abe81f2e"
+      "sha256": "07f890c3e71d3b9f6fabf7317bcee5db2cc8ad4e225ad2ce70496ae32ac45df2"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/NativeIdentityPersistence.java",
+      "source": "owner/platform/framework/NativeIdentityPersistence.java",
+      "sha256": "9e7e9ea01fa377a4ff5e3ac714e94becdf5fc5f2d90357af2f52e814fcdcd96d"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/NativePrincipalRecovery.java",
+      "source": "owner/platform/framework/NativePrincipalRecovery.java",
+      "sha256": "08ed1d161a632362fd02912abfb2b927b6ad1ee18c78deab0fe0f9129711b88e"
     }
   ],
   "scope": "Internal PMS native-principal reservation component, not a public designation/launch API or runtime qualification",

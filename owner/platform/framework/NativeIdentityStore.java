@@ -351,6 +351,58 @@ final class NativeIdentityStore {
         } catch (IOException | RuntimeException error) { return false; }
     }
 
+    /**
+     * Continue the caller's exact owned creation transaction. This confirms only
+     * a private storage layout; it grants no identity and is not a process or
+     * directory-inode lease. Unknown files/aliases and conflicting bodies refuse.
+     */
+    boolean resumeCreatingDirectory(Header expected, int appId) {
+        HeaderEntry entry = headerEntry(expected, appId);
+        if (entry == null || entry.phase != SlotPhase.CREATING || !confirmHeader(expected)) return false;
+        File dir = slotDirectory(appId);
+        if (!exists(dir)) return ensureFreshSlot(expected, appId);
+        if (!directory(dir)) return false;
+        File[] files = dir.listFiles();
+        if (files == null) return false;
+        Set<String> allowed = Set.of("record.bin", "record.bin-backup", "record.bin.reservecopy",
+                "record.bin-seed");
+        for (File file : files) {
+            if (!allowed.contains(file.getName()) || Files.isSymbolicLink(file.toPath())
+                    || !Files.isRegularFile(file.toPath(), LinkOption.NOFOLLOW_LINKS)) return false;
+        }
+        ReadResult<Slot> read = readCopies(slotFile(appId), NativeIdentityRecords::decodeSlot);
+        if (read.status != Status.MISSING && read.status != Status.VALID) return false;
+        for (Slot copy : read.decodedCopies) {
+            if (!matchesCreation(copy, expected, entry)) return false;
+        }
+        File seed = new File(slotFile(appId).getPath() + "-seed");
+        if (exists(seed)) {
+            try {
+                if (!matchesCreation(NativeIdentityRecords.decodeSlot(readBytes(seed)), expected,
+                        entry)) return false;
+            } catch (IOException | IllegalArgumentException error) {
+                // A torn unpublished seed may be overwritten by this same
+                // owned creation, not adopted as positive binding metadata.
+            }
+        }
+        try { syncDirectory(dir); syncDirectory(slotRoot); return true; }
+        catch (IOException error) { return false; }
+    }
+
+    private static boolean matchesCreation(Slot slot, Header header, HeaderEntry entry) {
+        return slot.appId == entry.appId && slot.lineage.equals(header.lineage)
+                && slot.packageName.equals(entry.creationPackage) && slot.users.size() == 1
+                && slot.users.get(0).id == entry.creationId;
+    }
+
+    /** Exact retirement reconciliation only, never a general absence-is-free test. */
+    boolean confirmReleasedSlot(Header expected, int appId) {
+        if (headerEntry(expected, appId) != null || exists(slotDirectory(appId))
+                || !confirmHeader(expected)) return false;
+        try { syncDirectory(slotRoot); return true; }
+        catch (IOException error) { return false; }
+    }
+
     boolean publishCreatingSlot(Header expectedHeader, Slot next) {
         Objects.requireNonNull(next);
         Objects.requireNonNull(expectedHeader);
@@ -486,6 +538,7 @@ final class NativeIdentityStore {
     }
 
     private boolean validHeaderTransition(Header previous, Header next) {
+        if (next.lastId > previous.lastId && !load().creationReady()) return false;
         for (HeaderEntry old : previous.entries) {
             HeaderEntry changed = headerEntry(next, old.appId);
             if (changed == null) {
@@ -516,6 +569,7 @@ final class NativeIdentityStore {
         }
         for (HeaderEntry added : next.entries) {
             if (headerEntry(previous, added.appId) != null) continue;
+            if (!load().creationReady()) return false;
             if (added.phase != SlotPhase.CREATING || added.creationId <= previous.lastId
                     || exists(slotDirectory(added.appId))) return false;
             try { syncDirectory(slotRoot); }
