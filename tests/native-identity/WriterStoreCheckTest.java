@@ -50,6 +50,8 @@ public final class WriterStoreCheckTest {
         refused(args); Files.write(reserve, cBytes);
         Files.delete(reserve); Files.createSymbolicLink(reserve, root.resolve("slots/10125/record.bin"));
         refused(args); Files.delete(reserve); Files.write(reserve, cBytes);
+        Files.delete(reserve); Files.createLink(reserve, root.resolve("slots/10125/record.bin"));
+        refused(args); Files.delete(reserve); Files.write(reserve, cBytes);
         Path outside = root.resolveSibling(root.getFileName() + "-slots");
         Files.move(root.resolve("slots"), outside); Files.createSymbolicLink(root.resolve("slots"), outside);
         refused(args); Files.delete(root.resolve("slots")); Files.move(outside, root.resolve("slots"));

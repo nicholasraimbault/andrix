@@ -82,21 +82,27 @@ class WriterFixtureTests(unittest.TestCase):
             for line in transcript.stdout.splitlines():
                 label, code, encoded, errors = line.split('\t'); code = int(code); self.assertNotIn(label, seen); seen.add(label)
                 text = base64.b64decode(encoded, validate=True).decode(); stderr = base64.b64decode(errors, validate=True).decode()
-                if label == 'denied': observer.caller_denied(text, stderr, code)
-                elif label == 'info': self.assertEqual(observer.parse_info(text)['instance'], instance)
+                rebinding = label.startswith('rebind-')
+                kind = label.removeprefix('rebind-')
+                scope_instance, scope_nonce = ('d' * 32, 'e' * 32) if rebinding else (instance, nonce)
+                if label not in {'denied', 'stale', 'unknown'}:
+                    self.assertEqual(code, 0); self.assertEqual(stderr, '')
+                if kind == 'denied': observer.caller_denied(text, stderr, code)
+                elif kind == 'info': self.assertEqual(observer.parse_info(text, returncode=code, stderr=stderr)['instance'], scope_instance)
                 elif label == 'stale': observer.refusal(text, 'STALE_INSTANCE', instance,
                         requested_instance='c' * 32, returncode=code, stderr=stderr)
-                elif label in {'commit', 'status'}:
-                    observed = observer.assess_commit(text, instance=instance, nonce=nonce, selected=selected,
-                            expected_id=1, intent='select-new', transport_operation=label, returncode=code, stderr=stderr)
-                    self.assertEqual(observed['assessment_origin'], 'commit-reply' if label == 'commit' else 'status-reconciliation')
+                elif kind in {'commit', 'status'}:
+                    observed = observer.assess_commit(text, instance=scope_instance, nonce=scope_nonce, selected=selected,
+                            expected_id=1, intent='select-rebind' if rebinding else 'select-new', transport_operation=kind, returncode=code, stderr=stderr)
+                    self.assertEqual(observed['assessment_origin'], 'commit-reply' if kind == 'commit' else 'status-reconciliation')
                 elif label == 'unknown':
                     self.assertEqual(code, 1)
                     self.assertEqual(stderr.strip(), 'native writer fixture outcome unknown: REPLY_UNAVAILABLE')
                     self.assertNotIn('test detail', text + stderr)
                     with self.assertRaises(ValueError): observer.parse(text, instance=instance, nonce=nonce, selected=selected)
-                else: observer.parse(text, instance=instance, nonce=nonce, selected=selected)
-            self.assertEqual(seen, {'denied', 'info', 'stale', 'select', 'prepare', 'commit', 'status', 'unknown'})
+                else: observer.parse(text, instance=scope_instance, nonce=scope_nonce, selected=selected)
+            self.assertEqual(seen, {'denied', 'info', 'stale', 'select', 'prepare', 'commit', 'status', 'unknown',
+                                   'rebind-info', 'rebind-select', 'rebind-prepare', 'rebind-commit', 'rebind-status'})
 
 
 if __name__ == '__main__':

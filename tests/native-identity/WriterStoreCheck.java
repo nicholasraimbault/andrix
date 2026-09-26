@@ -7,6 +7,8 @@ import java.nio.file.StandardOpenOption;
 import java.nio.ByteBuffer;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.HashSet;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Arrays;
 import java.util.List;
@@ -39,6 +41,8 @@ public final class WriterStoreCheck {
                 "slots/" + a + "/record.bin.reservecopy", "slots/" + c + "/record.bin", "slots/" + c + "/record.bin.reservecopy");
         Set<String> directories = Set.of("", "slots", "slots/" + a, "slots/" + c);
         Set<String> observedFiles = new HashSet<>(), observedDirectories = new HashSet<>();
+        Set<Object> fileKeys = new HashSet<>();
+        Map<Path, BasicFileAttributes> captured = new HashMap<>();
         try (var paths = Files.walk(root)) { // Does not follow symbolic directories.
             var iterator = paths.iterator();
             while (iterator.hasNext()) {
@@ -46,7 +50,12 @@ public final class WriterStoreCheck {
                 var attrs = Files.readAttributes(path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
                 String relative = root.relativize(path).toString();
                 if (attrs.isDirectory()) observedDirectories.add(relative);
-                else if (attrs.isRegularFile()) observedFiles.add(relative);
+                else if (attrs.isRegularFile()) {
+                    if (attrs.fileKey() == null || !fileKeys.add(attrs.fileKey())) {
+                        throw new IllegalStateException("snapshot file identity unavailable or aliased");
+                    }
+                    observedFiles.add(relative); captured.put(path, attrs);
+                }
                 else throw new IllegalStateException("snapshot special or symbolic node");
                 if (observedFiles.size() > files.size() || observedDirectories.size() > directories.size()) {
                     throw new IllegalStateException("snapshot footprint exceeds controlled case");
@@ -56,15 +65,18 @@ public final class WriterStoreCheck {
         if (!files.equals(observedFiles) || !directories.equals(observedDirectories)) {
             throw new IllegalStateException("unexpected snapshot footprint, backup or missing copy");
         }
-        pair(root.resolve("store.bin"), NativeIdentityRecords.encodeHeader(header));
-        pair(root.resolve("slots/" + a + "/record.bin"), NativeIdentityRecords.encodeSlot(first));
-        pair(root.resolve("slots/" + c + "/record.bin"), NativeIdentityRecords.encodeSlot(created));
+        pair(root.resolve("store.bin"), NativeIdentityRecords.encodeHeader(header), captured);
+        pair(root.resolve("slots/" + a + "/record.bin"), NativeIdentityRecords.encodeSlot(first), captured);
+        pair(root.resolve("slots/" + c + "/record.bin"), NativeIdentityRecords.encodeSlot(created), captured);
         System.out.println("Exact original A and writer C records, lineage, counter and paired copies matched");
     }
-    private static void pair(Path main, byte[] expected) throws Exception {
+    private static void pair(Path main, byte[] expected, Map<Path, BasicFileAttributes> captured) throws Exception {
         for (Path file : List.of(main, Path.of(main + ".reservecopy"))) {
             var before = Files.readAttributes(file, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-            if (!before.isRegularFile() || before.size() != expected.length) {
+            BasicFileAttributes original = captured.get(file);
+            if (!before.isRegularFile() || before.size() != expected.length || original == null
+                    || !Objects.equals(before.fileKey(), original.fileKey())
+                    || !before.lastModifiedTime().equals(original.lastModifiedTime())) {
                 throw new IllegalStateException("controlled writer record type or size differs");
             }
             ByteBuffer bytes = ByteBuffer.allocate(expected.length);

@@ -124,7 +124,9 @@ def parse(text, *, instance=None, nonce=None, selected=None):
     return _parse(text, instance=instance, nonce=nonce, selected=selected)
 
 
-def parse_info(text, *, selected=None):
+def parse_info(text, *, returncode, stderr, selected=None):
+    if type(returncode) is not int or returncode != 0 or type(stderr) is not str or stderr.strip():
+        raise ValueError('successful info transport required')
     value = _parse(text, selected=selected)
     if value['result'] != 'info':
         raise ValueError('writer info reply required')
@@ -165,8 +167,9 @@ def refusal(text, code, current_instance, *, requested_instance, returncode, std
             or value['code'] != code or value['result'] != 'refused' or value['instance'] != current_instance):
         raise ValueError('specific writer refusal not established')
     if code == 'SERVICE_UNAVAILABLE':
-        if current_instance != '' or requested_instance is not None:
-            raise ValueError('unavailable service has no captured instance')
+        if current_instance != '' or (requested_instance is not None and not _token(requested_instance)):
+            raise ValueError('unavailable service has no current instance')
+        # This invocation was refused. An older operation's outcome is not resolved.
     elif (not _token(current_instance) or not _token(requested_instance)
           or (code == 'STALE_INSTANCE' and current_instance == requested_instance)
           or (code != 'STALE_INSTANCE' and current_instance != requested_instance)):
@@ -175,5 +178,5 @@ def refusal(text, code, current_instance, *, requested_instance, returncode, std
 
 
 def caller_denied(stdout, stderr, code):
-    if code != 1 or stdout.strip() or stderr.strip() != 'native writer fixture refused: CALLER_DENIED':
+    if type(code) is not int or code != 1 or stdout.strip() or stderr.strip() != 'native writer fixture refused: CALLER_DENIED':
         raise ValueError('caller refusal not established')

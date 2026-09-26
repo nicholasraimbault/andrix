@@ -40,6 +40,17 @@ public final class NativePrincipalWriterFixtureTranscript {
         call("prepare", "prepare", INSTANCE, NONCE);
         call("commit", "commit", INSTANCE, NONCE);
         call("status", "status", INSTANCE, NONCE);
+        PackageManagerService reboot = new PackageManagerService(pm.mSettings.root, false);
+        reboot.mSettings.add("dev.andrix.proof.principalclosed", 10148);
+        reboot.mSettings.restoreAfterPackageSettings();
+        NativePrincipalManager restored = new NativePrincipalManager(reboot);
+        String next = "d".repeat(32), request = "e".repeat(32);
+        installHostFixture(new NativePrincipalWriterFixture(restored, next, SIGNERS));
+        call("rebind-info", "info");
+        call("rebind-select", "select-rebind", next, request);
+        call("rebind-prepare", "prepare", next, request);
+        call("rebind-commit", "commit", next, request);
+        call("rebind-status", "status", next, request);
         NativePrincipalWriterFixture.Calls actual = new NativePrincipalWriterFixture.ManagerCalls(manager);
         NativePrincipalWriterFixture.Calls aborted = new NativePrincipalWriterFixture.Calls() {
             public NativePrincipalManager.Selection select() { throw new AssertionError("test detail must not reach reply"); }

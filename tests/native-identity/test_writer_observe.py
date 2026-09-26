@@ -85,6 +85,11 @@ class WriterObservationTests(unittest.TestCase):
             observe.refusal(stale, 'STALE_INSTANCE', INSTANCE, requested_instance=INSTANCE, returncode=1, stderr='')
         absent = json.dumps({'version': 1, 'instance': '', 'result': 'refused', 'code': 'SERVICE_UNAVAILABLE'})
         observe.refusal(absent, 'SERVICE_UNAVAILABLE', '', requested_instance=None, returncode=1, stderr='')
+        observe.refusal(absent, 'SERVICE_UNAVAILABLE', '', requested_instance=INSTANCE, returncode=1, stderr='')
+        info = json.dumps(value | {'result': 'info'})
+        self.assertEqual(observe.parse_info(info, returncode=0, stderr='', selected=SELECTED)['instance'], INSTANCE)
+        for code, stderr in ((1, ''), (False, ''), (0, 'transport error')):
+            with self.assertRaises(ValueError): observe.parse_info(info, returncode=code, stderr=stderr, selected=SELECTED)
 
     def test_specific_refusal_and_missing_reply(self):
         text = json.dumps({'version': 1, 'instance': INSTANCE, 'result': 'refused', 'code': 'STALE_INSTANCE'})
@@ -92,6 +97,8 @@ class WriterObservationTests(unittest.TestCase):
         with self.assertRaises(ValueError): observe.refusal(text, 'NONCE_FORMAT', INSTANCE, requested_instance=INSTANCE, returncode=1, stderr='')
         with self.assertRaises(ValueError): observe.parse(text)
         observe.caller_denied('', 'native writer fixture refused: CALLER_DENIED\n', 1)
+        with self.assertRaises(ValueError):
+            observe.caller_denied('', 'native writer fixture refused: CALLER_DENIED\n', True)
         for text in ('', 'Success', 'native writer fixture outcome unknown: REPLY_UNAVAILABLE', '{}\n{}'):
             with self.assertRaises(ValueError): observe.parse(text)
             with self.assertRaises(ValueError): observe.caller_denied('', text, 1)
