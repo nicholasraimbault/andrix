@@ -1,7 +1,7 @@
 # PMS consumes the separate native identity store
 
-Status: implementation and host checks, with Android module and runtime qualification tracked
-separately. No product enables the native manager factory. This joins the
+Status: implementation, host checks and an actual Android `services.core` build. Runtime
+qualification remains separate. No product enables the native manager factory. This joins the
 [slot storage component](2026-09-25-native-identity-store.md) to Package Manager's identity and
 mutation paths. It is not a new UID allocator, installed package database or permission authority.
 
@@ -110,7 +110,11 @@ data observation without identity attribution and refused system collision delet
 Installing name cleanup now also requires the exact request that acquired the marker, so a refused
 or old completion cannot remove another request's hold.
 
-The first Android consumer compile exposed a missing `Environment` import in Settings. That failed
-trial remains separate and the import was corrected, not bypassed. Framework source guards include
-all changed cleanup paths. Android module compilation, emulator recovery and the complete native
-account journey must report their own producers and observed results.
+The first two Android consumer compiles exposed missing `Environment` and `StorageManager`
+imports. Those failures remain separate. With the imports corrected, the actual `services.core`
+module built successfully from `e8dc35c`. The guarded native adaptation was then reverted exactly,
+with the existing CE and Package Installer changes preserved. No image, emulator or account path
+was activated by that module build.
+
+Framework source guards include all changed cleanup paths. Emulator recovery and the complete
+native account journey must report their own producers and observed results.

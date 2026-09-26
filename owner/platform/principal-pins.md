@@ -3,8 +3,8 @@
 Status: internal implementation and host checks, not native account activation. The
 [slot storage component](../../plans/2026-09-25-native-identity-store.md) compiled in the real
 Android `services.core` module at `3ee50f3`. Its subsequent
-[PMS consumer integration](../../plans/2026-09-26-native-store-pms-consumer.md) has separate
-verification status. No Binder endpoint, manifest declaration, signer or ordinary installation
+[PMS consumer integration](../../plans/2026-09-26-native-store-pms-consumer.md) compiled at
+`e8dc35c`, after its own host checks and retained initial compile failures. No Binder endpoint, manifest declaration, signer or ordinary installation
 can designate a native account. The first adapter supports user 0 and ordinary internal packages.
 
 This extends Package Manager's UID lifetime machinery. It does not allocate another UID space,

@@ -45,8 +45,8 @@ runtime privacy remain separately unqualified. The [native identity record and s
 now has actual Java codec/filesystem checks and a successful Android `services.core` module
 build. The [PMS consumer integration](2026-09-26-native-store-pms-consumer.md) now has 24 focused
 host checks, including actual slot transactions beneath the manager, negative recovery state and
-code/data cleanup fences. Android compilation, boot recovery, owned restoration and lifecycle
-integration remain separate gates. No new factory or account path was activated.
+code/data cleanup fences. Its actual Android `services.core` build passed at `e8dc35c`. Boot
+recovery, owned restoration and lifecycle integration remain separate gates. No new factory or account path was activated.
 
 ## Current milestone
 
