@@ -19,6 +19,13 @@ account identity lifetime. Use `scripts/proof/native_principal_pins.py`. The
 [implementation and limits](../../owner/platform/principal-pins.md) distinguish checked settings
 persistence and allocator fencing from the still disabled native account/factory path.
 
+`native-identity-writer.*` is a separate lab test adaptation. It adds one fixed subject writer
+route to the package shell and the [test helper](../../tests/native-identity/writer/README.md).
+Normal framework admission rejects its adapted or partial state. The dedicated
+`scripts/proof/native_identity_writer.py` requires explicit lab scope for apply/revert and
+build admission. This does not enable the native execution factory. Reverse this fixture
+before reversing the native principal companion.
+
 All framework inspectors check the complete known change set. Recognizing the companion
 requires its exact original or candidate bytes. Unknown changes, staged changes and
 unrelated files are refused. Build preparation must require the adaptations it uses, not

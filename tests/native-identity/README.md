@@ -4,6 +4,10 @@ These are disposable ordinary UID APKs and host observers for the PMS slot consu
 not part of `PRODUCT_PACKAGES`, native account designation, native execution bootstrap or
 production signing custody. They request no runtime permission or shared UID and disable backup.
 
+The separate [writer fixture](writer/README.md) exercises the existing manager in a lab framework
+build. It is not part of these APKs or any normal image, and it cannot enable native execution or
+complete reservation release.
+
 ## Observer contract
 
 Each instrumentation invocation targets its own package and has a bounded operation, fresh request

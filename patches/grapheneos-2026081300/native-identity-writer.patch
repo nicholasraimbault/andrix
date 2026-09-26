@@ -1,0 +1,12 @@
+--- a/services/core/java/com/android/server/pm/PackageManagerShellCommand.java
++++ b/services/core/java/com/android/server/pm/PackageManagerShellCommand.java
+@@ -224,6 +224,9 @@
+         final PrintWriter pw = getOutPrintWriter();
+         try {
+             switch (cmd) {
++                case "andrix-native-writer":
++                    return NativePrincipalWriterFixture.command(getOutPrintWriter(),
++                            getErrPrintWriter(), getRemainingArgs().toArray(new String[0]));
+                 case "help":
+                     onHelp();
+                     return 0;

@@ -52,7 +52,10 @@ signer/serial mismatches and quarantine. Removing one PMS mapping preserved the 
 original data, while a new APK received the predicted different ID. Narrow current database repair
 restored the original keys without removing the new APK. Failed trials remain separate.
 Production designation, owned restoration and native lifecycle remain gates. No factory or native
-account entry was activated.
+account entry was activated. The next bounded step is
+[real PMS writer qualification](2026-09-26-native-writer-qualification.md), through a separate
+lab route that cannot grant execution or release a reservation. Its host ownership controls
+and exact source admission checks pass; Android writer execution remains pending.
 
 ## Current milestone
 

@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "project": "frameworks/base",
+  "head": "aab06a8bd44c4c2b58eeec780fde83baa9d43a40",
+  "lab_only": true,
+  "native_execution_enabled": false,
+  "patch_sha256": "2ede775d3e67610457b294870854310d38d97ff873bec2f70fe08646253a328b",
+  "file": {
+    "path": "services/core/java/com/android/server/pm/PackageManagerShellCommand.java",
+    "upstream_sha256": "d928bd40a6b2a37fc900770d23686eec571b2eb23b4d479ee62379b8297da70c",
+    "candidate_sha256": "8c83b8048f5d08eb6783e0b48f8d18876acc19bf5670b156a2393040fbf476b6"
+  },
+  "added": {
+    "path": "services/core/java/com/android/server/pm/NativePrincipalWriterFixture.java",
+    "source": "tests/native-identity/writer/NativePrincipalWriterFixture.java",
+    "sha256": "7628d42b1535aac7ea971eb1161fd22e403518f889fe619ad6170d5d5fde8a21"
+  }
+}
