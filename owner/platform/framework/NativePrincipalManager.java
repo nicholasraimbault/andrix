@@ -394,7 +394,8 @@ public final class NativePrincipalManager {
     }
 
     private void requireNoMutation(String packageName) {
-        if (pm.mFrozenPackages.containsKey(packageName)
+        if (pm.mSettings.nativePrincipalDesignationDeferredLPr(packageName)
+                || pm.mFrozenPackages.containsKey(packageName)
                 || pm.isInstallingNativePrincipalPackage(packageName)
                 || pm.mSettings.nativePrincipalMutationInProgressLPr(packageName)) {
             throw new IllegalStateException("Package mutation is in progress");

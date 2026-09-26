@@ -16,6 +16,7 @@ final class Settings {
     final AppIdSettingMap ids = new AppIdSettingMap();
     final HashMap<String, PackageSetting> packages = new HashMap<>();
     final HashSet<String> mutating = new HashSet<>();
+    final HashSet<String> deferred = new HashSet<>();
     final Set<Integer> storeHolds = new TreeSet<>();
     final HashMap<Long, NativeIdentityRecords.Slot> remembered = new HashMap<>();
     final Path root;
@@ -64,6 +65,7 @@ final class Settings {
         return applied && !recoveryBlocked && loaded.creationReady() && pins.hasKnownCounter();
     }
     boolean nativePrincipalMutationInProgressLPr(String name) { return mutating.contains(name); }
+    boolean nativePrincipalDesignationDeferredLPr(String name) { return deferred.contains(name); }
     PackageSetting getPackageLPr(String name) { return packages.get(name); }
     SettingBase getSettingLPr(int id) { return ids.getSetting(id); }
     boolean isNativePrincipalAppIdLPr(int appId) {

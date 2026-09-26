@@ -58,6 +58,9 @@ public final class NativePrincipalManagerTest {
         pm.mSettings.mutating.add(a.getPackageName());
         refused(() -> manager.prepare(manager.select(a.getPackageName(), 0)));
         pm.mSettings.mutating.clear();
+        pm.mSettings.deferred.add(a.getPackageName());
+        refused(() -> manager.prepare(manager.select(a.getPackageName(), 0)));
+        pm.mSettings.deferred.clear();
         pm.mSettings.recoveryBlocked = true;
         refused(() -> manager.prepare(manager.select(a.getPackageName(), 0)));
         pm.mSettings.recoveryBlocked = false;

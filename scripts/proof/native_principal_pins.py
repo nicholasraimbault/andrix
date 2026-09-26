@@ -24,6 +24,12 @@ ADDED = {PREFIX + name + '.java': ROOT / 'owner/platform/framework' / (name + '.
                       'NativeIdentityStore', 'NativeIdentityPersistence', 'NativePrincipalRecovery')}
 FIXTURES = {PREFIX + name + '.java': ROOT / 'owner/tests/platform' / (name + '.java.inc')
             for name in ('AppIdSettingMap', 'ResilientAtomicFile')}
+FRAGMENTS = {name: (PREFIX + source + '.java', ROOT / 'owner/tests/platform/native_recovery_fragments' / (name + '.java.inc'))
+             for name, source in (
+                 ('identity', 'Settings'), ('system-cleanup', 'InstallPackageHelper'),
+                 ('parse-failure', 'InstallPackageHelper'), ('install-markers', 'InstallPackageHelper'),
+                 ('system-delete', 'InstallPackageHelper'), ('path-safety', 'Settings'),
+                 ('restore-capacity', 'Settings'))}
 PROFILE = ROOT / 'patches/grapheneos-2026081300/native-principal-pins.json'
 PATCH = ROOT / 'patches/grapheneos-2026081300/native-principal-pins.patch'
 
@@ -62,6 +68,13 @@ def profile():
             raise ValueError('native principal fixture drift')
     if [row['path'] for row in value['fixtures']] != list(FIXTURES):
         raise ValueError('native principal fixture set drift')
+    if [row['name'] for row in value['fragments']] != list(FRAGMENTS):
+        raise ValueError('native recovery fragment set drift')
+    for row in value['fragments']:
+        target, fragment = FRAGMENTS[row['name']]
+        if (row['path'] != target or row['source'] != fragment.relative_to(ROOT).as_posix()
+                or sha(fragment.read_bytes()) != row['sha256']):
+            raise ValueError('native recovery fragment drift')
     return value
 
 
@@ -90,6 +103,9 @@ def targets(original, value):
     for name, fixture in FIXTURES.items():
         if output[name] != fixture.read_bytes():
             raise ValueError('host tested native principal source differs: ' + name)
+    for name, (target, fragment) in FRAGMENTS.items():
+        if output[target].count(fragment.read_bytes()) != 1:
+            raise ValueError('native recovery fragment differs from actual candidate: ' + name)
     output.update({name: helper.read_bytes() for name, helper in ADDED.items()})
     return output
 

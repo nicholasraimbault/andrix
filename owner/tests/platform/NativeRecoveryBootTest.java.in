@@ -1,0 +1,194 @@
+// SPDX-License-Identifier: Apache-2.0
+package com.android.server.pm;
+
+import java.io.File;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Set;
+
+/** Exact patched boot/identity/failure fragments, not a running Android PMS. */
+public final class NativeRecoveryBootTest {
+    private static final String TAG = "test";
+    private static final class Slog { static void w(String tag, String text) { } }
+    private static final class StorageManager { static final String UUID_PRIVATE_INTERNAL = null; }
+    private static final class Environment {
+        static File getDataAppDirectory(String uuid) { return new File("/data/app"); }
+    }
+    private static final class PackageSetting {
+        final String name; final int appId; final boolean system; final File path;
+        PackageSetting(String name, int appId, boolean system) {
+            this.name = name; this.appId = appId; this.system = system;
+            path = new File("/data/app/" + name);
+        }
+        String getPackageName() { return name; }
+        int getAppId() { return appId; }
+        boolean isSystem() { return system; }
+        File getPath() { return path; }
+    }
+    private static final class PackageSettings {
+        final List<PackageSetting> values = new ArrayList<>();
+        int size() { return values.size(); }
+        PackageSetting valueAt(int index) { return values.get(index); }
+    }
+    private static final class Parsed {
+        final String name;
+        Parsed(String name) { this.name = name; }
+        String getPackageName() { return name; }
+    }
+    private static final class ParseResult {
+        final Parsed parsedPackage; final File scanFile;
+        ParseResult(String name, String file) {
+            parsedPackage = name == null ? null : new Parsed(name); scanFile = new File(file);
+        }
+    }
+    private static final class Settings {
+        NativePrincipalPins pins = new NativePrincipalPins(64);
+        NativeIdentityStore.Loaded mNativeIdentityLoaded;
+        NativePrincipalRecovery mNativeRecoveryView = NativePrincipalRecovery.empty();
+        final HashMap<String, PackageSetting> packages = new HashMap<>();
+        NativePrincipalPins nativePrincipalPinsLPr() { return pins; }
+        PackageSetting getPackageLPr(String name) { return packages.get(name); }
+        boolean isNativePrincipalAppIdLPr(int id) { return mNativeRecoveryView.holdsAppId(id); }
+        NativePrincipalRecovery nativeRecoveryView() { return mNativeRecoveryView; }
+        void deferNativePackage(String name, File path) { mNativeRecoveryView = mNativeRecoveryView.defer(name, path); }
+        void retainNativeCode(File path) { mNativeRecoveryView = mNativeRecoveryView.retainCode(path); }
+@IDENTITY_PREDICATE@
+@PATH_SAFETY@
+        static NativePrincipalPins restoreCapacity(List<NativePrincipalPins.Record> records,
+                Set<Long> retiring, NativeIdentityStore.Loaded loaded) {
+@RESTORE_CAPACITY@
+            return restored;
+        }
+    }
+    private static final class Users { int[] getUserIds() { return new int[]{0}; } }
+    private static final class Pm {
+        final Settings mSettings = new Settings(); final Users mUserManager = new Users();
+    }
+    private static final class Process { static final int SYSTEM_UID = 1000; }
+    private static final class PackageRemovedInfo { }
+    private static final class PackageManagerException extends Exception {
+        private static final long serialVersionUID = 1;
+        static final int INTERNAL_ERROR_NATIVE_IDENTITY_DEFERRED = -41;
+        static PackageManagerException ofInternalError(String message, int code) { return new PackageManagerException(); }
+    }
+    private static final class DeleteHelper {
+        boolean result;
+        boolean deletePackageLIF(String name, Object user, boolean code, int[] users, int flags,
+                PackageRemovedInfo info, boolean write, int caller) { return result; }
+    }
+    private static final class InstallRequest { }
+    private final Pm mPm = new Pm();
+    private final DeleteHelper mDeletePackageHelper = new DeleteHelper();
+    private final Set<String> mInstallingPackages = new java.util.HashSet<>();
+    private final java.util.IdentityHashMap<InstallRequest, String> mInstallingPackageOwners = new java.util.IdentityHashMap<>();
+    private boolean deleted, inherited;
+@INSTALL_MARKERS@
+    private void systemDelete(Parsed parsedPackage) throws PackageManagerException {
+@SYSTEM_DELETE@
+        inherited = true;
+    }
+    private void systemCleanupPrefix(PackageSettings packageSettings) {
+@SYSTEM_CLEANUP_PREFIX@
+        }
+    }
+    private void parseFailure(ParseResult result, boolean nativeDeferred) {
+@PARSE_FAILURE_PRESERVATION@
+        deleted = true;
+    }
+
+    public static void main(String[] args) throws Exception {
+        if (!NativeRecoveryBootTest.class.desiredAssertionStatus()) throw new AssertionError("-ea");
+        String mode = args.length == 0 ? "all" : args[0];
+        if (mode.equals("all") || mode.equals("healthy")) {
+            NativeRecoveryBootTest test = new NativeRecoveryBootTest();
+            Settings state = test.mPm.mSettings;
+            PackageSetting data = new PackageSetting("dev.andrix.account", 10123, false);
+            state.packages.put(data.name, data);
+            state.pins.prepare(data.name, data.appId, 0, 7);
+            state.mNativeRecoveryView = state.mNativeRecoveryView.withHolds(Set.of(10123));
+            PackageSettings settings = new PackageSettings(); settings.values.add(data);
+            test.systemCleanupPrefix(settings);
+            assert !state.nativeRecoveryView().defersName(data.name)
+                    : "system cleanup fenced an ordinary native backing package";
+            assert !state.nativeRecoveryView().hasUnresolvedHolds();
+            System.out.println("Healthy data backing package survives actual cleanup prefix");
+        }
+        if (mode.equals("all") || mode.equals("unknown-code")) {
+            NativeRecoveryBootTest test = new NativeRecoveryBootTest();
+            Settings state = test.mPm.mSettings;
+            state.mNativeRecoveryView = state.mNativeRecoveryView.withHolds(Set.of(10123)).withUnidentifiedCode();
+            ParseResult ordinary = new ParseResult("ordinary.other", "/data/app/opaque/base.apk");
+            test.parseFailure(ordinary, false);
+            assert !test.deleted && state.nativeRecoveryView().keepsCodePath(ordinary.scanFile);
+            assert !state.nativeRecoveryView().protectsName("ordinary.other")
+                    && !state.nativeRecoveryView().defersName("ordinary.other")
+                    : "unknown code retention invented a native package name fence";
+            test.parseFailure(ordinary, false); // A retained path is still not identity evidence.
+            assert !state.isNativePrincipalPackageLPr("ordinary.other");
+            System.out.println("Unknown failed code stays code-only retention");
+        }
+        if (mode.equals("all") || mode.equals("data-only")) {
+            NativeRecoveryBootTest test = new NativeRecoveryBootTest();
+            Settings state = test.mPm.mSettings;
+            state.mNativeRecoveryView = state.mNativeRecoveryView.withHolds(Set.of(10123))
+                    .defer("android", null);
+            state.packages.put("android", new PackageSetting("android", 1000, true));
+            assert state.nativeRecoveryView().protectsName("android");
+            assert !state.isNativePrincipalPackageLPr("android")
+                    : "a negative data observation became native code identity";
+            PackageSettings settings = new PackageSettings(); settings.values.add(state.packages.get("android"));
+            // The real identity predicate is what the early system-scan gate uses.
+            assert !state.isNativePrincipalAppIdLPr(1000);
+            System.out.println("Data-only preservation does not refuse platform code identity");
+        }
+        if (mode.equals("all") || mode.equals("markers")) {
+            NativeRecoveryBootTest test = new NativeRecoveryBootTest();
+            InstallRequest owner = new InstallRequest(), refused = new InstallRequest();
+            assert test.claimInstallingPackageLocked(owner, "pkg");
+            test.releaseInstallingPackageLocked(refused);
+            assert test.mInstallingPackages.contains("pkg");
+            assert !test.claimInstallingPackageLocked(refused, "pkg");
+            test.releaseInstallingPackageLocked(refused);
+            assert test.mInstallingPackages.contains("pkg");
+            test.releaseInstallingPackageLocked(owner);
+            assert test.claimInstallingPackageLocked(refused, "pkg");
+            test.releaseInstallingPackageLocked(owner); // Old completion cannot erase the replacement.
+            assert test.mInstallingPackages.contains("pkg");
+            test.releaseInstallingPackageLocked(refused);
+            assert test.mInstallingPackages.isEmpty();
+            System.out.println("Installing names have exact request ownership");
+        }
+        if (mode.equals("all") || mode.equals("delete")) {
+            NativeRecoveryBootTest test = new NativeRecoveryBootTest();
+            try { test.systemDelete(new Parsed("pkg")); throw new AssertionError("refused delete inherited UID"); }
+            catch (PackageManagerException expected) { }
+            assert !test.inherited;
+            test.mDeletePackageHelper.result = true;
+            test.systemDelete(new Parsed("pkg"));
+            assert test.inherited;
+            System.out.println("System collision cannot continue after refused data removal");
+        }
+        if (mode.equals("all") || mode.equals("metadata")) {
+            NativePrincipalRecovery held = NativePrincipalRecovery.empty().withHolds(Set.of(10123));
+            NativePrincipalRecovery unresolved = Settings.withNativeCodePath(held, new File("relative"));
+            assert unresolved.hasUnidentifiedCode();
+            assert !unresolved.keepsCodePath(new File("/relative"));
+            assert Settings.deferNativeName(held, "pkg", new File("relative")).defersName("pkg");
+            List<NativePrincipalPins.Record> records = new ArrayList<>();
+            Set<Integer> ids = new java.util.HashSet<>();
+            for (int i = 0; i < 65; ++i) {
+                records.add(new NativePrincipalPins.Record(i + 1, "dev.andrix.p" + i, 10000 + i, 0, 7));
+                ids.add(10000 + i);
+            }
+            NativeIdentityStore.Loaded loaded = new NativeIdentityStore.Loaded(
+                    new NativeIdentityStore.ReadResult<>(NativeIdentityStore.Status.DAMAGED, null, List.of()),
+                    java.util.Map.of(), ids, true, true);
+            NativePrincipalPins pins = Settings.restoreCapacity(records, Set.of(), loaded);
+            assert !pins.hasKnownCounter() && pins.reservedAppIds().isEmpty();
+            assert loaded.occupiedAppIds.size() == 65; // Negative holds were not discarded.
+            System.out.println("Malformed metadata degrades without fabricated identity or boot throw");
+        }
+        System.out.println("Native recovery boot fragments passed; Android boot unqualified");
+    }
+}

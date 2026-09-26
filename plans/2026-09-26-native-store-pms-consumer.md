@@ -73,6 +73,9 @@ obligation through the asynchronous restore completion, not just the initiating 
 
 - The first adapter remains user 0 and an ordinary internal package. A dedicated policy carrier
   is the target vehicle; this does not admit arbitrary APK code as a login.
+- Interrupted CREATING entries without a body, and retirement tombstone/index tails after process
+  loss, still need an owned recovery continuation. They stay held and unavailable. A tombstone
+  cannot reopen APK producers while a release is pending.
 - Missing installed mappings are quarantined, not silently assigned fresh UIDs. Automatic
   restoration into an empty held slot is not supplied by this cut. It needs a unique captured
   candidate and a verified ownership ticket after the complete scan.
@@ -100,6 +103,14 @@ restored signer continuity, unknown counters, marker-before removal, retained ha
 monitor check against store writer I/O under the PMS state lock. The immutable negative view has
 separate path-boundary and copy tests. These are host checks, not Android boot or permission proof.
 
-The combined focused suite currently passes 22 checks. Framework source guards remain exact and
-include all changed cleanup paths. Android module compilation, emulator recovery and the complete
-native account journey must report their own producers and observed results.
+The combined focused suite currently passes 24 checks. Seven exact framework fragments are
+compiled in a host boot/control fixture and checked against the adapted source by the profile.
+The original `7cfcacc` fragments fail controls for healthy data package boot, code retention without name attribution,
+data observation without identity attribution and refused system collision deletion; the corrected fragments pass.
+Installing name cleanup now also requires the exact request that acquired the marker, so a refused
+or old completion cannot remove another request's hold.
+
+The first Android consumer compile exposed a missing `Environment` import in Settings. That failed
+trial remains separate and the import was corrected, not bypassed. Framework source guards include
+all changed cleanup paths. Android module compilation, emulator recovery and the complete native
+account journey must report their own producers and observed results.

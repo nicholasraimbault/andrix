@@ -223,7 +223,7 @@ retain their own producers and scopes.
   now has real Java codec/host filesystem checks and an actual Android `services.core` build. Stable slot/index holds are distinct from
   binding eligibility and counter availability. First publication, checked backup preparation,
   header-only damage and retirement ordering have bounded coverage. The later
-  [PMS consumer](../plans/2026-09-26-native-store-pms-consumer.md) has 22 focused host checks and
+  [PMS consumer](../plans/2026-09-26-native-store-pms-consumer.md) has 24 focused host checks and
   replaces the embedded native section, but Android compilation/boot and crash recovery must
   be qualified separately. No native account factory is enabled.
 - **Next gate:** complete the remaining authority and recovery connections, API binding and
