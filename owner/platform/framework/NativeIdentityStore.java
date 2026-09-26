@@ -76,8 +76,8 @@ final class NativeIdentityStore {
         // execution authority. Retiring users must still restore as RETIRING.
         boolean bindingUsable(int appId) {
             ReadResult<Slot> slot = slots.get(appId);
-            return enumerationComplete && slot != null && slot.status == Status.VALID
-                    && !slot.value.users.isEmpty();
+            return enumerationComplete && header.status != Status.UNSUPPORTED
+                    && slot != null && slot.status == Status.VALID && !slot.value.users.isEmpty();
         }
         boolean creationReady() {
             return enumerationComplete && !creationBlocked && header.status == Status.VALID;
@@ -85,6 +85,11 @@ final class NativeIdentityStore {
     }
 
     private interface Decoder<T> { T decode(byte[] bytes); }
+
+    // The codec can preserve future header data, but this store's transition and
+    // admission protocols still implement version 1. A decoded newer footprint
+    // is a hold, not permission to reinterpret or mutate that state.
+    private static final int SUPPORTED_HEADER_VERSION = 1;
 
     private final File root;
     private final File slotRoot;
@@ -159,6 +164,19 @@ final class NativeIdentityStore {
                 null, valid);
     }
 
+    private ReadResult<Header> readHeaderCopies() {
+        ReadResult<Header> read = readCopies(headerFile(), NativeIdentityRecords::decodeHeader);
+        for (Header copy : read.decodedCopies) {
+            if (copy.version != SUPPORTED_HEADER_VERSION) {
+                // Even an unselected copy can contain a reservation whose new
+                // transition semantics this writer has not qualified. Preserve
+                // all decoded UID holds and do not fall through to a v1 copy.
+                return new ReadResult<>(Status.UNSUPPORTED, null, read.decodedCopies);
+            }
+        }
+        return read;
+    }
+
     Loaded load() {
         TreeMap<Integer, ReadResult<Slot>> loaded = new TreeMap<>();
         TreeSet<Integer> occupied = new TreeSet<>();
@@ -168,13 +186,13 @@ final class NativeIdentityStore {
             if (!directory(root) || !directory(slotRoot)) {
                 // A missing root is NOT automatically permission to initialize a
                 // new lineage. The trusted creation operation decides that case.
-                if (directory(root)) header = readCopies(headerFile(), NativeIdentityRecords::decodeHeader);
+                if (directory(root)) header = readHeaderCopies();
                 for (Header copy : header.decodedCopies) {
                     for (HeaderEntry entry : copy.entries) occupied.add(entry.appId);
                 }
                 return new Loaded(header, loaded, occupied, true, false);
             }
-            header = readCopies(headerFile(), NativeIdentityRecords::decodeHeader);
+            header = readHeaderCopies();
             for (Header copy : header.decodedCopies) {
                 for (HeaderEntry entry : copy.entries) occupied.add(entry.appId);
             }
@@ -325,7 +343,8 @@ final class NativeIdentityStore {
 
     boolean writeHeader(Header expected, Header next) {
         Objects.requireNonNull(expected); Objects.requireNonNull(next);
-        if (!expected.lineage.equals(next.lineage) || next.lastId < expected.lastId) return false;
+        if (expected.version != SUPPORTED_HEADER_VERSION || next.version != SUPPORTED_HEADER_VERSION
+                || !expected.lineage.equals(next.lineage) || next.lastId < expected.lastId) return false;
         ReadResult<Header> read = safeReadHeader();
         if (read.status != Status.VALID || !(read.value.equals(expected) || read.value.equals(next))) {
             return false;
@@ -432,7 +451,8 @@ final class NativeIdentityStore {
         Objects.requireNonNull(expected); Objects.requireNonNull(next);
         Loaded loaded = load();
         ReadResult<Slot> read = loaded.slots.get(next.appId);
-        if (!loaded.enumerationComplete || read == null || read.status != Status.VALID) return false;
+        if (!loaded.enumerationComplete || loaded.header.status == Status.UNSUPPORTED
+                || read == null || read.status != Status.VALID) return false;
         HeaderEntry index = loaded.header.value == null ? null : headerEntry(loaded.header.value, next.appId);
         if (index != null && index.phase == SlotPhase.RELEASING && !next.users.isEmpty()) return false;
         for (Header copy : loaded.header.decodedCopies) {
@@ -476,8 +496,8 @@ final class NativeIdentityStore {
     boolean confirmExistingSlot(Slot expected) {
         Loaded loaded = load();
         ReadResult<Slot> read = loaded.slots.get(expected.appId);
-        if (!loaded.enumerationComplete || read == null || read.status != Status.VALID
-                || !expected.equals(read.value)) return false;
+        if (!loaded.enumerationComplete || loaded.header.status == Status.UNSUPPORTED
+                || read == null || read.status != Status.VALID || !expected.equals(read.value)) return false;
         byte[] bytes = NativeIdentityRecords.encodeSlot(expected);
         return writeStrict(slotFile(expected.appId), bytes, bytes);
     }
@@ -582,7 +602,7 @@ final class NativeIdentityStore {
         if (!directory(root) || !directory(slotRoot)) {
             return new ReadResult<>(Status.DAMAGED, null, List.of());
         }
-        return readCopies(headerFile(), NativeIdentityRecords::decodeHeader);
+        return readHeaderCopies();
     }
     private boolean sameHeader(Header expected) {
         ReadResult<Header> read = safeReadHeader();

@@ -13,8 +13,8 @@ import native_principal_pins as integration
 
 
 class NativeIdentityStoreTests(unittest.TestCase):
-    @unittest.skipUnless(shutil.which('javac') and shutil.which('java'), 'JDK required')
     def test_records_and_store_on_jvm(self):
+        self.assertTrue(shutil.which('javac') and shutil.which('java'), 'identity store qualification requires a JDK on PATH')
         # The writer is the exact guarded framework adaptation, not a parallel
         # Python model or a replacement that treats readback as fsync success.
         integration.profile()
@@ -27,7 +27,7 @@ class NativeIdentityStoreTests(unittest.TestCase):
                        *[ROOT / 'owner/platform/framework' / (name + '.java') for name in
                          ['NativeIdentityRecords', 'NativeIdentityStore']],
                        *[ROOT / 'owner/tests/platform' / (name + '.java') for name in
-                         ['NativeIdentityRecordsTest', 'NativeIdentityStoreTest']],
+                         ['NativeIdentityRecordsTest', 'NativeIdentityStoreTest', 'NativeIdentityVersionGateTest']],
                        *[p for p in sorted((ROOT / 'owner/tests/platform/native_principal_xml_stubs')
                                           .rglob('*.java')) if p.name != 'Xml.java']]
             compile_result = subprocess.run(
@@ -35,18 +35,18 @@ class NativeIdentityStoreTests(unittest.TestCase):
                  '-d', str(work), *map(str, sources)], capture_output=True, text=True, timeout=120)
             self.assertEqual(compile_result.returncode, 0,
                              compile_result.stdout + compile_result.stderr)
-            for name in ['NativeIdentityRecordsTest', 'NativeIdentityStoreTest']:
+            for name in ['NativeIdentityRecordsTest', 'NativeIdentityStoreTest', 'NativeIdentityVersionGateTest']:
                 result = subprocess.run(
                     ['java', '-Xmx256m', '-ea', '-cp', str(work), 'com.android.server.pm.' + name,
                      str(work)], capture_output=True, text=True, timeout=90)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertIn('unqualified', result.stdout)
-            negative = subprocess.run(
-                ['java', '-Xmx256m', '-cp', str(work),
-                 'com.android.server.pm.NativeIdentityRecordsTest'],
-                capture_output=True, text=True, timeout=30)
-            self.assertNotEqual(negative.returncode, 0)
-            self.assertIn('run with java -ea', negative.stderr)
+            for name in ['NativeIdentityRecordsTest', 'NativeIdentityVersionGateTest']:
+                negative = subprocess.run(
+                    ['java', '-Xmx256m', '-cp', str(work), 'com.android.server.pm.' + name, str(work)],
+                    capture_output=True, text=True, timeout=30)
+                self.assertNotEqual(negative.returncode, 0)
+                self.assertIn('-ea', negative.stderr)
 
 
 if __name__ == '__main__':

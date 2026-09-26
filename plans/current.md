@@ -59,6 +59,9 @@ and exact source admission checks pass. The separate Android lab image built at 
 Actual publication, original handle retry, cold rebinding and an I/O refusal control passed.
 A failed directory timestamp bookend and its filesystem qualification limit remain explicit.
 Interrupted creation and retirement recovery, production designation and activation remain open.
+The [next codec step](2026-09-26-native-creation-binding-codec.md) adds an unused representation for
+complete creation bindings. Version 1 bytes and holds remain readable. A conservative store gate
+retains recognized version 2 holds but refuses binding and writes until that protocol is integrated.
 
 ## Current milestone
 

@@ -1,11 +1,13 @@
 # Native identity slot storage component
 
-Status: implemented storage/record component with host checks and an actual Android module build.
-It is not yet the PMS consumer,
-allocator recovery integration or native account activation. The existing adapted manager still
-uses `packages.xml` until its migration is connected and qualified. This is implementation of the
+Checkpoint `3ee50f3`: storage/record component with host checks and an actual Android module build.
+At that checkpoint it was not yet the PMS consumer, allocator recovery integration or native
+account activation. The adapted manager still used `packages.xml`. This is implementation of the
 [recovery boundary](2026-09-25-native-recovery-boundary.md), not a second UID allocator or grant
-store.
+store. Later work connects the [PMS consumer](2026-09-26-native-store-pms-consumer.md),
+[real writer vehicle](2026-09-26-native-writer-qualification.md), and an
+[unused creation binding codec extension](2026-09-26-native-creation-binding-codec.md).
+Those checkpoints retain their own qualification boundaries.
 
 ## Ownership and records
 
@@ -74,8 +76,10 @@ retain the original operation and holds.
 
 **CREATING is not permanent proof that nothing was exposed.** A good slot may have been rebound
 while its header was damaged. A later missing record, empty directory or inode therefore cannot
-justify automatic cleanup. Cancellation needs an actual owned never-exposed creation operation,
-or full retirement authority. That consumer is not supplied by this component.
+justify automatic cleanup. Even an operation with no native execution can leave an installed APK,
+UID addressed keys, data and producers. Cancellation cannot release the UID dependency without
+actual disposition and retirement authority for all of them. That consumer is not supplied by
+this component.
 
 ## Verification
 

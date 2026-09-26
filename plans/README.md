@@ -21,6 +21,8 @@ allocation, mutation, recovery and cleanup boundaries. The
 Android reader/quarantine and original data/key retention, with failed trials kept separate.
 The next [writer qualification](2026-09-26-native-writer-qualification.md) exercises the real
 manager through a separate bounded test route, without native execution or final UID release.
+The [unused creation binding codec](2026-09-26-native-creation-binding-codec.md) preserves old
+record formats and adds a hold only gate for future headers. It does not enable their writer.
 
 The [2026-09-21 accepted vision revision](2026-09-21-owner-composable-android.md) expands
 Andrix from a Unix focused layer to an owner composable Android OS. Its platform work is

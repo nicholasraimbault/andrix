@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.android.server.pm;
 
+import com.android.server.pm.NativeIdentityRecords.CreationBinding;
 import com.android.server.pm.NativeIdentityRecords.Header;
 import com.android.server.pm.NativeIdentityRecords.HeaderEntry;
 import com.android.server.pm.NativeIdentityRecords.Slot;
@@ -21,6 +22,7 @@ import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.TreeSet;
@@ -54,6 +56,57 @@ public final class NativeIdentityRecordsTest {
     private static final int APP_ID = 28, GENERATION = 32, PACKAGE = 40, SIGNER_COUNT = 45;
     private static final int SIGNER_1 = 47, USER_COUNT = 111, USER_1 = 113, USER_2 = 134;
     private static final int USER_ID = 8, SERIAL = 12, FLAGS = 20;
+
+    // Version 2 bytes of goldenV2Header(), written by hand without the SHA-256. Entry 1 is LIVE,
+    // entry 2 a bound CREATING entry and entry 3 a CREATING entry without a binding.
+    private static final String V2_HEADER_LAYOUT = "41584944 0100 0200 c9000000"
+            + " 00112233445566778899aabbccddeeff 0700000000000000 0300"
+            + " 8b270000 02 0000000000000000 0000"
+            + " d8270000 01 0700000000000000 0300 612e62"
+            + " 01 0a000000 0600000000000000 0200 " + LOW + " " + HIGH
+            + " d9270000 01 0600000000000000 0300 612e63 00";
+    // Offsets within that layout. ENTRY_1 and ENTRY_2 are the same as in version 1.
+    private static final int V2_TAG = 71, V2_USER = 72, V2_SERIAL = 76, V2_SIGNER_COUNT = 84;
+    private static final int V2_SIGNER_1 = 86, V2_ENTRY_3 = 150, V2_LEGACY_TAG = 168;
+
+    // Complete records written by the original version 1 codec at d315361, before version 2
+    // existed. They never change: stored version 1 records stay readable and rewrite unchanged.
+    private static final String V1_GOLDEN_HEADER = ""
+            + "41584944010001006700000000112233445566778899aabbccddeeff07000000"
+            + "0000000002008b2700000200000000000000000000d827000001070000000000"
+            + "00000300612e623430d3dd2438102c09227a3c928fb34086db0f3888bfa92dd1"
+            + "954576b24317b1";
+    private static final String V1_GOLDEN_SLOT = ""
+            + "4158494402000100bb00000000112233445566778899aabbccddeeff8b270000"
+            + "02000000000000000300612e6202000f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f"
+            + "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0faaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0200030000000000000000000000050000"
+            + "00000000000004000000000000000a0000000600000000000000010e04697ba0"
+            + "bcf97ab71a919b3707583748db4bce6f8a9deb2a781780b811ee2d";
+    private static final String V1_EMPTY_HEADER = ""
+            + "41584944010001004600000000112233445566778899aabbccddeeff00000000"
+            + "0000000000003ba8011033c82db4233dc502393025924ba79d47ad94e22d2753"
+            + "8720294fb621";
+    private static final String V1_HOLDS_HEADER = ""
+            + "41584944010001008a000000ffeeddccbbaa99887766554433221100ffffffff"
+            + "ffffff7f04001027000003000000000000000000001127000001ffffffffffff"
+            + "ff7f0300612e62122700000101000000000000000500412e625f391f4e000002"
+            + "0000000000000000000046a22f14e66112f563c834627da77c96b56c5c2db8fe"
+            + "f5e98cb2917be94e6719";
+    private static final String V1_TOMBSTONE_SLOT = ""
+            + "41584944020001008200000000112233445566778899aabbccddeeff1f4e0000"
+            + "010000000000000014006465762e616e647269782e7072696e636970616c0100"
+            + "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f"
+            + "00009f7faf32aa0d47010557bc033ae9596c64016eb720d84837f158f5315bb6"
+            + "fac2";
+    private static final String V1_EXTREME_SLOT = ""
+            + "4158494402000100c1000000ffeeddccbbaa998877665544332211001f4e0000"
+            + "ffffffffffffff7f09005a395f2e795f312e7802000000000000000000000000"
+            + "000000000000000000000000000000000000000000ffffffffffffffffffffff"
+            + "ffffffffffffffffffffffffffffffffffffffffff0200ffffffffffffff7f00"
+            + "0000000000000000000000000100000000000000e2530000ffffffffffffff7f"
+            + "01068f0e13554bcd1e19a4d583b26e69406d4cbdafe3ecf8c47fc8cc086d3138"
+            + "29";
 
     private static void requireAssertions() {
         if (!NativeIdentityRecordsTest.class.desiredAssertionStatus()) {
@@ -106,6 +159,31 @@ public final class NativeIdentityRecordsTest {
     private static Slot goldenSlot() {
         return new Slot(LINEAGE, 10123, "a.b", 2, Set.of(HIGH, LOW),
                 List.of(new UserEntry(3, 0, 5, false), new UserEntry(4, 10, 6, true)));
+    }
+
+    private static CreationBinding goldenBinding() {
+        return new CreationBinding(10, 6, Set.of(HIGH, LOW));
+    }
+
+    private static Header goldenV2Header() {
+        return Header.newV2(LINEAGE, 7, List.of(new HeaderEntry(10123, SlotPhase.LIVE, 0, ""),
+                new HeaderEntry(10200, SlotPhase.CREATING, 7, "a.b", goldenBinding()),
+                new HeaderEntry(10201, SlotPhase.CREATING, 6, "a.c")));
+    }
+
+    // Every phase, with header only CREATING holds and the largest IDs.
+    private static Header holdsHeader() {
+        return new Header(OTHER_LINEAGE, Long.MAX_VALUE, List.of(
+                new HeaderEntry(10000, SlotPhase.RELEASING, 0, ""),
+                new HeaderEntry(10001, SlotPhase.CREATING, Long.MAX_VALUE, "a.b"),
+                new HeaderEntry(10002, SlotPhase.CREATING, 1, "A.b_9"),
+                new HeaderEntry(19999, SlotPhase.LIVE, 0, "")));
+    }
+
+    private static Set<String> widestSigners() {
+        Set<String> signers = new HashSet<>();
+        for (int i = 0; i < NativeIdentityRecords.MAX_SIGNERS; i++) signers.add(signer(255 - i));
+        return signers;
     }
 
     // A valid digest whose 32 bytes all equal the index.
@@ -203,6 +281,61 @@ public final class NativeIdentityRecordsTest {
         assert Arrays.equals(changed(slot, bytes -> bytes), slot);
     }
 
+    // Records of the original version 1 codec still decode to version 1 values without bindings,
+    // including header only CREATING holds, and those values still encode to the same bytes.
+    private static void frozenV1Records() {
+        assert Arrays.equals(withChecksum(hex(HEADER_LAYOUT)), hex(V1_GOLDEN_HEADER));
+        assert Arrays.equals(withChecksum(hex(SLOT_LAYOUT)), hex(V1_GOLDEN_SLOT));
+        Map<String, Header> headers = Map.of(V1_GOLDEN_HEADER, goldenHeader(),
+                V1_EMPTY_HEADER, new Header(LINEAGE, 0, List.of()),
+                V1_HOLDS_HEADER, holdsHeader());
+        for (Map.Entry<String, Header> frozen : headers.entrySet()) {
+            byte[] record = hex(frozen.getKey());
+            Header decoded = NativeIdentityRecords.decodeHeader(record);
+            assert decoded.equals(frozen.getValue()) && decoded.version == 1;
+            for (HeaderEntry entry : decoded.entries) assert entry.creationBinding == null;
+            assert Arrays.equals(NativeIdentityRecords.encodeHeader(decoded), record);
+            assert Arrays.equals(NativeIdentityRecords.encodeHeader(frozen.getValue()), record);
+            assert roundTrip(frozen.getValue()).version == 1;
+        }
+        Header holds = NativeIdentityRecords.decodeHeader(hex(V1_HOLDS_HEADER));
+        assert holds.lastId == Long.MAX_VALUE && holds.entries.size() == 4;
+        assert holds.entries.get(1).equals(
+                new HeaderEntry(10001, SlotPhase.CREATING, Long.MAX_VALUE, "a.b", null));
+        assert holds.entries.get(2).equals(new HeaderEntry(10002, SlotPhase.CREATING, 1, "A.b_9"));
+        Map<String, Slot> slots = Map.of(V1_GOLDEN_SLOT, goldenSlot(),
+                V1_TOMBSTONE_SLOT, new Slot(LINEAGE, 19999, APP, 1, Set.of(LOW), List.of()),
+                V1_EXTREME_SLOT, new Slot(OTHER_LINEAGE, 19999, "Z9_.y_1.x", Long.MAX_VALUE,
+                        Set.of(signer(255), signer(0)), List.of(
+                                new UserEntry(Long.MAX_VALUE, 0, 0, false),
+                                new UserEntry(1, 21474, Long.MAX_VALUE, true))));
+        for (Map.Entry<String, Slot> frozen : slots.entrySet()) {
+            byte[] record = hex(frozen.getKey());
+            Slot decoded = NativeIdentityRecords.decodeSlot(record);
+            assert decoded.equals(frozen.getValue());
+            assert Arrays.equals(NativeIdentityRecords.encodeSlot(decoded), record);
+            assert Arrays.equals(NativeIdentityRecords.encodeSlot(frozen.getValue()), record);
+        }
+    }
+
+    // The version 2 format is pinned byte for byte. Only CREATING entries differ from version 1:
+    // the LIVE entry's bytes are unchanged and each CREATING entry adds its binding tag.
+    private static void goldenV2Layout() {
+        byte[] record = withChecksum(hex(V2_HEADER_LAYOUT));
+        assert record.length == 201;
+        assert Arrays.equals(NativeIdentityRecords.encodeHeader(goldenV2Header()), record);
+        Header decoded = NativeIdentityRecords.decodeHeader(record);
+        assert decoded.equals(goldenV2Header()) && decoded.version == 2;
+        assert decoded.entries.get(0).creationBinding == null;
+        assert decoded.entries.get(1).creationBinding.equals(goldenBinding());
+        assert decoded.entries.get(2).phase == SlotPhase.CREATING
+                && decoded.entries.get(2).creationBinding == null;
+        byte[] v1 = hex(V1_GOLDEN_HEADER);
+        assert Arrays.equals(Arrays.copyOfRange(record, ENTRY_1, ENTRY_2),
+                Arrays.copyOfRange(v1, ENTRY_1, ENTRY_2));
+        assert Arrays.equals(changed(record, bytes -> bytes), record);
+    }
+
     private static void roundTrips() {
         // An empty header still carries its lineage and counter.
         Header empty = roundTrip(new Header(LINEAGE, 0, List.of()));
@@ -245,6 +378,83 @@ public final class NativeIdentityRecordsTest {
         byte[] widest = NativeIdentityRecords.encodeSlot(
                 roundTrip(new Slot(OTHER_LINEAGE, 10000, LONGEST, 1, signers, many)));
         assert widest.length == 12 + 16 + 4 + 8 + 2 + 255 + 2 + 32 * 32 + 2 + 64 * 21 + CHECKSUM;
+    }
+
+    // A header keeps its version. The same entries in the other version are another value with
+    // another encoding. Neither encoding nor decoding converts one version into the other.
+    private static void versionsStayDistinct() {
+        List<Header> v1Headers = List.of(new Header(LINEAGE, 0, List.of()), goldenHeader(),
+                holdsHeader(), new Header(LINEAGE, 3, List.of(
+                        new HeaderEntry(10005, SlotPhase.LIVE, 0, ""),
+                        new HeaderEntry(10006, SlotPhase.RELEASING, 0, ""))));
+        for (Header v1 : v1Headers) {
+            Header v2 = Header.newV2(v1.lineage, v1.lastId, v1.entries);
+            assert v1.version == 1 && v2.version == 2 && v2.entries.equals(v1.entries);
+            assert !v1.equals(v2) && !v2.equals(v1);
+            byte[] one = NativeIdentityRecords.encodeHeader(v1);
+            byte[] two = NativeIdentityRecords.encodeHeader(v2);
+            assert !Arrays.equals(one, two) && one[VERSION] == 1 && two[VERSION] == 2;
+            assert NativeIdentityRecords.decodeHeader(one).equals(v1);
+            assert NativeIdentityRecords.decodeHeader(two).equals(v2);
+            // An explicit version 2 copy keeps every hold. Its CREATING entries stay unbound.
+            for (HeaderEntry entry : roundTrip(v2).entries) assert entry.creationBinding == null;
+        }
+        // Without CREATING entries the bodies are the same. With one, version 2 adds its tag.
+        byte[] one = NativeIdentityRecords.encodeHeader(v1Headers.get(3));
+        byte[] two = NativeIdentityRecords.encodeHeader(
+                Header.newV2(LINEAGE, 3, v1Headers.get(3).entries));
+        assert Arrays.equals(Arrays.copyOf(two, two.length - CHECKSUM),
+                put(Arrays.copyOf(one, one.length - CHECKSUM), VERSION, 2, 2));
+        assert NativeIdentityRecords.encodeHeader(Header.newV2(LINEAGE, 7, goldenHeader().entries))
+                .length == hex(V1_GOLDEN_HEADER).length + 1;
+        // Version 1 cannot hold a binding. It is refused as a value, never dropped on encoding.
+        HeaderEntry bound = new HeaderEntry(10200, SlotPhase.CREATING, 7, "a.b", goldenBinding());
+        invalid(() -> new Header(LINEAGE, 7, List.of(bound)));
+        invalid(() -> new Header(LINEAGE, 7, goldenV2Header().entries));
+        assert Header.newV2(LINEAGE, 7, List.of(bound)).entries.get(0).equals(bound);
+    }
+
+    private static void v2RoundTrips() {
+        Header empty = roundTrip(Header.newV2(LINEAGE, 0, List.of()));
+        assert empty.version == 2 && NativeIdentityRecords.encodeHeader(empty).length == 70;
+        roundTrip(Header.newV2(OTHER_LINEAGE, Long.MAX_VALUE, List.of()));
+
+        // Every phase, bound and unbound creations and the field extremes.
+        Header rich = roundTrip(Header.newV2(LINEAGE, Long.MAX_VALUE, List.of(
+                new HeaderEntry(10000, SlotPhase.RELEASING, 0, ""),
+                new HeaderEntry(10001, SlotPhase.CREATING, Long.MAX_VALUE, LONGEST,
+                        new CreationBinding(0, 0, Set.of(LOW))),
+                new HeaderEntry(10002, SlotPhase.CREATING, 1, "A.b_9"),
+                new HeaderEntry(10003, SlotPhase.CREATING, 2, APP,
+                        new CreationBinding(21474, Long.MAX_VALUE, widestSigners())),
+                new HeaderEntry(19999, SlotPhase.LIVE, 0, ""))));
+        CreationBinding widest = rich.entries.get(3).creationBinding;
+        assert widest.userId == 21474 && widest.userSerial == Long.MAX_VALUE;
+        List<String> ordered = new ArrayList<>(widest.signerSha256);
+        assert ordered.size() == NativeIdentityRecords.MAX_SIGNERS;
+        for (int i = 1; i < ordered.size(); i++) {
+            assert ordered.get(i - 1).compareTo(ordered.get(i)) < 0;
+        }
+        assert rich.entries.get(1).creationBinding.equals(new CreationBinding(0, 0, Set.of(LOW)));
+        assert rich.entries.get(2).creationBinding == null;
+        assert rich.entries.get(0).creationBinding == null
+                && rich.entries.get(4).creationBinding == null;
+        assert NativeIdentityRecords.encodeHeader(rich).length == 70 + 15 + (30 + 255 + 32)
+                + (16 + 5) + (30 + 20 + 32 * 32) + 15;
+
+        // Only unbound creations: incomplete entries kept as they are.
+        Header kept = roundTrip(Header.newV2(LINEAGE, 12, List.of(
+                new HeaderEntry(10001, SlotPhase.CREATING, 11, "a.b"),
+                new HeaderEntry(10003, SlotPhase.CREATING, 12, APP, null))));
+        for (HeaderEntry entry : kept.entries) {
+            assert entry.phase == SlotPhase.CREATING && entry.creationBinding == null;
+        }
+        // The highest UID fits: user 21474 with app ID 19999.
+        roundTrip(Header.newV2(LINEAGE, 1, List.of(new HeaderEntry(19999, SlotPhase.CREATING, 1,
+                APP, new CreationBinding(21474, 0, Set.of(LOW))))));
+        // The unbound constructor and an explicit null make the same entry.
+        assert new HeaderEntry(10001, SlotPhase.CREATING, 11, "a.b", null)
+                .equals(new HeaderEntry(10001, SlotPhase.CREATING, 11, "a.b"));
     }
 
     private static void determinism() {
@@ -308,6 +518,63 @@ public final class NativeIdentityRecordsTest {
         assert again != header && again.equals(header) && again.hashCode() == header.hashCode();
     }
 
+    // Equality and the encoding cover the version and every binding field. Signer input order
+    // and set type reach neither.
+    private static void bindingEquality() {
+        Header header = goldenV2Header();
+        byte[] bytes = NativeIdentityRecords.encodeHeader(header);
+        HeaderEntry live = header.entries.get(0);
+        HeaderEntry bound = header.entries.get(1);
+        HeaderEntry unbound = header.entries.get(2);
+        CreationBinding binding = goldenBinding();
+        List<CreationBinding> others = List.of(new CreationBinding(11, 6, Set.of(HIGH, LOW)),
+                new CreationBinding(10, 7, Set.of(HIGH, LOW)),
+                new CreationBinding(10, 6, Set.of(LOW)),
+                new CreationBinding(10, 6, Set.of(LOW, signer(1))));
+        List<Header> headers = new ArrayList<>();
+        for (CreationBinding other : others) {
+            assert !other.equals(binding) && !binding.equals(other);
+            headers.add(Header.newV2(LINEAGE, 7, List.of(live,
+                    new HeaderEntry(10200, SlotPhase.CREATING, 7, "a.b", other), unbound)));
+        }
+        headers.add(Header.newV2(LINEAGE, 7, List.of(live,
+                new HeaderEntry(10200, SlotPhase.CREATING, 7, "a.b"), unbound)));
+        headers.add(Header.newV2(LINEAGE, 7, List.of(live, bound,
+                new HeaderEntry(10201, SlotPhase.CREATING, 6, "a.c", binding))));
+        headers.add(Header.newV2(LINEAGE, 7, List.of(live,
+                new HeaderEntry(10200, SlotPhase.CREATING, 6, "a.b", binding),
+                new HeaderEntry(10201, SlotPhase.CREATING, 7, "a.c"))));
+        headers.add(Header.newV2(LINEAGE, 7, List.of(live,
+                new HeaderEntry(10200, SlotPhase.CREATING, 7, "a.d", binding), unbound)));
+        headers.add(Header.newV2(LINEAGE, 7, List.of(live,
+                new HeaderEntry(10202, SlotPhase.CREATING, 7, "a.b", binding))));
+        headers.add(Header.newV2(OTHER_LINEAGE, 7, header.entries));
+        headers.add(Header.newV2(LINEAGE, 8, header.entries));
+        for (Header other : headers) {
+            assert !other.equals(header) && !header.equals(other) : other;
+            assert !Arrays.equals(NativeIdentityRecords.encodeHeader(other), bytes) : other;
+        }
+        assert !bound.equals(new HeaderEntry(10200, SlotPhase.CREATING, 7, "a.b"));
+        assert !new HeaderEntry(10200, SlotPhase.CREATING, 7, "a.b").equals(bound);
+
+        TreeSet<String> reversed = new TreeSet<>(Collections.reverseOrder());
+        reversed.addAll(List.of(LOW, HIGH));
+        for (Set<String> signers : List.of(new LinkedHashSet<>(List.of(HIGH, LOW)),
+                new LinkedHashSet<>(List.of(LOW, HIGH)), new HashSet<>(List.of(HIGH, LOW)),
+                reversed)) {
+            CreationBinding same = new CreationBinding(10, 6, signers);
+            assert same.equals(binding) && same.hashCode() == binding.hashCode();
+            assert new ArrayList<>(same.signerSha256).equals(List.of(LOW, HIGH));
+            Header again = Header.newV2(LINEAGE, 7, List.of(live,
+                    new HeaderEntry(10200, SlotPhase.CREATING, 7, "a.b", same), unbound));
+            assert again.equals(header) && again.hashCode() == header.hashCode();
+            assert Arrays.equals(NativeIdentityRecords.encodeHeader(again), bytes);
+        }
+        Header decoded = NativeIdentityRecords.decodeHeader(bytes);
+        assert decoded != header && decoded.equals(header);
+        assert decoded.hashCode() == header.hashCode();
+    }
+
     private static void immutability() {
         HeaderEntry live = new HeaderEntry(10123, SlotPhase.LIVE, 0, "");
         List<HeaderEntry> entries = new ArrayList<>(List.of(live));
@@ -346,6 +613,44 @@ public final class NativeIdentityRecordsTest {
         Slot decoded = NativeIdentityRecords.decodeSlot(record);
         Arrays.fill(record, (byte) 0);
         assert decoded.equals(goldenSlot());
+    }
+
+    private static void bindingImmutability() {
+        Set<String> signers = new HashSet<>(Set.of(LOW, HIGH));
+        CreationBinding binding = new CreationBinding(10, 6, signers);
+        signers.remove(LOW);
+        signers.add(signer(1));
+        assert binding.equals(goldenBinding()); // Copied, not shared.
+        unsupported(() -> binding.signerSha256.add(signer(1)));
+        unsupported(() -> binding.signerSha256.remove(LOW));
+        unsupported(() -> binding.signerSha256.clear());
+        unsupported(() -> binding.signerSha256.removeIf(digest -> true));
+        unsupported(() -> {
+            Iterator<String> digests = binding.signerSha256.iterator();
+            digests.next();
+            digests.remove();
+        });
+        assert binding.equals(goldenBinding());
+
+        List<HeaderEntry> entries = new ArrayList<>(goldenV2Header().entries);
+        Header header = Header.newV2(LINEAGE, 7, entries);
+        entries.remove(1);
+        entries.set(0, new HeaderEntry(10000, SlotPhase.LIVE, 0, ""));
+        assert header.equals(goldenV2Header());
+        HeaderEntry live = header.entries.get(0);
+        unsupported(() -> header.entries.add(live));
+        unsupported(() -> header.entries.set(0, live));
+        unsupported(() -> header.entries.remove(0));
+        unsupported(() -> header.entries.clear());
+
+        byte[] record = NativeIdentityRecords.encodeHeader(goldenV2Header());
+        Header decoded = NativeIdentityRecords.decodeHeader(record);
+        Arrays.fill(record, (byte) 0);
+        assert decoded.equals(goldenV2Header());
+        Set<String> decodedSigners = decoded.entries.get(1).creationBinding.signerSha256;
+        unsupported(() -> decodedSigners.clear());
+        unsupported(() -> decodedSigners.add(signer(1)));
+        assert decoded.equals(goldenV2Header());
     }
 
     private static void rangeBounds() {
@@ -466,6 +771,84 @@ public final class NativeIdentityRecordsTest {
                 new HeaderEntry(10124, SlotPhase.CREATING, 6, "a.b"))));
     }
 
+    // Only CREATING carries a binding. The binding follows the slot's rules for users, serials,
+    // UIDs and signers, and a bound entry still needs its creation proof.
+    private static void creationBindingShape() {
+        CreationBinding binding = goldenBinding();
+        for (SlotPhase phase : List.of(SlotPhase.LIVE, SlotPhase.RELEASING)) {
+            invalid(() -> new HeaderEntry(10123, phase, 0, "", binding));
+            invalid(() -> new HeaderEntry(10123, phase, 1, APP, binding));
+            HeaderEntry plain = new HeaderEntry(10123, phase, 0, "", null);
+            assert plain.creationBinding == null
+                    && plain.equals(new HeaderEntry(10123, phase, 0, ""));
+        }
+        for (long id : new long[] {Long.MIN_VALUE, -1, 0}) {
+            invalid(() -> new HeaderEntry(10123, SlotPhase.CREATING, id, APP, binding));
+        }
+        invalid(() -> new HeaderEntry(10123, SlotPhase.CREATING, 1, "", binding));
+        invalid(() -> new HeaderEntry(10123, SlotPhase.CREATING, 1, "a..b", binding));
+        invalid(() -> new HeaderEntry(9999, SlotPhase.CREATING, 1, APP, binding));
+        invalid(() -> new HeaderEntry(20000, SlotPhase.CREATING, 1, APP, binding));
+        missing(() -> new HeaderEntry(10123, SlotPhase.CREATING, 1, null, binding));
+        missing(() -> new HeaderEntry(10123, null, 1, APP, binding));
+
+        for (int userId : new int[] {Integer.MIN_VALUE, -1}) {
+            invalid(() -> new CreationBinding(userId, 0, Set.of(LOW)));
+        }
+        for (long serial : new long[] {Long.MIN_VALUE, -1}) {
+            invalid(() -> new CreationBinding(0, serial, Set.of(LOW)));
+        }
+        CreationBinding lowest = new CreationBinding(0, 0, Set.of(LOW));
+        assert lowest.userId == 0 && lowest.userSerial == 0;
+        // A UID must fit in an int. 21474 is the largest user for every valid app ID.
+        for (int userId : new int[] {21475, Integer.MAX_VALUE}) {
+            CreationBinding high = new CreationBinding(userId, 0, Set.of(LOW)); // No app ID yet.
+            invalid(() -> new HeaderEntry(10000, SlotPhase.CREATING, 1, APP, high));
+        }
+        CreationBinding top = new CreationBinding(21474, Long.MAX_VALUE, Set.of(LOW));
+        assert new HeaderEntry(19999, SlotPhase.CREATING, 1, APP, top).creationBinding == top;
+
+        List<Set<String>> badSigners = List.of(Set.of(), Set.of(LOW.substring(1)),
+                Set.of(LOW + "0"), Set.of(HIGH.toUpperCase()), Set.of(LOW.replace('f', 'g')),
+                Set.of(LOW, "sha256:" + HIGH.substring(7)),
+                Set.of(LOW.replace('0', (char) 0x660)));
+        for (Set<String> bad : badSigners) invalid(() -> new CreationBinding(0, 0, bad));
+        Set<String> tooMany = new HashSet<>();
+        for (int i = 0; i <= NativeIdentityRecords.MAX_SIGNERS; i++) tooMany.add(signer(i));
+        invalid(() -> new CreationBinding(0, 0, tooMany));
+        tooMany.remove(signer(0));
+        assert new CreationBinding(0, 0, tooMany).signerSha256.size() == 32;
+        missing(() -> new CreationBinding(0, 0, null));
+        missing(() -> new CreationBinding(0, 0, new HashSet<>(Arrays.asList(LOW, null))));
+        Set<String> identity = Collections.newSetFromMap(new IdentityHashMap<>());
+        identity.add(new String(LOW));
+        identity.add(new String(LOW));
+        invalid(() -> new CreationBinding(0, 0, identity));
+
+        // The header's rules apply to bound entries in the same way.
+        HeaderEntry first = new HeaderEntry(10123, SlotPhase.CREATING, 5, APP, binding);
+        HeaderEntry second = new HeaderEntry(10124, SlotPhase.CREATING, 6, "a.b", binding);
+        invalid(() -> Header.newV2(LINEAGE, 4, List.of(first)));
+        invalid(() -> Header.newV2(LINEAGE, 9,
+                List.of(first, new HeaderEntry(10124, SlotPhase.CREATING, 5, "a.b"))));
+        invalid(() -> Header.newV2(LINEAGE, 9, List.of(second, first)));
+        invalid(() -> Header.newV2(LINEAGE, 9, List.of(first, first)));
+        roundTrip(Header.newV2(LINEAGE, 6, List.of(first, second)));
+        for (String lineage : new String[] {"", LINEAGE.substring(1), LINEAGE.toUpperCase()}) {
+            invalid(() -> Header.newV2(lineage, 0, List.of()));
+        }
+        invalid(() -> Header.newV2(LINEAGE, -1, List.of()));
+        missing(() -> Header.newV2(null, 0, List.of()));
+        missing(() -> Header.newV2(LINEAGE, 0, null));
+        missing(() -> Header.newV2(LINEAGE, 6, Arrays.asList(first, null)));
+        List<HeaderEntry> entries = new ArrayList<>();
+        for (int i = 0; i <= NativeIdentityRecords.MAX_SLOTS; i++) {
+            entries.add(new HeaderEntry(10000 + i, SlotPhase.LIVE, 0, ""));
+        }
+        invalid(() -> Header.newV2(LINEAGE, 0, entries));
+        assert Header.newV2(LINEAGE, 0, entries.subList(0, 64)).entries.size() == 64;
+    }
+
     // Lists are validated in the order given, never sorted for the caller.
     private static void orderAndDuplicates() {
         HeaderEntry low = new HeaderEntry(10123, SlotPhase.LIVE, 0, "");
@@ -500,7 +883,12 @@ public final class NativeIdentityRecordsTest {
         invalid(() -> NativeIdentityRecords.decodeHeader(slot));
         byte[] headerAsSlot = changed(header, bytes -> put(bytes, TYPE, 2, 2));
         byte[] slotAsHeader = changed(slot, bytes -> put(bytes, TYPE, 2, 1));
-        for (byte[] record : List.of(headerAsSlot, slotAsHeader)) {
+        // Version 2 exists only for headers. A slot of version 2 is refused too.
+        byte[] v2 = NativeIdentityRecords.encodeHeader(goldenV2Header());
+        invalid(() -> NativeIdentityRecords.decodeSlot(v2));
+        byte[] v2AsSlot = changed(v2, bytes -> put(bytes, TYPE, 2, 2));
+        byte[] slotAsV2 = changed(slot, bytes -> put(put(bytes, TYPE, 2, 1), VERSION, 2, 2));
+        for (byte[] record : List.of(headerAsSlot, slotAsHeader, v2AsSlot, slotAsV2)) {
             invalid(() -> NativeIdentityRecords.decodeHeader(record));
             invalid(() -> NativeIdentityRecords.decodeSlot(record));
         }
@@ -558,12 +946,36 @@ public final class NativeIdentityRecordsTest {
                 LENGTH, 4, slot.length + 1)));
     }
 
+    // The same damage checks for a version 2 header, including every bit of its bindings.
+    private static void v2DamagedRecords() {
+        byte[] header = NativeIdentityRecords.encodeHeader(goldenV2Header());
+        byte[] slot = NativeIdentityRecords.encodeSlot(goldenSlot());
+        for (int bit = 0; bit < 8 * header.length; bit++) {
+            byte[] flipped = header.clone();
+            flipped[bit / 8] ^= (byte) (1 << (bit % 8));
+            invalid(() -> NativeIdentityRecords.decodeHeader(flipped));
+        }
+        for (int length = 0; length < header.length; length++) {
+            byte[] truncated = Arrays.copyOf(header, length);
+            invalid(() -> NativeIdentityRecords.decodeHeader(truncated));
+        }
+        for (byte[] extended : List.of(Arrays.copyOf(header, header.length + 1),
+                concat(header, header), concat(header, slot))) {
+            invalid(() -> NativeIdentityRecords.decodeHeader(extended));
+        }
+        invalid(() -> NativeIdentityRecords.decodeHeader(put(
+                Arrays.copyOf(header, header.length + 1), LENGTH, 4, header.length + 1)));
+    }
+
     // Each change below has a corrected length and checksum, so only the parser can refuse it.
     private static void headerParserRefusals() {
         byte[] base = NativeIdentityRecords.encodeHeader(goldenHeader());
         refusedHeader("magic", changed(base, b -> put(b, 3, 1, 'E')));
         refusedHeader("version 0", changed(base, b -> put(b, VERSION, 2, 0)));
-        refusedHeader("version 2", changed(base, b -> put(b, VERSION, 2, 2)));
+        refusedHeader("version 3", changed(base, b -> put(b, VERSION, 2, 3)));
+        refusedHeader("largest version", changed(base, b -> put(b, VERSION, 2, 0xffff)));
+        // Version 2 is a header version, but this CREATING entry has no binding tag.
+        refusedHeader("version 1 body as version 2", changed(base, b -> put(b, VERSION, 2, 2)));
         refusedHeader("type 0", changed(base, b -> put(b, TYPE, 2, 0)));
         refusedHeader("type 3", changed(base, b -> put(b, TYPE, 2, 3)));
         refusedHeader("length field", withChecksum(put(Arrays.copyOf(base, base.length - CHECKSUM),
@@ -693,6 +1105,128 @@ public final class NativeIdentityRecordsTest {
         assert tombstone.users.isEmpty() && tombstone.appId == 10123;
     }
 
+    // Each change below has a corrected length and checksum, so only the parser can refuse it.
+    private static void v2ParserRefusals() {
+        byte[] base = NativeIdentityRecords.encodeHeader(goldenV2Header());
+        assert Arrays.equals(base, withChecksum(hex(V2_HEADER_LAYOUT)));
+        refusedHeader("version 3", changed(base, b -> put(b, VERSION, 2, 3)));
+        refusedHeader("largest version", changed(base, b -> put(b, VERSION, 2, 0xffff)));
+        refusedHeader("version 0", changed(base, b -> put(b, VERSION, 2, 0)));
+        // Version 1 reads each binding tag as the start of the next entry.
+        refusedHeader("version 2 body as version 1", changed(base, b -> put(b, VERSION, 2, 1)));
+        for (int tag : new int[] {2, 3, 0x80, 0xff}) {
+            refusedHeader("binding tag " + tag, changed(base, b -> put(b, V2_TAG, 1, tag)));
+            refusedHeader("absent binding tag " + tag,
+                    changed(base, b -> put(b, V2_LEGACY_TAG, 1, tag)));
+        }
+        refusedHeader("absent tag before binding bytes", changed(base, b -> put(b, V2_TAG, 1, 0)));
+        refusedHeader("present tag without a binding",
+                changed(base, b -> put(b, V2_LEGACY_TAG, 1, 1)));
+        refusedHeader("no binding tag",
+                changed(base, b -> splice(b, V2_TAG, V2_TAG + 1, new byte[0])));
+        refusedHeader("no final binding tag", changed(base, b -> Arrays.copyOf(b, V2_LEGACY_TAG)));
+        refusedHeader("tag after LIVE", changed(base, b -> splice(b, ENTRY_2, ENTRY_2, hex("00"))));
+        refusedHeader("bound entry as LIVE", changed(base, b -> put(b, ENTRY_2 + PHASE, 1, 2)));
+        refusedHeader("bound entry as RELEASING",
+                changed(base, b -> put(b, ENTRY_2 + PHASE, 1, 3)));
+        refusedHeader("LIVE as CREATING", changed(base, b -> put(b, ENTRY_1 + PHASE, 1, 1)));
+        refusedHeader("negative user", changed(base, b -> put(b, V2_USER, 4, -1)));
+        refusedHeader("lowest user", changed(base, b -> put(b, V2_USER, 4, Integer.MIN_VALUE)));
+        refusedHeader("UID above the int range", changed(base, b -> put(b, V2_USER, 4, 21475)));
+        refusedHeader("negative serial", changed(base, b -> put(b, V2_SERIAL, 8, -1)));
+        refusedHeader("lowest serial", changed(base, b -> put(b, V2_SERIAL, 8, Long.MIN_VALUE)));
+        refusedHeader("no signers",
+                changed(base, b -> splice(b, V2_SIGNER_COUNT, V2_ENTRY_3, hex("0000"))));
+        refusedHeader("signer count short", changed(base, b -> put(b, V2_SIGNER_COUNT, 2, 1)));
+        refusedHeader("signer count long", changed(base, b -> put(b, V2_SIGNER_COUNT, 2, 3)));
+        refusedHeader("signer count above MAX_SIGNERS",
+                changed(base, b -> put(b, V2_SIGNER_COUNT, 2, 33)));
+        refusedHeader("largest signer count",
+                changed(base, b -> put(b, V2_SIGNER_COUNT, 2, 0xffff)));
+        refusedHeader("descending signers",
+                changed(base, b -> splice(b, V2_SIGNER_1, V2_ENTRY_3, hex(HIGH + LOW))));
+        refusedHeader("duplicate signer",
+                changed(base, b -> splice(b, V2_SIGNER_1, V2_ENTRY_3, hex(LOW + LOW))));
+        StringBuilder digests = new StringBuilder();
+        for (int i = 0; i < NativeIdentityRecords.MAX_SIGNERS; i++) digests.append(signer(i));
+        Header widest = NativeIdentityRecords.decodeHeader(changed(base, b -> splice(
+                put(b, V2_SIGNER_COUNT, 2, 32), V2_SIGNER_1, V2_ENTRY_3, hex(digests.toString()))));
+        assert widest.entries.get(1).creationBinding.signerSha256.size() == 32;
+        refusedHeader("33 signers", changed(base, b -> splice(put(b, V2_SIGNER_COUNT, 2, 33),
+                V2_SIGNER_1, V2_ENTRY_3, hex(digests + signer(32)))));
+        refusedHeader("half a binding", changed(base, b -> Arrays.copyOf(b, V2_SIGNER_1 + 16)));
+        refusedHeader("trailing byte", changed(base, b -> Arrays.copyOf(b, b.length + 1)));
+        refusedHeader("padded to MAX_BYTES", changed(base,
+                b -> Arrays.copyOf(b, NativeIdentityRecords.MAX_BYTES - CHECKSUM)));
+        refusedHeader("shared creation ID",
+                changed(base, b -> put(b, V2_ENTRY_3 + CREATION_ID, 8, 7)));
+        refusedHeader("creation ID above lastId", changed(base, b -> put(b, LAST_ID, 8, 6)));
+
+        // Nearby valid changes decode to the changed value.
+        Header user = NativeIdentityRecords.decodeHeader(
+                changed(base, b -> put(b, V2_USER, 4, 21474)));
+        assert user.entries.get(1).creationBinding.userId == 21474;
+        Header serial = NativeIdentityRecords.decodeHeader(
+                changed(base, b -> put(b, V2_SERIAL, 8, Long.MAX_VALUE)));
+        assert serial.entries.get(1).creationBinding.userSerial == Long.MAX_VALUE;
+        // A binding can be added to or removed from a CREATING entry by anyone who can
+        // recompute the checksum. The checksum detects damage and does not authenticate.
+        Header added = NativeIdentityRecords.decodeHeader(changed(base, b -> concat(
+                Arrays.copyOf(b, V2_LEGACY_TAG), hex("01 00000000 0000000000000000 0100" + LOW))));
+        assert added.entries.get(2).creationBinding.equals(new CreationBinding(0, 0, Set.of(LOW)));
+        Header dropped = NativeIdentityRecords.decodeHeader(
+                changed(base, b -> splice(b, V2_TAG, V2_ENTRY_3, hex("00"))));
+        assert dropped.version == 2 && dropped.entries.get(1).creationBinding == null;
+        // A version 1 body without CREATING entries is also a version 2 body. Relabeled, it
+        // decodes to a different value, the version 2 header with the same entries.
+        Header liveOnly = new Header(LINEAGE, 3, List.of(new HeaderEntry(10005, SlotPhase.LIVE,
+                0, "")));
+        Header relabeled = NativeIdentityRecords.decodeHeader(changed(
+                NativeIdentityRecords.encodeHeader(liveOnly), b -> put(b, VERSION, 2, 2)));
+        assert relabeled.equals(Header.newV2(LINEAGE, 3, liveOnly.entries))
+                && !relabeled.equals(liveOnly);
+    }
+
+    // Large bindings can pass MAX_BYTES below MAX_SLOTS entries. Such a header is refused as a
+    // value, before any encoding or I/O. The bound itself is unchanged.
+    private static void maxBytesBound() {
+        assert NativeIdentityRecords.MAX_BYTES == 65536;
+        CreationBinding big = new CreationBinding(0, 0, widestSigners());
+        // Each bound entry takes 4 + 1 + 8 + 2 + package + 1 + 4 + 8 + 2 + 32 * 32 bytes, which
+        // is 1309 with the longest package. Fifty such entries fit, fifty one do not.
+        List<HeaderEntry> entries = new ArrayList<>();
+        for (int i = 0; i < 49; i++) {
+            entries.add(new HeaderEntry(10000 + i, SlotPhase.CREATING, i + 1, LONGEST, big));
+        }
+        entries.add(new HeaderEntry(10049, SlotPhase.CREATING, 50, LONGEST.substring(0, 252),
+                big));
+        entries.add(new HeaderEntry(10050, SlotPhase.CREATING, 51, "a.b"));
+        Header largest = roundTrip(Header.newV2(LINEAGE, 51, entries));
+        byte[] record = NativeIdentityRecords.encodeHeader(largest);
+        assert record.length == NativeIdentityRecords.MAX_BYTES;
+        entries.set(50, new HeaderEntry(10050, SlotPhase.CREATING, 51, "a.bc"));
+        invalid(() -> Header.newV2(LINEAGE, 51, entries));
+        entries.set(50, new HeaderEntry(10050, SlotPhase.CREATING, 51, "a.b",
+                new CreationBinding(0, 0, Set.of(LOW))));
+        invalid(() -> Header.newV2(LINEAGE, 51, entries));
+        refusedHeader("one byte above MAX_BYTES", changed(record,
+                b -> Arrays.copyOf(b, b.length + 1)));
+
+        // MAX_SLOTS entries with MAX_SIGNERS each are refused even with short packages.
+        List<HeaderEntry> full = new ArrayList<>();
+        for (int i = 0; i < NativeIdentityRecords.MAX_SLOTS; i++) {
+            full.add(new HeaderEntry(10000 + i, SlotPhase.CREATING, i + 1, "a.b", big));
+        }
+        invalid(() -> Header.newV2(LINEAGE, 64, full));
+        // With one signer each, MAX_SLOTS entries with the longest package fit.
+        CreationBinding small = new CreationBinding(21474, Long.MAX_VALUE, Set.of(LOW));
+        for (int i = 0; i < NativeIdentityRecords.MAX_SLOTS; i++) {
+            full.set(i, new HeaderEntry(10000 + i, SlotPhase.CREATING, i + 1, LONGEST, small));
+        }
+        assert NativeIdentityRecords.encodeHeader(roundTrip(Header.newV2(LINEAGE, 64, full)))
+                .length == 70 + 64 * (30 + 255 + 32);
+    }
+
     private static byte[] mutate(byte[] bytes, Random random) {
         int changes = 1 + random.nextInt(3);
         for (int i = 0; i < changes; i++) {
@@ -748,6 +1282,36 @@ public final class NativeIdentityRecordsTest {
         assert accepted > 1_000 && refused > 1_000 : accepted + " accepted, " + refused;
         System.out.println("Resealed mutations: " + accepted + " canonical, " + refused
                 + " refused");
+
+        // The same property for version 2 headers, with their own seed so that the version 1
+        // inputs above stay exactly as they were.
+        byte[][] v2Samples = {
+            NativeIdentityRecords.encodeHeader(goldenV2Header()),
+            NativeIdentityRecords.encodeHeader(Header.newV2(LINEAGE, 12, List.of(
+                    new HeaderEntry(10001, SlotPhase.CREATING, 11, "a.b",
+                            new CreationBinding(0, 3, Set.of(LOW))),
+                    new HeaderEntry(10002, SlotPhase.RELEASING, 0, ""),
+                    new HeaderEntry(10003, SlotPhase.CREATING, 12, APP)))),
+            NativeIdentityRecords.encodeHeader(Header.newV2(LINEAGE, 3, List.of(
+                    new HeaderEntry(10005, SlotPhase.LIVE, 0, "")))),
+        };
+        Random v2Random = new Random(20260926L);
+        int v2Accepted = 0;
+        int v2Refused = 0;
+        for (int round = 0; round < 30_000; round++) {
+            byte[] candidate = changed(v2Samples[round % 3], bytes -> mutate(bytes, v2Random));
+            try {
+                byte[] again = NativeIdentityRecords.encodeHeader(
+                        NativeIdentityRecords.decodeHeader(candidate));
+                assert Arrays.equals(again, candidate) : "second v2 encoding in round " + round;
+                ++v2Accepted;
+            } catch (IllegalArgumentException expected) {
+                ++v2Refused;
+            }
+        }
+        assert v2Accepted > 1_000 && v2Refused > 1_000 : v2Accepted + " accepted, " + v2Refused;
+        System.out.println("Resealed version 2 mutations: " + v2Accepted + " canonical, "
+                + v2Refused + " refused");
     }
 
     // Values print without lineage or digests, and refusals do not repeat input values.
@@ -769,10 +1333,40 @@ public final class NativeIdentityRecordsTest {
             assert !message.contains("Secret") && !message.contains("12345678")
                     && !message.contains("987654321") : message;
         }
+
+        // Bindings print their user, serial and signer count, never a digest.
+        String v2Text = goldenV2Header().toString() + goldenBinding();
+        assert !v2Text.contains(LINEAGE) && !v2Text.contains(LOW) && !v2Text.contains(HIGH)
+                : v2Text;
+        assert v2Text.contains("version=2") && v2Text.contains("user=10")
+                && v2Text.contains("serial=6") && v2Text.contains("signers=2") : v2Text;
+        assert goldenHeader().toString().contains("version=1");
+        List<HeaderEntry> oversized = new ArrayList<>();
+        CreationBinding big = new CreationBinding(0, 0, widestSigners());
+        for (int i = 0; i < NativeIdentityRecords.MAX_SLOTS; i++) {
+            oversized.add(new HeaderEntry(12345 + i, SlotPhase.CREATING, 987654321L + i,
+                    "a.Secret9", big));
+        }
+        List<String> bindingMessages = List.of(
+                invalid(() -> new CreationBinding(-987654321, 0, Set.of(LOW))),
+                invalid(() -> new CreationBinding(0, -987654321, Set.of(LOW))),
+                invalid(() -> new CreationBinding(0, 0, Set.of("Secret-9"))),
+                invalid(() -> new HeaderEntry(12345678, SlotPhase.CREATING, 1, APP, big)),
+                invalid(() -> new HeaderEntry(10000, SlotPhase.LIVE, 0, "", big)),
+                invalid(() -> new HeaderEntry(10000, SlotPhase.CREATING, 1, APP,
+                        new CreationBinding(987654321, 0, Set.of(LOW)))),
+                invalid(() -> new Header(LINEAGE, 1, List.of(
+                        new HeaderEntry(12345, SlotPhase.CREATING, 1, "a.Secret9", big)))),
+                invalid(() -> Header.newV2(LINEAGE, Long.MAX_VALUE, oversized)));
+        for (String message : bindingMessages) {
+            assert !message.contains("Secret") && !message.contains("12345")
+                    && !message.contains("987654321") && !message.contains(LOW) : message;
+        }
     }
 
-    // No authority, allocation or alternative encoding path is public.
-    private static void closedSurface() throws IllegalAccessException {
+    // No authority, allocation or alternative encoding path is public. The only additions for
+    // version 2 are the binding value, an entry constructor with it and Header.newV2.
+    private static void closedSurface() throws ReflectiveOperationException {
         Class<?> codec = NativeIdentityRecords.class;
         assert Modifier.isFinal(codec.getModifiers()) && codec.getConstructors().length == 0;
         Set<String> methods = new HashSet<>();
@@ -791,41 +1385,62 @@ public final class NativeIdentityRecordsTest {
         }
         assert constants.equals(Set.of("MAX_BYTES=65536", "MAX_SLOTS=64", "MAX_USERS=64",
                 "MAX_SIGNERS=32")) : constants;
-        assert Set.of(codec.getClasses()).equals(Set.of(SlotPhase.class, HeaderEntry.class,
-                Header.class, UserEntry.class, Slot.class));
+        assert Set.of(codec.getClasses()).equals(Set.of(SlotPhase.class, CreationBinding.class,
+                HeaderEntry.class, Header.class, UserEntry.class, Slot.class));
         assert Arrays.asList(SlotPhase.values())
                 .equals(List.of(SlotPhase.CREATING, SlotPhase.LIVE, SlotPhase.RELEASING));
-        for (Class<?> type : List.of(HeaderEntry.class, Header.class, UserEntry.class,
-                Slot.class)) {
+        Map<Class<?>, Integer> constructors = Map.of(CreationBinding.class, 1,
+                HeaderEntry.class, 2, Header.class, 1, UserEntry.class, 1, Slot.class, 1);
+        for (Map.Entry<Class<?>, Integer> value : constructors.entrySet()) {
+            Class<?> type = value.getKey();
             assert Modifier.isFinal(type.getModifiers()) : type;
             assert !Serializable.class.isAssignableFrom(type) : type;
-            assert type.getConstructors().length == 1 : type;
+            assert type.getConstructors().length == value.getValue() : type;
             for (Field field : type.getDeclaredFields()) {
                 int modifiers = field.getModifiers();
                 assert Modifier.isPublic(modifiers) && Modifier.isFinal(modifiers)
                         && !Modifier.isStatic(modifiers) : field;
             }
             for (Method method : type.getDeclaredMethods()) {
-                assert !Modifier.isPublic(method.getModifiers())
+                int modifiers = method.getModifiers();
+                boolean newV2 = type == Header.class && method.getName().equals("newV2")
+                        && Modifier.isStatic(modifiers) && method.getReturnType() == Header.class;
+                assert !Modifier.isPublic(modifiers) || newV2
                         || Set.of("equals", "hashCode", "toString").contains(method.getName())
                         : method;
             }
         }
+        HeaderEntry.class.getConstructor(int.class, SlotPhase.class, long.class, String.class);
+        HeaderEntry.class.getConstructor(int.class, SlotPhase.class, long.class, String.class,
+                CreationBinding.class);
+        Header.class.getConstructor(String.class, long.class, List.class);
+        Header.class.getMethod("newV2", String.class, long.class, List.class);
+        CreationBinding.class.getConstructor(int.class, long.class, Set.class);
     }
 
     public static void main(String[] args) throws Exception {
         requireAssertions();
         goldenLayouts();
+        frozenV1Records();
+        goldenV2Layout();
         roundTrips();
+        versionsStayDistinct();
+        v2RoundTrips();
         determinism();
+        bindingEquality();
         immutability();
+        bindingImmutability();
         rangeBounds();
         creationProofShape();
+        creationBindingShape();
         orderAndDuplicates();
         crossType();
         damagedRecords();
+        v2DamagedRecords();
         headerParserRefusals();
         slotParserRefusals();
+        v2ParserRefusals();
+        maxBytesBound();
         mutationsRefusedOrCanonical();
         noInputInText();
         closedSurface();

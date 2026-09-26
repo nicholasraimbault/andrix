@@ -31,14 +31,17 @@ import java.util.Set;
  * binding. A record that fails to decode, or an unknown file, is no evidence that an app ID is
  * free. Its hold remains.
  *
- * <p>Version 1 layout. Integers are fixed width and little endian. A string is a u16 length and
- * that many ASCII bytes. The lineage and signer digests are raw bytes.
+ * <p>Layout. Integers are fixed width and little endian. A string is a u16 length and that many
+ * ASCII bytes. The lineage and signer digests are raw bytes. A slot has version 1. A header has
+ * version 1 or 2, which differ only in their CREATING entries.
  * <pre>
- * record  u32 magic 0x44495841 ("AXID"), u16 type (1 header, 2 slot), u16 version (1),
+ * record  u32 magic 0x44495841 ("AXID"), u16 type (1 header, 2 slot), u16 version,
  *         u32 total length, body, then the SHA-256 of all preceding bytes
  * header  lineage[16], i64 lastId, u16 count, then count entries in app ID order:
  *         i32 appId, u8 phase (1 CREATING, 2 LIVE, 3 RELEASING), i64 creationId,
- *         string creationPackage
+ *         string creationPackage, then only in a version 2 CREATING entry:
+ *         u8 binding (0 absent, 1 present), and if present: i32 userId,
+ *         i64 userSerial, u16 count, then count signer digests[32] in ascending order
  * slot    lineage[16], i32 appId, i64 generation, string packageName,
  *         u16 count, then count signer digests[32] in ascending order,
  *         u16 count, then count users in user ID order: i64 id, i32 userId,
@@ -51,11 +54,20 @@ import java.util.Set;
  * input throws {@link NullPointerException}, and no call returns partial output. Messages do not
  * repeat input values.
  *
+ * <p>A header keeps the version it was built or decoded with, and encodes with it. Equality
+ * compares versions, so comparing a header with an expected one compares them too. The public
+ * constructor makes version 1 and {@link Header#newV2} makes version 2. Nothing converts one into
+ * the other. Only a version 2 CREATING entry can carry a {@link CreationBinding}. A version 2
+ * CREATING entry without one is an incomplete entry kept from an older writer. It keeps its
+ * hold, and it is no grant to create anything.
+ *
  * <p>The checksum detects accidental damage, such as a torn, truncated or extended write. It is
  * not authenticity: whoever can write a record can recompute it. The store's protection rests on
  * Package Manager's own files and policy. This format is private to this framework and is not a
  * public ABI. A layout change needs a new version and an explicit migration. The MAX constants
- * are initial parser bounds, not product quotas.
+ * are initial parser bounds, not product quotas. Large creation bindings can take a version 2
+ * header above MAX_BYTES before it reaches MAX_SLOTS entries. Its constructor refuses such a
+ * header, so every valid value has an encoding.
  */
 public final class NativeIdentityRecords {
     /** Largest accepted encoding of either record, in bytes. */
@@ -64,11 +76,12 @@ public final class NativeIdentityRecords {
     public static final int MAX_SLOTS = 64;
     /** Most users in one slot. */
     public static final int MAX_USERS = 64;
-    /** Most signer digests in one slot. */
+    /** Most signer digests in one slot or creation binding. */
     public static final int MAX_SIGNERS = 32;
 
     private static final int MAGIC = 0x44495841; // "AXID" in file order.
-    private static final int VERSION = 1;
+    private static final int VERSION_1 = 1;
+    private static final int VERSION_2 = 2; // Headers only.
     private static final int TYPE_HEADER = 1;
     private static final int TYPE_SLOT = 2;
     private static final int LENGTH_OFFSET = 8;
@@ -79,6 +92,8 @@ public final class NativeIdentityRecords {
     private static final int PHASE_CREATING = 1;
     private static final int PHASE_LIVE = 2;
     private static final int PHASE_RELEASING = 3;
+    private static final int BINDING_ABSENT = 0;
+    private static final int BINDING_PRESENT = 1;
     private static final int FLAG_RETIRING = 1;
     private static final int FIRST_APP_ID = 10_000;
     private static final int LAST_APP_ID = 19_999;
@@ -88,7 +103,10 @@ public final class NativeIdentityRecords {
 
     /** Stage of one held slot, as listed by the header. Every phase keeps the app ID held. */
     public enum SlotPhase {
-        /** The slot is being created. Only this phase carries a creation proof. */
+        /**
+         * The slot is being created. Only this phase carries a creation proof and, in a version
+         * 2 header, a creation binding.
+         */
         CREATING,
         /** The slot record is established. */
         LIVE,
@@ -96,7 +114,60 @@ public final class NativeIdentityRecords {
         RELEASING
     }
 
-    /** One held slot as listed by the header. The constructor validates every field. */
+    /**
+     * The user, user serial and signer set that a CREATING entry was reserved for. With the
+     * entry's app ID, creation ID and package it names the complete binding of the slot being
+     * created. Only a version 2 header carries it. It records what its writer checked. It does
+     * not show that the user, serial or signers are still current, and it grants nothing. The
+     * constructor validates every field.
+     */
+    public static final class CreationBinding {
+        /** Android user ID, not negative. The entry checks that the resulting UID fits an int. */
+        public final int userId;
+        /** Serial number of this incarnation of the user. Not negative. */
+        public final long userSerial;
+        /**
+         * Unmodifiable set of 1 to {@link #MAX_SIGNERS} SHA-256 signer certificate digests, each
+         * 64 lowercase hex digits. It iterates in ascending order.
+         */
+        public final Set<String> signerSha256;
+
+        /**
+         * Copies the signer set in ascending order.
+         *
+         * @throws IllegalArgumentException for a negative user or serial, or an invalid signer
+         *     count, digest or duplicate
+         * @throws NullPointerException for a null set or digest
+         */
+        public CreationBinding(int userId, long userSerial, Set<String> signerSha256) {
+            checkUser(userId, userSerial);
+            this.userId = userId;
+            this.userSerial = userSerial;
+            this.signerSha256 = sortedSigners(signerSha256);
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (this == other) return true;
+            if (!(other instanceof CreationBinding)) return false;
+            CreationBinding binding = (CreationBinding) other;
+            return userId == binding.userId && userSerial == binding.userSerial
+                    && signerSha256.equals(binding.signerSha256);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(userId, userSerial, signerSha256);
+        }
+
+        @Override
+        public String toString() {
+            return "CreationBinding{user=" + userId + ", serial=" + userSerial + ", signers="
+                    + signerSha256.size() + "}";
+        }
+    }
+
+    /** One held slot as listed by the header. The constructors validate every field. */
     public static final class HeaderEntry {
         /** Held app ID, from 10000 to 19999. */
         public final int appId;
@@ -108,12 +179,34 @@ public final class NativeIdentityRecords {
         public final long creationId;
         /** CREATING only: the package the slot is created for. Empty in every other phase. */
         public final String creationPackage;
+        /**
+         * CREATING only, and only in a version 2 header: the user, serial and signers of this
+         * creation, or null. Null in every other phase. A CREATING entry without a binding is
+         * incomplete. It keeps its hold, and nothing may fill in current values for it. The
+         * codec cannot tell a kept entry from a new one, so binding each new reservation is the
+         * writer's duty.
+         */
+        public final CreationBinding creationBinding;
 
         /**
+         * An entry without a creation binding.
+         *
          * @throws IllegalArgumentException for an invalid app ID or creation proof
          * @throws NullPointerException for a null phase or creation package
          */
         public HeaderEntry(int appId, SlotPhase phase, long creationId, String creationPackage) {
+            this(appId, phase, creationId, creationPackage, null);
+        }
+
+        /**
+         * An entry with an optional creation binding, which only CREATING may carry. The
+         * binding's user and this app ID must give a UID that fits an int.
+         *
+         * @throws IllegalArgumentException for an invalid app ID, creation proof or binding
+         * @throws NullPointerException for a null phase or creation package
+         */
+        public HeaderEntry(int appId, SlotPhase phase, long creationId, String creationPackage,
+                CreationBinding creationBinding) {
             checkAppId(appId);
             Objects.requireNonNull(phase, "phase");
             Objects.requireNonNull(creationPackage, "creationPackage");
@@ -122,13 +215,17 @@ public final class NativeIdentityRecords {
                 if (!isPackageName(creationPackage)) {
                     throw invalid("CREATING needs a valid creation package");
                 }
+                if (creationBinding != null) checkUid(creationBinding.userId, appId);
             } else if (creationId != 0 || !creationPackage.isEmpty()) {
                 throw invalid("only CREATING carries a creation proof");
+            } else if (creationBinding != null) {
+                throw invalid("only CREATING carries a creation binding");
             }
             this.appId = appId;
             this.phase = phase;
             this.creationId = creationId;
             this.creationPackage = creationPackage;
+            this.creationBinding = creationBinding;
         }
 
         @Override
@@ -137,24 +234,32 @@ public final class NativeIdentityRecords {
             if (!(other instanceof HeaderEntry)) return false;
             HeaderEntry entry = (HeaderEntry) other;
             return appId == entry.appId && phase == entry.phase && creationId == entry.creationId
-                    && creationPackage.equals(entry.creationPackage);
+                    && creationPackage.equals(entry.creationPackage)
+                    && Objects.equals(creationBinding, entry.creationBinding);
         }
 
         @Override
         public int hashCode() {
             // The ordinal keeps the hash stable across runs, unlike the enum's identity hash.
-            return Objects.hash(appId, phase.ordinal(), creationId, creationPackage);
+            return Objects.hash(appId, phase.ordinal(), creationId, creationPackage,
+                    creationBinding);
         }
 
         @Override
         public String toString() {
             return "HeaderEntry{appId=" + appId + ", " + phase + (phase == SlotPhase.CREATING
-                    ? ", creationId=" + creationId + ", package=" + creationPackage : "") + "}";
+                    ? ", creationId=" + creationId + ", package=" + creationPackage
+                    + (creationBinding == null ? "" : ", " + creationBinding) : "") + "}";
         }
     }
 
     /** The store's list of held slots and its principal ID counter. */
     public static final class Header {
+        /**
+         * Wire version: 1 from the public constructor, 2 from {@link #newV2}. The encoding uses
+         * it and equality compares it. Only version 2 carries creation bindings.
+         */
+        public final int version;
         /** Store lineage, 32 lowercase hex digits (128 bits). */
         public final String lineage;
         /** Highest principal ID issued in this lineage, including released IDs. Not negative. */
@@ -166,13 +271,33 @@ public final class NativeIdentityRecords {
         public final List<HeaderEntry> entries;
 
         /**
-         * Copies the entries, which must already be in strictly ascending app ID order.
+         * A version 1 header. Copies the entries, which must already be in strictly ascending
+         * app ID order and carry no creation binding.
          *
          * @throws IllegalArgumentException for an invalid lineage, counter, count, order or
-         *     creation ID
+         *     creation ID, or a creation binding
          * @throws NullPointerException for a null lineage, list or entry
          */
         public Header(String lineage, long lastId, List<HeaderEntry> entries) {
+            this(VERSION_1, lineage, lastId, entries);
+        }
+
+        /**
+         * A version 2 header, whose CREATING entries may carry creation bindings. Copies the
+         * entries, which must already be in strictly ascending app ID order. This only builds a
+         * value. It restores no pending pin, creates no package setting, initializes no store,
+         * cancels no creation, admits no tombstone, releases no UID and makes no record or
+         * reference an authority.
+         *
+         * @throws IllegalArgumentException for an invalid lineage, counter, count, order or
+         *     creation ID, or an encoding larger than {@link #MAX_BYTES}
+         * @throws NullPointerException for a null lineage, list or entry
+         */
+        public static Header newV2(String lineage, long lastId, List<HeaderEntry> entries) {
+            return new Header(VERSION_2, lineage, lastId, entries);
+        }
+
+        private Header(int version, String lineage, long lastId, List<HeaderEntry> entries) {
             checkHex(lineage, 2 * LINEAGE_BYTES, "lineage");
             if (lastId < 0) throw invalid("negative lastId");
             List<HeaderEntry> copy = List.copyOf(Objects.requireNonNull(entries, "entries"));
@@ -186,7 +311,15 @@ public final class NativeIdentityRecords {
                 if (entry.phase != SlotPhase.CREATING) continue;
                 if (entry.creationId > lastId) throw invalid("creation ID above lastId");
                 if (!creations.add(entry.creationId)) throw invalid("duplicate creation ID");
+                if (version == VERSION_1 && entry.creationBinding != null) {
+                    throw invalid("version 1 carries no creation binding");
+                }
             }
+            // Measured by the encoder itself, so every valid header has its encoding.
+            if (headerBody(version, lineage, lastId, copy).length() > MAX_BYTES) {
+                throw invalid("header encoding above MAX_BYTES");
+            }
+            this.version = version;
             this.lineage = lineage;
             this.lastId = lastId;
             this.entries = copy;
@@ -197,18 +330,19 @@ public final class NativeIdentityRecords {
             if (this == other) return true;
             if (!(other instanceof Header)) return false;
             Header header = (Header) other;
-            return lastId == header.lastId && lineage.equals(header.lineage)
-                    && entries.equals(header.entries);
+            return version == header.version && lastId == header.lastId
+                    && lineage.equals(header.lineage) && entries.equals(header.entries);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(lineage, lastId, entries);
+            return Objects.hash(version, lineage, lastId, entries);
         }
 
         @Override
         public String toString() {
-            return "Header{lastId=" + lastId + ", entries=" + entries + "}";
+            return "Header{version=" + version + ", lastId=" + lastId + ", entries=" + entries
+                    + "}";
         }
     }
 
@@ -226,8 +360,7 @@ public final class NativeIdentityRecords {
         /** @throws IllegalArgumentException for a nonpositive ID or a negative user or serial */
         public UserEntry(long id, int userId, long userSerial, boolean retiring) {
             if (id <= 0) throw invalid("principal ID must be positive");
-            if (userId < 0) throw invalid("negative user ID");
-            if (userSerial < 0) throw invalid("negative user serial");
+            checkUser(userId, userSerial);
             this.id = id;
             this.userId = userId;
             this.userSerial = userSerial;
@@ -301,9 +434,7 @@ public final class NativeIdentityRecords {
                 if (i > 0 && user.userId <= copy.get(i - 1).userId) {
                     throw invalid("users not in strictly ascending user ID order");
                 }
-                if ((long) user.userId * PER_USER_RANGE + appId > Integer.MAX_VALUE) {
-                    throw invalid("UID above Integer.MAX_VALUE");
-                }
+                checkUid(user.userId, appId);
                 if (!ids.add(user.id)) throw invalid("duplicate principal ID");
             }
             this.lineage = lineage;
@@ -338,30 +469,49 @@ public final class NativeIdentityRecords {
 
     private NativeIdentityRecords() {}
 
-    /** Returns the one encoding of a header, in a new array. */
+    /** Returns the one encoding of a header, with its own version, in a new array. */
     public static byte[] encodeHeader(Header header) {
         Objects.requireNonNull(header, "header");
-        Output out = new Output(TYPE_HEADER);
-        out.hex(header.lineage);
-        out.i64(header.lastId);
-        out.u16(header.entries.size());
-        for (HeaderEntry entry : header.entries) {
+        return headerBody(header.version, header.lineage, header.lastId, header.entries).seal();
+    }
+
+    // Everything before the checksum. The Header constructor measures this too.
+    private static Output headerBody(int version, String lineage, long lastId,
+            List<HeaderEntry> entries) {
+        Output out = new Output(TYPE_HEADER, version);
+        out.hex(lineage);
+        out.i64(lastId);
+        out.u16(entries.size());
+        for (HeaderEntry entry : entries) {
             out.i32(entry.appId);
             out.u8(phaseCode(entry.phase));
             out.i64(entry.creationId);
             out.ascii(entry.creationPackage);
+            CreationBinding binding = entry.creationBinding;
+            if (version == VERSION_1 || entry.phase != SlotPhase.CREATING) {
+                // The constructors refuse this. A binding is never dropped silently.
+                if (binding != null) throw new IllegalStateException("binding without an encoding");
+            } else if (binding == null) {
+                out.u8(BINDING_ABSENT);
+            } else {
+                out.u8(BINDING_PRESENT);
+                out.i32(binding.userId);
+                out.i64(binding.userSerial);
+                out.signers(binding.signerSha256);
+            }
         }
-        return out.seal();
+        return out;
     }
 
     /**
-     * Decodes one complete header encoding. The input is copied and not retained.
+     * Decodes one complete header encoding of version 1 or 2. The value keeps that version. The
+     * input is copied and not retained.
      *
      * @throws IllegalArgumentException for any damaged, malformed or unsupported input
      * @throws NullPointerException for null
      */
     public static Header decodeHeader(byte[] record) {
-        Input in = Input.open(record, TYPE_HEADER);
+        Input in = Input.open(record, TYPE_HEADER, VERSION_2);
         String lineage = in.hex(LINEAGE_BYTES);
         long lastId = in.i64();
         int count = in.count(MAX_SLOTS);
@@ -371,23 +521,25 @@ public final class NativeIdentityRecords {
             SlotPhase phase = phase(in.u8());
             long creationId = in.i64();
             String creationPackage = in.ascii();
+            CreationBinding binding = in.version == VERSION_2 && phase == SlotPhase.CREATING
+                    ? in.creationBinding() : null;
             if (i > 0 && appId <= entries.get(i - 1).appId) throw invalid("entries out of order");
-            entries.add(new HeaderEntry(appId, phase, creationId, creationPackage));
+            entries.add(new HeaderEntry(appId, phase, creationId, creationPackage, binding));
         }
         in.finish();
-        return new Header(lineage, lastId, entries);
+        return in.version == VERSION_1 ? new Header(lineage, lastId, entries)
+                : Header.newV2(lineage, lastId, entries);
     }
 
     /** Returns the one encoding of a slot, in a new array. */
     public static byte[] encodeSlot(Slot slot) {
         Objects.requireNonNull(slot, "slot");
-        Output out = new Output(TYPE_SLOT);
+        Output out = new Output(TYPE_SLOT, VERSION_1);
         out.hex(slot.lineage);
         out.i32(slot.appId);
         out.i64(slot.generation);
         out.ascii(slot.packageName);
-        out.u16(slot.signerSha256.size());
-        for (String digest : slot.signerSha256) out.hex(digest); // Ascending order.
+        out.signers(slot.signerSha256);
         out.u16(slot.users.size());
         for (UserEntry user : slot.users) {
             out.i64(user.id);
@@ -405,21 +557,12 @@ public final class NativeIdentityRecords {
      * @throws NullPointerException for null
      */
     public static Slot decodeSlot(byte[] record) {
-        Input in = Input.open(record, TYPE_SLOT);
+        Input in = Input.open(record, TYPE_SLOT, VERSION_1);
         String lineage = in.hex(LINEAGE_BYTES);
         int appId = in.i32();
         long generation = in.i64();
         String packageName = in.ascii();
-        int signerCount = in.count(MAX_SIGNERS);
-        List<String> signers = new ArrayList<>(signerCount);
-        for (int i = 0; i < signerCount; i++) {
-            String digest = in.hex(SIGNER_BYTES);
-            // Checked before any set exists, which would silently merge a duplicate.
-            if (i > 0 && digest.compareTo(signers.get(i - 1)) <= 0) {
-                throw invalid("signer digests out of order");
-            }
-            signers.add(digest);
-        }
+        Set<String> signers = in.signers();
         int userCount = in.count(MAX_USERS);
         List<UserEntry> users = new ArrayList<>(userCount);
         for (int i = 0; i < userCount; i++) {
@@ -432,18 +575,17 @@ public final class NativeIdentityRecords {
             users.add(new UserEntry(id, userId, userSerial, flags == FLAG_RETIRING));
         }
         in.finish();
-        return new Slot(lineage, appId, packageName, generation, new LinkedHashSet<>(signers),
-                users);
+        return new Slot(lineage, appId, packageName, generation, signers, users);
     }
 
     // Builds one record: frame, body, then the checksum.
     private static final class Output {
         private final ByteArrayOutputStream bytes = new ByteArrayOutputStream(256);
 
-        Output(int type) {
+        Output(int type, int version) {
             i32(MAGIC);
             u16(type);
-            u16(VERSION);
+            u16(version);
             i32(0); // Total length, set by seal.
         }
 
@@ -481,9 +623,20 @@ public final class NativeIdentityRecords {
             bytes.write(text, 0, text.length);
         }
 
+        // A validated set, which iterates in ascending order.
+        void signers(Set<String> digests) {
+            u16(digests.size());
+            for (String digest : digests) hex(digest);
+        }
+
+        // The length of the sealed record.
+        int length() {
+            return bytes.size() + CHECKSUM_BYTES;
+        }
+
         byte[] seal() {
-            int length = bytes.size() + CHECKSUM_BYTES;
-            // The value bounds keep every record far smaller. This is only a guard.
+            int length = length();
+            // Value construction enforces the bound; keep the final guard too.
             if (length > MAX_BYTES) throw new IllegalStateException("record exceeds MAX_BYTES");
             byte[] record = Arrays.copyOf(bytes.toByteArray(), length);
             for (int i = 0; i < 4; i++) record[LENGTH_OFFSET + i] = (byte) (length >>> (8 * i));
@@ -498,21 +651,28 @@ public final class NativeIdentityRecords {
     private static final class Input {
         private final byte[] bytes;
         private final int end;
+        // The record's verified version.
+        final int version;
         private int position = FRAME_BYTES;
 
-        private Input(byte[] bytes, int end) {
+        private Input(byte[] bytes, int end, int version) {
             this.bytes = bytes;
             this.end = end;
+            this.version = version;
         }
 
         // Verifies a private copy, so later writes to the caller's array cannot race the checks.
-        static Input open(byte[] record, int type) {
+        // Accepts versions 1 to newest.
+        static Input open(byte[] record, int type, int newest) {
             Objects.requireNonNull(record, "record");
             if (record.length > MAX_BYTES) throw invalid("record exceeds MAX_BYTES");
             if (record.length < FRAME_BYTES + CHECKSUM_BYTES) throw invalid("record too short");
             byte[] bytes = record.clone();
             if (i32At(bytes, 0) != MAGIC) throw invalid("not a native identity record");
-            if (u16At(bytes, 6) != VERSION) throw invalid("unsupported record version");
+            int version = u16At(bytes, 6);
+            if (version < VERSION_1 || version > newest) {
+                throw invalid("unsupported record version");
+            }
             if (u16At(bytes, 4) != type) throw invalid("wrong record type");
             if (i32At(bytes, LENGTH_OFFSET) != bytes.length) throw invalid("wrong record length");
             int end = bytes.length - CHECKSUM_BYTES;
@@ -520,7 +680,7 @@ public final class NativeIdentityRecords {
                     Arrays.copyOfRange(bytes, end, bytes.length))) {
                 throw invalid("record checksum mismatch");
             }
-            return new Input(bytes, end);
+            return new Input(bytes, end, version);
         }
 
         private int take(int count) {
@@ -574,6 +734,31 @@ public final class NativeIdentityRecords {
             return new String(bytes, at, length, StandardCharsets.US_ASCII);
         }
 
+        // A count, then strictly ascending digests. The value's constructor checks the set.
+        Set<String> signers() {
+            int count = count(MAX_SIGNERS);
+            List<String> digests = new ArrayList<>(count);
+            for (int i = 0; i < count; i++) {
+                String digest = hex(SIGNER_BYTES);
+                // Checked before any set exists, which would silently merge a duplicate.
+                if (i > 0 && digest.compareTo(digests.get(i - 1)) <= 0) {
+                    throw invalid("signer digests out of order");
+                }
+                digests.add(digest);
+            }
+            return new LinkedHashSet<>(digests);
+        }
+
+        // A version 2 CREATING entry's tag, then its binding if present.
+        CreationBinding creationBinding() {
+            int tag = u8();
+            if (tag == BINDING_ABSENT) return null;
+            if (tag != BINDING_PRESENT) throw invalid("unknown creation binding tag");
+            int userId = i32();
+            long userSerial = i64();
+            return new CreationBinding(userId, userSerial, signers());
+        }
+
         void finish() {
             if (position != end) throw invalid("trailing bytes");
         }
@@ -625,6 +810,18 @@ public final class NativeIdentityRecords {
     private static void checkAppId(int appId) {
         if (appId < FIRST_APP_ID || appId > LAST_APP_ID) {
             throw invalid("app ID outside " + FIRST_APP_ID + ".." + LAST_APP_ID);
+        }
+    }
+
+    // Shared by slot users and creation bindings.
+    private static void checkUser(int userId, long userSerial) {
+        if (userId < 0) throw invalid("negative user ID");
+        if (userSerial < 0) throw invalid("negative user serial");
+    }
+
+    private static void checkUid(int userId, int appId) {
+        if ((long) userId * PER_USER_RANGE + appId > Integer.MAX_VALUE) {
+            throw invalid("UID above Integer.MAX_VALUE");
         }
     }
 

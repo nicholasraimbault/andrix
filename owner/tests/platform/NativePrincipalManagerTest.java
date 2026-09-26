@@ -237,6 +237,34 @@ public final class NativePrincipalManagerTest {
         assert earlyManager.finishRetirementAfterQuiescence(neverActive);
         assert early.mSettings.storeHolds.isEmpty();
         Os.forbiddenMonitor = null;
+
+        // Codec support for a future header is not manager admission. Its
+        // header-only UID hold survives even when no directory can reveal it.
+        PackageManagerService versioned = new PackageManagerService();
+        String knownName = "dev.andrix.versioned";
+        versioned.mSettings.add(knownName, 10001);
+        NativePrincipalManager oldVersion = new NativePrincipalManager(versioned);
+        NativePrincipalManager.Handle known = oldVersion.prepare(oldVersion.select(knownName, 0));
+        assert oldVersion.commit(known);
+        NativeIdentityRecords.Header future = NativeIdentityRecords.Header.newV2(Settings.LINEAGE, 2,
+                java.util.List.of(new NativeIdentityRecords.HeaderEntry(10000,
+                        NativeIdentityRecords.SlotPhase.CREATING, 2, "dev.andrix.future",
+                        new NativeIdentityRecords.CreationBinding(0, users.info.serialNumber, Set.of("b".repeat(64)))),
+                        new NativeIdentityRecords.HeaderEntry(10001, NativeIdentityRecords.SlotPhase.LIVE, 0, "")));
+        byte[] futureBytes = NativeIdentityRecords.encodeHeader(future);
+        Files.write(versioned.mSettings.root.resolve("store.bin"), futureBytes);
+        Files.write(versioned.mSettings.root.resolve("store.bin.reservecopy"), futureBytes);
+        PackageManagerService unsupported = new PackageManagerService(versioned.mSettings.root, false);
+        unsupported.mSettings.add(knownName, 10001);
+        unsupported.mSettings.restoreAfterPackageSettings();
+        NativePrincipalManager refusedVersion = new NativePrincipalManager(unsupported);
+        assert unsupported.mSettings.storeHolds.equals(Set.of(10000, 10001));
+        assert !unsupported.mSettings.pins.hasKnownCounter();
+        assert refusedVersion.find(knownName, 0) == null;
+        refused(() -> refusedVersion.prepare(refusedVersion.select(knownName, 0)));
+        assert unsupported.mSettings.ids.acquireAndRegisterNewAppId(new PackageSetting("dev.andrix.ordinary")) == 10002;
+        assert java.util.Arrays.equals(futureBytes, Files.readAllBytes(unsupported.mSettings.root.resolve("store.bin")));
+        assert !Files.exists(unsupported.mSettings.root.resolve("slots/10000"));
         assert Os.allClosed();
         System.out.println("Native PMS adapter handles/unknown writes/retirement/restart passed; Android unqualified");
     }
