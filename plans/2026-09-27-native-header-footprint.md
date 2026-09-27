@@ -1,7 +1,8 @@
 # Native header footprints and protected reservation writes
 
-Status: revised version 1 correction with independent review, guarded host qualification and
-Android compilation at `c9264e4`. Android runtime and storage qualification remain separate. It follows the
+Status: revised version 1 correction with independent review, guarded host qualification, Android
+compilation and bounded reader controls at `c9264e4`. Production writer crash durability remains
+unqualified. It follows the
 [presence correction](2026-09-27-native-store-presence.md). No version 2
 publication, format selector, restored creation admission, initializer replay, repair, cancellation or
 UID release is added. Native execution stays disabled.
@@ -155,6 +156,28 @@ The [controlled header reader inputs](../tests/native-identity/README.md#header-
 prepare separate legacy addition and protected predecessor layouts. Generating them is not a
 runtime result, designation, repair or proof of writer durability. Native execution, factory entry,
 version 2 publication and the lab writer route remain disabled in this image.
+
+## Android reader controls
+
+A fresh disposable guest exercised both layouts through actual cold boot and PMS loading. The
+fixture used an observed unused app ID, a fixed uninstalled test package and no slot body. It did
+not create a `PackageSetting`. Two ordinary APKs retained their original UIDs, paths, bytes,
+dummy keystore keys and canaries. Complete package and shared UID maps stayed unchanged.
+
+- The legacy addition layout retained its header bytes and negative hold. The header was VALID,
+  enumeration was complete, and `counter_known` and `creation_ready` were false.
+- The protected backup beside its predecessors retained the same hold. Both internal counter and
+  creation readiness fields were true, while the body stayed MISSING and no memory pin or binding
+  appeared. These fields are not native execution authority.
+- Both layouts kept `unidentified_code=true`. An unmapped held UID deliberately triggers this
+  conservative code preservation in `seedNativeRecoveryLPw`. The first observer wrongly expected
+  false and stopped before its key bookends or another publication. That failed trial remains
+  separate from the corrected controls. No protection was removed to obtain a pass.
+
+The controller captured PMS writer quiescence before changing the controlled metadata. It used
+writing descriptor sync, a directory sync after each rename and an explicit setup sync. These are
+prepared reader inputs, not an observed production writer interruption. No app data, keys or package
+settings were restored, and no installation or initialization was replayed. All VM scopes closed.
 
 ## Limits
 

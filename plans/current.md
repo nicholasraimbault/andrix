@@ -80,8 +80,10 @@ now requires compatible header copies and conserves entries that only an unselec
 reservation publishes its target as the preferred backup before rewriting main and reserve, so an
 interrupted owned retry keeps every known hold. Its guarded host matrices, sensitivity controls and
 existing regressions passed. The normal `c9264e4` Android image compiled and its counter withholding
-branch was verified in final DEX. Inactive write paths were removed by R8. Android runtime and
-storage qualification remain separate.
+branch was verified in final DEX. Cold Android reader controls then withheld the counter beside a
+legacy addition and accepted a protected backup beside its predecessors, retaining the hold without
+inventing a binding. Inactive write paths were removed by R8. Production writer crash durability
+remains unqualified.
 
 The [installer durability assessment](2026-09-27-package-installer-durability.md) retains an
 unclean stop failure and a separate Android file comparison. The checked writing descriptor sync

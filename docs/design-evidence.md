@@ -254,7 +254,10 @@ retain their own producers and scopes.
   Its 53 host conservation cases, 27 injected failure cases and existing regressions passed under
   the required controls. The older sources failed the predicted 41 and 18 cases. Android compilation
   at `c9264e4` passed, and final DEX contains the reader and actual counter withholding branch.
-  Inactive writes were removed by R8. Android runtime and storage qualification remain separate.
+  Cold Android reader controls withheld the counter beside a legacy addition and accepted a
+  protected backup beside its predecessors. The unmapped hold and unidentified code protection
+  remained, with no binding invented and both original app key controls intact. Inactive writes
+  were removed by R8. Actual production writer crash durability remains unqualified.
   The [real consent reference](../plans/2026-09-27-native-permission-consent.md) then exercised the
   ordinary Android notification popup without privileged grants. Allow enabled an independent
   command after the helper closed; peer and false attribution controls remained separate. Back,

@@ -92,7 +92,9 @@ inspection and does not authorize guest publication or replay. Generate and veri
 under the host helper limits while no VM runs. The later runtime controller must recheck that the
 slot is still unassigned, capture writer quiescence before staging, and verify every file role and
 hash. This tests the reader, not native designation, a PackageSetting, storage recovery or the
-production writer's durability. It never restores app data or keys.
+production writer's durability. It never restores app data or keys. Both header layouts deliberately
+keep `unidentified_code=true` for the held app ID without a `PackageSetting`. That protection must
+not be mistaken for a failed counter control or removed to make the reader check pass.
 
 ## Deciding runtime sequence
 
