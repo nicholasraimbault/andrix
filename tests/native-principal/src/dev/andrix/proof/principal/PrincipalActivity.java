@@ -81,10 +81,13 @@ public final class PrincipalActivity extends Activity {
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(requestCode, permissions, results);
-        // Show exactly what the platform returned. Empty arrays mean cancelled or interrupted.
-        StringBuilder event = new StringBuilder("platform result:");
+        // Display returned state, not the user's action. An empty result does not
+        // establish cancellation, and a denial result does not distinguish Back
+        // from a denial button. Service state and the owned UI operation are separate.
+        StringBuilder event = new StringBuilder("platform result for request ")
+                .append(requestCode).append(':');
         if (permissions.length == 0) {
-            event.append(" empty (cancelled or interrupted)");
+            event.append(" empty (outcome not established)");
         }
         for (int i = 0; i < permissions.length && i < results.length; i++) {
             event.append(' ').append(shortName(permissions[i])).append('=')
