@@ -2,7 +2,7 @@
 import copy
 import json
 import unittest
-from observe import active_notification, bound_context, completed, events
+from observe import active_notification, bound_context, completed, events, notification_records
 
 PKG = 'dev.andrix.proof.principal'
 
@@ -99,6 +99,14 @@ class ObservationTests(unittest.TestCase):
             10001, 0, PKG, 'fixture'))
         for bad in [record(uid=10002) + TAIL, record(user=1) + TAIL, record() * 2 + TAIL]:
             with self.assertRaises(ValueError): active_notification(bad, 10001, 0, PKG, 'fixture')
+
+    def test_complete_absence_excludes_queued_and_snoozed_records(self):
+        self.assertEqual(notification_records(TAIL, 10001, 0, PKG, 'fixture'), ())
+        self.assertEqual(notification_records(record() + TAIL, 10001, 0, PKG, 'fixture'), ('posted',))
+        dump = record(state=0) + record(state=2) + TAIL
+        self.assertEqual(notification_records(dump, 10001, 0, PKG, 'fixture'), ('enqueued', 'snoozed'))
+        self.assertFalse(active_notification(dump, 10001, 0, PKG, 'fixture'))
+        with self.assertRaises(ValueError):notification_records(dump[:-1], 10001, 0, PKG, 'fixture')
 
     def test_malformed_or_partial_service_data_is_not_absence(self):
         for bad in [b'', b'\x80', b'\x80' * 11, b'\x00', b'\x0b', b'\x0a\xff', b'\x0a\x05x',

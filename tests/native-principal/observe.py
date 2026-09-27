@@ -116,8 +116,8 @@ def _fields(data):
         yield number, wire, value
 
 
-def active_notification(dump, uid, user, package, nonce):
-    """Pinned NotificationServiceDumpProto, from an unfiltered successful --proto command.
+def notification_records(dump, uid, user, package, nonce):
+    """States for the exact key in a complete, unfiltered NotificationServiceDumpProto.
 
     Requires the final ranking section and preceding singleton sections. Textual dumps,
     partial output and malformed records are not absence. Transport provenance and lack
@@ -131,7 +131,7 @@ def active_notification(dump, uid, user, package, nonce):
         raise ValueError('missing or oversized notification protobuf')
     expected_key = f'{user}|{package}|7301|{nonce}|{uid}'
     markers = set()
-    found = 0
+    found = []
     for number, wire, value in _fields(dump):
         if number in [2, 3, 6, 7, 8]:
             if wire != 2 or number in markers:
@@ -161,10 +161,14 @@ def active_notification(dump, uid, user, package, nonce):
             continue
         if key != expected_key:
             raise ValueError('same target/nonce has unexpected UID or user')
-        if fields.get(2, (0, 0))[1] == 1:  # POSTED, not ENQUEUED or SNOOZED.
-            found += 1
+        found.append(('enqueued', 'posted', 'snoozed')[fields.get(2, (0, 0))[1]])
     if markers != {2, 3, 6, 7, 8}:
         raise ValueError('incomplete notification service protobuf')
-    if found > 1:
+    if found.count('posted') > 1:
         raise ValueError('duplicate exact posted record')
-    return found == 1
+    return tuple(found)
+
+
+def active_notification(dump, uid, user, package, nonce):
+    """Only POSTED is active. Queued or snoozed records are not proof of complete absence."""
+    return 'posted' in notification_records(dump, uid, user, package, nonce)

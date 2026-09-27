@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 import unittest
-from consent_observe import focused_hierarchy, permission_state, ui_target
+from consent_observe import focused_hierarchy, notification_settings_switch, permission_state, ui_target
 
 P = 'dev.andrix.proof.principal'
 ROW = '      android.permission.POST_NOTIFICATIONS: granted=true, flags=[RUNTIME_GRANTED|USER_SET]'
@@ -52,6 +52,25 @@ class ConsentObservationTests(unittest.TestCase):
                     XML, '<!DOCTYPE displays>' + all_windows]:
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 focused_hierarchy(bad, package='com.android.permissioncontroller')
+
+    def test_settings_main_switch_not_an_unrelated_or_channel_control(self):
+        label = 'Andrix principal probe'
+        bar = ('<node package="com.android.settings" resource-id="com.android.settings:id/main_switch_bar" enabled="true" clickable="true" bounds="[32,380][688,580]">'
+               '<node package="com.android.settings" resource-id="com.android.settings:id/switch_text" text="All Andrix principal probe notifications"/>'
+               '<node package="com.android.settings" resource-id="android:id/switch_widget" class="android.widget.Switch" enabled="true" checked="true"/></node>')
+        category = '<node package="com.android.settings" resource-id="android:id/title" text="Notification categories"/>'
+        def wrap(content):return '<displays><display id="0"><window focused="true" type="TYPE_APPLICATION"><hierarchy>'+content+'</hierarchy></window></display></displays>'
+        good = wrap(bar + category)
+        self.assertEqual(notification_settings_switch(good, app_label=label, expected_checked=True), {'x': 360, 'y': 480})
+        for bad in [wrap(bar + bar + category), wrap(category + bar), wrap(bar),
+                    good.replace('All Andrix principal probe notifications', 'All another group notifications'),
+                    good.replace('checked="true"', 'checked="false"'),
+                    good.replace('enabled="true"', 'enabled="false"'),
+                    good.replace('main_switch_bar', 'switchWidget'),
+                    good.replace('TYPE_APPLICATION', 'TYPE_SYSTEM')]:
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                notification_settings_switch(bad, app_label=label, expected_checked=True)
+        with self.assertRaises(ValueError):notification_settings_switch(good, app_label=label, expected_checked=1)
 
     def test_ui_target_exact_and_bounded(self):
         wanted = {'package': 'com.android.permissioncontroller', 'resource_id': 'com.android.permissioncontroller:id/permission_allow_button'}

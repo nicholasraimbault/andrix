@@ -84,6 +84,35 @@ def focused_hierarchy(xml, *, package, display_id=0):
     return ET.tostring(trees[0], encoding='unicode')
 
 
+def notification_settings_switch(xml, *, app_label, expected_checked):
+    """Fixture target only. The caller separately binds the public app settings route.
+
+    App label text is not package identity. The controller must use its captured package
+    and user, no channel or group extras, and independently check permission state.
+    """
+    if not isinstance(app_label, str) or not app_label or type(expected_checked) is not bool:
+        raise ValueError('invalid settings subject')
+    focused = focused_hierarchy(xml, package='com.android.settings')
+    root = ET.fromstring(focused)
+    nodes = list(root.iter('node'))
+    bars = [node for node in nodes if node.get('resource-id') == 'com.android.settings:id/main_switch_bar']
+    if len(bars) != 1 or bars[0].get('enabled') != 'true' or bars[0].get('clickable') != 'true':
+        raise ValueError('enabled main switch bar missing or ambiguous')
+    labels = [node for node in bars[0].iter('node') if node.get('resource-id') == 'com.android.settings:id/switch_text']
+    switches = [node for node in bars[0].iter('node') if node.get('resource-id') == 'android:id/switch_widget']
+    if (len(labels) != 1 or labels[0].get('text') != 'All ' + app_label + ' notifications'
+            or len(switches) != 1 or switches[0].get('class') != 'android.widget.Switch'
+            or switches[0].get('enabled') != 'true'
+            or switches[0].get('checked') != str(expected_checked).lower()):
+        raise ValueError('main switch subject or checked state mismatch')
+    categories = [node for node in nodes if node.get('text') == 'Notification categories'
+                  and node.get('resource-id') == 'android:id/title']
+    if len(categories) != 1 or nodes.index(bars[0]) >= nodes.index(categories[0]):
+        raise ValueError('not the expected application notification page')
+    return ui_target(focused, package='com.android.settings',
+                     resource_id='com.android.settings:id/main_switch_bar')
+
+
 def ui_target(xml, *, package, text=None, resource_id=None, width=720, height=1280):
     if (not isinstance(xml, str) or len(xml.encode()) > 1024 * 1024
             or '<!DOCTYPE' in xml or '<!ENTITY' in xml
