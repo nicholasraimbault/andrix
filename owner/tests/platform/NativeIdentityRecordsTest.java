@@ -1187,6 +1187,79 @@ public final class NativeIdentityRecordsTest {
                 && !relabeled.equals(liveOnly);
     }
 
+    // The store's view of a frame: the declared version when the size bound, magic, type,
+    // length field and checksum are intact, otherwise -1. The body is not parsed, so an unknown
+    // version is told apart from damage. Decoding still accepts only the versions it knows.
+    private static void frameClassification() {
+        byte[] header = NativeIdentityRecords.encodeHeader(goldenHeader());
+        byte[] v2 = NativeIdentityRecords.encodeHeader(goldenV2Header());
+        byte[] slot = NativeIdentityRecords.encodeSlot(goldenSlot());
+        assert NativeIdentityRecords.intactHeaderVersion(header) == 1;
+        assert NativeIdentityRecords.intactHeaderVersion(v2) == 2;
+        assert NativeIdentityRecords.intactSlotVersion(slot) == 1;
+        assert NativeIdentityRecords.intactHeaderVersion(slot) == -1;
+        assert NativeIdentityRecords.intactSlotVersion(header) == -1;
+        assert NativeIdentityRecords.intactSlotVersion(v2) == -1;
+        for (int version : new int[] {0, 2, 3, 0x7fff, 0xffff}) {
+            byte[] h = changed(header, b -> put(b, VERSION, 2, version));
+            byte[] s = changed(slot, b -> put(b, VERSION, 2, version));
+            assert NativeIdentityRecords.intactHeaderVersion(h) == version;
+            assert NativeIdentityRecords.intactSlotVersion(s) == version;
+            // A version 1 body under version 2 has no binding tags and does not decode either.
+            refusedHeader("version " + version, h);
+            refusedSlot("version " + version, s);
+            // Every single bit of such a frame is covered, including its version field.
+            for (byte[] frame : List.of(h, s)) {
+                for (int bit = 0; bit < 8 * frame.length; bit++) {
+                    byte[] flipped = frame.clone();
+                    flipped[bit / 8] ^= (byte) (1 << (bit % 8));
+                    assert NativeIdentityRecords.intactHeaderVersion(flipped) == -1
+                            && NativeIdentityRecords.intactSlotVersion(flipped) == -1 : bit;
+                }
+            }
+        }
+        // Nothing after the frame is read: an empty body, or any body, of an unknown version.
+        byte[] bare = withChecksum(hex("41584944 0100 0300 2c000000"));
+        assert bare.length == 44 && NativeIdentityRecords.intactHeaderVersion(bare) == 3;
+        byte[] slotBare = withChecksum(hex("41584944 0200 0200 2c000000"));
+        assert NativeIdentityRecords.intactSlotVersion(slotBare) == 2;
+        byte[] v3 = changed(header, b -> put(concat(b, ascii("future")), VERSION, 2, 3));
+        assert NativeIdentityRecords.intactHeaderVersion(v3) == 3;
+        refusedHeader("version 3 with a longer body", v3);
+        // The size bound is the codec's MAX_BYTES, unchanged, at both ends.
+        byte[] largest = changed(v3, b -> Arrays.copyOf(b, NativeIdentityRecords.MAX_BYTES
+                - CHECKSUM));
+        assert largest.length == NativeIdentityRecords.MAX_BYTES
+                && NativeIdentityRecords.intactHeaderVersion(largest) == 3;
+        byte[] above = changed(v3, b -> Arrays.copyOf(b, NativeIdentityRecords.MAX_BYTES
+                - CHECKSUM + 1));
+        assert NativeIdentityRecords.intactHeaderVersion(above) == -1;
+        // Damage and foreign frames are not an unknown version.
+        List<byte[]> notIntact = new ArrayList<>(List.of(
+                changed(v3, b -> put(b, 0, 1, 'B')),
+                changed(v3, b -> put(b, TYPE, 2, 0)),
+                changed(v3, b -> put(b, TYPE, 2, 3)),
+                changed(v3, b -> put(b, TYPE, 2, 0xffff)),
+                withChecksum(put(Arrays.copyOf(v3, v3.length - CHECKSUM), LENGTH, 4,
+                        v3.length + 1)),
+                Arrays.copyOf(v3, v3.length - 1), Arrays.copyOf(v3, v3.length + 1),
+                concat(v3, v3), Arrays.copyOf(v3, 43), new byte[44], new byte[0]));
+        byte[] badChecksum = v3.clone();
+        badChecksum[badChecksum.length - 1] ^= 1;
+        notIntact.add(badChecksum);
+        for (byte[] record : notIntact) {
+            assert NativeIdentityRecords.intactHeaderVersion(record) == -1;
+            assert NativeIdentityRecords.intactSlotVersion(record) == -1;
+        }
+        // The input is read, not kept or changed.
+        byte[] input = v3.clone();
+        NativeIdentityRecords.intactHeaderVersion(input);
+        NativeIdentityRecords.intactSlotVersion(input);
+        assert Arrays.equals(input, v3);
+        missing(() -> NativeIdentityRecords.intactHeaderVersion(null));
+        missing(() -> NativeIdentityRecords.intactSlotVersion(null));
+    }
+
     // Large bindings can pass MAX_BYTES below MAX_SLOTS entries. Such a header is refused as a
     // value, before any encoding or I/O. The bound itself is unchanged.
     private static void maxBytesBound() {
@@ -1440,6 +1513,7 @@ public final class NativeIdentityRecordsTest {
         headerParserRefusals();
         slotParserRefusals();
         v2ParserRefusals();
+        frameClassification();
         maxBytesBound();
         mutationsRefusedOrCanonical();
         noInputInText();

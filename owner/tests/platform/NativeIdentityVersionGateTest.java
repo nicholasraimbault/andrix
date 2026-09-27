@@ -11,6 +11,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.LinkOption;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.PosixFilePermissions;
+import java.security.MessageDigest;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +42,7 @@ public final class NativeIdentityVersionGateTest {
     private static void heldOnly(NativeIdentityStore store) {
         NativeIdentityStore.Loaded loaded = store.load();
         assert loaded.header.status == NativeIdentityStore.Status.UNSUPPORTED : loaded.header.status;
+        assert loaded.unsupportedFootprint;
         assert loaded.header.value == null && !loaded.header.decodedCopies.isEmpty();
         assert loaded.occupiedAppIds.equals(Set.of(A, B)) : loaded.occupiedAppIds;
         assert !loaded.creationReady() && loaded.creationBlocked;
@@ -83,6 +87,127 @@ public final class NativeIdentityVersionGateTest {
             assert footprint(root).equals(before);
             assert store.load().occupiedAppIds.equals(Set.of(B));
         } else throw new IllegalArgumentException("test case");
+    }
+
+    // The same bytes under another declared version, still an intact frame.
+    private static byte[] relabeled(byte[] record, int version) throws Exception {
+        byte[] bytes = record.clone();
+        bytes[6] = (byte) version; bytes[7] = (byte) (version >>> 8);
+        byte[] digest = MessageDigest.getInstance("SHA-256").digest(Arrays.copyOf(bytes, bytes.length - 32));
+        System.arraycopy(digest, 0, bytes, bytes.length - 32, 32);
+        return bytes;
+    }
+
+    // Store availability is reported apart from each slot's binding eligibility. A seed or an
+    // unrelated slot withholds writes and creation, not A's intact binding. A user limit or a
+    // bad checksum is not a format footprint.
+    private static void availability(Path parent) throws Exception {
+        Header live = new Header(LINEAGE, 2, List.of(new HeaderEntry(A, SlotPhase.LIVE, 0, ""),
+                new HeaderEntry(B, SlotPhase.LIVE, 0, "")));
+        Slot a = new Slot(LINEAGE, A, PACKAGE, 1, SIGNERS, List.of(new UserEntry(1, 0, 7, false)));
+        Slot b = new Slot(LINEAGE, B, PACKAGE + "other", 1, SIGNERS, List.of(new UserEntry(2, 0, 7, false)));
+        byte[] headerBytes = NativeIdentityRecords.encodeHeader(live);
+        String[] kinds = {"healthy", "header copy", "header seed", "slot seed", "unrelated slot",
+                "bad checksum", "user limit", "incomplete layout"};
+        for (String kind : kinds) {
+            Path root = parent.resolve("availability-" + kind.replace(' ', '-'));
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            assert store.initializeNew(LINEAGE);
+            pair(root.resolve("store.bin"), headerBytes);
+            Path slotA = Files.createDirectory(root.resolve("slots/" + A)).resolve("record.bin");
+            Path slotB = Files.createDirectory(root.resolve("slots/" + B)).resolve("record.bin");
+            pair(slotA, NativeIdentityRecords.encodeSlot(a));
+            pair(slotB, NativeIdentityRecords.encodeSlot(b));
+            boolean flagged = true, usableA = true, usableB = true;
+            if (kind.equals("healthy")) {
+                flagged = false;
+            } else if (kind.equals("header copy")) {
+                Files.write(root.resolve("store.bin.reservecopy"), relabeled(headerBytes, 3));
+                usableA = usableB = false;
+            } else if (kind.equals("header seed")) {
+                Files.write(root.resolve("store.bin-seed"), relabeled(headerBytes, 3));
+            } else if (kind.equals("slot seed")) {
+                Files.write(Path.of(slotA + "-seed"), relabeled(NativeIdentityRecords.encodeSlot(a), 2));
+            } else if (kind.equals("unrelated slot")) {
+                Files.write(slotB, relabeled(NativeIdentityRecords.encodeSlot(b), 2));
+                usableB = false;
+            } else if (kind.equals("bad checksum")) {
+                byte[] damaged = relabeled(headerBytes, 3);
+                damaged[damaged.length - 1] ^= 1;
+                Files.write(root.resolve("store.bin.reservecopy"), damaged);
+                flagged = false;
+            } else if (kind.equals("user limit")) {
+                pair(slotB, NativeIdentityRecords.encodeSlot(new Slot(LINEAGE, B, PACKAGE + "other", 1,
+                        SIGNERS, List.of(new UserEntry(2, 10, 7, false)))));
+                flagged = usableB = false;
+            } else {
+                Files.write(root.resolve("store.bin-seed"), relabeled(headerBytes, 3));
+                for (Path file : List.of(slotA, slotB)) {
+                    Files.delete(file); Files.delete(Path.of(file + ".reservecopy")); Files.delete(file.getParent());
+                }
+                Files.delete(root.resolve("slots"));
+                usableA = usableB = false;
+            }
+            Map<String, String> before = footprint(root);
+            NativeIdentityStore.Loaded loaded = store.load();
+            assert loaded.unsupportedFootprint == flagged : kind;
+            assert loaded.creationReady() == !flagged && loaded.creationBlocked == flagged : kind;
+            assert loaded.bindingUsable(A) == usableA && loaded.bindingUsable(B) == usableB : kind;
+            assert loaded.occupiedAppIds.equals(Set.of(A, B)) : kind;
+            assert loaded.enumerationComplete == !kind.equals("incomplete layout") : kind;
+            if (flagged) {
+                assert !store.confirmExistingSlot(a) && !store.writeHeader(live, live) : kind;
+                assert footprint(root).equals(before) : kind;
+            } else {
+                assert store.confirmExistingSlot(a) && store.writeHeader(live, live) : kind;
+            }
+        }
+        // A slot namespace that cannot be listed: the flag survives the incomplete view, and a
+        // writer refuses before header confirmation, including a footprint in
+        // another slot. This qualification requires real unprivileged DAC refusal.
+        Header releasing = new Header(LINEAGE, 1, List.of(new HeaderEntry(A, SlotPhase.RELEASING, 0, "")));
+        Slot tombstone = new Slot(LINEAGE, A, PACKAGE, 2, SIGNERS, List.of());
+        for (String kind : List.of("header seed", "target seed", "other seed")) {
+            Path root = parent.resolve("unlistable-" + kind.replace(' ', '-'));
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            assert store.initializeNew(LINEAGE);
+            pair(root.resolve("store.bin"), NativeIdentityRecords.encodeHeader(releasing));
+            Path slotA = Files.createDirectory(root.resolve("slots/" + A)).resolve("record.bin");
+            pair(slotA, NativeIdentityRecords.encodeSlot(tombstone));
+            Path newer = kind.equals("header seed") ? root.resolve("store.bin-seed") : Path.of(slotA + "-seed");
+            if (kind.equals("other seed")) {
+                Path other = Files.createDirectory(root.resolve("slots/" + B));
+                newer = other.resolve("record.bin-seed");
+            }
+            Files.write(newer, kind.equals("header seed")
+                    ? relabeled(NativeIdentityRecords.encodeHeader(releasing), 3)
+                    : relabeled(NativeIdentityRecords.encodeSlot(tombstone), 2));
+            Map<String, String> before = footprint(root);
+            Path slots = root.resolve("slots");
+            Files.setPosixFilePermissions(slots, PosixFilePermissions.fromString("--x------"));
+            NativeIdentityStore.Loaded loaded;
+            boolean removed;
+            try {
+                loaded = store.load();
+                removed = store.removeReleasingSlot(releasing, A);
+            } finally {
+                Files.setPosixFilePermissions(slots, PosixFilePermissions.fromString("rwx------"));
+            }
+            assert !removed && footprint(root).equals(before) : kind;
+            assert !loaded.enumerationComplete : "unlistable control requires unprivileged DAC: " + kind;
+            // Without a listing only the header's own seed is visible to load().
+            assert loaded.unsupportedFootprint == kind.equals("header seed") : kind;
+            assert loaded.occupiedAppIds.contains(A) && !loaded.creationReady() : kind;
+        }
+
+        System.out.println("Unlistable namespace DAC control exercised for header, target and unrelated seed");
+        NativeIdentityStore.Loaded synthetic = new NativeIdentityStore.Loaded(
+                new NativeIdentityStore.ReadResult<>(NativeIdentityStore.Status.VALID, live, List.of(live)),
+                Map.of(), Set.of(), false, true);
+        assert !synthetic.unsupportedFootprint && !synthetic.creationBlocked;
+        NativeIdentityStore.Loaded flagged = new NativeIdentityStore.Loaded(synthetic.header,
+                Map.of(), Set.of(), false, true, true);
+        assert flagged.unsupportedFootprint && flagged.creationBlocked && !flagged.creationReady();
     }
 
     public static void main(String[] args) throws Exception {
@@ -148,6 +273,7 @@ public final class NativeIdentityVersionGateTest {
         for (String kind : List.of("relabel", "released", "removal", "initialization", "mixed")) {
             isolated(Path.of(args[0]), kind);
         }
+        availability(Path.of(args[0]));
         System.out.println("Version 2 hold-only refusal and unchanged version 1 compatibility passed; Android unqualified");
     }
 }

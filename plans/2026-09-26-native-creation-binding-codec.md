@@ -84,8 +84,9 @@ remain held; no current package value may fill that gap.
 
 Older readers cannot decode version 2 header only holds. Publication therefore also needs a
 supported reader and rollback contract, or another stable negative footprint visible to those
-readers. Unknown future format handling needs its own preservation checks, including slot and
-staging copies. The current gate is not a claim of general unknown version safety.
+readers. The [newer frame preservation layer](2026-09-27-native-format-preservation.md) now has
+bounded source and host checks across slot and staging copies. Its framing, readability and
+rollback limits remain explicit. It is not general unknown version safety.
 
 Metadata still grants no live authority. An account controller owns designation and operation
 policy through a serialized interface, while PMS owns bindings, counters and holds. Separate hot

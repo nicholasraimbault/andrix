@@ -68,7 +68,10 @@ kept the original keys and canaries. Native execution and version 2 publication 
 The [preparation admission correction](2026-09-27-native-preparation-admission.md) now checks the
 whole durable index and pending set before issuing another native ID. It also retains original
 issuance ownership across failures. Its source and host controls are qualified separately from
-the existing Android images.
+the existing Android images. A [newer format preservation layer](2026-09-27-native-format-preservation.md)
+now refuses native store mutation when it recognizes newer record or staging frames, without
+turning them into bindings. The source and host matrix also preserve negative uniqueness evidence
+and refuse incomplete write inspection. Android compilation and runtime coverage remain separate.
 
 ## Current milestone
 

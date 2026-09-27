@@ -54,6 +54,11 @@ import java.util.Set;
  * input throws {@link NullPointerException}, and no call returns partial output. Messages do not
  * repeat input values.
  *
+ * <p>The frame is the size bound, magic, type, length field and checksum. Decoding verifies it
+ * before it checks the version. The store can therefore tell an intact record of a version it
+ * does not support from damage, without parsing that record's body. Such a record is a
+ * footprint to preserve, never a value: it yields no app ID, binding or counter.
+ *
  * <p>A header keeps the version it was built or decoded with, and encodes with it. Equality
  * compares versions, so comparing a header with an expected one compares them too. The public
  * constructor makes version 1 and {@link Header#newV2} makes version 2. Nothing converts one into
@@ -504,6 +509,38 @@ public final class NativeIdentityRecords {
     }
 
     /**
+     * For the store only. Returns the declared version of an intact header frame, or -1 for any
+     * other input. See {@link #intactSlotVersion}.
+     *
+     * @throws NullPointerException for null
+     */
+    static int intactHeaderVersion(byte[] record) {
+        return intactVersion(record, TYPE_HEADER);
+    }
+
+    /**
+     * For the store only. Returns the declared version of an intact slot frame, or -1 for any
+     * other input. A frame is intact when the record is within the size bounds, starts with the
+     * magic and this record type, and its length field and SHA-256 match. The version itself is
+     * returned unchecked, and nothing after the frame is parsed. The result is no value and
+     * grants nothing. A version this codec cannot decode yields no app ID, binding or counter.
+     *
+     * @throws NullPointerException for null
+     */
+    static int intactSlotVersion(byte[] record) {
+        return intactVersion(record, TYPE_SLOT);
+    }
+
+    private static int intactVersion(byte[] record, int type) {
+        Objects.requireNonNull(record, "record");
+        try {
+            return frame(bounded(record).clone(), type);
+        } catch (IllegalArgumentException notIntact) {
+            return -1;
+        }
+    }
+
+    /**
      * Decodes one complete header encoding of version 1 or 2. The value keeps that version. The
      * input is copied and not retained.
      *
@@ -662,25 +699,14 @@ public final class NativeIdentityRecords {
         }
 
         // Verifies a private copy, so later writes to the caller's array cannot race the checks.
-        // Accepts versions 1 to newest.
+        // The frame is verified first. Accepts versions 1 to newest.
         static Input open(byte[] record, int type, int newest) {
-            Objects.requireNonNull(record, "record");
-            if (record.length > MAX_BYTES) throw invalid("record exceeds MAX_BYTES");
-            if (record.length < FRAME_BYTES + CHECKSUM_BYTES) throw invalid("record too short");
-            byte[] bytes = record.clone();
-            if (i32At(bytes, 0) != MAGIC) throw invalid("not a native identity record");
-            int version = u16At(bytes, 6);
+            byte[] bytes = bounded(record).clone();
+            int version = frame(bytes, type);
             if (version < VERSION_1 || version > newest) {
                 throw invalid("unsupported record version");
             }
-            if (u16At(bytes, 4) != type) throw invalid("wrong record type");
-            if (i32At(bytes, LENGTH_OFFSET) != bytes.length) throw invalid("wrong record length");
-            int end = bytes.length - CHECKSUM_BYTES;
-            if (!MessageDigest.isEqual(sha256(bytes, end),
-                    Arrays.copyOfRange(bytes, end, bytes.length))) {
-                throw invalid("record checksum mismatch");
-            }
-            return new Input(bytes, end, version);
+            return new Input(bytes, bytes.length - CHECKSUM_BYTES, version);
         }
 
         private int take(int count) {
@@ -762,6 +788,28 @@ public final class NativeIdentityRecords {
         void finish() {
             if (position != end) throw invalid("trailing bytes");
         }
+    }
+
+    // Refuses null and a size outside the frame bounds, before anything is copied.
+    private static byte[] bounded(byte[] record) {
+        Objects.requireNonNull(record, "record");
+        if (record.length > MAX_BYTES) throw invalid("record exceeds MAX_BYTES");
+        if (record.length < FRAME_BYTES + CHECKSUM_BYTES) throw invalid("record too short");
+        return record;
+    }
+
+    // Verifies the magic, type, length field and checksum of a bounded private copy. Returns the
+    // declared version, which the caller checks.
+    private static int frame(byte[] bytes, int type) {
+        if (i32At(bytes, 0) != MAGIC) throw invalid("not a native identity record");
+        if (u16At(bytes, 4) != type) throw invalid("wrong record type");
+        if (i32At(bytes, LENGTH_OFFSET) != bytes.length) throw invalid("wrong record length");
+        int end = bytes.length - CHECKSUM_BYTES;
+        if (!MessageDigest.isEqual(sha256(bytes, end),
+                Arrays.copyOfRange(bytes, end, bytes.length))) {
+            throw invalid("record checksum mismatch");
+        }
+        return u16At(bytes, 6);
     }
 
     private static int u16At(byte[] bytes, int at) {

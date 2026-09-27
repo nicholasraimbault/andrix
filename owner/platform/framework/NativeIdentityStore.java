@@ -43,6 +43,20 @@ import com.android.server.pm.NativeIdentityRecords.UserEntry;
  * Reads never create, repair or delete anything. This deliberately does not call
  * ResilientAtomicFile.openRead/failRead, which may delete recovery copies. The
  * existing strict writer is reused to check the original writing descriptors.
+ *
+ * This protocol writes version 1 headers and slots only. An intact record frame
+ * (bounded size, magic, expected type, length and SHA-256) that declares a newer
+ * version is an unsupported footprint, not damage. A decoded version 2 header
+ * copy still contributes its holds, and only holds. A frame the codec cannot
+ * decode is no value: no app ID, binding or counter is invented from it. Such a
+ * main, reserve or backup copy makes its record UNSUPPORTED even when an older
+ * valid copy exists. A staging seed is never a copy or positive history, but it
+ * is preserved too. While any such footprint is recognized, every writer refuses
+ * before its first effect: the whole native store stays read only. That is an
+ * availability choice, separate from per-slot binding eligibility. It releases
+ * nothing, and damaged bytes, including a bad checksum, remain ordinary damage.
+ * It protects only records within the codec's size bound, and it does not
+ * recover holds that exist only in an unreadable index.
  */
 final class NativeIdentityStore {
     enum Status { MISSING, VALID, DAMAGED, CONFLICT, UNSUPPORTED }
@@ -64,13 +78,23 @@ final class NativeIdentityStore {
         final Set<Integer> occupiedAppIds;
         final boolean creationBlocked;
         final boolean enumerationComplete;
+        // Store availability, NOT binding eligibility: some header or slot copy
+        // or staging seed is a recognized unsupported footprint. Every writer
+        // then refuses and creation is blocked. bindingUsable still judges
+        // each slot by its own copies and the header.
+        final boolean unsupportedFootprint;
         Loaded(ReadResult<Header> header, Map<Integer, ReadResult<Slot>> slots,
                 Set<Integer> occupied, boolean blocked, boolean complete) {
+            this(header, slots, occupied, blocked, complete, false);
+        }
+        Loaded(ReadResult<Header> header, Map<Integer, ReadResult<Slot>> slots,
+                Set<Integer> occupied, boolean blocked, boolean complete, boolean unsupported) {
             this.header = header;
             this.slots = Map.copyOf(slots);
             occupiedAppIds = Set.copyOf(occupied);
-            creationBlocked = blocked;
+            creationBlocked = blocked || unsupported;
             enumerationComplete = complete;
+            unsupportedFootprint = unsupported;
         }
         // Metadata eligibility for fresh designation/PMS rebinding, NOT live
         // execution authority. Retiring users must still restore as RETIRING.
@@ -88,8 +112,10 @@ final class NativeIdentityStore {
 
     // The codec can preserve future header data, but this store's transition and
     // admission protocols still implement version 1. A decoded newer footprint
-    // is a hold, not permission to reinterpret or mutate that state.
+    // is a hold, not permission to reinterpret or mutate that state. An intact
+    // frame of a newer version that does not decode keeps no hold of its own.
     private static final int SUPPORTED_HEADER_VERSION = 1;
+    private static final int SUPPORTED_SLOT_VERSION = 1;
 
     private final File root;
     private final File slotRoot;
@@ -108,6 +134,8 @@ final class NativeIdentityStore {
     private File slotFile(int appId) { return new File(slotDirectory(appId), "record.bin"); }
     private static File backup(File main) { return new File(main.getPath() + "-backup"); }
     private static File reserve(File main) { return new File(main.getPath() + ".reservecopy"); }
+    // Staging for the preferred backup. Never a copy or positive history.
+    private static File seed(File main) { return new File(main.getPath() + "-seed"); }
     private static boolean exists(File file) {
         return Files.exists(file.toPath(), LinkOption.NOFOLLOW_LINKS);
     }
@@ -130,23 +158,74 @@ final class NativeIdentityStore {
         }
     }
 
-    private static <T> ReadResult<T> readCopies(File main, Decoder<T> decoder) {
+    // An intact frame of the expected type which declares a version this protocol
+    // does not write. Torn, foreign, wrongly typed, oversized, version 0 and bad
+    // checksum bytes are not recognized. They remain ordinary damage.
+    private static boolean unsupportedBytes(byte[] bytes, boolean header) {
+        return header ? NativeIdentityRecords.intactHeaderVersion(bytes) > SUPPORTED_HEADER_VERSION
+                : NativeIdentityRecords.intactSlotVersion(bytes) > SUPPORTED_SLOT_VERSION;
+    }
+    private static boolean unsupportedFile(File file, boolean header) {
+        if (!exists(file)) return false;
+        try { return unsupportedBytes(readBytes(file), header); }
+        catch (IOException | RuntimeException unreadable) { return false; }
+    }
+    // Every file a writer of this record can replace, truncate, rename over or unlink.
+    private static boolean unsupportedRecord(File main, boolean header) {
+        for (File file : List.of(main, reserve(main), backup(main), seed(main))) {
+            if (unsupportedFile(file, header)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * The store wide availability gate. Every writer passes it before its first
+     * effect. A recognized unsupported footprint in any header or slot record
+     * refuses them all, because a newer protocol can relate records in ways
+     * this writer cannot see. Incomplete namespace inspection also refuses:
+     * a target check cannot prove unrelated slots have no newer footprint.
+     * Refusal only keeps state; it is no hold, release or binding decision.
+     */
+    private boolean writeInspectionBlocked(int... targets) {
+        if (!directory(root) || !directory(slotRoot)) return true;
+        if (unsupportedRecord(headerFile(), true)) return true;
+        File[] entries = slotRoot.listFiles();
+        if (entries == null) return true;
+        TreeSet<Integer> appIds = new TreeSet<>();
+        for (int target : targets) appIds.add(target);
+        for (File entry : entries) {
+            Integer appId = parseSlotName(entry.getName());
+            if (appId != null) appIds.add(appId);
+        }
+        for (int appId : appIds) {
+            if (directory(slotDirectory(appId)) && unsupportedRecord(slotFile(appId), false)) return true;
+        }
+        return false;
+    }
+
+    private static <T> ReadResult<T> readCopies(File main, Decoder<T> decoder, boolean header) {
         File[] paths = {main, reserve(main), backup(main)};
         ArrayList<T> valid = new ArrayList<>();
         ArrayList<T> values = new ArrayList<>();
         boolean[] present = new boolean[3];
-        boolean bad = false;
+        boolean bad = false, unsupported = false;
         for (int i = 0; i < paths.length; ++i) {
             T value = null;
             present[i] = exists(paths[i]);
             if (present[i]) {
+                byte[] bytes = null;
                 try {
-                    value = decoder.decode(readBytes(paths[i]));
+                    bytes = readBytes(paths[i]);
+                    value = decoder.decode(bytes);
                     valid.add(value);
                 } catch (IOException | RuntimeException error) { bad = true; }
+                if (bytes != null && unsupportedBytes(bytes, header)) unsupported = true;
             }
             values.add(value);
         }
+        // A newer copy, selected or not, is never hidden by an older valid one.
+        // Decoded copies still contribute their negative holds.
+        if (unsupported) return new ReadResult<>(Status.UNSUPPORTED, null, valid);
         // Backup existence is authoritative for interrupted publication. Never
         // fall through an invalid backup to a possibly unconfirmed omission.
         if (present[2]) {
@@ -164,8 +243,12 @@ final class NativeIdentityStore {
                 null, valid);
     }
 
+    private ReadResult<Slot> readSlotCopies(int appId) {
+        return readCopies(slotFile(appId), NativeIdentityRecords::decodeSlot, false);
+    }
+
     private ReadResult<Header> readHeaderCopies() {
-        ReadResult<Header> read = readCopies(headerFile(), NativeIdentityRecords::decodeHeader);
+        ReadResult<Header> read = readCopies(headerFile(), NativeIdentityRecords::decodeHeader, true);
         for (Header copy : read.decodedCopies) {
             if (copy.version != SUPPORTED_HEADER_VERSION) {
                 // Even an unselected copy can contain a reservation whose new
@@ -181,23 +264,29 @@ final class NativeIdentityStore {
         TreeMap<Integer, ReadResult<Slot>> loaded = new TreeMap<>();
         TreeSet<Integer> occupied = new TreeSet<>();
         ReadResult<Header> header = new ReadResult<>(Status.MISSING, null, List.of());
-        boolean complete = false, blocked = true;
+        boolean complete = false, blocked = true, unsupported = false;
         try {
             if (!directory(root) || !directory(slotRoot)) {
                 // A missing root is NOT automatically permission to initialize a
                 // new lineage. The trusted creation operation decides that case.
-                if (directory(root)) header = readHeaderCopies();
+                if (directory(root)) {
+                    header = readHeaderCopies();
+                    unsupported = header.status == Status.UNSUPPORTED
+                            || unsupportedFile(seed(headerFile()), true);
+                }
                 for (Header copy : header.decodedCopies) {
                     for (HeaderEntry entry : copy.entries) occupied.add(entry.appId);
                 }
-                return new Loaded(header, loaded, occupied, true, false);
+                return new Loaded(header, loaded, occupied, true, false, unsupported);
             }
             header = readHeaderCopies();
+            unsupported = header.status == Status.UNSUPPORTED
+                    || unsupportedFile(seed(headerFile()), true);
             for (Header copy : header.decodedCopies) {
                 for (HeaderEntry entry : copy.entries) occupied.add(entry.appId);
             }
             File[] entries = slotRoot.listFiles();
-            if (entries == null) return new Loaded(header, loaded, occupied, true, false);
+            if (entries == null) return new Loaded(header, loaded, occupied, true, false, unsupported);
             complete = true;
             blocked = header.status != Status.VALID;
             // Discover every negative hold BEFORE record decoding can fail.
@@ -212,9 +301,13 @@ final class NativeIdentityStore {
                 if (header.status == Status.VALID && headerEntry(header.value, appId) == null) {
                     blocked = true; // Unknown creation lineage/counter, but only a negative hold.
                 }
-                ReadResult<Slot> record = directory(entry)
-                        ? readCopies(slotFile(appId), NativeIdentityRecords::decodeSlot)
+                ReadResult<Slot> record = directory(entry) ? readSlotCopies(appId)
                         : new ReadResult<>(Status.DAMAGED, null, List.of());
+                // Only a format footprint here; a user 0 limit below is not one.
+                if (record.status == Status.UNSUPPORTED
+                        || (directory(entry) && unsupportedFile(seed(slotFile(appId)), false))) {
+                    unsupported = true;
+                }
                 if (record.status == Status.VALID) {
                     if (record.value.appId != appId) {
                         record = new ReadResult<>(Status.CONFLICT, null, record.decodedCopies);
@@ -267,6 +360,16 @@ final class NativeIdentityStore {
             HashMap<String, Integer> packages = new HashMap<>();
             HashMap<Long, Integer> incarnations = new HashMap<>();
             HashSet<Integer> conflicts = new HashSet<>();
+            // A newly unsupported record must not make an otherwise conflicting
+            // sibling usable. Its decodable older copies are negative evidence,
+            // never an identity or counter source for the unsupported record.
+            for (Map.Entry<Integer, ReadResult<Slot>> entry : loaded.entrySet()) {
+                if (entry.getValue().status != Status.UNSUPPORTED) continue;
+                for (Slot copy : entry.getValue().decodedCopies) {
+                    packages.putIfAbsent(copy.packageName, entry.getKey());
+                    for (UserEntry user : copy.users) incarnations.putIfAbsent(user.id, entry.getKey());
+                }
+            }
             for (Map.Entry<Integer, ReadResult<Slot>> entry : loaded.entrySet()) {
                 if (entry.getValue().status != Status.VALID) continue;
                 Slot slot = entry.getValue().value;
@@ -278,8 +381,10 @@ final class NativeIdentityStore {
                 }
             }
             for (int appId : conflicts) {
-                loaded.put(appId, new ReadResult<>(Status.CONFLICT, null,
-                        loaded.get(appId).decodedCopies));
+                ReadResult<Slot> prior = loaded.get(appId);
+                if (prior.status == Status.VALID) {
+                    loaded.put(appId, new ReadResult<>(Status.CONFLICT, null, prior.decodedCopies));
+                }
             }
         } catch (RuntimeException error) {
             // Namespace/read failures are not permission to delete package data
@@ -287,7 +392,7 @@ final class NativeIdentityStore {
             complete = false;
             blocked = true;
         }
-        return new Loaded(header, loaded, occupied, blocked, complete);
+        return new Loaded(header, loaded, occupied, blocked, complete, unsupported);
     }
 
     /** Explicit fresh creation or its exact empty-result retry, never called by load(). */
@@ -297,6 +402,7 @@ final class NativeIdentityStore {
             File parent = root.getParentFile();
             if (!directory(parent)) return false;
             if (exists(root)) {
+                if (writeInspectionBlocked()) return false;
                 File[] children = slotRoot.listFiles();
                 File[] contents = root.listFiles();
                 Set<String> allowed = Set.of("slots", "store.bin", "store.bin-backup",
@@ -318,7 +424,7 @@ final class NativeIdentityStore {
             if (!stagedSlots.mkdir()) return false;
             protectDirectory(stagedSlots); syncDirectory(stagedSlots);
             byte[] bytes = NativeIdentityRecords.encodeHeader(empty);
-            if (!writeStrict(new File(staging, "store.bin"), bytes, null)) return false;
+            if (!writeStrict(new File(staging, "store.bin"), bytes, null, true)) return false;
             syncDirectory(staging);
             // Same private parent and one writer. No REPLACE_EXISTING and no
             // ATOMIC_MOVE option which could replace an existing empty target.
@@ -344,7 +450,8 @@ final class NativeIdentityStore {
     boolean writeHeader(Header expected, Header next) {
         Objects.requireNonNull(expected); Objects.requireNonNull(next);
         if (expected.version != SUPPORTED_HEADER_VERSION || next.version != SUPPORTED_HEADER_VERSION
-                || !expected.lineage.equals(next.lineage) || next.lastId < expected.lastId) return false;
+                || !expected.lineage.equals(next.lineage) || next.lastId < expected.lastId
+                || writeInspectionBlocked()) return false;
         ReadResult<Header> read = safeReadHeader();
         if (read.status != Status.VALID || !(read.value.equals(expected) || read.value.equals(next))) {
             return false;
@@ -353,12 +460,13 @@ final class NativeIdentityStore {
         // An exact uncertain retry is rewritten through real checked writers;
         // matching readback alone never turns it into a durable acknowledgement.
         return writeStrict(headerFile(), NativeIdentityRecords.encodeHeader(next),
-                NativeIdentityRecords.encodeHeader(read.value));
+                NativeIdentityRecords.encodeHeader(read.value), true);
     }
 
     boolean ensureFreshSlot(Header expected, int appId) {
         HeaderEntry entry = headerEntry(expected, appId);
-        if (entry == null || entry.phase != SlotPhase.CREATING || !confirmHeader(expected)) return false;
+        if (entry == null || entry.phase != SlotPhase.CREATING || writeInspectionBlocked(appId)
+                || !confirmHeader(expected)) return false;
         File directory = slotDirectory(appId);
         if (exists(directory)) return false; // A retry reconciles, never adopts an unknown mkdir.
         try {
@@ -377,7 +485,8 @@ final class NativeIdentityStore {
      */
     boolean resumeCreatingDirectory(Header expected, int appId) {
         HeaderEntry entry = headerEntry(expected, appId);
-        if (entry == null || entry.phase != SlotPhase.CREATING || !confirmHeader(expected)) return false;
+        if (entry == null || entry.phase != SlotPhase.CREATING || writeInspectionBlocked(appId)
+                || !confirmHeader(expected)) return false;
         File dir = slotDirectory(appId);
         if (!exists(dir)) return ensureFreshSlot(expected, appId);
         if (!directory(dir)) return false;
@@ -389,12 +498,12 @@ final class NativeIdentityStore {
             if (!allowed.contains(file.getName()) || Files.isSymbolicLink(file.toPath())
                     || !Files.isRegularFile(file.toPath(), LinkOption.NOFOLLOW_LINKS)) return false;
         }
-        ReadResult<Slot> read = readCopies(slotFile(appId), NativeIdentityRecords::decodeSlot);
+        ReadResult<Slot> read = readSlotCopies(appId);
         if (read.status != Status.MISSING && read.status != Status.VALID) return false;
         for (Slot copy : read.decodedCopies) {
             if (!matchesCreation(copy, expected, entry)) return false;
         }
-        File seed = new File(slotFile(appId).getPath() + "-seed");
+        File seed = seed(slotFile(appId));
         if (exists(seed)) {
             try {
                 if (!matchesCreation(NativeIdentityRecords.decodeSlot(readBytes(seed)), expected,
@@ -402,6 +511,7 @@ final class NativeIdentityStore {
             } catch (IOException | IllegalArgumentException error) {
                 // A torn unpublished seed may be overwritten by this same
                 // owned creation, not adopted as positive binding metadata.
+                // An intact unsupported seed never reaches here: the gate refused.
             }
         }
         try { syncDirectory(dir); syncDirectory(slotRoot); return true; }
@@ -417,7 +527,7 @@ final class NativeIdentityStore {
     /** Exact retirement reconciliation only, never a general absence-is-free test. */
     boolean confirmReleasedSlot(Header expected, int appId) {
         if (headerEntry(expected, appId) != null || exists(slotDirectory(appId))
-                || !confirmHeader(expected)) return false;
+                || writeInspectionBlocked(appId) || !confirmHeader(expected)) return false;
         try { syncDirectory(slotRoot); return true; }
         catch (IOException error) { return false; }
     }
@@ -426,12 +536,13 @@ final class NativeIdentityStore {
         Objects.requireNonNull(next);
         Objects.requireNonNull(expectedHeader);
         HeaderEntry index = headerEntry(expectedHeader, next.appId);
-        if (!confirmHeader(expectedHeader) || index == null || !directory(slotDirectory(next.appId))
+        if (writeInspectionBlocked(next.appId) || !confirmHeader(expectedHeader) || index == null
+                || !directory(slotDirectory(next.appId))
                 || !expectedHeader.lineage.equals(next.lineage)) return false;
         for (UserEntry user : next.users) if (user.id > expectedHeader.lastId) return false;
         if (index.phase == SlotPhase.RELEASING && !next.users.isEmpty()) return false;
         File main = slotFile(next.appId);
-        ReadResult<Slot> read = readCopies(main, NativeIdentityRecords::decodeSlot);
+        ReadResult<Slot> read = readSlotCopies(next.appId);
         if (index.phase != SlotPhase.CREATING || next.users.size() != 1
                 || next.users.get(0).id != index.creationId
                 || !next.packageName.equals(index.creationPackage)
@@ -443,15 +554,17 @@ final class NativeIdentityStore {
             syncDirectory(slotRoot);
         } catch (IOException error) { return false; }
         return writeStrict(main, NativeIdentityRecords.encodeSlot(next),
-                read.value == null ? null : NativeIdentityRecords.encodeSlot(read.value));
+                read.value == null ? null : NativeIdentityRecords.encodeSlot(read.value), false);
     }
 
     /** Existing binding mutation only: no counter reconstruction or new identity issuance. */
     boolean updateExistingSlot(Slot expected, Slot next) {
         Objects.requireNonNull(expected); Objects.requireNonNull(next);
+        if (writeInspectionBlocked(next.appId)) return false;
         Loaded loaded = load();
         ReadResult<Slot> read = loaded.slots.get(next.appId);
-        if (!loaded.enumerationComplete || loaded.header.status == Status.UNSUPPORTED
+        if (!loaded.enumerationComplete || loaded.unsupportedFootprint
+                || loaded.header.status == Status.UNSUPPORTED
                 || read == null || read.status != Status.VALID) return false;
         HeaderEntry index = loaded.header.value == null ? null : headerEntry(loaded.header.value, next.appId);
         if (index != null && index.phase == SlotPhase.RELEASING && !next.users.isEmpty()) return false;
@@ -489,23 +602,25 @@ final class NativeIdentityStore {
             if (!found) return false;
         }
         return writeStrict(slotFile(next.appId), NativeIdentityRecords.encodeSlot(next),
-                NativeIdentityRecords.encodeSlot(read.value));
+                NativeIdentityRecords.encodeSlot(read.value), false);
     }
 
     /** Confirm exact observed bytes through new checked writing FDs, not reader sync. */
     boolean confirmExistingSlot(Slot expected) {
+        if (writeInspectionBlocked(expected.appId)) return false;
         Loaded loaded = load();
         ReadResult<Slot> read = loaded.slots.get(expected.appId);
-        if (!loaded.enumerationComplete || loaded.header.status == Status.UNSUPPORTED
+        if (!loaded.enumerationComplete || loaded.unsupportedFootprint
+                || loaded.header.status == Status.UNSUPPORTED
                 || read == null || read.status != Status.VALID || !expected.equals(read.value)) return false;
         byte[] bytes = NativeIdentityRecords.encodeSlot(expected);
-        return writeStrict(slotFile(expected.appId), bytes, bytes);
+        return writeStrict(slotFile(expected.appId), bytes, bytes, false);
     }
 
     private boolean confirmHeader(Header expected) {
         if (!sameHeader(expected)) return false;
         byte[] bytes = NativeIdentityRecords.encodeHeader(expected);
-        return writeStrict(headerFile(), bytes, bytes);
+        return writeStrict(headerFile(), bytes, bytes, true);
     }
 
     /**
@@ -516,20 +631,21 @@ final class NativeIdentityStore {
      */
     boolean removeReleasingSlot(Header expected, int appId) {
         HeaderEntry index = headerEntry(expected, appId);
-        if (index == null || index.phase != SlotPhase.RELEASING || !confirmHeader(expected)) return false;
+        if (index == null || index.phase != SlotPhase.RELEASING || writeInspectionBlocked(appId)
+                || !confirmHeader(expected)) return false;
         File dir = slotDirectory(appId);
         if (!exists(dir)) {
             try { syncDirectory(slotRoot); return true; }
             catch (IOException error) { return false; }
         }
         if (!directory(dir)) return false;
-        ReadResult<Slot> read = readCopies(slotFile(appId), NativeIdentityRecords::decodeSlot);
+        ReadResult<Slot> read = readSlotCopies(appId);
         // Even a transaction marker cannot erase a parseable foreign/live body.
         for (Slot copy : read.decodedCopies) {
             if (copy.appId != appId || !copy.lineage.equals(expected.lineage)
                     || !copy.users.isEmpty()) return false;
         }
-        File seed = new File(slotFile(appId).getPath() + "-seed");
+        File seed = seed(slotFile(appId));
         if (exists(seed)) {
             try {
                 Slot copy = NativeIdentityRecords.decodeSlot(readBytes(seed));
@@ -538,6 +654,7 @@ final class NativeIdentityStore {
             } catch (IOException | IllegalArgumentException error) {
                 // A torn staging body is not positive metadata. The durable
                 // RELEASING transaction, not this parse failure, owns removal.
+                // An intact unsupported seed never reaches here: the gate refused.
             }
         }
         Set<String> allowed = Set.of("record.bin", "record.bin.reservecopy", "record.bin-backup",
@@ -549,6 +666,9 @@ final class NativeIdentityStore {
                 if (!allowed.contains(file.getName()) || Files.isSymbolicLink(file.toPath())
                         || !Files.isRegularFile(file.toPath(), LinkOption.NOFOLLOW_LINKS)) return false;
             }
+            // At the point of effect too: a tombstone copy is no permission to
+            // unlink an intact newer record or seed beside it.
+            if (unsupportedRecord(slotFile(appId), false)) return false;
             for (File file : files) if (!file.delete()) return false;
             syncDirectory(dir);
             if (!dir.delete()) return false;
@@ -572,7 +692,7 @@ final class NativeIdentityStore {
                         || !old.creationPackage.equals(changed.creationPackage)) return false;
                 continue;
             }
-            ReadResult<Slot> slot = readCopies(slotFile(old.appId), NativeIdentityRecords::decodeSlot);
+            ReadResult<Slot> slot = readSlotCopies(old.appId);
             if (slot.status != Status.VALID || slot.value.appId != old.appId
                     || !slot.value.lineage.equals(previous.lineage)) return false;
             if (old.phase == SlotPhase.CREATING && changed.phase == SlotPhase.LIVE) {
@@ -618,7 +738,7 @@ final class NativeIdentityStore {
         // delete the only good reserve. Persist the selected valid base using
         // a checked writer first, including when its earlier publication was
         // uncertain. Replacing a same-value backup does not change its meaning.
-        File staging = new File(main.getPath() + "-seed");
+        File staging = seed(main);
         if (exists(staging) && (!Files.isRegularFile(staging.toPath(), LinkOption.NOFOLLOW_LINKS)
                 || Files.isSymbolicLink(staging.toPath()))) {
             throw new IOException("Native backup staging alias");
@@ -639,8 +759,11 @@ final class NativeIdentityStore {
         syncDirectory(main.getParentFile());
     }
 
-    private static boolean writeStrict(File main, byte[] bytes, byte[] prior) {
+    private static boolean writeStrict(File main, byte[] bytes, byte[] prior, boolean header) {
         if (!directory(main.getParentFile())) return false;
+        // Every caller passed the store gate first. This is the point of effect:
+        // startWrite and the seed staging can unlink or replace each of these.
+        if (unsupportedRecord(main, header)) return false;
         // The root is private to PMS. Still refuse filesystem aliases rather
         // than allowing a corrupt slot to redirect a trusted writer.
         for (File file : List.of(main, reserve(main), backup(main))) {
