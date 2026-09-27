@@ -22,4 +22,7 @@ python3 -B -m unittest scripts.proof.tests.test_package_verity -v
 
 The source adapter shares the complete framework change fence with the accepted CE
 adaptation. It recognizes only exact original or declared candidate bytes. It does not
-allow arbitrary Package Installer changes merely because they use the same path.
+allow arbitrary Package Installer changes merely because they use the same path. The one
+ordered addition it also recognizes is the exact
+[payload sync companion](../installer-durability/pis-reverse-write-sync.md#ordered-companions)
+on top of its candidate, which it reports explicitly and will not revert underneath.

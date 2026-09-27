@@ -99,15 +99,25 @@ def inspect_file(project):
     original = source.run(project, 'show', 'HEAD:'+FILE)[1]
     target = candidate(original, value)
     current = path.read_bytes()
+    # Imported here because the ordered payload sync companion builds on this module.
+    import package_installer_payload_sync as payload_sync
+    payload = {'state': 'UPSTREAM', 'profile_sha256': sha(payload_sync.PROFILE.read_bytes())}
     if current == original:
         state = 'UPSTREAM'
     elif current == target:
         state = 'ADAPTED'
     else:
-        raise ValueError('unrecognized Package Installer modification')
+        # The companion counts only as its exact bytes on top of this exact candidate.
+        combined = payload_sync.combined(target)
+        if current != combined:
+            raise ValueError('unrecognized Package Installer modification')
+        # Package verity is applied. The composition stays the target, so applying package
+        # verity again cannot drop the companion.
+        state, target = 'ADAPTED', combined
+        payload['state'] = 'ADAPTED'
     return original, target, {'project': PROJECT, 'head': HEAD, 'file': FILE, 'state': state,
         'profile_sha256': sha(PROFILE.read_bytes()), 'signature_checks_bypassed': False,
-        'runtime_proved': False}
+        'runtime_proved': False, 'payload_sync_companion': payload}
 
 
 def inspect(root):
@@ -136,12 +146,17 @@ def main():
             or lifecycle.sealed_ancestor(evidence)):
         raise ValueError('fresh unsealed evidence outside source and repository required')
     project, original, target, result = inspect(root)
+    if args.action == 'revert' and result['payload_sync_companion']['state'] != 'UPSTREAM':
+        raise ValueError('revert the package installer payload sync companion first')
     if args.action != 'check':
         wanted = target if args.action == 'apply' else original
         if (project/FILE).read_bytes() != wanted:
             lifecycle.replace(project/FILE, wanted)
     _, _, _, after = inspect(root)
-    result.update(action=args.action, state_after=after['state'])
+    result.update(action=args.action, state_after=after['state'],
+                  payload_sync_state_after=after['payload_sync_companion']['state'])
+    # The correction is present in the verity only and the exact combined states. This does
+    # not require payload sync; a build that wants it also requires that companion.
     if args.require_adapted and after['state'] != 'ADAPTED':
         raise ValueError('complete package adaptation required for build')
     evidence.parent.mkdir(parents=True, exist_ok=True)

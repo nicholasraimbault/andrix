@@ -1,0 +1,841 @@
+// SPDX-License-Identifier: Apache-2.0
+//
+// Host harness for the exact Package Installer reverse write fragment. The Session slot
+// receives bytes extracted from the pinned source or from the exact candidate. The FileUtils
+// slot receives the pinned FileUtils.sync method. Every other class is a facade for an Android
+// dependency. Facades record calls and inject failures; the inserted source alone decides
+// whether a write reports success.
+//
+// Host files and channels are real, so copied bytes and descriptor lifetimes can be
+// observed. This is not kernel, filesystem, Binder or Android runtime qualification.
+
+import java.io.File;
+import java.io.IOException;
+import java.io.SyncFailedException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.Executor;
+
+public final class PisReverseWriteHarness {
+    static final String PASS = "PIS_REVERSE_WRITE_SYNC_HOST_PASS_NO_ANDROID_CLAIM";
+
+    // Linux values of the OsConstants that PackageInstallerSession imports statically.
+    static final int O_RDONLY = 0;
+    static final int O_WRONLY = 01;
+    static final int O_CREAT = 0100;
+
+    private PisReverseWriteHarness() {
+    }
+
+    static void need(boolean condition, String message) {
+        if (!condition) {
+            throw new AssertionError(message);
+        }
+    }
+
+    @interface GuardedBy {
+        String value();
+    }
+
+    @interface UnsupportedAppUsage {
+    }
+
+    static final class OsConstants {
+        static final int SEEK_SET = 0;
+        static final int EIO = 5;
+        static final int EBADF = 9;
+
+        private OsConstants() {
+        }
+
+        static String errnoName(int errno) {
+            switch (errno) {
+                case EIO:
+                    return "EIO";
+                case EBADF:
+                    return "EBADF";
+                default:
+                    return "errno " + errno;
+            }
+        }
+    }
+
+    // android.system.ErrnoException: the message names the call and errno, and
+    // rethrowAsIOException throws an IOException that carries this exception as its cause.
+    static final class ErrnoException extends Exception {
+        private static final long serialVersionUID = 1L;
+        final String functionName;
+        final int errno;
+
+        ErrnoException(String functionName, int errno) {
+            super(functionName + " failed: " + OsConstants.errnoName(errno));
+            this.functionName = functionName;
+            this.errno = errno;
+        }
+
+        IOException rethrowAsIOException() throws IOException {
+            IOException newException = new IOException(getMessage());
+            newException.initCause(this);
+            throw newException;
+        }
+    }
+
+    static final class ParcelableException extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+
+        ParcelableException(Throwable cause) {
+            super(cause);
+        }
+    }
+
+    static final class ExceptionUtils {
+        private ExceptionUtils() {
+        }
+
+        // Carries the IOException across Binder. The client Session.write unwraps it.
+        static RuntimeException wrap(IOException e) {
+            throw new ParcelableException(e);
+        }
+    }
+
+    static final class PackageInstaller {
+        // The real flag reads fw.revocable_fd once, default false. Both values run here.
+        static boolean ENABLE_REVOCABLE_FD;
+
+        private PackageInstaller() {
+        }
+    }
+
+    static final class Binder {
+        static int cleared;
+
+        private Binder() {
+        }
+
+        static long clearCallingIdentity() {
+            cleared++;
+            return 0x5eedL;
+        }
+
+        static void restoreCallingIdentity(long token) {
+            need(token == 0x5eedL && cleared > 0, "FAIL calling identity restore");
+            cleared--;
+        }
+
+        static int getCallingUid() {
+            return 2000;
+        }
+    }
+
+    static final class Process {
+        static final int SYSTEM_UID = 1000;
+
+        private Process() {
+        }
+    }
+
+    static final class SELinux {
+        private SELinux() {
+        }
+
+        static boolean restorecon(File file) {
+            throw new AssertionError("FAIL hard link staging is outside the reverse write");
+        }
+    }
+
+    static final class Slog {
+        private Slog() {
+        }
+
+        static int d(String tag, String message) {
+            return 0;
+        }
+    }
+
+    static final class Int64Ref {
+        long value;
+
+        Int64Ref(long value) {
+            this.value = value;
+        }
+    }
+
+    static final class CancellationSignal {
+    }
+
+    static final class SessionParams {
+        long sizeBytes;
+        int installFlags;
+    }
+
+    static final class InstallLocationUtils {
+        private InstallLocationUtils() {
+        }
+
+        static int translateAllocateFlags(int installFlags) {
+            return installFlags;
+        }
+    }
+
+    static final class StorageManager {
+        // The real call may free cache space, then preallocates. The fragment only needs
+        // the call to happen on its target descriptor, outside the session locks.
+        void allocateBytes(FileDescriptor fd, long bytes, int flags) throws IOException {
+            Trace t = Trace.current;
+            t.unlocked("allocateBytes");
+            need(t.table.containsKey(fd.descriptor), "FAIL allocation on an unknown descriptor");
+            t.event("allocate#" + fd.descriptor);
+        }
+    }
+
+    static final class Context {
+        private final StorageManager storage = new StorageManager();
+
+        <T> T getSystemService(Class<T> serviceClass) {
+            return serviceClass.cast(storage);
+        }
+    }
+
+    // java.io.FileDescriptor facade. Numbers name entries in Trace.table as integers name
+    // kernel descriptors. sync() is the checked java.io.FileDescriptor.sync().
+    static final class FileDescriptor {
+        int descriptor = -1;
+
+        FileDescriptor() {
+        }
+
+        FileDescriptor(int descriptor) {
+            this.descriptor = descriptor;
+        }
+
+        void setInt$(int value) {
+            descriptor = value;
+        }
+
+        void sync() throws SyncFailedException {
+            try {
+                Trace.current.sync(this, "FileDescriptor.sync");
+            } catch (ErrnoException e) {
+                SyncFailedException failure = new SyncFailedException(e.getMessage());
+                failure.initCause(e);
+                throw failure;
+            }
+        }
+    }
+
+    // java.io.FileOutputStream facade, used only by the pinned FileUtils.sync.
+    static final class FileOutputStream {
+        private final FileDescriptor fd;
+
+        FileOutputStream(FileDescriptor fd) {
+            this.fd = fd;
+        }
+
+        FileDescriptor getFD() throws IOException {
+            return fd;
+        }
+    }
+
+    static final class ParcelFileDescriptor implements AutoCloseable {
+        private final FileDescriptor fd;
+        private boolean closed;
+        private boolean detached;
+
+        ParcelFileDescriptor(FileDescriptor fd) {
+            this.fd = fd;
+        }
+
+        FileDescriptor getFileDescriptor() {
+            return fd;
+        }
+
+        int detachFd() {
+            need(!closed && !detached, "FAIL detach of a closed descriptor");
+            detached = true;
+            return fd.descriptor;
+        }
+
+        boolean isClosed() {
+            return closed;
+        }
+
+        @Override
+        public void close() throws IOException {
+            if (closed || detached) {
+                return;
+            }
+            closed = true;
+            Trace.current.close(fd);
+        }
+    }
+
+    // libcore.io.IoUtils.closeQuietly: rethrows unchecked failures and ignores the rest.
+    static final class IoUtils {
+        private IoUtils() {
+        }
+
+        static void closeQuietly(AutoCloseable closeable) {
+            if (closeable != null) {
+                try {
+                    closeable.close();
+                } catch (RuntimeException rethrown) {
+                    throw rethrown;
+                } catch (Exception ignored) {
+                }
+            }
+        }
+    }
+
+    // In reverse mode these are placeholder holds only: never initialized or started.
+    static final class RevocableFileDescriptor {
+        private boolean revoked;
+        private FileDescriptor initialized;
+
+        void init(Context context, FileDescriptor fd) throws IOException {
+            initialized = fd;
+        }
+
+        ParcelFileDescriptor getRevocableFileDescriptor() {
+            need(initialized != null, "FAIL revocable descriptor was not initialized");
+            return new ParcelFileDescriptor(new FileDescriptor(-3));
+        }
+
+        void revoke() {
+            revoked = true;
+        }
+
+        boolean isRevoked() {
+            return revoked;
+        }
+    }
+
+    static final class FileBridge {
+        private final ParcelFileDescriptor client = new ParcelFileDescriptor(new FileDescriptor(-2));
+        private ParcelFileDescriptor target;
+        private boolean closed;
+
+        void forceClose() {
+            Trace.current.event("bridge-forceClose");
+            IoUtils.closeQuietly(target);
+            closed = true;
+        }
+
+        boolean isClosed() {
+            return closed;
+        }
+
+        void setTargetFile(ParcelFileDescriptor file) {
+            target = file;
+        }
+
+        void start() {
+            Trace.current.event("bridge-start");
+        }
+
+        ParcelFileDescriptor getClientSocket() {
+            return client;
+        }
+    }
+
+    // ArrayList facade that checks the session lock guards every hold change.
+    static final class HoldList<E> implements Iterable<E> {
+        private final List<E> items = new ArrayList<>();
+        private final Object lock;
+        private final String label;
+
+        HoldList(Object lock, String label) {
+            this.lock = lock;
+            this.label = label;
+        }
+
+        boolean add(E item) {
+            need(Thread.holdsLock(lock), "FAIL " + label + " added without the session lock");
+            Trace.current.event(label + "-add");
+            return items.add(item);
+        }
+
+        boolean remove(Object item) {
+            need(Thread.holdsLock(lock), "FAIL " + label + " removed without the session lock");
+            Trace.current.event(label + "-remove");
+            return items.remove(item);
+        }
+
+        int size() {
+            return items.size();
+        }
+
+        @Override
+        public Iterator<E> iterator() {
+            return items.iterator();
+        }
+    }
+
+    static final class Open {
+        final String path;
+        final FileChannel channel;
+        final boolean writable;
+
+        Open(String path, FileChannel channel, boolean writable) {
+            this.path = path;
+            this.channel = channel;
+            this.writable = writable;
+        }
+    }
+
+    // android.system.Os facade. It deliberately offers no global sync and no fdatasync.
+    static final class Os {
+        private Os() {
+        }
+
+        static FileDescriptor open(String path, int flags, int mode) throws ErrnoException {
+            Trace t = Trace.current;
+            t.unlocked("open");
+            t.opens.add(path + "|" + flags + "|" + Integer.toOctalString(mode));
+            Path file = Path.of(path);
+            FileChannel channel;
+            boolean writable;
+            try {
+                if (Files.isDirectory(file)) {
+                    need(flags == O_RDONLY, "FAIL directory opened for writing");
+                    channel = null;
+                    writable = false;
+                } else if (flags == (O_CREAT | O_WRONLY)) {
+                    channel = FileChannel.open(file, StandardOpenOption.CREATE,
+                            StandardOpenOption.WRITE);
+                    writable = true;
+                } else {
+                    need(flags == O_RDONLY, "FAIL unexpected open flags " + flags);
+                    channel = FileChannel.open(file, StandardOpenOption.READ);
+                    writable = false;
+                }
+            } catch (IOException e) {
+                throw new ErrnoException("open", OsConstants.EIO);
+            }
+            FileDescriptor fd = t.register(path, channel, writable);
+            t.openedByOs.add(fd);
+            t.event("open#" + fd.descriptor);
+            return fd;
+        }
+
+        static void chmod(String path, int mode) throws ErrnoException {
+            Trace.current.event("chmod");
+        }
+
+        static long lseek(FileDescriptor fd, long offset, int whence) throws ErrnoException {
+            Trace t = Trace.current;
+            t.unlocked("lseek");
+            Open open = t.lookup(fd, "lseek");
+            need(whence == OsConstants.SEEK_SET && open.channel != null, "FAIL unexpected lseek");
+            try {
+                open.channel.position(offset);
+            } catch (IOException e) {
+                throw new ErrnoException("lseek", OsConstants.EIO);
+            }
+            t.event("lseek#" + fd.descriptor);
+            return offset;
+        }
+
+        static void fsync(FileDescriptor fd) throws ErrnoException {
+            Trace.current.sync(fd, "Os.fsync");
+        }
+
+        static void link(String oldPath, String newPath) throws ErrnoException {
+            throw new AssertionError("FAIL hard link staging is outside the reverse write");
+        }
+
+        static void unlink(String path) throws ErrnoException {
+            throw new AssertionError("FAIL hard link staging is outside the reverse write");
+        }
+    }
+
+    static final class FileUtils {
+        private FileUtils() {
+        }
+
+        interface ProgressListener {
+            void onProgress(long progress);
+        }
+
+        // Same result as the pinned isValidExtFilename: not empty, "." or "..", no NUL
+        // or '/', and at most 255 UTF-8 bytes.
+        static boolean isValidExtFilename(String name) {
+            return name != null && !name.isEmpty() && !".".equals(name) && !"..".equals(name)
+                    && name.indexOf('\0') < 0 && name.indexOf('/') < 0
+                    && name.getBytes(StandardCharsets.UTF_8).length <= 255;
+        }
+
+        // The real copy selects sendfile, splice or a userspace loop. This one copies through
+        // host channels, reports progress once and can fail after a partial write.
+        static long copy(FileDescriptor in, FileDescriptor out, long count,
+                CancellationSignal signal, Executor executor, ProgressListener listener)
+                throws IOException {
+            Trace t = Trace.current;
+            t.unlocked("copy");
+            t.copyIn = in;
+            t.copyOut = out;
+            t.event("copy#" + in.descriptor + ">" + out.descriptor);
+            Open source;
+            Open target;
+            try {
+                source = t.lookup(in, "copy");
+                target = t.lookup(out, "copy");
+            } catch (ErrnoException e) {
+                throw e.rethrowAsIOException();
+            }
+            need(source.channel != null && target.writable, "FAIL copy descriptors");
+            ByteBuffer buffer = ByteBuffer.allocate(8192);
+            long progress = 0;
+            while (progress < count) {
+                buffer.clear();
+                buffer.limit((int) Math.min(buffer.capacity(), count - progress));
+                int read = source.channel.read(buffer);
+                if (read < 0) {
+                    break;
+                }
+                buffer.flip();
+                while (buffer.hasRemaining()) {
+                    target.channel.write(buffer);
+                }
+                progress += read;
+                if (t.copyFailure != null && progress * 2 >= count) {
+                    t.event("copy-failed");
+                    throw t.copyFailure;
+                }
+            }
+            final long done = progress;
+            executor.execute(() -> listener.onProgress(done));
+            return done;
+        }
+
+@FILEUTILS_SYNC@
+    }
+
+    interface SessionBinder {
+        void write(String name, long offsetBytes, long lengthBytes, ParcelFileDescriptor fd);
+
+        void stageViaHardLink(String path);
+    }
+
+    static final class Session implements SessionBinder {
+        private static final String TAG = "PackageInstallerSession";
+        // APP_METADATA_FILE_ACCESS_MODE is the pinned Session value. The other two come
+        // from PackageManagerService, which this vehicle does not pin; they only pick a mode.
+        static final String APP_METADATA_FILE_NAME = "app.metadata";
+        static final int DEFAULT_FILE_ACCESS_MODE = 0644;
+        static final int APP_METADATA_FILE_ACCESS_MODE = 0640;
+
+        private final Object mLock = new Object();
+        private final Object mProgressLock = new Object();
+        private float mClientProgress = 0;
+        private final Context mContext = new Context();
+        final SessionParams params = new SessionParams();
+        final File stageDir;
+        final HoldList<RevocableFileDescriptor> mFds = new HoldList<>(mLock, "fds");
+        final HoldList<FileBridge> mBridges = new HoldList<>(mLock, "bridges");
+        final List<Boolean> canWriteChecks = new ArrayList<>();
+        int progressUpdates;
+
+        Session(File stageDir) {
+            this.stageDir = stageDir;
+        }
+
+        // Facade for the unchanged owner, state and reverse mode caller checks.
+        private void assertCanWrite(boolean reverseMode) {
+            canWriteChecks.add(reverseMode);
+        }
+
+        @GuardedBy("mProgressLock")
+        private void setClientProgressLocked(float progress) {
+            need(Thread.holdsLock(mProgressLock) && !Thread.holdsLock(mLock),
+                    "FAIL progress lock discipline");
+            mClientProgress = progress;
+            progressUpdates++;
+            Trace.current.event("progress");
+        }
+
+@FRAGMENT@
+    }
+
+    static final class Trace {
+        static Trace current;
+
+        final Session session;
+        final List<String> events = new ArrayList<>();
+        final Map<Integer, Open> table = new HashMap<>();
+        final List<String> opens = new ArrayList<>();
+        final List<FileDescriptor> openedByOs = new ArrayList<>();
+        final List<FileDescriptor> syncAttempts = new ArrayList<>();
+        FileDescriptor copyIn;
+        FileDescriptor copyOut;
+        IOException copyFailure;
+        int syncErrno;
+        int nextDescriptor = 20;
+        int fdsDuringSync = -1;
+        int bridgesDuringSync = -1;
+        boolean sealRefusedDuringSync;
+
+        Trace(Session session) {
+            this.session = session;
+        }
+
+        void event(String value) {
+            events.add(value);
+        }
+
+        void unlocked(String operation) {
+            need(!Thread.holdsLock(session.mLock) && !Thread.holdsLock(session.mProgressLock),
+                    "FAIL " + operation + " ran while holding a session lock");
+        }
+
+        FileDescriptor register(String path, FileChannel channel, boolean writable) {
+            int descriptor = nextDescriptor++;
+            table.put(descriptor, new Open(path, channel, writable));
+            return new FileDescriptor(descriptor);
+        }
+
+        Open lookup(FileDescriptor fd, String function) throws ErrnoException {
+            Open open = table.get(fd.descriptor);
+            if (open == null) {
+                throw new ErrnoException(function, OsConstants.EBADF);
+            }
+            return open;
+        }
+
+        ParcelFileDescriptor incoming(Path source) throws IOException {
+            FileChannel channel = FileChannel.open(source, StandardOpenOption.READ);
+            return new ParcelFileDescriptor(register(source.toString(), channel, false));
+        }
+
+        void close(FileDescriptor fd) throws IOException {
+            unlocked("close");
+            Open open = table.remove(fd.descriptor);
+            need(open != null, "FAIL close of an unknown descriptor " + fd.descriptor);
+            event("close#" + fd.descriptor);
+            if (open.channel != null) {
+                open.channel.close();
+            }
+        }
+
+        // Every sync route ends here: Os.fsync and the checked FileDescriptor.sync.
+        void sync(FileDescriptor fd, String via) throws ErrnoException {
+            syncAttempts.add(fd);
+            event("fsync#" + fd.descriptor);
+            unlocked(via);
+            Open open = lookup(fd, "fsync");
+            fdsDuringSync = session.mFds.size();
+            bridgesDuringSync = session.mBridges.size();
+            synchronized (session.mLock) {
+                try {
+                    session.assertNoWriteFileTransfersOpenLocked();
+                } catch (SecurityException expected) {
+                    sealRefusedDuringSync = "Files still open".equals(expected.getMessage());
+                }
+            }
+            if (syncErrno != 0) {
+                throw new ErrnoException("fsync", syncErrno);
+            }
+            if (open.channel != null) {
+                try {
+                    open.channel.force(true);
+                } catch (IOException e) {
+                    throw new ErrnoException("fsync", OsConstants.EIO);
+                }
+            }
+        }
+
+        void closeAll() throws IOException {
+            for (Open open : table.values()) {
+                if (open.channel != null) {
+                    open.channel.close();
+                }
+            }
+            table.clear();
+        }
+    }
+
+    static byte[] payload(int length) {
+        byte[] data = new byte[length];
+        for (int i = 0; i < length; i++) {
+            data[i] = (byte) (i * 31 + 7);
+        }
+        return data;
+    }
+
+    static Trace scenario(Path directory, int length) throws IOException {
+        Files.createDirectories(directory.resolve("stage"));
+        Files.write(directory.resolve("source.apk"), payload(length));
+        Session session = new Session(directory.resolve("stage").toFile());
+        session.params.sizeBytes = length;
+        Binder.cleared = 0;
+        Trace.current = new Trace(session);
+        return Trace.current;
+    }
+
+    static RuntimeException reverseWrite(Trace t, ParcelFileDescriptor incoming, int length) {
+        try {
+            t.session.write("base.apk", 0, length, incoming);
+            return null;
+        } catch (RuntimeException e) {
+            return e;
+        }
+    }
+
+    static List<String> reverseEvents(boolean revocable, int in, int out, String... middle) {
+        List<String> events = new ArrayList<>();
+        events.add(revocable ? "fds-add" : "bridges-add");
+        events.add("open#" + out);
+        events.add("chmod");
+        events.add("allocate#" + out);
+        events.add("copy#" + in + ">" + out);
+        events.addAll(Arrays.asList(middle));
+        events.add("close#" + out);
+        events.add("close#" + in);
+        if (!revocable) {
+            events.add("bridge-forceClose");
+        }
+        events.add(revocable ? "fds-remove" : "bridges-remove");
+        return events;
+    }
+
+    static void released(Trace t, ParcelFileDescriptor incoming, String label) {
+        need(incoming.isClosed(), "FAIL " + label + " left the caller descriptor open");
+        need(t.table.isEmpty(), "FAIL " + label + " left descriptors open " + t.table.keySet());
+        need(t.session.mFds.size() == 0 && t.session.mBridges.size() == 0,
+                "FAIL " + label + " kept the session hold");
+        synchronized (t.session.mLock) {
+            try {
+                t.session.assertNoWriteFileTransfersOpenLocked();
+            } catch (SecurityException e) {
+                throw new AssertionError("FAIL " + label + " still blocks sealing", e);
+            }
+        }
+        need(Binder.cleared == 0, "FAIL " + label + " left the calling identity cleared");
+    }
+
+    static void positive(Path directory, boolean revocable) throws IOException {
+        int length = 70001;
+        Trace t = scenario(directory, length);
+        ParcelFileDescriptor incoming = t.incoming(directory.resolve("source.apk"));
+        int in = incoming.getFileDescriptor().descriptor;
+        RuntimeException failure = reverseWrite(t, incoming, length);
+        if (failure != null) {
+            throw new AssertionError("FAIL positive reverse write threw " + failure, failure);
+        }
+        need(t.syncAttempts.size() == 1, "FAIL reverse write returned without exactly one fsync"
+                + " of its writing descriptor: " + t.syncAttempts.size());
+        need(t.copyOut != null && t.syncAttempts.get(0) == t.copyOut,
+                "FAIL fsync did not use the descriptor that received the copy");
+        String target = new File(t.session.stageDir, "base.apk").getAbsolutePath();
+        String mode = Integer.toOctalString(Session.DEFAULT_FILE_ACCESS_MODE);
+        need(t.openedByOs.size() == 1 && t.openedByOs.get(0) == t.copyOut
+                && t.opens.equals(List.of(target + "|" + (O_CREAT | O_WRONLY) + "|" + mode)),
+                "FAIL the writing descriptor was not the single target open " + t.opens);
+        int out = t.copyOut.descriptor;
+        need(t.events.equals(reverseEvents(revocable, in, out, "progress", "fsync#" + out)),
+                "FAIL event order " + t.events);
+        need(t.sealRefusedDuringSync && t.fdsDuringSync == (revocable ? 1 : 0)
+                && t.bridgesDuringSync == (revocable ? 0 : 1),
+                "FAIL the session hold did not block sealing during fsync");
+        released(t, incoming, "positive write");
+        need(t.session.canWriteChecks.equals(List.of(Boolean.TRUE)), "FAIL reverse mode check");
+        need(t.session.progressUpdates == 1, "FAIL progress update count");
+        need(Arrays.equals(Files.readAllBytes(directory.resolve("stage").resolve("base.apk")),
+                payload(length)), "FAIL staged bytes differ from the caller payload");
+    }
+
+    static void syncFailure(Path directory, boolean revocable) throws IOException {
+        int length = 4099;
+        Trace t = scenario(directory, length);
+        t.syncErrno = OsConstants.EIO;
+        ParcelFileDescriptor incoming = t.incoming(directory.resolve("source.apk"));
+        int in = incoming.getFileDescriptor().descriptor;
+        RuntimeException failure = reverseWrite(t, incoming, length);
+        need(failure != null, "FAIL fsync failure did not fail the write");
+        need(failure instanceof ParcelableException && failure.getCause() instanceof IOException
+                && String.valueOf(failure.getCause().getMessage()).contains("EIO"),
+                "FAIL fsync failure was not reported as the write's I/O error: " + failure);
+        need(t.syncAttempts.size() == 1 && t.syncAttempts.get(0) == t.copyOut,
+                "FAIL failed fsync was not on the writing descriptor");
+        int out = t.copyOut.descriptor;
+        need(t.events.equals(reverseEvents(revocable, in, out, "progress", "fsync#" + out)),
+                "FAIL event order after fsync failure " + t.events);
+        released(t, incoming, "failed fsync");
+    }
+
+    static void copyFailure(Path directory, boolean revocable) throws IOException {
+        int length = 9000;
+        Trace t = scenario(directory, length);
+        IOException injected = new IOException("injected copy failure");
+        t.copyFailure = injected;
+        ParcelFileDescriptor incoming = t.incoming(directory.resolve("source.apk"));
+        int in = incoming.getFileDescriptor().descriptor;
+        RuntimeException failure = reverseWrite(t, incoming, length);
+        need(failure instanceof ParcelableException && failure.getCause() == injected,
+                "FAIL copy failure was not the reported write failure: " + failure);
+        need(t.syncAttempts.isEmpty(), "FAIL fsync attempted after a failed copy");
+        need(t.copyOut != null, "FAIL copy was not attempted");
+        int out = t.copyOut.descriptor;
+        need(t.events.equals(reverseEvents(revocable, in, out, "copy-failed")),
+                "FAIL event order after copy failure " + t.events);
+        need(t.session.progressUpdates == 0, "FAIL progress reported for a failed copy");
+        released(t, incoming, "failed copy");
+    }
+
+    // openWrite shape: the fragment hands the target to the hold and adds no fsync.
+    static void forwardControl(Path directory, boolean revocable) throws IOException {
+        int length = 512;
+        Trace t = scenario(directory, length);
+        Session s = t.session;
+        ParcelFileDescriptor returned = s.doWriteInternal("base.apk", 0, length, null);
+        need(returned != null && t.syncAttempts.isEmpty() && t.openedByOs.size() == 1,
+                "FAIL forward write changed shape");
+        int out = t.openedByOs.get(0).descriptor;
+        List<String> events = new ArrayList<>(List.of(revocable ? "fds-add" : "bridges-add",
+                "open#" + out, "chmod", "allocate#" + out));
+        if (!revocable) {
+            events.add("bridge-start");
+        }
+        need(t.events.equals(events), "FAIL forward event order " + t.events);
+        need(t.table.containsKey(out), "FAIL forward target was closed by the system side");
+        need(s.mFds.size() == (revocable ? 1 : 0) && s.mBridges.size() == (revocable ? 0 : 1),
+                "FAIL forward hold count");
+        boolean refused = false;
+        synchronized (s.mLock) {
+            try {
+                s.assertNoWriteFileTransfersOpenLocked();
+            } catch (SecurityException expected) {
+                refused = true;
+            }
+        }
+        need(refused, "FAIL an open forward stream did not block sealing");
+        t.closeAll();
+    }
+
+    public static void main(String[] args) throws IOException {
+        if (!PisReverseWriteHarness.class.desiredAssertionStatus()) {
+            throw new AssertionError("-ea required: refusing to run with assertions disabled");
+        }
+        Path root = Path.of(args[0]);
+        for (boolean revocable : new boolean[] {false, true}) {
+            PackageInstaller.ENABLE_REVOCABLE_FD = revocable;
+            String branch = revocable ? "revocable" : "bridge";
+            positive(root.resolve(branch + "-positive"), revocable);
+            syncFailure(root.resolve(branch + "-fsync-failure"), revocable);
+            copyFailure(root.resolve(branch + "-copy-failure"), revocable);
+            forwardControl(root.resolve(branch + "-forward"), revocable);
+            System.out.println("hold branch " + branch + ": positive, fsync failure, copy failure"
+                    + " and forward control passed");
+        }
+        System.out.println(PASS);
+    }
+}

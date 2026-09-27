@@ -14,6 +14,23 @@ subsequent signature and digest checks in place. Use `scripts/proof/package_veri
 See the [restoration design](../../plans/2026-09-22-package-verity-restoration.md) and
 [exact method tests](../../tests/staged-apk-verity/README.md).
 
+`package-installer-payload-sync.*` is ordered after package verity on the same Package
+Installer file. It adds one checked fsync of the reverse mode target descriptor after a
+successful copy, before the write can report success. Use
+`scripts/proof/package_installer_payload_sync.py`. Its candidate is derived from the pinned
+upstream through the exact package verity candidate, then its own exact patch. Apply refuses
+unless package verity is applied; revert removes only this companion. The package verity
+inspector recognizes the combined bytes as applied, keeps them when applying, and refuses
+to revert until the companion is removed. Its `--require-adapted` means the verity
+correction is present, alone or in the exact combination, and does not require this
+companion. The companion's own `--require-adapted` requires the combination, so a build
+that wants both requires both. Each report names every component with its state and
+profile hash. The patch is byte identical to the
+[host tested candidate](../../tests/installer-durability/pis-reverse-write-sync.md).
+Qualification is host only, and the companion is not Android qualified. It does not cover
+directory entries, renames, settings or whole install durability. Android compilation and
+runtime are separate gates.
+
 `native-principal-pins.*` adds the internal Package Manager reservation component for native
 account identity lifetime. Use `scripts/proof/native_principal_pins.py`. The
 [implementation and limits](../../owner/platform/principal-pins.md) distinguish checked settings

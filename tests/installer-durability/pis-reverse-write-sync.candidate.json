@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "status": "candidate",
+  "integrated": false,
+  "project": "frameworks/base",
+  "head": "aab06a8bd44c4c2b58eeec780fde83baa9d43a40",
+  "file": "services/core/java/com/android/server/pm/PackageInstallerSession.java",
+  "base_profile": "patches/grapheneos-2026081300/package-verity.json",
+  "base_profile_sha256": "a9eedd3ef228c74bdbf67be1776687db1d71b04ab6beba017f86ae8f12f5d676",
+  "upstream_sha256": "5ff683567eef824f49bb0e6f1eb9cee1c506ad6ac688970d20802506564a1216",
+  "base_sha256": "fb26726b625a3d5bd558fed57c22ac06927defb45d3535fa57479693bf865d02",
+  "candidate_sha256": "5e6b00f382c9bce34d6651e34fe641f6f9ba0e7676697fe65245f067617e6b80",
+  "patch_sha256": "81510e45b309bc2b997ea153bcb15cec732b9fd10945158889814aa666c9ebdb",
+  "base_fragment_sha256": "969258ac9358abe9a9edf77428de130c21bf1cbc658184e9098e8f1ba0404576",
+  "candidate_fragment_sha256": "55d8bef48fd52beed12045c78213d2d8be6ddb4721a351705ad184b9ad62f364",
+  "fileutils_file": "core/java/android/os/FileUtils.java",
+  "fileutils_sha256": "344e09f6ef3a1d8e716b2a5feaa137042df029f9a4d8475b3d6f359773772cd6",
+  "fileutils_sync_fragment_sha256": "915fb3810df9fd31c0d0e8eff94e3e20286019617a42dd0fbd9371e967214cbd",
+  "scope": "checked fsync of the reverse mode target descriptor after a successful copy; no directory, rename, settings, install atomicity or crash durability claim"
+}

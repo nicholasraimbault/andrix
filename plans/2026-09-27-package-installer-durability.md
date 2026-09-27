@@ -1,8 +1,8 @@
 # Package Installer payload durability
 
 Status: an observed cold boot failure, a reproduced file durability distinction, and a candidate
-source correction. The candidate has guarded host tests. It is not yet applied or compiled into
-Android. No permission popup, grant or native account activation was qualified by this work.
+source correction with an exact, ordered framework adapter. The correction has guarded host
+tests. It is not yet applied or compiled into Android. No permission popup, grant or native account activation was qualified by this work.
 
 ## Observation
 
@@ -74,6 +74,9 @@ those controls were unavailable in its sandbox.
 
 The candidate also affects nonincremental data loader writes that use the same branch. It does
 not fix every preexisting error path, guarantee complete input length, sync later namespace
-renames or make the whole install transaction crash atomic. Exact adaptation composition, Android
-compilation and runtime checks remain next steps. The consent trial remains pending, separately
-from this storage diagnosis.
+renames or make the whole install transaction crash atomic. The
+[ordered adapter](../tests/installer-durability/pis-reverse-write-sync.md#ordered-companions) now
+recognizes only the pinned verity base and exact combined bytes. Verity apply cannot discard the
+sync, and verity revert refuses until its companion is reverted first. Android compilation and
+runtime checks remain next steps. The consent trial remains pending, separately from this storage
+diagnosis.

@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "project": "frameworks/base",
+  "head": "aab06a8bd44c4c2b58eeec780fde83baa9d43a40",
+  "file": "services/core/java/com/android/server/pm/PackageInstallerSession.java",
+  "requires": "patches/grapheneos-2026081300/package-verity.json",
+  "requires_sha256": "a9eedd3ef228c74bdbf67be1776687db1d71b04ab6beba017f86ae8f12f5d676",
+  "upstream_sha256": "5ff683567eef824f49bb0e6f1eb9cee1c506ad6ac688970d20802506564a1216",
+  "base_sha256": "fb26726b625a3d5bd558fed57c22ac06927defb45d3535fa57479693bf865d02",
+  "candidate_sha256": "5e6b00f382c9bce34d6651e34fe641f6f9ba0e7676697fe65245f067617e6b80",
+  "patch_sha256": "81510e45b309bc2b997ea153bcb15cec732b9fd10945158889814aa666c9ebdb",
+  "host_profile": "tests/installer-durability/pis-reverse-write-sync.candidate.json",
+  "host_profile_sha256": "885b99bbb637a4a594583baaf89c40e9147a96b145658f877ec8ec7739af58f0",
+  "host_patch": "tests/installer-durability/pis-reverse-write-sync.candidate.patch",
+  "host_base_fragment_sha256": "969258ac9358abe9a9edf77428de130c21bf1cbc658184e9098e8f1ba0404576",
+  "host_fragment_sha256": "55d8bef48fd52beed12045c78213d2d8be6ddb4721a351705ad184b9ad62f364",
+  "scope": "checked fsync of the reverse mode target descriptor after a successful copy, ordered after package verity; no directory, rename, settings, install atomicity or crash durability claim"
+}

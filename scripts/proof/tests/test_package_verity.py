@@ -84,7 +84,11 @@ class PackageVerityTests(unittest.TestCase):
             known={'state':'ADAPTED','file':verity.FILE}
             import native_principal_pins as native
             native_state={'state':'UPSTREAM','files':{name:'UPSTREAM' for name in (*native.FILES,*native.ADDED)}}
-            with mock.patch.object(lifecycle, 'profile', return_value={}), mock.patch.object(lifecycle, 'targets', return_value=target), mock.patch.object(lifecycle.source, 'filter_overrides', return_value=[]), mock.patch.object(lifecycle.source, 'run', side_effect=run), mock.patch.object(verity,'inspect_file',return_value=(b'old',b'new',known)), mock.patch.object(native,'inspect_files',return_value=({}, {}, native_state)):
+            # Fixture correction: the fence also inspects the lab writer companion (6caeedd).
+            # Report it unmodified, as for native pins; the fence logic itself is unchanged.
+            import native_identity_writer as writer
+            writer_state={'state':'UPSTREAM','files':{writer.FILE:'UPSTREAM',writer.ADDED:'UPSTREAM'}}
+            with mock.patch.object(lifecycle, 'profile', return_value={}), mock.patch.object(lifecycle, 'targets', return_value=target), mock.patch.object(lifecycle.source, 'filter_overrides', return_value=[]), mock.patch.object(lifecycle.source, 'run', side_effect=run), mock.patch.object(verity,'inspect_file',return_value=(b'old',b'new',known)), mock.patch.object(native,'inspect_files',return_value=({}, {}, native_state)), mock.patch.object(writer,'inspect_files',return_value=({}, {}, writer_state)):
                 self.assertEqual(lifecycle.inspect(root)[3]['state'],'ADAPTED')
                 modified.append('unrelated.java')
                 with self.assertRaises(ValueError):lifecycle.inspect(root)
