@@ -2,7 +2,7 @@
   "version": 1,
   "project": "frameworks/base",
   "head": "aab06a8bd44c4c2b58eeec780fde83baa9d43a40",
-  "patch_sha256": "bc9c85f61927e07b92ae686a67e6e0faf0e5fb491d964d946e93d8412e3f9c2c",
+  "patch_sha256": "929e01c1fed77b9bcaf91423dbe7bc83b856f68cfa76b4fa16dbc98c01ce3dcc",
   "files": [
     {
       "path": "services/core/java/com/android/server/pm/AppIdSettingMap.java",
@@ -12,7 +12,7 @@
     {
       "path": "services/core/java/com/android/server/pm/Settings.java",
       "upstream_sha256": "bff2de579d206a39be81ef0b798df8f6e845d2f28efbbcd63554ccffbddae5a1",
-      "candidate_sha256": "07a514479dbfebc45f1391eb325e4fbc5ed58c417d85aa6c19df1960488b2b5f"
+      "candidate_sha256": "1436e2419d0a68036965ebca8a9ac49a04a8c0bb88c555ff64f1c6b1ee8c0079"
     },
     {
       "path": "services/core/java/com/android/server/pm/PackageManagerService.java",
@@ -74,12 +74,12 @@
     {
       "path": "services/core/java/com/android/server/pm/NativeIdentityStore.java",
       "source": "owner/platform/framework/NativeIdentityStore.java",
-      "sha256": "cb4d195f841491ec8a5e3a35888d2c06a7ab651673a22da8a68098ad51d4b721"
+      "sha256": "92679c46989ab121ec274e9ddac340164aa55aba534c106aca23885bbc1cf991"
     },
     {
       "path": "services/core/java/com/android/server/pm/NativeIdentityPersistence.java",
       "source": "owner/platform/framework/NativeIdentityPersistence.java",
-      "sha256": "f20100402ca0284c009097c96d74213533d828d035ab1d83e1d4211c7ce919af"
+      "sha256": "4fd90c2546a9f99181a01b2ca074b63627b44c927ba6fd8e59c93c3ec3224665"
     },
     {
       "path": "services/core/java/com/android/server/pm/NativePrincipalRecovery.java",
@@ -147,7 +147,7 @@
       "name": "restore-capacity",
       "path": "services/core/java/com/android/server/pm/Settings.java",
       "source": "owner/tests/platform/native_recovery_fragments/restore-capacity.java.inc",
-      "sha256": "f6dfceb4e4d64dfa6431fcf8d71e14b07061b3cd5df6ea1872ca662b5201972b"
+      "sha256": "94f73c5bc31d28d85f51c678b60daa7eeaae3482e15840210895cb62f58ecdef"
     },
     {
       "name": "admission",

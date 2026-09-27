@@ -42,12 +42,13 @@ final class Settings {
 
     void restoreAfterPackageSettings() {
         if (applied) throw new AssertionError("already restored");
-        mNativeIdentityLoaded = persistence.load();
+        NativeIdentityStore.Loaded loaded = persistence.load();
+        mNativeIdentityLoaded = loaded;
         ArrayList<NativePrincipalPins.Record> records = new ArrayList<>();
         Set<Long> retiring = new TreeSet<>();
-        for (int appId : mNativeIdentityLoaded.slots.keySet()) {
-            if (!mNativeIdentityLoaded.bindingUsable(appId)) continue;
-            NativeIdentityRecords.Slot slot = mNativeIdentityLoaded.slots.get(appId).value;
+        for (int appId : loaded.slots.keySet()) {
+            if (!loaded.bindingUsable(appId)) continue;
+            NativeIdentityRecords.Slot slot = loaded.slots.get(appId).value;
             for (NativeIdentityRecords.UserEntry user : slot.users) {
                 records.add(new NativePrincipalPins.Record(user.id, slot.packageName, appId,
                         user.userId, user.userSerial));
@@ -55,11 +56,23 @@ final class Settings {
             }
         }
         records.sort(java.util.Comparator.comparingLong(value -> value.id));
-        if (mNativeIdentityLoaded.creationReady()) pins.restore(new NativePrincipalPins.Snapshot(
-                mNativeIdentityLoaded.header.value.lastId, records, retiring));
-        else pins.restoreBindingsWithoutCounter(records, retiring);
+        // The exact restore-capacity fragment of the adapted framework Settings.
+        NativePrincipalPins restored = new NativePrincipalPins(64);
+        if (records.size() > 64) {
+            // Parsing holds is not permission to exceed this adapter's binding
+            // capacity or abort ordinary PMS boot. Retain every store footprint.
+            restored.restoreBindingsWithoutCounter(java.util.List.of(), java.util.Set.of());
+        } else if (loaded.counterRestorable()) {
+            restored.restore(new NativePrincipalPins.Snapshot(loaded.header.value.lastId,
+                    records, retiring));
+        } else {
+            // No usable counter, or an unselected header copy adds to it or does not
+            // follow it. Keep every hold and eligible binding; guess no counter.
+            restored.restoreBindingsWithoutCounter(records, retiring);
+        }
+        pins = restored;
         applied = true;
-        observeNativeIdentityStoreLPw(mNativeIdentityLoaded);
+        observeNativeIdentityStoreLPw(loaded);
     }
 
     NativePrincipalPins nativePrincipalPinsLPr() { return pins; }

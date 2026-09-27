@@ -36,28 +36,52 @@ class NativeRecoveryBootTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('javac') and shutil.which('java'), 'JDK required')
     def test_actual_patched_fragments_on_jvm(self):
         integration.profile()
-        with tempfile.TemporaryDirectory() as directory:
-            work = Path(directory)
-            test = work / 'NativeRecoveryBootTest.java'
-            test.write_text(boot_source())
-            writer = work / 'ResilientAtomicFile.java'
-            writer.write_bytes(integration.FIXTURES[
-                integration.PREFIX + 'ResilientAtomicFile.java'].read_bytes())
-            sources = [test, writer, ROOT / 'owner/tests/platform/NativePinTestSupport.java',
-                       *[ROOT / 'owner/platform/framework' / (name + '.java') for name in
-                         ['NativePrincipalPins', 'NativeIdentityRecords', 'NativeIdentityStore',
-                          'NativePrincipalRecovery']],
-                       *[p for p in sorted((ROOT / 'owner/tests/platform/native_principal_xml_stubs')
-                                          .rglob('*.java')) if p.name != 'Xml.java']]
-            compiled = subprocess.run(['javac', '-J-Xmx256m', '--release', '17', '-Xlint:all',
-                                       '-Werror', '-d', str(work), *map(str, sources)],
-                                      capture_output=True, text=True, timeout=120)
-            self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
-            result = subprocess.run(['java', '-Xmx256m', '-ea', '-cp', str(work),
-                                     'com.android.server.pm.NativeRecoveryBootTest'],
-                                    capture_output=True, text=True, timeout=60)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertIn('Android boot unqualified', result.stdout)
+        fragments = {name: path.read_text() for name, (_, path) in integration.FRAGMENTS.items()}
+        restoring = fragments['restore-capacity']
+        self.assertEqual(restoring.count('loaded.counterRestorable()'), 1)
+        withheld = '            restored.restoreBindingsWithoutCounter(records, retiring);\n'
+        self.assertEqual(restoring.count(withheld), 1)
+        # Deliberate defects: restore the selected counter despite an unselected addition, or
+        # guess the largest observed counter instead of withholding one.
+        guessed = restoring.replace(withheld, (
+            '            long guessed = 0;\n'
+            '            for (NativeIdentityRecords.Header copy : loaded.header.decodedCopies) {\n'
+            '                guessed = Math.max(guessed, copy.lastId);\n'
+            '            }\n'
+            '            restored.restore(new NativePrincipalPins.Snapshot(guessed, records, retiring));\n'))
+        defects = [('counter-despite-additions', restoring.replace(
+                        'loaded.counterRestorable()', 'loaded.creationReady()')),
+                    ('guessed-counter', guessed)]
+        for label, source, mode in [('actual', boot_source(), 'all'),
+                                    *((label, boot_source({**fragments, 'restore-capacity': text}), 'unselected')
+                                      for label, text in defects)]:
+            with tempfile.TemporaryDirectory() as directory:
+                work = Path(directory)
+                test = work / 'NativeRecoveryBootTest.java'
+                test.write_text(source)
+                writer = work / 'ResilientAtomicFile.java'
+                writer.write_bytes(integration.FIXTURES[
+                    integration.PREFIX + 'ResilientAtomicFile.java'].read_bytes())
+                sources = [test, writer, ROOT / 'owner/tests/platform/NativePinTestSupport.java',
+                           *[ROOT / 'owner/platform/framework' / (name + '.java') for name in
+                             ['NativePrincipalPins', 'NativeIdentityRecords', 'NativeIdentityStore',
+                              'NativePrincipalRecovery']],
+                           *[p for p in sorted((ROOT / 'owner/tests/platform/native_principal_xml_stubs')
+                                              .rglob('*.java')) if p.name != 'Xml.java']]
+                compiled = subprocess.run(['javac', '-J-Xmx256m', '--release', '17', '-Xlint:all',
+                                           '-Werror', '-d', str(work), *map(str, sources)],
+                                          capture_output=True, text=True, timeout=120)
+                self.assertEqual(compiled.returncode, 0, label + compiled.stdout + compiled.stderr)
+                result = subprocess.run(['java', '-Xmx256m', '-ea', '-cp', str(work),
+                                         'com.android.server.pm.NativeRecoveryBootTest', mode],
+                                        capture_output=True, text=True, timeout=60)
+                if label == 'actual':
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn('Unselected header additions and incompatible copies withhold only the', result.stdout)
+                    self.assertIn('Android boot unqualified', result.stdout)
+                else:
+                    self.assertNotEqual(result.returncode, 0, label + ' defect was not caught')
+                    self.assertIn('selected counter restored beside an unselected addition', result.stderr)
 
 
 if __name__ == '__main__':

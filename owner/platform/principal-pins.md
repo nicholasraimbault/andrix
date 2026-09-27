@@ -78,9 +78,16 @@ cannot be skipped merely because it is unreadable. Different valid copies are a 
 
 Before rewriting, a checked seed preserves the chosen valid base. This prevents a corrupt main
 from becoming the preferred backup while the only intact reserve is deleted. First publication
-also uses a complete checked seed. Actual writing descriptors, atomic namespace changes and
-required directory syncs establish the acknowledgements. Readback is supplemental, not a
-substitute for the writer's result. Cross file prerequisites use checked confirmations too.
+also uses a complete checked seed. A pure reservation publishes its own target as the preferred
+backup the same way before main and reserve are rewritten, so a failed write keeps every hold.
+Other writes keep their prior there. Header copies must be compatible with the selection. Every
+header write and reservation admission must restate each entry that only an unselected copy lists,
+or refuse. A new registry with an unreconciled addition or incompatible copy restores no counter.
+A protected target can restore its own counter beside its predecessor copies. See the
+[header footprint correction](../../plans/2026-09-27-native-header-footprint.md). Actual writing
+descriptors, atomic namespace changes and required directory syncs establish the acknowledgements.
+Readback is supplemental, not a substitute for the writer's result. Cross file prerequisites use
+checked confirmations too.
 
 Runtime I/O runs under the install lock but outside the PMS state lock and all work control lanes.
 Inputs are captured first and platform facts revalidated afterward. The boot store read precedes

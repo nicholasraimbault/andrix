@@ -189,6 +189,49 @@ public final class NativeRecoveryBootTest {
             assert loaded.occupiedAppIds.size() == 65; // Negative holds were not discarded.
             System.out.println("Malformed metadata degrades without fabricated identity or boot throw");
         }
+        if (mode.equals("all") || mode.equals("unselected")) {
+            // A preferred empty backup beside main and reserve copies that list B's creation.
+            String lineage = "0123456789abcdef0123456789abcdef";
+            NativeIdentityRecords.HeaderEntry creating = new NativeIdentityRecords.HeaderEntry(10000,
+                    NativeIdentityRecords.SlotPhase.CREATING, 1, "dev.andrix.b");
+            NativeIdentityRecords.Header empty = new NativeIdentityRecords.Header(lineage, 0, List.of());
+            NativeIdentityRecords.Header pending = new NativeIdentityRecords.Header(lineage, 1, List.of(creating));
+            NativeIdentityStore.Loaded addition = new NativeIdentityStore.Loaded(
+                    new NativeIdentityStore.ReadResult<>(NativeIdentityStore.Status.VALID, empty,
+                            List.of(pending, pending, empty)), java.util.Map.of(), Set.of(10000), false, true);
+            assert addition.creationReady() : "an unselected addition became a creation block";
+            NativePrincipalPins withheld = Settings.restoreCapacity(List.of(), Set.of(), addition);
+            assert !withheld.hasKnownCounter() : "selected counter restored beside an unselected addition";
+            assert addition.occupiedAppIds.equals(Set.of(10000));
+            // An interrupted forward phase change lists no app ID the selection lacks.
+            NativeIdentityRecords.Header live = new NativeIdentityRecords.Header(lineage, 1, List.of(
+                    new NativeIdentityRecords.HeaderEntry(10000, NativeIdentityRecords.SlotPhase.LIVE, 0, "")));
+            NativeIdentityStore.Loaded forward = new NativeIdentityStore.Loaded(
+                    new NativeIdentityStore.ReadResult<>(NativeIdentityStore.Status.VALID, pending,
+                            List.of(live, live, pending)), java.util.Map.of(), Set.of(10000), false, true);
+            NativePrincipalPins kept = Settings.restoreCapacity(List.of(), Set.of(), forward);
+            assert kept.hasKnownCounter() && kept.snapshotForWrite().lastId == 1
+                    : "an interrupted phase change withheld the counter";
+            // A higher counter without a reservation, or a backward phase, is incompatible.
+            NativeIdentityRecords.Header higher = new NativeIdentityRecords.Header(lineage, 3, live.entries);
+            for (NativeIdentityRecords.Header[] pair : List.of(new NativeIdentityRecords.Header[] {live, higher},
+                    new NativeIdentityRecords.Header[] {live, pending})) {
+                NativeIdentityStore.Loaded incompatible = new NativeIdentityStore.Loaded(
+                        new NativeIdentityStore.ReadResult<>(NativeIdentityStore.Status.VALID, pair[0],
+                                List.of(pair[1], pair[0])), java.util.Map.of(), Set.of(10000), false, true);
+                assert !Settings.restoreCapacity(List.of(), Set.of(), incompatible).hasKnownCounter()
+                        : "selected counter restored beside an incompatible header copy";
+            }
+            // A protected reservation's target as the backup, beside copies that predate it.
+            NativeIdentityStore.Loaded predecessor = new NativeIdentityStore.Loaded(
+                    new NativeIdentityStore.ReadResult<>(NativeIdentityStore.Status.VALID, pending,
+                            List.of(empty, empty, pending)), java.util.Map.of(), Set.of(10000), false, true);
+            NativePrincipalPins covered = Settings.restoreCapacity(List.of(), Set.of(), predecessor);
+            assert covered.hasKnownCounter() && covered.snapshotForWrite().lastId == 1
+                    : "the protected target's counter was withheld beside its predecessor";
+            System.out.println("Unselected header additions and incompatible copies withhold only the"
+                    + " counter; phase changes and predecessors keep it");
+        }
         System.out.println("Native recovery boot fragments passed; Android boot unqualified");
     }
 }

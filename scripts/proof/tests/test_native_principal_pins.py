@@ -97,8 +97,9 @@ class NativePrincipalPinsTests(unittest.TestCase):
                 for source in base.rglob('*.java'):
                     if source.name != 'Xml.java':
                         stubs[source.relative_to(base).as_posix()] = source
-            admission = integration.FRAGMENTS['admission'][1].read_bytes()
-            self.assertEqual(stubs['com/android/server/pm/Settings.java'].read_bytes().count(admission), 1)
+            facade = stubs['com/android/server/pm/Settings.java'].read_bytes()
+            for name in ('admission', 'restore-capacity'):
+                self.assertEqual(facade.count(integration.FRAGMENTS[name][1].read_bytes()), 1, name)
             sources = [allocator, writer, *stubs.values(),
                        *[ROOT / 'owner/platform/framework' / (name + '.java') for name in
                          ['NativePrincipalPins', 'NativePrincipalManager', 'NativeIdentityRecords',

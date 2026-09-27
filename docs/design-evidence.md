@@ -248,6 +248,12 @@ retain their own producers and scopes.
   or overwrites of unreadable state. The later `cac0ba6` image compiled the joined changes and
   contains the reader, while R8 removed inactive native creation paths. This does not locate holds
   in an unreadable index or extend the earlier Android native writer result.
+  The [header footprint correction](../plans/2026-09-27-native-header-footprint.md) accepts only
+  compatible version 1 header copies and conserves entries only an unselected copy lists. A pure
+  reservation now publishes its target as the preferred backup before main and reserve are rewritten.
+  Its 53 host conservation cases, 27 injected failure cases and existing regressions passed under
+  the required controls. The older sources failed the predicted 41 and 18 cases. Android compilation
+  and storage qualification for this correction remain separate.
   The [real consent reference](../plans/2026-09-27-native-permission-consent.md) then exercised the
   ordinary Android notification popup without privileged grants. Allow enabled an independent
   command after the helper closed; peer and false attribution controls remained separate. Back,

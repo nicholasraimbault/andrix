@@ -75,7 +75,11 @@ and refuse incomplete write inspection. The [presence correction](2026-09-27-nat
 also prevents stat and read errors from becoming acknowledged absence or permission to overwrite
 unreadable state. The `cac0ba6` Android image compiled the joined changes. Its normal DEX contains
 the reader, while R8 removes inactive native creation paths. That is not native writer runtime
-qualification or activation.
+qualification or activation. The [header footprint correction](2026-09-27-native-header-footprint.md)
+now requires compatible header copies and conserves entries that only an unselected copy lists. A pure
+reservation publishes its target as the preferred backup before rewriting main and reserve, so an
+interrupted owned retry keeps every known hold. Its guarded host matrices, sensitivity controls and
+existing regressions passed. Android compilation and storage qualification remain separate.
 
 The [installer durability assessment](2026-09-27-package-installer-durability.md) retains an
 unclean stop failure and a separate Android file comparison. The checked writing descriptor sync
@@ -86,8 +90,8 @@ The [real permission consent reference](2026-09-27-native-permission-consent.md)
 normal Android Allow, Back and denial controls, independent command use after the helper Activity
 closed, and peer attribution refusals. A Settings revoke withdrew the live grant and triggered a
 cached app kill, but the grant returned after a cold boot without another controller grant input.
-Read only diagnosis is distinguishing persistence from a later writer. The failed withdrawal stays
-open. No production broker, permission defaults or native execution are selected by these trials.
+A separately sampled withdrawal stayed denied through a later cold boot. The original failure's
+cause remains open, so general revocation durability is not qualified. No production broker, permission defaults or native execution are selected by these trials.
 
 ## Current milestone
 

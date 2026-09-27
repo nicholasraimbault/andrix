@@ -294,6 +294,86 @@ public final class NativeIdentityStoreTest {
                 && unreadable.slots.get(APP).status == NativeIdentityStore.Status.DAMAGED;
         assert !unreadable.bindingUsable(APP) && unreadable.occupiedAppIds.contains(APP);
         assert !store.load().unavailableFootprint && store.load().bindingUsable(APP);
+
+        // Header copies must be compatible with the selection, as the writers leave them. An
+        // unselected addition is restated exactly, with its binding, under a counter covering every
+        // copy. It is no creation block, only no counter for a new registry.
+        HeaderEntry addition = new HeaderEntry(APP + 1, SlotPhase.CREATING, 2, "dev.andrix.pending");
+        Header selectedIndex = new Header(LINEAGE, 1, List.of(entry(APP, SlotPhase.LIVE)));
+        Header unselectedIndex = new Header(LINEAGE, 2, List.of(entry(APP, SlotPhase.LIVE), addition));
+        NativeIdentityStore.ReadResult<Header> indexCopies = new NativeIdentityStore.ReadResult<>(
+                NativeIdentityStore.Status.VALID, selectedIndex,
+                List.of(unselectedIndex, unselectedIndex, selectedIndex));
+        assert NativeIdentityStore.keepsHeaderCopies(indexCopies, unselectedIndex);
+        assert !NativeIdentityStore.keepsHeaderCopies(indexCopies, selectedIndex);
+        assert !NativeIdentityStore.keepsHeaderCopies(indexCopies, new Header(LINEAGE, 2, List.of(
+                entry(APP, SlotPhase.LIVE), new HeaderEntry(APP + 1, SlotPhase.CREATING, 2, PACKAGE))));
+        assert !NativeIdentityStore.keepsHeaderCopies(indexCopies, Header.newV2(LINEAGE, 2, List.of(
+                entry(APP, SlotPhase.LIVE), new HeaderEntry(APP + 1, SlotPhase.CREATING, 2,
+                "dev.andrix.pending", new NativeIdentityRecords.CreationBinding(0, 7, SIGNERS)))));
+        assert !NativeIdentityStore.keepsHeaderCopies(indexCopies,
+                new Header("f".repeat(32), 2, unselectedIndex.entries));
+        // The largest observed counter is only a floor for the next header. Inside it a new
+        // entry must be a known addition; a new identity lies above it.
+        Header wideIndex = new Header(LINEAGE, 3, List.of(entry(APP, SlotPhase.LIVE), addition));
+        NativeIdentityStore.ReadResult<Header> wideCopies = new NativeIdentityStore.ReadResult<>(
+                NativeIdentityStore.Status.VALID, selectedIndex, List.of(wideIndex, selectedIndex));
+        assert !NativeIdentityStore.keepsHeaderCopies(wideCopies, unselectedIndex);
+        assert NativeIdentityStore.keepsHeaderCopies(wideCopies, wideIndex);
+        assert !NativeIdentityStore.keepsHeaderCopies(wideCopies, new Header(LINEAGE, 3, List.of(
+                entry(APP, SlotPhase.LIVE), addition,
+                new HeaderEntry(APP + 2, SlotPhase.CREATING, 3, "dev.andrix.later"))));
+        assert NativeIdentityStore.keepsHeaderCopies(wideCopies, new Header(LINEAGE, 4, List.of(
+                entry(APP, SlotPhase.LIVE), addition,
+                new HeaderEntry(APP + 2, SlotPhase.CREATING, 4, "dev.andrix.later"))));
+        // A higher counter without a new reservation is incompatible, and no write produces one.
+        Header counterOnlyIndex = new Header(LINEAGE, 3, selectedIndex.entries);
+        NativeIdentityStore.ReadResult<Header> selectedAlone = new NativeIdentityStore.ReadResult<>(
+                NativeIdentityStore.Status.VALID, selectedIndex, List.of(selectedIndex));
+        assert !NativeIdentityStore.keepsHeaderCopies(new NativeIdentityStore.ReadResult<>(
+                NativeIdentityStore.Status.VALID, selectedIndex, List.of(counterOnlyIndex, selectedIndex)),
+                counterOnlyIndex);
+        assert !NativeIdentityStore.keepsHeaderCopies(selectedAlone, counterOnlyIndex);
+        assert NativeIdentityStore.keepsHeaderCopies(selectedAlone, unselectedIndex);
+        // Backward, skipped or dropped entries are incompatible, and so is a copy that lacks a
+        // selected reservation its own counter already covers.
+        Header creatingIndex = new Header(LINEAGE, 1, List.of(entry(APP, SlotPhase.CREATING)));
+        Header skippedIndex = new Header(LINEAGE, 1, List.of(entry(APP, SlotPhase.RELEASING)));
+        for (Header[] pair : List.of(new Header[] {selectedIndex, creatingIndex},
+                new Header[] {selectedIndex, new Header(LINEAGE, 1, List.of())},
+                new Header[] {creatingIndex, skippedIndex},
+                new Header[] {unselectedIndex, new Header(LINEAGE, 2, selectedIndex.entries)})) {
+            assert !NativeIdentityStore.keepsHeaderCopies(new NativeIdentityStore.ReadResult<>(
+                    NativeIdentityStore.Status.VALID, pair[0], List.of(pair[1], pair[0])), pair[0]);
+        }
+        // A copy that predates a protected reservation, below its counter, is compatible.
+        NativeIdentityStore.ReadResult<Header> protectedCopies = new NativeIdentityStore.ReadResult<>(
+                NativeIdentityStore.Status.VALID, unselectedIndex, List.of(selectedIndex, unselectedIndex));
+        assert NativeIdentityStore.keepsHeaderCopies(protectedCopies, unselectedIndex);
+        NativeIdentityStore.Loaded predecessor = new NativeIdentityStore.Loaded(protectedCopies,
+                java.util.Map.of(), Set.of(APP, APP + 1), false, true);
+        assert !predecessor.unselectedFootprint && predecessor.counterRestorable();
+        // Only a pure reservation advances the counter: no phase change rides along.
+        NativeIdentityStore.ReadResult<Header> creatingAlone = new NativeIdentityStore.ReadResult<>(
+                NativeIdentityStore.Status.VALID, creatingIndex, List.of(creatingIndex));
+        assert !NativeIdentityStore.keepsHeaderCopies(creatingAlone, new Header(LINEAGE, 2, List.of(
+                entry(APP, SlotPhase.LIVE), addition)));
+        assert NativeIdentityStore.keepsHeaderCopies(creatingAlone, new Header(LINEAGE, 2, List.of(
+                entry(APP, SlotPhase.CREATING), addition)));
+        NativeIdentityStore.Loaded withAddition = new NativeIdentityStore.Loaded(indexCopies,
+                java.util.Map.of(), Set.of(APP, APP + 1), false, true);
+        assert withAddition.unselectedFootprint && withAddition.creationReady()
+                && !withAddition.counterRestorable();
+        Header otherLineageIndex = new Header("f".repeat(32), 1, List.of(entry(APP, SlotPhase.LIVE)));
+        assert new NativeIdentityStore.Loaded(new NativeIdentityStore.ReadResult<>(
+                NativeIdentityStore.Status.VALID, selectedIndex, List.of(otherLineageIndex, selectedIndex)),
+                java.util.Map.of(), Set.of(APP), false, true).unselectedFootprint;
+        Header markedIndex = new Header(LINEAGE, 1, List.of(entry(APP, SlotPhase.RELEASING)));
+        NativeIdentityStore.Loaded phaseOnly = new NativeIdentityStore.Loaded(
+                new NativeIdentityStore.ReadResult<>(NativeIdentityStore.Status.VALID, selectedIndex,
+                        List.of(markedIndex, markedIndex, selectedIndex)), java.util.Map.of(), Set.of(APP),
+                false, true);
+        assert !phaseOnly.unselectedFootprint && phaseOnly.counterRestorable();
         assert Os.allClosed();
         System.out.println("Native identity slot storage/recovery/retirement passed; Android unqualified");
     }

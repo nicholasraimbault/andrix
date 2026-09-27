@@ -70,6 +70,18 @@ import com.android.server.pm.NativeIdentityRecords.UserEntry;
  * withdraws every binding, as a newer one does. Every acknowledgement that
  * depends on absence needs the genuine ENOENT. This is an availability choice
  * too; it releases nothing.
+ *
+ * A preferred backup outranks a newer main or reserve, so a decodable copy can
+ * differ from the selected header. Only relations a writer leaves are compatible:
+ * an interrupted phase change or omission, a copy that predates a protected
+ * reservation, or an unselected addition an older writer left behind. Additions
+ * are negative holds, never positive history. Every header write must restate
+ * each one exactly and cover every copy's counter, or refuse before its first
+ * effect, and incompatible copies refuse every header write. A pure reservation
+ * publishes its own target as the preferred backup before main and reserve are
+ * rewritten; every other write keeps its prior there until its final step. A new
+ * registry restores the selected counter only when it covers every copy. See
+ * keepsHeaderCopies and writeStrict.
  */
 final class NativeIdentityStore {
     enum Status { MISSING, VALID, DAMAGED, CONFLICT, UNSUPPORTED }
@@ -109,6 +121,13 @@ final class NativeIdentityStore {
         // Namespace observation failures can instead appear only through
         // enumerationComplete=false; callers must check both conditions.
         final boolean unavailableFootprint;
+        // NOT a creation block: some decodable header copy is incompatible with the
+        // selected valid header, or holds an unselected addition or counter the
+        // selection does not cover. A copy that predates a protected reservation is
+        // neither. The owner of an unacknowledged reservation can still restate it
+        // exactly, and every other header write refuses. A new registry has no such
+        // owner: see counterRestorable.
+        final boolean unselectedFootprint;
         Loaded(ReadResult<Header> header, Map<Integer, ReadResult<Slot>> slots,
                 Set<Integer> occupied, boolean blocked, boolean complete) {
             this(header, slots, occupied, blocked, complete, false, false);
@@ -127,6 +146,8 @@ final class NativeIdentityStore {
             enumerationComplete = complete;
             unsupportedFootprint = unsupported;
             unavailableFootprint = unavailable;
+            unselectedFootprint = header.status == Status.VALID
+                    && !keepsHeaderCopies(header, header.value);
         }
         // Metadata eligibility for fresh designation/PMS rebinding, NOT live
         // execution authority. Retiring users must still restore as RETIRING.
@@ -139,6 +160,13 @@ final class NativeIdentityStore {
         }
         boolean creationReady() {
             return enumerationComplete && !creationBlocked && header.status == Status.VALID;
+        }
+        // Whether a new registry may restore the selected counter: only when the
+        // selection is compatible with and covers every copy. It is never taken
+        // from another copy. Holds and eligible bindings are restored either way,
+        // and a live registry keeps its own counter for its exact retries.
+        boolean counterRestorable() {
+            return creationReady() && !unselectedFootprint;
         }
     }
 
@@ -535,7 +563,7 @@ final class NativeIdentityStore {
             if (!stagedSlots.mkdir()) return false;
             protectDirectory(stagedSlots); syncDirectory(stagedSlots);
             byte[] bytes = NativeIdentityRecords.encodeHeader(empty);
-            if (!writeStrict(new File(staging, "store.bin"), bytes, null, true)) return false;
+            if (!writeStrict(new File(staging, "store.bin"), bytes, null, false, true)) return false;
             syncDirectory(staging);
             // Same private parent and one writer. No REPLACE_EXISTING and no
             // ATOMIC_MOVE option which could replace an existing empty target.
@@ -558,20 +586,124 @@ final class NativeIdentityStore {
         return List.copyOf(names);
     }
 
+    /**
+     * Whether a decodable header copy relates to the selected valid header as this store's own
+     * writers can leave it. This structural relation is the only one between copies the store
+     * recognizes: nothing is ordered by time, and the selection stays the preferred backup
+     * rule's. The copy has the same version and lineage. An app ID both list is equal, or one
+     * phase ahead in the copy (CREATING to LIVE, or LIVE to RELEASING). An entry only the
+     * selection lists is RELEASING, omitted by the copy, or CREATING above the copy's counter,
+     * when the copy predates a protected reservation. An entry only the copy lists is CREATING
+     * above the selected counter: an unselected addition. A higher copy counter comes only with
+     * such an addition, a lower one only with such a newer selected reservation, and otherwise
+     * the counters are equal.
+     */
+    private static boolean compatible(Header selected, Header copy) {
+        if (copy.version != selected.version || !copy.lineage.equals(selected.lineage)) return false;
+        boolean behind = false, ahead = false;
+        for (HeaderEntry kept : selected.entries) {
+            HeaderEntry seen = headerEntry(copy, kept.appId);
+            if (seen == null) {
+                if (kept.phase == SlotPhase.CREATING && kept.creationId > copy.lastId) behind = true;
+                else if (kept.phase != SlotPhase.RELEASING) return false;
+            } else if (!seen.equals(kept)
+                    && !(kept.phase == SlotPhase.CREATING && seen.phase == SlotPhase.LIVE)
+                    && !(kept.phase == SlotPhase.LIVE && seen.phase == SlotPhase.RELEASING)) {
+                return false;
+            }
+        }
+        for (HeaderEntry entry : copy.entries) {
+            if (headerEntry(selected, entry.appId) != null) continue;
+            if (entry.phase != SlotPhase.CREATING || entry.creationId <= selected.lastId) return false;
+            ahead = true;
+        }
+        return copy.lastId > selected.lastId ? ahead
+                : copy.lastId < selected.lastId ? behind : true;
+    }
+
+    /**
+     * A pure reservation: every selected entry unchanged and at least one new CREATING entry
+     * above the selected counter. Only this shape advances the counter, and only it publishes
+     * its own target as the preferred backup before main and reserve are removed. An exact
+     * retry or confirmation adds nothing, and phase changes and omissions are never staged
+     * early: they keep their prior as the backup until their final step.
+     */
+    private static boolean addsOnly(Header selected, Header next) {
+        if (next.version != selected.version || !next.lineage.equals(selected.lineage)
+                || next.entries.size() <= selected.entries.size()) return false;
+        for (HeaderEntry kept : selected.entries) {
+            if (!kept.equals(headerEntry(next, kept.appId))) return false;
+        }
+        for (HeaderEntry entry : next.entries) {
+            if (headerEntry(selected, entry.appId) == null && (entry.phase != SlotPhase.CREATING
+                    || entry.creationId <= selected.lastId)) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Pure rule shared by every header writer, on a fresh read before its first effect, and by
+     * reservation admission, on the cached view before an ID is issued. Every decodable copy
+     * must be compatible with the selected header. Its unselected additions must be identical
+     * wherever they appear, and no two may share a creation ID. Otherwise every header write
+     * refuses and nothing is merged.
+     *
+     * next must be compatible too. It keeps the selected counter, unless it is a pure
+     * reservation. It must restate each unselected addition exactly (app ID, phase, creation
+     * ID, package and binding), and its counter must cover every copy's. A new CREATING entry
+     * at or below that largest observed counter must be a known addition, not a new identity
+     * in that range. The observed counter is only a refusal constraint: nothing restores,
+     * issues or derives state from it. Only the exact original reservation, whose own counter
+     * and full pin snapshot already cover its writes, meets this beside an addition.
+     */
+    static boolean keepsHeaderCopies(ReadResult<Header> read, Header next) {
+        if (read.status != Status.VALID) return false;
+        Header selected = read.value;
+        HashMap<Integer, HeaderEntry> additions = new HashMap<>();
+        HashMap<Long, Integer> additionIds = new HashMap<>();
+        long covered = selected.lastId;
+        for (Header copy : read.decodedCopies) {
+            if (!compatible(selected, copy)) return false;
+            covered = Math.max(covered, copy.lastId);
+            for (HeaderEntry entry : copy.entries) {
+                if (headerEntry(selected, entry.appId) != null) continue;
+                HeaderEntry known = additions.putIfAbsent(entry.appId, entry);
+                Integer holder = additionIds.putIfAbsent(entry.creationId, entry.appId);
+                if ((known != null && !known.equals(entry))
+                        || (holder != null && holder.intValue() != entry.appId)) return false;
+            }
+        }
+        if (!compatible(selected, next) || next.lastId < covered
+                || (next.lastId != selected.lastId && !addsOnly(selected, next))) return false;
+        for (HeaderEntry addition : additions.values()) {
+            if (!addition.equals(headerEntry(next, addition.appId))) return false;
+        }
+        for (HeaderEntry entry : next.entries) {
+            if (headerEntry(selected, entry.appId) == null && entry.creationId <= covered
+                    && !entry.equals(additions.get(entry.appId))) return false;
+        }
+        return true;
+    }
+
     boolean writeHeader(Header expected, Header next) {
         Objects.requireNonNull(expected); Objects.requireNonNull(next);
         if (expected.version != SUPPORTED_HEADER_VERSION || next.version != SUPPORTED_HEADER_VERSION
                 || !expected.lineage.equals(next.lineage) || next.lastId < expected.lastId
                 || writeInspectionBlocked()) return false;
         ReadResult<Header> read = safeReadHeader();
-        if (read.status != Status.VALID || !(read.value.equals(expected) || read.value.equals(next))) {
+        // Before the transition checks, which can confirm slots and sync. This also
+        // refuses a counter advance without a pure reservation.
+        if (read.status != Status.VALID || !(read.value.equals(expected) || read.value.equals(next))
+                || !keepsHeaderCopies(read, next)) {
             return false;
         }
         if (!read.value.equals(next) && !validHeaderTransition(expected, next)) return false;
         // An exact uncertain retry is rewritten through real checked writers;
         // matching readback alone never turns it into a durable acknowledgement.
+        // Only a validated pure reservation against the fresh selection protects
+        // its own target; see writeStrict.
         return writeStrict(headerFile(), NativeIdentityRecords.encodeHeader(next),
-                NativeIdentityRecords.encodeHeader(read.value), true);
+                NativeIdentityRecords.encodeHeader(read.value), addsOnly(read.value, next), true);
     }
 
     boolean ensureFreshSlot(Header expected, int appId) {
@@ -668,7 +800,7 @@ final class NativeIdentityStore {
             syncDirectory(slotRoot);
         } catch (IOException error) { return false; }
         return writeStrict(main, NativeIdentityRecords.encodeSlot(next),
-                read.value == null ? null : NativeIdentityRecords.encodeSlot(read.value), false);
+                read.value == null ? null : NativeIdentityRecords.encodeSlot(read.value), false, false);
     }
 
     /** Existing binding mutation only: no counter reconstruction or new identity issuance. */
@@ -716,7 +848,7 @@ final class NativeIdentityStore {
             if (!found) return false;
         }
         return writeStrict(slotFile(next.appId), NativeIdentityRecords.encodeSlot(next),
-                NativeIdentityRecords.encodeSlot(read.value), false);
+                NativeIdentityRecords.encodeSlot(read.value), false, false);
     }
 
     /** Confirm exact observed bytes through new checked writing FDs, not reader sync. */
@@ -728,13 +860,19 @@ final class NativeIdentityStore {
                 || loaded.header.status == Status.UNSUPPORTED
                 || read == null || read.status != Status.VALID || !expected.equals(read.value)) return false;
         byte[] bytes = NativeIdentityRecords.encodeSlot(expected);
-        return writeStrict(slotFile(expected.appId), bytes, bytes, false);
+        return writeStrict(slotFile(expected.appId), bytes, bytes, false, false);
     }
 
+    // Rewrites the selected header over every copy, keeping it as the backup, so
+    // it refuses beside an unselected addition or counter the rewrite would
+    // erase, and beside any incompatible copy. Each caller uses it as its first
+    // effect.
     private boolean confirmHeader(Header expected) {
-        if (!sameHeader(expected)) return false;
+        ReadResult<Header> read = safeReadHeader();
+        if (read.status != Status.VALID || !read.value.equals(expected)
+                || !keepsHeaderCopies(read, expected)) return false;
         byte[] bytes = NativeIdentityRecords.encodeHeader(expected);
-        return writeStrict(headerFile(), bytes, bytes, true);
+        return writeStrict(headerFile(), bytes, bytes, false, true);
     }
 
     /**
@@ -848,31 +986,36 @@ final class NativeIdentityStore {
         return read.status == Status.VALID && read.value.equals(expected);
     }
 
-    private static void preserveChosenBase(File main, byte[] prior) throws IOException {
-        if (prior == null) return;
+    // kept is what the preferred backup must durably hold before startWrite may
+    // remove main and reserve. An existing backup must already be kept or the
+    // selected prior; anything else is refused unchanged.
+    private static void preserveChosenBase(File main, byte[] prior, byte[] kept) throws IOException {
         Node preferred = node(backup(main));
-        if (preferred != Node.ABSENT && (preferred != Node.FILE
-                || !java.util.Arrays.equals(prior, readBytes(backup(main))))) {
-            throw new IOException("Native preferred backup changed");
+        if (preferred != Node.ABSENT) {
+            byte[] current = preferred == Node.FILE ? readBytes(backup(main)) : null;
+            if (current == null || !(java.util.Arrays.equals(kept, current)
+                    || (prior != null && java.util.Arrays.equals(prior, current)))) {
+                throw new IOException("Native preferred backup changed");
+            }
         }
         // startWrite could rename a bad main into the preferred backup and
-        // delete the only good reserve. Persist the selected valid base using
-        // a checked writer first, including when its earlier publication was
-        // uncertain. Replacing a same-value backup does not change its meaning.
+        // delete the only good reserve. Persist the kept base using a checked
+        // writer first, including when its earlier publication was uncertain.
+        // Replacing a same-value backup does not change its meaning.
         File staging = seed(main);
         Node staged = node(staging);
         if (staged != Node.ABSENT && staged != Node.FILE) {
             throw new IOException("Native backup staging alias");
         }
         try (FileOutputStream out = new FileOutputStream(staging)) {
-            out.write(prior);
+            out.write(kept);
             out.flush();
             if (FileUtils.setPermissions(out.getFD(), 0600, -1, -1) != 0) {
                 throw new IOException("Native backup permissions");
             }
             out.getFD().sync();
         }
-        if (!java.util.Arrays.equals(prior, readBytes(staging))) {
+        if (!java.util.Arrays.equals(kept, readBytes(staging))) {
             throw new IOException("Native backup staging changed");
         }
         Files.move(staging.toPath(), backup(main).toPath(), StandardCopyOption.ATOMIC_MOVE,
@@ -880,7 +1023,8 @@ final class NativeIdentityStore {
         syncDirectory(main.getParentFile());
     }
 
-    private static boolean writeStrict(File main, byte[] bytes, byte[] prior, boolean header) {
+    private static boolean writeStrict(File main, byte[] bytes, byte[] prior, boolean protectTarget,
+            boolean header) {
         if (!directory(main.getParentFile())) return false;
         // Every caller passed the store gate first. This is the point of effect:
         // startWrite and the seed staging can unlink or replace each of these.
@@ -897,7 +1041,11 @@ final class NativeIdentityStore {
             // A first write publishes complete, checked creation bytes as the
             // preferred backup before the canonical writer can expose a torn
             // main. Such a creation remains PENDING until explicit rebinding.
-            preserveChosenBase(main, prior == null ? bytes : prior);
+            // A pure header reservation publishes its own target the same way,
+            // so every hold, including an unselected addition it restates,
+            // stays in the backup while main and reserve are rewritten. Every
+            // other write keeps its prior until the final step removes it.
+            preserveChosenBase(main, prior, prior == null || protectTarget ? bytes : prior);
             FileOutputStream out = atomic.startWrite();
             out.write(bytes);
             atomic.finishWriteStrict(out);

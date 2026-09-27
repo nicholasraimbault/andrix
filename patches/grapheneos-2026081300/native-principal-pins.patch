@@ -109,7 +109,7 @@
  import android.os.FileUtils;
  import android.os.Handler;
  import android.os.Message;
-@@ -563,6 +564,400 @@
+@@ -563,6 +564,402 @@
      final WatchedArrayMap<String, SharedUserSetting> mSharedUsers = new WatchedArrayMap<>();
      @Watched(manual = true)
      private final AppIdSettingMap mAppIds;
@@ -206,10 +206,12 @@
 +            // Parsing holds is not permission to exceed this adapter's binding
 +            // capacity or abort ordinary PMS boot. Retain every store footprint.
 +            restored.restoreBindingsWithoutCounter(java.util.List.of(), java.util.Set.of());
-+        } else if (loaded.creationReady()) {
++        } else if (loaded.counterRestorable()) {
 +            restored.restore(new NativePrincipalPins.Snapshot(loaded.header.value.lastId,
 +                    records, retiring));
 +        } else {
++            // No usable counter, or an unselected header copy adds to it or does not
++            // follow it. Keep every hold and eligible binding; guess no counter.
 +            restored.restoreBindingsWithoutCounter(records, retiring);
 +        }
 +        mNativePrincipalPins = restored;
@@ -510,7 +512,7 @@
  
      @Watched(manual = true)
      private final PccIdSettingMap mPccIds;
-@@ -828,6 +1223,7 @@
+@@ -828,6 +1225,7 @@
  
          mSharedUsers.snapshot(r.mSharedUsers);
          mAppIds = r.mAppIds.snapshot();
@@ -518,7 +520,7 @@
          mPccIds = r.mPccIds.snapshot();
  
          mRenamedPackages.snapshot(r.mRenamedPackages);
-@@ -1396,14 +1792,32 @@
+@@ -1396,14 +1794,32 @@
      boolean registerAppIdLPw(PackageSetting p, boolean forceNew) throws PackageManagerException {
          final boolean createdNew;
          if (p.getAppId() == 0 || forceNew) {

@@ -87,6 +87,12 @@ final class NativeIdentityPersistence {
      * still gets its negative reservation, so its original retirement can publish a marker
      * and complete. That is not activation. The counter becomes the larger of the store's and the snapshot's lastId, never a maximum of
      * observed IDs. No slot directory or body is created.
+     *
+     * <p>An entry listed only by an unselected header copy is retained as a negative footprint;
+     * it can reflect an earlier unacknowledged write. Only this snapshot's own exact record
+     * restates it, and the snapshot
+     * counter must cover every copy's. Otherwise the call refuses before any effect, as does
+     * every other header write. The counter never advances without a new reservation.
      */
     boolean reservePending(NativePrincipalPins.Snapshot snapshot) {
         Objects.requireNonNull(snapshot, "snapshot");
@@ -104,7 +110,10 @@ final class NativeIdentityPersistence {
     /**
      * Pure projection shared by admission and the writer. It retains every
      * durable index entry plus all unreserved pins, including RETIRING pins.
-     * A cached view is not a durability acknowledgement or a live lease.
+     * Under the store's own header copy rule it refuses to lose or rebind an
+     * unselected addition, to reuse its creation ID, to fall below any copy's
+     * counter or to advance the counter without a new reservation. A cached view
+     * is not a durability acknowledgement or a live lease.
      */
     static Header projectReservation(NativeIdentityStore.Loaded loaded,
             NativePrincipalPins.Snapshot snapshot) {
@@ -129,8 +138,9 @@ final class NativeIdentityPersistence {
                     record.id, record.packageName));
         }
         if (entries.size() > NativeIdentityRecords.MAX_SLOTS) return null;
-        return new Header(current.lineage, Math.max(current.lastId, snapshot.lastId),
+        Header next = new Header(current.lineage, Math.max(current.lastId, snapshot.lastId),
                 new ArrayList<>(entries.values()));
+        return NativeIdentityStore.keepsHeaderCopies(loaded.header, next) ? next : null;
     }
 
     /**
