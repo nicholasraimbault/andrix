@@ -39,7 +39,17 @@ notification and peer bookends. On the next cold boot, the principal was granted
 and fixed denial states were unchanged. The next controller stopped before any new input. Read only
 inspection subsequently found both current permission files agreeing with that grant. No reset,
 reinstall, data repair or new grant input was used. This does not yet distinguish storage loss from
-a later Settings or permission writer action. The original withdrawal obligation remains open.
+a later Settings or permission writer action.
+
+A separately recorded withdrawal attempt then sampled the raw main and reserve files before the
+stop. Both were replaced with identical revoked records. A read that raced the replacement remains
+labelled unstable, rather than being promoted by a later decode. The final live sample was denied
+16.6 seconds after input. There was no additional UI query, guest decoder or forced sync in that
+window. Early in the next boot, before boot completion, both original new inodes, bytes and file
+timestamps were retained. Android's live state and the decoded files were denied. This sampled
+attempt retained the withdrawal. It does not repair the earlier failure or establish its cause.
+Checkpoint call counters changed during the write window, but do not prove when a checkpoint
+completed. General revocation durability and the complete permission lifecycle remain open.
 
 The separate key and canary controls survived throughout. Native execution and factory entry stayed
 disabled. Debug `run-as` and the private ART reference are still not a production native entry,
