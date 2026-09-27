@@ -1,7 +1,8 @@
 # Preserving a creation's prior binding
 
-Status: unused codec extension and a conservative store gate, with host verification.
-No version 2 publication, restored creation admission, cancellation or UID release is enabled.
+Status: unused codec extension and a conservative store gate, with host verification, a normal
+Android image build and bounded disposable reader observations. No version 2 publication,
+restored creation admission, cancellation or UID release is enabled.
 This follows the [real writer qualification](2026-09-26-native-writer-qualification.md).
 
 ## The remaining gap
@@ -44,7 +45,35 @@ mixed version reads and writes, including a missing slot directory tree.
 
 The codec tests retain frozen complete version 1 records, canonical layouts, strict parsing,
 immutability, version sensitive equality, mutation controls and exact maximum length boundaries.
-The full gated host suites pass. This is not a new Android build or device qualification.
+The full gated host suites pass. A normal image then built from `e3ad881`, with the creation
+binding codec present and the lab writer route absent from its actual services jar.
+
+## Disposable reader observations
+
+The normal image completed these controls on one fresh guest:
+
+- A version 2 CREATING header retained A's UID even when there was no numeric slot directory
+  and a preferred, valid version 1 backup contained no holds. PMS reported UNSUPPORTED,
+  withheld counter and binding eligibility, and kept A's setting, code and canaries. The peer's
+  original key and install-existing completion remained usable.
+- A matching valid version 1 slot body beneath the version 2 header still supplied no memory pin
+  or code admission. The future binding representation did not become authority by itself.
+- Replacing only the controlled header metadata with version 1 restored healthy admission.
+  Both original keys signed fresh host verified challenges, and the original canary identity,
+  UID, user serial and signer matched. The existing body bytes and file identities were kept.
+
+The fixture did not restore app data or a keystore database, rerun key initialization, enable
+version 2 writing, or implement automatic format migration. All guest scopes were retired.
+The image and input tree are separately sealed. Raw captures and operating paths remain private.
+
+The image producer is `e3ad881` and fixture producer is `9de256a`. The services jar SHA-256 is
+`1f6ad3910e75f410eda4c76c622670764dfbcf78b206bf8ea187e4c5754ff54e`.
+Its image seal is
+`18ef943803334fe069b6ea3d8631b73bfb8129b697ea7e6f0240ee07cbe8a5a9`.
+The header only hold, valid body quarantine and version 1 restoration phase seals are
+`0164d467da41796d235dead386d479ea23a9dffce354dc97114f707a9d3d545d`,
+`01f2413234dbd26d5e23ebe91472abb19f20d721678c645db9b42d5b9abb8ea0` and
+`a0e3b2a258628b160391e286962c48d7814b468f33c6fb894c80826dd1f4b347`.
 
 ## Before version 2 may be used
 

@@ -238,6 +238,11 @@ retain their own producers and scopes.
   records and original keys. A failed directory time bookend exposed a narrower filesystem
   qualification limit. Neither timestamps nor a prior acknowledgement are live authority.
   No power loss, interrupted creation/release completion or production designation is established.
+- **Future header conservation:** the [unused creation codec and version gate](../plans/2026-09-26-native-creation-binding-codec.md)
+  preserve version 1 bytes and retain known version 2 holds without enabling their writer.
+  The normal image built at `e3ad881`. Actual PMS kept a header only UID hold despite a preferred
+  empty older backup, refused binding with a valid body, and retained original keys and canaries
+  across controlled version 1 header repair. This is not automatic migration or creation recovery.
 - **Next gate:** complete the remaining authority and recovery connections, API binding and
   foreground contracts, then qualify the
   [account mapping](../plans/2026-09-21-android-unix-accounts.md) and

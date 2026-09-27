@@ -62,6 +62,9 @@ Interrupted creation and retirement recovery, production designation and activat
 The [next codec step](2026-09-26-native-creation-binding-codec.md) adds an unused representation for
 complete creation bindings. Version 1 bytes and holds remain readable. A conservative store gate
 retains recognized version 2 holds but refuses binding and writes until that protocol is integrated.
+The normal Android reader image built, then preserved a header only hold despite an older preferred
+backup and withheld admission even with a matching valid body. Controlled version 1 header repair
+kept the original keys and canaries. Native execution and version 2 publication remain disabled.
 
 ## Current milestone
 
