@@ -22,9 +22,11 @@ final class Settings {
     final Path root;
     final NativeIdentityStore store;
     final NativeIdentityPersistence persistence;
-    NativeIdentityStore.Loaded loaded;
+    NativeIdentityStore.Loaded mNativeIdentityLoaded;
     boolean recoveryBlocked;
     boolean applied;
+    boolean failLineage, failRemember, failRefresh;
+    int rememberCalls, refreshCalls;
 
     Settings() { this(null, true); }
     Settings(Path existing, boolean initialize) {
@@ -33,19 +35,19 @@ final class Settings {
             store = new NativeIdentityStore(root.toFile());
             if (initialize && !store.initializeNew(LINEAGE)) throw new AssertionError("fixture initialization");
             persistence = new NativeIdentityPersistence(store);
-            loaded = persistence.load();
+            mNativeIdentityLoaded = persistence.load();
             applied = initialize;
         } catch (java.io.IOException error) { throw new AssertionError(error); }
     }
 
     void restoreAfterPackageSettings() {
         if (applied) throw new AssertionError("already restored");
-        loaded = persistence.load();
+        mNativeIdentityLoaded = persistence.load();
         ArrayList<NativePrincipalPins.Record> records = new ArrayList<>();
         Set<Long> retiring = new TreeSet<>();
-        for (int appId : loaded.slots.keySet()) {
-            if (!loaded.bindingUsable(appId)) continue;
-            NativeIdentityRecords.Slot slot = loaded.slots.get(appId).value;
+        for (int appId : mNativeIdentityLoaded.slots.keySet()) {
+            if (!mNativeIdentityLoaded.bindingUsable(appId)) continue;
+            NativeIdentityRecords.Slot slot = mNativeIdentityLoaded.slots.get(appId).value;
             for (NativeIdentityRecords.UserEntry user : slot.users) {
                 records.add(new NativePrincipalPins.Record(user.id, slot.packageName, appId,
                         user.userId, user.userSerial));
@@ -53,16 +55,20 @@ final class Settings {
             }
         }
         records.sort(java.util.Comparator.comparingLong(value -> value.id));
-        if (loaded.creationReady()) pins.restore(new NativePrincipalPins.Snapshot(
-                loaded.header.value.lastId, records, retiring));
+        if (mNativeIdentityLoaded.creationReady()) pins.restore(new NativePrincipalPins.Snapshot(
+                mNativeIdentityLoaded.header.value.lastId, records, retiring));
         else pins.restoreBindingsWithoutCounter(records, retiring);
         applied = true;
-        observeNativeIdentityStoreLPw(loaded);
+        observeNativeIdentityStoreLPw(mNativeIdentityLoaded);
     }
 
     NativePrincipalPins nativePrincipalPinsLPr() { return pins; }
     boolean nativePrincipalCreationReadyLPr() {
-        return applied && !recoveryBlocked && loaded.creationReady() && pins.hasKnownCounter();
+        return applied && !recoveryBlocked && mNativeIdentityLoaded.creationReady() && pins.hasKnownCounter();
+    }
+    boolean nativeIdentityReservationFitsLPr(NativePrincipalPins.Snapshot candidate) {
+        return mNativeIdentityLoaded != null
+                && NativeIdentityPersistence.projectReservation(mNativeIdentityLoaded, candidate) != null;
     }
     boolean nativePrincipalMutationInProgressLPr(String name) { return mutating.contains(name); }
     boolean nativePrincipalDesignationDeferredLPr(String name) { return deferred.contains(name); }
@@ -73,17 +79,24 @@ final class Settings {
     }
     NativeIdentityPersistence nativeIdentityPersistenceLPr() { return persistence; }
     String nativeIdentityLineageLPr() {
+        if (failLineage) throw new IllegalStateException("injected lineage observation failure");
         if (!nativePrincipalCreationReadyLPr()) throw new IllegalStateException("counter unavailable");
-        return loaded.header.value.lineage;
+        return mNativeIdentityLoaded.header.value.lineage;
     }
-    void rememberNativeSubjectLPw(PackageSetting setting) { /* No filesystem or authority here. */ }
+    void rememberNativeSubjectLPw(PackageSetting setting) {
+        rememberCalls++;
+        if (failRemember) { failRemember = false; throw new IllegalStateException("injected remember failure"); }
+        /* No filesystem or authority here. */
+    }
     void refreshNativePrincipalAppIdsLPw() {
+        refreshCalls++;
+        if (failRefresh) { failRefresh = false; throw new IllegalStateException("injected refresh failure"); }
         TreeSet<Integer> union = new TreeSet<>(storeHolds);
         union.addAll(pins.reservedAppIds());
         ids.setNativePrincipalAppIds(union);
     }
     void observeNativeIdentityStoreLPw(NativeIdentityStore.Loaded value) {
-        loaded = value;
+        mNativeIdentityLoaded = value;
         storeHolds.addAll(value.occupiedAppIds);
         for (int id : value.slots.keySet()) {
             if (!value.bindingUsable(id)) continue;
@@ -93,8 +106,8 @@ final class Settings {
         refreshNativePrincipalAppIdsLPw();
     }
     NativeIdentityRecords.Slot nativePrincipalBindingLPr(NativePrincipalPins.Record record) {
-        if (!loaded.bindingUsable(record.appId)) return null;
-        NativeIdentityRecords.Slot slot = loaded.slots.get(record.appId).value;
+        if (!mNativeIdentityLoaded.bindingUsable(record.appId)) return null;
+        NativeIdentityRecords.Slot slot = mNativeIdentityLoaded.slots.get(record.appId).value;
         return matches(slot, record) ? slot : null;
     }
     NativeIdentityRecords.Slot nativePrincipalStoredBindingLPr(NativePrincipalPins.Record record) {

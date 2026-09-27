@@ -110,10 +110,10 @@ public final class NativePrincipalWriterFixtureFaultTest {
         Case commitAbort = new Case(); commitAbort.call("select-new"); commitAbort.call("prepare");
         commitAbort.calls.commitError = true; error(() -> commitAbort.call("commit"));
         has(commitAbort.call("status"), "\"last_commit_result\":\"exception\"");
-        assert commitAbort.pm.mSettings.loaded.header.value.lastId == 1;
+        assert commitAbort.pm.mSettings.mNativeIdentityLoaded.header.value.lastId == 1;
         refusal("COMMIT_ALREADY_ATTEMPTED", () -> commitAbort.call("prepare"));
         has(commitAbort.call("commit"), "\"last_commit_result\":\"true\"");
-        assert commitAbort.pm.mSettings.loaded.header.value.lastId == 1;
+        assert commitAbort.pm.mSettings.mNativeIdentityLoaded.header.value.lastId == 1;
 
         Case observation = new Case(); observation.call("select-new"); observation.call("prepare");
         observation.calls.observationAfterCommit = true;

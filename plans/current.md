@@ -65,6 +65,10 @@ retains recognized version 2 holds but refuses binding and writes until that pro
 The normal Android reader image built, then preserved a header only hold despite an older preferred
 backup and withheld admission even with a matching valid body. Controlled version 1 header repair
 kept the original keys and canaries. Native execution and version 2 publication remain disabled.
+The [preparation admission correction](2026-09-27-native-preparation-admission.md) now checks the
+whole durable index and pending set before issuing another native ID. It also retains original
+issuance ownership across failures. Its source and host controls are qualified separately from
+the existing Android images.
 
 ## Current milestone
 

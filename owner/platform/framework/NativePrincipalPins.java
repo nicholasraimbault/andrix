@@ -15,9 +15,10 @@ import java.util.TreeSet;
  * Package Manager state that pins native principal bindings of package, app ID and user.
  *
  * <p>A pin reserves a package and its app ID for one incarnation of an Android user. PMS resolves
- * every input from its own authoritative state. This class allocates no app IDs and keeps no
- * installation, grant, signing or execution state. It is not a public API. Queries return
- * ordinary metadata, not grant decisions, and a handle is not a credential.
+ * every input from its own authoritative state. This class allocates no app IDs and decides no
+ * installation, grant, signing or execution policy. Opaque caller provenance can accompany a
+ * local issuance, but the core neither interprets it nor restores it from disk. It is not a
+ * public API. Queries return ordinary metadata, not grant decisions, and a handle is not a credential.
  *
  * <p>Invariants over all pins in every phase:
  * <ul>
@@ -58,8 +59,9 @@ import java.util.TreeSet;
  * <p>This object's monitor guards all state. Methods hold it only for memory operations, never
  * for I/O, callbacks or waits. Malformed input throws {@link IllegalArgumentException}, or
  * {@link NullPointerException} for null. Conflicts, phase errors, capacity, ID exhaustion and
- * foreign or stale handles throw {@link IllegalStateException}. A call that throws changes
- * nothing.
+ * foreign or stale handles throw {@link IllegalStateException}. Validation and allocating index
+ * operations precede state publication. Controlled fault tests do not establish recovery from
+ * every possible JVM or process failure.
  */
 public final class NativePrincipalPins {
     /** Lifecycle of one pin handle. Phases only move forward. */
@@ -131,7 +133,7 @@ public final class NativePrincipalPins {
      * copies. {@link NativePrincipalPins#restore} is the validation boundary.
      */
     public static final class Snapshot {
-        /** Highest pin ID ever issued in this lineage, including released IDs. */
+        /** Counter in this persistence image. A preview is a proposal, not issued state. */
         public final long lastId;
         /** Unmodifiable copy of the records. */
         public final List<Record> records;
@@ -176,12 +178,22 @@ public final class NativePrincipalPins {
     public static final class Pin {
         private final NativePrincipalPins owner;
         private final Record record;
+        // Optional opaque provenance retained for the trusted manager that issued
+        // this pin. The core never interprets or persists it as authority.
+        private final Object issuance;
         private Phase phase = Phase.PENDING; // Guarded by owner.
 
         private Pin(NativePrincipalPins owner, Record record) {
+            this(owner, record, null);
+        }
+
+        private Pin(NativePrincipalPins owner, Record record, Object issuance) {
             this.owner = owner;
             this.record = record;
+            this.issuance = issuance;
         }
+
+        Object issuance() { return issuance; }
 
         public Record record() {
             return record;
@@ -197,6 +209,22 @@ public final class NativePrincipalPins {
         @Override
         public String toString() {
             return "Pin{" + record + ", " + phase() + "}";
+        }
+    }
+
+    /** Exact memory-only preparation proposal. It reserves nothing and grants nothing. */
+    static final class Preparation {
+        final Record record;
+        final Snapshot snapshot;
+        private final NativePrincipalPins owner;
+        private final Object epoch;
+
+        private Preparation(NativePrincipalPins owner, Object epoch, Record record,
+                Snapshot snapshot) {
+            this.owner = owner;
+            this.epoch = epoch;
+            this.record = record;
+            this.snapshot = snapshot;
         }
     }
 
@@ -271,6 +299,7 @@ public final class NativePrincipalPins {
     private long lastId;
     private boolean counterKnown = true;
     private boolean fresh = true; // No successful prepare or restore yet.
+    private Object preparationEpoch = new Object(); // Identity, not an issuance counter.
 
     /** @param capacity maximum number of pins in any phase, at least 1 */
     public NativePrincipalPins(int capacity) {
@@ -280,16 +309,69 @@ public final class NativePrincipalPins {
         this.capacity = capacity;
     }
 
+    /** Exact retry only. New issuance requires an admitted proposal and issuer provenance. */
+    synchronized Pin retry(String packageName, int appId, int userId, long userSerial) {
+        Record record = recordForPrepare(packageName, appId, userId, userSerial);
+        Pin existing = index.ids.get(record.id);
+        if (existing == null) throw new IllegalStateException("New native binding requires preparation admission");
+        return existing;
+    }
+
     /**
-     * Pins a binding resolved by PMS. Returns the existing handle when the exact binding is
-     * already pinned and not RETIRING. A new pin is PENDING and takes the next ID.
-     *
-     * @throws IllegalArgumentException for a malformed binding
-     * @throws IllegalStateException if the package and user are RETIRING or pinned to another
-     *     binding, the package or app ID is pinned with a different counterpart, the capacity is
-     *     reached or the IDs are exhausted
+     * Pure candidate for storage admission before a new ID is consumed. The
+     * immutable proposal is bound to this instance and its exact mutation epoch.
+     * It requires a known counter. No callback or I/O runs under this monitor.
      */
-    public synchronized Pin prepare(String packageName, int appId, int userId, long userSerial) {
+    synchronized Preparation previewPrepare(String packageName, int appId, int userId,
+            long userSerial) {
+        Record record = recordForPrepare(packageName, appId, userId, userSerial);
+        if (index.ids.containsKey(record.id)) {
+            throw new IllegalStateException("Existing native binding requires an exact retry");
+        }
+        Snapshot current = snapshotExcept(null);
+        List<Record> records = new ArrayList<>(current.records);
+        records.add(record); // The core's next ID, never a maximum reconstructed from records.
+        return new Preparation(this, preparationEpoch, record,
+                new Snapshot(record.id, records, current.retiringIds));
+    }
+
+    /** Publishes only the exact admitted proposal, retaining its caller's provenance. */
+    synchronized Pin prepare(Preparation proposal, Object issuance) {
+        Objects.requireNonNull(proposal, "proposal");
+        Objects.requireNonNull(issuance, "issuance");
+        if (proposal.owner != this || proposal.epoch != preparationEpoch) {
+            throw new IllegalStateException("Stale or foreign native preparation");
+        }
+        Record expected = proposal.record;
+        Record current = recordForPrepare(expected.packageName, expected.appId,
+                expected.userId, expected.userSerial);
+        if (!current.equals(expected)) throw new IllegalStateException("Native preparation changed");
+        if (index.ids.containsKey(current.id)) {
+            throw new IllegalStateException("Existing native binding cannot accept new issuer provenance");
+        }
+        return issue(current, issuance);
+    }
+
+    private Index copyIndex() {
+        Index copy = new Index();
+        for (Pin pin : index.ids.values()) copy.add(pin);
+        return copy;
+    }
+
+    private Pin issue(Record record, Object issuance) {
+        Pin pin = new Pin(this, record, issuance);
+        Index next = copyIndex();
+        next.add(pin); // All allocating map operations precede publication.
+        Object epoch = new Object();
+        index = next;
+        lastId = record.id;
+        fresh = false;
+        preparationEpoch = epoch;
+        return pin;
+    }
+
+    // Both prepare and preview validate the same candidate under this monitor.
+    private Record recordForPrepare(String packageName, int appId, int userId, long userSerial) {
         checkBinding(packageName, appId, userId, userSerial);
         Pin existing = index.find(packageName, userId);
         if (existing != null) {
@@ -300,7 +382,7 @@ public final class NativePrincipalPins {
             if (existing.record.appId != appId || existing.record.userSerial != userSerial) {
                 throw new IllegalStateException("conflicting binding: " + existing.record);
             }
-            return existing; // Exact retry of a PENDING or ACTIVE pin.
+            return existing.record; // Exact retry of a PENDING or ACTIVE pin.
         }
         if (!counterKnown) throw new IllegalStateException("Principal ID counter unavailable");
         String reason = index.conflict(packageName, appId);
@@ -312,11 +394,7 @@ public final class NativePrincipalPins {
         if (index.ids.containsKey(lastId + 1)) {
             throw new IllegalStateException("Principal ID issuance conflicts with an existing binding");
         }
-        Pin pin = new Pin(this, new Record(lastId + 1, packageName, appId, userId, userSerial));
-        index.add(pin);
-        lastId = pin.record.id;
-        fresh = false;
-        return pin;
+        return new Record(lastId + 1, packageName, appId, userId, userSerial);
     }
 
     /** Returns the live pin of a package and user in any phase, or null. Not a grant check. */
@@ -393,7 +471,10 @@ public final class NativePrincipalPins {
         if (pin.phase == Phase.RETIRING) {
             throw new IllegalStateException("cannot commit a retiring pin: " + pin.record);
         }
+        if (pin.phase == Phase.ACTIVE) return;
+        Object epoch = new Object();
         pin.phase = Phase.ACTIVE;
+        preparationEpoch = epoch;
     }
 
     /**
@@ -405,7 +486,10 @@ public final class NativePrincipalPins {
      */
     public synchronized void beginRetire(Pin pin) {
         requireCurrent(pin);
+        if (pin.phase == Phase.RETIRING) return;
+        Object epoch = new Object();
         pin.phase = Phase.RETIRING;
+        preparationEpoch = epoch;
     }
 
     /**
@@ -420,8 +504,12 @@ public final class NativePrincipalPins {
         if (pin.phase != Phase.RETIRING) {
             throw new IllegalStateException("finishRetire needs RETIRING, not " + pin.phase);
         }
-        index.remove(pin);
+        Index next = copyIndex();
+        next.remove(pin);
+        Object epoch = new Object();
+        index = next;
         pin.phase = Phase.RETIRED;
+        preparationEpoch = epoch;
     }
 
     /**
@@ -487,11 +575,14 @@ public final class NativePrincipalPins {
                 throw new IllegalArgumentException("Unknown retiring pin ID: " + id);
             }
         }
-        index = restored; // First change. Every check above has passed.
+        List<Pin> result = Collections.unmodifiableList(pins);
+        Object epoch = new Object();
+        index = restored; // First change. Every check and allocation above has passed.
         lastId = snapshot.lastId; // Remains an unusable zero when the counter is unknown.
         counterKnown = knownCounter;
         fresh = false;
-        return Collections.unmodifiableList(pins);
+        preparationEpoch = epoch;
+        return result;
     }
 
     // Only the exact live handle of this instance. A finished handle is no longer indexed.

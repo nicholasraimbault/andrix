@@ -27,7 +27,7 @@ def boot_source(fragments=None):
 class NativeRecoveryBootTests(unittest.TestCase):
     def test_fragment_source_profile(self):
         profile = integration.profile()
-        self.assertEqual(len(profile['fragments']), 7)
+        self.assertEqual(len(profile['fragments']), 8)
         source = boot_source()
         self.assertNotIn('@IDENTITY_PREDICATE@', source)
         self.assertIn('claimInstallingPackageLocked', source)
@@ -43,7 +43,7 @@ class NativeRecoveryBootTests(unittest.TestCase):
             writer = work / 'ResilientAtomicFile.java'
             writer.write_bytes(integration.FIXTURES[
                 integration.PREFIX + 'ResilientAtomicFile.java'].read_bytes())
-            sources = [test, writer,
+            sources = [test, writer, ROOT / 'owner/tests/platform/NativePinTestSupport.java',
                        *[ROOT / 'owner/platform/framework' / (name + '.java') for name in
                          ['NativePrincipalPins', 'NativeIdentityRecords', 'NativeIdentityStore',
                           'NativePrincipalRecovery']],

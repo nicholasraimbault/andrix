@@ -143,8 +143,8 @@ public final class NativePrincipalManagerTest {
         assert manager.beginRetirement(first);
         assert manager.beginRetirement(second);
         long secondId = manager.identity(second).id;
-        assert pm.mSettings.loaded.slots.get(10123).value.users.get(0).retiring;
-        assert pm.mSettings.loaded.slots.get(10124).value.users.get(0).retiring;
+        assert pm.mSettings.mNativeIdentityLoaded.slots.get(10123).value.users.get(0).retiring;
+        assert pm.mSettings.mNativeIdentityLoaded.slots.get(10124).value.users.get(0).retiring;
         Os.failSync = true;
         assert !manager.finishRetirementAfterQuiescence(first);
         Os.failSync = false;

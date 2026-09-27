@@ -95,25 +95,42 @@ final class NativeIdentityPersistence {
             if (record.userId != USER_SYSTEM) return false;
         }
         NativeIdentityStore.Loaded loaded = store.load();
-        if (!loaded.creationReady()) return false;
+        Header next = projectReservation(loaded, snapshot);
+        if (next == null) return false;
+        // Also the exact retry: an unchanged header is rewritten through checked writers.
+        return store.writeHeader(loaded.header.value, next);
+    }
+
+    /**
+     * Pure projection shared by admission and the writer. It retains every
+     * durable index entry plus all unreserved pins, including RETIRING pins.
+     * A cached view is not a durability acknowledgement or a live lease.
+     */
+    static Header projectReservation(NativeIdentityStore.Loaded loaded,
+            NativePrincipalPins.Snapshot snapshot) {
+        Objects.requireNonNull(loaded, "loaded");
+        Objects.requireNonNull(snapshot, "snapshot");
+        checkSnapshot(snapshot);
+        for (NativePrincipalPins.Record record : snapshot.records) {
+            if (record.userId != USER_SYSTEM) return null;
+        }
+        if (!loaded.creationReady()) return null;
         Header current = loaded.header.value;
         TreeMap<Integer, HeaderEntry> entries = new TreeMap<>();
         for (HeaderEntry entry : current.entries) entries.put(entry.appId, entry);
         for (NativePrincipalPins.Record record : snapshot.records) {
             HeaderEntry held = entry(current, record.appId);
             if (held != null) {
-                if (held.phase == SlotPhase.CREATING && !reservedFor(held, record)) return false;
+                if (held.phase == SlotPhase.CREATING && !reservedFor(held, record)) return null;
                 continue; // Its own reservation, or an existing slot that publish must match.
             }
-            if (record.id <= current.lastId) return false; // Passed without a reservation.
+            if (record.id <= current.lastId) return null; // Passed without a reservation.
             entries.put(record.appId, new HeaderEntry(record.appId, SlotPhase.CREATING,
                     record.id, record.packageName));
         }
-        if (entries.size() > NativeIdentityRecords.MAX_SLOTS) return false;
-        Header next = new Header(current.lineage, Math.max(current.lastId, snapshot.lastId),
+        if (entries.size() > NativeIdentityRecords.MAX_SLOTS) return null;
+        return new Header(current.lineage, Math.max(current.lastId, snapshot.lastId),
                 new ArrayList<>(entries.values()));
-        // Also the exact retry: an unchanged header is rewritten through checked writers.
-        return store.writeHeader(current, next);
     }
 
     /**

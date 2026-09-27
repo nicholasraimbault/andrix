@@ -130,7 +130,7 @@ public final class NativeIdentityPersistenceTest {
         Env env = new Env("absent", false);
         NativeIdentityPersistence p = env.persistence;
         NativePrincipalPins pins = new NativePrincipalPins(4);
-        Record r = pins.prepare(PKG, APP, 0, SERIAL).record();
+        Record r = NativePinTestSupport.prepare(pins, PKG, APP, 0, SERIAL).record();
         assert !p.load().enumerationComplete && !p.load().creationReady();
         assert !p.reservePending(pins.snapshotForWrite());
         assert !p.publish(r, SIGNERS) && p.binding(r) == null;
@@ -149,7 +149,7 @@ public final class NativeIdentityPersistenceTest {
         Env env = new Env("create", true);
         NativeIdentityPersistence p = env.persistence;
         NativePrincipalPins pins = new NativePrincipalPins(8);
-        Pin pin = pins.prepare(PKG, APP, 0, SERIAL);
+        Pin pin = NativePinTestSupport.prepare(pins, PKG, APP, 0, SERIAL);
         Record r = pin.record();
         Snapshot pending = pins.snapshotForWrite();
         // Publication needs its own earlier reservation. It allocates and creates nothing.
@@ -182,7 +182,7 @@ public final class NativeIdentityPersistenceTest {
         assert again.binding(back.record()).signerSha256.equals(SIGNERS);
         assert again.publish(back.record(), SIGNERS);
         restored.commit(back);
-        assert restored.prepare(PKG_B, APP_B, 0, SERIAL).record().id == 2; // Counter survives.
+        assert NativePinTestSupport.prepare(restored, PKG_B, APP_B, 0, SERIAL).record().id == 2; // Counter survives.
         assert again.binding(r).equals(published) && env.header().equals(header(1, live(APP)));
     }
 
@@ -190,8 +190,8 @@ public final class NativeIdentityPersistenceTest {
         Env env = new Env("order", true);
         NativeIdentityPersistence p = env.persistence;
         NativePrincipalPins pins = new NativePrincipalPins(8);
-        Pin first = pins.prepare(PKG, APP, 0, SERIAL);
-        Pin second = pins.prepare(PKG_B, APP_B, 0, SERIAL);
+        Pin first = NativePinTestSupport.prepare(pins, PKG, APP, 0, SERIAL);
+        Pin second = NativePinTestSupport.prepare(pins, PKG_B, APP_B, 0, SERIAL);
         assert p.reservePending(pins.snapshotForWrite());
         assert env.header().equals(header(2, creating(APP, 1, PKG), creating(APP_B, 2, PKG_B)));
         assert p.publish(second.record(), SIGNERS); // 2 commits before 1.
@@ -208,8 +208,8 @@ public final class NativeIdentityPersistenceTest {
         // 1 is then refused, never reserved below the durable counter.
         Env partial = new Env("order-partial", true);
         NativePrincipalPins core = new NativePrincipalPins(8);
-        Pin one = core.prepare(PKG, APP, 0, SERIAL);
-        Pin two = core.prepare(PKG_B, APP_B, 0, SERIAL);
+        Pin one = NativePinTestSupport.prepare(core, PKG, APP, 0, SERIAL);
+        Pin two = NativePinTestSupport.prepare(core, PKG_B, APP_B, 0, SERIAL);
         assert partial.persistence.reservePending(new Snapshot(2, List.of(two.record())));
         Header passed = header(2, creating(APP_B, 2, PKG_B));
         assert partial.header().equals(passed);
@@ -222,7 +222,7 @@ public final class NativeIdentityPersistenceTest {
         Env env = new Env("refusals", true);
         NativeIdentityPersistence p = env.persistence;
         NativePrincipalPins pins = new NativePrincipalPins(8);
-        Pin pin = pins.prepare(PKG, APP, 0, SERIAL);
+        Pin pin = NativePinTestSupport.prepare(pins, PKG, APP, 0, SERIAL);
         Record r = pin.record();
         assert p.reservePending(pins.snapshotForWrite());
         Map<String, String> reserved = tree(env.root);
@@ -280,7 +280,7 @@ public final class NativeIdentityPersistenceTest {
         assert tree(env.root).equals(published);
 
         // A reservation never replaces another creation proof or admits another user.
-        Pin next = pins.prepare(PKG_B, APP_B, 0, SERIAL);
+        Pin next = NativePinTestSupport.prepare(pins, PKG_B, APP_B, 0, SERIAL);
         assert p.reservePending(pins.snapshotForWrite());
         assert env.header().equals(header(2, live(APP), creating(APP_B, 2, PKG_B)));
         Map<String, String> before = tree(env.root);
@@ -299,7 +299,7 @@ public final class NativeIdentityPersistenceTest {
         Env env = new Env("retiring", true);
         NativeIdentityPersistence p = env.persistence;
         NativePrincipalPins pins = new NativePrincipalPins(8);
-        Pin pin = pins.prepare(PKG, APP, 0, SERIAL);
+        Pin pin = NativePinTestSupport.prepare(pins, PKG, APP, 0, SERIAL);
         Record r = pin.record();
         assert p.reservePending(pins.snapshotForWrite()) && p.publish(r, SIGNERS);
         pins.commit(pin);
@@ -316,9 +316,9 @@ public final class NativeIdentityPersistenceTest {
         // Retirement can begin before the first publication. It still needs an
         // exact durable reservation and marker; advancing past that ID without
         // reserving it would permanently strand the owned retirement.
-        Pin never = pins.prepare(PKG_B, APP_B, 0, SERIAL);
+        Pin never = NativePinTestSupport.prepare(pins, PKG_B, APP_B, 0, SERIAL);
         pins.beginRetire(never);
-        Pin pending = pins.prepare(PKG_C, APP_C, 0, SERIAL);
+        Pin pending = NativePinTestSupport.prepare(pins, PKG_C, APP_C, 0, SERIAL);
         assert p.reservePending(pins.snapshotForWrite());
         assert env.header().equals(header(3, live(APP), creating(APP_B, 2, PKG_B),
                 creating(APP_C, 3, PKG_C)));
@@ -336,8 +336,8 @@ public final class NativeIdentityPersistenceTest {
         Env env = new Env("header-damage", true);
         NativeIdentityPersistence p = env.persistence;
         NativePrincipalPins pins = new NativePrincipalPins(8);
-        Pin pin = pins.prepare(PKG, APP, 0, SERIAL);
-        Pin peer = pins.prepare(PKG_B, APP_B, 0, SERIAL);
+        Pin pin = NativePinTestSupport.prepare(pins, PKG, APP, 0, SERIAL);
+        Pin peer = NativePinTestSupport.prepare(pins, PKG_B, APP_B, 0, SERIAL);
         Record r = pin.record(), rb = peer.record();
         assert p.reservePending(pins.snapshotForWrite()) && p.publish(r, SIGNERS);
         pins.commit(pin);
@@ -365,7 +365,7 @@ public final class NativeIdentityPersistenceTest {
         assert !p.finishRetirement(r, LINEAGE, SIGNERS);
         assert p.binding(r).equals(body(r, 2, true)) && p.load().occupiedAppIds.contains(APP);
         // New issuance needs the counter.
-        Pin fresh = pins.prepare(PKG_C, APP_C, 0, SERIAL);
+        Pin fresh = NativePinTestSupport.prepare(pins, PKG_C, APP_C, 0, SERIAL);
         assert !p.reservePending(pins.snapshotForWrite()) && !p.publish(fresh.record(), SIGNERS);
         assert !Files.exists(env.slot(APP_C));
         assert Arrays.equals(Files.readAllBytes(main), bad);
@@ -386,7 +386,7 @@ public final class NativeIdentityPersistenceTest {
         Env env = new Env("creating-retirement", true);
         NativeIdentityPersistence p = env.persistence;
         NativePrincipalPins pins = new NativePrincipalPins(8);
-        Pin pin = pins.prepare(PKG, APP, 0, SERIAL);
+        Pin pin = NativePinTestSupport.prepare(pins, PKG, APP, 0, SERIAL);
         Record r = pin.record();
         assert p.reservePending(pins.snapshotForWrite());
         Header creatingHeader = env.header();
@@ -405,9 +405,9 @@ public final class NativeIdentityPersistenceTest {
         Env env = new Env("preserve", true);
         NativeIdentityPersistence p = env.persistence;
         NativePrincipalPins before = new NativePrincipalPins(8);
-        Pin c = before.prepare(PKG_C, APP_C, 0, SERIAL);
-        Pin d = before.prepare(PKG_D, APP_D, 0, SERIAL);
-        Pin e = before.prepare(PKG_E, APP_E, 0, SERIAL);
+        Pin c = NativePinTestSupport.prepare(before, PKG_C, APP_C, 0, SERIAL);
+        Pin d = NativePinTestSupport.prepare(before, PKG_D, APP_D, 0, SERIAL);
+        Pin e = NativePinTestSupport.prepare(before, PKG_E, APP_E, 0, SERIAL);
         assert p.reservePending(before.snapshotForWrite());
         assert p.publish(c.record(), SIGNERS) && p.publish(d.record(), SIGNERS);
         Path damaged = env.slot(APP_D).resolve("record.bin");
@@ -421,7 +421,7 @@ public final class NativeIdentityPersistenceTest {
         assert loaded.occupiedAppIds.equals(Set.of(APP_C, APP_D, APP_E));
         NativePrincipalPins core = new NativePrincipalPins(8);
         core.restore(new Snapshot(3, List.of(c.record())));
-        Pin pin = core.prepare(PKG, APP, 0, SERIAL);
+        Pin pin = NativePinTestSupport.prepare(core, PKG, APP, 0, SERIAL);
         Record r = pin.record();
         assert r.id == 4;
         Map<String, String> others = slots(env, APP_C, APP_D);
@@ -456,8 +456,8 @@ public final class NativeIdentityPersistenceTest {
         Env env = new Env("release-refusals", true);
         NativeIdentityPersistence p = env.persistence;
         NativePrincipalPins pins = new NativePrincipalPins(8);
-        Pin pin = pins.prepare(PKG, APP, 0, SERIAL);
-        Pin peer = pins.prepare(PKG_B, APP_B, 0, SERIAL);
+        Pin pin = NativePinTestSupport.prepare(pins, PKG, APP, 0, SERIAL);
+        Pin peer = NativePinTestSupport.prepare(pins, PKG_B, APP_B, 0, SERIAL);
         Record r = pin.record(), rb = peer.record();
         assert p.reservePending(pins.snapshotForWrite());
         assert p.publish(r, SIGNERS) && p.publish(rb, SIGNERS);
@@ -514,7 +514,7 @@ public final class NativeIdentityPersistenceTest {
         Env env = new Env("creation-directory", true);
         NativeIdentityPersistence p = env.persistence;
         NativePrincipalPins pins = new NativePrincipalPins(8);
-        Record r = pins.prepare(PKG, APP, 0, SERIAL).record();
+        Record r = NativePinTestSupport.prepare(pins, PKG, APP, 0, SERIAL).record();
         assert p.reservePending(pins.snapshotForWrite());
         Path dir = Files.createDirectory(env.slot(APP));
         Path foreign = dir.resolve("owner-data");
@@ -545,8 +545,8 @@ public final class NativeIdentityPersistenceTest {
             assert k < LIMIT;
             Env env = new Env("reserve-" + k, true);
             NativePrincipalPins pins = new NativePrincipalPins(8);
-            Pin first = pins.prepare(PKG, APP, 0, SERIAL);
-            Pin second = pins.prepare(PKG_B, APP_B, 0, SERIAL);
+            Pin first = NativePinTestSupport.prepare(pins, PKG, APP, 0, SERIAL);
+            Pin second = NativePinTestSupport.prepare(pins, PKG_B, APP_B, 0, SERIAL);
             Snapshot snapshot = pins.snapshotForWrite();
             Os.syncCalls = 0;
             Os.failSyncAt = k;
@@ -578,8 +578,8 @@ public final class NativeIdentityPersistenceTest {
             assert k < LIMIT;
             Env env = new Env("publish-" + k, true);
             NativePrincipalPins pins = new NativePrincipalPins(8);
-            Pin pin = pins.prepare(PKG, APP, 0, SERIAL);
-            Pin other = pins.prepare(PKG_C, APP_C, 0, SERIAL);
+            Pin pin = NativePinTestSupport.prepare(pins, PKG, APP, 0, SERIAL);
+            Pin other = NativePinTestSupport.prepare(pins, PKG_C, APP_C, 0, SERIAL);
             Record r = pin.record();
             assert env.persistence.reservePending(pins.snapshotForWrite());
             assert env.persistence.publish(other.record(), SIGNERS);
@@ -617,7 +617,7 @@ public final class NativeIdentityPersistenceTest {
             assert k < LIMIT;
             Env env = new Env("mark-" + k, true);
             NativePrincipalPins pins = new NativePrincipalPins(8);
-            Pin pin = pins.prepare(PKG, APP, 0, SERIAL);
+            Pin pin = NativePinTestSupport.prepare(pins, PKG, APP, 0, SERIAL);
             Record r = pin.record();
             assert env.persistence.reservePending(pins.snapshotForWrite());
             assert env.persistence.publish(r, SIGNERS);
@@ -678,11 +678,11 @@ public final class NativeIdentityPersistenceTest {
     private static Retiring retiring(Env env) throws Exception {
         Retiring f = new Retiring();
         NativeIdentityPersistence p = env.persistence;
-        f.pin = f.pins.prepare(PKG, APP, 0, SERIAL);
+        f.pin = NativePinTestSupport.prepare(f.pins, PKG, APP, 0, SERIAL);
         f.record = f.pin.record();
-        Pin other = f.pins.prepare(PKG_C, APP_C, 0, SERIAL);
-        Pin damaged = f.pins.prepare(PKG_D, APP_D, 0, SERIAL);
-        f.pins.prepare(PKG_E, APP_E, 0, SERIAL);
+        Pin other = NativePinTestSupport.prepare(f.pins, PKG_C, APP_C, 0, SERIAL);
+        Pin damaged = NativePinTestSupport.prepare(f.pins, PKG_D, APP_D, 0, SERIAL);
+        NativePinTestSupport.prepare(f.pins, PKG_E, APP_E, 0, SERIAL);
         assert p.reservePending(f.pins.snapshotForWrite());
         for (Pin published : List.of(f.pin, other, damaged)) {
             assert p.publish(published.record(), SIGNERS);

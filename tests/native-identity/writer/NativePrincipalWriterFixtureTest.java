@@ -82,7 +82,7 @@ public final class NativePrincipalWriterFixtureTest {
         String retried = probe.execute("commit", INSTANCE, NONCE);
         contains(retried, "\"principal_id\":\"" + id + "\"");
         contains(retried, "\"last_commit_result\":\"true\"");
-        long counter = pm.mSettings.loaded.header.value.lastId;
+        long counter = pm.mSettings.mNativeIdentityLoaded.header.value.lastId;
         assert counter == id;
 
         // A later uncertain confirmation must not erase the earlier acknowledgement.
@@ -110,7 +110,7 @@ public final class NativePrincipalWriterFixtureTest {
         assert !worker.isAlive() && failure.get() == null;
         contains(workerReply.get(), "\"last_commit_result\":\"true\"");
         contains(workerReply.get(), "\"busy\":false");
-        assert pm.mSettings.loaded.header.value.lastId == counter;
+        assert pm.mSettings.mNativeIdentityLoaded.header.value.lastId == counter;
         refused(() -> probe.execute("prepare", INSTANCE, NONCE));
         java.util.Set<Long> attempts = java.util.concurrent.ConcurrentHashMap.newKeySet();
         Thread[] racing = new Thread[2];
@@ -132,7 +132,7 @@ public final class NativePrincipalWriterFixtureTest {
         }
         for (Thread thread : racing) { thread.join(10000); assert !thread.isAlive(); }
         assert failure.get() == null && !attempts.isEmpty() : failure.get();
-        assert pm.mSettings.loaded.header.value.lastId == counter;
+        assert pm.mSettings.mNativeIdentityLoaded.header.value.lastId == counter;
 
         // A returned true and current authority are different. Failed revalidation
         // keeps both the prior acknowledgement and the original uncertain request.
@@ -159,7 +159,7 @@ public final class NativePrincipalWriterFixtureTest {
         contains(rebind.execute("prepare", "e".repeat(32), NONCE), "\"principal_id\":\"" + id + "\"");
         assert recovered.find(SUBJECT, 0) == stored;
         contains(rebind.execute("commit", "e".repeat(32), NONCE), "\"commit_acknowledged\":true");
-        assert rebooted.mSettings.loaded.header.value.lastId == counter;
+        assert rebooted.mSettings.mNativeIdentityLoaded.header.value.lastId == counter;
         Os.forbiddenMonitor = null;
         System.out.println("Writer fixture ownership and original-handle checks passed; Android route unqualified");
     }

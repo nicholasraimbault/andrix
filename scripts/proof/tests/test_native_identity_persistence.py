@@ -26,7 +26,7 @@ class NativeIdentityPersistenceTests(unittest.TestCase):
                          ['NativePrincipalPins', 'NativeIdentityRecords', 'NativeIdentityStore',
                           'NativeIdentityPersistence', 'NativePrincipalRecovery']],
                        *[ROOT / 'owner/tests/platform' / (name + '.java') for name in
-                         ['NativeIdentityPersistenceTest', 'NativePrincipalRecoveryTest']],
+                         ['NativeIdentityPersistenceTest', 'NativePrincipalRecoveryTest', 'NativePinTestSupport']],
                        *[p for p in sorted((ROOT / 'owner/tests/platform/native_principal_xml_stubs')
                                           .rglob('*.java')) if p.name != 'Xml.java']]
             built = subprocess.run(

@@ -109,7 +109,7 @@
  import android.os.FileUtils;
  import android.os.Handler;
  import android.os.Message;
-@@ -563,6 +564,395 @@
+@@ -563,6 +564,400 @@
      final WatchedArrayMap<String, SharedUserSetting> mSharedUsers = new WatchedArrayMap<>();
      @Watched(manual = true)
      private final AppIdSettingMap mAppIds;
@@ -257,6 +257,11 @@
 +    boolean nativePrincipalCreationReadyLPr() {
 +        return mNativeIdentityLoaded != null && mNativeIdentityLoaded.creationReady()
 +                && nativePrincipalPinsLPr().hasKnownCounter();
++    }
++
++    boolean nativeIdentityReservationFitsLPr(NativePrincipalPins.Snapshot candidate) {
++        return mNativeIdentityLoaded != null
++                && NativeIdentityPersistence.projectReservation(mNativeIdentityLoaded, candidate) != null;
 +    }
 +
 +    NativePrincipalPins nativePrincipalPinsLPr() {
@@ -505,7 +510,7 @@
  
      @Watched(manual = true)
      private final PccIdSettingMap mPccIds;
-@@ -828,6 +1218,7 @@
+@@ -828,6 +1223,7 @@
  
          mSharedUsers.snapshot(r.mSharedUsers);
          mAppIds = r.mAppIds.snapshot();
@@ -513,7 +518,7 @@
          mPccIds = r.mPccIds.snapshot();
  
          mRenamedPackages.snapshot(r.mRenamedPackages);
-@@ -1396,14 +1787,32 @@
+@@ -1396,14 +1792,32 @@
      boolean registerAppIdLPw(PackageSetting p, boolean forceNew) throws PackageManagerException {
          final boolean createdNew;
          if (p.getAppId() == 0 || forceNew) {

@@ -68,6 +68,23 @@ public final class NativePrincipalManager {
         }
     }
 
+    /** Original issuance inputs survive failure before a Handle can be returned or indexed. */
+    private static final class Issuance {
+        final NativePrincipalManager owner;
+        final Selection selection;
+        final NativePrincipalPins.Record record;
+        final String lineage;
+        Handle handle; // One canonical handle, guarded by the PMS mutation lock.
+
+        Issuance(NativePrincipalManager owner, Selection selection,
+                NativePrincipalPins.Record record, String lineage) {
+            this.owner = owner;
+            this.selection = selection;
+            this.record = record;
+            this.lineage = lineage;
+        }
+    }
+
     private final PackageManagerService pm;
     // Exact prepare/find retries share a handle. Retired handles are removed
     // here, while any caller still holding one can reconcile its own result.
@@ -97,6 +114,8 @@ public final class NativePrincipalManager {
      * A changed selection requires a new decision. Signer rotation during normal
      * account maintenance is separate from this exact initial selection contract.
      * A failed write retains PENDING. A retired selection cannot create a new pin.
+     * A thrown call may already have issued a pin; its original issuer inputs remain
+     * owned, and retry or find must reconcile them rather than issue a replacement.
      */
     public Handle prepare(Selection selection) {
         try (PackageManagerTracedLock ignored = pm.mInstallLock.acquireLock()) {
@@ -111,6 +130,10 @@ public final class NativePrincipalManager {
                     if (selection.prepared.pin.phase() == NativePrincipalPins.Phase.RETIRING) {
                         throw new IllegalStateException("Native account selection is retiring");
                     }
+                    // A prior response may have failed after issuance but before
+                    // these idempotent metadata updates finished.
+                    pm.mSettings.rememberNativeSubjectLPw(setting);
+                    pm.mSettings.refreshNativePrincipalAppIdsLPw();
                     return selection.prepared;
                 }
                 NativePrincipalPins pins = pm.mSettings.nativePrincipalPinsLPr();
@@ -119,9 +142,24 @@ public final class NativePrincipalManager {
                         || pm.mSettings.isNativePrincipalAppIdLPr(setting.getAppId()))) {
                     throw new IllegalStateException("Native identity issuance requires recovery");
                 }
-                NativePrincipalPins.Pin pin = pins.prepare(selection.packageName, setting.getAppId(),
-                        selection.userId, selection.userSerial);
-                Handle prepared = handle(pin, selection, existing == null);
+                final NativePrincipalPins.Pin pin;
+                if (existing == null) {
+                    NativePrincipalPins.Preparation proposal = pins.previewPrepare(selection.packageName,
+                            setting.getAppId(), selection.userId, selection.userSerial);
+                    if (!pm.mSettings.nativeIdentityReservationFitsLPr(proposal.snapshot)) {
+                        throw new IllegalStateException("Native identity reservation admission unavailable");
+                    }
+                    String lineage = pm.mSettings.nativeIdentityLineageLPr();
+                    if (pm.mSettings.nativePrincipalStoredBindingLPr(proposal.record) != null) {
+                        throw new IllegalStateException("Native issuance overlaps stored binding");
+                    }
+                    Issuance issuance = new Issuance(this, selection, proposal.record, lineage);
+                    pin = pins.prepare(proposal, issuance);
+                } else {
+                    pin = pins.retry(selection.packageName, setting.getAppId(),
+                            selection.userId, selection.userSerial);
+                }
+                Handle prepared = handle(pin);
                 if (!prepared.storedSignerSha256.equals(selection.currentSignerSha256)) {
                     throw new IllegalStateException("Current signer does not match prior native binding");
                 }
@@ -217,15 +255,17 @@ public final class NativePrincipalManager {
     }
 
     /**
-     * Recover a persisted reservation, never an old process or launch. Restored
-     * handles remain PENDING until subject revalidation and durable commit.
+     * Reconcile a reservation, never an old process or launch. This can recover
+     * the original in-memory issuance after prepare threw before returning its
+     * handle. A pin restored from disk still needs explicit designation binding,
+     * subject revalidation and durable commit.
      */
     public Handle find(String packageName, int userId) {
         synchronized (pm.mLock) {
             primaryUserSerial(userId);
             NativePrincipalPins.Pin pin = pm.mSettings.nativePrincipalPinsLPr().find(packageName,
                     userId);
-            return pin == null ? null : handle(pin, null, false);
+            return pin == null ? null : handle(pin);
         }
     }
 
@@ -301,17 +341,27 @@ public final class NativePrincipalManager {
         }
     }
 
-    private Handle handle(NativePrincipalPins.Pin pin, Selection selection, boolean newlyIssued) {
+    private Handle handle(NativePrincipalPins.Pin pin) {
         Handle old = handles.get(pin);
         if (old != null) return old;
-        NativeIdentityRecords.Slot prior = pm.mSettings.nativePrincipalStoredBindingLPr(pin.record());
-        final Handle created;
-        if (prior != null) created = new Handle(this, pin, prior.lineage, prior.signerSha256);
-        else {
-            if (selection == null || !newlyIssued) throw new IllegalStateException("Prior native identity unavailable");
-            created = new Handle(this, pin, pm.mSettings.nativeIdentityLineageLPr(),
-                    selection.currentSignerSha256);
+        if (pin.issuance() instanceof Issuance issuance && issuance.owner == this) {
+            if (!pin.record().equals(issuance.record)) {
+                throw new IllegalStateException("Native issuance provenance changed");
+            }
+            if (issuance.handle == null) {
+                Handle created = new Handle(this, pin, issuance.lineage,
+                        issuance.selection.currentSignerSha256);
+                created.selection = issuance.selection;
+                issuance.handle = created;
+            }
+            // Indexing may fail, but the pin still owns the original facts and
+            // canonical handle. A retry never takes history from a new APK.
+            handles.put(pin, issuance.handle);
+            return issuance.handle;
         }
+        NativeIdentityRecords.Slot prior = pm.mSettings.nativePrincipalStoredBindingLPr(pin.record());
+        if (prior == null) throw new IllegalStateException("Prior native identity unavailable");
+        Handle created = new Handle(this, pin, prior.lineage, prior.signerSha256);
         handles.put(pin, created);
         return created;
     }

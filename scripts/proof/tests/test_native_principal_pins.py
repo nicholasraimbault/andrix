@@ -97,15 +97,17 @@ class NativePrincipalPinsTests(unittest.TestCase):
                 for source in base.rglob('*.java'):
                     if source.name != 'Xml.java':
                         stubs[source.relative_to(base).as_posix()] = source
+            admission = integration.FRAGMENTS['admission'][1].read_bytes()
+            self.assertEqual(stubs['com/android/server/pm/Settings.java'].read_bytes().count(admission), 1)
             sources = [allocator, writer, *stubs.values(),
                        *[ROOT / 'owner/platform/framework' / (name + '.java') for name in
                          ['NativePrincipalPins', 'NativePrincipalManager', 'NativeIdentityRecords',
                           'NativeIdentityStore', 'NativeIdentityPersistence', 'NativePrincipalRecovery']],
                        *[ROOT / 'owner/tests/platform' / (name + '.java') for name in
-                         ['NativePrincipalPinsTest', 'NativePrincipalAllocatorTest', 'NativePrincipalManagerTest']]]
+                         ['NativePrincipalPinsTest', 'NativePrincipalAllocatorTest', 'NativePrincipalManagerTest', 'NativePreparationAdmissionTest', 'NativePinTestSupport']]]
             subprocess.run(['javac', '-J-Xmx256m', '--release', '17', '-Xlint:all', '-Werror', '-d', str(work),
                             *map(str, sources)], check=True, capture_output=True, timeout=120)
-            for name in ['NativePrincipalPinsTest', 'NativePrincipalAllocatorTest', 'NativePrincipalManagerTest']:
+            for name in ['NativePrincipalPinsTest', 'NativePrincipalAllocatorTest', 'NativePrincipalManagerTest', 'NativePreparationAdmissionTest']:
                 result = subprocess.run(['java', '-Xmx256m', '-Djava.io.tmpdir=' + str(work), '-ea', '-cp', str(work), 'com.android.server.pm.' + name],
                                         capture_output=True, text=True, timeout=60)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

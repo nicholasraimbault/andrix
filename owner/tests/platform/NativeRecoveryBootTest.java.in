@@ -105,7 +105,7 @@ public final class NativeRecoveryBootTest {
             Settings state = test.mPm.mSettings;
             PackageSetting data = new PackageSetting("dev.andrix.account", 10123, false);
             state.packages.put(data.name, data);
-            state.pins.prepare(data.name, data.appId, 0, 7);
+            NativePinTestSupport.prepare(state.pins, data.name, data.appId, 0, 7);
             state.mNativeRecoveryView = state.mNativeRecoveryView.withHolds(Set.of(10123));
             PackageSettings settings = new PackageSettings(); settings.values.add(data);
             test.systemCleanupPrefix(settings);

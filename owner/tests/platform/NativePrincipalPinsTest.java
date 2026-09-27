@@ -85,7 +85,7 @@ public final class NativePrincipalPinsTest {
 
     private static void phaseTransitions() {
         NativePrincipalPins pins = new NativePrincipalPins(4);
-        Pin pin = pins.prepare(APP, 10123, 0, 0);
+        Pin pin = NativePinTestSupport.prepare(pins, APP, 10123, 0, 0);
         assert pin.phase() == Phase.PENDING;
         assert pin.record().equals(new Record(1, APP, 10123, 0, 0));
         // The allocation is pinned at once, before any write or commit.
@@ -117,7 +117,7 @@ public final class NativePrincipalPinsTest {
         assert pin.phase() == Phase.RETIRED;
 
         // PENDING can retire without ever becoming ACTIVE.
-        Pin pending = pins.prepare(APP, 10123, 0, 0);
+        Pin pending = NativePinTestSupport.prepare(pins, APP, 10123, 0, 0);
         assert pending != pin && pending.record().id == 2;
         pins.beginRetire(pending);
         refused(() -> pins.commit(pending));
@@ -128,42 +128,42 @@ public final class NativePrincipalPinsTest {
 
     private static void exactRetryAndConflicts() {
         NativePrincipalPins pins = new NativePrincipalPins(8);
-        Pin pin = pins.prepare(APP, 10123, 0, 7);
-        assert pins.prepare(APP, 10123, 0, 7) == pin; // Exact retry while PENDING.
+        Pin pin = NativePinTestSupport.prepare(pins, APP, 10123, 0, 7);
+        assert NativePinTestSupport.prepare(pins, APP, 10123, 0, 7) == pin; // Exact retry while PENDING.
         List<Object> before = state(pins, pin);
-        refused(() -> pins.prepare(APP, 10124, 0, 7)); // Another app ID for this package and user.
-        refused(() -> pins.prepare(APP, 10123, 0, 8)); // Another incarnation of user 0.
-        refused(() -> pins.prepare(APP, 10124, 10, 9)); // A pinned package keeps one app ID.
-        refused(() -> pins.prepare(OTHER, 10123, 10, 9)); // A pinned app ID keeps one package.
-        refused(() -> pins.prepare(OTHER, 10123, 0, 7));
+        refused(() -> NativePinTestSupport.prepare(pins, APP, 10124, 0, 7)); // Another app ID for this package and user.
+        refused(() -> NativePinTestSupport.prepare(pins, APP, 10123, 0, 8)); // Another incarnation of user 0.
+        refused(() -> NativePinTestSupport.prepare(pins, APP, 10124, 10, 9)); // A pinned package keeps one app ID.
+        refused(() -> NativePinTestSupport.prepare(pins, OTHER, 10123, 10, 9)); // A pinned app ID keeps one package.
+        refused(() -> NativePinTestSupport.prepare(pins, OTHER, 10123, 0, 7));
         assert state(pins, pin).equals(before);
         pins.commit(pin);
-        assert pins.prepare(APP, 10123, 0, 7) == pin && pin.phase() == Phase.ACTIVE;
+        assert NativePinTestSupport.prepare(pins, APP, 10123, 0, 7) == pin && pin.phase() == Phase.ACTIVE;
 
         // The same package and app ID may be pinned for other users.
-        Pin secondary = pins.prepare(APP, 10123, 10, 9);
+        Pin secondary = NativePinTestSupport.prepare(pins, APP, 10123, 10, 9);
         assert secondary != pin && secondary.record().equals(new Record(2, APP, 10123, 10, 9));
         assert pins.find(APP, 0) == pin && pins.find(APP, 10) == secondary;
-        assert pins.prepare(APP, 10123, 10, 9) == secondary;
+        assert NativePinTestSupport.prepare(pins, APP, 10123, 10, 9) == secondary;
         pins.beginRetire(secondary);
-        refused(() -> pins.prepare(APP, 10123, 10, 9)); // An exact binding cannot revive it.
-        refused(() -> pins.prepare(APP, 10123, 10, 10)); // Nor can a new incarnation of user 10.
-        Pin tertiary = pins.prepare(APP, 10123, 11, 12); // Other users are unaffected.
+        refused(() -> NativePinTestSupport.prepare(pins, APP, 10123, 10, 9)); // An exact binding cannot revive it.
+        refused(() -> NativePinTestSupport.prepare(pins, APP, 10123, 10, 10)); // Nor can a new incarnation of user 10.
+        Pin tertiary = NativePinTestSupport.prepare(pins, APP, 10123, 11, 12); // Other users are unaffected.
         assert tertiary.record().id == 3;
         pins.finishRetire(secondary);
-        Pin recreated = pins.prepare(APP, 10123, 10, 10);
+        Pin recreated = NativePinTestSupport.prepare(pins, APP, 10123, 10, 10);
         assert recreated.record().id == 4 && recreated.phase() == Phase.PENDING;
 
         // The pair is released only when no user keeps a pin.
         retire(pins, pin);
         retire(pins, tertiary);
         assert pins.isPackagePinned(APP) && pins.isAppIdPinned(10123);
-        refused(() -> pins.prepare(OTHER, 10123, 0, 7));
-        refused(() -> pins.prepare(APP, 10124, 0, 7));
+        refused(() -> NativePinTestSupport.prepare(pins, OTHER, 10123, 0, 7));
+        refused(() -> NativePinTestSupport.prepare(pins, APP, 10124, 0, 7));
         retire(pins, recreated);
         assert !pins.isPackagePinned(APP) && !pins.isAppIdPinned(10123);
-        assert pins.prepare(OTHER, 10123, 0, 7).record().id == 5;
-        assert pins.prepare(APP, 10124, 0, 7).record().id == 6;
+        assert NativePinTestSupport.prepare(pins, OTHER, 10123, 0, 7).record().id == 5;
+        assert NativePinTestSupport.prepare(pins, APP, 10124, 0, 7).record().id == 6;
     }
 
     private static void validation() {
@@ -179,24 +179,24 @@ public final class NativePrincipalPinsTest {
             "\u00e9.b", "a.\u0430", longest + "b",
         };
         for (String name : malformed) {
-            invalid(() -> pins.prepare(name, 10123, 0, 0));
+            invalid(() -> NativePinTestSupport.prepare(pins, name, 10123, 0, 0));
             invalid(() -> new Record(1, name, 10123, 0, 0));
         }
-        missing(() -> pins.prepare(null, 10123, 0, 0));
+        missing(() -> NativePinTestSupport.prepare(pins, null, 10123, 0, 0));
         missing(() -> new Record(1, null, 10123, 0, 0));
         int[] appIds = {Integer.MIN_VALUE, -1, 0, 1000, 9999, 20000, 99999, Integer.MAX_VALUE};
         for (int appId : appIds) {
-            invalid(() -> pins.prepare(APP, appId, 0, 0));
+            invalid(() -> NativePinTestSupport.prepare(pins, APP, appId, 0, 0));
             invalid(() -> new Record(1, APP, appId, 0, 0));
         }
         // 21474 is the largest user whose UIDs fit in an int for every valid app ID.
         int[] userIds = {Integer.MIN_VALUE, -10000, -2, -1, 21475, Integer.MAX_VALUE};
         for (int userId : userIds) {
-            invalid(() -> pins.prepare(APP, 10000, userId, 0));
+            invalid(() -> NativePinTestSupport.prepare(pins, APP, 10000, userId, 0));
             invalid(() -> new Record(1, APP, 10000, userId, 0));
         }
         for (long serial : new long[] {Long.MIN_VALUE, -1}) {
-            invalid(() -> pins.prepare(APP, 10123, 0, serial));
+            invalid(() -> NativePinTestSupport.prepare(pins, APP, 10123, 0, serial));
             invalid(() -> new Record(1, APP, 10123, 0, serial));
         }
         for (long id : new long[] {Long.MIN_VALUE, -1, 0}) {
@@ -206,9 +206,9 @@ public final class NativePrincipalPinsTest {
         assert !pins.isPackagePinned(APP) && !pins.isAppIdPinned(10123) && pins.findId(1) == null;
 
         // Every boundary value is accepted.
-        Pin lowest = pins.prepare("a.b", 10000, 0, 0);
-        Pin highest = pins.prepare(longest, 19999, 21474, Long.MAX_VALUE);
-        Pin mixed = pins.prepare("Z9_.y_1.x", 10001, 1, 1);
+        Pin lowest = NativePinTestSupport.prepare(pins, "a.b", 10000, 0, 0);
+        Pin highest = NativePinTestSupport.prepare(pins, longest, 19999, 21474, Long.MAX_VALUE);
+        Pin mixed = NativePinTestSupport.prepare(pins, "Z9_.y_1.x", 10001, 1, 1);
         assert lowest.record().id == 1 && highest.record().id == 2 && mixed.record().id == 3;
         assert highest.record().userId * 100_000 + highest.record().appId == 2_147_419_999;
         assert new Record(Long.MAX_VALUE, APP, 10123, 0, 0).id == Long.MAX_VALUE;
@@ -229,43 +229,43 @@ public final class NativePrincipalPinsTest {
 
     private static void capacityAndCounters() {
         NativePrincipalPins pins = new NativePrincipalPins(2);
-        Pin a = pins.prepare(APP, 10001, 0, 0);
-        Pin b = pins.prepare(OTHER, 10002, 0, 0);
+        Pin a = NativePinTestSupport.prepare(pins, APP, 10001, 0, 0);
+        Pin b = NativePinTestSupport.prepare(pins, OTHER, 10002, 0, 0);
         List<Object> full = state(pins, a, b);
-        refused(() -> pins.prepare(THIRD, 10003, 0, 0));
+        refused(() -> NativePinTestSupport.prepare(pins, THIRD, 10003, 0, 0));
         assert state(pins, a, b).equals(full); // No ID or reservation consumed.
-        assert pins.prepare(APP, 10001, 0, 0) == a; // An exact retry needs no capacity.
+        assert NativePinTestSupport.prepare(pins, APP, 10001, 0, 0) == a; // An exact retry needs no capacity.
         pins.beginRetire(a);
-        refused(() -> pins.prepare(THIRD, 10003, 0, 0)); // RETIRING still counts.
+        refused(() -> NativePinTestSupport.prepare(pins, THIRD, 10003, 0, 0)); // RETIRING still counts.
         pins.finishRetire(a);
-        assert pins.prepare(THIRD, 10003, 0, 0).record().id == 3;
-        refused(() -> pins.prepare(FOURTH, 10004, 0, 0));
+        assert NativePinTestSupport.prepare(pins, THIRD, 10003, 0, 0).record().id == 3;
+        refused(() -> NativePinTestSupport.prepare(pins, FOURTH, 10004, 0, 0));
 
         NativePrincipalPins high = new NativePrincipalPins(4);
         assert high.restore(new Snapshot(Long.MAX_VALUE - 1, List.of())).isEmpty();
-        Pin last = high.prepare(APP, 10123, 0, 0);
+        Pin last = NativePinTestSupport.prepare(high, APP, 10123, 0, 0);
         assert last.record().id == Long.MAX_VALUE;
         List<Object> exhausted = state(high, last);
-        refused(() -> high.prepare(OTHER, 10124, 0, 0)); // Never wraps or reuses an ID.
+        refused(() -> NativePinTestSupport.prepare(high, OTHER, 10124, 0, 0)); // Never wraps or reuses an ID.
         assert state(high, last).equals(exhausted);
-        assert high.prepare(APP, 10123, 0, 0) == last; // Exact retries still work.
+        assert NativePinTestSupport.prepare(high, APP, 10123, 0, 0) == last; // Exact retries still work.
         retire(high, last);
-        refused(() -> high.prepare(APP, 10123, 0, 0)); // A released ID does not come back.
+        refused(() -> NativePinTestSupport.prepare(high, APP, 10123, 0, 0)); // A released ID does not come back.
         assert high.snapshotForWrite().equals(new Snapshot(Long.MAX_VALUE, List.of()));
 
         NativePrincipalPins top = new NativePrincipalPins(4);
         Record max = new Record(Long.MAX_VALUE, APP, 10123, 0, 0);
         Pin restored = top.restore(new Snapshot(Long.MAX_VALUE, List.of(max))).get(0);
         assert top.findId(Long.MAX_VALUE) == restored && restored.phase() == Phase.PENDING;
-        refused(() -> top.prepare(OTHER, 10124, 0, 0));
-        assert top.prepare(APP, 10123, 0, 0) == restored;
+        refused(() -> NativePinTestSupport.prepare(top, OTHER, 10124, 0, 0));
+        assert NativePinTestSupport.prepare(top, APP, 10123, 0, 0) == restored;
     }
 
     private static void foreignAndStaleHandles() {
         NativePrincipalPins first = new NativePrincipalPins(4);
         NativePrincipalPins second = new NativePrincipalPins(4);
-        Pin mine = first.prepare(APP, 10123, 0, 0);
-        Pin theirs = second.prepare(APP, 10123, 0, 0);
+        Pin mine = NativePinTestSupport.prepare(first, APP, 10123, 0, 0);
+        Pin theirs = NativePinTestSupport.prepare(second, APP, 10123, 0, 0);
         assert mine != theirs && mine.record().equals(theirs.record()); // Equal, not owned.
         List<Object> before = state(first, mine);
         refused(() -> first.commit(theirs));
@@ -279,7 +279,7 @@ public final class NativePrincipalPinsTest {
 
         // A stale handle cannot act on the new pin for the same binding.
         retire(first, mine);
-        Pin current = first.prepare(APP, 10123, 0, 0);
+        Pin current = NativePinTestSupport.prepare(first, APP, 10123, 0, 0);
         assert current != mine && current.record().id == 2;
         refused(() -> first.commit(mine));
         refused(() -> first.beginRetire(mine));
@@ -331,16 +331,16 @@ public final class NativePrincipalPinsTest {
         refused(() -> pins.restore(new Snapshot(0, List.of())));
         retire(pins, restored.get(0));
         // New IDs continue after lastId, not after the highest remaining record.
-        assert pins.prepare(THIRD, 10300, 0, 0).record().id == 10;
+        assert NativePinTestSupport.prepare(pins, THIRD, 10300, 0, 0).record().id == 10;
 
         NativePrincipalPins failed = new NativePrincipalPins(3);
-        invalid(() -> failed.prepare("android", 10123, 0, 0));
+        invalid(() -> NativePinTestSupport.prepare(failed, "android", 10123, 0, 0));
         invalid(() -> failed.restore(new Snapshot(-1, List.of())));
         assert failed.restore(new Snapshot(5, List.of())).isEmpty(); // Failures kept it fresh.
-        assert failed.prepare(APP, 10123, 0, 0).record().id == 6;
+        assert NativePinTestSupport.prepare(failed, APP, 10123, 0, 0).record().id == 6;
 
         NativePrincipalPins used = new NativePrincipalPins(3);
-        Pin sole = used.prepare(APP, 10123, 0, 0);
+        Pin sole = NativePinTestSupport.prepare(used, APP, 10123, 0, 0);
         refused(() -> used.restore(new Snapshot(0, List.of())));
         retire(used, sole);
         refused(() -> used.restore(new Snapshot(0, List.of()))); // Empty again, but not fresh.
@@ -351,9 +351,9 @@ public final class NativePrincipalPinsTest {
 
     private static void retirementMarkersAndTargetOmission() {
         NativePrincipalPins pins = new NativePrincipalPins(3);
-        Pin leaving = pins.prepare(APP, 10123, 0, 0);
-        Pin otherRetiring = pins.prepare(OTHER, 10200, 0, 0);
-        Pin pending = pins.prepare(THIRD, 10300, 0, 0);
+        Pin leaving = NativePinTestSupport.prepare(pins, APP, 10123, 0, 0);
+        Pin otherRetiring = NativePinTestSupport.prepare(pins, OTHER, 10200, 0, 0);
+        Pin pending = NativePinTestSupport.prepare(pins, THIRD, 10300, 0, 0);
         refused(() -> pins.snapshotWithout(leaving));
         pins.commit(leaving);
         refused(() -> pins.snapshotWithout(leaving));
@@ -368,7 +368,7 @@ public final class NativePrincipalPinsTest {
             Pin pin = afterMarker.find(name, 0);
             assert pin.phase() == Phase.RETIRING;
             refused(() -> afterMarker.commit(pin));
-            refused(() -> afterMarker.prepare(name, pin.record().appId, 0, 0));
+            refused(() -> NativePinTestSupport.prepare(afterMarker, name, pin.record().appId, 0, 0));
         }
         assert afterMarker.find(THIRD, 0).phase() == Phase.PENDING;
         Snapshot omission = pins.snapshotWithout(leaving);
@@ -376,7 +376,7 @@ public final class NativePrincipalPinsTest {
         assert omission.retiringIds.equals(Set.of(otherRetiring.record().id));
         assert pins.snapshotForWrite().equals(marked); // Candidate did not change held state.
         assert pins.reservedAppIds().equals(Set.of(10123, 10200, 10300));
-        refused(() -> pins.prepare(FOURTH, 10400, 0, 0));
+        refused(() -> NativePinTestSupport.prepare(pins, FOURTH, 10400, 0, 0));
         NativePrincipalPins afterFinalWrite = new NativePrincipalPins(3);
         afterFinalWrite.restore(omission);
         assert afterFinalWrite.find(APP, 0) == null;
@@ -385,7 +385,7 @@ public final class NativePrincipalPinsTest {
         refused(() -> afterFinalWrite.commit(afterFinalWrite.find(OTHER, 0)));
         pins.finishRetire(leaving);
         assert pins.snapshotForWrite().equals(omission);
-        assert pins.prepare(FOURTH, 10123, 0, 0).record().id == 4;
+        assert NativePinTestSupport.prepare(pins, FOURTH, 10123, 0, 0).record().id == 4;
         refused(() -> pins.snapshotWithout(leaving));
         refused(() -> pins.snapshotWithout(afterFinalWrite.find(OTHER, 0)));
         missing(() -> pins.snapshotWithout(null));
@@ -394,10 +394,10 @@ public final class NativePrincipalPinsTest {
     private static void reservedAppIdsBarrier() {
         NativePrincipalPins pins = new NativePrincipalPins(8);
         assert pins.reservedAppIds().isEmpty();
-        Pin owner = pins.prepare(APP, 10123, 0, 0);
-        Pin secondary = pins.prepare(APP, 10123, 10, 5);
-        Pin other = pins.prepare(OTHER, 10200, 0, 0);
-        Pin low = pins.prepare(THIRD, 10050, 0, 0);
+        Pin owner = NativePinTestSupport.prepare(pins, APP, 10123, 0, 0);
+        Pin secondary = NativePinTestSupport.prepare(pins, APP, 10123, 10, 5);
+        Pin other = NativePinTestSupport.prepare(pins, OTHER, 10200, 0, 0);
+        Pin low = NativePinTestSupport.prepare(pins, THIRD, 10050, 0, 0);
         Set<Integer> reserved = pins.reservedAppIds();
         // Each app ID appears once, however many users pin its package, in ascending order.
         assert new ArrayList<>(reserved).equals(List.of(10050, 10123, 10200));
@@ -423,7 +423,7 @@ public final class NativePrincipalPinsTest {
         assert pins.reservedAppIds().equals(Set.of(10050, 10123));
         retire(pins, secondary);
         assert pins.reservedAppIds().equals(Set.of(10050));
-        Pin fourth = pins.prepare(FOURTH, 10400, 0, 0);
+        Pin fourth = NativePinTestSupport.prepare(pins, FOURTH, 10400, 0, 0);
         assert reserved.equals(Set.of(10050, 10123, 10200)); // A copy, not a live view.
 
         // It agrees with isAppIdPinned over the whole application range.
@@ -442,9 +442,9 @@ public final class NativePrincipalPinsTest {
 
     private static void restoreNeverActivates() {
         NativePrincipalPins before = new NativePrincipalPins(4);
-        Pin active = before.prepare(APP, 10123, 0, 0);
+        Pin active = NativePinTestSupport.prepare(before, APP, 10123, 0, 0);
         before.commit(active);
-        Pin pending = before.prepare(OTHER, 10200, 0, 0);
+        Pin pending = NativePinTestSupport.prepare(before, OTHER, 10200, 0, 0);
         Snapshot durable = before.snapshotForWrite();
         assert durable.equals(new Snapshot(2, List.of(active.record(), pending.record())));
 
@@ -456,7 +456,7 @@ public final class NativePrincipalPinsTest {
         }
         Pin again = after.find(APP, 0);
         assert again == restored.get(0) && again.record().equals(active.record());
-        assert after.prepare(APP, 10123, 0, 0) == again && again.phase() == Phase.PENDING;
+        assert NativePinTestSupport.prepare(after, APP, 10123, 0, 0) == again && again.phase() == Phase.PENDING;
         after.commit(again); // Only an explicit commit after revalidation activates it.
         assert again.phase() == Phase.ACTIVE && restored.get(1).phase() == Phase.PENDING;
         assert after.snapshotForWrite().equals(durable);
@@ -465,9 +465,9 @@ public final class NativePrincipalPinsTest {
 
     private static void emptySnapshotKeepsCounter() {
         NativePrincipalPins pins = new NativePrincipalPins(4);
-        Pin first = pins.prepare(APP, 10123, 0, 0);
+        Pin first = NativePinTestSupport.prepare(pins, APP, 10123, 0, 0);
         retire(pins, first);
-        Pin second = pins.prepare(APP, 10123, 0, 0);
+        Pin second = NativePinTestSupport.prepare(pins, APP, 10123, 0, 0);
         assert second.record().id == 2 && pins.findId(1) == null; // A released ID is not reused.
         pins.beginRetire(second);
         Snapshot empty = pins.snapshotWithout(second);
@@ -478,7 +478,7 @@ public final class NativePrincipalPinsTest {
         NativePrincipalPins rebooted = new NativePrincipalPins(4);
         assert rebooted.restore(empty).isEmpty();
         assert rebooted.snapshotForWrite().equals(empty); // lastId survives without records.
-        assert rebooted.prepare(APP, 10123, 0, 0).record().id == 3;
+        assert NativePinTestSupport.prepare(rebooted, APP, 10123, 0, 0).record().id == 3;
     }
 
     private static void immutableValues() {
@@ -495,10 +495,10 @@ public final class NativePrincipalPinsTest {
         unsupported(() -> snapshot.records.clear());
 
         NativePrincipalPins pins = new NativePrincipalPins(4);
-        Pin pin = pins.prepare(APP, 10123, 0, 0);
+        Pin pin = NativePinTestSupport.prepare(pins, APP, 10123, 0, 0);
         Snapshot written = pins.snapshotForWrite();
         pins.commit(pin);
-        pins.prepare(OTHER, 10200, 0, 0);
+        NativePinTestSupport.prepare(pins, OTHER, 10200, 0, 0);
         pins.beginRetire(pin);
         assert written.equals(new Snapshot(1, List.of(pin.record()))); // Not a live view.
         unsupported(() -> written.records.clear());
@@ -548,7 +548,7 @@ public final class NativePrincipalPinsTest {
     // No clearing, UID change, authority flag or other way around the phases is public.
     private static void closedSurface() {
         Set<String> methods = publicMethods(NativePrincipalPins.class);
-        assert methods.equals(Set.of("prepare", "find", "findId", "isPackagePinned",
+        assert methods.equals(Set.of("find", "findId", "isPackagePinned",
                 "isAppIdPinned", "reservedAppIds", "snapshotForWrite", "snapshotWithout", "commit", "beginRetire",
                 "finishRetire", "restore", "restoreBindingsWithoutCounter", "hasKnownCounter")) : methods;
         assert publicMethods(Pin.class).equals(Set.of("record", "phase", "toString"));
@@ -567,10 +567,10 @@ public final class NativePrincipalPinsTest {
 
     private static void lostWritesKeepHandles() {
         NativePrincipalPins pins = new NativePrincipalPins(4);
-        Pin pin = pins.prepare(APP, 10123, 0, 0);
+        Pin pin = NativePinTestSupport.prepare(pins, APP, 10123, 0, 0);
         Snapshot attempt = pins.snapshotForWrite();
         // The write outcome is unknown. Nothing is released, and the retry uses the same handle.
-        assert pins.find(APP, 0) == pin && pins.prepare(APP, 10123, 0, 0) == pin;
+        assert pins.find(APP, 0) == pin && NativePinTestSupport.prepare(pins, APP, 10123, 0, 0) == pin;
         assert pins.snapshotForWrite().equals(attempt) && pin.phase() == Phase.PENDING;
         pins.commit(pin);
         pins.beginRetire(pin);
@@ -586,7 +586,7 @@ public final class NativePrincipalPinsTest {
     }
 
     private static long prepareAndDrop(NativePrincipalPins pins) {
-        return pins.prepare(APP, 10123, 0, 0).record().id;
+        return NativePinTestSupport.prepare(pins, APP, 10123, 0, 0).record().id;
     }
 
     private static void noAutomaticRelease() throws InterruptedException {
@@ -624,7 +624,7 @@ public final class NativePrincipalPinsTest {
     private static void callsWaitForTheMonitor() throws InterruptedException {
         NativePrincipalPins pins = new NativePrincipalPins(4);
         AtomicReference<Pin> prepared = new AtomicReference<>();
-        Thread preparing = daemon(() -> prepared.set(pins.prepare(APP, 10123, 0, 0)));
+        Thread preparing = daemon(() -> prepared.set(NativePinTestSupport.prepare(pins, APP, 10123, 0, 0)));
         synchronized (pins) {
             preparing.start();
             awaitBlocked(preparing);
@@ -695,7 +695,7 @@ public final class NativePrincipalPinsTest {
 
     private static void concurrentPreparesAndRetirement() throws Exception {
         NativePrincipalPins same = new NativePrincipalPins(4);
-        List<Pin> exact = race(RACERS, index -> same.prepare(APP, 10123, 0, 0));
+        List<Pin> exact = race(RACERS, index -> NativePinTestSupport.prepare(same, APP, 10123, 0, 0));
         for (Pin pin : exact) {
             assert pin == exact.get(0);
         }
@@ -704,7 +704,7 @@ public final class NativePrincipalPinsTest {
         NativePrincipalPins conflicting = new NativePrincipalPins(4);
         List<Pin> serials = race(RACERS, index -> {
             try {
-                return conflicting.prepare(APP, 10123, 0, index);
+                return NativePinTestSupport.prepare(conflicting, APP, 10123, 0, index);
             } catch (IllegalStateException conflict) {
                 return null;
             }
@@ -716,7 +716,7 @@ public final class NativePrincipalPinsTest {
         NativePrincipalPins bounded = new NativePrincipalPins(5);
         List<Pin> admitted = race(RACERS, index -> {
             try {
-                return bounded.prepare("dev.andrix.p" + index, 10100 + index, 0, 0);
+                return NativePinTestSupport.prepare(bounded, "dev.andrix.p" + index, 10100 + index, 0, 0);
             } catch (IllegalStateException full) {
                 return null;
             }
@@ -738,7 +738,7 @@ public final class NativePrincipalPinsTest {
         NativePrincipalPins shared = new NativePrincipalPins(RACERS);
         Pin holder = only(race(RACERS, index -> {
             try {
-                return shared.prepare("dev.andrix.p" + index, 10500, 0, 0);
+                return NativePinTestSupport.prepare(shared, "dev.andrix.p" + index, 10500, 0, 0);
             } catch (IllegalStateException taken) {
                 return null;
             }
@@ -748,7 +748,7 @@ public final class NativePrincipalPinsTest {
 
         // Commit racing retirement always ends RETIRING. A commit came first or was refused.
         NativePrincipalPins racing = new NativePrincipalPins(4);
-        Pin contested = racing.prepare(APP, 10123, 0, 0);
+        Pin contested = NativePinTestSupport.prepare(racing, APP, 10123, 0, 0);
         race(RACERS, index -> {
             if (index % 2 == 0) {
                 racing.beginRetire(contested);
@@ -777,7 +777,7 @@ public final class NativePrincipalPinsTest {
 
         // Exact retries racing one retirement see the old pin, then refusals, then one new pin.
         NativePrincipalPins cycle = new NativePrincipalPins(4);
-        Pin old = cycle.prepare(APP, 10123, 0, 0);
+        Pin old = NativePinTestSupport.prepare(cycle, APP, 10123, 0, 0);
         cycle.commit(old);
         Set<Pin> replacements = Collections.synchronizedSet(
                 Collections.newSetFromMap(new IdentityHashMap<Pin, Boolean>()));
@@ -789,7 +789,7 @@ public final class NativePrincipalPinsTest {
             StringBuilder history = new StringBuilder();
             for (int attempt = 0; attempt < 2_000; attempt++) {
                 try {
-                    Pin seen = cycle.prepare(APP, 10123, 0, 0);
+                    Pin seen = NativePinTestSupport.prepare(cycle, APP, 10123, 0, 0);
                     if (seen == old) {
                         history.append('O');
                     } else {
@@ -806,7 +806,7 @@ public final class NativePrincipalPinsTest {
         for (String history : histories) {
             assert order.matcher(history).matches() : history;
         }
-        Pin current = cycle.prepare(APP, 10123, 0, 0);
+        Pin current = NativePinTestSupport.prepare(cycle, APP, 10123, 0, 0);
         assert current != old && current.record().id == 2 && current.phase() == Phase.PENDING;
         assert replacements.isEmpty()
                 || (replacements.size() == 1 && replacements.contains(current));
@@ -825,12 +825,12 @@ public final class NativePrincipalPinsTest {
         assert !pins.hasKnownCounter();
         assert first.phase() == Phase.PENDING && last.phase() == Phase.RETIRING;
         assert pins.findId(a.id) == first && pins.findId(b.id) == last;
-        assert pins.prepare(APP, 10123, 0, 7) == first;
+        assert NativePinTestSupport.prepare(pins, APP, 10123, 0, 7) == first;
         assert pins.reservedAppIds().equals(Set.of(10123, 10124));
         refused(pins::snapshotForWrite);
         refused(() -> pins.snapshotWithout(last));
-        refused(() -> pins.prepare("dev.andrix.new", 10125, 0, 9));
-        refused(() -> pins.prepare("dev.andrix.other", 10124, 0, 8));
+        refused(() -> NativePinTestSupport.prepare(pins, "dev.andrix.new", 10125, 0, 9));
+        refused(() -> NativePinTestSupport.prepare(pins, "dev.andrix.other", 10124, 0, 8));
         refused(() -> pins.commit(last));
         // The separate slot transaction, not a guessed global snapshot, must
         // provide the real durability and current-identity acknowledgement.
@@ -839,7 +839,7 @@ public final class NativePrincipalPinsTest {
         pins.beginRetire(first);
         pins.finishRetire(first); pins.finishRetire(last);
         assert pins.reservedAppIds().isEmpty() && !pins.hasKnownCounter();
-        refused(() -> pins.prepare(APP, 10123, 0, 7));
+        refused(() -> NativePinTestSupport.prepare(pins, APP, 10123, 0, 7));
         refused(pins::snapshotForWrite);
         refused(() -> pins.restore(new Snapshot(Long.MAX_VALUE, List.of())));
         refused(() -> pins.restoreBindingsWithoutCounter(List.of(), Set.of()));
@@ -847,7 +847,7 @@ public final class NativePrincipalPinsTest {
         NativePrincipalPins empty = new NativePrincipalPins(1);
         empty.restoreBindingsWithoutCounter(List.of(), Set.of());
         assert !empty.hasKnownCounter();
-        refused(() -> empty.prepare(APP, 10123, 0, 7));
+        refused(() -> NativePinTestSupport.prepare(empty, APP, 10123, 0, 7));
         refused(empty::snapshotForWrite);
 
         NativePrincipalPins invalidInput = new NativePrincipalPins(2);
@@ -855,7 +855,7 @@ public final class NativePrincipalPinsTest {
         invalid(() -> invalidInput.restoreBindingsWithoutCounter(List.of(a), Set.of(18L)));
         assert invalidInput.hasKnownCounter();
         assert invalidInput.snapshotForWrite().equals(new Snapshot(0, List.of()));
-        assert invalidInput.prepare(APP, 10123, 0, 7).record().id == 1;
+        assert NativePinTestSupport.prepare(invalidInput, APP, 10123, 0, 7).record().id == 1;
     }
 
     public static void main(String[] args) throws Exception {
