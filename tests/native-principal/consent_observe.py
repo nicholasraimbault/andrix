@@ -57,6 +57,33 @@ def permission_state(text, *, package, uid, user_id):
     return rows.get(PERMISSION, {'stored': False, 'granted': False, 'flags': []})
 
 
+def focused_hierarchy(xml, *, package, display_id=0):
+    """Select one reported input focused application window, not accessibility focus.
+
+    The caller also checks Window Manager's current focus and the permission subject.
+    This standard all windows observation never changes a grant or view protection.
+    """
+    if (not isinstance(xml, str) or len(xml.encode()) > 1024 * 1024
+            or '<!DOCTYPE' in xml or '<!ENTITY' in xml or type(display_id) is not int
+            or display_id < 0 or not isinstance(package, str) or not package):
+        raise ValueError('invalid all windows observation')
+    root = ET.fromstring(xml)
+    if root.tag != 'displays':
+        raise ValueError('wrong all windows root')
+    displays = [node for node in root.findall('display') if node.get('id') == str(display_id)]
+    if len(displays) != 1:
+        raise ValueError('display missing or duplicated')
+    focused = [node for node in displays[0].findall('window') if node.get('focused') == 'true']
+    if len(focused) != 1 or focused[0].get('type') != 'TYPE_APPLICATION':
+        raise ValueError('focused application window missing or ambiguous')
+    trees = focused[0].findall('hierarchy')
+    if len(trees) != 1 or not list(trees[0].iter('node')):
+        raise ValueError('focused hierarchy unavailable')
+    if any(node.get('package') != package for node in trees[0].iter('node')):
+        raise ValueError('focused hierarchy package mismatch')
+    return ET.tostring(trees[0], encoding='unicode')
+
+
 def ui_target(xml, *, package, text=None, resource_id=None, width=720, height=1280):
     if (not isinstance(xml, str) or len(xml.encode()) > 1024 * 1024
             or '<!DOCTYPE' in xml or '<!ENTITY' in xml

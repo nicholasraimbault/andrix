@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 import unittest
-from consent_observe import permission_state, ui_target
+from consent_observe import focused_hierarchy, permission_state, ui_target
 
 P = 'dev.andrix.proof.principal'
 ROW = '      android.permission.POST_NOTIFICATIONS: granted=true, flags=[RUNTIME_GRANTED|USER_SET]'
@@ -36,6 +36,22 @@ class ConsentObservationTests(unittest.TestCase):
                 self.state(bad)
         for uid, user in [(True, 0), (10148, False), (10148, 1), (1000, 0), (-1, 0)]:
             with self.assertRaises(ValueError):permission_state(TEXT, package=P, uid=uid, user_id=user)
+
+    def test_focused_all_windows_requires_one_application_and_package(self):
+        window = '<window focused="true" active="false" type="TYPE_APPLICATION">' + XML + '</window>'
+        all_windows = '<displays><display id="0">' + window + '</display></displays>'
+        tree = focused_hierarchy(all_windows, package='com.android.permissioncontroller')
+        self.assertEqual(ui_target(tree, package='com.android.permissioncontroller', text='Allow'), {'x': 110, 'y': 70})
+        for bad in [all_windows.replace('id="0"', 'id="1"'),
+                    all_windows.replace(window, window + window),
+                    all_windows.replace('<display id="0">', '<display id="0"/><display id="0">'),
+                    all_windows.replace('focused="true"', 'focused="false"'),
+                    all_windows.replace('TYPE_APPLICATION', 'TYPE_SYSTEM'),
+                    all_windows.replace('package="com.android.permissioncontroller"', 'package="dev.other"'),
+                    all_windows.replace(XML, '<hierarchy/>'), all_windows.replace(XML, XML + XML),
+                    XML, '<!DOCTYPE displays>' + all_windows]:
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                focused_hierarchy(bad, package='com.android.permissioncontroller')
 
     def test_ui_target_exact_and_bounded(self):
         wanted = {'package': 'com.android.permissioncontroller', 'resource_id': 'com.android.permissioncontroller:id/permission_allow_button'}
