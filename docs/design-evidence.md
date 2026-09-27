@@ -253,7 +253,8 @@ retain their own producers and scopes.
   reservation now publishes its target as the preferred backup before main and reserve are rewritten.
   Its 53 host conservation cases, 27 injected failure cases and existing regressions passed under
   the required controls. The older sources failed the predicted 41 and 18 cases. Android compilation
-  and storage qualification for this correction remain separate.
+  at `c9264e4` passed, and final DEX contains the reader and actual counter withholding branch.
+  Inactive writes were removed by R8. Android runtime and storage qualification remain separate.
   The [real consent reference](../plans/2026-09-27-native-permission-consent.md) then exercised the
   ordinary Android notification popup without privileged grants. Allow enabled an independent
   command after the helper closed; peer and false attribution controls remained separate. Back,

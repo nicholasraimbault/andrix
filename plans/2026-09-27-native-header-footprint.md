@@ -1,7 +1,7 @@
 # Native header footprints and protected reservation writes
 
-Status: revised version 1 source correction with independent review and guarded host qualification.
-Android compilation and storage qualification remain separate. It follows the
+Status: revised version 1 correction with independent review, guarded host qualification and
+Android compilation at `c9264e4`. Android runtime and storage qualification remain separate. It follows the
 [presence correction](2026-09-27-native-store-presence.md). No version 2
 publication, format selector, restored creation admission, initializer replay, repair, cancellation or
 UID release is added. Native execution stays disabled.
@@ -140,6 +140,21 @@ A separate primary control repeated the originally observed failure after `start
 lost B. The correction returned false with the target backup, counter 1 and B's hold retained through
 reloading; the original handle then completed without another ID. None of this is an Android crash or
 physical power loss result.
+
+## Android artifact checkpoint
+
+The normal `c9264e4` image compiled in 9 minutes 33 seconds, under the 54 GiB and 8 CPU build
+scope, with a 27.6 GiB peak and zero swap or core dumps. Final DEX inspection verified the loaded
+footprint flag, `counterRestorable()` and the actual Settings branch that restores bindings without
+a counter. The protective header write also exists in the compiler output, but the inactive write
+paths are removed from the normal DEX by R8. The Package Installer writing descriptor sync remains
+present. Source adaptations were reverted only after captured producer retirement, preserving the
+accepted CE and verity companions.
+
+The [controlled header reader inputs](../tests/native-identity/README.md#header-copy-reader-inputs)
+prepare separate legacy addition and protected predecessor layouts. Generating them is not a
+runtime result, designation, repair or proof of writer durability. Native execution, factory entry,
+version 2 publication and the lab writer route remain disabled in this image.
 
 ## Limits
 

@@ -79,7 +79,9 @@ qualification or activation. The [header footprint correction](2026-09-27-native
 now requires compatible header copies and conserves entries that only an unselected copy lists. A pure
 reservation publishes its target as the preferred backup before rewriting main and reserve, so an
 interrupted owned retry keeps every known hold. Its guarded host matrices, sensitivity controls and
-existing regressions passed. Android compilation and storage qualification remain separate.
+existing regressions passed. The normal `c9264e4` Android image compiled and its counter withholding
+branch was verified in final DEX. Inactive write paths were removed by R8. Android runtime and
+storage qualification remain separate.
 
 The [installer durability assessment](2026-09-27-package-installer-durability.md) retains an
 unclean stop failure and a separate Android file comparison. The checked writing descriptor sync

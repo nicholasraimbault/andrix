@@ -58,8 +58,9 @@ original input tree. Restore and verify the original binding before testing anot
 
 The controlled fixture layout belongs at `/data/system/native-principals`, with UID/GID 1000,
 directories mode 0700 and record files mode 0600. The lab controller must quiesce the relevant
-writer or stage offline, restore the actual policy label, require identical main/reserve input
-bytes and no preferred backup sibling, and reboot fully. Capture hashes, listings, ownership,
+writer or stage offline, restore the actual policy label, and reboot fully. Healthy body fixtures
+require identical main/reserve input bytes and no preferred backup sibling. The header copy fixture
+below instead requires the exact three roles for its chosen mode. Capture hashes, listings, ownership,
 modes and labels before and after each boot. VALID alone cannot distinguish main from reserve.
 A permission or label failure can look like missing state, not just damaged state.
 
@@ -67,6 +68,31 @@ A permission or label failure can look like missing state, not just damaged stat
 Its bounded output describes cached store state, allocator holds and cursor only. It neither
 reads private terminal contents nor reports a live work, CE or execution lease. The instrumented
 APK has no authority to change those holds.
+
+## Header copy reader inputs
+
+`HeaderFootprintFixture.java` generates a fresh host directory with the actual record codec:
+
+```text
+HeaderFootprintFixture OUTPUT_DIR APP_ID MODE
+```
+
+The controller must obtain the app ID from a complete observed PMS mapping, not guess an allocation
+floor or reserve a native partition. The package is the fixed, uninstalled fixture name
+`dev.andrix.proof.headerpending`. The lineage and creation ID are fixed test values, not an identity
+issuance. No body, signer or user binding is generated. All headers remain version 1.
+
+- `legacy-addition`: empty counter 0 backup, with counter 1 CREATING main and reserve.
+- `protected-predecessors`: counter 1 CREATING backup, with empty counter 0 main and reserve.
+- `equal-control`: all three copies contain the same counter 1 CREATING header.
+
+All modes have an empty `slots` directory. Existing outputs, invalid app IDs and modes, relative or
+unnormalized paths, and symlink parents are refused. A partial generator failure remains for
+inspection and does not authorize guest publication or replay. Generate and verify these inputs
+under the host helper limits while no VM runs. The later runtime controller must recheck that the
+slot is still unassigned, capture writer quiescence before staging, and verify every file role and
+hash. This tests the reader, not native designation, a PackageSetting, storage recovery or the
+production writer's durability. It never restores app data or keys.
 
 ## Deciding runtime sequence
 
