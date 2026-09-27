@@ -19,12 +19,13 @@ class FixtureJvmTests(unittest.TestCase):
                      HERE / 'src/dev/andrix/proof/uidstore/RecoveryRequest.java',
                      HERE / 'RecoveryRequestTest.java', HERE / 'FixtureStore.java',
                      HERE / 'FixtureVariant.java', HERE / 'FixtureVariantTest.java',
-                     HERE / 'WriterStoreCheck.java', HERE / 'WriterStoreCheckTest.java']
+                     HERE / 'WriterStoreCheck.java', HERE / 'WriterStoreCheckTest.java',
+                     HERE / 'FutureHeaderFixture.java', HERE / 'FutureHeaderFixtureTest.java']
             result = subprocess.run(['javac', '-J-Xmx256m', '--release', '17', '-Xlint:all', '-Werror',
                                      '-d', str(output), *map(str, files)],
                                     capture_output=True, text=True, timeout=90)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            for name in ('RecoveryRequestTest', 'FixtureVariantTest', 'WriterStoreCheckTest'):
+            for name in ('RecoveryRequestTest', 'FixtureVariantTest', 'WriterStoreCheckTest', 'FutureHeaderFixtureTest'):
                 result = subprocess.run(['java', '-Xmx256m', '-Djava.io.tmpdir=' + str(output), '-ea', '-cp', str(output), name],
                                         capture_output=True, text=True, timeout=60)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
