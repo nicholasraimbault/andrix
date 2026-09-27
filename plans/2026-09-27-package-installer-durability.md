@@ -1,8 +1,10 @@
 # Package Installer payload durability
 
-Status: an observed cold boot failure, a reproduced file durability distinction, and a candidate
-source correction with an exact, ordered framework adapter. The correction has guarded host
-tests. It is not yet applied or compiled into Android. No permission popup, grant or native account activation was qualified by this work.
+Status: source and host controls, actual Android compilation and a bounded successful cold APK
+readback on the corrected image. The original failure and the plain file comparison remain
+retained. This is not whole installer crash atomicity or physical power loss qualification.
+The later [permission reference](2026-09-27-native-permission-consent.md) records its own UI results
+and an unresolved grant return after a Settings revoke.
 
 ## Observation
 
@@ -77,6 +79,27 @@ not fix every preexisting error path, guarantee complete input length, sync late
 renames or make the whole install transaction crash atomic. The
 [ordered adapter](../tests/installer-durability/pis-reverse-write-sync.md#ordered-companions) now
 recognizes only the pinned verity base and exact combined bytes. Verity apply cannot discard the
-sync, and verity revert refuses until its companion is reverted first. Android compilation and
-runtime checks remain next steps. The consent trial remains pending, separately from this storage
-diagnosis.
+sync, and verity revert refuses until its companion is reverted first.
+
+## Android artifact and cold readback
+
+The normal image from `cac0ba6` compiled successfully in 9 minutes 3 seconds, with a 34.4 GiB peak,
+8 CPUs, zero swap and disabled core dumps. The final artifact check failed because it expected
+inactive admission method names in the optimized image. The actual compilation jar contains those
+methods, and R8's unused report names their deliberate removal from the normal image. That failure
+was retained. A separate artifact assessment verified the same image bytes rather than relabeling
+the original check or rebuilding silently.
+
+The final DEX shows the actual Package Installer copy followed by sync on the same writing
+file descriptor, before close and hold removal. It also contains the new native store presence
+reader. Factory execution, the lab writer route and version 2 publication remain disabled. The
+inactive native creation methods are compiled but not reachable in this normal image. Both source
+adaptations were reverted only after the captured build processes retired, preserving the earlier
+CE and verity companions.
+
+On a fresh disposable guest, the three ordinary probe APKs were installed with successful replies
+and matching installed hashes. After an unclean stop and cold boot, their original UIDs, paths and
+bytes remained usable without reinstalling or repairing them. The separate original key and canary
+controls also survived. No global sync was added after the installs. This is the observed layout
+and stop sequence, not a guarantee for the still open rename window, other artifacts or storage
+checkpoint transitions.

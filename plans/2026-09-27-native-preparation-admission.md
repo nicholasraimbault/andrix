@@ -1,7 +1,8 @@
 # Native identity preparation admission
 
-Status: implemented with independent source review and host controls. Android compilation and
-runtime qualification remain separate.
+Status: implemented with independent source review and host controls. The Android compilation at
+`cac0ba6` includes the preparation and ownership classes. R8 removes these inactive paths from the
+normal image, so this is not Android preparation runtime qualification.
 The version 1 writer remains selected. No version 2 publication or native account execution is enabled.
 
 ## The observed problem

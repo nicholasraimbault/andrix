@@ -8,8 +8,10 @@ branches, the red pinned fragment, the eight wrong placements, the checked descr
 alternative and the refusal to run with assertions disabled. An independent source review
 accepted the five line change as minimal and found the facades consistent with the Android
 sources it checked. The same patch is applied only through the
-[ordered companion](#ordered-companions) after package verity. It is not Android
-qualified: Android compilation and runtime are pending.
+[ordered companion](#ordered-companions) after package verity. The later Android image at
+`cac0ba6` compiled it, and final DEX inspection verified sync on the actual writing descriptor
+before close and hold release. A bounded cold boot kept the original probe APKs, UIDs and bytes.
+This does not qualify every installer route, later rename durability or physical power loss.
 
 ## Source gap
 
@@ -201,11 +203,11 @@ ANDRIX_SOURCE_ROOT=/path/to/android \
     python3 -B -m unittest scripts.proof.tests.test_package_installer_payload_sync -v
 ```
 
-Qualification so far is host only: source provenance, the composition checks, the guarded
-JVM harness and the independent source review. The candidate is not Android qualified.
-Still needed are an Android `services.core` build of the combined framework, an actual
-install, and a controlled stop after acknowledged installs followed by a cold boot.
-Directory entry, rename and settings durability remain separate gaps.
+Source provenance, composition checks, the guarded JVM harness and independent review preceded
+Android compilation and the [bounded runtime control](../../plans/2026-09-27-package-installer-durability.md).
+The original artifact marker failure remains recorded: the normal image's shrinker removes
+inactive native creation paths, while the actual installer sync is present in DEX. Directory entry,
+rename, other artifacts, settings durability and wider failure coverage remain separate gaps.
 
 ## Classifying runtime outcomes
 

@@ -245,8 +245,16 @@ retain their own producers and scopes.
   across controlled version 1 header repair. This is not automatic migration or creation recovery.
   The later [presence correction](../plans/2026-09-27-native-store-presence.md) has source review
   and 93 host presence controls. It prevents access failures from becoming absence acknowledgements
-  or overwrites of unreadable state. These controls do not locate holds in an unreadable index or
-  extend the existing Android runtime result.
+  or overwrites of unreadable state. The later `cac0ba6` image compiled the joined changes and
+  contains the reader, while R8 removed inactive native creation paths. This does not locate holds
+  in an unreadable index or extend the earlier Android native writer result.
+  The [real consent reference](../plans/2026-09-27-native-permission-consent.md) then exercised the
+  ordinary Android notification popup without privileged grants. Allow enabled an independent
+  command after the helper closed; peer and false attribution controls remained separate. Back,
+  first denial and fixed denial had distinct observed flags. A Settings revoke withdrew the live
+  grant and triggered a cached app kill, but the grant was present again after a cold boot without
+  another controller grant input. Its cause remains open, and persistent revocation is not
+  qualified. None of these results enables a production broker or native entry.
 - **Next gate:** complete the remaining authority and recovery connections, API binding and
   foreground contracts, then qualify the
   [account mapping](../plans/2026-09-21-android-unix-accounts.md) and
@@ -809,8 +817,11 @@ retain their own producers and scopes.
   guest stop as valid code. Original package settings remained. A separate Android file control
   retained synced bytes, while directory sync alone retained a same sized, same inode file whose
   contents read back as zero. This supports a missing durability boundary, not a claim about the
-  unobserved original APK contents or physical power loss. A checked writing descriptor sync
-  candidate has host controls; Android integration and later rename durability remain separate.
+  unobserved original APK contents or physical power loss. The checked writing descriptor sync
+  has host controls and actual Android DEX inspection at `cac0ba6`. Its corrected image retained
+  the original probe APKs, UIDs and exact bytes through the bounded cold boot control without
+  repair. A failed inactive symbol check was retained and reconciled against the compiler and R8
+  outputs. Later rename durability and whole install crash atomicity remain separate.
 - **Recovery evidence:** the
   [identity and recovery vehicle](../plans/2026-09-22-signing-identity-recovery-proof.md)
   restored five disposable keys with six uses in a separate process and verified their

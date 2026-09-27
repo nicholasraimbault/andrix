@@ -1,11 +1,49 @@
 # Real Android consent reference
 
-Status: bounded vehicle prepared, but no permission popup or grant has been qualified. The
-[installer durability diagnosis](2026-09-27-package-installer-durability.md) interrupted the trial
-before any UI request. The failures and later read only controls are retained. This extends the
-[ordinary principal reference](2026-09-24-native-principal-reference.md), aiming to replace labelled
-privileged test grants with Android's own UI for one permission. It does not select a production
-account broker, native entry or permission default.
+Status: Android popup, grant, independent command use, peer isolation and denial controls observed.
+A Settings revoke took effect, but the grant was present again after a cold boot without another
+controller grant input. Its cause remains under investigation, so persistent revocation is not
+qualified. The [installer diagnosis](2026-09-27-package-installer-durability.md) and all earlier
+failures remain retained. This extends the
+[ordinary principal reference](2026-09-24-native-principal-reference.md) using Android's real UI,
+not privileged test grants. It selects no production account broker, native entry or permission
+default.
+
+## Observed checkpoint
+
+The normal image from `cac0ba6` retained the original probe APKs, UIDs and exact bytes through cold
+boots without reinstalling them. Android's ordinary notification dialog then granted the principal
+probe `POST_NOTIFICATIONS`, with `RUNTIME_GRANTED` and `USER_SET` in the permission service. After
+the helper Activity closed, the UID left `TOP`. An independently launched command posted under
+that UID, and the complete notification service protobuf contained the exact owned record. The
+peer stayed denied and could not post as the granted package.
+
+The peer's Back control left grant state and flags unchanged. Its first denial set `USER_SET`,
+without `USER_FIXED`. A later real Allow enabled its independent command too. False package
+attribution was refused even when both subjects held their own grants. The nondebuggable control
+received two real denials, setting `USER_FIXED`. A fresh Activity instance then received a new
+denied callback with unchanged flags and no selectable permission prompt observed. This was not
+continuous display recording, and the callback was not used as the permission authority.
+
+Default accessibility root queries sometimes returned null. The standard all windows query
+provided the focused PermissionController hierarchy within the same bounded observation budget.
+No tool status, accessibility setting, animation, timeout, SELinux or permission guard was relaxed.
+A prior interrupted request remains historically unknown. Its entire guest scope was retired,
+current denied state was reconciled, and the later successful request was explicitly new, not a
+replay or a claim that the original never happened.
+
+A single observed Settings main switch action withdrew the principal's grant in the permission
+service. Android logged a cached app process kill with `PermissionHelper` and cancellation of its
+owned notification. A later UI corroboration failed, so the trial did not complete its remaining
+notification and peer bookends. On the next cold boot, the principal was granted again, while peer
+and fixed denial states were unchanged. The next controller stopped before any new input. Read only
+inspection subsequently found both current permission files agreeing with that grant. No reset,
+reinstall, data repair or new grant input was used. This does not yet distinguish storage loss from
+a later Settings or permission writer action. The original withdrawal obligation remains open.
+
+The separate key and canary controls survived throughout. Native execution and factory entry stayed
+disabled. Debug `run-as` and the private ART reference are still not a production native entry,
+maintained API, human presence proof or account lifecycle implementation.
 
 ## Question
 
@@ -30,7 +68,10 @@ before installation. The retained normal reader guest may provide the disposable
 only if these are fresh package subjects there, its owned continuation fits the unchanged resource
 budget, and the existing identity/key canaries remain protected. Use fresh requests and nonces.
 Do not reset retained userdata or replay initialization. Any inherited state of a test package
-makes the new-subject precondition false.
+makes the new-subject precondition false. Later controls retain those same installed subjects and
+their complete request history; they are not described as fresh. The interrupted request above was
+followed by captured whole guest retirement and read only reconciliation before a separately
+issued lab request. Its unknown historical outcome was not converted into cancellation or success.
 
 No `pm grant`, privileged revoke, AppOps override, permission flag reset, app data clearing or
 reinstallation is used to manufacture the consent states. Synthetic UI input is permitted lab
@@ -43,8 +84,8 @@ control, not proof of human presence. Read only privileged observation remains d
    direct shell payload refusal controls.
 2. Open the principal's own Activity. Locate its request button and the real PermissionController
    window by actual UI identity and content. Confirm the named subject. Grant using the system UI.
-3. Verify Android's stored grant and flags independently. Close the probe Activity and observe that
-   it no longer supplies TOP state. A fresh command post must then be attributed to the correct
+3. Verify Android's current grant and flags independently. Persistence is a separate check.
+   Close the probe Activity and observe that it no longer supplies TOP state. A fresh command post must then be attributed to the correct
    package, UID, user and operation package in notification service state.
 4. While that subject is granted, the peer remains denied. Its own post fails, and claiming the
    granted package is refused at the real service. Give the peer its own later positive control.

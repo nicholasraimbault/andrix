@@ -73,14 +73,21 @@ now refuses native store mutation when it recognizes newer record or staging fra
 turning them into bindings. The source and host matrix also preserve negative uniqueness evidence
 and refuse incomplete write inspection. The [presence correction](2026-09-27-native-store-presence.md)
 also prevents stat and read errors from becoming acknowledged absence or permission to overwrite
-unreadable state. Android compilation and runtime coverage remain separate.
+unreadable state. The `cac0ba6` Android image compiled the joined changes. Its normal DEX contains
+the reader, while R8 removes inactive native creation paths. That is not native writer runtime
+qualification or activation.
 
-The [real permission consent reference](2026-09-27-native-permission-consent.md) stopped before
-any popup or grant. Its new probe APKs became unparseable after an unclean guest stop. The
-[installer durability assessment](2026-09-27-package-installer-durability.md) retains that failure
-and a separate Android file comparison. Checked writing descriptor and namespace sync preserved
-its control, while directory sync alone retained a file whose contents read back as zero. A narrow
-Package Installer sync candidate has host controls, not Android integration qualification yet.
+The [installer durability assessment](2026-09-27-package-installer-durability.md) retains an
+unclean stop failure and a separate Android file comparison. The checked writing descriptor sync
+is now compiled into the actual Package Installer. The corrected image retained original probe
+APKs, UIDs and bytes across the bounded cold boot trial without repair.
+
+The [real permission consent reference](2026-09-27-native-permission-consent.md) then observed
+normal Android Allow, Back and denial controls, independent command use after the helper Activity
+closed, and peer attribution refusals. A Settings revoke withdrew the live grant and triggered a
+cached app kill, but the grant returned after a cold boot without another controller grant input.
+Read only diagnosis is distinguishing persistence from a later writer. The failed withdrawal stays
+open. No production broker, permission defaults or native execution are selected by these trials.
 
 ## Current milestone
 

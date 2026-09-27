@@ -1,7 +1,9 @@
 # Native store presence is not a boolean
 
-Status: implemented source with independent review and guarded host controls. Android compilation
-and runtime qualification remain separate. Native execution and version 2 publication stay disabled.
+Status: source, independent review and guarded host controls, followed by actual Android
+compilation in `cac0ba6`. The final normal image contains the presence reader. Inactive native
+writer paths were removed by R8, so these host write controls are not Android writer runtime
+qualification. Native execution and version 2 publication stay disabled.
 
 ## Correction
 

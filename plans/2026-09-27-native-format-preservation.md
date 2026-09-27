@@ -1,7 +1,8 @@
 # Preserving newer native identity formats
 
-Status: source implementation with independent review and bounded host checks. No new format
-writer, identity admission, retirement authority or native execution is enabled.
+Status: source implementation with independent review, bounded host checks and Android compilation
+at `cac0ba6`. The normal image contains the reader, while inactive native writer paths are removed
+by R8. No new format writer, identity admission, retirement authority or native execution is enabled.
 
 ## Why the older writer must refuse
 
