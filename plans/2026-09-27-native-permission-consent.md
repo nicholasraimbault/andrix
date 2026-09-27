@@ -1,8 +1,11 @@
 # Real Android consent reference
 
-Status: bounded vehicle preparation. Not a production account broker, native entry or permission
-default selection. This extends the [ordinary principal reference](2026-09-24-native-principal-reference.md)
-by replacing labelled privileged test grants with Android's own UI for one permission.
+Status: bounded vehicle prepared, but no permission popup or grant has been qualified. The
+[installer durability diagnosis](2026-09-27-package-installer-durability.md) interrupted the trial
+before any UI request. The failures and later read only controls are retained. This extends the
+[ordinary principal reference](2026-09-24-native-principal-reference.md), aiming to replace labelled
+privileged test grants with Android's own UI for one permission. It does not select a production
+account broker, native entry or permission default.
 
 ## Question
 

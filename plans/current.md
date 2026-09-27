@@ -75,6 +75,13 @@ and refuse incomplete write inspection. The [presence correction](2026-09-27-nat
 also prevents stat and read errors from becoming acknowledged absence or permission to overwrite
 unreadable state. Android compilation and runtime coverage remain separate.
 
+The [real permission consent reference](2026-09-27-native-permission-consent.md) stopped before
+any popup or grant. Its new probe APKs became unparseable after an unclean guest stop. The
+[installer durability assessment](2026-09-27-package-installer-durability.md) retains that failure
+and a separate Android file comparison. Checked writing descriptor and namespace sync preserved
+its control, while directory sync alone retained a file whose contents read back as zero. A narrow
+Package Installer sync candidate has host controls, not Android integration qualification yet.
+
 ## Current milestone
 
 The current work is implementing the native entry and Android integration for a sustainable

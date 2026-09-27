@@ -803,6 +803,14 @@ retain their own producers and scopes.
   setup conditional on kernel state while preserving later signature/digest checks. Its
   separate Android regression included a mismatched sidecar refusal. None of these results
   establishes arbitrary data rollback, crash recovery or personal platform key custody.
+- **Installer durability evidence:** the
+  [ordinary installer diagnosis](../plans/2026-09-27-package-installer-durability.md) retained three
+  successful install acknowledgements and matching APK readbacks that did not survive an unclean
+  guest stop as valid code. Original package settings remained. A separate Android file control
+  retained synced bytes, while directory sync alone retained a same sized, same inode file whose
+  contents read back as zero. This supports a missing durability boundary, not a claim about the
+  unobserved original APK contents or physical power loss. A checked writing descriptor sync
+  candidate has host controls; Android integration and later rename durability remain separate.
 - **Recovery evidence:** the
   [identity and recovery vehicle](../plans/2026-09-22-signing-identity-recovery-proof.md)
   restored five disposable keys with six uses in a separate process and verified their
