@@ -51,6 +51,13 @@ attempt retained the withdrawal. It does not repair the earlier failure or estab
 Checkpoint call counters changed during the write window, but do not prove when a checkpoint
 completed. General revocation durability and the complete permission lifecycle remain open.
 
+The [offline permission store reader](../tests/permission-store/README.md) decodes captured ABX
+records outside the guest's writeback window. It uses pinned platform codec and store schema
+sources, rejects incomplete documents, and reports raw stored integers without turning them into
+live authority. Its 60 guarded host checks passed. Eight captured inputs also matched the separate
+platform decode for identical bytes; that comparison does not replace the reader's completeness
+checks or establish write durability.
+
 The separate key and canary controls survived throughout. Native execution and factory entry stayed
 disabled. Debug `run-as` and the private ART reference are still not a production native entry,
 maintained API, human presence proof or account lifecycle implementation.

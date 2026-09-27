@@ -1,0 +1,163 @@
+{
+  "version": 1,
+  "status": "host_reader",
+  "source_release": "GrapheneOS 2026081300 (android-17.0.0_r1)",
+  "git_revisions_checked": false,
+  "compile": [
+    {
+      "path": "frameworks/libs/modules-utils/java/com/android/modules/utils/BinaryXmlPullParser.java",
+      "sha256": "ce4a5b3c8575225c95045f0559eec15ea39fffba6889da28fef0c49ebb283f15",
+      "size": 32593
+    },
+    {
+      "path": "frameworks/libs/modules-utils/java/com/android/modules/utils/BinaryXmlSerializer.java",
+      "sha256": "4cd938962ec69f677f9c38a1789220bda48d13dd0d469c69f04c4ce8dfd3a01b",
+      "size": 13983
+    },
+    {
+      "path": "frameworks/libs/modules-utils/java/com/android/modules/utils/FastDataInput.java",
+      "sha256": "1bbed55baa562c526f09851baf2cd55e9483612de21f654ea39bf6cdf94a4680",
+      "size": 9806
+    },
+    {
+      "path": "frameworks/libs/modules-utils/java/com/android/modules/utils/FastDataOutput.java",
+      "sha256": "86c9ba50887fb50cbc4447a2a9664098781ec543e1e8e29222bf55721a205897",
+      "size": 8387
+    },
+    {
+      "path": "frameworks/libs/modules-utils/java/com/android/modules/utils/ModifiedUtf8.java",
+      "sha256": "11cd88e2f002e113e8bb91f62f91c343239c5163dc2bded9e44a902e080a644e",
+      "size": 4492
+    },
+    {
+      "path": "frameworks/libs/modules-utils/java/com/android/modules/utils/TypedXmlPullParser.java",
+      "sha256": "c1ad1c01e1e0a121ff42bea595e26ff34db0e70a9310f98ba703ae3725d7da4c",
+      "size": 12292
+    },
+    {
+      "path": "frameworks/libs/modules-utils/java/com/android/modules/utils/TypedXmlSerializer.java",
+      "sha256": "4d6cfd074db3f7cdcc1750e6eb0af91073addd0dab9b1edb74fb7480a50ae8a5",
+      "size": 3856
+    },
+    {
+      "path": "frameworks/libs/modules-utils/java/android/annotation/NonNull.java",
+      "sha256": "a9dd014d39d519d6ac128d306a310a99756d1b9e898568b5bf4a5cd20ceb8b90",
+      "size": 1302
+    },
+    {
+      "path": "frameworks/libs/modules-utils/java/android/annotation/Nullable.java",
+      "sha256": "4cf57501050f9ec21196f1b2413526239d386b52a0146acfb81559c2d199cdcd",
+      "size": 1584
+    },
+    {
+      "path": "libcore/xml/src/main/java/org/xmlpull/v1/XmlPullParser.java",
+      "sha256": "ffd59aad6f26bc53e016d1d437e83059ebb09ff9aca7ff05d0decd43a718d458",
+      "size": 45458
+    },
+    {
+      "path": "libcore/xml/src/main/java/org/xmlpull/v1/XmlPullParserException.java",
+      "sha256": "a275c02f1aa601dab909b37d9e17eb9413f284d3a9736294b18e6cb1c0966a24",
+      "size": 2268
+    },
+    {
+      "path": "libcore/xml/src/main/java/org/xmlpull/v1/XmlSerializer.java",
+      "sha256": "8264a479c66efc52a5acdab9c294850a3b0e986bb2263d3e3b18e48a4eb8fc5a",
+      "size": 14799
+    }
+  ],
+  "reference": [
+    {
+      "path": "frameworks/libs/modules-utils/java/com/android/modules/utils/Android.bp",
+      "sha256": "7ad556851046e74934a1ffb0010e89ba244f81e2d632ac5a0a31402626596fb4",
+      "size": 3540
+    },
+    {
+      "path": "frameworks/libs/modules-utils/java/Android.bp",
+      "sha256": "c1ea31f58e577c5f504ba92b601ca32e0e92a7a0c5cb08a89c0ac001b19c6a40",
+      "size": 6308
+    },
+    {
+      "path": "frameworks/base/cmds/abx/src/com/android/commands/abx/Abx.java",
+      "sha256": "9c3a47d42c616fa692b4f32cc7ce96f90d7bbda1e41269168ab5baeca95d1afa",
+      "size": 4027
+    },
+    {
+      "path": "frameworks/libs/modules-utils/java/android/util/Xml.java",
+      "sha256": "39b96ee9c08eac71a3d9e4174552a8751ad2f2028c77529857609130970c7db0",
+      "size": 17560
+    },
+    {
+      "path": "frameworks/libs/modules-utils/java/com/android/internal/util/ArtBinaryXmlPullParser.java",
+      "sha256": "59bd79ce23fe6f79a6ea674e4adaa45b66be206b95c488de95cae62eb2195a4f",
+      "size": 1303
+    },
+    {
+      "path": "frameworks/libs/modules-utils/java/com/android/internal/util/ArtFastDataInput.java",
+      "sha256": "5c3fca4eef80fe839797ecd7af6ac5a39aafee3cb4ae6f53c95d0d629c3dea3f",
+      "size": 3513
+    },
+    {
+      "path": "frameworks/libs/modules-utils/java/com/android/internal/util/ArtBinaryXmlSerializer.java",
+      "sha256": "d8e0620d0883e069e1fc52411fde83bc47b3c9c9c88fc55351de8c652f40ab61",
+      "size": 1324
+    },
+    {
+      "path": "libcore/xml/src/main/java/com/android/org/kxml2/io/KXmlSerializer.java",
+      "sha256": "15445fe1349a4a9d8ea884cc2783b2ea6c622db277cb6bdaeecdc2bce548c983",
+      "size": 20048
+    }
+  ],
+  "store": [
+    {
+      "path": "frameworks/base/services/permission/java/com/android/server/permission/access/AccessCheckingService.kt",
+      "sha256": "a264e39e47db543fd82bcea332bad03c0c13951e37cf74c67fe96e6210ea23d0",
+      "size": 13494
+    },
+    {
+      "path": "frameworks/base/services/permission/java/com/android/server/permission/access/AccessPersistence.kt",
+      "sha256": "fc96aad49f1de0836e31131fd10bd34eeb93e05af0b211c721b14786635dc101",
+      "size": 7481
+    },
+    {
+      "path": "frameworks/base/services/permission/java/com/android/server/permission/access/AccessPolicy.kt",
+      "sha256": "b3a517ff9f7fe6cd01ae96ea009227100de9a94525b5b65523609f57f9cad742",
+      "size": 21975
+    },
+    {
+      "path": "frameworks/base/services/permission/java/com/android/server/permission/access/permission/AppIdPermissionPersistence.kt",
+      "sha256": "329f8eda42dd80fa964f91401a52bcf6c7f7d0e622adca1c23ce7b391dc00316",
+      "size": 10456
+    },
+    {
+      "path": "frameworks/base/services/permission/java/com/android/server/permission/access/permission/AppIdPermissionPolicy.kt",
+      "sha256": "cf2bb2a8177395ce2a0b4f3afeca60f152cd685e7492f88acecc0f27c3e649aa",
+      "size": 105059
+    },
+    {
+      "path": "frameworks/base/services/permission/java/com/android/server/permission/access/util/BinaryXmlSerializerExtensions.kt",
+      "sha256": "38ce947807107e90f110623a37c526ef292def8a5b4f21fac50ee5a45878e53c",
+      "size": 6378
+    },
+    {
+      "path": "frameworks/base/services/permission/java/com/android/server/permission/access/util/BinaryXmlPullParserExtensions.kt",
+      "sha256": "2c51b1cb821f59159e4b29d90246fd6613ea7c34d0ebf855e8ea18eb68906e6c",
+      "size": 6570
+    },
+    {
+      "path": "frameworks/base/services/permission/java/com/android/server/permission/access/util/AtomicFileExtensions.kt",
+      "sha256": "e8f138fa51a86ade63904b688763ea20a645eb6ca3ccd788db7e1dcc17531256",
+      "size": 2955
+    },
+    {
+      "path": "frameworks/base/services/permission/java/com/android/server/permission/access/util/PermissionApex.kt",
+      "sha256": "fbe10fa6cd634c649bca13cb513b84a703478d2169a6bd6ea768bcfc40c932d4",
+      "size": 1306
+    }
+  ],
+  "jdk": {
+    "path": "prebuilts/jdk/jdk25/linux-x86",
+    "release_sha256": "7f9931d00cafd5fc8275b3706fa1cb9f6752a703aa3465643edcbd501a5b123f",
+    "java_version": "25"
+  },
+  "scope": "Host JVM build of the pinned binary XML parser for offline reading of one stored permission file. Not Android runtime, ART parser or durability evidence."
+}
