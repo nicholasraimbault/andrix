@@ -71,8 +71,9 @@ This is preservation of recognized frames, not universal future reader compatibi
 - Do not place unique state only in staging seeds or new file names the old protocol does not know.
 - Version 1 only images do not acquire this protection retroactively. Each publication requires a
   supported reader and rollback contract.
-- Read and stat errors still need a separate presence and absence audit. An unavailable path must
-  not become an acknowledged absence. The new gate does not claim to solve every unreadable file.
+- The [presence correction](2026-09-27-native-store-presence.md) now distinguishes unknown stat
+  and read outcomes from actual absence. It refuses mutation rather than acknowledging an error
+  as removal. It still cannot recover unknown UID holds from an unreadable index.
 - The diagnostic dump does not yet expose the new footprint flag directly.
 
 Version 2 publication remains disabled until complete binding preservation, transition checks,

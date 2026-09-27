@@ -9,6 +9,8 @@ import com.android.server.pm.NativeIdentityRecords.SlotPhase;
 import com.android.server.pm.NativeIdentityRecords.UserEntry;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.List;
 import java.util.Set;
 
@@ -266,6 +268,32 @@ public final class NativeIdentityStoreTest {
         assert !interrupted.updateExistingSlot(retiring, tombstone);
         assert interrupted.writeHeader(creating, live);
         assert interrupted.updateExistingSlot(retiring, tombstone);
+
+        // I/O unavailability is its own fact, neither absence nor parser damage. It withholds
+        // writers and creation; only an unreadable header copy withdraws every binding.
+        NativeIdentityStore.Loaded unavailableStore = new NativeIdentityStore.Loaded(good.header,
+                good.slots, good.occupiedAppIds, false, true, false, true);
+        assert unavailableStore.unavailableFootprint && unavailableStore.creationBlocked;
+        assert !unavailableStore.creationReady() && unavailableStore.bindingUsable(APP);
+        NativeIdentityStore.Loaded unavailableHeader = new NativeIdentityStore.Loaded(
+                new NativeIdentityStore.ReadResult<>(NativeIdentityStore.Status.DAMAGED, null,
+                        good.header.decodedCopies, true), good.slots, good.occupiedAppIds,
+                true, true, false, true);
+        assert !unavailableHeader.bindingUsable(APP) && unavailableHeader.occupiedAppIds.contains(APP);
+        Path unreadableCopy = Path.of(main(root, APP) + ".reservecopy");
+        Set<PosixFilePermission> copyMode = Files.getPosixFilePermissions(unreadableCopy);
+        Files.setPosixFilePermissions(unreadableCopy, PosixFilePermissions.fromString("-w-------"));
+        NativeIdentityStore.Loaded unreadable;
+        try {
+            unreadable = store.load();
+        } finally {
+            Files.setPosixFilePermissions(unreadableCopy, copyMode);
+        }
+        assert unreadable.unavailableFootprint : "unreadable copy control requires unprivileged DAC";
+        assert unreadable.slots.get(APP).unavailable
+                && unreadable.slots.get(APP).status == NativeIdentityStore.Status.DAMAGED;
+        assert !unreadable.bindingUsable(APP) && unreadable.occupiedAppIds.contains(APP);
+        assert !store.load().unavailableFootprint && store.load().bindingUsable(APP);
         assert Os.allClosed();
         System.out.println("Native identity slot storage/recovery/retirement passed; Android unqualified");
     }

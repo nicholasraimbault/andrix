@@ -104,7 +104,11 @@ directory owner or guessed allocator floor cannot supply that proof.
 
 CREATING is not permanent proof that nothing was exposed: an intact binding might have been
 rebound while the header was damaged. No generic CREATING cleanup or key clear on enable exists.
-Retained UID dependent data or keys keep the reservation.
+Retained UID dependent data or keys keep the reservation. The
+[presence correction](../../plans/2026-09-27-native-store-presence.md) distinguishes genuine
+absence from an inaccessible path, and readable damage from bytes that could not be inspected.
+Unavailability blocks native store mutation. It is not proof that an unknown UID can be reused.
+Its host controls do not expand the older Android qualification.
 
 ## Verification boundary
 

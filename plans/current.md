@@ -71,7 +71,9 @@ issuance ownership across failures. Its source and host controls are qualified s
 the existing Android images. A [newer format preservation layer](2026-09-27-native-format-preservation.md)
 now refuses native store mutation when it recognizes newer record or staging frames, without
 turning them into bindings. The source and host matrix also preserve negative uniqueness evidence
-and refuse incomplete write inspection. Android compilation and runtime coverage remain separate.
+and refuse incomplete write inspection. The [presence correction](2026-09-27-native-store-presence.md)
+also prevents stat and read errors from becoming acknowledged absence or permission to overwrite
+unreadable state. Android compilation and runtime coverage remain separate.
 
 ## Current milestone
 

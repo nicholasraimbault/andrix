@@ -28,7 +28,7 @@ class NativeIdentityStoreTests(unittest.TestCase):
                          ['NativeIdentityRecords', 'NativeIdentityStore']],
                        *[ROOT / 'owner/tests/platform' / (name + '.java') for name in
                          ['NativeIdentityRecordsTest', 'NativeIdentityStoreTest', 'NativeIdentityVersionGateTest',
-                          'NativeIdentityFutureFormatTest']],
+                          'NativeIdentityFutureFormatTest', 'NativeIdentityPresenceTest']],
                        *[p for p in sorted((ROOT / 'owner/tests/platform/native_principal_xml_stubs')
                                           .rglob('*.java')) if p.name != 'Xml.java']]
             compile_result = subprocess.run(
@@ -37,7 +37,7 @@ class NativeIdentityStoreTests(unittest.TestCase):
             self.assertEqual(compile_result.returncode, 0,
                              compile_result.stdout + compile_result.stderr)
             for name in ['NativeIdentityRecordsTest', 'NativeIdentityStoreTest', 'NativeIdentityVersionGateTest',
-                         'NativeIdentityFutureFormatTest']:
+                         'NativeIdentityFutureFormatTest', 'NativeIdentityPresenceTest']:
                 result = subprocess.run(
                     ['java', '-Xmx256m', '-ea', '-cp', str(work), 'com.android.server.pm.' + name,
                      str(work)], capture_output=True, text=True, timeout=90)
@@ -47,8 +47,13 @@ class NativeIdentityStoreTests(unittest.TestCase):
                     # Every isolated writer path ran with its healthy control and damaged twin.
                     self.assertIn('384 passed, 0 failed', result.stdout)
                     self.assertNotIn('FAIL ', result.stdout)
+                if name == 'NativeIdentityPresenceTest':
+                    # Actual unprivileged permissions refused both probes; a bypass fails the run.
+                    self.assertIn('Unprivileged DAC refused', result.stdout)
+                    self.assertIn('93 passed, 0 failed', result.stdout)
+                    self.assertNotIn('FAIL ', result.stdout)
             for name in ['NativeIdentityRecordsTest', 'NativeIdentityVersionGateTest',
-                         'NativeIdentityFutureFormatTest']:
+                         'NativeIdentityFutureFormatTest', 'NativeIdentityPresenceTest']:
                 negative = subprocess.run(
                     ['java', '-Xmx256m', '-cp', str(work), 'com.android.server.pm.' + name, str(work)],
                     capture_output=True, text=True, timeout=30)

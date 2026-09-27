@@ -13,7 +13,9 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -57,6 +59,17 @@ import com.android.server.pm.NativeIdentityRecords.UserEntry;
  * nothing, and damaged bytes, including a bad checksum, remain ordinary damage.
  * It protects only records within the codec's size bound, and it does not
  * recover holds that exist only in an unreadable index.
+ *
+ * Presence comes from one stat that does not follow links. Only a genuine
+ * ENOENT is absence. A symbolic link or special node is never followed or
+ * opened. Any other stat failure, such as EACCES, ENOTDIR or EIO, leaves
+ * presence unknown. A copy or seed whose presence or bytes are unknown is
+ * unavailable: not absence, and not ordinary damage, because it may be a newer
+ * record. No value is selected around such a copy, and the whole native store
+ * stays read only as for a recognized footprint. An unavailable header copy
+ * withdraws every binding, as a newer one does. Every acknowledgement that
+ * depends on absence needs the genuine ENOENT. This is an availability choice
+ * too; it releases nothing.
  */
 final class NativeIdentityStore {
     enum Status { MISSING, VALID, DAMAGED, CONFLICT, UNSUPPORTED }
@@ -65,10 +78,17 @@ final class NativeIdentityStore {
         final Status status;
         final T value; // Positive metadata only when VALID.
         final List<T> decodedCopies; // Negative holds only; never merged into a grant.
+        // Some copy's presence or bytes could not be observed. It may be newer, so
+        // the record is never VALID or MISSING. This is I/O, not parser damage.
+        final boolean unavailable;
         ReadResult(Status status, T value, List<T> decodedCopies) {
+            this(status, value, decodedCopies, false);
+        }
+        ReadResult(Status status, T value, List<T> decodedCopies, boolean unavailable) {
             this.status = status;
             this.value = value;
             this.decodedCopies = List.copyOf(decodedCopies);
+            this.unavailable = unavailable;
         }
     }
 
@@ -83,24 +103,38 @@ final class NativeIdentityStore {
         // then refuses and creation is blocked. bindingUsable still judges
         // each slot by its own copies and the header.
         final boolean unsupportedFootprint;
+        // Store availability too: some header or slot copy or staging seed, or a
+        // listed slot entry, could not be stat'ed or read. It may be a newer
+        // footprint. Every writer then refuses and creation is blocked.
+        // Namespace observation failures can instead appear only through
+        // enumerationComplete=false; callers must check both conditions.
+        final boolean unavailableFootprint;
         Loaded(ReadResult<Header> header, Map<Integer, ReadResult<Slot>> slots,
                 Set<Integer> occupied, boolean blocked, boolean complete) {
-            this(header, slots, occupied, blocked, complete, false);
+            this(header, slots, occupied, blocked, complete, false, false);
         }
         Loaded(ReadResult<Header> header, Map<Integer, ReadResult<Slot>> slots,
                 Set<Integer> occupied, boolean blocked, boolean complete, boolean unsupported) {
+            this(header, slots, occupied, blocked, complete, unsupported, false);
+        }
+        Loaded(ReadResult<Header> header, Map<Integer, ReadResult<Slot>> slots,
+                Set<Integer> occupied, boolean blocked, boolean complete, boolean unsupported,
+                boolean unavailable) {
             this.header = header;
             this.slots = Map.copyOf(slots);
             occupiedAppIds = Set.copyOf(occupied);
-            creationBlocked = blocked || unsupported;
+            creationBlocked = blocked || unsupported || unavailable;
             enumerationComplete = complete;
             unsupportedFootprint = unsupported;
+            unavailableFootprint = unavailable;
         }
         // Metadata eligibility for fresh designation/PMS rebinding, NOT live
         // execution authority. Retiring users must still restore as RETIRING.
+        // A header copy that could not be read may be newer. Like a newer
+        // header, it withdraws every binding.
         boolean bindingUsable(int appId) {
             ReadResult<Slot> slot = slots.get(appId);
-            return enumerationComplete && header.status != Status.UNSUPPORTED
+            return enumerationComplete && header.status != Status.UNSUPPORTED && !header.unavailable
                     && slot != null && slot.status == Status.VALID && !slot.value.users.isEmpty();
         }
         boolean creationReady() {
@@ -136,26 +170,64 @@ final class NativeIdentityStore {
     private static File reserve(File main) { return new File(main.getPath() + ".reservecopy"); }
     // Staging for the preferred backup. Never a copy or positive history.
     private static File seed(File main) { return new File(main.getPath() + "-seed"); }
-    private static boolean exists(File file) {
-        return Files.exists(file.toPath(), LinkOption.NOFOLLOW_LINKS);
+    // What one stat that does not follow links proves. Only a genuine ENOENT is
+    // ABSENT. A symbolic link or special node is OTHER: never followed or opened.
+    // Any other failure, including EACCES, ENOTDIR and EIO, is UNKNOWN. That is
+    // never absence.
+    private enum Node { ABSENT, FILE, DIRECTORY, OTHER, UNKNOWN }
+
+    private static Node node(File file) {
+        try {
+            BasicFileAttributes attributes = Files.readAttributes(file.toPath(),
+                    BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+            if (attributes.isRegularFile()) return Node.FILE;
+            return attributes.isDirectory() ? Node.DIRECTORY : Node.OTHER;
+        } catch (NoSuchFileException absent) {
+            return Node.ABSENT;
+        } catch (IOException | RuntimeException unknown) {
+            return Node.UNKNOWN;
+        }
     }
-    private static boolean directory(File file) {
-        return Files.isDirectory(file.toPath(), LinkOption.NOFOLLOW_LINKS)
-                && !Files.isSymbolicLink(file.toPath());
+    // Evidence for the caller's exact transaction only, never a free app ID.
+    private static boolean absent(File file) { return node(file) == Node.ABSENT; }
+    private static boolean directory(File file) { return node(file) == Node.DIRECTORY; }
+
+    // One record path. Bytes come only from a readable regular file within the
+    // format bound. DAMAGED is known not to be an intact record: a link, special
+    // node or directory, or more bytes than the bound. UNAVAILABLE means the stat
+    // or read failed. That is neither absence nor damage: it may be a newer
+    // record, so it is never overwritten, removed or selected around.
+    private enum Found { ABSENT, BYTES, DAMAGED, UNAVAILABLE }
+
+    private static final class Copy {
+        final Found found;
+        final byte[] bytes; // Only for BYTES.
+        Copy(Found found, byte[] bytes) {
+            this.found = found;
+            this.bytes = bytes;
+        }
+    }
+
+    // Opened only right after that stat found a regular file. The store is
+    // private to its one serialized writer; nothing else replaces the node.
+    private static Copy observe(File file) {
+        Node node = node(file);
+        if (node == Node.ABSENT) return new Copy(Found.ABSENT, null);
+        if (node == Node.UNKNOWN) return new Copy(Found.UNAVAILABLE, null);
+        if (node != Node.FILE) return new Copy(Found.DAMAGED, null);
+        try (FileInputStream in = new FileInputStream(file)) {
+            byte[] bytes = in.readNBytes(NativeIdentityRecords.MAX_BYTES + 1);
+            return bytes.length > NativeIdentityRecords.MAX_BYTES ? new Copy(Found.DAMAGED, null)
+                    : new Copy(Found.BYTES, bytes);
+        } catch (IOException | RuntimeException unavailable) {
+            return new Copy(Found.UNAVAILABLE, null);
+        }
     }
 
     private static byte[] readBytes(File file) throws IOException {
-        if (!Files.isRegularFile(file.toPath(), LinkOption.NOFOLLOW_LINKS)
-                || Files.isSymbolicLink(file.toPath())) {
-            throw new IOException("Native record is not a regular file");
-        }
-        try (FileInputStream in = new FileInputStream(file)) {
-            byte[] bytes = in.readNBytes(NativeIdentityRecords.MAX_BYTES + 1);
-            if (bytes.length > NativeIdentityRecords.MAX_BYTES) {
-                throw new IOException("Native record exceeds its format bound");
-            }
-            return bytes;
-        }
+        Copy copy = observe(file);
+        if (copy.found != Found.BYTES) throw new IOException("Native record bytes unavailable");
+        return copy.bytes;
     }
 
     // An intact frame of the expected type which declares a version this protocol
@@ -165,15 +237,16 @@ final class NativeIdentityStore {
         return header ? NativeIdentityRecords.intactHeaderVersion(bytes) > SUPPORTED_HEADER_VERSION
                 : NativeIdentityRecords.intactSlotVersion(bytes) > SUPPORTED_SLOT_VERSION;
     }
-    private static boolean unsupportedFile(File file, boolean header) {
-        if (!exists(file)) return false;
-        try { return unsupportedBytes(readBytes(file), header); }
-        catch (IOException | RuntimeException unreadable) { return false; }
+    private static boolean newer(Copy copy, boolean header) {
+        return copy.found == Found.BYTES && unsupportedBytes(copy.bytes, header);
     }
-    // Every file a writer of this record can replace, truncate, rename over or unlink.
-    private static boolean unsupportedRecord(File main, boolean header) {
+    // Every file a writer of this record can replace, truncate, rename over or
+    // unlink. A recognized newer frame blocks. So does a path whose presence or
+    // bytes are unavailable: it cannot be assumed not to be newer.
+    private static boolean recordBlocked(File main, boolean header) {
         for (File file : List.of(main, reserve(main), backup(main), seed(main))) {
-            if (unsupportedFile(file, header)) return true;
+            Copy copy = observe(file);
+            if (copy.found == Found.UNAVAILABLE || newer(copy, header)) return true;
         }
         return false;
     }
@@ -184,11 +257,14 @@ final class NativeIdentityStore {
      * refuses them all, because a newer protocol can relate records in ways
      * this writer cannot see. Incomplete namespace inspection also refuses:
      * a target check cannot prove unrelated slots have no newer footprint.
+     * So does any slot entry or record path whose presence or bytes are
+     * unavailable. A link, special node or file slot entry stays ordinary
+     * damage with its hold; the target writers refuse such an entry.
      * Refusal only keeps state; it is no hold, release or binding decision.
      */
     private boolean writeInspectionBlocked(int... targets) {
         if (!directory(root) || !directory(slotRoot)) return true;
-        if (unsupportedRecord(headerFile(), true)) return true;
+        if (recordBlocked(headerFile(), true)) return true;
         File[] entries = slotRoot.listFiles();
         if (entries == null) return true;
         TreeSet<Integer> appIds = new TreeSet<>();
@@ -198,7 +274,9 @@ final class NativeIdentityStore {
             if (appId != null) appIds.add(appId);
         }
         for (int appId : appIds) {
-            if (directory(slotDirectory(appId)) && unsupportedRecord(slotFile(appId), false)) return true;
+            Node node = node(slotDirectory(appId));
+            if (node == Node.UNKNOWN
+                    || (node == Node.DIRECTORY && recordBlocked(slotFile(appId), false))) return true;
         }
         return false;
     }
@@ -208,24 +286,29 @@ final class NativeIdentityStore {
         ArrayList<T> valid = new ArrayList<>();
         ArrayList<T> values = new ArrayList<>();
         boolean[] present = new boolean[3];
-        boolean bad = false, unsupported = false;
+        boolean bad = false, unsupported = false, unavailable = false;
         for (int i = 0; i < paths.length; ++i) {
             T value = null;
-            present[i] = exists(paths[i]);
-            if (present[i]) {
-                byte[] bytes = null;
+            Copy copy = observe(paths[i]);
+            present[i] = copy.found != Found.ABSENT;
+            if (copy.found == Found.UNAVAILABLE) unavailable = true;
+            if (copy.found == Found.DAMAGED) bad = true;
+            if (copy.bytes != null) {
                 try {
-                    bytes = readBytes(paths[i]);
-                    value = decoder.decode(bytes);
+                    value = decoder.decode(copy.bytes);
                     valid.add(value);
-                } catch (IOException | RuntimeException error) { bad = true; }
-                if (bytes != null && unsupportedBytes(bytes, header)) unsupported = true;
+                } catch (RuntimeException error) { bad = true; }
+                if (unsupportedBytes(copy.bytes, header)) unsupported = true;
             }
             values.add(value);
         }
         // A newer copy, selected or not, is never hidden by an older valid one.
         // Decoded copies still contribute their negative holds.
-        if (unsupported) return new ReadResult<>(Status.UNSUPPORTED, null, valid);
+        if (unsupported) return new ReadResult<>(Status.UNSUPPORTED, null, valid, unavailable);
+        // Nor is a copy that could not be observed. It may be newer, or the
+        // authoritative backup. It is not absence, so the record is never
+        // MISSING, and no value is selected around it. Decoded copies stay holds.
+        if (unavailable) return new ReadResult<>(Status.DAMAGED, null, valid, true);
         // Backup existence is authoritative for interrupted publication. Never
         // fall through an invalid backup to a possibly unconfirmed omission.
         if (present[2]) {
@@ -243,8 +326,14 @@ final class NativeIdentityStore {
                 null, valid);
     }
 
+    // Never read through a slot entry that is not a real directory: a link can
+    // lead to foreign records. Such an entry is damage, or unavailable.
     private ReadResult<Slot> readSlotCopies(int appId) {
-        return readCopies(slotFile(appId), NativeIdentityRecords::decodeSlot, false);
+        Node node = node(slotDirectory(appId));
+        if (node == Node.DIRECTORY || node == Node.ABSENT) {
+            return readCopies(slotFile(appId), NativeIdentityRecords::decodeSlot, false);
+        }
+        return new ReadResult<>(Status.DAMAGED, null, List.of(), node == Node.UNKNOWN);
     }
 
     private ReadResult<Header> readHeaderCopies() {
@@ -254,7 +343,8 @@ final class NativeIdentityStore {
                 // Even an unselected copy can contain a reservation whose new
                 // transition semantics this writer has not qualified. Preserve
                 // all decoded UID holds and do not fall through to a v1 copy.
-                return new ReadResult<>(Status.UNSUPPORTED, null, read.decodedCopies);
+                return new ReadResult<>(Status.UNSUPPORTED, null, read.decodedCopies,
+                        read.unavailable);
             }
         }
         return read;
@@ -264,29 +354,38 @@ final class NativeIdentityStore {
         TreeMap<Integer, ReadResult<Slot>> loaded = new TreeMap<>();
         TreeSet<Integer> occupied = new TreeSet<>();
         ReadResult<Header> header = new ReadResult<>(Status.MISSING, null, List.of());
-        boolean complete = false, blocked = true, unsupported = false;
+        boolean complete = false, blocked = true, unsupported = false, unavailable = false;
         try {
-            if (!directory(root) || !directory(slotRoot)) {
+            Node rootNode = node(root);
+            if (rootNode != Node.DIRECTORY || !directory(slotRoot)) {
                 // A missing root is NOT automatically permission to initialize a
                 // new lineage. The trusted creation operation decides that case.
-                if (directory(root)) {
+                // Only a genuinely absent root reads as a missing header.
+                if (rootNode == Node.DIRECTORY) {
                     header = readHeaderCopies();
-                    unsupported = header.status == Status.UNSUPPORTED
-                            || unsupportedFile(seed(headerFile()), true);
+                    Copy seed = observe(seed(headerFile()));
+                    unsupported = header.status == Status.UNSUPPORTED || newer(seed, true);
+                    unavailable = header.unavailable || seed.found == Found.UNAVAILABLE;
+                } else if (rootNode != Node.ABSENT) {
+                    unavailable = rootNode == Node.UNKNOWN;
+                    header = new ReadResult<>(Status.DAMAGED, null, List.of(), unavailable);
                 }
                 for (Header copy : header.decodedCopies) {
                     for (HeaderEntry entry : copy.entries) occupied.add(entry.appId);
                 }
-                return new Loaded(header, loaded, occupied, true, false, unsupported);
+                return new Loaded(header, loaded, occupied, true, false, unsupported, unavailable);
             }
             header = readHeaderCopies();
-            unsupported = header.status == Status.UNSUPPORTED
-                    || unsupportedFile(seed(headerFile()), true);
+            Copy headerSeed = observe(seed(headerFile()));
+            unsupported = header.status == Status.UNSUPPORTED || newer(headerSeed, true);
+            unavailable = header.unavailable || headerSeed.found == Found.UNAVAILABLE;
             for (Header copy : header.decodedCopies) {
                 for (HeaderEntry entry : copy.entries) occupied.add(entry.appId);
             }
             File[] entries = slotRoot.listFiles();
-            if (entries == null) return new Loaded(header, loaded, occupied, true, false, unsupported);
+            if (entries == null) {
+                return new Loaded(header, loaded, occupied, true, false, unsupported, unavailable);
+            }
             complete = true;
             blocked = header.status != Status.VALID;
             // Discover every negative hold BEFORE record decoding can fail.
@@ -301,12 +400,19 @@ final class NativeIdentityStore {
                 if (header.status == Status.VALID && headerEntry(header.value, appId) == null) {
                     blocked = true; // Unknown creation lineage/counter, but only a negative hold.
                 }
-                ReadResult<Slot> record = directory(entry) ? readSlotCopies(appId)
-                        : new ReadResult<>(Status.DAMAGED, null, List.of());
-                // Only a format footprint here; a user 0 limit below is not one.
-                if (record.status == Status.UNSUPPORTED
-                        || (directory(entry) && unsupportedFile(seed(slotFile(appId)), false))) {
-                    unsupported = true;
+                Node node = node(entry);
+                ReadResult<Slot> record;
+                if (node == Node.DIRECTORY) {
+                    record = readSlotCopies(appId);
+                    Copy seed = observe(seed(slotFile(appId)));
+                    // Only a format footprint here; a user 0 limit below is not one.
+                    if (record.status == Status.UNSUPPORTED || newer(seed, false)) unsupported = true;
+                    if (record.unavailable || seed.found == Found.UNAVAILABLE) unavailable = true;
+                } else {
+                    // A link, special node or file keeps its hold as damage. An
+                    // entry whose type cannot be observed is unavailable too.
+                    record = new ReadResult<>(Status.DAMAGED, null, List.of(), node == Node.UNKNOWN);
+                    if (node == Node.UNKNOWN) unavailable = true;
                 }
                 if (record.status == Status.VALID) {
                     if (record.value.appId != appId) {
@@ -360,11 +466,12 @@ final class NativeIdentityStore {
             HashMap<String, Integer> packages = new HashMap<>();
             HashMap<Long, Integer> incarnations = new HashMap<>();
             HashSet<Integer> conflicts = new HashSet<>();
-            // A newly unsupported record must not make an otherwise conflicting
-            // sibling usable. Its decodable older copies are negative evidence,
-            // never an identity or counter source for the unsupported record.
+            // A newly unsupported or unavailable record must not make an otherwise
+            // conflicting sibling usable. Its decodable older copies are negative
+            // evidence, never an identity or counter source for that record.
             for (Map.Entry<Integer, ReadResult<Slot>> entry : loaded.entrySet()) {
-                if (entry.getValue().status != Status.UNSUPPORTED) continue;
+                if (entry.getValue().status != Status.UNSUPPORTED
+                        && !entry.getValue().unavailable) continue;
                 for (Slot copy : entry.getValue().decodedCopies) {
                     packages.putIfAbsent(copy.packageName, entry.getKey());
                     for (UserEntry user : copy.users) incarnations.putIfAbsent(user.id, entry.getKey());
@@ -392,7 +499,7 @@ final class NativeIdentityStore {
             complete = false;
             blocked = true;
         }
-        return new Loaded(header, loaded, occupied, blocked, complete, unsupported);
+        return new Loaded(header, loaded, occupied, blocked, complete, unsupported, unavailable);
     }
 
     /** Explicit fresh creation or its exact empty-result retry, never called by load(). */
@@ -401,7 +508,8 @@ final class NativeIdentityStore {
         try {
             File parent = root.getParentFile();
             if (!directory(parent)) return false;
-            if (exists(root)) {
+            Node existing = node(root);
+            if (existing == Node.DIRECTORY) {
                 if (writeInspectionBlocked()) return false;
                 File[] children = slotRoot.listFiles();
                 File[] contents = root.listFiles();
@@ -414,6 +522,9 @@ final class NativeIdentityStore {
                 syncDirectory(slotRoot); syncDirectory(root); syncDirectory(parent);
                 return true;
             }
+            // Only a genuinely absent root is created. A link, special node, file
+            // or root whose presence is unknown is never replaced or assumed empty.
+            if (existing != Node.ABSENT) return false;
             // The canonical root is absent or has a complete empty layout. A
             // crash before rename leaves only an unpublished staging sibling,
             // never a torn canonical store that looks like lost identity data.
@@ -428,7 +539,7 @@ final class NativeIdentityStore {
             syncDirectory(staging);
             // Same private parent and one writer. No REPLACE_EXISTING and no
             // ATOMIC_MOVE option which could replace an existing empty target.
-            if (exists(root)) return false;
+            if (!absent(root)) return false;
             Files.move(staging.toPath(), root.toPath());
             syncDirectory(parent);
             return true;
@@ -468,7 +579,8 @@ final class NativeIdentityStore {
         if (entry == null || entry.phase != SlotPhase.CREATING || writeInspectionBlocked(appId)
                 || !confirmHeader(expected)) return false;
         File directory = slotDirectory(appId);
-        if (exists(directory)) return false; // A retry reconciles, never adopts an unknown mkdir.
+        // A retry reconciles, never adopts an unknown mkdir. Unknown presence is not absence.
+        if (!absent(directory)) return false;
         try {
             if (!directory.mkdir()) return false;
             protectDirectory(directory);
@@ -488,27 +600,29 @@ final class NativeIdentityStore {
         if (entry == null || entry.phase != SlotPhase.CREATING || writeInspectionBlocked(appId)
                 || !confirmHeader(expected)) return false;
         File dir = slotDirectory(appId);
-        if (!exists(dir)) return ensureFreshSlot(expected, appId);
-        if (!directory(dir)) return false;
+        Node node = node(dir);
+        if (node == Node.ABSENT) return ensureFreshSlot(expected, appId);
+        if (node != Node.DIRECTORY) return false;
         File[] files = dir.listFiles();
         if (files == null) return false;
         Set<String> allowed = Set.of("record.bin", "record.bin-backup", "record.bin.reservecopy",
                 "record.bin-seed");
         for (File file : files) {
-            if (!allowed.contains(file.getName()) || Files.isSymbolicLink(file.toPath())
-                    || !Files.isRegularFile(file.toPath(), LinkOption.NOFOLLOW_LINKS)) return false;
+            if (!allowed.contains(file.getName()) || node(file) != Node.FILE) return false;
         }
         ReadResult<Slot> read = readSlotCopies(appId);
         if (read.status != Status.MISSING && read.status != Status.VALID) return false;
         for (Slot copy : read.decodedCopies) {
             if (!matchesCreation(copy, expected, entry)) return false;
         }
-        File seed = seed(slotFile(appId));
-        if (exists(seed)) {
+        Copy seed = observe(seed(slotFile(appId)));
+        // Only parser damage is owned staging. Unreadable bytes may be newer.
+        if (seed.found == Found.UNAVAILABLE) return false;
+        if (seed.bytes != null) {
             try {
-                if (!matchesCreation(NativeIdentityRecords.decodeSlot(readBytes(seed)), expected,
+                if (!matchesCreation(NativeIdentityRecords.decodeSlot(seed.bytes), expected,
                         entry)) return false;
-            } catch (IOException | IllegalArgumentException error) {
+            } catch (IllegalArgumentException error) {
                 // A torn unpublished seed may be overwritten by this same
                 // owned creation, not adopted as positive binding metadata.
                 // An intact unsupported seed never reaches here: the gate refused.
@@ -526,7 +640,7 @@ final class NativeIdentityStore {
 
     /** Exact retirement reconciliation only, never a general absence-is-free test. */
     boolean confirmReleasedSlot(Header expected, int appId) {
-        if (headerEntry(expected, appId) != null || exists(slotDirectory(appId))
+        if (headerEntry(expected, appId) != null || !absent(slotDirectory(appId))
                 || writeInspectionBlocked(appId) || !confirmHeader(expected)) return false;
         try { syncDirectory(slotRoot); return true; }
         catch (IOException error) { return false; }
@@ -563,7 +677,7 @@ final class NativeIdentityStore {
         if (writeInspectionBlocked(next.appId)) return false;
         Loaded loaded = load();
         ReadResult<Slot> read = loaded.slots.get(next.appId);
-        if (!loaded.enumerationComplete || loaded.unsupportedFootprint
+        if (!loaded.enumerationComplete || loaded.unsupportedFootprint || loaded.unavailableFootprint
                 || loaded.header.status == Status.UNSUPPORTED
                 || read == null || read.status != Status.VALID) return false;
         HeaderEntry index = loaded.header.value == null ? null : headerEntry(loaded.header.value, next.appId);
@@ -610,7 +724,7 @@ final class NativeIdentityStore {
         if (writeInspectionBlocked(expected.appId)) return false;
         Loaded loaded = load();
         ReadResult<Slot> read = loaded.slots.get(expected.appId);
-        if (!loaded.enumerationComplete || loaded.unsupportedFootprint
+        if (!loaded.enumerationComplete || loaded.unsupportedFootprint || loaded.unavailableFootprint
                 || loaded.header.status == Status.UNSUPPORTED
                 || read == null || read.status != Status.VALID || !expected.equals(read.value)) return false;
         byte[] bytes = NativeIdentityRecords.encodeSlot(expected);
@@ -634,27 +748,31 @@ final class NativeIdentityStore {
         if (index == null || index.phase != SlotPhase.RELEASING || writeInspectionBlocked(appId)
                 || !confirmHeader(expected)) return false;
         File dir = slotDirectory(appId);
-        if (!exists(dir)) {
+        Node node = node(dir);
+        // Only a genuine ENOENT continues as removed. A directory whose presence
+        // cannot be observed, or a link or special node, acknowledges nothing.
+        if (node == Node.ABSENT) {
             try { syncDirectory(slotRoot); return true; }
             catch (IOException error) { return false; }
         }
-        if (!directory(dir)) return false;
+        if (node != Node.DIRECTORY) return false;
         ReadResult<Slot> read = readSlotCopies(appId);
         // Even a transaction marker cannot erase a parseable foreign/live body.
         for (Slot copy : read.decodedCopies) {
             if (copy.appId != appId || !copy.lineage.equals(expected.lineage)
                     || !copy.users.isEmpty()) return false;
         }
-        File seed = seed(slotFile(appId));
-        if (exists(seed)) {
+        Copy seed = observe(seed(slotFile(appId)));
+        if (seed.bytes != null) {
             try {
-                Slot copy = NativeIdentityRecords.decodeSlot(readBytes(seed));
+                Slot copy = NativeIdentityRecords.decodeSlot(seed.bytes);
                 if (copy.appId != appId || !copy.lineage.equals(expected.lineage)
                         || !copy.users.isEmpty()) return false;
-            } catch (IOException | IllegalArgumentException error) {
+            } catch (IllegalArgumentException error) {
                 // A torn staging body is not positive metadata. The durable
                 // RELEASING transaction, not this parse failure, owns removal.
-                // An intact unsupported seed never reaches here: the gate refused.
+                // An intact unsupported or unreadable seed never reaches removal:
+                // the gate and the check below refuse it.
             }
         }
         Set<String> allowed = Set.of("record.bin", "record.bin.reservecopy", "record.bin-backup",
@@ -663,12 +781,11 @@ final class NativeIdentityStore {
         if (files == null) return false;
         try {
             for (File file : files) {
-                if (!allowed.contains(file.getName()) || Files.isSymbolicLink(file.toPath())
-                        || !Files.isRegularFile(file.toPath(), LinkOption.NOFOLLOW_LINKS)) return false;
+                if (!allowed.contains(file.getName()) || node(file) != Node.FILE) return false;
             }
             // At the point of effect too: a tombstone copy is no permission to
-            // unlink an intact newer record or seed beside it.
-            if (unsupportedRecord(slotFile(appId), false)) return false;
+            // unlink an intact newer record or seed beside it, or unreadable bytes.
+            if (recordBlocked(slotFile(appId), false)) return false;
             for (File file : files) if (!file.delete()) return false;
             syncDirectory(dir);
             if (!dir.delete()) return false;
@@ -682,7 +799,9 @@ final class NativeIdentityStore {
         for (HeaderEntry old : previous.entries) {
             HeaderEntry changed = headerEntry(next, old.appId);
             if (changed == null) {
-                if (old.phase != SlotPhase.RELEASING || exists(slotDirectory(old.appId))) return false;
+                // Omission needs the directory's genuine absence. A directory that
+                // cannot be observed is not absence, even for a RELEASING entry.
+                if (old.phase != SlotPhase.RELEASING || !absent(slotDirectory(old.appId))) return false;
                 try { syncDirectory(slotRoot); }
                 catch (IOException error) { return false; }
                 continue;
@@ -711,7 +830,7 @@ final class NativeIdentityStore {
             if (headerEntry(previous, added.appId) != null) continue;
             if (!load().creationReady()) return false;
             if (added.phase != SlotPhase.CREATING || added.creationId <= previous.lastId
-                    || exists(slotDirectory(added.appId))) return false;
+                    || !absent(slotDirectory(added.appId))) return false;
             try { syncDirectory(slotRoot); }
             catch (IOException error) { return false; }
         }
@@ -731,7 +850,9 @@ final class NativeIdentityStore {
 
     private static void preserveChosenBase(File main, byte[] prior) throws IOException {
         if (prior == null) return;
-        if (exists(backup(main)) && !java.util.Arrays.equals(prior, readBytes(backup(main)))) {
+        Node preferred = node(backup(main));
+        if (preferred != Node.ABSENT && (preferred != Node.FILE
+                || !java.util.Arrays.equals(prior, readBytes(backup(main))))) {
             throw new IOException("Native preferred backup changed");
         }
         // startWrite could rename a bad main into the preferred backup and
@@ -739,8 +860,8 @@ final class NativeIdentityStore {
         // a checked writer first, including when its earlier publication was
         // uncertain. Replacing a same-value backup does not change its meaning.
         File staging = seed(main);
-        if (exists(staging) && (!Files.isRegularFile(staging.toPath(), LinkOption.NOFOLLOW_LINKS)
-                || Files.isSymbolicLink(staging.toPath()))) {
+        Node staged = node(staging);
+        if (staged != Node.ABSENT && staged != Node.FILE) {
             throw new IOException("Native backup staging alias");
         }
         try (FileOutputStream out = new FileOutputStream(staging)) {
@@ -763,12 +884,13 @@ final class NativeIdentityStore {
         if (!directory(main.getParentFile())) return false;
         // Every caller passed the store gate first. This is the point of effect:
         // startWrite and the seed staging can unlink or replace each of these.
-        if (unsupportedRecord(main, header)) return false;
-        // The root is private to PMS. Still refuse filesystem aliases rather
-        // than allowing a corrupt slot to redirect a trusted writer.
+        if (recordBlocked(main, header)) return false;
+        // The root is private to PMS. Still refuse filesystem aliases, special
+        // nodes and unknown paths rather than allowing a corrupt slot to
+        // redirect a trusted writer.
         for (File file : List.of(main, reserve(main), backup(main))) {
-            if (exists(file) && (!Files.isRegularFile(file.toPath(), LinkOption.NOFOLLOW_LINKS)
-                    || Files.isSymbolicLink(file.toPath()))) return false;
+            Node node = node(file);
+            if (node != Node.ABSENT && node != Node.FILE) return false;
         }
         try (ResilientAtomicFile atomic = new ResilientAtomicFile(main, backup(main), reserve(main),
                 0600, "native-identity", null)) {
@@ -780,7 +902,8 @@ final class NativeIdentityStore {
             out.write(bytes);
             atomic.finishWriteStrict(out);
             // Supplemental exact readback, after the actual writing FDs sync.
-            return !exists(backup(main)) && java.util.Arrays.equals(bytes, readBytes(main))
+            // The preferred backup must be genuinely gone, not unobservable.
+            return absent(backup(main)) && java.util.Arrays.equals(bytes, readBytes(main))
                     && java.util.Arrays.equals(bytes, readBytes(reserve(main)));
         } catch (IOException | RuntimeException error) {
             // Do not call failWrite: retain uncertain copies and every hold.

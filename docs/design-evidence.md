@@ -243,6 +243,10 @@ retain their own producers and scopes.
   The normal image built at `e3ad881`. Actual PMS kept a header only UID hold despite a preferred
   empty older backup, refused binding with a valid body, and retained original keys and canaries
   across controlled version 1 header repair. This is not automatic migration or creation recovery.
+  The later [presence correction](../plans/2026-09-27-native-store-presence.md) has source review
+  and 93 host presence controls. It prevents access failures from becoming absence acknowledgements
+  or overwrites of unreadable state. These controls do not locate holds in an unreadable index or
+  extend the existing Android runtime result.
 - **Next gate:** complete the remaining authority and recovery connections, API binding and
   foreground contracts, then qualify the
   [account mapping](../plans/2026-09-21-android-unix-accounts.md) and
