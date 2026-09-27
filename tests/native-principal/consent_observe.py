@@ -1,0 +1,82 @@
+# SPDX-License-Identifier: Apache-2.0
+"""PermissionController fixture observations, never grant or input authority."""
+import re
+import xml.etree.ElementTree as ET
+
+PERMISSION = 'android.permission.POST_NOTIFICATIONS'
+
+
+def permission_state(text, *, package, uid, user_id):
+    if (not isinstance(text, str) or len(text.encode()) > 1024 * 1024
+            or type(uid) is not int or type(user_id) is not int or user_id < 0
+            or uid // 100000 != user_id or not 10000 <= uid % 100000 <= 19999
+            or not isinstance(package, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+', package)):
+        raise ValueError('invalid independent permission subject')
+    lines = text.splitlines()
+    if not lines or lines[0] != 'App ID: ' + str(uid % 100000):
+        raise ValueError('permission dump app ID mismatch')
+    if sum(line.startswith('App ID:') for line in lines) != 1:
+        raise ValueError('duplicate permission subject')
+    users = {}
+    current = None
+    for line in lines[1:]:
+        match = re.fullmatch(r'  User: (0|[1-9][0-9]*)', line)
+        if match:
+            current = int(match[1])
+            if current in users:
+                raise ValueError('duplicate permission user')
+            users[current] = []
+        elif current is None:
+            if line.strip():
+                raise ValueError('permission data before user')
+        else:
+            users[current].append(line)
+    if user_id not in users:
+        raise ValueError('permission user missing')
+    section = users[user_id]
+    if section.count('    Package: ' + package) != 1 or sum(line.startswith('    Package: ') for line in section) != 1:
+        raise ValueError('permission package mismatch')
+    if section.count('    Permissions:') != 1:
+        raise ValueError('default device permission section missing or duplicated')
+    rows = {}
+    start = section.index('    Permissions:') + 1
+    for line in section[start:]:
+        if line.strip() and not line.startswith('      '):
+            break
+        if not line.strip():
+            continue
+        match = re.fullmatch(r'      ([A-Za-z0-9_.]+): granted=(true|false), flags=\[([A-Z0-9_|]*)\]', line)
+        if not match or match[1] in rows:
+            raise ValueError('malformed or duplicate permission record')
+        flags = match[3].split('|') if match[3] else []
+        if len(flags) != len(set(flags)) or any(not re.fullmatch(r'[A-Z][A-Z0-9_]*', flag) for flag in flags):
+            raise ValueError('malformed permission flags')
+        rows[match[1]] = {'stored': True, 'granted': match[2] == 'true', 'flags': sorted(flags)}
+    # Zero flags have no entry in the platform map. Absence is interpreted only
+    # inside an established user/package/default-device section, never an empty dump.
+    return rows.get(PERMISSION, {'stored': False, 'granted': False, 'flags': []})
+
+
+def ui_target(xml, *, package, text=None, resource_id=None, width=720, height=1280):
+    if (not isinstance(xml, str) or len(xml.encode()) > 1024 * 1024
+            or '<!DOCTYPE' in xml or '<!ENTITY' in xml
+            or not isinstance(package, str) or not package
+            or (text is None) == (resource_id is None)
+            or type(width) is not int or type(height) is not int or width <= 0 or height <= 0):
+        raise ValueError('invalid UI observation')
+    root = ET.fromstring(xml)
+    if root.tag != 'hierarchy':
+        raise ValueError('wrong hierarchy root')
+    key, wanted = ('text', text) if text is not None else ('resource-id', resource_id)
+    matches = [node for node in root.iter('node') if node.get('package') == package
+               and node.get(key) == wanted and node.get('enabled') == 'true'
+               and node.get('clickable') == 'true']
+    if len(matches) != 1:
+        raise ValueError('UI target missing or ambiguous')
+    match = re.fullmatch(r'\[(0|[1-9][0-9]*),(0|[1-9][0-9]*)\]\[(0|[1-9][0-9]*),(0|[1-9][0-9]*)\]', matches[0].get('bounds', ''))
+    if not match:
+        raise ValueError('UI bounds missing')
+    x1, y1, x2, y2 = map(int, match.groups())
+    if not (0 <= x1 < x2 <= width and 0 <= y1 < y2 <= height):
+        raise ValueError('UI target outside observed display')
+    return {'x': (x1 + x2) // 2, 'y': (y1 + y2) // 2}
