@@ -267,8 +267,9 @@ retain their own producers and scopes.
   store or lab writer route. The [historical identity step](../plans/2026-09-28-native-creation-history.md)
   now shares one view across restore, scan and seeding, keeps restored header creations PENDING,
   and requires explicit rebinding without a new ID. Original and hardened host matrices, legacy
-  comparisons, fault controls, readers and mutants passed. Android compilation of that join and
-  runtime writer qualification remain separate, as does a newly observed counter admission gap.
+  comparisons, fault controls, readers and mutants passed. The normal `89491b9` Android image
+  compiled with the shared view and literal V1 construction in final DEX. Runtime writer
+  qualification remains separate, as does a newly observed counter admission gap.
   The [real consent reference](../plans/2026-09-27-native-permission-consent.md) then exercised the
   ordinary Android notification popup without privileged grants. Allow enabled an independent
   command after the helper closed; peer and false attribution controls remained separate. Back,

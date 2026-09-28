@@ -2,8 +2,8 @@
 
 Status: inactive implementation on the B1 sources at `0018a1d`, independently reviewed and
 qualified on the host. Both the original and hardened matrices ran under the required bounds;
-see [the revision](#revision-after-the-primary-qualification). No Android image contains B2 yet. Version 1
-stays the only production format. No public API, policy default, activation, repair,
+see [the revision](#revision-after-the-primary-qualification). The normal `89491b9` Android image
+also compiled. Version 1 stays the only production format. No public API, policy default, activation, repair,
 cancellation, release or initializer authority is added. This follows the
 [creation binding step](2026-09-27-native-creation-binding.md).
 
@@ -277,6 +277,21 @@ took 6 minutes 25 seconds with a 523 MiB peak under 2 GiB, zero swap and core du
 integration, the complete runner and 18 pure tests passed again on Main, with all eight phases
 complete and the same case, parity, reader and mutant outcomes.
 
+## Android artifact checkpoint
+
+The normal `89491b9` image compiled in 9 minutes 18 seconds under the 54 GiB, 8 CPU build scope,
+with a 27.5 GiB peak and zero swap or core dumps. Final DEX constructs the store with literal
+`Format.V1`. Boot restoration consumes the shared history map and its records and retirement IDs,
+then chooses the selected counter or the existing restore without counter branch. Scan and
+recovery seeding use the same view, with the recorded signer comparison. The Package Installer
+writing descriptor sync remains in the final artifact.
+
+Compiler output contains the immutable restored handle origin, the guard before retirement and
+the body only published binding check. R8 removes inactive writing paths from the normal image.
+The producer scope was retired before reverting the native and payload adaptations, preserving
+CE and verity. No B2 Android runtime or V2 publication result follows, and the separate counter
+gap below is still present in this image.
+
 ## Separate counter admission gap
 
 An independent check also found an existing gap in `0018a1d` and this candidate. A decoded slot
@@ -290,8 +305,8 @@ rebuild counters or repair either case. Production V2 publication and native act
 
 ## Limits
 
-- Host facades are not Android boot, crash, storage or SELinux evidence. No Android image built
-  from these sources yet.
+- Host facades are not Android boot, crash, storage or SELinux evidence. Compilation and artifact
+  inspection do not qualify the header recovery path on a running Android system.
 - Version 2 publication stays disabled. The reservation history exists only under the host
   version 2 format, so production behavior stays version 1.
 - A never rebound reservation without a current published body cannot retire. Creating a body

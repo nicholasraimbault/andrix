@@ -93,9 +93,10 @@ controls intact, with the native store still missing. The [historical identity s
 now joins eligible bodies and selected complete header reservations through one immutable view.
 Restoration, scanning and boot seeding share it. A restored creation stays PENDING until an
 explicit designation rebinds its original ID and signers. Guarded host qualification passed,
-including exact legacy behavior, fault, reader, origin and data owner controls. Android compilation
-of this join remains separate. An independently reproduced counter admission gap also needs its
-own correction. Production V2 publication and native activation remain off.
+including exact legacy behavior, fault, reader, origin and data owner controls. The normal
+`89491b9` Android image compiled with literal V1 construction and the shared view in final DEX.
+An independently reproduced counter admission gap needs its own correction. Production V2
+publication and native activation remain off.
 
 The [installer durability assessment](2026-09-27-package-installer-durability.md) retains an
 unclean stop failure and a separate Android file comparison. The checked writing descriptor sync
