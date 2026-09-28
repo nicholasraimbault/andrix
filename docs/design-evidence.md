@@ -279,8 +279,10 @@ retain their own producers and scopes.
   oracles passed host checks. A separately admitted corrected lab image compiled and passed
   static DEX, super partition, policy and boot comparisons. The original signer refusal remains
   failed. A fresh Android baseline and clean reboot then preserved the original APK, UID, map
-  and observer key controls while the native store stayed MISSING. No V2 store operation or
-  production enable follows from that baseline.
+  and observer key controls while the native store stayed MISSING. A controlled empty V1 input
+  was subsequently observed intact on its first cold read, with PMS creation readiness restored.
+  Both later scopes remain failed on distinct observer errors, not retroactively qualified by
+  those completed checks. No V2 store operation or production enable follows.
   The [real consent reference](../plans/2026-09-27-native-permission-consent.md) then exercised the
   ordinary Android notification popup without privileged grants. Allow enabled an independent
   command after the helper closed; peer and false attribution controls remained separate. Back,

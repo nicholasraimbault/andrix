@@ -1,8 +1,10 @@
 # Optional lab preparation for V2 header only recovery
 
 Status: the separately compiled lab image on `23cede6`, including counter correction `78456b3`,
-passed static checks and a fresh Android baseline with a clean reboot. The native store remained
-MISSING. No native designation, preparation or V2 publication was issued. Production stays
+passed static checks and a fresh Android baseline with a clean reboot. A controlled empty V1
+store was later observed intact on its first cold read, with PMS creation readiness restored.
+Both later scopes still failed their separate observer checks. No native designation, preparation
+or V2 publication was issued. Production stays
 `Format.V1`; native execution and the factory stay off. Later store operations still need their
 own admission. This follows the
 [historical identity step](2026-09-28-native-creation-history.md).
@@ -229,9 +231,9 @@ The separate bounded artifact checks established:
 - The lab AVB chain verifies with the same algorithms and reported key identifiers as normal.
   This is a development artifact check, not production signing custody or runtime verified boot.
 
-The build manifest alone is not a guest admission. The artifact assessment is separate, and fresh
-userdata selection, APK installation, live permissions, effective security state and cold recovery
-remain untested. Every refused checker and incomplete preparation remains separate evidence.
+The build manifest alone is not a guest admission. The artifact assessment is separate from the
+runtime observations below. Live permissions and native writer recovery remain separate gates.
+Every refused checker and incomplete preparation remains separate evidence.
 
 ## Observed fresh Android baseline
 
@@ -256,9 +258,39 @@ a native writer durability test nor a claim of clean guest power off or physical
 The VM scope closed and its state and original logs were preserved for the next admitted phase.
 Earlier UNKNOWN requests from other guests were not replayed or requalified.
 
-## Planned Android lab stages
+## Controlled empty input and first cold observations
 
-These stages need a later separate admission. None ran here.
+A continuation first passed the original APK, UID, map, data directory, key and canary checks.
+After exact absence and captured PMS writer exit, it created the controlled empty V1 layout.
+Each 70 byte header was checked and synced through its writing descriptor, then renamed with
+namespace sync. A later label audit returned success and no proposed relabel, but the observer
+incorrectly required empty stderr. Canonical libselinux also prints the policy files it loaded.
+The scope failed there. Its planned global setup sync, final whole store snapshot and reboot did
+not run. The partial state and original request were retained, without rewriting the input.
+
+A separately admitted continuation then observed that existing store after an unclean stop.
+Both header inodes, times, labels and bytes matched their original post rename captures. Root and
+slot directory metadata received their first observed baselines, not invented earlier bookends.
+PMS reported VALID, complete enumeration, creation readiness, a known counter and no holds. The
+counter zero interpretation combines exact actual header bytes, the earlier MISSING contrast and
+the inspected boot restore branch. It is not a numeric value printed by the dump.
+
+The exact read only label audit, original APK and map controls, observer keys and canaries passed.
+A later auxiliary listing used an unsupported Android `find` option, so this scope also remains
+failed. Its final store comparison and remaining retained artifact checks did not run. The
+completed cold observations remain evidence, not a successful whole scope. No native operation,
+store rewrite, mode or label change, initialization replay or guest sync was issued by that
+harness. Ordinary Android boot and runtime writes still occurred.
+
+Both failures, original logs and saved guest state remain intact. Any next writer trial must
+complete a fresh cold preflight, including the missing bookends, before changing a mode or issuing
+an ID. Its own fault setup sync must precede all native calls. Nothing here qualifies physical
+power loss, production initialization or V2 publication.
+
+## Android lab stages and remaining gates
+
+P0 and P1 have completed. The incomplete P2 and separate cold observations are recorded above.
+Every remaining stage needs its own admission; the first V2 writer trial has not run.
 
 - P0: the normal B2 image, with the counter correction, compiled and guarded, and that correction
   qualified and integrated. The lab image differs from it only by the writer fixture and this

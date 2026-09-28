@@ -105,8 +105,11 @@ host qualified guards, codec inputs and a rehearsal through the unchanged fixed 
 Its separate V2 token requires the complete CE, verity, payload, native and writer stack; normal
 admission refuses it. A separately admitted corrected lab build and static artifact checks now
 passed. Its first subject signer refusal remains failed. A fresh lab baseline and clean reboot
-preserved original APKs, mappings and observer keys. The native store remained MISSING, with no
-native selection, preparation or V2 publication. Normal production remains unchanged.
+preserved original APKs, mappings and observer keys. A controlled empty V1 store was later
+observed intact on its first cold read, with PMS creation readiness restored. Both later scopes
+remain failed on separate observer errors, with their completed observations retained. The next
+trial must repeat complete preconditions before any effect. No native selection, preparation or
+V2 publication has run. Normal production remains unchanged.
 
 The [installer durability assessment](2026-09-27-package-installer-durability.md) retains an
 unclean stop failure and a separate Android file comparison. The checked writing descriptor sync
