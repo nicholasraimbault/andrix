@@ -1,9 +1,10 @@
 # Optional lab preparation for V2 header only recovery
 
-Status: host qualified preparation and a separately compiled, statically checked lab image on
-`23cede6`, including the counter correction at `78456b3`. No Android lab guest has booted and no
-V2 store has been published. Production stays `Format.V1`. Native execution and the factory stay
-off. A guest and each later store operation still need their own admission. This follows the
+Status: the separately compiled lab image on `23cede6`, including counter correction `78456b3`,
+passed static checks and a fresh Android baseline with a clean reboot. The native store remained
+MISSING. No native designation, preparation or V2 publication was issued. Production stays
+`Format.V1`; native execution and the factory stay off. Later store operations still need their
+own admission. This follows the
 [historical identity step](2026-09-28-native-creation-history.md).
 
 ## Why a lab arm is needed
@@ -231,6 +232,29 @@ The separate bounded artifact checks established:
 The build manifest alone is not a guest admission. The artifact assessment is separate, and fresh
 userdata selection, APK installation, live permissions, effective security state and cold recovery
 remain untested. Every refused checker and incomplete preparation remains separate evidence.
+
+## Observed fresh Android baseline
+
+P1 passed on a fresh guest, not an earlier trial's userdata. Before boot, the generated 8 GiB
+userdata was read completely as zero, the composite selected it instead of the built userdata
+image, and the working raw super matched the statically checked expansion. Overlay backing chains
+were checked before launch and matched the actual frozen QEMU executable, drive arguments and
+captured objects.
+
+The guest had the expected services bytes, SELinux enforcing, a debug build and no new native
+entry binaries. Only the writer's `info` command was used. Ordinary installs established the two
+observer APKs and the separately signed subject. Each observer initialized its own dummy key
+once. A clean reboot preserved the original APK paths and bytes, assigned UIDs, full PMS map,
+subject data directories, keys and canaries. The writer's new server instance was observed, but
+the native store stayed MISSING with an unknown counter and no holds.
+
+The subject has no instrumentation, so this proves none of its key continuity or permissions.
+Its installed APK bytes and Android mapping were checked; the live native selection's signer
+check belongs to the later writer phase. No native selection, preparation, header staging or
+publication occurred. A final explicit setup sync preceded host scope shutdown. This is neither
+a native writer durability test nor a claim of clean guest power off or physical power loss.
+The VM scope closed and its state and original logs were preserved for the next admitted phase.
+Earlier UNKNOWN requests from other guests were not replayed or requalified.
 
 ## Planned Android lab stages
 

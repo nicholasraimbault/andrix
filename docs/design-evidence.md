@@ -278,7 +278,9 @@ retain their own producers and scopes.
   only rebinding. Complete companion admission, original request retention and independent byte
   oracles passed host checks. A separately admitted corrected lab image compiled and passed
   static DEX, super partition, policy and boot comparisons. The original signer refusal remains
-  failed. No Android V2 store operation or production enable follows from those artifact checks.
+  failed. A fresh Android baseline and clean reboot then preserved the original APK, UID, map
+  and observer key controls while the native store stayed MISSING. No V2 store operation or
+  production enable follows from that baseline.
   The [real consent reference](../plans/2026-09-27-native-permission-consent.md) then exercised the
   ordinary Android notification popup without privileged grants. Allow enabled an independent
   command after the helper closed; peer and false attribution controls remained separate. Back,

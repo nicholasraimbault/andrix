@@ -104,8 +104,9 @@ The [optional header recovery lab preparation](2026-09-28-native-header-recovery
 host qualified guards, codec inputs and a rehearsal through the unchanged fixed subject writer.
 Its separate V2 token requires the complete CE, verity, payload, native and writer stack; normal
 admission refuses it. A separately admitted corrected lab build and static artifact checks now
-passed. Its first subject signer refusal remains failed. No lab guest has booted and no Android
-V2 store has been published; normal production remains unchanged.
+passed. Its first subject signer refusal remains failed. A fresh lab baseline and clean reboot
+preserved original APKs, mappings and observer keys. The native store remained MISSING, with no
+native selection, preparation or V2 publication. Normal production remains unchanged.
 
 The [installer durability assessment](2026-09-27-package-installer-durability.md) retains an
 unclean stop failure and a separate Android file comparison. The checked writing descriptor sync
