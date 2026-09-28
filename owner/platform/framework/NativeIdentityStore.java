@@ -17,6 +17,7 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -93,6 +94,13 @@ import com.android.server.pm.NativeIdentityRecords.UserEntry;
  * or the slot is a CONFLICT and no transition uses it. Its decoded copies remain
  * negative package and principal evidence for siblings. An entry without a binding
  * keeps the version 1 checks. Nothing fills in or relaxes a binding.
+ *
+ * Each view also names the historical identity of an app ID, if any: see History.
+ * A published eligible body is one. So is a selected complete header creation whose
+ * slot this view reads as genuinely missing, when every copy and every other app ID
+ * agree. A missing slot now is no proof that no body ever existed: one may have been
+ * lost before a restart. Either is data for restoring a pending pin and matching an
+ * explicit designation, never a grant.
  */
 final class NativeIdentityStore {
     enum Status { MISSING, VALID, DAMAGED, CONFLICT, UNSUPPORTED }
@@ -141,6 +149,82 @@ final class NativeIdentityStore {
         }
     }
 
+    /** Where a historical identity comes from. Neither source is live authority. */
+    enum Source {
+        /** A published slot body that is eligible for binding: exactly bindingUsable. */
+        BODY,
+        /**
+         * The selected complete creation binding of a CREATING entry, where this view has no
+         * eligible published body because the slot is genuinely missing. That is no proof that
+         * a body never existed; one may have been lost before a restart. It restores the
+         * original creation after its handle was lost. Never retiring.
+         */
+        RESERVATION
+    }
+
+    /**
+     * The historical native identity of one app ID in one view: its original lineage, package,
+     * principal ID, user, serial and signer set, and a body's durable retirement marker. It is
+     * metadata for restoring a PENDING or RETIRING pin and for matching an explicit designation
+     * against actual Package Manager state. It is never execution, CE, designation or
+     * allocation authority, and never a current identity. Only the store builds it, from a
+     * view's own immutable data, without I/O. Nothing fills it from an APK, a PackageSetting, a
+     * directory, a staging seed, an unselected header copy or a counter.
+     */
+    static final class History {
+        final String lineage;
+        final int appId;
+        final String packageName;
+        /** The principal ID: the body's one user, or the entry's creation ID. */
+        final long id;
+        final int userId;
+        final long userSerial;
+        /** Unmodifiable: the body's stored signers, or the selected creation binding's. */
+        final Set<String> signerSha256;
+        /** The body's durable retirement marker. A reservation is never retiring. */
+        final boolean retiring;
+        final Source source;
+
+        private History(String lineage, int appId, String packageName, long id, int userId,
+                long userSerial, Set<String> signerSha256, boolean retiring, Source source) {
+            this.lineage = Objects.requireNonNull(lineage);
+            this.appId = appId;
+            this.packageName = Objects.requireNonNull(packageName);
+            this.id = id;
+            this.userId = userId;
+            this.userSerial = userSerial;
+            // Already an unmodifiable ascending set of the record it came from.
+            this.signerSha256 = Objects.requireNonNull(signerSha256);
+            this.retiring = retiring;
+            this.source = Objects.requireNonNull(source);
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (this == other) return true;
+            if (!(other instanceof History)) return false;
+            History history = (History) other;
+            return appId == history.appId && id == history.id && userId == history.userId
+                    && userSerial == history.userSerial && retiring == history.retiring
+                    && source == history.source && lineage.equals(history.lineage)
+                    && packageName.equals(history.packageName)
+                    && signerSha256.equals(history.signerSha256);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(lineage, appId, packageName, id, userId, userSerial, signerSha256,
+                    retiring, source.ordinal());
+        }
+
+        @Override
+        public String toString() {
+            return "History{" + source + ", appId=" + appId + ", package=" + packageName + ", id="
+                    + id + ", user=" + userId + ", serial=" + userSerial + ", signers="
+                    + signerSha256.size() + (retiring ? ", retiring}" : "}");
+        }
+    }
+
     static final class Loaded {
         final ReadResult<Header> header;
         final Map<Integer, ReadResult<Slot>> slots;
@@ -166,6 +250,8 @@ final class NativeIdentityStore {
         // owner: see counterRestorable. This is the pure coverage test of
         // selectionCovers; it takes no writer format from the records.
         final boolean unselectedFootprint;
+        // Historical identities by app ID, computed once from this view by historiesOf.
+        private final Map<Integer, History> histories;
         Loaded(ReadResult<Header> header, Map<Integer, ReadResult<Slot>> slots,
                 Set<Integer> occupied, boolean blocked, boolean complete) {
             this(header, slots, occupied, blocked, complete, false, false);
@@ -185,6 +271,15 @@ final class NativeIdentityStore {
             unsupportedFootprint = unsupported;
             unavailableFootprint = unavailable;
             unselectedFootprint = header.status == Status.VALID && !selectionCovers(header);
+            histories = historiesOf(this);
+        }
+        /** This app ID's historical identity in this view, or null. Metadata, never authority. */
+        History history(int appId) {
+            return histories.get(appId);
+        }
+        /** Every historical identity of this view, by app ID. Unmodifiable. */
+        Map<Integer, History> histories() {
+            return histories;
         }
         // Metadata eligibility for fresh designation/PMS rebinding, NOT live
         // execution authority. Retiring users must still restore as RETIRING.
@@ -219,6 +314,8 @@ final class NativeIdentityStore {
     // version 2 protected reservation. Not a rule for any other or future version.
     private static final int HEADER_V1 = 1;
     private static final int HEADER_V2 = 2;
+    // The only user of a reservation history: this adapter supports user 0.
+    private static final int USER_SYSTEM = 0;
 
     private final File root;
     private final File slotRoot;
@@ -773,6 +870,92 @@ final class NativeIdentityStore {
         HeaderCopies copies = HeaderCopies.of(read);
         return copies != null && copies.additions.isEmpty()
                 && copies.observedCounter == read.value.lastId;
+    }
+
+    /**
+     * The historical identities of one view, by app ID. Pure: no I/O, no writer format and
+     * nothing from any source but the view itself.
+     *
+     * A BODY exists exactly where bindingUsable holds, for the slot's one user, retiring or not.
+     * That is the eligibility restoration has always used, and nothing stricter is added.
+     *
+     * A RESERVATION exists only in a creation ready view whose header copies have
+     * {@link HeaderCopies} facts, for a SELECTED CREATING entry with a complete creation binding
+     * of user 0 whose slot is genuinely MISSING in this view. That says only that the selected
+     * header alone supplies history here, not that no body ever existed. Every decoded header
+     * copy must list exactly that
+     * entry, or omit it as a predecessor whose counter is below the creation ID. A LIVE or
+     * RELEASING copy withdraws it, even where that copy is compatible. No other app ID may claim
+     * its package or principal ID: see claimed. A claim withdraws only the reservation; no body is
+     * withdrawn or changed here. There is no fallback around a damaged, conflicting, unsupported,
+     * unavailable, tombstone, alias or special body. Nothing comes from staging seeds, unselected
+     * additions, entries without a binding, LIVE or RELEASING entries or a counter. The history
+     * is the entry's own app ID, creation ID, package, user and serial, with the selected
+     * binding's signer set.
+     */
+    private static Map<Integer, History> historiesOf(Loaded view) {
+        TreeMap<Integer, History> result = new TreeMap<>();
+        for (Map.Entry<Integer, ReadResult<Slot>> held : view.slots.entrySet()) {
+            int appId = held.getKey();
+            if (!view.bindingUsable(appId) || held.getValue().value.users.size() != 1) continue;
+            Slot body = held.getValue().value;
+            UserEntry user = body.users.get(0);
+            result.put(appId, new History(body.lineage, appId, body.packageName, user.id,
+                    user.userId, user.userSerial, body.signerSha256, user.retiring, Source.BODY));
+        }
+        if (!view.creationReady() || HeaderCopies.of(view.header) == null) {
+            return Collections.unmodifiableMap(result);
+        }
+        Header selected = view.header.value;
+        for (HeaderEntry creation : selected.entries) {
+            NativeIdentityRecords.CreationBinding binding = creation.creationBinding;
+            ReadResult<Slot> read = view.slots.get(creation.appId);
+            if (creation.phase != SlotPhase.CREATING || binding == null
+                    || binding.userId != USER_SYSTEM || result.containsKey(creation.appId)
+                    || read == null || read.status != Status.MISSING || read.unavailable
+                    || !corroborated(view.header, creation) || claimed(view, creation)) continue;
+            result.put(creation.appId, new History(selected.lineage, creation.appId,
+                    creation.creationPackage, creation.creationId, binding.userId,
+                    binding.userSerial, binding.signerSha256, false, Source.RESERVATION));
+        }
+        return Collections.unmodifiableMap(result);
+    }
+
+    // Every decoded header copy lists exactly this selected creation, or omits it as a copy
+    // written before its creation ID was issued. Any other copy, LIVE or RELEASING included,
+    // withdraws it.
+    private static boolean corroborated(ReadResult<Header> read, HeaderEntry creation) {
+        for (Header seen : read.decodedCopies) {
+            HeaderEntry listed = headerEntry(seen, creation.appId);
+            if (listed == null ? seen.lastId >= creation.creationId : !listed.equals(creation)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // Whether another app ID claims this creation's package or principal ID: any decoded slot
+    // copy there, whatever its status, or a CREATING entry there in any decoded header copy. A
+    // claim is located by the slot's physical app ID or the entry's own, never by a body's own
+    // app ID field. Claims are only negative: they withdraw a reservation and supply nothing.
+    private static boolean claimed(Loaded view, HeaderEntry creation) {
+        for (Map.Entry<Integer, ReadResult<Slot>> other : view.slots.entrySet()) {
+            if (other.getKey().intValue() == creation.appId) continue;
+            for (Slot claim : other.getValue().decodedCopies) {
+                if (claim.packageName.equals(creation.creationPackage)) return true;
+                for (UserEntry user : claim.users) {
+                    if (user.id == creation.creationId) return true;
+                }
+            }
+        }
+        for (Header seen : view.header.decodedCopies) {
+            for (HeaderEntry entry : seen.entries) {
+                if (entry.appId != creation.appId && entry.phase == SlotPhase.CREATING
+                        && (entry.creationId == creation.creationId
+                        || entry.creationPackage.equals(creation.creationPackage))) return true;
+            }
+        }
+        return false;
     }
 
     /**

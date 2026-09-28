@@ -264,8 +264,11 @@ retain their own producers and scopes.
   a binding conflict that made a sibling usable; the correction preserves its negative evidence.
   The normal `0018a1d` image compiled with literal V1 construction and the correction in final DEX.
   A fresh boot and clean reboot preserved ordinary APK, UID, key and data controls, with no native
-  store or lab writer route. Positive historical recovery and runtime writer qualification remain
-  separate.
+  store or lab writer route. The [historical identity step](../plans/2026-09-28-native-creation-history.md)
+  now shares one view across restore, scan and seeding, keeps restored header creations PENDING,
+  and requires explicit rebinding without a new ID. Original and hardened host matrices, legacy
+  comparisons, fault controls, readers and mutants passed. Android compilation of that join and
+  runtime writer qualification remain separate, as does a newly observed counter admission gap.
   The [real consent reference](../plans/2026-09-27-native-permission-consent.md) then exercised the
   ordinary Android notification popup without privileged grants. Allow enabled an independent
   command after the helper closed; peer and false attribution controls remained separate. Back,

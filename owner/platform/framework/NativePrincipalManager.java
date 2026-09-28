@@ -60,13 +60,18 @@ public final class NativePrincipalManager {
         private Selection selection; // Current service incarnation's designation binding.
         private final String lineage;
         private final Set<String> storedSignerSha256;
+        // Where a restored pin's prior identity came from: its stored history's source, read
+        // under the PMS lock when this handle was made and never changed. Null for an issuance
+        // this manager owns, which keeps its original selection instead.
+        private final NativeIdentityStore.Source priorSource;
         private boolean retired; // Guarded by the Package Manager mutation lock.
         private Handle(NativePrincipalManager owner, NativePrincipalPins.Pin pin, String lineage,
-                Set<String> signers) {
+                Set<String> signers, NativeIdentityStore.Source priorSource) {
             this.owner = owner;
             this.pin = pin;
             this.lineage = lineage;
             storedSignerSha256 = Set.copyOf(signers);
+            this.priorSource = priorSource;
         }
     }
 
@@ -154,7 +159,7 @@ public final class NativePrincipalManager {
                         throw new IllegalStateException("Native identity reservation admission unavailable");
                     }
                     String lineage = pm.mSettings.nativeIdentityLineageLPr();
-                    if (pm.mSettings.nativePrincipalStoredBindingLPr(proposal.record) != null) {
+                    if (pm.mSettings.nativePrincipalStoredHistoryLPr(proposal.record) != null) {
                         throw new IllegalStateException("Native issuance overlaps stored binding");
                     }
                     Issuance issuance = new Issuance(this, selection, proposal.record, lineage);
@@ -198,8 +203,9 @@ public final class NativePrincipalManager {
                 issued = pins.hasKnownCounter()
                         ? ownedPlan(pins, pins.snapshotForWrite(), null, null) : null;
             }
-            // No PMS state/control lock is held during persistence.
-            boolean durable = persistBinding(handle, persistence, issued);
+            // No PMS state/control lock is held during persistence. The designation gates above
+            // hold, so this handle may create its own body.
+            boolean durable = persistBinding(handle, persistence, issued, true);
             NativeIdentityStore.Loaded observed = persistence.load();
             synchronized (pm.mLock) {
                 pm.mSettings.observeNativeIdentityStoreLPw(observed);
@@ -218,13 +224,24 @@ public final class NativePrincipalManager {
         }
     }
 
+    // Without a fresh durable binding only a handle that may create its own body reserves and
+    // publishes one. Otherwise this refuses before any write.
     private boolean persistBinding(Handle handle, NativeIdentityPersistence persistence,
-            NativeIdentityPersistence.CreationPlan issued) {
+            NativeIdentityPersistence.CreationPlan issued, boolean mayCreateBody) {
         NativePrincipalPins.Record record = handle.pin.record();
         if (persistence.binding(record) == null) {
-            if (issued == null || !persistence.reservePending(issued)) return false;
+            if (!mayCreateBody || issued == null || !persistence.reservePending(issued)) return false;
         }
         return persistence.publish(record, handle.storedSignerSha256);
+    }
+
+    // Whether this handle may create its own body: an owned issuance or an explicit rebind has a
+    // designation binding, and a pin restored from its own published body republishes that
+    // original body. A pin restored from a header reservation, with no eligible body in its view,
+    // and never rebound may not. Read under the PMS lock.
+    private static boolean mayCreateBody(Handle handle) {
+        return handle.selection != null
+                || handle.priorSource == NativeIdentityStore.Source.BODY;
     }
 
     /** Metadata for the exact handle. It is not proof of live native authority. */
@@ -279,20 +296,35 @@ public final class NativePrincipalManager {
      * authority starts destructive removal/quiescence. False retains this exact
      * retiring pin but does not authorize the removal transaction to advance.
      * Restored retiring pins cannot be committed as active again.
+     *
+     * A pin restored from a header reservation, whose view had no eligible
+     * published body, and never explicitly rebound has no designation to create
+     * a body. Unless the cached view already holds its published body, this
+     * throws IllegalStateException before any pin or store effect. Creating that
+     * body is a separate cancellation join. If the cached body is gone from the
+     * fresh store, this returns false without a write; the pin may already be
+     * RETIRING, and no marker is committed.
      */
     public boolean beginRetirement(Handle handle) {
         try (PackageManagerTracedLock ignored = pm.mInstallLock.acquireLock()) {
             final NativeIdentityPersistence persistence;
             final NativeIdentityPersistence.CreationPlan issued;
+            final boolean mayCreateBody;
             synchronized (pm.mLock) {
                 NativePrincipalPins pins = checked(handle);
+                mayCreateBody = mayCreateBody(handle);
+                if (!mayCreateBody
+                        && pm.mSettings.nativePrincipalBindingLPr(handle.pin.record()) == null) {
+                    throw new IllegalStateException(
+                            "Restored native reservation needs its designation before retirement");
+                }
                 pins.beginRetire(handle.pin);
                 persistence = pm.mSettings.nativeIdentityPersistenceLPr();
                 issued = pins.hasKnownCounter()
                         ? ownedPlan(pins, pins.snapshotForWrite(), null, null) : null;
             }
             boolean present = persistence.binding(handle.pin.record()) != null;
-            if (!present) present = persistBinding(handle, persistence, issued);
+            if (!present) present = persistBinding(handle, persistence, issued, mayCreateBody);
             boolean durable = present && persistence.markRetiring(handle.pin.record(),
                     handle.storedSignerSha256);
             NativeIdentityStore.Loaded observed = persistence.load();
@@ -387,7 +419,7 @@ public final class NativePrincipalManager {
             }
             if (issuance.handle == null) {
                 Handle created = new Handle(this, pin, issuance.lineage,
-                        issuance.selection.currentSignerSha256);
+                        issuance.selection.currentSignerSha256, null);
                 created.selection = issuance.selection;
                 issuance.handle = created;
             }
@@ -396,9 +428,11 @@ public final class NativePrincipalManager {
             handles.put(pin, issuance.handle);
             return issuance.handle;
         }
-        NativeIdentityRecords.Slot prior = pm.mSettings.nativePrincipalStoredBindingLPr(pin.record());
+        // A restored pin: its original stored history, a body or a header reservation, with
+        // that history's lineage and signers and its immutable source. Never the current APK.
+        NativeIdentityStore.History prior = pm.mSettings.nativePrincipalStoredHistoryLPr(pin.record());
         if (prior == null) throw new IllegalStateException("Prior native identity unavailable");
-        Handle created = new Handle(this, pin, prior.lineage, prior.signerSha256);
+        Handle created = new Handle(this, pin, prior.lineage, prior.signerSha256, prior.source);
         handles.put(pin, created);
         return created;
     }

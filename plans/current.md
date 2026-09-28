@@ -89,8 +89,13 @@ format with complete original bindings. Production stays version 1. Guarded host
 passed, including a corrected negative binding check that preserves conflicting sibling evidence.
 The normal `0018a1d` Android image compiled, and final DEX confirms the literal V1 construction and
 negative evidence path. A fresh normal boot and clean reboot kept ordinary APK, UID, key and data
-controls intact, with the native store still missing. Positive historical recovery is the next
-separate join. No V2 publication or native activation follows from these checks.
+controls intact, with the native store still missing. The [historical identity step](2026-09-28-native-creation-history.md)
+now joins eligible bodies and selected complete header reservations through one immutable view.
+Restoration, scanning and boot seeding share it. A restored creation stays PENDING until an
+explicit designation rebinds its original ID and signers. Guarded host qualification passed,
+including exact legacy behavior, fault, reader, origin and data owner controls. Android compilation
+of this join remains separate. An independently reproduced counter admission gap also needs its
+own correction. Production V2 publication and native activation remain off.
 
 The [installer durability assessment](2026-09-27-package-installer-durability.md) retains an
 unclean stop failure and a separate Android file comparison. The checked writing descriptor sync

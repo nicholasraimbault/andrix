@@ -9,6 +9,8 @@ import com.android.server.pm.NativeIdentityRecords.SlotPhase;
 import com.android.server.pm.NativeIdentityRecords.UserEntry;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -16,6 +18,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 
 /**
  * Package Manager's per target transactions over its {@link NativeIdentityStore}, for the
@@ -54,6 +57,11 @@ import java.util.TreeMap;
  *
  * <p>Null arguments throw {@link NullPointerException}. Malformed signer sets, lineages and
  * snapshots throw {@link IllegalArgumentException}. Both happen before any effect.
+ *
+ * <p>Pure static helpers shared by real Settings and its host facade interpret the store's
+ * historical identities: the pins a view restores, the exact record a history names and the
+ * rule that decides whether actual Package Manager state may own a scanned history. They do no
+ * I/O, create no PackageSetting, mapping or UID and take nothing from a current APK.
  */
 final class NativeIdentityPersistence {
     private static final int USER_SYSTEM = 0;
@@ -106,6 +114,30 @@ final class NativeIdentityPersistence {
         }
     }
 
+    /**
+     * Pin inputs restored from one view's historical identities: core records in principal ID
+     * order and the IDs of retiring bodies. Memory only. It carries no counter and grants
+     * nothing; the caller's restore keeps its own capacity and counter rules.
+     */
+    static final class Restoration {
+        /** Unmodifiable, in principal ID order. */
+        final List<NativePrincipalPins.Record> records;
+        /** Unmodifiable: the principal IDs of retiring bodies, ascending. */
+        final Set<Long> retiringIds;
+        /**
+         * Unmodifiable: app IDs of reservations withdrawn because they could not be restored
+         * beside every other history. A store view leaves none. Their holds remain.
+         */
+        final Set<Integer> withdrawnReservations;
+
+        private Restoration(List<NativePrincipalPins.Record> records, TreeSet<Long> retiringIds,
+                TreeSet<Integer> withdrawnReservations) {
+            this.records = List.copyOf(records);
+            this.retiringIds = Collections.unmodifiableSet(retiringIds);
+            this.withdrawnReservations = Collections.unmodifiableSet(withdrawnReservations);
+        }
+    }
+
     NativeIdentityPersistence(NativeIdentityStore store) {
         this.store = Objects.requireNonNull(store, "store");
     }
@@ -122,6 +154,91 @@ final class NativeIdentityPersistence {
     Slot binding(NativePrincipalPins.Record record) {
         Objects.requireNonNull(record, "record");
         return bound(store.load(), record);
+    }
+
+    /**
+     * The shared restoration of real Settings and its host facade. A BODY history gives its
+     * record, and its ID when retiring, exactly as eligible bodies were always restored. A
+     * RESERVATION history gives its record, never retiring, only when it relates to every other
+     * history as NativePrincipalPins.restore requires: its own app ID key, user 0, and an ID,
+     * package and app ID that no other history has. Otherwise it is withdrawn here, never
+     * repaired or merged, and its app ID stays held by the store footprint. This backstop never
+     * fabricates a record and never adds, withdraws or changes a body. The store's claim rules
+     * already withdraw every such reservation, so a store view never needs it.
+     */
+    static Restoration restoration(Map<Integer, NativeIdentityStore.History> histories) {
+        Objects.requireNonNull(histories, "histories");
+        List<NativePrincipalPins.Record> records = new ArrayList<>();
+        TreeSet<Long> retiring = new TreeSet<>();
+        TreeSet<Integer> withdrawn = new TreeSet<>();
+        for (NativeIdentityStore.History history : histories.values()) {
+            if (history.source != NativeIdentityStore.Source.BODY) continue;
+            records.add(record(history));
+            if (history.retiring) retiring.add(history.id);
+        }
+        for (Map.Entry<Integer, NativeIdentityStore.History> entry : histories.entrySet()) {
+            if (entry.getValue().source != NativeIdentityStore.Source.RESERVATION) continue;
+            NativePrincipalPins.Record restored = restorable(entry.getKey(), entry.getValue(),
+                    histories);
+            if (restored == null) withdrawn.add(entry.getKey());
+            else records.add(restored);
+        }
+        records.sort(Comparator.comparingLong(record -> record.id));
+        return new Restoration(records, retiring, withdrawn);
+    }
+
+    // A reservation's own record, or null unless it can be restored beside every other history.
+    private static NativePrincipalPins.Record restorable(int key,
+            NativeIdentityStore.History reservation,
+            Map<Integer, NativeIdentityStore.History> histories) {
+        if (reservation.appId != key || reservation.retiring
+                || reservation.userId != USER_SYSTEM) return null;
+        for (Map.Entry<Integer, NativeIdentityStore.History> other : histories.entrySet()) {
+            if (other.getKey().intValue() == key) continue;
+            NativeIdentityStore.History history = other.getValue();
+            if (history.id == reservation.id || history.appId == reservation.appId
+                    || history.packageName.equals(reservation.packageName)) return null;
+        }
+        try {
+            return record(reservation);
+        } catch (IllegalArgumentException invalid) {
+            return null;
+        }
+    }
+
+    /** The core record a history names: its principal ID, package, app ID, user and serial. */
+    static NativePrincipalPins.Record record(NativeIdentityStore.History history) {
+        return new NativePrincipalPins.Record(history.id, history.packageName, history.appId,
+                history.userId, history.userSerial);
+    }
+
+    /** Whether this history names exactly this record, every record field included. */
+    static boolean identifies(NativeIdentityStore.History history,
+            NativePrincipalPins.Record record) {
+        return history.id == record.id && history.appId == record.appId
+                && history.userId == record.userId && history.userSerial == record.userSerial
+                && history.packageName.equals(record.packageName);
+    }
+
+    /**
+     * The one scan rule of real Settings and its host facade: the history of the candidate's
+     * app ID when actual Package Manager state matches it, or null. The candidate and the app
+     * ID's existing mapping must both be the history's package, neither of them a shared user,
+     * and the current user 0 serial must equal the history's. A retiring history owns no scan.
+     * A null mapping package means no PackageSetting maps the app ID. A negative serial means
+     * the user is unavailable. The same rule holds for a body and a reservation. The caller then
+     * compares the APK's signers with the history's recorded set. Pure: it creates no mapping or
+     * PackageSetting, allocates no UID and reconstructs no history from the APK.
+     */
+    static NativeIdentityStore.History scanOwner(NativeIdentityStore.History history,
+            String candidatePackage, int candidateAppId, boolean candidateShared,
+            String mappingPackage, boolean mappingShared, long currentSerial) {
+        if (history == null || candidateShared || mappingPackage == null || mappingShared
+                || currentSerial < 0 || history.appId != candidateAppId || history.retiring
+                || history.userId != USER_SYSTEM || history.userSerial != currentSerial
+                || !history.packageName.equals(candidatePackage)
+                || !mappingPackage.equals(candidatePackage)) return null;
+        return history;
     }
 
     /**

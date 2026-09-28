@@ -72,6 +72,15 @@ principal evidence for its siblings, also beside another conflict. Admission mea
 encoding before any ID is issued.
 See the [creation binding plan](../../plans/2026-09-27-native-creation-binding.md).
 
+Each store view also names historical identities: an eligible published body, and under the host
+version 2 format a selected complete header creation whose slot the view reads as missing, when
+every copy agrees and no other app ID claims its package or principal. That reservation says only
+that the view has no eligible body, not that none ever existed. Restoration, the scan rule and
+boot recovery seeding share that one view. A restored creation stays PENDING until an explicit
+designation rebinds it with its original ID and signers. Published bindings and current identities
+stay body only, and a never rebound creation cannot create its first body during retirement.
+See the [historical identity plan](../../plans/2026-09-28-native-creation-history.md).
+
 The real PMS allocator skips the union of every store footprint and every memory pin, in holes
 and appended slots. An unavailable or reduced later read cannot forget a previous hold. Explicit
 registration/replacement fences remain; a held empty slot is not an ordinary duplicate setting.

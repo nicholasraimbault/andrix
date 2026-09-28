@@ -109,7 +109,7 @@
  import android.os.FileUtils;
  import android.os.Handler;
  import android.os.Message;
-@@ -563,6 +564,403 @@
+@@ -563,6 +564,389 @@
      final WatchedArrayMap<String, SharedUserSetting> mSharedUsers = new WatchedArrayMap<>();
      @Watched(manual = true)
      private final AppIdSettingMap mAppIds;
@@ -121,7 +121,8 @@
 +    private java.util.Map<String, Integer> mNativeDeOwnersAtBoot = java.util.Map.of();
 +    private boolean mNativeDeEnumerationComplete = true;
 +    private NativeIdentityStore.Loaded mNativeIdentityLoaded;
-+    private final java.util.Map<Long, NativeIdentityRecords.Slot> mNativeRememberedBindings =
++    // Original histories of this instance's exact core pins, never current eligibility.
++    private final java.util.Map<Long, NativeIdentityStore.History> mNativeRememberedBindings =
 +            new java.util.HashMap<>();
 +    // Conservatively retained until an exact confirmed retirement releases one.
 +    private final java.util.Set<Integer> mNativeStoreAppIds = new java.util.TreeSet<>();
@@ -189,19 +190,12 @@
 +
 +    /** Constructor only: after package settings read, before any scan allocation. */
 +    void applyNativeIdentityStoreLPw(NativeIdentityStore.Loaded loaded) {
-+        java.util.List<NativePrincipalPins.Record> records = new java.util.ArrayList<>();
-+        java.util.Set<Long> retiring = new java.util.TreeSet<>();
-+        for (java.util.Map.Entry<Integer, NativeIdentityStore.ReadResult<NativeIdentityRecords.Slot>>
-+                entry : loaded.slots.entrySet()) {
-+            if (!loaded.bindingUsable(entry.getKey())) continue;
-+            NativeIdentityRecords.Slot slot = entry.getValue().value;
-+            for (NativeIdentityRecords.UserEntry user : slot.users) {
-+                records.add(new NativePrincipalPins.Record(user.id, slot.packageName, slot.appId,
-+                        user.userId, user.userSerial));
-+                if (user.retiring) retiring.add(user.id);
-+            }
-+        }
-+        records.sort(java.util.Comparator.comparingLong(record -> record.id));
++        // Every eligible body, and every complete header creation whose slot this view reads
++        // as missing, through the one shared restoration. Holding them needs no mapping.
++        NativeIdentityPersistence.Restoration restoration =
++                NativeIdentityPersistence.restoration(loaded.histories());
++        java.util.List<NativePrincipalPins.Record> records = restoration.records;
++        java.util.Set<Long> retiring = restoration.retiringIds;
 +        NativePrincipalPins restored = new NativePrincipalPins(64);
 +        if (records.size() > 64) {
 +            // Parsing holds is not permission to exceed this adapter's binding
@@ -230,31 +224,29 @@
 +    boolean nativeScanBindingAllowedLPr(PackageSetting candidate, android.content.pm.SigningDetails signer) {
 +        if (!isNativePrincipalPackageLPr(candidate.getPackageName())
 +                && !isNativePrincipalAppIdLPr(candidate.getAppId())) return true;
-+        NativeIdentityRecords.Slot slot = nativeScanOwnerLPr(candidate);
-+        if (slot == null) return false;
-+        try { return slot.signerSha256.equals(NativePrincipalManager.signerDigests(signer)); }
++        NativeIdentityStore.History history = nativeScanOwnerLPr(candidate);
++        if (history == null) return false;
++        // The APK's signers against the recorded historical set, never the current APK's own.
++        try { return history.signerSha256.equals(NativePrincipalManager.signerDigests(signer)); }
 +        catch (IllegalStateException unavailable) { return false; }
 +    }
 +
-+    private NativeIdentityRecords.Slot nativeScanOwnerLPr(PackageSetting candidate) {
++    // The one shared scan rule over the cached history of the candidate's app ID, a body or a
++    // header reservation. Empty-slot restoration is a separately owned recovery operation. Do
++    // not guess a fresh UID or mutate installed truth in the scan stream.
++    private NativeIdentityStore.History nativeScanOwnerLPr(PackageSetting candidate) {
 +        String name = candidate.getPackageName();
 +        int appId = candidate.getAppId();
-+        if (mNativeRecoveryView.defersName(name) || candidate.hasSharedUser()
-+                || mNativeIdentityLoaded == null || !mNativeIdentityLoaded.bindingUsable(appId)) return null;
-+        NativeIdentityRecords.Slot slot = mNativeIdentityLoaded.slots.get(appId).value;
++        if (mNativeRecoveryView.defersName(name) || mNativeIdentityLoaded == null) return null;
 +        SettingBase mapping = mAppIds.getSetting(appId);
-+        // Empty-slot restoration is a separately owned recovery operation. Do
-+        // not guess a fresh UID or mutate installed truth in the scan stream.
-+        if (!(mapping instanceof PackageSetting owner) || owner.hasSharedUser()
-+                || !owner.getPackageName().equals(name) || !slot.packageName.equals(name)) return null;
++        PackageSetting owner = mapping instanceof PackageSetting mapped ? mapped : null;
 +        com.android.server.pm.UserManagerInternal users =
 +                com.android.server.LocalServices.getService(com.android.server.pm.UserManagerInternal.class);
 +        android.content.pm.UserInfo user = users == null ? null : users.getUserInfo(UserHandle.USER_SYSTEM);
-+        if (user == null || user.partial || slot.users.size() != 1) return null;
-+        NativeIdentityRecords.UserEntry binding = slot.users.get(0);
-+        if (binding.userId != UserHandle.USER_SYSTEM || binding.userSerial != user.serialNumber
-+                || binding.retiring) return null;
-+        return slot;
++        return NativeIdentityPersistence.scanOwner(mNativeIdentityLoaded.history(appId), name, appId,
++                candidate.hasSharedUser(), owner == null ? null : owner.getPackageName(),
++                owner != null && owner.hasSharedUser(),
++                user == null || user.partial ? -1 : user.serialNumber);
 +    }
 +
 +    boolean nativePrincipalCreationReadyLPr() {
@@ -292,15 +284,22 @@
 +        return null;
 +    }
 +
-+    NativeIdentityRecords.Slot nativePrincipalStoredBindingLPr(NativePrincipalPins.Record record) {
-+        NativeIdentityRecords.Slot slot = mNativeRememberedBindings.get(record.id);
-+        if (slot == null || slot.appId != record.appId
-+                || !slot.packageName.equals(record.packageName)) return null;
-+        for (NativeIdentityRecords.UserEntry user : slot.users) {
-+            if (user.id == record.id && user.userId == record.userId
-+                    && user.userSerial == record.userSerial) return slot;
++    // Prior binding metadata for this live PMS instance, only for an existing exact core pin:
++    // its body or header reservation history, first seen and never replaced. It is not a
++    // substitute for current eligibility or an authority grant.
++    private void rememberNativeHistoriesLPw(NativeIdentityStore.Loaded loaded) {
++        for (NativeIdentityStore.History history : loaded.histories().values()) {
++            NativePrincipalPins.Pin pin = nativePrincipalPinsLPr().findId(history.id);
++            if (pin != null && NativeIdentityPersistence.identifies(history, pin.record())) {
++                mNativeRememberedBindings.putIfAbsent(history.id, history);
++            }
 +        }
-+        return null;
++    }
++
++    /** The original history remembered for exactly this record, every field included, or null. */
++    NativeIdentityStore.History nativePrincipalStoredHistoryLPr(NativePrincipalPins.Record record) {
++        NativeIdentityStore.History history = mNativeRememberedBindings.get(record.id);
++        return history != null && NativeIdentityPersistence.identifies(history, record) ? history : null;
 +    }
 +
 +    String nativeIdentityLineageLPr() {
@@ -348,18 +347,7 @@
 +        mNativeIdentityLoaded = loaded;
 +        // A failed/reduced read is not authority to forget a previous hold.
 +        mNativeStoreAppIds.addAll(loaded.occupiedAppIds);
-+        for (java.util.Map.Entry<Integer, NativeIdentityStore.ReadResult<NativeIdentityRecords.Slot>>
-+                entry : loaded.slots.entrySet()) {
-+            if (!loaded.bindingUsable(entry.getKey())) continue;
-+            NativeIdentityRecords.Slot slot = entry.getValue().value;
-+            for (NativeIdentityRecords.UserEntry user : slot.users) {
-+                // Prior binding metadata for this live PMS instance, not a
-+                // substitute for current eligibility or an authority grant.
-+                if (nativePrincipalPinsLPr().findId(user.id) != null) {
-+                    mNativeRememberedBindings.putIfAbsent(user.id, slot);
-+                }
-+            }
-+        }
++        rememberNativeHistoriesLPw(loaded);
 +        refreshNativePrincipalAppIdsLPw();
 +    }
 +
@@ -467,10 +455,11 @@
 +                PackageSetting pkg = (PackageSetting) mapping;
 +                names.add(pkg.getPackageName());
 +                mNativeRecoveryView = withNativeCodePath(mNativeRecoveryView, pkg.getPath());
-+                NativeIdentityStore.ReadResult<NativeIdentityRecords.Slot> read =
-+                        mNativeIdentityLoaded.slots.get(appId);
-+                if (!mNativeIdentityLoaded.bindingUsable(appId) || pkg.hasSharedUser()
-+                        || !read.value.packageName.equals(pkg.getPackageName())) {
++                // The same history view as restoration: this mapped package's own body, or its
++                // complete header reservation, stays recoverable. Anything else is deferred.
++                NativeIdentityStore.History history = mNativeIdentityLoaded.history(appId);
++                if (history == null || pkg.hasSharedUser()
++                        || !history.packageName.equals(pkg.getPackageName())) {
 +                    mNativeRecoveryView = deferNativeName(mNativeRecoveryView, pkg.getPackageName(), pkg.getPath());
 +                }
 +            } else {
@@ -499,13 +488,10 @@
 +            PackageSetting pkg = getPackageLPr(name);
 +            if (pkg != null) mNativeRecoveryView = withNativeCodePath(mNativeRecoveryView, pkg.getPath());
 +        }
-+        for (java.util.Map.Entry<Integer, NativeIdentityStore.ReadResult<NativeIdentityRecords.Slot>>
-+                entry : mNativeIdentityLoaded.slots.entrySet()) {
-+            if (!mNativeIdentityLoaded.bindingUsable(entry.getKey())) continue;
-+            NativeIdentityRecords.Slot slot = entry.getValue().value;
-+            PackageSetting pkg = getPackageLPr(slot.packageName);
-+            if (pkg == null || pkg.getAppId() != slot.appId || pkg.hasSharedUser()) {
-+                mNativeRecoveryView = deferNativeName(mNativeRecoveryView, slot.packageName,
++        for (NativeIdentityStore.History history : mNativeIdentityLoaded.histories().values()) {
++            PackageSetting pkg = getPackageLPr(history.packageName);
++            if (pkg == null || pkg.getAppId() != history.appId || pkg.hasSharedUser()) {
++                mNativeRecoveryView = deferNativeName(mNativeRecoveryView, history.packageName,
 +                        pkg == null ? null : pkg.getPath()).withUnidentifiedCode();
 +            }
 +        }
@@ -513,7 +499,7 @@
  
      @Watched(manual = true)
      private final PccIdSettingMap mPccIds;
-@@ -828,6 +1226,7 @@
+@@ -828,6 +1212,7 @@
  
          mSharedUsers.snapshot(r.mSharedUsers);
          mAppIds = r.mAppIds.snapshot();
@@ -521,7 +507,7 @@
          mPccIds = r.mPccIds.snapshot();
  
          mRenamedPackages.snapshot(r.mRenamedPackages);
-@@ -1396,14 +1795,32 @@
+@@ -1396,14 +1781,32 @@
      boolean registerAppIdLPw(PackageSetting p, boolean forceNew) throws PackageManagerException {
          final boolean createdNew;
          if (p.getAppId() == 0 || forceNew) {

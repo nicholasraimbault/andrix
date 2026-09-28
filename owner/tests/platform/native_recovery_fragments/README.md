@@ -12,4 +12,13 @@ or incompatible header copies. This is not a full PMS or Android boot fixture.
 `NativePreparationAdmissionTest` exercises it against the actual reservation projection with
 filesystem I/O forbidden under the PMS monitor. The facade also runs `restore-capacity.java.inc`
 verbatim when it restores a reopened registry.
+
+Four history fragments pin the adapted Settings text that reads the store's shared history view:
+`restore-history.java.inc` takes the restore inputs from the shared restoration,
+`stored-history.java.inc` remembers and returns histories of exact core pins, `scan.java.inc` is
+the scan rule, and `recovery-seeding.java.inc` is boot recovery seeding. The facade contains the
+first three and `identity.java.inc` verbatim. `NativeHistoryHarness.java.in` runs one revision's
+whole boot restoration method, with the observation, remembering and hold refresh it calls, its
+recovery seeding and its scan rule around small facades. The B2 runner fills it with the text of
+`0018a1d` or of B2, each cut from its own candidate Settings.
 The original framework files retain their upstream copyright and license notices.

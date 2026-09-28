@@ -98,7 +98,8 @@ class NativePrincipalPinsTests(unittest.TestCase):
                     if source.name != 'Xml.java':
                         stubs[source.relative_to(base).as_posix()] = source
             facade = stubs['com/android/server/pm/Settings.java'].read_bytes()
-            for name in ('admission', 'restore-capacity'):
+            for name in ('admission', 'restore-capacity', 'restore-history', 'stored-history',
+                         'identity', 'scan'):
                 self.assertEqual(facade.count(integration.FRAGMENTS[name][1].read_bytes()), 1, name)
             sources = [allocator, writer, *stubs.values(),
                        *[ROOT / 'owner/platform/framework' / (name + '.java') for name in

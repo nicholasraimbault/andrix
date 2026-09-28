@@ -1,0 +1,199 @@
+{
+  "status": "PREDICTED from source review, not observed by the worker, which started no JVM. The primary actually ran the original handoff; the follow-up additions (the new cases, mutants and the seventh twinned layout) are unrun predictions.",
+  "b2_mutants_caught_at_least": {
+    "no-reservation-history": [
+      "history / a complete creation without a body is a reservation",
+      "history / an empty slot directory keeps the reservation",
+      "history / a protected V2 target beside V1 predecessors is a reservation",
+      "uniqueness / an unrelated sibling keeps the reservation",
+      "rebind / an explicit designation publishes the original ID",
+      "exact header confirmation / seed-synced"
+    ],
+    "body-needs-creation-ready": [
+      "history / a damaged header keeps an eligible body",
+      "gate / an unsupported slot seed"
+    ],
+    "retiring-history-dropped": [
+      "history / a retiring body keeps its marker",
+      "retirement / a restored retiring body finishes"
+    ],
+    "reservation-without-creation-ready": [
+      "gate / a slot entry that is no app ID",
+      "gate / an unindexed slot directory",
+      "gate / an unsupported header seed",
+      "gate / an unsupported slot seed"
+    ],
+    "reservation-without-copy-facts": [
+      "gate / a copy of another lineage",
+      "gate / a copy with a counter only difference",
+      "gate / incompatible copies are withdrawn by the copy rule alone"
+    ],
+    "reservation-any-user": [
+      "gate / another user's binding"
+    ],
+    "reservation-from-unselected-copy": [
+      "gate / an unselected addition",
+      "restoration / an unknown counter restores R beside unselected X"
+    ],
+    "header-fallback-around-damage": [
+      "no fallback / damaged copies",
+      "no fallback / conflicting copies",
+      "no fallback / a binding mismatch",
+      "no fallback / a tombstone",
+      "no fallback / a link entry",
+      "no fallback / a file entry",
+      "no fallback / a directory record"
+    ],
+    "tombstone-history": [
+      "no fallback / a tombstone"
+    ],
+    "seed-history": [
+      "history / an intact seed is never history",
+      "rebind / a mismatched intact seed refuses and keeps the reservation"
+    ],
+    "uncorroborated-reservation": [
+      "gate / a LIVE copy of the creation",
+      "gate / a compatible LIVE copy is withdrawn by corroboration alone"
+    ],
+    "no-uniqueness": [
+      "uniqueness / the package of a valid body",
+      "uniqueness / the principal of a valid body",
+      "uniqueness / a damaged copy",
+      "uniqueness / two reservations of one package both withdraw",
+      "uniqueness / valid bodies stay usable beside a withdrawn reservation"
+    ],
+    "uniqueness-without-header-claims": [
+      "uniqueness / a legacy creation entry",
+      "uniqueness / an unselected addition",
+      "uniqueness / two reservations of one package both withdraw"
+    ],
+    "uniqueness-one-sided": [
+      "uniqueness / two reservations of one package both withdraw",
+      "uniqueness / an unselected addition"
+    ],
+    "uniqueness-without-slot-claims": [
+      "uniqueness / the package of a valid body",
+      "uniqueness / the principal of a valid body",
+      "uniqueness / a damaged copy",
+      "uniqueness / a conflicting copy",
+      "uniqueness / an unsupported copy",
+      "uniqueness / a tombstone package",
+      "uniqueness / a body elsewhere naming this app ID"
+    ],
+    "uniqueness-valid-bodies-only": [
+      "uniqueness / a damaged copy",
+      "uniqueness / a conflicting copy",
+      "uniqueness / an unsupported copy",
+      "uniqueness / a body elsewhere naming this app ID"
+    ],
+    "uniqueness-body-app-id": [
+      "uniqueness / a body elsewhere naming this app ID"
+    ],
+    "uniqueness-package-only": [
+      "uniqueness / the principal of a valid body",
+      "uniqueness / valid bodies stay usable beside a withdrawn reservation"
+    ],
+    "backstop-dropped": [
+      "restoration / the backstop withdraws only merged reservations"
+    ],
+    "backstop-withdraws-everything": [
+      "restoration / a store view needs no backstop",
+      "restoration / reservations restore PENDING under the selected counter",
+      "rebind / an explicit designation publishes the original ID",
+      "exact header confirmation / seed-synced"
+    ],
+    "scan-ignores-mapping": [
+      "scan / signer, serial, retiring, mapping and shared negatives"
+    ],
+    "scan-allows-shared-mapping": [
+      "scan / signer, serial, retiring, mapping and shared negatives"
+    ],
+    "scan-ignores-serial": [
+      "scan / signer, serial, retiring, mapping and shared negatives"
+    ],
+    "scan-allows-retiring": [
+      "scan / signer, serial, retiring, mapping and shared negatives"
+    ],
+    "selection-only-guard": [
+      "retirement / BODY origin republishes after its body was observed missing",
+      "probe / BODY origin baseline"
+    ],
+    "always-create-body": [
+      "retirement / a never rebound reservation refuses before any effect",
+      "retirement / a cached body missing from the store returns false without a write"
+    ],
+    "current-view-origin": [
+      "retirement / BODY origin republishes after its body was observed missing"
+    ],
+    "current-view-guard": [
+      "retirement / BODY origin republishes after its body was observed missing",
+      "retirement / a cached body missing from the store returns false without a write"
+    ],
+    "dropped-early-guard": [
+      "retirement / a never rebound reservation refuses before any effect",
+      "retirement / a cached body missing from the store returns false without a write"
+    ],
+    "persist-ignores-origin": [
+      "retirement / a cached body missing from the store returns false without a write"
+    ],
+    "current-signers-only": [
+      "rebind / changed APK signers refuse without taking APK history"
+    ],
+    "scan-current-signers": [
+      "scan / a mapped reservation is scanned with its recorded signers",
+      "rebind / changed APK signers refuse without taking APK history"
+    ],
+    "published-binding-from-history": [
+      "body only / no header only binding, current identity or ACTIVE exposure",
+      "retirement / a never rebound reservation refuses before any effect"
+    ],
+    "remember-without-exact-pin": [
+      "stored history / only an exact core pin is remembered"
+    ],
+    "stored-history-partial-match": [
+      "stored history / only the exact record is returned"
+    ],
+    "seeding-body-only": [
+      "seeding / a mapped reservation stays recoverable",
+      "rebind / an explicit designation publishes the original ID"
+    ],
+    "seeding-trusts-data-owners": [
+      "seeding / foreign, unreadable and unowned data owners are deferred"
+    ],
+    "seeding-ignores-incomplete-enumeration": [
+      "seeding / an incomplete data owner enumeration keeps unidentified code"
+    ],
+    "recovery-holds-not-refreshed": [
+      "holds / an exact release lifts only its own UID hold and keystore fence"
+    ],
+    "facade-restores-differently": [
+      "rebind / an explicit designation publishes the original ID",
+      "restoration / reservations restore PENDING under the selected counter"
+    ]
+  },
+  "parity_twinned_layouts": [
+    "reservation",
+    "reservation-empty-directory",
+    "reservation-torn-seed",
+    "reservation-beside-body",
+    "protected-target",
+    "unknown-counter",
+    "reservation-beside-multi-user-body"
+  ],
+  "b1_v2_changed_expectations": {
+    "note": "Intentional B2 changes to what a reopened version 2 registry restores in unchanged B1 cases. Each case's own assertions are unchanged and are predicted to pass; the added pins are PENDING reservation histories of selected complete header creations without bodies. Version 1 cases are unchanged by construction: a version 1 header carries no binding, and a version 2 header copy is unsupported under Format.V1.",
+    "NativeCreationBindingTest": {
+      "admission / exactly MAX_BYTES is admitted and written": "the reopened registry now also holds 48 PENDING pins for the bound header only creations, beside P and N",
+      "admission / one byte over MAX_BYTES refuses before issuance": "the same 48 PENDING reservation pins are restored",
+      "cross version / a V2 target beside V1 predecessors restores only its counter": "the reopened registry also restores C's reservation PENDING under counter 3"
+    },
+    "NativeCreationBindingFaultTest": {
+      "fresh upgrade / every step from backup-renamed": "holdsSurvive now reopens with B's reservation PENDING",
+      "legacy B with bound C / both orders, every step from backup-renamed": "C's reservation is restored PENDING; legacy B stays history free",
+      "restatement then upgrade / every step from backup-renamed": "C's reservation is restored PENDING beside B's body",
+      "pending and RETIRING together / every step from backup-renamed": "A, B and C restore PENDING; C's in memory RETIRING has no durable marker",
+      "interrupted V1 publication then protected upgrade": "the reopened counter check also restores C's reservation PENDING"
+    },
+    "NativeCreationBindingLayouts and ReaderCheck": "unchanged: version 1 readers read no reservation history"
+  }
+}

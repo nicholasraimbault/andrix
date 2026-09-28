@@ -1,0 +1,126 @@
+// SPDX-License-Identifier: Apache-2.0
+package com.android.server.pm;
+
+import java.io.File;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
+
+/**
+ * One revision's exact adapted Settings history text around small host facades: its whole boot
+ * restoration method, the observation, remembering and hold refresh it calls, its restore inputs,
+ * app ID hold and identity predicates, path safety, scan rule and boot recovery seeding. The
+ * runner fills each placeholder with that revision's own text, cut from the candidate Settings
+ * that its pinned patch builds from the pinned framework, or with the unchanged profile fragment
+ * where both revisions share it. The nested facades shadow the host stubs only inside this class.
+ * The body input adapter is the only host code a placeholder receives. Not a running Android PMS,
+ * and no authority.
+ */
+final class NativeHistoryHarness {
+    static class SettingBase { }
+
+    static final class PackageSetting extends SettingBase {
+        private final String name;
+        private final int appId;
+        private final boolean shared;
+        private final File path;
+
+        PackageSetting(String name, int appId, boolean shared) {
+            this.name = name;
+            this.appId = appId;
+            this.shared = shared;
+            path = new File("/data/app/~~host/" + name + "-1");
+        }
+        String getPackageName() { return name; }
+        int getAppId() { return appId; }
+        boolean hasSharedUser() { return shared; }
+        File getPath() { return path; }
+    }
+
+    static final class SharedUserSetting extends SettingBase {
+        private final List<com.android.server.pm.pkg.PackageStateInternal> states = new ArrayList<>();
+        List<com.android.server.pm.pkg.PackageStateInternal> getPackageStates() { return states; }
+        void add(com.android.server.pm.pkg.PackageStateInternal state) { states.add(state); }
+    }
+
+    static final class AppIds {
+        private final Map<Integer, SettingBase> settings = new HashMap<>();
+        private Set<Integer> held = Set.of();
+        SettingBase getSetting(int appId) { return settings.get(appId); }
+        // The allocator hold set the refreshed Settings text publishes.
+        void setNativePrincipalAppIds(Set<Integer> appIds) { held = Set.copyOf(appIds); }
+        Set<Integer> nativePrincipalAppIds() { return held; }
+    }
+
+    static final class UserHandle {
+        static final int USER_SYSTEM = 0;
+        static int getUid(int userId, int appId) { return userId * 100000 + appId; }
+        private UserHandle() { }
+    }
+
+    /** The records and retiring IDs one restoration takes. */
+    static final class Inputs {
+        final List<NativePrincipalPins.Record> records;
+        final Set<Long> retiring;
+
+        Inputs(List<NativePrincipalPins.Record> records, Set<Long> retiring) {
+            this.records = List.copyOf(records);
+            this.retiring = Set.copyOf(retiring);
+        }
+    }
+
+    NativePrincipalPins mNativePrincipalPins = new NativePrincipalPins(64);
+    NativeIdentityStore.Loaded mNativeIdentityLoaded;
+    NativePrincipalRecovery mNativeRecoveryView = NativePrincipalRecovery.empty();
+    Map<String, Integer> mNativeDeOwnersAtBoot = Map.of();
+    boolean mNativeDeEnumerationComplete = true;
+    final Set<Integer> mNativeStoreAppIds = new TreeSet<>();
+@REMEMBERED_FIELD@
+    final AppIds mAppIds = new AppIds();
+    final Map<String, PackageSetting> packages = new HashMap<>();
+    int changes;
+
+    NativePrincipalPins nativePrincipalPinsLPr() { return mNativePrincipalPins; }
+    PackageSetting getPackageLPr(String name) { return packages.get(name); }
+    void onChanged() { ++changes; }
+
+    /** Maps this app ID as ordinary package settings do before the store is applied. */
+    void map(int appId, SettingBase setting) {
+        mAppIds.settings.put(appId, setting);
+        if (setting instanceof PackageSetting mapped) packages.put(mapped.getPackageName(), mapped);
+    }
+
+    /**
+     * One boot of this revision through its exact Settings text: the restore inputs and
+     * capacity branch, the observation that remembers bindings and refreshes every hold, and
+     * the recovery seeding that follows.
+     */
+    void apply(NativeIdentityStore.Loaded loaded) {
+        applyNativeIdentityStoreLPw(loaded);
+    }
+
+@APPLY@
+@OBSERVE@
+@REFRESH@
+@STORED@
+
+    /** This revision's exact restore inputs. */
+    static Inputs restoreInputs(NativeIdentityStore.Loaded loaded) {
+@RESTORE_INPUTS@
+        return new Inputs(records, retiring);
+    }
+
+    /** Only the published bodies' inputs, through the side's host adapter. */
+    static Inputs bodyInputs(NativeIdentityStore.Loaded loaded) {
+@BODY_INPUTS@
+    }
+
+@APP_ID_HELD@
+@IDENTITY@
+@PATH_SAFETY@
+@SCAN@
+@SEEDING@
+}
