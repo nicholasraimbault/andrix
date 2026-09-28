@@ -278,9 +278,9 @@ the inspected boot restore branch. It is not a numeric value printed by the dump
 The exact read only label audit, original APK and map controls, observer keys and canaries passed.
 A later auxiliary listing used an unsupported Android `find` option, so this scope also remains
 failed. Its final store comparison and remaining retained artifact checks did not run. The
-completed cold observations remain evidence, not a successful whole scope. No native operation,
-store rewrite, mode or label change, initialization replay or guest sync was issued by that
-harness. Ordinary Android boot and runtime writes still occurred.
+completed cold observations remain evidence, not a successful whole scope. No native designation,
+publication, store rewrite, mode or label change, initialization replay or guest sync was issued
+by that harness. Ordinary Android boot and runtime writes still occurred.
 
 Both failures, original logs and saved guest state remain intact. Any next writer trial must
 complete a fresh cold preflight, including the missing bookends, before changing a mode or issuing
@@ -290,7 +290,8 @@ power loss, production initialization or V2 publication.
 ## Android lab stages and remaining gates
 
 P0 and P1 have completed. The incomplete P2 and separate cold observations are recorded above.
-Every remaining stage needs its own admission; the first V2 writer trial has not run.
+Every remaining stage needs its own admission. The prospective P3 controls have passed local
+checks, but final source review is incomplete and the first V2 writer trial has not run.
 
 - P0: the normal B2 image, with the counter correction, compiled and guarded, and that correction
   qualified and integrated. The lab image differs from it only by the writer fixture and this
