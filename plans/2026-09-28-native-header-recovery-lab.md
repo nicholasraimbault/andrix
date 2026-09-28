@@ -2,9 +2,10 @@
 
 Status: the separately compiled lab image on `23cede6`, including counter correction `78456b3`,
 passed static checks and a fresh Android baseline with a clean reboot. A controlled empty V1
-store was later observed intact on its first cold read, with PMS creation readiness restored.
-Both later scopes still failed their separate observer checks. No native designation, preparation
-or V2 publication was issued. Production stays
+store was later observed intact on cold reads, with PMS creation readiness restored. The two
+later observation scopes remain failed. A P3 attempt then stopped in preflight on a changed scratch
+upload hash, before any mode change or native request. No native designation, preparation or V2
+publication was issued. Production stays
 `Format.V1`; native execution and the factory stay off. Later store operations still need their
 own admission. This follows the
 [historical identity step](2026-09-28-native-creation-history.md).
@@ -287,11 +288,37 @@ complete a fresh cold preflight, including the missing bookends, before changing
 an ID. Its own fault setup sync must precede all native calls. Nothing here qualifies physical
 power loss, production initialization or V2 publication.
 
+## Later preflight and diagnostic boundary
+
+The next cold preflight again matched the canonical store and original Android anchors. It then
+found that a retained upload file no longer had its earlier transport hash. The observed digest
+matches that of 70 zero bytes, but the actual bytes, file size and second upload were not captured
+before the gate stopped. No mode change, helper execution or native request occurred. P3 remains
+failed, and its state was preserved.
+
+The inspected ADB send path acknowledges accepted writes and descriptor closure, without a file
+or directory sync. Its immediate upload hash is not a cold retention guarantee. P2's planned
+global setup sync did not run. This explains why scratch retention was an unqualified premise,
+not the cause of the observed mismatch. The canonical pair has separate writing descriptor syncs
+and matching cold readbacks. Neither history is erased by the other.
+
+A separate read only diagnostic is being prepared to capture the retained files, metadata,
+allocation, original anchors and kernel context without reuploading, restoring or syncing them.
+Any later revision of the scratch acceptance rule must be prospective and reviewed. It cannot
+turn failed P3 into a pass or weaken the canonical store and Android identity gates.
+
+Source review also found an inherited `am instrument --no-window-animation` option in the private
+metadata observer vehicles. The pinned implementation requests global animation scale changes
+and persistence, then attempts restoration. The new diagnostic removes that option. Earlier key
+and byte observations remain scoped facts, but no blanket claim of no settings writes or UI
+animation qualification follows from those runs. Saved scale values are not reset to manufacture
+a result. Their actual values will be observed without an override.
+
 ## Android lab stages and remaining gates
 
 P0 and P1 have completed. The incomplete P2 and separate cold observations are recorded above.
-Every remaining stage needs its own admission. The prospective P3 controls have passed local
-checks, but final source review is incomplete and the first V2 writer trial has not run.
+Every remaining stage needs its own admission. P3 source review and local controls completed,
+but its runtime preflight failed before the native sequence. The first V2 write has not run.
 
 - P0: the normal B2 image, with the counter correction, compiled and guarded, and that correction
   qualified and integrated. The lab image differs from it only by the writer fixture and this

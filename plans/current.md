@@ -108,8 +108,11 @@ passed. Its first subject signer refusal remains failed. A fresh lab baseline an
 preserved original APKs, mappings and observer keys. A controlled empty V1 store was later
 observed intact on its first cold read, with PMS creation readiness restored. Both later scopes
 remain failed on separate observer errors, with their completed observations retained. The next
-trial must repeat complete preconditions before any effect. No native selection, preparation or
-V2 publication has run. Normal production remains unchanged.
+trial must repeat complete preconditions before any effect. That later P3 preflight stopped on
+a changed retained scratch upload hash before any mode or native request. The canonical store
+and Android anchors still matched. A separate read only diagnostic is being prepared without
+repairing the scratch data. No native selection, preparation or V2 publication has run. Normal
+production remains unchanged.
 
 The [installer durability assessment](2026-09-27-package-installer-durability.md) retains an
 unclean stop failure and a separate Android file comparison. The checked writing descriptor sync
