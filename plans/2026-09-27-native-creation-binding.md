@@ -1,10 +1,9 @@
 # Complete original creation bindings and exact header admission
 
-Status: inactive implementation with independent review and guarded host checks. The first complete
-run and its fixture path failure remain separate from the corrected presence control below.
-The later negative evidence correction and its guarded tests passed after independent review.
-The version 1 format stays the only production format. Version 2 is constructed only by host tests. No Android
-build, device, activation, repair, cancellation or release authority is added. This follows the
+Status: inactive implementation with independent review, guarded host qualification and Android
+compilation at `0018a1d`. The first run, fixture path failure and later negative evidence correction
+remain separately recorded. Version 1 stays the only production format. Version 2 is constructed
+only by host tests. No activation, repair, cancellation or release authority is added. This follows the
 [header footprint correction](2026-09-27-native-header-footprint.md) and the
 [creation binding codec](2026-09-26-native-creation-binding-codec.md).
 
@@ -236,10 +235,23 @@ all existing regression suites and nine pure source tests passed without skips. 
 disk backed host files and the integrated runner's temporary filesystem remain host checks, not
 Android writer, filesystem durability or activation qualification.
 
+## Android artifact checkpoint
+
+The normal `0018a1d` image compiled in 9 minutes 48 seconds under the 54 GiB, 8 CPU build scope,
+with a 33.1 GiB peak and zero swap or core dumps. Final DEX contains the actual Settings
+construction with `Format.V1`, the corrected negative sibling evidence pass, the counter withholding
+path and the Package Installer writing descriptor sync. Compiler output also contains the original
+issuance signer plan and exact byte measure before header construction. R8 removes those inactive
+creation paths from the normal DEX. The source adaptations were reverted after captured producer
+retirement, preserving the accepted CE and verity companions.
+
+This is compilation and artifact evidence. It adds no Android execution result for the B1 writer,
+no version 2 publication, and no positive historical recovery from a header.
+
 ## Limits
 
 - Host facades and injected failures are not Android crash, power loss, storage or SELinux
-  evidence. Nothing here was built into an image.
+  evidence. The normal image build does not qualify the inactive writing protocol at runtime.
 - Version 2 remains disabled in production. Before a reviewed enable, Android readers, rollback,
   recovery ownership and a real image need their own qualification.
 - The reader check covers the B1 V1 format and `c9264e4` sources. Earlier readers without the
