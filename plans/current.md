@@ -88,8 +88,9 @@ from owned creation plans, measures exact header bytes before issuance and adds 
 format with complete original bindings. Production stays version 1. Guarded host qualification
 passed, including a corrected negative binding check that preserves conflicting sibling evidence.
 The normal `0018a1d` Android image compiled, and final DEX confirms the literal V1 construction and
-negative evidence path. Positive historical recovery is the next separate join. No V2 publication
-or native activation follows from these checks.
+negative evidence path. A fresh normal boot and clean reboot kept ordinary APK, UID, key and data
+controls intact, with the native store still missing. Positive historical recovery is the next
+separate join. No V2 publication or native activation follows from these checks.
 
 The [installer durability assessment](2026-09-27-package-installer-durability.md) retains an
 unclean stop failure and a separate Android file comparison. The checked writing descriptor sync

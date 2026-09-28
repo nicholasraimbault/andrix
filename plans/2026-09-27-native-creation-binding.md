@@ -245,8 +245,14 @@ issuance signer plan and exact byte measure before header construction. R8 remov
 creation paths from the normal DEX. The source adaptations were reverted after captured producer
 retirement, preserving the accepted CE and verity companions.
 
-This is compilation and artifact evidence. It adds no Android execution result for the B1 writer,
-no version 2 publication, and no positive historical recovery from a header.
+A fresh disposable guest also booted this normal image and completed a clean reboot. Two ordinary
+APK controls kept their original UIDs, paths, bytes, dummy keystore keys, canaries and complete PMS
+maps. The native store stayed MISSING and the lab writer command stayed absent. Inputs had an
+explicit setup sync. No key initialization or installation was replayed.
+
+This adds normal startup and ordinary app continuity evidence, not an Android execution result for
+the B1 writer, an unclean storage or power loss result, version 2 publication, or positive historical
+recovery from a header.
 
 ## Limits
 

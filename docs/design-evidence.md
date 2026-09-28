@@ -263,7 +263,9 @@ retain their own producers and scopes.
   matrices, baseline comparisons, regressions and mutants passed. An independent probe exposed
   a binding conflict that made a sibling usable; the correction preserves its negative evidence.
   The normal `0018a1d` image compiled with literal V1 construction and the correction in final DEX.
-  Positive historical recovery and runtime writer qualification remain separate.
+  A fresh boot and clean reboot preserved ordinary APK, UID, key and data controls, with no native
+  store or lab writer route. Positive historical recovery and runtime writer qualification remain
+  separate.
   The [real consent reference](../plans/2026-09-27-native-permission-consent.md) then exercised the
   ordinary Android notification popup without privileged grants. Allow enabled an independent
   command after the helper closed; peer and false attribution controls remained separate. Back,
