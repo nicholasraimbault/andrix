@@ -273,6 +273,10 @@ retain their own producers and scopes.
   creation beside higher decoded IDs, preserving body bindings and UID holds. Its guarded host
   checks passed, and the normal `78456b3` Android image compiled with the constraint in final DEX.
   Runtime writer qualification and production V2 publication remain separate.
+  The [optional header recovery lab preparation](../plans/2026-09-28-native-header-recovery-lab.md)
+  adds a separately guarded format token, controlled codec inputs and a host rehearsal of header
+  only rebinding. Complete companion admission, original request retention and independent byte
+  oracles passed host checks. No Android lab operation or production enable follows from them.
   The [real consent reference](../plans/2026-09-27-native-permission-consent.md) then exercised the
   ordinary Android notification popup without privileged grants. Allow enabled an independent
   command after the helper closed; peer and false attribution controls remained separate. Back,

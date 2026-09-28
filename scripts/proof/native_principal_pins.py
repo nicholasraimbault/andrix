@@ -34,6 +34,7 @@ FRAGMENTS = {name: (PREFIX + source + '.java', ROOT / 'owner/tests/platform/nati
                  ('scan', 'Settings'), ('recovery-seeding', 'Settings'))}
 PROFILE = ROOT / 'patches/grapheneos-2026081300/native-principal-pins.json'
 PATCH = ROOT / 'patches/grapheneos-2026081300/native-principal-pins.patch'
+SETTINGS = PREFIX + 'Settings.java'
 
 
 def sha(data):
@@ -112,6 +113,23 @@ def targets(original, value):
     return output
 
 
+def lab_format_state(name, current, target):
+    """The optional lab native store format: a third Settings state recognized only by its exact
+    bytes, derived lazily from the exact adapted Settings. It is never reported as ADAPTED, and
+    the shared fence refuses it without explicit lab history admission. Known upstream and
+    adapted bytes never reach here, so they never load the lab files. When the lab derivation is
+    unavailable, whatever the cause, unknown bytes refuse as before: there is no fallback."""
+    if name != SETTINGS or current is None:
+        return None
+    try:
+        import native_lab_format
+        lab = native_lab_format.candidate(target[name])
+    except (ImportError, ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError) as error:
+        raise ValueError('unrecognized native principal modification: %s (lab format unavailable: %s: %s)'
+                         % (name, type(error).__name__, error)) from error
+    return native_lab_format.STATE if current == lab else None
+
+
 def inspect_files(project):
     """Exact companion for the shared framework fence, not a path exception."""
     if project.resolve(strict=True) != project or source.run(project, 'rev-parse', 'HEAD')[1].decode().strip() != HEAD:
@@ -131,9 +149,18 @@ def inspect_files(project):
         elif current == target[name]:
             states[name] = 'ADAPTED'
         else:
-            raise ValueError('unrecognized native principal modification: ' + name)
+            lab = lab_format_state(name, current, target)
+            if lab is None:
+                raise ValueError('unrecognized native principal modification: ' + name)
+            states[name] = lab
     kinds = set(states.values())
-    return original, target, {'state': next(iter(kinds)) if len(kinds) == 1 else 'PARTIAL',
+    lab = states[SETTINGS] if states[SETTINGS] not in ('UPSTREAM', 'ADAPTED') else None
+    if lab is not None:
+        # Only over every other file adapted, and always reported as itself.
+        state = lab if kinds == {'ADAPTED', lab} else 'PARTIAL'
+    else:
+        state = next(iter(kinds)) if len(kinds) == 1 else 'PARTIAL'
+    return original, target, {'state': state,
                               'files': states, 'profile_sha256': sha(PROFILE.read_bytes()),
                               'public_app_authority_added': False, 'runtime_qualified': False}
 

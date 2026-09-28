@@ -100,6 +100,10 @@ new IDs beside a higher decoded claim in the selected lineage or existing negati
 without deriving a counter or changing body eligibility. Guarded source, baseline and regression
 checks passed. The normal `78456b3` Android image compiled, with that exact negative constraint in
 final DEX. Production V2 publication and native activation remain off.
+The [optional header recovery lab preparation](2026-09-28-native-header-recovery-lab.md) now has
+host qualified guards, codec inputs and a rehearsal through the unchanged fixed subject writer.
+Its separate V2 token requires the complete CE, verity, payload, native and writer stack; normal
+admission refuses it. No Android lab build or V2 publication is admitted by those host checks.
 
 The [installer durability assessment](2026-09-27-package-installer-durability.md) retains an
 unclean stop failure and a separate Android file comparison. The checked writing descriptor sync

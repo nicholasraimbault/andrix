@@ -1,0 +1,11 @@
+--- a/services/core/java/com/android/server/pm/Settings.java
++++ b/services/core/java/com/android/server/pm/Settings.java
+@@ -611,7 +611,7 @@
+         if (mNativeIdentityPersistence != null) throw new IllegalStateException("Native store loaded twice");
+         mNativeIdentityStore = new NativeIdentityStore(
+                 new File(Environment.getDataSystemDirectory(), "native-principals"),
+-                NativeIdentityStore.Format.V1);
++                NativeIdentityStore.Format.V2);
+         mNativeIdentityPersistence = new NativeIdentityPersistence(mNativeIdentityStore);
+         NativeIdentityStore.Loaded loaded = mNativeIdentityPersistence.load();
+         // This is negative preservation evidence, never signer/owner identity.

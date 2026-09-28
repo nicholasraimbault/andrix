@@ -43,6 +43,13 @@ Normal framework admission rejects its adapted or partial state. The dedicated
 build admission. This does not enable the native execution factory. Reverse this fixture
 before reversing the native principal companion.
 
+The separate [lab native store format](../../tests/native-identity/lab-history/README.md) lives
+outside this directory, and the production format guard refuses a copy of it here. It is applied
+after this fixture with `scripts/proof/native_lab_format.py` and reversed before it, while the
+whole stack is still complete. Normal framework admission detects and refuses its state. Lab
+admission requires the complete stack: the native principal, writer, CE, package verity and
+payload sync companions all adapted.
+
 All framework inspectors check the complete known change set. Recognizing the companion
 requires its exact original or candidate bytes. Unknown changes, staged changes and
 unrelated files are refused. Build preparation must require the adaptations it uses, not

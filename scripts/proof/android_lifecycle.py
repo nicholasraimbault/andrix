@@ -111,6 +111,19 @@ def extracted_methods(data):
 
 
 def inspect(root, *, lab_writer_fixture=False):
+    """The shared framework fence. It detects the lab native store format and refuses it."""
+    return _fence(root, lab_writer_fixture, lab_native_format=False)
+
+
+def inspect_lab_native_format(root):
+    """The same fence with explicit lab history admission. It admits the exact lab native store
+    format only over the complete lab stack: every other native principal file adapted, the exact
+    adapted writer fixture, this CE companion adapted, and package verity with its payload sync
+    companion adapted. It reports that state as itself, never as ADAPTED."""
+    return _fence(root, True, lab_native_format=True)
+
+
+def _fence(root, lab_writer_fixture, *, lab_native_format):
     root = root.resolve(strict=True)
     project = root / PROJECT
     if project.resolve(strict=True) != project:
@@ -147,12 +160,18 @@ def inspect(root, *, lab_writer_fixture=False):
     _, _, native_pins = native_principal_pins.inspect_files(project)
     import native_identity_writer
     _, _, native_writer = native_identity_writer.inspect_files(project)
+    state = next(iter(set(states.values()))) if len(set(states.values())) == 1 else 'PARTIAL'
+    # The lab format is the outermost lab layer: one decision over the complete lab stack,
+    # diagnosed and reversed first.
+    import native_lab_format
+    lab_format = native_lab_format.require_admission(state, package, native_pins, native_writer,
+                                                     lab_native_format)
     native_identity_writer.require_admission(native_writer, lab_writer_fixture)
     expected_modified = [name for name in FILES if states[name] == 'ADAPTED']
     if package['state'] == 'ADAPTED':
         expected_modified.append(package_verity.FILE)
     expected_modified.extend(name for name in native_principal_pins.FILES
-                             if native_pins['files'][name] == 'ADAPTED')
+                             if native_pins['files'][name] != 'UPSTREAM')
     if native_writer['files'][native_identity_writer.FILE] == 'ADAPTED':
         expected_modified.append(native_identity_writer.FILE)
     expected_others = [ADDED] if states[ADDED] == 'ADAPTED' else []
@@ -162,11 +181,10 @@ def inspect(root, *, lab_writer_fixture=False):
         expected_others.append(native_identity_writer.ADDED)
     if staged or sorted(modified) != sorted(expected_modified) or sorted(others) != sorted(expected_others):
         raise ValueError('other staged/tracked/untracked framework changes')
-    state = next(iter(set(states.values()))) if len(set(states.values())) == 1 else 'PARTIAL'
     return project, original, target, {'project': PROJECT, 'head': HEAD, 'state': state,
         'files': states, 'profile_sha256': sha(PROFILE.read_bytes()),
         'package_verity_companion': package, 'native_principal_pins_companion': native_pins,
-        'native_identity_writer_companion': native_writer,
+        'native_identity_writer_companion': native_writer, 'lab_native_format': lab_format,
         'new_apk_authority': False, 'synchronous_cleanup_barrier': False, 'runtime_proved': False}
 
 
