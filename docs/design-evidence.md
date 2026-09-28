@@ -271,7 +271,8 @@ retain their own producers and scopes.
   compiled with the shared view and literal V1 construction in final DEX. The separate
   [counter admission correction](../plans/2026-09-28-native-counter-admission.md) then withheld
   creation beside higher decoded IDs, preserving body bindings and UID holds. Its guarded host
-  checks passed; its Android compilation and runtime writer qualification remain separate.
+  checks passed, and the normal `78456b3` Android image compiled with the constraint in final DEX.
+  Runtime writer qualification and production V2 publication remain separate.
   The [real consent reference](../plans/2026-09-27-native-permission-consent.md) then exercised the
   ordinary Android notification popup without privileged grants. Allow enabled an independent
   command after the helper closed; peer and false attribution controls remained separate. Back,

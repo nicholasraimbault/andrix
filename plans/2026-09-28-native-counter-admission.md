@@ -1,8 +1,8 @@
 # Native counter admission
 
 Status: inactive correction on the B2 sources at `89491b9`, independently reviewed and qualified
-on the host. Original and strengthened controls ran under the required bounds. Android compilation
-of this correction is still separate. Version 1 stays the only production format, and version 2
+on the host. Original and strengthened controls ran under the required bounds. The normal
+`78456b3` Android image also compiled. Version 1 stays the only production format, and version 2
 publication stays off. No public API, policy default, activation, repair,
 cancellation, release or initializer authority is added. This follows the
 [historical identity step](2026-09-28-native-creation-history.md) and its separate counter
@@ -217,10 +217,24 @@ pure counter, history and binding runner tests passed without skips. This run to
 Main, with the same exact baseline failures, mutant results and nested regression outcomes. Host
 tmpfs results are not Android or power loss results.
 
+## Android artifact checkpoint
+
+The normal `78456b3` image compiled in 7 minutes under the 54 GiB, 8 CPU build scope, with a
+30.8 GiB peak and zero swap or core dumps. Final DEX reads the selected VALID header counter,
+iterates every decoded slot copy, applies the lineage or existing evidence condition, and sets
+only the creation block for a strictly greater principal ID. The evidence predicate still guards
+sibling evidence separately. No maximum ID becomes a counter.
+
+The actual V1 construction, shared history consumers, counter withholding branch and Package
+Installer writing descriptor sync remain in final DEX. Inactive writing paths compiled and were
+removed by R8. All producers retired before source reversion, and the captured aggregate job
+cgroup ceased. Accepted CE and verity companions remain. This is compilation and artifact evidence,
+not an Android execution result for the corruption layouts or a V2 publication result.
+
 ## Limits
 
-- Host facades are not Android boot, crash, storage or SELinux evidence, and no Android image
-  contains this correction.
+- Host facades are not Android boot, crash, storage or SELinux evidence. The normal image build
+  does not qualify those runtime properties.
 - The residual above remains. A claim located only in an unreadable copy is covered by the store's
   own availability gate, not by this rule.
 - A blocked store refuses new issuance store wide. Only an owned write to an eligible selected

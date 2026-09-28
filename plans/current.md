@@ -98,8 +98,8 @@ including exact legacy behavior, fault, reader, origin and data owner controls. 
 The separate [counter admission correction](2026-09-28-native-counter-admission.md) now refuses
 new IDs beside a higher decoded claim in the selected lineage or existing negative evidence,
 without deriving a counter or changing body eligibility. Guarded source, baseline and regression
-checks passed. Its normal Android compilation is pending. Production V2 publication and native
-activation remain off.
+checks passed. The normal `78456b3` Android image compiled, with that exact negative constraint in
+final DEX. Production V2 publication and native activation remain off.
 
 The [installer durability assessment](2026-09-27-package-installer-durability.md) retains an
 unclean stop failure and a separate Android file comparison. The checked writing descriptor sync
