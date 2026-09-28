@@ -250,6 +250,12 @@ APK controls kept their original UIDs, paths, bytes, dummy keystore keys, canari
 maps. The native store stayed MISSING and the lab writer command stayed absent. Inputs had an
 explicit setup sync. No key initialization or installation was replayed.
 
+A later cold continuation reached boot and UID checks, but the first key observation exceeded its
+90 second deadline. Logs show delayed app startup and a late instrumentation reply that failed to
+reach its watcher. No result payload was captured, so that request remains UNKNOWN. It proves
+neither key loss nor successful key continuity. There was no deadline extension, installation,
+initialization, key restoration or replay to manufacture a pass.
+
 This adds normal startup and ordinary app continuity evidence, not an Android execution result for
 the B1 writer, an unclean storage or power loss result, version 2 publication, or positive historical
 recovery from a header.
