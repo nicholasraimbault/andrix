@@ -48,7 +48,10 @@ Counter availability is distinct from binding availability. Independently verifi
 records can be restored without a usable issuance counter. Existing handles can still be found,
 confirmed or retired through exact slot operations; new issuance and whole counter snapshots
 refuse. Nothing reconstructs the counter from the largest surviving ID. One registry instance
-holds one lineage, and counter repair cannot silently retarget existing handles.
+holds one lineage, and counter repair cannot silently retarget existing handles. A decoded
+principal ID above the selected counter, in any slot copy of that lineage or of a record that is
+already negative evidence, withholds creation and the counter the same way, and changes no
+status, binding or hold. See the [counter admission correction](../../plans/2026-09-28-native-counter-admission.md).
 
 ## Separate store and actual allocator
 

@@ -74,7 +74,7 @@
     {
       "path": "services/core/java/com/android/server/pm/NativeIdentityStore.java",
       "source": "owner/platform/framework/NativeIdentityStore.java",
-      "sha256": "4476df1d2d2b9b1e515d31ac429a30a27560fb79eac0c37e66e548390eabcb05"
+      "sha256": "fa69ee859973504b9529c36d85551eda9c8cbe04ae285d89d5390603a6d45c23"
     },
     {
       "path": "services/core/java/com/android/server/pm/NativeIdentityPersistence.java",

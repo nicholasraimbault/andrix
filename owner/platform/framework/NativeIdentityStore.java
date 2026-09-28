@@ -95,6 +95,16 @@ import com.android.server.pm.NativeIdentityRecords.UserEntry;
  * negative package and principal evidence for siblings. An entry without a binding
  * keeps the version 1 checks. Nothing fills in or relaxes a binding.
  *
+ * The selected valid header's counter also bounds new issuance, never binding. A
+ * decoded slot copy that names a principal ID above it blocks creation when it has the
+ * selected lineage, in any record whatever its status, selection, app ID or tuple, or
+ * when its record is already negative evidence (unsupported, unavailable or a failed
+ * complete binding), whatever its lineage. Nothing raises, reconstructs or derives a
+ * counter from such an ID. Statuses, eligible bindings, evidence, holds and footprint
+ * flags are unchanged, so existing eligible bindings still confirm, mark and retire.
+ * Staging seeds never count. A copy from another lineage outside that existing evidence
+ * blocks nothing here; the conservative release check remains separate.
+ *
  * Each view also names the historical identity of an app ID, if any: see History.
  * A published eligible body is one. So is a selected complete header creation whose
  * slot this view reads as genuinely missing, when every copy and every other app ID
@@ -290,6 +300,7 @@ final class NativeIdentityStore {
             return enumerationComplete && header.status != Status.UNSUPPORTED && !header.unavailable
                     && slot != null && slot.status == Status.VALID && !slot.value.users.isEmpty();
         }
+        // Also false beside a decoded principal ID above the selected counter; see load().
         boolean creationReady() {
             return enumerationComplete && !creationBlocked && header.status == Status.VALID;
         }
@@ -657,11 +668,21 @@ final class NativeIdentityStore {
             // conflicting sibling usable, and neither may a record whose complete creation
             // binding fails: that check is negative only. Their decodable copies are
             // negative evidence, never an identity or counter source for them.
+            // The same pass bounds new issuance by the selected header's counter. A decoded
+            // copy that names a principal ID above it blocks creation when it has this
+            // lineage, whatever its record's status, selection, app ID or tuple, or when its
+            // record is such evidence, whatever its lineage. That is only a refusal: no
+            // counter is raised or derived from the copy, and no status, binding, hold or
+            // evidence changes. A staging seed is never a copy.
+            Header selected = header.status == Status.VALID ? header.value : null;
             for (Map.Entry<Integer, ReadResult<Slot>> entry : loaded.entrySet()) {
-                if (entry.getValue().status != Status.UNSUPPORTED
-                        && !entry.getValue().unavailable
-                        && !bindingConflicts.contains(entry.getKey())) continue;
+                boolean evidence = entry.getValue().status == Status.UNSUPPORTED
+                        || entry.getValue().unavailable
+                        || bindingConflicts.contains(entry.getKey());
                 for (Slot copy : entry.getValue().decodedCopies) {
+                    if (selected != null && (evidence || copy.lineage.equals(selected.lineage))
+                            && claimsAbove(copy, selected.lastId)) blocked = true;
+                    if (!evidence) continue;
                     packages.putIfAbsent(copy.packageName, entry.getKey());
                     for (UserEntry user : copy.users) incarnations.putIfAbsent(user.id, entry.getKey());
                 }
@@ -689,6 +710,15 @@ final class NativeIdentityStore {
             blocked = true;
         }
         return new Loaded(header, loaded, occupied, blocked, complete, unsupported, unavailable);
+    }
+
+    // Whether this decoded slot copy names a principal ID above the counter. A refusal bound for
+    // new issuance only: the ID is never taken as a counter or an allocation floor.
+    private static boolean claimsAbove(Slot copy, long counter) {
+        for (UserEntry user : copy.users) {
+            if (user.id > counter) return true;
+        }
+        return false;
     }
 
     /** Explicit fresh creation or its exact empty-result retry, never called by load(). */

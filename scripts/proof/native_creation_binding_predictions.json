@@ -361,5 +361,20 @@
       "binding conflict evidence / matching binding ignores unselected principal body"
     ],
     "positive_history_from_selected_backup_only": true
+  },
+  "counter_admission_follow_up": {
+    "status": "PREDICTED before any execution of the counter admission sources. Nothing here is an executed result.",
+    "changed_expectation": {
+      "binding mismatch / two users": "creationReady() is now false: the body decodes principal ID 2 of user 10 above version 2 counter 1 in an UNSUPPORTED record, which the counter admission correction reads as a creation block. Its unusable binding, hold and refused completion, publication, resume, restoration and slot publication are unchanged."
+    },
+    "reanchored_mutants": [
+      "binding-conflict-evidence-dropped",
+      "binding-conflict-evidence-every-conflict"
+    ],
+    "reanchor_note": "Both mutants now edit the one evidence predicate that also bounds creation. Their defects and at least lists are unchanged, because every decoded ID in their cases stays within its counter.",
+    "focused_failures": [],
+    "fault_failures": [],
+    "reader_layouts": 47,
+    "plan": "plans/2026-09-28-native-counter-admission.md"
   }
 }

@@ -1,0 +1,312 @@
+{
+ "status": "PREDICTED from source review by the worker, which started no compiler or JVM. Nothing here is an executed result. The probe baseline lines restate the observations the primary reported for 0018a1d and 89491b9; their hold sets are compared in ascending order because the store keeps no iteration order.",
+ "rule": "When the selected header is VALID with lineage L and counter c, load() sets its local creation block when any user ID in any decoded slot copy is above c and either the copy has lineage L or its record already feeds negative incarnation evidence: UNSUPPORTED, unavailable or a failed complete creation binding. Staging seeds never count. No status, eligible binding, evidence package or ID, hold, header byte, footprint flag or writer changes, and no counter is raised or derived.",
+ "focused_cases": 35,
+ "fix": {
+  "focused_failures": [],
+  "exit_status": 0
+ },
+ "baselines": {
+  "0018": {
+   "revision": "0018a1db6598f0bd08fbf7ed1eb71422805c4f65",
+   "focused_failures": [
+    "gate / a nonzero user above the counter",
+    "gate / a stale copy beside a selected backup",
+    "gate / conflicting copies without a backup",
+    "gate / a damaged preferred backup beside decoded copies",
+    "gate / a body naming another app ID",
+    "gate / an unsupported record of another lineage",
+    "evidence / a failed binding keeps every higher copy",
+    "evidence / a failed binding beside an ordinary conflict",
+    "evidence / a failed binding of another lineage",
+    "evidence / a failed binding keeps its sibling evidence",
+    "copies / a higher ID only in the middle copy",
+    "copies / a higher ID only in main",
+    "copies / a higher ID only in reserve without main",
+    "copies / a higher ID in either user order",
+    "copies / a higher claim at either app ID order",
+    "boundary / a Long.MAX_VALUE claim never becomes the counter",
+    "composition / a counter block withdraws a reservation and keeps bodies",
+    "manager / an unsupported higher principal refuses issuance before any effect",
+    "manager / a stale higher copy refuses issuance until its own confirmation",
+    "manager / a healthy body retires beside a blocked store",
+    "manager / a live registry refuses after observing a higher copy",
+    "manager / holds and refusals survive reopening and lost replies",
+    "evidence / a failed binding keeps a foreign slot copy under a known counter",
+    "selection / a higher unselected header counter is not the bound",
+    "manager / a lost BODY cannot be republished while the counter is blocked"
+   ],
+   "exit_status": 1
+  },
+  "8949": {
+   "revision": "89491b90c1038f0a69e481b6fa2e5d9e70ae1e17",
+   "focused_failures": [
+    "gate / a nonzero user above the counter",
+    "gate / a stale copy beside a selected backup",
+    "gate / conflicting copies without a backup",
+    "gate / a damaged preferred backup beside decoded copies",
+    "gate / a body naming another app ID",
+    "gate / an unsupported record of another lineage",
+    "evidence / a failed binding keeps every higher copy",
+    "evidence / a failed binding beside an ordinary conflict",
+    "evidence / a failed binding of another lineage",
+    "evidence / a failed binding keeps its sibling evidence",
+    "copies / a higher ID only in the middle copy",
+    "copies / a higher ID only in main",
+    "copies / a higher ID only in reserve without main",
+    "copies / a higher ID in either user order",
+    "copies / a higher claim at either app ID order",
+    "boundary / a Long.MAX_VALUE claim never becomes the counter",
+    "composition / a counter block withdraws a reservation and keeps bodies",
+    "manager / an unsupported higher principal refuses issuance before any effect",
+    "manager / a stale higher copy refuses issuance until its own confirmation",
+    "manager / a healthy body retires beside a blocked store",
+    "manager / a live registry refuses after observing a higher copy",
+    "manager / holds and refusals survive reopening and lost replies",
+    "evidence / a failed binding keeps a foreign slot copy under a known counter",
+    "selection / a higher unselected header counter is not the bound",
+    "manager / a lost BODY cannot be republished while the counter is blocked"
+   ],
+   "exit_status": 1
+  }
+ },
+ "blocked_observations": [
+  "nonzero-user-above",
+  "stale-copies-beside-backup",
+  "conflicting-copies",
+  "damaged-backup",
+  "body-names-other-app",
+  "unsupported-other-lineage",
+  "failed-binding-higher-both",
+  "failed-binding-higher-main",
+  "failed-binding-higher-reserve",
+  "failed-binding-mixed",
+  "failed-binding-other-lineage",
+  "failed-binding-sibling-colliding",
+  "failed-binding-sibling-unrelated",
+  "middle-copy",
+  "main-copy",
+  "reserve-copy",
+  "users-ascending-ids",
+  "users-descending-ids",
+  "claimer-below-sibling",
+  "claimer-above-sibling",
+  "max-claim-stale-copy",
+  "max-claim-unsupported",
+  "counter-blocked-reservation",
+  "failed-binding-foreign-slot-copy",
+  "selected-below-unselected-header"
+ ],
+ "unchanged_observations": [
+  "nonzero-user-within",
+  "selected-body-above",
+  "unselected-other-package",
+  "ordinary-other-lineage",
+  "decodable-seed",
+  "healthy-at-or-below",
+  "equal-unsupported",
+  "equal-stale-copy",
+  "ordinary-conflict-sibling",
+  "selected-above-predecessor-header",
+  "matching-binding-foreign-slot-copy"
+ ],
+ "observation_rule": "Every side prints the same OBSERVE layouts with the same facts. At the blocked labels the corrected sources are neither ready nor restorable and both baselines are ready. Everywhere else readiness is equal on all three sides.",
+ "probes": {
+  "UnsupportedCounterProbe": {
+   "baseline": {
+    "lines": [
+     "before N=UNSUPPORTED ready=true counter_restorable=true unsupported_format=false Q_deferred=false",
+     "prepared Q principal ID=2 beside decoded unsupported N principal ID=2",
+     "commit=false Q_phase=PENDING N=UNSUPPORTED Q=CONFLICT holds=[10000, 10001] selected_counter=2"
+    ],
+    "exception": "java.lang.AssertionError: issued a principal ID already present in decoded same-lineage unsupported state"
+   },
+   "fix": {
+    "lines": [
+     "before N=UNSUPPORTED ready=false counter_restorable=false unsupported_format=false Q_deferred=false"
+    ],
+    "exception": "java.lang.IllegalStateException: Native identity issuance requires recovery"
+   }
+  },
+  "StaleSlotCounterProbe": {
+   "baseline": {
+    "lines": [
+     "before N=VALID ready=true counter_restorable=true unsupported_format=false Q_deferred=false",
+     "prepared Q principal ID=2 beside decoded unselected N principal ID=2",
+     "commit=true Q_phase=ACTIVE N=VALID Q=VALID holds=[10000, 10001] selected_counter=2"
+    ],
+    "exception": "java.lang.AssertionError: issued a principal ID already present in decoded same-lineage unselected slot state"
+   },
+   "fix": {
+    "lines": [
+     "before N=VALID ready=false counter_restorable=false unsupported_format=false Q_deferred=false"
+    ],
+    "exception": "java.lang.IllegalStateException: Native identity issuance requires recovery"
+   }
+  }
+ },
+ "probe_rule": "Both baselines print the listed lines and then fail by the probe's own assertion (RED). The corrected sources print only the view line and then refuse the preparation (REFUSED). That refusal is an observation, not a pass; the focused suite asserts it explicitly.",
+ "parity": {
+  "layouts": 47,
+  "rule": "NativeHistoryParity prints byte identical output on 89491b9 and the corrected sources: every B2 layout keeps its decoded IDs at or below its counters."
+ },
+ "mutants_caught_at_least": {
+  "rule-dropped": [
+   "gate / a nonzero user above the counter",
+   "gate / a stale copy beside a selected backup",
+   "gate / conflicting copies without a backup",
+   "gate / a damaged preferred backup beside decoded copies",
+   "gate / a body naming another app ID",
+   "gate / an unsupported record of another lineage",
+   "evidence / a failed binding keeps every higher copy",
+   "evidence / a failed binding beside an ordinary conflict",
+   "evidence / a failed binding of another lineage",
+   "evidence / a failed binding keeps its sibling evidence",
+   "copies / a higher ID only in the middle copy",
+   "copies / a higher ID only in main",
+   "copies / a higher ID only in reserve without main",
+   "copies / a higher ID in either user order",
+   "copies / a higher claim at either app ID order",
+   "boundary / a Long.MAX_VALUE claim never becomes the counter",
+   "composition / a counter block withdraws a reservation and keeps bodies",
+   "manager / an unsupported higher principal refuses issuance before any effect",
+   "manager / a stale higher copy refuses issuance until its own confirmation",
+   "manager / a healthy body retires beside a blocked store",
+   "manager / a live registry refuses after observing a higher copy",
+   "manager / holds and refusals survive reopening and lost replies",
+   "evidence / a failed binding keeps a foreign slot copy under a known counter",
+   "selection / a higher unselected header counter is not the bound",
+   "manager / a lost BODY cannot be republished while the counter is blocked"
+  ],
+  "existing-evidence-only": [
+   "gate / a stale copy beside a selected backup",
+   "gate / conflicting copies without a backup",
+   "gate / a damaged preferred backup beside decoded copies",
+   "gate / a body naming another app ID",
+   "copies / a higher ID only in the middle copy",
+   "copies / a higher ID only in main",
+   "copies / a higher ID only in reserve without main",
+   "boundary / a Long.MAX_VALUE claim never becomes the counter",
+   "manager / a stale higher copy refuses issuance until its own confirmation",
+   "manager / a live registry refuses after observing a higher copy"
+  ],
+  "first-copy-only": [
+   "gate / conflicting copies without a backup",
+   "evidence / a failed binding keeps every higher copy",
+   "copies / a higher ID only in the middle copy",
+   "manager / a live registry refuses after observing a higher copy"
+  ],
+  "last-copy-only": [
+   "gate / a stale copy beside a selected backup",
+   "evidence / a failed binding keeps every higher copy",
+   "evidence / a failed binding beside an ordinary conflict",
+   "evidence / a failed binding of another lineage",
+   "evidence / a failed binding keeps its sibling evidence",
+   "copies / a higher ID only in the middle copy",
+   "copies / a higher ID only in main",
+   "copies / a higher ID only in reserve without main",
+   "boundary / a Long.MAX_VALUE claim never becomes the counter",
+   "manager / a stale higher copy refuses issuance until its own confirmation"
+  ],
+  "same-lineage-only": [
+   "gate / an unsupported record of another lineage",
+   "evidence / a failed binding of another lineage",
+   "evidence / a failed binding keeps a foreign slot copy under a known counter"
+  ],
+  "every-lineage": [
+   "control / an ordinary conflict of another lineage",
+   "residual / another lineage above the counter strands a later release",
+   "evidence / a failed binding keeps a foreign slot copy under a known counter"
+  ],
+  "seeds-included": [
+   "control / a decodable staging seed is never counted"
+  ],
+  "greater-or-equal": [
+   "control / a nonzero user within the counter",
+   "control / an unselected copy of another package keeps ordinary bindings",
+   "control / a decodable staging seed is never counted",
+   "control / healthy copies at or below the counter",
+   "boundary / an ID equal to the counter passes without a counter change",
+   "control / an ordinary conflict gives no sibling evidence",
+   "manager / a stale higher copy refuses issuance until its own confirmation"
+  ],
+  "restore-max-decoded-id": [
+   "gate / a nonzero user above the counter",
+   "control / a selected body above the counter blocks as before",
+   "boundary / a Long.MAX_VALUE claim never becomes the counter",
+   "composition / a counter block withdraws a reservation and keeps bodies",
+   "manager / an unsupported higher principal refuses issuance before any effect",
+   "manager / a stale higher copy refuses issuance until its own confirmation",
+   "manager / holds and refusals survive reopening and lost replies"
+  ],
+  "format-flag-instead-of-block": [
+   "gate / a nonzero user above the counter",
+   "gate / a stale copy beside a selected backup",
+   "gate / conflicting copies without a backup",
+   "manager / an unsupported higher principal refuses issuance before any effect",
+   "manager / a stale higher copy refuses issuance until its own confirmation",
+   "manager / a healthy body retires beside a blocked store",
+   "manager / holds and refusals survive reopening and lost replies"
+  ],
+  "status-instead-of-block": [
+   "gate / a nonzero user above the counter",
+   "gate / a stale copy beside a selected backup",
+   "copies / a higher ID only in the middle copy",
+   "manager / an unsupported higher principal refuses issuance before any effect",
+   "manager / a stale higher copy refuses issuance until its own confirmation"
+  ],
+  "ordinary-conflicts-as-evidence": [
+   "control / an ordinary conflict of another lineage",
+   "residual / another lineage above the counter strands a later release",
+   "control / an ordinary conflict gives no sibling evidence"
+  ],
+  "ignore-binding-conflicts": [
+   "evidence / a failed binding of another lineage",
+   "evidence / a failed binding keeps its sibling evidence",
+   "evidence / a failed binding keeps a foreign slot copy under a known counter"
+  ],
+  "observed-header-counter": [
+   "selection / a higher unselected header counter is not the bound"
+  ],
+  "smallest-header-counter": [
+   "selection / a predecessor counter is not the bound"
+  ]
+ },
+ "b1_changed_expectations": {
+  "NativeCreationBindingTest": {
+   "binding mismatch / two users": "creationReady() is now false: the body decodes principal ID 2 of user 10 above V2 counter 1 in an UNSUPPORTED record. The case still asserts the unusable binding, the hold, and the refused completion, publication, resume, restore and slot publication, and is predicted to pass."
+  },
+  "mutant_anchors": "binding-conflict-evidence-dropped and binding-conflict-evidence-every-conflict are re-anchored to the one evidence predicate. Their defects and at least lists are unchanged; decoded IDs in their cases stay within the counters."
+ },
+ "b2_regression": "The unchanged B2 runner, with its nested B1 runner and every regression module, is predicted to PASS on the corrected sources with its recorded counts.",
+ "unchanged_audit": {
+  "method": "Every slot body and decoded copy built by the host tests was compared with its selected header counter.",
+  "no_change_predicted": [
+   "NativeIdentityStoreTest: bodies at or below counters; counterAhead was already blocked",
+   "NativeIdentityVersionGateTest: user limit ID 2 under counter 2; version 2 headers are unsupported under V1",
+   "NativeIdentityFutureFormatTest: future and damaged frames, including hidden ID 9, never decode",
+   "NativeIdentityPresenceTest: future frames never decode; the counter 9 header copy is a header, not a slot",
+   "NativeIdentityPersistenceTest, NativeIdentityHeaderFootprintTest, NativeHeaderWriteFaultTest: writers reserve before they publish",
+   "NativeCreationBindingTest other cases, NativeCreationBindingFaultTest, NativeCreationBindingLayouts and readers: IDs within counters, or V2 read as unsupported under V1",
+   "NativeCreationHistoryTest: users 0 and 1 bodies with ID 2 sit under counters 2 and 3",
+   "NativeHistoryParity: all 47 layouts keep IDs at or below their counters",
+   "NativeCreationHistoryFaultTest, NativeCreationHistoryLayouts, BodyOriginRetirementProbe: ID 1 bodies",
+   "tests/native-identity fixtures: codec and lab writer checks do not read load() readiness",
+   "NativePrincipalPinsTest and NativePrincipalManagerTest: unchanged core pin and managed designation contracts",
+   "NativePreparationAdmissionTest and NativePreparationFaultTest: existing complete snapshot, refusal and original handle controls",
+   "NativeRecoveryBootTest: unchanged capacity, selected-counter and binding-without-counter decisions"
+  ]
+ },
+ "primary_foreign_slot_evidence_control": {
+  "status": "PREDICTED before execution",
+  "case": "evidence / a failed binding keeps a foreign slot copy under a known counter",
+  "observation": "failed-binding-foreign-slot-copy",
+  "purpose": "The header copies are identical, so only the foreign decoded slot evidence clause, not incompatible headers or same-lineage slot IDs, withholds the previously restorable counter."
+ },
+ "primary_selection_controls": {
+  "status": "PREDICTED before execution",
+  "selected_counter_not_observed_max_or_predecessor_min": true,
+  "lost_body_origin_retirement_refuses_while_blocked": true,
+  "normalized_value_only_mutant_removed_as_redundant_with_rule_dropped": true
+ }
+}

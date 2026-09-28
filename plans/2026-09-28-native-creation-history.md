@@ -296,12 +296,14 @@ gap below is still present in this image.
 
 An independent check also found an existing gap in `0018a1d` and this candidate. A decoded slot
 ID above the selected counter can be skipped by the counter check after its body becomes
-unsupported for a nonzero user. An unrelated preparation then issues that ID and its commit
-leaves a conflicting body and a held, stranded pin. A higher ID found only in an unselected copy
-of a valid body is a separate residual case: publication can succeed despite that decoded ID.
-These checks preserve UID holds and do not establish an authority escalation. They do show why
-counter admission needs a separate correction and qualification. This history view does not
-rebuild counters or repair either case. Production V2 publication and native activation stay off.
+unsupported for a nonzero user. An unrelated preparation then issued that ID and its commit
+left a conflicting body and a held, stranded pin. A higher ID found only in an unselected copy
+of a valid body was another affected case: publication could succeed despite that decoded ID.
+These checks preserved UID holds and did not establish an authority escalation. The separate
+[counter admission correction](2026-09-28-native-counter-admission.md) now withholds creation in
+both cases and passed its guarded host checks. Ordinary copies of another lineage outside the
+existing negative evidence remain a documented residual. This history view does not rebuild
+counters or add repair authority. Production V2 publication and native activation stay off.
 
 ## Limits
 

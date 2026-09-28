@@ -268,8 +268,10 @@ retain their own producers and scopes.
   now shares one view across restore, scan and seeding, keeps restored header creations PENDING,
   and requires explicit rebinding without a new ID. Original and hardened host matrices, legacy
   comparisons, fault controls, readers and mutants passed. The normal `89491b9` Android image
-  compiled with the shared view and literal V1 construction in final DEX. Runtime writer
-  qualification remains separate, as does a newly observed counter admission gap.
+  compiled with the shared view and literal V1 construction in final DEX. The separate
+  [counter admission correction](../plans/2026-09-28-native-counter-admission.md) then withheld
+  creation beside higher decoded IDs, preserving body bindings and UID holds. Its guarded host
+  checks passed; its Android compilation and runtime writer qualification remain separate.
   The [real consent reference](../plans/2026-09-27-native-permission-consent.md) then exercised the
   ordinary Android notification popup without privileged grants. Allow enabled an independent
   command after the helper closed; peer and false attribution controls remained separate. Back,

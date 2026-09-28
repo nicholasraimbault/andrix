@@ -685,9 +685,13 @@ public final class NativeCreationBindingTest {
                 NativeIdentityStore store = storeOf(root, V2);
                 NativeIdentityStore.Loaded loaded = store.load();
                 NativeIdentityStore.ReadResult<Slot> read = loaded.slots.get(R);
+                // The counter admission correction: two users decode principal ID 2 above counter
+                // 1 in an unsupported record, which blocks creation. Every other body stays at or
+                // below the counter and keeps creation ready. Only this readiness changed.
+                boolean ready = !body.getKey().equals("two users");
                 check(problems, read != null && read.status != Status.VALID && !loaded.bindingUsable(R)
-                        && loaded.occupiedAppIds.contains(R) && loaded.creationReady(),
-                        "load " + (read == null ? null : read.status));
+                        && loaded.occupiedAppIds.contains(R) && loaded.creationReady() == ready,
+                        "load " + (read == null ? null : read.status) + " ready " + loaded.creationReady());
                 unchanged(problems, root, "completion", () -> store.writeHeader(held, v2(1, live(R))));
                 unchanged(problems, root, "publication",
                         () -> persistenceOf(root, V2).publish(recordR, TWO));

@@ -212,15 +212,17 @@ MUTANTS = {
         '                for (Slot copy : entry.getValue().decodedCopies.subList(\n'
         '                        Math.max(0, entry.getValue().decodedCopies.size() - 1),\n'
         '                        entry.getValue().decodedCopies.size())) {\n'),), ('focused',)),
+    # Anchored to the one evidence predicate of the counter admission correction, which also
+    # bounds creation. The defect is the same: a failed binding is no evidence.
     'binding-conflict-evidence-dropped': (STORE, ((
-        '                        && !entry.getValue().unavailable\n'
-        '                        && !bindingConflicts.contains(entry.getKey())) continue;',
-        '                        && !entry.getValue().unavailable) continue;'),), ('focused',)),
+        '                        || entry.getValue().unavailable\n'
+        '                        || bindingConflicts.contains(entry.getKey());',
+        '                        || entry.getValue().unavailable;'),), ('focused',)),
     # Every CONFLICT record becomes evidence, so an ordinary unbound conflict alone withdraws a
     # sibling that version 1 keeps usable.
     'binding-conflict-evidence-every-conflict': (STORE, ((
-        '                        && !bindingConflicts.contains(entry.getKey())) continue;',
-        '                        && entry.getValue().status != Status.CONFLICT) continue;'),), ('focused',)),
+        '                        || bindingConflicts.contains(entry.getKey());',
+        '                        || entry.getValue().status == Status.CONFLICT;'),), ('focused',)),
     # The binding is checked only in the selected header copy, not in every decoded copy.
     'binding-checked-in-selected-header-only': (STORE, ((
         '                    if (index.phase == SlotPhase.CREATING && !bindingHolds(index, slot)) {\n',
