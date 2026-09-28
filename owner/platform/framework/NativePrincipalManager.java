@@ -10,7 +10,9 @@ import android.os.UserHandle;
 import com.android.server.LocalServices;
 import com.android.server.pm.pkg.PackageUserStateInternal;
 
+import java.util.HashMap;
 import java.util.IdentityHashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.security.MessageDigest;
@@ -146,7 +148,9 @@ public final class NativePrincipalManager {
                 if (existing == null) {
                     NativePrincipalPins.Preparation proposal = pins.previewPrepare(selection.packageName,
                             setting.getAppId(), selection.userId, selection.userSerial);
-                    if (!pm.mSettings.nativeIdentityReservationFitsLPr(proposal.snapshot)) {
+                    // The proposal carries this selection's original signer set before issuance.
+                    if (!pm.mSettings.nativeIdentityReservationFitsLPr(ownedPlan(pins,
+                            proposal.snapshot, proposal.record, selection.currentSignerSha256))) {
                         throw new IllegalStateException("Native identity reservation admission unavailable");
                     }
                     String lineage = pm.mSettings.nativeIdentityLineageLPr();
@@ -182,7 +186,7 @@ public final class NativePrincipalManager {
     public boolean commit(Handle handle) {
         try (PackageManagerTracedLock ignored = pm.mInstallLock.acquireLock()) {
             final NativeIdentityPersistence persistence;
-            final NativePrincipalPins.Snapshot issued;
+            final NativeIdentityPersistence.CreationPlan issued;
             synchronized (pm.mLock) {
                 NativePrincipalPins pins = checked(handle);
                 requireDesignationBinding(handle);
@@ -191,7 +195,8 @@ public final class NativePrincipalManager {
                     throw new IllegalStateException("Native principal is retiring");
                 }
                 persistence = pm.mSettings.nativeIdentityPersistenceLPr();
-                issued = pins.hasKnownCounter() ? pins.snapshotForWrite() : null;
+                issued = pins.hasKnownCounter()
+                        ? ownedPlan(pins, pins.snapshotForWrite(), null, null) : null;
             }
             // No PMS state/control lock is held during persistence.
             boolean durable = persistBinding(handle, persistence, issued);
@@ -214,7 +219,7 @@ public final class NativePrincipalManager {
     }
 
     private boolean persistBinding(Handle handle, NativeIdentityPersistence persistence,
-            NativePrincipalPins.Snapshot issued) {
+            NativeIdentityPersistence.CreationPlan issued) {
         NativePrincipalPins.Record record = handle.pin.record();
         if (persistence.binding(record) == null) {
             if (issued == null || !persistence.reservePending(issued)) return false;
@@ -278,12 +283,13 @@ public final class NativePrincipalManager {
     public boolean beginRetirement(Handle handle) {
         try (PackageManagerTracedLock ignored = pm.mInstallLock.acquireLock()) {
             final NativeIdentityPersistence persistence;
-            final NativePrincipalPins.Snapshot issued;
+            final NativeIdentityPersistence.CreationPlan issued;
             synchronized (pm.mLock) {
                 NativePrincipalPins pins = checked(handle);
                 pins.beginRetire(handle.pin);
                 persistence = pm.mSettings.nativeIdentityPersistenceLPr();
-                issued = pins.hasKnownCounter() ? pins.snapshotForWrite() : null;
+                issued = pins.hasKnownCounter()
+                        ? ownedPlan(pins, pins.snapshotForWrite(), null, null) : null;
             }
             boolean present = persistence.binding(handle.pin.record()) != null;
             if (!present) present = persistBinding(handle, persistence, issued);
@@ -339,6 +345,37 @@ public final class NativePrincipalManager {
                 return true;
             }
         }
+    }
+
+    /**
+     * The reservation plan of one complete core snapshot, built under the PMS mutation lock
+     * with no I/O. A signer row comes only from a pin whose issuance this manager owns: the
+     * immutable signer set its original selection captured. A proposal not yet issued supplies
+     * its own selection's set. Nothing is taken from the current PackageSetting, the handle
+     * index, a remembered or restored binding, or another manager. Pins without a row keep
+     * their durable entries unchanged, and a new entry without one refuses.
+     */
+    private NativeIdentityPersistence.CreationPlan ownedPlan(NativePrincipalPins pins,
+            NativePrincipalPins.Snapshot snapshot, NativePrincipalPins.Record proposed,
+            Set<String> proposedSigners) {
+        Map<Long, Set<String>> rows = new HashMap<>();
+        for (NativePrincipalPins.Record record : snapshot.records) {
+            NativePrincipalPins.Pin pin = pins.findId(record.id);
+            if (pin == null) {
+                if (proposed == null || !record.equals(proposed)) {
+                    throw new IllegalStateException("Native reservation snapshot changed");
+                }
+                rows.put(record.id, proposedSigners);
+            } else if (!pin.record().equals(record)) {
+                throw new IllegalStateException("Native reservation snapshot changed");
+            } else if (pin.issuance() instanceof Issuance issuance && issuance.owner == this) {
+                if (!issuance.record.equals(record)) {
+                    throw new IllegalStateException("Native issuance provenance changed");
+                }
+                rows.put(record.id, issuance.selection.currentSignerSha256);
+            }
+        }
+        return new NativeIdentityPersistence.CreationPlan(snapshot, rows);
     }
 
     private Handle handle(NativePrincipalPins.Pin pin) {

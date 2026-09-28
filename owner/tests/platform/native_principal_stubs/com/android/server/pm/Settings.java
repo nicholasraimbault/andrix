@@ -29,10 +29,12 @@ final class Settings {
     int rememberCalls, refreshCalls;
 
     Settings() { this(null, true); }
-    Settings(Path existing, boolean initialize) {
+    // The production format. A host test may construct the version 2 format explicitly.
+    Settings(Path existing, boolean initialize) { this(existing, initialize, NativeIdentityStore.Format.V1); }
+    Settings(Path existing, boolean initialize, NativeIdentityStore.Format format) {
         try {
             root = existing != null ? existing : Files.createTempDirectory("native-manager-").resolve("store");
-            store = new NativeIdentityStore(root.toFile());
+            store = new NativeIdentityStore(root.toFile(), format);
             if (initialize && !store.initializeNew(LINEAGE)) throw new AssertionError("fixture initialization");
             persistence = new NativeIdentityPersistence(store);
             mNativeIdentityLoaded = persistence.load();
@@ -79,9 +81,9 @@ final class Settings {
     boolean nativePrincipalCreationReadyLPr() {
         return applied && !recoveryBlocked && mNativeIdentityLoaded.creationReady() && pins.hasKnownCounter();
     }
-    boolean nativeIdentityReservationFitsLPr(NativePrincipalPins.Snapshot candidate) {
+    boolean nativeIdentityReservationFitsLPr(NativeIdentityPersistence.CreationPlan plan) {
         return mNativeIdentityLoaded != null
-                && NativeIdentityPersistence.projectReservation(mNativeIdentityLoaded, candidate) != null;
+                && nativeIdentityPersistenceLPr().projectReservation(mNativeIdentityLoaded, plan) != null;
     }
     boolean nativePrincipalMutationInProgressLPr(String name) { return mutating.contains(name); }
     boolean nativePrincipalDesignationDeferredLPr(String name) { return deferred.contains(name); }

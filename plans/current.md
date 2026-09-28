@@ -83,7 +83,11 @@ existing regressions passed. The normal `c9264e4` Android image compiled and its
 branch was verified in final DEX. Cold Android reader controls then withheld the counter beside a
 legacy addition and accepted a protected backup beside its predecessors, retaining the hold without
 inventing a binding. Inactive write paths were removed by R8. Production writer crash durability
-remains unqualified.
+remains unqualified. The [creation binding step](2026-09-27-native-creation-binding.md) now reserves
+from owned creation plans, measures exact header bytes before issuance and adds a host only version 2
+format with complete original bindings. Production stays version 1. Guarded host qualification
+passed, including a corrected negative binding check that preserves conflicting sibling evidence.
+Android compilation of this step and positive historical recovery remain separate.
 
 The [installer durability assessment](2026-09-27-package-installer-durability.md) retains an
 unclean stop failure and a separate Android file comparison. The checked writing descriptor sync

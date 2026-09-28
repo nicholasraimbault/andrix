@@ -10,6 +10,7 @@ final class PackageManagerService {
  final Settings mSettings;
  PackageManagerService(){mSettings=new Settings();}
  PackageManagerService(java.nio.file.Path root,boolean initialize){mSettings=new Settings(root,initialize);}
+ PackageManagerService(java.nio.file.Path root,boolean initialize,NativeIdentityStore.Format format){mSettings=new Settings(root,initialize,format);}
  Object snapshotComputer(){return this;}
  boolean isInstallingNativePrincipalPackage(String name){return installing.contains(name);}
 }

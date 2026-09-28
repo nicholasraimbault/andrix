@@ -2,7 +2,7 @@
   "version": 1,
   "project": "frameworks/base",
   "head": "aab06a8bd44c4c2b58eeec780fde83baa9d43a40",
-  "patch_sha256": "929e01c1fed77b9bcaf91423dbe7bc83b856f68cfa76b4fa16dbc98c01ce3dcc",
+  "patch_sha256": "072c964b4887ef7ff2e246cb1e8f0e633975b05d36e05b8e6daf6262e08a9209",
   "files": [
     {
       "path": "services/core/java/com/android/server/pm/AppIdSettingMap.java",
@@ -12,7 +12,7 @@
     {
       "path": "services/core/java/com/android/server/pm/Settings.java",
       "upstream_sha256": "bff2de579d206a39be81ef0b798df8f6e845d2f28efbbcd63554ccffbddae5a1",
-      "candidate_sha256": "1436e2419d0a68036965ebca8a9ac49a04a8c0bb88c555ff64f1c6b1ee8c0079"
+      "candidate_sha256": "17cfd8f7c9b436f83cccf749703ee2a584467fd59dedc1b7bc7709511275655c"
     },
     {
       "path": "services/core/java/com/android/server/pm/PackageManagerService.java",
@@ -64,22 +64,22 @@
     {
       "path": "services/core/java/com/android/server/pm/NativePrincipalManager.java",
       "source": "owner/platform/framework/NativePrincipalManager.java",
-      "sha256": "0488cf2e519bb09891dc8d0e87e606cc786895548bc0ec3609fc9613103b8c13"
+      "sha256": "5b50050a19ec61d0dcd94431e7f857c9556e4cb8b41a4b74b58576dd45c2cfb5"
     },
     {
       "path": "services/core/java/com/android/server/pm/NativeIdentityRecords.java",
       "source": "owner/platform/framework/NativeIdentityRecords.java",
-      "sha256": "36ef5e04b842b091e7af98de81b8ae67392729f333aeacb706a09c2b78580b16"
+      "sha256": "412c2271a9efabf9937375bd42f2e49c5e3fb4d09935a9e98d6e5805736a3009"
     },
     {
       "path": "services/core/java/com/android/server/pm/NativeIdentityStore.java",
       "source": "owner/platform/framework/NativeIdentityStore.java",
-      "sha256": "92679c46989ab121ec274e9ddac340164aa55aba534c106aca23885bbc1cf991"
+      "sha256": "d03c4b41dfdf88138d504675f21fda6eed0e175b7a9cc33a3cbd9b25b812e9e9"
     },
     {
       "path": "services/core/java/com/android/server/pm/NativeIdentityPersistence.java",
       "source": "owner/platform/framework/NativeIdentityPersistence.java",
-      "sha256": "4fd90c2546a9f99181a01b2ca074b63627b44c927ba6fd8e59c93c3ec3224665"
+      "sha256": "1202bb1bf938e613adf2b53cf28a61e6a8632a4ef40bd896cbc8f793e5bd4934"
     },
     {
       "path": "services/core/java/com/android/server/pm/NativePrincipalRecovery.java",
@@ -153,7 +153,7 @@
       "name": "admission",
       "path": "services/core/java/com/android/server/pm/Settings.java",
       "source": "owner/tests/platform/native_recovery_fragments/admission.java.inc",
-      "sha256": "6c8436a398d670342ba7cca51ca2b197162919e1aff1980fcf10d3f5dd2dbe86"
+      "sha256": "f6fb1d4f8dd53dbb712f35f8832e51735657a4e5c1be948512c6d9f9b33fc8eb"
     }
   ]
 }

@@ -23,7 +23,11 @@ import java.util.TreeMap;
  * Shared host fixtures of the header footprint tests: values, direct store layouts, exact file
  * footprints and a reopened host Package Manager facade. It uses only store, manager and
  * facade surface that predates the header footprint correction, so the same tests also run
- * against earlier sources as controls. Host files only, not Android persistence.
+ * against earlier sources as controls. Store construction, projection and reservation go
+ * through the host only NativeHeaderApi adapter that the harness selects for the sources under
+ * test. Each reservation carries an explicit signer row for every snapshot record, as the
+ * owned manager supplies for its own issuances, so a creation plan source sees the same
+ * B0 equivalent case. Host files only, not Android persistence.
  */
 final class NativeHeaderTestSupport {
     static final String LINEAGE = "0123456789abcdef0123456789abcdef";
@@ -98,6 +102,20 @@ final class NativeHeaderTestSupport {
     static NativePrincipalPins.Record record(long id, String name, int appId) {
         return new NativePrincipalPins.Record(id, name, appId, 0, SERIAL);
     }
+    // An explicit owned signer row for every record of the snapshot: the B0 equivalent plan.
+    static Map<Long, Set<String>> rows(NativePrincipalPins.Snapshot snapshot) {
+        Map<Long, Set<String>> rows = new TreeMap<>();
+        for (NativePrincipalPins.Record record : snapshot.records) rows.put(record.id, SIGNERS);
+        return rows;
+    }
+    static Header project(NativeIdentityPersistence persistence, NativeIdentityStore.Loaded loaded,
+            NativePrincipalPins.Snapshot snapshot) {
+        return NativeHeaderApi.project(persistence, loaded, snapshot, rows(snapshot));
+    }
+    static boolean reserve(NativeIdentityPersistence persistence,
+            NativePrincipalPins.Snapshot snapshot) {
+        return NativeHeaderApi.reserve(persistence, snapshot, rows(snapshot));
+    }
     static byte[] bytes(Header header) { return NativeIdentityRecords.encodeHeader(header); }
 
     static Path fresh() throws Exception {
@@ -132,11 +150,14 @@ final class NativeHeaderTestSupport {
         Files.write(directory.resolve("record.bin"), NativeIdentityRecords.encodeSlot(body));
         Files.write(directory.resolve("record.bin.reservecopy"), NativeIdentityRecords.encodeSlot(body));
     }
+    static NativeIdentityStore store(Path root) {
+        return NativeHeaderApi.store(root);
+    }
     static NativeIdentityPersistence persistence(Path root) {
-        return new NativeIdentityPersistence(new NativeIdentityStore(root.toFile()));
+        return new NativeIdentityPersistence(store(root));
     }
     static NativeIdentityStore.Loaded loaded(Path root) {
-        return new NativeIdentityStore(root.toFile()).load();
+        return store(root).load();
     }
     static Header stored(Path root) {
         return loaded(root).header.value;

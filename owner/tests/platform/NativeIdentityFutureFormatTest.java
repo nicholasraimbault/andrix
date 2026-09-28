@@ -344,7 +344,7 @@ public final class NativeIdentityFutureFormatTest {
         Seen[] seen = new Seen[1];
         run(c.name + " / healthy", problems -> {
             Path root = c.layout.build(fresh(parent));
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), NativeIdentityStore.Format.V1);
             seen[0] = new Seen(store.load(), c.target);
             seen[0].result = c.action.run(store);
             check(problems, seen[0].result, "otherwise valid writer refused");
@@ -362,7 +362,7 @@ public final class NativeIdentityFutureFormatTest {
             Path root = c.layout.build(fresh(parent));
             Path file = at(root, c.target, at);
             Files.write(file, bytes);
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), NativeIdentityStore.Format.V1);
             Seen before = new Seen(store.load(), c.target);
             Map<String, String> footprint = footprint(root);
             boolean result = c.action.run(store);
@@ -394,7 +394,7 @@ public final class NativeIdentityFutureFormatTest {
             throws Exception {
         Path root = c.layout.build(fresh(parent));
         Files.write(at(root, c.target, at), bytes);
-        NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+        NativeIdentityStore store = new NativeIdentityStore(root.toFile(), NativeIdentityStore.Format.V1);
         Seen seen = new Seen(store.load(), c.target);
         if (write) seen.result = c.action.run(store);
         return seen;
@@ -486,7 +486,7 @@ public final class NativeIdentityFutureFormatTest {
         run("header bounds / known v2 hold kept", problems -> {
             Path root = header.layout.build(fresh(parent));
             Files.write(at(root, null, At.RESERVE), knownV2);
-            check(problems, new NativeIdentityStore(root.toFile()).load().occupiedAppIds
+            check(problems, new NativeIdentityStore(root.toFile(), NativeIdentityStore.Format.V1).load().occupiedAppIds
                     .equals(Set.of(A, KNOWN_V2)), "known version 2 hold lost");
         });
 
@@ -528,7 +528,7 @@ public final class NativeIdentityFutureFormatTest {
             Path root = new Layout(header(2, live(A))).slot(A, SLOT_A).build(fresh(parent));
             Path directory = Files.createDirectory(root.resolve("slots/" + B));
             Files.write(directory.resolve("record.bin"), frame(TYPE_SLOT, 2, slotBody(B)));
-            NativeIdentityStore.Loaded loaded = new NativeIdentityStore(root.toFile()).load();
+            NativeIdentityStore.Loaded loaded = new NativeIdentityStore(root.toFile(), NativeIdentityStore.Format.V1).load();
             check(problems, loaded.occupiedAppIds.equals(Set.of(A, B)), "holds " + loaded.occupiedAppIds);
             check(problems, loaded.slots.get(B).status == Status.UNSUPPORTED, "status");
             check(problems, loaded.bindingUsable(A) && !loaded.bindingUsable(B), "eligibility");
@@ -543,7 +543,7 @@ public final class NativeIdentityFutureFormatTest {
                 Slot second = bound(B, kind.equals("package") ? PKG_A : PKG_B,
                         kind.equals("incarnation") ? 1 : 2, false, 1);
                 Path root = new Layout(header(2, live(A), live(B))).slot(A, SLOT_A).slot(B, second).build(fresh(parent));
-                NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+                NativeIdentityStore store = new NativeIdentityStore(root.toFile(), NativeIdentityStore.Format.V1);
                 boolean unrelated = kind.equals("unrelated");
                 check(problems, store.load().bindingUsable(B) == unrelated, "invalid healthy collision control");
                 Files.write(root.resolve("slots/" + A + "/record.bin"), future(A, 0));

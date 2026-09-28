@@ -1,6 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Native header copy compatibility, unselected additions and protected reservation writes on
-the JVM with host facades and host injected write failures. Not Android crash or power loss proof."""
+the JVM with host facades and host injected write failures. Not Android crash or power loss proof.
+
+The suite runs against the current creation plan sources through the host only B1 NativeHeaderApi
+adapter, in the production V1 format with an explicit signer row for every snapshot record. The
+archived c9264e4 and d104e15 comparisons, with the baseline adapter, are in the guarded
+native_creation_binding runner."""
 from pathlib import Path
 import re
 import shutil
@@ -17,6 +22,7 @@ FRAMEWORK = ('NativePrincipalPins', 'NativePrincipalManager', 'NativeIdentityRec
              'NativeIdentityStore', 'NativeIdentityPersistence', 'NativePrincipalRecovery')
 STORE = ROOT / 'owner/platform/framework/NativeIdentityStore.java'
 FACADE = ROOT / 'owner/tests/platform/native_principal_stubs/com/android/server/pm/Settings.java'
+ADAPTER = ROOT / 'owner/tests/platform/native_header_api/b1/NativeHeaderApi.java'
 FOCUSED = 'NativeIdentityHeaderFootprintTest'
 FAULTS = 'NativeHeaderWriteFaultTest'
 STEPS = ('seed-synced', 'backup-renamed', 'backup-published', 'write-started', 'main-synced',
@@ -78,9 +84,9 @@ WRITER_SEAMS = (
      'backup-unlink', 'mFile'),
     ('            FileDescriptor directory = Os.open(mFile.getParent(),\n', 'before', 12,
      'backup-unlinked', 'mFile'))
-PROTECT = 'addsOnly(read.value, next), true);'
-WRITER_FENCE = '\n                || !keepsHeaderCopies(read, next)) {'
-CONFIRM_FENCE = '\n                || !keepsHeaderCopies(read, expected)) return false;'
+PROTECT = 'addsOnly(read.value, next, format), true);'
+WRITER_FENCE = '\n                || !keepsHeaderCopies(read, next, format)) {'
+CONFIRM_FENCE = '\n                || !keepsHeaderCopies(read, expected, format)) return false;'
 GUESS = ('            long guessed = 0;\n'
          '            for (NativeIdentityRecords.Header copy : loaded.header.decodedCopies) {\n'
          '                guessed = Math.max(guessed, copy.lastId);\n'
@@ -102,7 +108,12 @@ def inject(text, seams):
 
 
 def mutants():
-    """Deliberate defects: store and facade text, the tests to run and checks that must fail."""
+    """Deliberate defects: store and facade text, the tests to run and checks that must fail.
+
+    The anchors are the creation plan store's. Its projection reuses the exact durable addition
+    before the copy rule compares it, so the former app ID only comparison defect is no longer
+    reachable from this suite. It moved, with both replacements, to the creation binding
+    runner's compare-addition-app-id-only mutant and its direct writer case."""
     store = STORE.read_text()
     facade = FACADE.read_text()
     return {
@@ -136,7 +147,8 @@ def mutants():
         'counter-only-advance': (
             replace_once(replace_once(store, 'return copy.lastId > selected.lastId ? ahead',
                                       'return copy.lastId > selected.lastId ? true'),
-                         '\n                || (next.lastId != selected.lastId && !addsOnly(selected, next))', ''),
+                         '\n                || (next.lastId != selected.lastId && !addsOnly(selected, next, format))',
+                         ''),
             facade, (FOCUSED,),
             {'counter advances only with a pure reservation', 'higher counter only copy refuses header writes',
              'mixed phase change and reservation write refuses'}),
@@ -155,24 +167,18 @@ def mutants():
                                 GUESS), (FOCUSED,),
             {'manager repro / reopened PMS issues nothing', 'reopened registry keeps holds and LIVE bindings',
              'single intact main beside a torn reserve counts'}),
-        'compare-app-id-only': (
-            replace_once(replace_once(store, 'if (!addition.equals(headerEntry(next, addition.appId))) return false;',
-                                      'if (headerEntry(next, addition.appId) == null) return false;'),
-                         '&& !entry.equals(additions.get(entry.appId))) return false;',
-                         '&& !additions.containsKey(entry.appId)) return false;'), facade, (FOCUSED,),
-            {'B not substituted by another creation ID', 'B not substituted by another package'}),
         'ignore-one-surviving-copy': (
             replace_once(store, 'for (Header copy : read.decodedCopies) {\n'
-                                '            if (!compatible(selected, copy)) return false;',
+                                '                if (!compatible(selected, copy)) return null;',
                          'for (Header copy : read.decodedCopies.subList(1, read.decodedCopies.size())) {\n'
-                         '            if (!compatible(selected, copy)) return false;'), facade, (FOCUSED,),
+                         '                if (!compatible(selected, copy)) return null;'), facade, (FOCUSED,),
             {'single intact main beside a torn reserve counts', 'single intact reserve beside a torn main counts',
              'disagreeing copies of one addition refuse', 'additions sharing a creation ID refuse'}),
         'phase-difference-as-addition': (
             replace_once(store, 'if (headerEntry(selected, entry.appId) != null) continue;\n'
-                                '                HeaderEntry known',
+                                '                    HeaderEntry known',
                          'if (entry.equals(headerEntry(selected, entry.appId))) continue;\n'
-                         '                HeaderEntry known'), facade, (FOCUSED,),
+                         '                    HeaderEntry known'), facade, (FOCUSED,),
             {'interrupted CREATING to LIVE is compatible', 'interrupted LIVE to RELEASING is compatible'}),
     }
 
@@ -212,7 +218,7 @@ def build(work, test, store_text, facade_text, framework=None):
                 stubs[relative] = path
     files += list(stubs.values())
     tests = ['NativeHeaderTestSupport', test] + (['NativeHeaderWriteFaults'] if faults else [])
-    files += [ROOT / 'owner/tests/platform' / (name + '.java') for name in tests]
+    files += [ROOT / 'owner/tests/platform' / (name + '.java') for name in tests] + [ADAPTER]
     classes = work / 'classes'
     classes.mkdir()
     return subprocess.run(['javac', '-J-Xmx256m', '--release', '17', '-Xlint:all', '-Werror',
@@ -240,7 +246,7 @@ class NativeHeaderFootprintTests(unittest.TestCase):
     def test_seams_and_boot_agreement(self):
         integration.profile()
         mutations = mutants()
-        self.assertEqual(len(mutations), 13)
+        self.assertEqual(len(mutations), 12)
         for mode, (_, _, tests, expected) in mutations.items():
             names = set(FOCUSED_NAMES if FOCUSED in tests else ()) | set(FAULT_NAMES if FAULTS in tests else ())
             self.assertTrue(expected and expected <= names, mode)

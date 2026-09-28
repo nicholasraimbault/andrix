@@ -27,9 +27,10 @@ import java.util.TreeMap;
  * its tombstone before the header step refuses; those cases assert that progress explicitly.
  * The exact original owner's retry must still succeed, and legitimate interrupted
  * phase changes, omissions and copies that predate a protected reservation stay compatible.
- * Only product surface that predates the correction is used, so this also runs against the
- * earlier store, manager and Settings facade as a control. Host facades only: not Android
- * crash, power loss, storage or UID authority qualification.
+ * Only product surface that predates the correction is used, through the host only
+ * NativeHeaderApi adapter, so this also runs against the earlier store, manager and Settings
+ * facade as a control. Host facades only: not Android crash, power loss, storage or UID
+ * authority qualification.
  */
 public final class NativeIdentityHeaderFootprintTest {
     private static final Header OLD = header(0);
@@ -45,24 +46,24 @@ public final class NativeIdentityHeaderFootprintTest {
             check(problems, loaded.header.status == Status.VALID && OLD.equals(loaded.header.value)
                     && loaded.occupiedAppIds.equals(Set.of(B)) && loaded.creationReady(),
                     "not the constructed selection " + loaded.header.status);
-            check(problems, NativeIdentityPersistence.projectReservation(loaded, REUSE) == null,
+            check(problems, project(persistence(root), loaded, REUSE) == null,
                     "C admitted at creation ID 1");
         });
         run("store repro / reservation refused before any effect", problems -> {
             Path root = legacy(OLD, PENDING_B);
             NativeIdentityPersistence persistence = persistence(root);
-            unchanged(problems, root, "C reservation", () -> persistence.reservePending(REUSE));
+            unchanged(problems, root, "C reservation", () -> reserve(persistence, REUSE));
             check(problems, persistence.load().occupiedAppIds.equals(Set.of(B)), "B hold lost");
         });
         run("store repro / direct header write refused", problems -> {
             Path root = legacy(OLD, PENDING_B);
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = store(root);
             unchanged(problems, root, "C header",
                     () -> store.writeHeader(OLD, header(1, creating(C, 1, PKG_C))));
         });
         run("store repro / selected header rewrite refused", problems -> {
             Path root = legacy(OLD, PENDING_B);
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = store(root);
             unchanged(problems, root, "selected header", () -> store.writeHeader(OLD, OLD));
         });
     }
@@ -73,37 +74,37 @@ public final class NativeIdentityHeaderFootprintTest {
         Header creatingAB = header(2, creating(A, 1, PKG_A), creating(B, 2, PKG_B));
         run("initializeNew refused", problems -> {
             Path root = legacy(OLD, PENDING_B);
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = store(root);
             unchanged(problems, root, "initialization", () -> store.initializeNew(LINEAGE));
         });
         run("ensureFreshSlot refused", problems -> {
             Path root = legacy(creatingA, creatingAB);
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = store(root);
             unchanged(problems, root, "fresh directory", () -> store.ensureFreshSlot(creatingA, A));
         });
         run("resumeCreatingDirectory refused", problems -> {
             Path root = legacy(creatingA, creatingAB);
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = store(root);
             unchanged(problems, root, "resumed directory",
                     () -> store.resumeCreatingDirectory(creatingA, A));
         });
         run("publishCreatingSlot refused", problems -> {
             Path root = legacy(creatingA, creatingAB);
             Files.createDirectory(root.resolve("slots/" + A));
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = store(root);
             unchanged(problems, root, "publication",
                     () -> store.publishCreatingSlot(creatingA, bound(A, PKG_A, 1, false, 1)));
         });
         run("confirmReleasedSlot cannot release an addition", problems -> {
             Path root = legacy(OLD, PENDING_B);
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = store(root);
             unchanged(problems, root, "release of B", () -> store.confirmReleasedSlot(OLD, B));
         });
         run("removeReleasingSlot refused", problems -> {
             Header releasingR = header(1, releasing(R));
             Path root = legacy(releasingR, header(2, releasing(R), creating(B, 2, PKG_B)));
             slot(root, R, tombstone(R, PKG_R, 3));
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = store(root);
             unchanged(problems, root, "removal", () -> store.removeReleasingSlot(releasingR, R));
         });
     }
@@ -115,7 +116,7 @@ public final class NativeIdentityHeaderFootprintTest {
             Header next = header(2, creating(A, 1, PKG_A), creating(B, 2, PKG_B));
             Path root = legacy(prior, next);
             slot(root, A, bound(A, PKG_A, 1, false, 1));
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = store(root);
             unchanged(problems, root, "completion", () -> store.writeHeader(prior, header(1, live(A))));
             check(problems, store.writeHeader(prior, next), "exact reconciliation refused");
             Header completed = header(2, live(A), creating(B, 2, PKG_B));
@@ -127,7 +128,7 @@ public final class NativeIdentityHeaderFootprintTest {
             Header next = header(2, live(A), creating(B, 2, PKG_B));
             Path root = legacy(prior, next);
             slot(root, A, tombstone(A, PKG_A, 2));
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = store(root);
             unchanged(problems, root, "release marker",
                     () -> store.writeHeader(prior, header(1, releasing(A))));
             check(problems, store.writeHeader(prior, next), "exact reconciliation refused");
@@ -139,7 +140,7 @@ public final class NativeIdentityHeaderFootprintTest {
             Header prior = header(1, releasing(A));
             Header next = header(2, releasing(A), creating(B, 2, PKG_B));
             Path root = legacy(prior, next);
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = store(root);
             unchanged(problems, root, "omission", () -> store.writeHeader(prior, header(1)));
             check(problems, store.writeHeader(prior, next), "exact reconciliation refused");
             Header omitted = header(2, creating(B, 2, PKG_B));
@@ -169,7 +170,7 @@ public final class NativeIdentityHeaderFootprintTest {
     private static void ownerRetries() {
         run("exact original B retry", problems -> {
             Path root = legacy(OLD, PENDING_B);
-            check(problems, persistence(root).reservePending(new Snapshot(1, List.of(RECORD_B))),
+            check(problems, reserve(persistence(root), new Snapshot(1, List.of(RECORD_B))),
                     "original retry refused");
             check(problems, PENDING_B.equals(stored(root))
                     && !Files.exists(root.resolve("store.bin-backup"), LinkOption.NOFOLLOW_LINKS),
@@ -178,13 +179,13 @@ public final class NativeIdentityHeaderFootprintTest {
         run("original plan with C id2", problems -> {
             Path root = legacy(OLD, PENDING_B);
             Snapshot plan = new Snapshot(2, List.of(RECORD_B, record(2, PKG_C, C)));
-            check(problems, persistence(root).reservePending(plan), "plan refused");
+            check(problems, reserve(persistence(root), plan), "plan refused");
             check(problems, header(2, creating(B, 1, PKG_B), creating(C, 2, PKG_C)).equals(stored(root)),
                     "reservation " + stored(root));
         });
         run("unpublished RETIRING B restated", problems -> {
             Path root = legacy(OLD, PENDING_B);
-            check(problems, persistence(root).reservePending(new Snapshot(1, List.of(RECORD_B),
+            check(problems, reserve(persistence(root), new Snapshot(1, List.of(RECORD_B),
                     Set.of(1L))), "retiring plan refused");
             check(problems, PENDING_B.equals(stored(root)), "reservation " + stored(root));
         });
@@ -198,7 +199,7 @@ public final class NativeIdentityHeaderFootprintTest {
             Path root = legacy(creatingAC, liveAC);
             slot(root, A, bound(A, PKG_A, 1, false, 1));
             bootCounter(problems, root, 2);
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = store(root);
             check(problems, store.resumeCreatingDirectory(creatingAC, C), "unrelated creation refused");
             Path retry = legacy(creatingAC, liveAC);
             slot(retry, A, bound(A, PKG_A, 1, false, 1));
@@ -210,7 +211,7 @@ public final class NativeIdentityHeaderFootprintTest {
             Path root = legacy(liveA, releasingA);
             slot(root, A, tombstone(A, PKG_A, 2));
             bootCounter(problems, root, 1);
-            check(problems, new NativeIdentityStore(root.toFile()).writeHeader(liveA, releasingA),
+            check(problems, store(root).writeHeader(liveA, releasingA),
                     "exact marker retry refused");
         });
         run("interrupted omission is compatible", problems -> {
@@ -218,7 +219,7 @@ public final class NativeIdentityHeaderFootprintTest {
             Path root = legacy(prior, omitted);
             slot(root, A, bound(A, PKG_A, 1, false, 1));
             bootCounter(problems, root, 2);
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = store(root);
             check(problems, store.writeHeader(prior, omitted) && store.confirmReleasedSlot(omitted, R),
                     "exact omission retry refused");
         });
@@ -232,12 +233,12 @@ public final class NativeIdentityHeaderFootprintTest {
             run(name, problems -> {
                 Path root = layout(bytes(OLD), mainSurvives ? bytes(PENDING_B) : GARBAGE,
                         mainSurvives ? GARBAGE : bytes(PENDING_B));
-                NativeIdentityStore store = new NativeIdentityStore(root.toFile());
-                check(problems, NativeIdentityPersistence.projectReservation(store.load(), REUSE) == null,
+                NativeIdentityStore store = store(root);
+                check(problems, project(new NativeIdentityPersistence(store), store.load(), REUSE) == null,
                         "C admitted at creation ID 1");
                 unchanged(problems, root, "selected header", () -> store.writeHeader(OLD, OLD));
                 bootCounter(problems, root, -1);
-                check(problems, new NativeIdentityPersistence(store).reservePending(
+                check(problems, reserve(new NativeIdentityPersistence(store),
                         new Snapshot(1, List.of(RECORD_B))) && PENDING_B.equals(stored(root)),
                         "original retry refused");
             });
@@ -250,8 +251,8 @@ public final class NativeIdentityHeaderFootprintTest {
             Path root = layout(bytes(OLD), bytes(PENDING_B), bytes(header(2, creating(B, 2, PKG_B))));
             NativeIdentityPersistence persistence = persistence(root);
             unchanged(problems, root, "main's B",
-                    () -> persistence.reservePending(new Snapshot(1, List.of(RECORD_B))));
-            unchanged(problems, root, "reserve's B", () -> persistence.reservePending(
+                    () -> reserve(persistence, new Snapshot(1, List.of(RECORD_B))));
+            unchanged(problems, root, "reserve's B", () -> reserve(persistence,
                     new Snapshot(2, List.of(record(2, PKG_B, B)))));
             bootCounter(problems, root, -1);
         });
@@ -259,8 +260,8 @@ public final class NativeIdentityHeaderFootprintTest {
             Path root = layout(bytes(OLD), bytes(PENDING_B), bytes(header(1, creating(D, 1, PKG_D))));
             NativeIdentityPersistence persistence = persistence(root);
             unchanged(problems, root, "B alone",
-                    () -> persistence.reservePending(new Snapshot(1, List.of(RECORD_B))));
-            unchanged(problems, root, "D alone", () -> persistence.reservePending(
+                    () -> reserve(persistence, new Snapshot(1, List.of(RECORD_B))));
+            unchanged(problems, root, "D alone", () -> reserve(persistence,
                     new Snapshot(1, List.of(record(1, PKG_D, D)))));
             bootCounter(problems, root, -1);
         });
@@ -276,10 +277,10 @@ public final class NativeIdentityHeaderFootprintTest {
             run("B not substituted by another " + plan.getKey(), problems -> {
                 Path root = legacy(OLD, PENDING_B);
                 NativeIdentityPersistence persistence = persistence(root);
-                check(problems, NativeIdentityPersistence.projectReservation(persistence.load(),
+                check(problems, project(persistence, persistence.load(),
                         plan.getValue()) == null, "substitute admitted");
                 unchanged(problems, root, "substitute",
-                        () -> persistence.reservePending(plan.getValue()));
+                        () -> reserve(persistence, plan.getValue()));
             });
         }
     }
@@ -291,20 +292,20 @@ public final class NativeIdentityHeaderFootprintTest {
             Path root = legacy(OLD, new Header(FOREIGN, 1, List.of(creating(B, 1, PKG_B))));
             NativeIdentityPersistence persistence = persistence(root);
             Snapshot own = new Snapshot(1, List.of(RECORD_B));
-            check(problems, NativeIdentityPersistence.projectReservation(persistence.load(), own) == null,
+            check(problems, project(persistence, persistence.load(), own) == null,
                     "foreign B admitted into this lineage");
-            unchanged(problems, root, "restatement", () -> persistence.reservePending(own));
+            unchanged(problems, root, "restatement", () -> reserve(persistence, own));
             bootCounter(problems, root, -1);
         });
         run("copy of another lineage refuses writes", problems -> {
             Path root = legacy(OLD, foreignEmpty);
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = store(root);
             unchanged(problems, root, "selected header", () -> store.writeHeader(OLD, OLD));
             bootCounter(problems, root, -1);
         });
         run("selected backup of another lineage refuses writes", problems -> {
             Path root = legacy(foreignEmpty, OLD);
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = store(root);
             check(problems, foreignEmpty.equals(stored(root)), "not the constructed selection");
             unchanged(problems, root, "selected header",
                     () -> store.writeHeader(foreignEmpty, foreignEmpty));
@@ -458,45 +459,45 @@ public final class NativeIdentityHeaderFootprintTest {
         run("predecessor of a protected reservation is compatible", problems -> {
             Path root = layout(bytes(PENDING_B), bytes(OLD), bytes(OLD));
             bootCounter(problems, root, 1);
-            check(problems, persistence(root).reservePending(new Snapshot(1, List.of(RECORD_B)))
+            check(problems, reserve(persistence(root), new Snapshot(1, List.of(RECORD_B)))
                     && PENDING_B.equals(stored(root)), "exact retry refused");
             Path later = layout(bytes(PENDING_B), bytes(OLD), bytes(OLD));
-            check(problems, persistence(later).reservePending(new Snapshot(2, List.of(RECORD_B,
+            check(problems, reserve(persistence(later), new Snapshot(2, List.of(RECORD_B,
                     record(2, PKG_C, C)))) && header(2, creating(B, 1, PKG_B), creating(C, 2, PKG_C))
                     .equals(stored(later)), "later reservation refused");
         });
         run("dropped CREATING entry is no predecessor", problems -> {
             Header creatingA = header(1, creating(A, 1, PKG_A));
             Path root = legacy(creatingA, header(1));
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = store(root);
             unchanged(problems, root, "selected header", () -> store.writeHeader(creatingA, creatingA));
             bootCounter(problems, root, -1);
         });
         run("lower counter without a newer reservation refuses", problems -> {
             Header selected = header(2, live(A));
             Path root = legacy(selected, header(1, live(A)));
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = store(root);
             unchanged(problems, root, "selected header", () -> store.writeHeader(selected, selected));
             bootCounter(problems, root, -1);
         });
         run("higher counter only copy refuses header writes", problems -> {
             Header selected = header(1, live(A));
             Path root = legacy(selected, header(3, live(A)));
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = store(root);
             NativeIdentityPersistence persistence = persistence(root);
             unchanged(problems, root, "selected header", () -> store.writeHeader(selected, selected));
-            unchanged(problems, root, "reservation above it", () -> persistence.reservePending(
+            unchanged(problems, root, "reservation above it", () -> reserve(persistence,
                     new Snapshot(4, List.of(record(4, PKG_C, C)))));
             bootCounter(problems, root, -1);
         });
         run("counter advances only with a pure reservation", problems -> {
             Header selected = header(1, live(A));
             Path root = layout(null, bytes(selected), bytes(selected));
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = store(root);
             unchanged(problems, root, "counter only write",
                     () -> store.writeHeader(selected, header(3, live(A))));
             unchanged(problems, root, "counter only reservation",
-                    () -> persistence(root).reservePending(new Snapshot(3, List.of())));
+                    () -> reserve(persistence(root), new Snapshot(3, List.of())));
             check(problems, store.writeHeader(selected, header(3, live(A), creating(C, 3, PKG_C))),
                     "pure reservation refused");
         });
@@ -504,7 +505,7 @@ public final class NativeIdentityHeaderFootprintTest {
             Header prior = header(1, creating(A, 1, PKG_A));
             Path root = layout(null, bytes(prior), bytes(prior));
             slot(root, A, bound(A, PKG_A, 1, false, 1));
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = store(root);
             unchanged(problems, root, "mixed write",
                     () -> store.writeHeader(prior, header(2, live(A), creating(C, 2, PKG_C))));
             check(problems, store.writeHeader(prior, header(1, live(A))), "completion refused");
@@ -518,7 +519,7 @@ public final class NativeIdentityHeaderFootprintTest {
             NativeIdentityPersistence persistence = persistence(root);
             Record a = record(1, PKG_A, A);
             unchanged(problems, root, "completion", () -> persistence.publish(a, SIGNERS));
-            check(problems, persistence.reservePending(new Snapshot(2, List.of(a, record(2, PKG_B, B)))),
+            check(problems, reserve(persistence, new Snapshot(2, List.of(a, record(2, PKG_B, B)))),
                     "reservation refused");
             check(problems, header(2, creating(A, 1, PKG_A), creating(B, 2, PKG_B)).equals(stored(root)),
                     "reservation " + stored(root));
@@ -539,7 +540,7 @@ public final class NativeIdentityHeaderFootprintTest {
             run("incompatible copy / " + kind.getKey(), problems -> {
                 Header selected = kind.getValue()[0];
                 Path root = legacy(selected, kind.getValue()[1]);
-                NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+                NativeIdentityStore store = store(root);
                 check(problems, selected.equals(stored(root)), "not the constructed selection");
                 unchanged(problems, root, "selected header", () -> store.writeHeader(selected, selected));
                 bootCounter(problems, root, -1);
@@ -550,18 +551,18 @@ public final class NativeIdentityHeaderFootprintTest {
             NativeIdentityPersistence persistence = persistence(root);
             Snapshot invented = new Snapshot(3, List.of(record(1, PKG_C, C), record(2, PKG_B, B),
                     record(3, PKG_D, D)));
-            check(problems, NativeIdentityPersistence.projectReservation(persistence.load(), invented) == null,
+            check(problems, project(persistence, persistence.load(), invented) == null,
                     "new identity admitted inside the observed counter");
-            unchanged(problems, root, "invented reservation", () -> persistence.reservePending(invented));
-            check(problems, persistence.reservePending(new Snapshot(3, List.of(record(2, PKG_B, B),
+            unchanged(problems, root, "invented reservation", () -> reserve(persistence, invented));
+            check(problems, reserve(persistence, new Snapshot(3, List.of(record(2, PKG_B, B),
                     record(3, PKG_D, D)))), "reservation above the observed counter refused");
         });
         run("restatement must cover every copy counter", problems -> {
             Path root = legacy(OLD, header(2, creating(B, 1, PKG_B)));
             NativeIdentityPersistence persistence = persistence(root);
             unchanged(problems, root, "restatement below the copy counter",
-                    () -> persistence.reservePending(new Snapshot(1, List.of(RECORD_B))));
-            check(problems, persistence.reservePending(new Snapshot(2, List.of(RECORD_B)))
+                    () -> reserve(persistence, new Snapshot(1, List.of(RECORD_B))));
+            check(problems, reserve(persistence, new Snapshot(2, List.of(RECORD_B)))
                     && header(2, creating(B, 1, PKG_B)).equals(stored(root)), "covering restatement refused");
         });
     }

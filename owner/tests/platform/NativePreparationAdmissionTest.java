@@ -13,6 +13,15 @@ import java.util.Set;
 /** Exact preparation admission and retained ownership, not Android authority qualification. */
 public final class NativePreparationAdmissionTest {
     private static final String A = "dev.andrix.admission", B = "dev.andrix.admissionpeer";
+    // The facade's installed signer digest, as an owned manager issuance would carry it.
+    private static final Set<String> SIGNERS =
+            Set.of("039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81");
+    // A reservation plan with an owned signer row for every record: the B0 equivalent case.
+    private static NativeIdentityPersistence.CreationPlan plan(NativePrincipalPins.Snapshot snapshot) {
+        Map<Long, Set<String>> rows = new java.util.TreeMap<>();
+        for (NativePrincipalPins.Record record : snapshot.records) rows.put(record.id, SIGNERS);
+        return new NativeIdentityPersistence.CreationPlan(snapshot, rows);
+    }
     private static void refused(Runnable operation) {
         try { operation.run(); }
         catch (IllegalArgumentException | IllegalStateException expected) { return; }
@@ -128,14 +137,15 @@ public final class NativePreparationAdmissionTest {
                         "dev.andrix.projected" + i, 11000 + i, 0, 7));
                 var snapshot = new NativePrincipalPins.Snapshot(held + pending, records,
                         pending == 0 ? Set.of() : Set.of((long) held + 1));
-                var projected = NativeIdentityPersistence.projectReservation(pm.mSettings.mNativeIdentityLoaded, snapshot);
+                var projected = pm.mSettings.persistence.projectReservation(
+                        pm.mSettings.mNativeIdentityLoaded, plan(snapshot));
                 boolean fit;
                 Os.forbiddenMonitor = pm.mLock;
-                synchronized (pm.mLock) { fit = pm.mSettings.nativeIdentityReservationFitsLPr(snapshot); }
+                synchronized (pm.mLock) { fit = pm.mSettings.nativeIdentityReservationFitsLPr(plan(snapshot)); }
                 assert fit == (held + pending <= NativeIdentityRecords.MAX_SLOTS);
                 assert fit == (projected != null);
                 Os.forbiddenMonitor = null;
-                assert pm.mSettings.persistence.reservePending(snapshot) == fit;
+                assert pm.mSettings.persistence.reservePending(plan(snapshot)) == fit;
                 if (fit) assert pm.mSettings.persistence.load().header.value.equals(projected);
             }
         }
@@ -146,25 +156,26 @@ public final class NativePreparationAdmissionTest {
         var a = manager.prepare(manager.select(A, 0));
         var first = pm.mSettings.pins.snapshotForWrite();
         var cache = pm.mSettings.mNativeIdentityLoaded;
-        assert pm.mSettings.persistence.reservePending(first);
+        assert pm.mSettings.persistence.reservePending(plan(first));
         var durable = pm.mSettings.persistence.load();
         assert !cache.header.value.equals(durable.header.value);
         // A skipped observe after the first header write must not count a pin twice.
         var b = manager.prepare(manager.select(B, 0));
         var both = pm.mSettings.pins.snapshotForWrite();
-        var lagged = NativeIdentityPersistence.projectReservation(cache, both);
-        var current = NativeIdentityPersistence.projectReservation(durable, both);
+        var lagged = pm.mSettings.persistence.projectReservation(cache, plan(both));
+        var current = pm.mSettings.persistence.projectReservation(durable, plan(both));
         assert lagged.equals(current) && current.entries.size() == 2;
-        assert pm.mSettings.persistence.reservePending(both);
+        assert pm.mSettings.persistence.reservePending(plan(both));
         assert pm.mSettings.persistence.load().header.value.equals(lagged);
         assert manager.commit(a) && manager.commit(b);
 
         PackageManagerService fresh = fixture(0, false);
         var own = new NativePrincipalPins.Snapshot(1,
                 List.of(new NativePrincipalPins.Record(1, A, 11000, 0, 7)));
-        assert fresh.mSettings.persistence.reservePending(own);
+        assert fresh.mSettings.persistence.reservePending(plan(own));
         var loaded = fresh.mSettings.persistence.load();
-        assert NativeIdentityPersistence.projectReservation(loaded, own).equals(loaded.header.value);
+        assert fresh.mSettings.persistence.projectReservation(loaded, plan(own))
+                .equals(loaded.header.value);
         var wrong = new NativePrincipalPins.Snapshot(2,
                 List.of(new NativePrincipalPins.Record(2, A, 11000, 0, 7)));
         var passed = new NativePrincipalPins.Snapshot(1,
@@ -172,9 +183,9 @@ public final class NativePreparationAdmissionTest {
         var secondary = new NativePrincipalPins.Snapshot(2,
                 List.of(new NativePrincipalPins.Record(2, B, 11001, 10, 8)));
         for (var snapshot : List.of(wrong, passed, secondary)) {
-            assert NativeIdentityPersistence.projectReservation(loaded, snapshot) == null;
+            assert fresh.mSettings.persistence.projectReservation(loaded, plan(snapshot)) == null;
             byte[] before = Files.readAllBytes(fresh.mSettings.root.resolve("store.bin"));
-            assert !fresh.mSettings.persistence.reservePending(snapshot);
+            assert !fresh.mSettings.persistence.reservePending(plan(snapshot));
             assert Arrays.equals(before, Files.readAllBytes(fresh.mSettings.root.resolve("store.bin")));
         }
     }

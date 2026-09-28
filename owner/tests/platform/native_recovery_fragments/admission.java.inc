@@ -1,4 +1,4 @@
-    boolean nativeIdentityReservationFitsLPr(NativePrincipalPins.Snapshot candidate) {
+    boolean nativeIdentityReservationFitsLPr(NativeIdentityPersistence.CreationPlan plan) {
         return mNativeIdentityLoaded != null
-                && NativeIdentityPersistence.projectReservation(mNativeIdentityLoaded, candidate) != null;
+                && nativeIdentityPersistenceLPr().projectReservation(mNativeIdentityLoaded, plan) != null;
     }

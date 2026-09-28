@@ -62,6 +62,16 @@ reservation includes all pending identities before advancing the counter, so com
 does not strand an earlier prepared identity. A creation not yet published already retiring in
 memory still needs its own durable hold and marker, not omission from reservation bookkeeping.
 
+A reservation is a creation plan: the snapshot plus the original signer set of each issuance this
+manager owns, never current package signers. A truly new entry needs that row. Held entries and
+unselected additions stay exactly as durable state lists them. The store's format is fixed at
+construction, and production constructs version 1. The host only version 2 format writes a new
+entry's complete binding, raises a version 1 header only for such an entry, and checks bodies
+against bindings only negatively. A body that fails its binding stays negative package and
+principal evidence for its siblings, also beside another conflict. Admission measures the exact
+encoding before any ID is issued.
+See the [creation binding plan](../../plans/2026-09-27-native-creation-binding.md).
+
 The real PMS allocator skips the union of every store footprint and every memory pin, in holes
 and appended slots. An unavailable or reduced later read cannot forget a previous hold. Explicit
 registration/replacement fences remain; a held empty slot is not an ordinary duplicate setting.

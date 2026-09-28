@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.android.server.pm;
 
+import com.android.server.pm.NativeIdentityRecords.CreationBinding;
 import com.android.server.pm.NativeIdentityRecords.Header;
 import com.android.server.pm.NativeIdentityRecords.HeaderEntry;
 import com.android.server.pm.NativeIdentityRecords.Slot;
@@ -30,6 +31,12 @@ import java.util.TreeMap;
  * credentials. The first adapter supports Android user 0 with one user per slot. Stored signer
  * sets are immutable, and no call adds a user to an existing slot.
  *
+ * <p>A reservation takes a {@link CreationPlan}: the core snapshot plus the original signer set
+ * of each record whose issuance the caller owns. A truly new entry needs that row. Under the
+ * store's version 2 format it becomes a complete creation binding; under version 1 the row is
+ * provenance the caller must have, and the entry stays as version 1 always wrote it. Durable
+ * entries are never refilled from a row, and nothing is taken from the current APK.
+ *
  * <p>Caller obligations, which this class cannot check:
  * <ol>
  * <li>One writer. Serialize every call under Package Manager's install lock. Calls block on
@@ -52,8 +59,52 @@ final class NativeIdentityPersistence {
     private static final int USER_SYSTEM = 0;
     private static final int LINEAGE_DIGITS = 32;
     private static final int SIGNER_DIGITS = 64;
+    private static final int VERSION_1 = 1;
+    private static final int VERSION_2 = 2;
 
     private final NativeIdentityStore store;
+
+    /**
+     * One validated reservation proposal: a complete core snapshot and the original signer set
+     * of each of its records whose issuance the caller owns. Immutable and memory only. A row
+     * is provenance for a truly new entry and a negative check against a durable binding. It
+     * never fills in or replaces a durable entry, and it is no grant or current identity.
+     * Records without a row keep their durable entries unchanged; a new one refuses.
+     */
+    static final class CreationPlan {
+        final NativePrincipalPins.Snapshot snapshot;
+        private final Map<Long, Set<String>> signers;
+
+        /**
+         * Copies the rows. Each key must be a record ID of the snapshot, and each set must hold
+         * 1 to MAX_SIGNERS lowercase SHA-256 digests.
+         *
+         * @throws IllegalArgumentException for a malformed snapshot, a foreign row ID or an
+         *     invalid signer set
+         * @throws NullPointerException for a null snapshot, map, key, set or digest
+         */
+        CreationPlan(NativePrincipalPins.Snapshot snapshot, Map<Long, Set<String>> signers) {
+            Objects.requireNonNull(snapshot, "snapshot");
+            Map<Long, Set<String>> rows = Map.copyOf(Objects.requireNonNull(signers, "signers"));
+            checkSnapshot(snapshot);
+            Set<Long> ids = new HashSet<>();
+            for (NativePrincipalPins.Record record : snapshot.records) ids.add(record.id);
+            Map<Long, Set<String>> copy = new HashMap<>();
+            for (Map.Entry<Long, Set<String>> row : rows.entrySet()) {
+                if (!ids.contains(row.getKey())) {
+                    throw new IllegalArgumentException("signer row for an ID outside the snapshot");
+                }
+                copy.put(row.getKey(), signers(row.getValue()));
+            }
+            this.snapshot = snapshot;
+            this.signers = Map.copyOf(copy);
+        }
+
+        /** The owned original signer set of this record ID, or null without one. */
+        Set<String> row(long id) {
+            return signers.get(id);
+        }
+    }
 
     NativeIdentityPersistence(NativeIdentityStore store) {
         this.store = Objects.requireNonNull(store, "store");
@@ -75,72 +126,108 @@ final class NativeIdentityPersistence {
 
     /**
      * Durably reserves every pending core pin that the store's counter has not yet passed,
-     * before any of them is published. Pass the core's complete {@code snapshotForWrite()}.
-     * Memory prepares can issue IDs 1 and 2 and then publish 2 first. A counter advanced to 2
-     * without an entry for 1 would leave 1 permanently unreservable.
+     * before any of them is published. Pass a plan of the core's complete
+     * {@code snapshotForWrite()}. Memory prepares can issue IDs 1 and 2 and then publish 2
+     * first. A counter advanced to 2 without an entry for 1 would leave 1 permanently
+     * unreservable.
      *
      * <p>Needs a creation ready store. Every existing index entry is kept exactly, including
      * damaged, unknown and core absent slots: core absence never omits anything. A record
      * with an index entry must match a CREATING entry exactly, and LIVE or RELEASING slots are
      * never reallocated here. A record without one gets a new CREATING entry only if its ID is
-     * above the durable counter. A pending creation whose core handle is already RETIRING
-     * still gets its negative reservation, so its original retirement can publish a marker
-     * and complete. That is not activation. The counter becomes the larger of the store's and the snapshot's lastId, never a maximum of
-     * observed IDs. No slot directory or body is created.
+     * above the durable counter and the plan has its owned signer row. A pending creation whose
+     * core handle is already RETIRING still gets its negative reservation, so its original
+     * retirement can publish a marker and complete. That is not activation. The counter becomes
+     * the larger of the store's and the snapshot's lastId, never a maximum of observed IDs. No
+     * slot directory or body is created.
      *
      * <p>An entry listed only by an unselected header copy is retained as a negative footprint;
      * it can reflect an earlier unacknowledged write. Only this snapshot's own exact record
-     * restates it, and the snapshot
-     * counter must cover every copy's. Otherwise the call refuses before any effect, as does
-     * every other header write. The counter never advances without a new reservation.
+     * restates it, with its exact original entry, and the snapshot counter must cover every
+     * copy's. Otherwise the call refuses before any effect, as does every other header write.
+     * The counter never advances without a new reservation.
      */
-    boolean reservePending(NativePrincipalPins.Snapshot snapshot) {
-        Objects.requireNonNull(snapshot, "snapshot");
-        checkSnapshot(snapshot);
-        for (NativePrincipalPins.Record record : snapshot.records) {
+    boolean reservePending(CreationPlan plan) {
+        Objects.requireNonNull(plan, "plan");
+        for (NativePrincipalPins.Record record : plan.snapshot.records) {
             if (record.userId != USER_SYSTEM) return false;
         }
         NativeIdentityStore.Loaded loaded = store.load();
-        Header next = projectReservation(loaded, snapshot);
+        Header next = projectReservation(loaded, plan);
         if (next == null) return false;
         // Also the exact retry: an unchanged header is rewritten through checked writers.
         return store.writeHeader(loaded.header.value, next);
     }
 
     /**
-     * Pure projection shared by admission and the writer. It retains every
-     * durable index entry plus all unreserved pins, including RETIRING pins.
-     * Under the store's own header copy rule it refuses to lose or rebind an
-     * unselected addition, to reuse its creation ID, to fall below any copy's
-     * counter or to advance the counter without a new reservation. A cached view
-     * is not a durability acknowledgement or a live lease.
+     * Pure projection shared by admission, on the cached view, and by the writer, on a fresh
+     * load: the one place a reservation header is built. It needs no I/O and grants nothing. A
+     * cached view is not a durability acknowledgement or a live lease.
+     *
+     * <p>It keeps every durable index entry and adds each unreserved record of the plan,
+     * including RETIRING ones, in one of three ways. A selected entry is kept unchanged; its
+     * CREATING tuple must be this record's, and a complete binding must name its user and
+     * serial and, where the plan has a row, that signer set. A missing row never strands it.
+     * An unselected addition keeps its exact original entry, an absent binding included, under
+     * the same checks; nothing refills it. Any other record is truly new: it needs its owned
+     * row, and under the store's version 2 format it carries its original user, serial and
+     * signer set as a complete creation binding. Only a truly new bound entry raises a version
+     * 1 header to version 2; restatements alone keep the version. Nothing is inferred from an
+     * APK or reconstructed after a restart.
+     *
+     * <p>The exact chosen version and entries are measured by the encoder before any Header is
+     * built. A proposal over MAX_SLOTS or MAX_BYTES is refused here, so admission refuses it
+     * before an ID is issued and the writer before any effect. The store's header copy rule
+     * then applies: it refuses to lose or rebind an unselected addition, to reuse its creation
+     * ID, to fall below any copy's counter, to advance the counter without a new reservation
+     * or to change the version without a truly new bound entry.
+     *
+     * @return the header to write, or null to refuse
      */
-    static Header projectReservation(NativeIdentityStore.Loaded loaded,
-            NativePrincipalPins.Snapshot snapshot) {
+    Header projectReservation(NativeIdentityStore.Loaded loaded, CreationPlan plan) {
         Objects.requireNonNull(loaded, "loaded");
-        Objects.requireNonNull(snapshot, "snapshot");
-        checkSnapshot(snapshot);
-        for (NativePrincipalPins.Record record : snapshot.records) {
+        Objects.requireNonNull(plan, "plan");
+        NativeIdentityStore.Format format = store.format();
+        for (NativePrincipalPins.Record record : plan.snapshot.records) {
             if (record.userId != USER_SYSTEM) return null;
         }
         if (!loaded.creationReady()) return null;
         Header current = loaded.header.value;
+        NativeIdentityStore.HeaderCopies copies = NativeIdentityStore.HeaderCopies.of(loaded.header);
+        if (copies == null || current.version > format.headerCeiling) return null;
         TreeMap<Integer, HeaderEntry> entries = new TreeMap<>();
         for (HeaderEntry entry : current.entries) entries.put(entry.appId, entry);
-        for (NativePrincipalPins.Record record : snapshot.records) {
+        boolean bound = false;
+        for (NativePrincipalPins.Record record : plan.snapshot.records) {
+            Set<String> row = plan.row(record.id);
             HeaderEntry held = entry(current, record.appId);
             if (held != null) {
-                if (held.phase == SlotPhase.CREATING && !reservedFor(held, record)) return null;
+                if (held.phase == SlotPhase.CREATING && !reservedFor(held, record, row)) return null;
                 continue; // Its own reservation, or an existing slot that publish must match.
             }
+            HeaderEntry known = copies.additions.get(record.appId);
+            if (known != null) {
+                // Its exact original entry: an absent binding stays absent.
+                if (!reservedFor(known, record, row)) return null;
+                entries.put(record.appId, known);
+                continue;
+            }
             if (record.id <= current.lastId) return null; // Passed without a reservation.
+            if (row == null) return null; // A new entry needs owned signer provenance.
+            CreationBinding binding = format.reservationVersion == VERSION_1 ? null
+                    : new CreationBinding(record.userId, record.userSerial, row);
             entries.put(record.appId, new HeaderEntry(record.appId, SlotPhase.CREATING,
-                    record.id, record.packageName));
+                    record.id, record.packageName, binding));
+            if (binding != null) bound = true;
         }
-        if (entries.size() > NativeIdentityRecords.MAX_SLOTS) return null;
-        Header next = new Header(current.lineage, Math.max(current.lastId, snapshot.lastId),
-                new ArrayList<>(entries.values()));
-        return NativeIdentityStore.keepsHeaderCopies(loaded.header, next) ? next : null;
+        int version = bound ? format.reservationVersion : current.version;
+        long lastId = Math.max(current.lastId, plan.snapshot.lastId);
+        List<HeaderEntry> list = new ArrayList<>(entries.values());
+        if (list.size() > NativeIdentityRecords.MAX_SLOTS || NativeIdentityRecords.encodedHeaderLength(
+                version, current.lineage, lastId, list) > NativeIdentityRecords.MAX_BYTES) return null;
+        Header next = version == VERSION_1 ? new Header(current.lineage, lastId, list)
+                : Header.newV2(current.lineage, lastId, list);
+        return NativeIdentityStore.keepsHeaderCopies(loaded.header, next, format) ? next : null;
     }
 
     /**
@@ -154,7 +241,10 @@ final class NativeIdentityPersistence {
      * Otherwise the target needs this record's reservePending entry in a creation ready store
      * and no body yet: its private directory is resumed, generation 1 is published and the
      * entry becomes LIVE. Retries confirm the same binding and never issue another ID. Every
-     * true result ends with a checked confirmation of the exact slot.
+     * true result ends with a checked confirmation of the exact slot. A complete creation
+     * binding on the entry must name this record's user and serial and the expected signer
+     * set, or nothing is published; an entry without one, from an older writer, is published
+     * as before.
      */
     boolean publish(NativePrincipalPins.Record record, Set<String> expectedSigners) {
         Objects.requireNonNull(record, "record");
@@ -166,7 +256,7 @@ final class NativeIdentityPersistence {
             if (!loaded.creationReady()) return false;
             Header header = loaded.header.value;
             NativeIdentityStore.ReadResult<Slot> read = loaded.slots.get(record.appId);
-            if (!reservedFor(entry(header, record.appId), record) || read == null
+            if (!reservedFor(entry(header, record.appId), record, signers) || read == null
                     || read.status != NativeIdentityStore.Status.MISSING) return false;
             Slot created = new Slot(header.lineage, record.appId, record.packageName, 1, signers,
                     List.of(new UserEntry(record.id, record.userId, record.userSerial, false)));
@@ -182,7 +272,7 @@ final class NativeIdentityPersistence {
             Header header = loaded.header.value;
             HeaderEntry entry = entry(header, record.appId);
             if (entry == null || entry.phase == SlotPhase.RELEASING) return false;
-            if (entry.phase == SlotPhase.CREATING && (!reservedFor(entry, record)
+            if (entry.phase == SlotPhase.CREATING && (!reservedFor(entry, record, signers)
                     || !store.writeHeader(header, withPhase(header, record.appId,
                     SlotPhase.LIVE)))) return false;
         }
@@ -331,10 +421,18 @@ final class NativeIdentityPersistence {
         return false;
     }
 
-    private static boolean reservedFor(HeaderEntry entry, NativePrincipalPins.Record record) {
-        return entry != null && entry.phase == SlotPhase.CREATING
-                && entry.creationId == record.id
-                && entry.creationPackage.equals(record.packageName);
+    // This record's CREATING entry: its creation ID and package, and with a complete creation
+    // binding, the record's user and serial and, when known, the signer set. Negative only: an
+    // entry without a binding keeps the checks it always had, and a null set skips only the
+    // signer comparison. Nothing compares against or copies current package signers.
+    private static boolean reservedFor(HeaderEntry entry, NativePrincipalPins.Record record,
+            Set<String> signers) {
+        if (entry == null || entry.phase != SlotPhase.CREATING || entry.creationId != record.id
+                || !entry.creationPackage.equals(record.packageName)) return false;
+        CreationBinding binding = entry.creationBinding;
+        return binding == null || (binding.userId == record.userId
+                && binding.userSerial == record.userSerial
+                && (signers == null || binding.signerSha256.equals(signers)));
     }
 
     private static HeaderEntry entry(Header header, int appId) {
@@ -342,19 +440,27 @@ final class NativeIdentityPersistence {
         return null;
     }
 
-    // LIVE or RELEASING for one entry, with the same counter and every other entry.
+    // LIVE or RELEASING for one entry, with the same version, counter and every other entry.
     private static Header withPhase(Header header, int appId, SlotPhase phase) {
         List<HeaderEntry> entries = new ArrayList<>(header.entries.size());
         for (HeaderEntry entry : header.entries) {
             entries.add(entry.appId == appId ? new HeaderEntry(appId, phase, 0, "") : entry);
         }
-        return new Header(header.lineage, header.lastId, entries);
+        return sameVersion(header, entries);
     }
 
     private static Header without(Header header, int appId) {
         List<HeaderEntry> entries = new ArrayList<>(header.entries.size());
         for (HeaderEntry entry : header.entries) if (entry.appId != appId) entries.add(entry);
-        return new Header(header.lineage, header.lastId, entries);
+        return sameVersion(header, entries);
+    }
+
+    // The header's own version, lineage and counter with other entries. Phase changes and
+    // omissions never convert a version: only a reservation with a truly new bound entry does.
+    private static Header sameVersion(Header header, List<HeaderEntry> entries) {
+        if (header.version == VERSION_1) return new Header(header.lineage, header.lastId, entries);
+        if (header.version == VERSION_2) return Header.newV2(header.lineage, header.lastId, entries);
+        throw new IllegalStateException("header version without a writer");
     }
 
     // One validated immutable copy of the caller's set. It is only compared, never stored

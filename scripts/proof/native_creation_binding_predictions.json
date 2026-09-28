@@ -1,0 +1,365 @@
+{
+  "status": "PREDICTED before any execution. These are not executed results.",
+  "basis": "Per case traces of the adapted header footprint suite against the exact d104e15 store, persistence and host facade, and of each B1 mutant against the B1 focused and fault cases. The guarded runner compares executed sets with these and reports any mismatch.",
+  "b0_adapted_suite": {
+    "c9264e4": {
+      "focused_failures": [],
+      "fault_failures": []
+    },
+    "d104e15": {
+      "focused_failures": [
+        "store repro / admission refuses reuse of B's creation ID",
+        "store repro / reservation refused before any effect",
+        "store repro / direct header write refused",
+        "store repro / selected header rewrite refused",
+        "initializeNew refused",
+        "ensureFreshSlot refused",
+        "resumeCreatingDirectory refused",
+        "publishCreatingSlot refused",
+        "confirmReleasedSlot cannot release an addition",
+        "removeReleasingSlot refused",
+        "CREATING to LIVE waits for reconciliation",
+        "LIVE to RELEASING waits for reconciliation",
+        "unrelated final omission waits for reconciliation",
+        "owned retirement header steps refused",
+        "single intact main beside a torn reserve counts",
+        "single intact reserve beside a torn main counts",
+        "disagreeing copies of one addition refuse",
+        "additions sharing a creation ID refuse",
+        "B not substituted by another app ID",
+        "B not substituted by another creation ID",
+        "B not substituted by another package",
+        "addition of another lineage not reinterpreted",
+        "copy of another lineage refuses writes",
+        "selected backup of another lineage refuses writes",
+        "manager repro / reopened PMS issues nothing",
+        "same manager / B release waits for C",
+        "reopened registry keeps holds and LIVE bindings",
+        "dropped CREATING entry is no predecessor",
+        "lower counter without a newer reservation refuses",
+        "higher counter only copy refuses header writes",
+        "counter advances only with a pure reservation",
+        "mixed phase change and reservation write refuses",
+        "mixed forward phase and addition copy needs its reservation first",
+        "incompatible copy / LIVE addition",
+        "incompatible copy / addition at or below the counter",
+        "incompatible copy / backward phase",
+        "incompatible copy / changed CREATING tuple",
+        "incompatible copy / dropped LIVE entry",
+        "incompatible copy / skipped phase",
+        "new entry in the observed range must be a known addition",
+        "restatement must cover every copy counter"
+      ],
+      "fault_failures": [
+        "owned retry keeps B through a failure after startWrite",
+        "legacy owned retry / backup-renamed",
+        "legacy owned retry / backup-published",
+        "legacy owned retry / write-started",
+        "legacy owned retry / main-synced",
+        "legacy owned retry / reserve-synced",
+        "legacy owned retry / backup-unlink",
+        "new reservation / backup-renamed",
+        "new reservation / backup-published",
+        "new reservation / write-started",
+        "new reservation / main-synced",
+        "new reservation / reserve-synced",
+        "new reservation / backup-unlink",
+        "chained protected reservations",
+        "legacy B with C id2 / C first",
+        "legacy B with C id2 / B first",
+        "unpublished RETIRING B",
+        "interrupted publication then protected reservation"
+      ],
+      "focused_controls": [
+        "exact original B retry",
+        "original plan with C id2",
+        "unpublished RETIRING B restated",
+        "interrupted CREATING to LIVE is compatible",
+        "interrupted LIVE to RELEASING is compatible",
+        "interrupted omission is compatible",
+        "same manager / original B retry",
+        "same manager / C id2, C committed first",
+        "same manager / C id2, B committed first",
+        "same manager / unpublished RETIRING B with C id2",
+        "same manager / C issued first, both restated",
+        "predecessor of a protected reservation is compatible"
+      ],
+      "fault_controls": [
+        "legacy owned retry / seed-synced",
+        "legacy owned retry / backup-unlinked",
+        "new reservation / seed-synced",
+        "new reservation / backup-unlinked",
+        "prior ordering / publication",
+        "prior ordering / release marker",
+        "prior ordering / omission",
+        "prior ordering / confirmation",
+        "foreign preferred backup is refused unchanged"
+      ]
+    },
+    "b1_v1": {
+      "focused_failures": [],
+      "fault_failures": []
+    }
+  },
+  "b1": {
+    "focused_failures": [],
+    "fault_failures": [],
+    "reader_layouts": 44,
+    "presence_v2_passed": 93
+  },
+  "b1_mutants_caught_at_least": {
+    "no-version-relaxation": [
+      "cross version / a V2 target beside V1 predecessors restores only its counter",
+      "fresh upgrade / backup-renamed",
+      "fresh upgrade / backup-published",
+      "legacy B with bound C / C first / backup-renamed",
+      "interrupted V1 publication then protected upgrade"
+    ],
+    "permissive-v1-successor": [
+      "cross version / a V1 copy at the selected counter is incompatible",
+      "cross version / a V1 copy above the selected counter is incompatible"
+    ],
+    "filling-legacy-b": [
+      "V2 / legacy B with new C upgrades, C committed first",
+      "V2 / legacy B with new C upgrades, B committed first",
+      "V2 / legacy B beside new C writes the golden bytes",
+      "legacy B with bound C / C first / seed-synced"
+    ],
+    "upgrading-only-restatement": [
+      "V2 / a restatement alone keeps version 1",
+      "V2 / a restatement stays version 1, then new C upgrades",
+      "version 1 restatement under version 2 / seed-synced"
+    ],
+    "low-level-restatement-upgrade": [
+      "low level / a restatement alone never upgrades",
+      "low level / relabels and downgrades refuse"
+    ],
+    "wrong-version-measure": [
+      "V2 / an owned flow writes the golden version 2 bytes",
+      "V2 / legacy B beside new C writes the golden bytes",
+      "fresh upgrade / seed-synced"
+    ],
+    "no-byte-measure": [
+      "admission / one byte over MAX_BYTES refuses before issuance"
+    ],
+    "current-packagesetting-signers": [
+      "signer mutation / Q reserves P with its original signers",
+      "signer mutation / a durable P reservation does not strand Q"
+    ],
+    "omit-retiring": [
+      "V2 / pending and unpublished RETIRING pins reserve together",
+      "admission / exactly MAX_BYTES is admitted and written",
+      "pending and RETIRING together / seed-synced"
+    ],
+    "withphase-downgrade": [
+      "V2 / an owned flow writes the golden version 2 bytes",
+      "V2 / publication, marker, release and a later reservation keep version 2",
+      "fresh upgrade / seed-synced"
+    ],
+    "new-incomplete-under-v2": [
+      "V2 / an owned flow writes the golden version 2 bytes",
+      "fresh upgrade / seed-synced"
+    ],
+    "low-level-incomplete-new": [
+      "low level / a new entry under version 2 needs a complete binding"
+    ],
+    "rows-required-for-held": [
+      "restored R / unrelated N reserves beside it without a row",
+      "restored R / a changed APK signer refuses only R's own rebind",
+      "V1 / held entries and additions need no row",
+      "V2 / a held binding refuses another owned signer row"
+    ],
+    "binding-unchecked-on-load": [
+      "binding mismatch / serial",
+      "binding mismatch / signer subset",
+      "binding mismatch / signer superset",
+      "binding mismatch / disjoint signers",
+      "binding mismatch / zero users",
+      "binding mismatch / another user",
+      "restored R / a mismatched body is a conflict that keeps its header"
+    ],
+    "compare-addition-app-id-only": [
+      "low level / an unselected addition is restated exactly"
+    ],
+    "binding-conflict-evidence-dropped": [
+      "binding conflict evidence / package only collision",
+      "binding conflict evidence / principal only collision",
+      "binding conflict evidence / package and principal collision",
+      "binding conflict evidence / a serial mismatch keeps package evidence",
+      "binding conflict evidence / a tombstone keeps package evidence",
+      "binding conflict evidence / swapped app IDs keep package evidence",
+      "binding conflict evidence / unselected copies failing the binding beside a collision",
+      "binding conflict evidence / an ordinary conflict alone keeps N, a failed binding withdraws it",
+      "binding conflict evidence / version 1 reads bound collisions as c9264e4 does"
+    ],
+    "binding-conflict-evidence-every-conflict": [
+      "binding conflict evidence / an ordinary conflict alone keeps N, a failed binding withdraws it"
+    ],
+    "binding-checked-in-selected-header-only": [
+      "binding conflict evidence / unselected copies failing the binding beside an unrelated sibling"
+    ],
+    "binding-evidence-only-as-sole-cause": [
+      "binding conflict evidence / an ordinary conflict alone keeps N, a failed binding withdraws it"
+    ],
+    "binding-conflict-last-copy-only": [
+      "binding conflict evidence / unselected slot copy keeps package evidence",
+      "binding conflict evidence / unselected slot copy keeps principal evidence"
+    ],
+    "binding-conflict-first-copy-only": [
+      "binding conflict evidence / unselected slot copy keeps principal evidence"
+    ]
+  },
+  "b1_guard_mutants": [
+    "production-v2-construction",
+    "production-format-value-of"
+  ],
+  "negative_evidence_follow_up": {
+    "status": "PREDICTED before any execution of the corrected sources. The entries above were predicted before the first run and are kept as they were; the two mutant entries added above belong to this follow-up.",
+    "basis": "Traces of the new sibling cases against load() before and after the correction. The pre correction outcome matches the constructed RED probe the primary reported: version 1 R and N CONFLICT, version 2 R CONFLICT and N VALID and usable.",
+    "new_focused_cases": [
+      "binding conflict evidence / package only collision",
+      "binding conflict evidence / principal only collision",
+      "binding conflict evidence / package and principal collision",
+      "binding conflict evidence / an unrelated sibling stays usable",
+      "binding conflict evidence / a mixed cause keeps the version 1 outcome"
+    ],
+    "pre_correction_sources": {
+      "focused_failures": [
+        "binding conflict evidence / package only collision",
+        "binding conflict evidence / principal only collision",
+        "binding conflict evidence / package and principal collision"
+      ]
+    },
+    "corrected_sources": {
+      "focused_failures": [],
+      "fault_failures": [],
+      "focused_cases": 69,
+      "fault_cases": 53,
+      "reader_layouts": 44
+    },
+    "new_mutants": [
+      "binding-conflict-evidence-dropped",
+      "binding-conflict-evidence-mixed-cause"
+    ],
+    "unchanged_expectation": "binding-unchecked-on-load is re-anchored to the separated binding check and keeps its earlier expected failures.",
+    "new_case_failures_by_mutant": {
+      "note": "Exactly which of the five new cases each mutant fails. Informational: the runner checks only the at least lists above. Without the binding check R stays VALID and meets N in the ordinary duplicate checks, so the collision cases do not catch binding-unchecked-on-load.",
+      "binding-unchecked-on-load": [
+        "binding conflict evidence / an unrelated sibling stays usable"
+      ],
+      "binding-conflict-evidence-dropped": [
+        "binding conflict evidence / package only collision",
+        "binding conflict evidence / principal only collision",
+        "binding conflict evidence / package and principal collision"
+      ],
+      "binding-conflict-evidence-mixed-cause": [
+        "binding conflict evidence / a mixed cause keeps the version 1 outcome"
+      ]
+    },
+    "superseded": "Never executed. Superseded by negative_evidence_follow_up_r3 before any run: the accepted rule keeps the evidence of a failed complete binding beside an ordinary conflict too, so the r2 mixed cause case and binding-conflict-evidence-mixed-cause mutant were removed. The r2 bundle keeps this section as it was."
+  },
+  "negative_evidence_follow_up_r3": {
+    "status": "PREDICTED before any execution of the r3 sources. Nothing here is an executed result.",
+    "rule": "A complete creation binding that fails in any decoded same lineage header copy listing the entry makes the record a CONFLICT, and all of its decoded slot copies are negative package and principal evidence before the positive duplicate checks, also beside an ordinary conflict. An ordinary conflict alone still gives no evidence.",
+    "basis": "Traces of each new case against load() of the PRE_NEGATIVE_FIX, r2 and r3 stores and each mutant, and of c9264e4 load() read from its Git objects for the three bound collision layouts.",
+    "new_focused_cases": [
+      "binding conflict evidence / package only collision",
+      "binding conflict evidence / principal only collision",
+      "binding conflict evidence / package and principal collision",
+      "binding conflict evidence / an unrelated sibling stays usable",
+      "binding conflict evidence / a serial mismatch keeps package evidence",
+      "binding conflict evidence / a tombstone keeps package evidence",
+      "binding conflict evidence / swapped app IDs keep package evidence",
+      "binding conflict evidence / unselected copies failing the binding beside a collision",
+      "binding conflict evidence / unselected copies failing the binding beside an unrelated sibling",
+      "binding conflict evidence / a matching binding keeps ordinary duplicates",
+      "binding conflict evidence / an ordinary conflict alone keeps N, a failed binding withdraws it",
+      "binding conflict evidence / version 1 reads bound collisions as c9264e4 does"
+    ],
+    "new_reader_layouts": [
+      "bound-collision-both",
+      "bound-collision-package",
+      "bound-collision-principal"
+    ],
+    "pre_negative_fix_sources": {
+      "focused_failures": [
+        "binding conflict evidence / package only collision",
+        "binding conflict evidence / principal only collision",
+        "binding conflict evidence / package and principal collision",
+        "binding conflict evidence / a serial mismatch keeps package evidence",
+        "binding conflict evidence / a tombstone keeps package evidence",
+        "binding conflict evidence / swapped app IDs keep package evidence",
+        "binding conflict evidence / unselected copies failing the binding beside a collision",
+        "binding conflict evidence / an ordinary conflict alone keeps N, a failed binding withdraws it",
+        "binding conflict evidence / version 1 reads bound collisions as c9264e4 does"
+      ],
+      "b1_v1_reader_failures": [
+        "version 1 reader / bound-collision-both",
+        "version 1 reader / bound-collision-package",
+        "version 1 reader / bound-collision-principal"
+      ],
+      "c926_reader_failures": []
+    },
+    "r2_sources": {
+      "focused_failures": [
+        "binding conflict evidence / an ordinary conflict alone keeps N, a failed binding withdraws it"
+      ],
+      "reader_failures": []
+    },
+    "r3_sources": {
+      "focused_failures": [],
+      "fault_failures": [],
+      "reader_failures": [],
+      "focused_cases": 76,
+      "fault_cases": 53,
+      "reader_layouts": 47
+    },
+    "new_case_failures_by_mutant": {
+      "note": "Exactly which of the twelve new cases each related mutant fails. Informational: the runner checks only the at least lists. Beside a collision R conflicts through the ordinary duplicate checks anyway, so only the unrelated sibling with unselected failing copies catches the selected header only mutant.",
+      "binding-unchecked-on-load": [
+        "binding conflict evidence / an unrelated sibling stays usable",
+        "binding conflict evidence / unselected copies failing the binding beside an unrelated sibling",
+        "binding conflict evidence / an ordinary conflict alone keeps N, a failed binding withdraws it"
+      ],
+      "binding-conflict-evidence-dropped": [
+        "binding conflict evidence / package only collision",
+        "binding conflict evidence / principal only collision",
+        "binding conflict evidence / package and principal collision",
+        "binding conflict evidence / a serial mismatch keeps package evidence",
+        "binding conflict evidence / a tombstone keeps package evidence",
+        "binding conflict evidence / swapped app IDs keep package evidence",
+        "binding conflict evidence / unselected copies failing the binding beside a collision",
+        "binding conflict evidence / an ordinary conflict alone keeps N, a failed binding withdraws it",
+        "binding conflict evidence / version 1 reads bound collisions as c9264e4 does"
+      ],
+      "binding-conflict-evidence-every-conflict": [
+        "binding conflict evidence / an ordinary conflict alone keeps N, a failed binding withdraws it"
+      ],
+      "binding-checked-in-selected-header-only": [
+        "binding conflict evidence / unselected copies failing the binding beside an unrelated sibling"
+      ],
+      "binding-evidence-only-as-sole-cause": [
+        "binding conflict evidence / an ordinary conflict alone keeps N, a failed binding withdraws it"
+      ]
+    }
+  },
+  "primary_stale_slot_controls": {
+    "status": "PREDICTED before execution",
+    "purpose": "all decoded slot copies stay negative after a complete binding withdrawal, not only preferred backup",
+    "checks": [
+      "binding conflict evidence / unselected slot copy keeps package evidence",
+      "binding conflict evidence / unselected slot copy keeps principal evidence"
+    ],
+    "corrected_sources_failures": [],
+    "last_copy_only_mutant_failures_at_least": [
+      "binding conflict evidence / unselected slot copy keeps package evidence",
+      "binding conflict evidence / unselected slot copy keeps principal evidence"
+    ],
+    "single_position_per_variant": true,
+    "matching_binding_controls": [
+      "binding conflict evidence / matching binding ignores unselected package body",
+      "binding conflict evidence / matching binding ignores unselected principal body"
+    ],
+    "positive_history_from_selected_backup_only": true
+  }
+}

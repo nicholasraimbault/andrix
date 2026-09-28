@@ -258,6 +258,11 @@ retain their own producers and scopes.
   protected backup beside its predecessors. The unmapped hold and unidentified code protection
   remained, with no binding invented and both original app key controls intact. Inactive writes
   were removed by R8. Actual production writer crash durability remains unqualified.
+  The [creation binding step](../plans/2026-09-27-native-creation-binding.md) reserves from owned
+  plans, admits exact encoded bytes before issuance and keeps version 2 host only. Guarded host
+  matrices, baseline comparisons, regressions and mutants passed. An independent probe exposed
+  a binding conflict that made a sibling usable; the correction preserves its negative evidence.
+  Android compilation and positive historical recovery remain separate.
   The [real consent reference](../plans/2026-09-27-native-permission-consent.md) then exercised the
   ordinary Android notification popup without privileged grants. Allow enabled an independent
   command after the helper closed; peer and false attribution controls remained separate. Back,

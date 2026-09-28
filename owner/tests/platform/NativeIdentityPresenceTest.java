@@ -35,9 +35,10 @@ import java.util.TreeSet;
  * writer refuses before any effect, keeps every byte, file identity and known hold, and grants
  * no eligibility or counter from around it. Links and special nodes are refused and never
  * followed. Each case isolates one store and restricts exactly one fixture path with real
- * unprivileged permissions, restoring that path's own mode afterwards. Only store surface that
- * predates this correction is used, so the file also runs against the earlier store as a
- * control. Host facades only, not Android persistence, SELinux or I/O error qualification.
+ * unprivileged permissions, restoring that path's own mode afterwards. A run uses one store
+ * format, the production V1 by default. A separate V2 run repeats every case with version 2
+ * headers whose CREATING entries carry the complete binding of their slot bodies. Host
+ * facades only, not Android persistence, SELinux or I/O error qualification.
  */
 public final class NativeIdentityPresenceTest {
     private static final String LINEAGE = "e".repeat(32);
@@ -63,13 +64,9 @@ public final class NativeIdentityPresenceTest {
     private static final Slot SLOT_B = bound(B, PKG_B, 2, false, 1);
     private static final Slot TOMBSTONE_B = new Slot(LINEAGE, B, PKG_B, 3, SIGNERS, List.of());
     private static final Slot SLOT_C = bound(C, PKG_C, 3, false, 1);
-    private static final Header LIVE_A = header(1, live(A));
-    private static final Header CREATING_B = header(2, live(A), creating(B, 2, PKG_B));
-    private static final Header LIVE_AB = header(2, live(A), live(B));
-    private static final Header RELEASING_B = header(2, live(A), releasing(B));
-    private static final Header RELEASED_B = header(2, live(A));
-    private static final Header CREATING_C = header(3, live(A), live(B), creating(C, 3, PKG_C));
-    private static final Header LIVE_ABC = header(3, live(A), live(B), live(C));
+    // This run's store format and its header values, assigned by main before any case.
+    private static NativeIdentityStore.Format format = NativeIdentityStore.Format.V1;
+    private static Header LIVE_A, CREATING_B, LIVE_AB, RELEASING_B, RELEASED_B, CREATING_C, LIVE_ABC;
     private static final String SEED_B = "slots/" + B + "/record.bin-seed";
     private static final String SEED_C = "slots/" + C + "/record.bin-seed";
     private static final byte[] TORN_B = Arrays.copyOf(NativeIdentityRecords.encodeSlot(TOMBSTONE_B), 60);
@@ -95,11 +92,24 @@ public final class NativeIdentityPresenceTest {
     private static HeaderEntry releasing(int appId) {
         return new HeaderEntry(appId, SlotPhase.RELEASING, 0, "");
     }
+    // Under V2 a CREATING entry carries the complete binding its slot body will have.
     private static HeaderEntry creating(int appId, long id, String name) {
-        return new HeaderEntry(appId, SlotPhase.CREATING, id, name);
+        return new HeaderEntry(appId, SlotPhase.CREATING, id, name,
+                format == NativeIdentityStore.Format.V2
+                        ? new NativeIdentityRecords.CreationBinding(0, 7, SIGNERS) : null);
     }
     private static Header header(long lastId, HeaderEntry... entries) {
-        return new Header(LINEAGE, lastId, List.of(entries));
+        return format == NativeIdentityStore.Format.V2 ? Header.newV2(LINEAGE, lastId, List.of(entries))
+                : new Header(LINEAGE, lastId, List.of(entries));
+    }
+    private static void headers() {
+        LIVE_A = header(1, live(A));
+        CREATING_B = header(2, live(A), creating(B, 2, PKG_B));
+        LIVE_AB = header(2, live(A), live(B));
+        RELEASING_B = header(2, live(A), releasing(B));
+        RELEASED_B = header(2, live(A));
+        CREATING_C = header(3, live(A), live(B), creating(C, 3, PKG_C));
+        LIVE_ABC = header(3, live(A), live(B), live(C));
     }
 
     // Little endian, as the record format.
@@ -360,7 +370,7 @@ public final class NativeIdentityPresenceTest {
         View[] seen = new View[1];
         run(c.name + " / healthy", problems -> {
             Path root = c.layout.build(fresh().resolve("store"));
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
             View view = new View(store.load());
             boolean result = c.action.run(store);
             check(problems, result, "otherwise valid writer refused " + view);
@@ -380,7 +390,7 @@ public final class NativeIdentityPresenceTest {
             Path file = at(root, c.target, at);
             byte[] bytes = future(c.target);
             Files.write(file, bytes);
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
             age(top);
             Map<String, String> before = footprint(top);
             View during = restricted(file, UNREADABLE, () -> new View(store.load()));
@@ -419,7 +429,7 @@ public final class NativeIdentityPresenceTest {
         run(name, problems -> {
             Path top = fresh();
             Path root = layout.build(top.resolve("store"));
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
             View healthy = new View(store.load());
             age(top);
             Map<String, String> before = footprint(top);
@@ -472,7 +482,7 @@ public final class NativeIdentityPresenceTest {
         run("unsearchable root / not a missing store", problems -> {
             Path top = fresh();
             Path root = new Layout(LIVE_A).slot(A, SLOT_A).build(top.resolve("store"));
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
             age(top);
             Map<String, String> before = footprint(top);
             View during = restricted(root, UNSEARCHABLE, () -> new View(store.load()));
@@ -493,7 +503,7 @@ public final class NativeIdentityPresenceTest {
     private static void readOnly() {
         run("read-only namespace / genuine absence continues", problems -> {
             Path root = new Layout(RELEASING_B).slot(A, SLOT_A).build(fresh().resolve("store"));
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
             boolean removed = restricted(root.resolve("slots"), READ_ONLY,
                     () -> store.removeReleasingSlot(RELEASING_B, B));
             check(problems, removed, "genuine ENOENT refused under a read-only namespace");
@@ -504,7 +514,7 @@ public final class NativeIdentityPresenceTest {
             Path top = fresh();
             Path root = new Layout(CREATING_C).slot(A, SLOT_A).slot(B, SLOT_B)
                     .build(top.resolve("store"));
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
             age(top);
             Path slots = root.resolve("slots");
             Map<String, String> before = footprint(slots);
@@ -517,7 +527,7 @@ public final class NativeIdentityPresenceTest {
             Path top = fresh();
             Path root = new Layout(RELEASING_B).slot(A, SLOT_A).slot(B, TOMBSTONE_B)
                     .build(top.resolve("store"));
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
             age(top);
             Path slots = root.resolve("slots");
             Map<String, String> before = footprint(slots);
@@ -533,7 +543,7 @@ public final class NativeIdentityPresenceTest {
     private static void genuineAbsence() {
         run("genuine absence / RELEASING continuation", problems -> {
             Path root = new Layout(RELEASING_B).slot(A, SLOT_A).build(fresh().resolve("store"));
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
             check(problems, store.removeReleasingSlot(RELEASING_B, B), "absent directory not continued");
             check(problems, store.removeReleasingSlot(RELEASING_B, B), "retry not continued");
             check(problems, store.writeHeader(RELEASING_B, RELEASED_B), "omission refused");
@@ -544,7 +554,7 @@ public final class NativeIdentityPresenceTest {
         run("genuine absence / owned retirement", problems -> {
             Path root = new Layout(RELEASING_B).slot(A, SLOT_A).slot(B, TOMBSTONE_B)
                     .build(fresh().resolve("store"));
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
             check(problems, store.removeReleasingSlot(RELEASING_B, B), "tombstone not removed");
             check(problems, !Files.exists(root.resolve("slots/" + B), LinkOption.NOFOLLOW_LINKS),
                     "directory remains");
@@ -556,7 +566,7 @@ public final class NativeIdentityPresenceTest {
         run("genuine absence / owned creation", problems -> {
             Path root = new Layout(CREATING_C).slot(A, SLOT_A).slot(B, SLOT_B)
                     .build(fresh().resolve("store"));
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
             check(problems, store.resumeCreatingDirectory(CREATING_C, C), "absent directory not created");
             check(problems, store.publishCreatingSlot(CREATING_C, SLOT_C), "publication refused");
             check(problems, store.writeHeader(CREATING_C, LIVE_ABC), "completion refused");
@@ -564,7 +574,7 @@ public final class NativeIdentityPresenceTest {
         });
         run("genuine absence / store initialization", problems -> {
             Path root = fresh().resolve("store");
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
             check(problems, store.initializeNew(LINEAGE), "absent root not initialized");
             check(problems, store.initializeNew(LINEAGE), "exact retry refused");
             View after = new View(store.load());
@@ -582,7 +592,7 @@ public final class NativeIdentityPresenceTest {
             Path foreign = Files.createDirectories(top.resolve("foreign/" + B));
             pair(foreign.resolve("record.bin"), NativeIdentityRecords.encodeSlot(TOMBSTONE_B));
             Path link = Files.createSymbolicLink(root.resolve("slots/" + B), foreign);
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
             age(top);
             Map<String, String> outside = footprint(top.resolve("foreign"));
             check(problems, !store.removeReleasingSlot(RELEASING_B, B), "removal through a link");
@@ -598,7 +608,7 @@ public final class NativeIdentityPresenceTest {
             Path root = new Layout(RELEASING_B).slot(A, SLOT_A).build(top.resolve("store"));
             Path nowhere = top.resolve("nowhere");
             Path link = Files.createSymbolicLink(root.resolve("slots/" + B), nowhere);
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
             check(problems, !store.removeReleasingSlot(RELEASING_B, B), "dangling link read as removed");
             check(problems, !store.writeHeader(RELEASING_B, RELEASED_B), "omission beside a dangling link");
             check(problems, Files.isSymbolicLink(link)
@@ -614,7 +624,7 @@ public final class NativeIdentityPresenceTest {
             Files.delete(main);
             Files.createSymbolicLink(main, foreign.resolve("record.bin"));
             Files.write(Path.of(main + ".reservecopy"), GARBAGE);
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
             age(top);
             Map<String, String> before = footprint(top);
             View view = new View(store.load());
@@ -627,7 +637,7 @@ public final class NativeIdentityPresenceTest {
             Path top = fresh();
             Path root = new Layout(LIVE_A).slot(A, SLOT_A).build(top.resolve("store"));
             socket(root.resolve("slots/" + A + "/record.bin-seed"));
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
             age(top);
             Map<String, String> before = footprint(top);
             View view = new View(store.load());
@@ -638,7 +648,7 @@ public final class NativeIdentityPresenceTest {
         run("special slot entry / ordinary damage", problems -> {
             Path root = new Layout(LIVE_A).slot(A, SLOT_A).build(fresh().resolve("store"));
             socket(root.resolve("slots/" + SPECIAL));
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
             View view = new View(store.load());
             check(problems, view.holds.contains(SPECIAL) && view.slots.get(SPECIAL) == Status.DAMAGED
                     && !view.ready && view.usable.contains(A), "view " + view);
@@ -648,7 +658,7 @@ public final class NativeIdentityPresenceTest {
             Path top = fresh();
             Path root = new Layout(RELEASING_B).slot(A, SLOT_A).build(top.resolve("store"));
             Files.write(root.resolve("slots/" + B), NativeIdentityRecords.encodeSlot(TOMBSTONE_B));
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
             age(top);
             Map<String, String> before = footprint(root.resolve("slots"));
             check(problems, !store.removeReleasingSlot(RELEASING_B, B), "removal through a file entry");
@@ -663,7 +673,7 @@ public final class NativeIdentityPresenceTest {
             Path root = Files.createDirectories(top.resolve("store"));
             pair(root.resolve("store.bin"), NativeIdentityRecords.encodeHeader(RELEASED_B));
             Files.write(root.resolve("slots"), GARBAGE);
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
             age(top);
             Map<String, String> before = footprint(top);
             View view = new View(store.load());
@@ -676,7 +686,7 @@ public final class NativeIdentityPresenceTest {
         run("store root is a file / not a missing store", problems -> {
             Path top = fresh();
             Path root = Files.write(top.resolve("store"), NativeIdentityRecords.encodeHeader(LIVE_A));
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
             age(top);
             Map<String, String> before = footprint(top);
             View view = new View(store.load());
@@ -689,7 +699,7 @@ public final class NativeIdentityPresenceTest {
             Path top = fresh();
             Path elsewhere = new Layout(LIVE_A).slot(A, SLOT_A).build(top.resolve("elsewhere"));
             Path root = Files.createSymbolicLink(top.resolve("store"), elsewhere);
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
             age(top);
             Map<String, String> before = footprint(top);
             View view = new View(store.load());
@@ -711,7 +721,7 @@ public final class NativeIdentityPresenceTest {
                 .file(SEED_B, TORN_B);
         run("readable torn seed / owned creation retry", problems -> {
             Path root = creation.build(fresh().resolve("store"));
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
             check(problems, store.resumeCreatingDirectory(CREATING_C, C), "torn owned seed refused");
             check(problems, store.publishCreatingSlot(CREATING_C, SLOT_C), "owned publication refused");
             check(problems, new View(store.load()).slots.get(C) == Status.VALID, "publication missing");
@@ -722,7 +732,7 @@ public final class NativeIdentityPresenceTest {
                 store -> store.publishCreatingSlot(CREATING_C, SLOT_C), NOTHING);
         run("readable torn seed / RELEASING removal", problems -> {
             Path root = removal.build(fresh().resolve("store"));
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
             check(problems, store.removeReleasingSlot(RELEASING_B, B), "torn seed stopped owned removal");
             check(problems, !Files.exists(root.resolve("slots/" + B), LinkOption.NOFOLLOW_LINKS),
                     "directory remains");
@@ -740,7 +750,7 @@ public final class NativeIdentityPresenceTest {
                     NativeIdentityRecords.encodeHeader(header(9, live(A), live(HIDDEN))))
                     .build(top.resolve("store"));
             Path main = root.resolve("store.bin");
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
             age(top);
             Map<String, String> before = footprint(top);
             View during = restricted(main, UNREADABLE, () -> new View(store.load()));
@@ -764,7 +774,7 @@ public final class NativeIdentityPresenceTest {
                         kind.equals("incarnation") ? 1 : 2, false, 1);
                 Path root = new Layout(LIVE_AB).slot(A, SLOT_A).slot(B, second)
                         .build(fresh().resolve("store"));
-                NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+                NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
                 View healthy = new View(store.load());
                 View during = restricted(root.resolve("slots/" + A + "/record.bin"), UNREADABLE,
                         () -> new View(store.load()));
@@ -780,7 +790,13 @@ public final class NativeIdentityPresenceTest {
 
     public static void main(String[] args) throws Exception {
         if (!NativeIdentityPresenceTest.class.desiredAssertionStatus()) throw new AssertionError("-ea");
-        parent = Files.createDirectories(Path.of(args[0]).resolve("presence"));
+        if (args.length > 2 || (args.length == 2 && !args[1].equals("V1") && !args[1].equals("V2"))) {
+            throw new IllegalArgumentException("usage: directory [V1|V2]");
+        }
+        format = args.length == 2 && args[1].equals("V2") ? NativeIdentityStore.Format.V2
+                : NativeIdentityStore.Format.V1;
+        headers();
+        parent = Files.createDirectories(Path.of(args[0]).resolve("presence-" + format));
         requireDac();
         matrix();
         unsearchable();
@@ -794,6 +810,6 @@ public final class NativeIdentityPresenceTest {
         System.out.println(passed + " passed, " + failures.size() + " failed");
         if (!failures.isEmpty()) throw new AssertionError("failed: " + failures);
         System.out.println("Exact presence, unavailable bytes and aliases refused on unprivileged"
-                + " host files; Android unqualified");
+                + " host files under store format " + format + "; Android unqualified");
     }
 }

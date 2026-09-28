@@ -50,7 +50,7 @@ public final class NativeIdentityVersionGateTest {
     }
     private static void isolated(Path parent, String kind) throws Exception {
         Path root = parent.resolve("isolated-" + kind);
-        NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+        NativeIdentityStore store = new NativeIdentityStore(root.toFile(), NativeIdentityStore.Format.V1);
         assert store.initializeNew(LINEAGE);
         Header empty = new Header(LINEAGE, 0, List.of());
         Path header = root.resolve("store.bin");
@@ -111,7 +111,7 @@ public final class NativeIdentityVersionGateTest {
                 "bad checksum", "user limit", "incomplete layout"};
         for (String kind : kinds) {
             Path root = parent.resolve("availability-" + kind.replace(' ', '-'));
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), NativeIdentityStore.Format.V1);
             assert store.initializeNew(LINEAGE);
             pair(root.resolve("store.bin"), headerBytes);
             Path slotA = Files.createDirectory(root.resolve("slots/" + A)).resolve("record.bin");
@@ -169,7 +169,7 @@ public final class NativeIdentityVersionGateTest {
         Slot tombstone = new Slot(LINEAGE, A, PACKAGE, 2, SIGNERS, List.of());
         for (String kind : List.of("header seed", "target seed", "other seed")) {
             Path root = parent.resolve("unlistable-" + kind.replace(' ', '-'));
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), NativeIdentityStore.Format.V1);
             assert store.initializeNew(LINEAGE);
             pair(root.resolve("store.bin"), NativeIdentityRecords.encodeHeader(releasing));
             Path slotA = Files.createDirectory(root.resolve("slots/" + A)).resolve("record.bin");
@@ -214,7 +214,7 @@ public final class NativeIdentityVersionGateTest {
         if (!NativeIdentityVersionGateTest.class.desiredAssertionStatus()) throw new AssertionError("-ea");
         if (args.length == 2) { isolated(Path.of(args[0]), args[1]); return; }
         Path root = Path.of(args[0]).resolve("version-gate");
-        NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+        NativeIdentityStore store = new NativeIdentityStore(root.toFile(), NativeIdentityStore.Format.V1);
         assert store.initializeNew(LINEAGE);
         Header empty = new Header(LINEAGE, 0, List.of());
         Header legacy = new Header(LINEAGE, 1, List.of(new HeaderEntry(A, SlotPhase.CREATING, 1, PACKAGE)));

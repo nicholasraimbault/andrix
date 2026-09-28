@@ -72,7 +72,8 @@ import java.util.Set;
  * public ABI. A layout change needs a new version and an explicit migration. The MAX constants
  * are initial parser bounds, not product quotas. Large creation bindings can take a version 2
  * header above MAX_BYTES before it reaches MAX_SLOTS entries. Its constructor refuses such a
- * header, so every valid value has an encoding.
+ * header, so every valid value has an encoding. {@link #encodedHeaderLength} measures a
+ * proposed header with the encoder itself, so a writer can refuse it before issuing anything.
  */
 public final class NativeIdentityRecords {
     /** Largest accepted encoding of either record, in bytes. */
@@ -478,6 +479,30 @@ public final class NativeIdentityRecords {
     public static byte[] encodeHeader(Header header) {
         Objects.requireNonNull(header, "header");
         return headerBody(header.version, header.lineage, header.lastId, header.entries).seal();
+    }
+
+    /**
+     * For the store only. The exact length in bytes, frame and checksum included, of the header
+     * encoding these fields would have, measured by the encoder that the Header constructor and
+     * {@link #encodeHeader} use. It constructs no Header, so a writer can refuse a proposal
+     * above {@link #MAX_BYTES} before it issues an ID, rather than meet the constructor's
+     * refusal afterwards. The lineage and entries must already be valid, and the count at most
+     * {@link #MAX_SLOTS}. A version 1 measure of an entry carrying a creation binding throws,
+     * as the encoder never drops a binding. This measures bytes only: it validates no counter,
+     * order or creation ID, and is no admission decision.
+     *
+     * @throws IllegalArgumentException for a version other than 1 or 2, an invalid lineage or
+     *     more than MAX_SLOTS entries
+     * @throws IllegalStateException for a binding that version 1 cannot encode
+     * @throws NullPointerException for a null lineage, list or entry
+     */
+    static int encodedHeaderLength(int version, String lineage, long lastId,
+            List<HeaderEntry> entries) {
+        if (version != VERSION_1 && version != VERSION_2) throw invalid("unsupported header version");
+        checkHex(lineage, 2 * LINEAGE_BYTES, "lineage");
+        List<HeaderEntry> copy = List.copyOf(Objects.requireNonNull(entries, "entries"));
+        if (copy.size() > MAX_SLOTS) throw invalid("more than MAX_SLOTS entries");
+        return headerBody(version, lineage, lastId, copy).length();
     }
 
     // Everything before the checksum. The Header constructor measures this too.

@@ -109,7 +109,7 @@
  import android.os.FileUtils;
  import android.os.Handler;
  import android.os.Message;
-@@ -563,6 +564,402 @@
+@@ -563,6 +564,403 @@
      final WatchedArrayMap<String, SharedUserSetting> mSharedUsers = new WatchedArrayMap<>();
      @Watched(manual = true)
      private final AppIdSettingMap mAppIds;
@@ -158,7 +158,8 @@
 +    NativeIdentityStore.Loaded readNativeIdentityStoreForBoot() {
 +        if (mNativeIdentityPersistence != null) throw new IllegalStateException("Native store loaded twice");
 +        mNativeIdentityStore = new NativeIdentityStore(
-+                new File(Environment.getDataSystemDirectory(), "native-principals"));
++                new File(Environment.getDataSystemDirectory(), "native-principals"),
++                NativeIdentityStore.Format.V1);
 +        mNativeIdentityPersistence = new NativeIdentityPersistence(mNativeIdentityStore);
 +        NativeIdentityStore.Loaded loaded = mNativeIdentityPersistence.load();
 +        // This is negative preservation evidence, never signer/owner identity.
@@ -261,9 +262,9 @@
 +                && nativePrincipalPinsLPr().hasKnownCounter();
 +    }
 +
-+    boolean nativeIdentityReservationFitsLPr(NativePrincipalPins.Snapshot candidate) {
++    boolean nativeIdentityReservationFitsLPr(NativeIdentityPersistence.CreationPlan plan) {
 +        return mNativeIdentityLoaded != null
-+                && NativeIdentityPersistence.projectReservation(mNativeIdentityLoaded, candidate) != null;
++                && nativeIdentityPersistenceLPr().projectReservation(mNativeIdentityLoaded, plan) != null;
 +    }
 +
 +    NativePrincipalPins nativePrincipalPinsLPr() {
@@ -512,7 +513,7 @@
  
      @Watched(manual = true)
      private final PccIdSettingMap mPccIds;
-@@ -828,6 +1225,7 @@
+@@ -828,6 +1226,7 @@
  
          mSharedUsers.snapshot(r.mSharedUsers);
          mAppIds = r.mAppIds.snapshot();
@@ -520,7 +521,7 @@
          mPccIds = r.mPccIds.snapshot();
  
          mRenamedPackages.snapshot(r.mRenamedPackages);
-@@ -1396,14 +1794,32 @@
+@@ -1396,14 +1795,32 @@
      boolean registerAppIdLPw(PackageSetting p, boolean forceNew) throws PackageManagerException {
          final boolean createdNew;
          if (p.getAppId() == 0 || forceNew) {

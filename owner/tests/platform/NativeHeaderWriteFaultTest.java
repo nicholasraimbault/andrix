@@ -133,7 +133,7 @@ public final class NativeHeaderWriteFaultTest {
             for (String step : STEPS) {
                 Path root = layout(null, bytes(prior), bytes(prior));
                 if (body != null) slot(root, appId, body);
-                NativeIdentityStore store = new NativeIdentityStore(root.toFile());
+                NativeIdentityStore store = store(root);
                 NativeHeaderWriteFaults.arm(step, HEADER);
                 check(problems, !write.run(store) && NativeHeaderWriteFaults.reached(),
                         step + ": no injected failure");
