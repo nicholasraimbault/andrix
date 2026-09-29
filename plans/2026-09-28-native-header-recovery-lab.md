@@ -4,8 +4,9 @@ Status: the separately compiled lab image on `23cede6`, including counter correc
 passed static checks and a fresh Android baseline with a clean reboot. A controlled empty V1
 store was later observed intact on cold reads, with PMS creation readiness restored. The two
 later observation scopes remain failed. A P3 attempt then stopped in preflight on a changed scratch
-upload hash, before any mode change or native request. No native designation, preparation or V2
-publication was issued. Production stays
+upload hash, before any mode change or native request. A later attempt stopped on an incidental
+observer timeout, also before any effect. The separately reviewed next vehicle completed the
+first native sequence and observed the intended header only false commit. Production stays
 `Format.V1`; native execution and the factory stay off. Later store operations still need their
 own admission. This follows the
 [historical identity step](2026-09-28-native-creation-history.md).
@@ -324,11 +325,41 @@ and byte observations remain scoped facts, but no blanket claim of no settings w
 animation qualification follows from those runs. Saved scale values are not reset to manufacture
 a result. Their actual values will be observed without an override.
 
+## First native writer observation
+
+A later preflight stopped on a racy `system_server` file descriptor listing at its unchanged
+90 second limit. The listing had no identity, namespace or retirement authority. Its partial
+capture and failed scope were retained. The next vehicle omitted that incidental enumeration,
+without changing the directory, namespace, process incarnation or resource guards.
+
+That vehicle completed one original `select-new`, `prepare` and `commit`. Preparation actually
+issued principal ID 1 for the fixed subject, user serial and signer. Commit returned false and
+kept the original request and pending identity uncertain. Both canonical headers were the exact
+predicted 164 byte V2 `CREATING` reservation, counter 1, with no body or numeric slot directory.
+The PMS hold matched the original package mapping. The post operation and quiescent snapshots
+had identical bytes and metadata.
+
+The fresh helper's first Android inspect and stop executions matched its checked executable
+bytes, metadata and captured PMS incarnation. PMS exit, stopped zygotes and absent package service
+were observed. This is not native work or UID resource retirement. Slots stayed 0500, the root
+stayed 0700 and headers were 0600. There was no explicit guest sync after the native calls.
+The historical sentinels still matched. QMP host quit and aggregate closure completed, and all
+scope statuses were zero.
+
+This establishes a header only false commit under the configured DAC fault. It does not identify
+a unique internal failure site, prove cold persistence, or simulate physical power loss.
+Background writeback and host backing storage flush are not excluded. The original false result,
+request and ID remain retained. All earlier failures remain failed.
+
+This guest has now received V2 metadata. Every later boot must use the exact admitted V2 capable
+lab producer. An older V1 reader, reset, reinitialization or new ID would invalidate this sequence.
+The pure cold read and explicit same ID rebind remain separately admitted later stages.
+
 ## Android lab stages and remaining gates
 
 P0 and P1 have completed. The incomplete P2 and separate cold observations are recorded above.
-Every remaining stage needs its own admission. P3 source review and local controls completed,
-but its runtime preflight failed before the native sequence. The first V2 write has not run.
+Every remaining stage needs its own admission. The first native sequence has produced the
+intended live V2 header only footprint. No later cold read or same ID rebind is qualified yet.
 
 - P0: the normal B2 image, with the counter correction, compiled and guarded, and that correction
   qualified and integrated. The lab image differs from it only by the writer fixture and this

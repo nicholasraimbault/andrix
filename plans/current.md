@@ -112,8 +112,12 @@ trial must repeat complete preconditions before any effect. That later P3 prefli
 a changed retained scratch upload hash before any mode or native request. The canonical store
 and Android anchors still matched. A separate read only diagnostic confirmed both scratch files
 as 70 zero bytes without repair, while the canonical store and Android anchors remained exact.
-The next vehicle will bind those historical files as change sentinels, not native inputs. No
-native selection, preparation or V2 publication has run. Normal production remains unchanged.
+The historical files remain exact change sentinels, not native inputs. After a separately retained
+observer timeout, the next vehicle ran one original selection, preparation and commit. ID 1 was
+actually prepared. Commit returned false with exact V2 `CREATING` headers and no body, confirmed
+again after captured PMS exit. No guest sync followed the native calls. Cold survival and same ID
+rebind remain separate gates. This guest must now use only its exact V2 capable producer. Normal
+production remains unchanged.
 
 The [installer durability assessment](2026-09-27-package-installer-durability.md) retains an
 unclean stop failure and a separate Android file comparison. The checked writing descriptor sync

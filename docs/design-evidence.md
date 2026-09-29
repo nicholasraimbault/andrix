@@ -288,7 +288,12 @@ retain their own producers and scopes.
   the canonical store and Android anchors remained exact. Scratch persistence had no acknowledged
   sync boundary; its cause remains unproved. The inherited instrumentation animation override was
   removed for the diagnostic, and all three observed scales were `1.0`. The earlier settings side
-  effect limit remains recorded. No V2 store operation or production enable follows.
+  effect limit remains recorded. After another retained preflight observer timeout, a separately
+  admitted vehicle completed one original native sequence: ID 1 prepared, commit false, exact
+  V2 `CREATING` headers and no body, with equal readback after captured PMS exit. No post write
+  guest sync was issued. QMP quit and aggregate closure completed. This is a live header only
+  observation, not cold persistence, same ID rebind, unique failure site or physical power loss
+  proof. No production enable follows.
   The [real consent reference](../plans/2026-09-27-native-permission-consent.md) then exercised the
   ordinary Android notification popup without privileged grants. Allow enabled an independent
   command after the helper closed; peer and false attribution controls remained separate. Back,
