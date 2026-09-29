@@ -302,10 +302,20 @@ global setup sync did not run. This explains why scratch retention was an unqual
 not the cause of the observed mismatch. The canonical pair has separate writing descriptor syncs
 and matching cold readbacks. Neither history is erased by the other.
 
-A separate read only diagnostic is being prepared to capture the retained files, metadata,
-allocation, original anchors and kernel context without reuploading, restoring or syncing them.
-Any later revision of the scratch acceptance rule must be prospective and reviewed. It cannot
-turn failed P3 into a pass or weaken the canonical store and Android identity gates.
+The separate read only diagnostic completed. Both retained upload files were exactly 70 zero
+bytes through two read methods, with stable metadata and nonzero allocated block counts. The
+canonical pair and original Android anchors remained exact. The helper stayed intact. No
+reupload, repair or guest sync was issued, and no native request ran. Cause and timing remain
+unproved. The observed animation scales were all `1.0`, without an override.
+
+For the next admitted writer vehicle, these specific historical files and their directory become
+exact change sentinels against the diagnostic's sealed cold observations. Any change stops
+admission for assessment. They are not native input or execution authority, and the old live
+upload hash is not restored or substituted. Canonical store, qualified host input and Android
+identity gates stay exact. A fresh helper needs a private root owned directory, explicit mode,
+byte and metadata checks before use, and matching running executable observations. All helper
+uploads and fault setup syncs precede native calls. There is no upload, mode restoration or sync
+after a native write. This prospective rule cannot turn failed P3 into a pass.
 
 Source review also found an inherited `am instrument --no-window-animation` option in the private
 metadata observer vehicles. The pinned implementation requests global animation scale changes

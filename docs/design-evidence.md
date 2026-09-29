@@ -282,11 +282,13 @@ retain their own producers and scopes.
   and observer key controls while the native store stayed MISSING. A controlled empty V1 input
   was subsequently observed intact on its first cold read, with PMS creation readiness restored.
   Both later scopes remain failed on distinct observer errors, not retroactively qualified by
-  those completed checks. The following P3 preflight stopped on changed scratch upload bytes
+  those completed checks. The following P3 preflight stopped on a changed scratch upload hash
   before any mode or native request, while the canonical and Android anchors still matched.
-  Scratch persistence had no acknowledged sync boundary; its cause remains unproved. An inherited
-  instrumentation animation override is also removed from the next diagnostic, with the earlier
-  settings side effect limit recorded. No V2 store operation or production enable follows.
+  A separate diagnostic captured both scratch files as 70 zero bytes with stable metadata, while
+  the canonical store and Android anchors remained exact. Scratch persistence had no acknowledged
+  sync boundary; its cause remains unproved. The inherited instrumentation animation override was
+  removed for the diagnostic, and all three observed scales were `1.0`. The earlier settings side
+  effect limit remains recorded. No V2 store operation or production enable follows.
   The [real consent reference](../plans/2026-09-27-native-permission-consent.md) then exercised the
   ordinary Android notification popup without privileged grants. Allow enabled an independent
   command after the helper closed; peer and false attribution controls remained separate. Back,
