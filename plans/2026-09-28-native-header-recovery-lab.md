@@ -361,6 +361,21 @@ P0 and P1 have completed. The incomplete P2 and separate cold observations are r
 Every remaining stage needs its own admission. The first native sequence has produced the
 intended live V2 header only footprint. No later cold read or same ID rebind is qualified yet.
 
+The cold reader must build its snapshot from the actual namespace. A reappeared backup, seed or
+body is a captured outcome, not something to omit from a fixed file list. Capture safe bytes and
+metadata before evaluating the exact layout, device and inode, owner, mode and label gates.
+Across boots, recorded modification and change times are compared separately. `lazytime` makes
+them unsuitable as unqualified durability assertions. Later times require assessment. Fields
+not captured after the writer, including canonical allocation, flags and access times, get their
+first baseline in the cold phase. Stable observation bookends remain required within that boot.
+The `errors=continue` mount option also means a writable mount is not evidence of no errors.
+
+Known counter state alone is not the counter oracle. The selected header's exact counter bytes,
+the restored pin observation and the inspected Settings restore branch must agree. No native
+prepare or selection call is allowed as an introspection shortcut. P4 ends with PMS still live
+at the host QMP quit, unlike P3's captured quiesced writer closure. P5 must therefore begin with
+its own cold capture. All original requests and uncertain obligations stay retained.
+
 - P0: the normal B2 image, with the counter correction, compiled and guarded, and that correction
   qualified and integrated. The lab image differs from it only by the writer fixture and this
   format token. Its image, fingerprint and manifest are marked lab. Final DEX shows `Format.V2`
