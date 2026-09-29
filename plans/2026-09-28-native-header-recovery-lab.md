@@ -393,13 +393,18 @@ its own cold capture. All original requests and uncertain obligations stay retai
   generated lineage and no holds before P3. This qualifies no production initializer.
 - P3: change the slot root from 0700 to 0500 with read and search kept, check and sync that
   before the writer runs, and capture its owner, mode and label. Confirm the actual system server
-  UID 1000, no DAC override and no MAC denial on the store path. The actual writer is then refused
-  creation of the slot directory by DAC, and the first commit leaves the complete CREATING header
-  without a body. Assess the reply with the false commit observer and the store bytes separately.
-  Never sync afterwards to qualify the writer.
-- P4: capture, quiesce, then stop the whole guest uncleanly through QMP, without a sync afterwards.
-- P5: cold boot. Capture the persisted slot root mode first. Require the same bytes, ID, UID, map,
-  PENDING phase, counter and header history. Restore the exact original mode while the new fixture
+  UID 1000, no DAC override and no relevant MAC denial observed. The configured DAC fault denies
+  slot directory creation if that site is reached. The observed false commit leaves a complete
+  CREATING header without a body, but does not identify a unique failure site. Assess the reply
+  and store bytes separately, capture PMS quiescence, then stop the guest through QMP. No harness
+  sync follows the native calls. This sequence completed in the later admitted writer vehicle.
+- P4: a separate pure cold reader captures the reservation first, with no native call, helper
+  execution, fault restoration or harness sync. Compare the namespace, bytes and metadata,
+  capture the restored PMS hold and original Android anchors, then stop through QMP. PMS stays
+  live until this stop; this is not the earlier quiesced writer closure.
+- P5: cold boot again and capture before effects. Require the same bytes, ID, UID, map,
+  counter and header history. The restored PENDING phase is source inferred until a permitted
+  reply observes it. Restore the exact original mode while the new fixture
   is idle, before `select-rebind`, and capture it. This is the owned fault protocol, not a security
   relaxation. Then rebind explicitly through the new fixture instance.
 - P6: the body is published and the entry is LIVE.
@@ -426,8 +431,8 @@ disposable guest holds no daily user data; that is no deletion authority.
 - No mid write crash, physical power loss, whole installer, native Stop, permission or retirement
   qualification.
 - The host rehearsal uses facades and an injected directory mode, not Android storage, SELinux or
-  crash behavior. The Android lab uses the actual writer's DAC refusal, which is an access refusal,
-  not a writeback failure.
+  crash behavior. The Android lab uses a directory mode fault, not an injected writeback failure.
+  Its false reply and header footprint do not identify a unique internal failure site.
 - The tools do not detect a live build producer. Producer retirement stays an operator check.
 
 The complete host run also requires `ANDRIX_SOURCE_ROOT` to name the pinned Android source
