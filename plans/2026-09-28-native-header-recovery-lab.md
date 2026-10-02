@@ -1,15 +1,13 @@
 # Optional lab preparation for V2 header only recovery
 
 Status: the separately compiled lab image on `23cede6`, including counter correction `78456b3`,
-passed static checks and a fresh Android baseline with a clean reboot. A controlled empty V1
-store was later observed intact on cold reads, with PMS creation readiness restored. The two
-later observation scopes remain failed. A P3 attempt then stopped in preflight on a changed scratch
-upload hash, before any mode change or native request. A later attempt stopped on an incidental
-observer timeout, also before any effect. The separately reviewed next vehicle completed the
-first native sequence and observed the intended header only false commit. Production stays
-`Format.V1`; native execution and the factory stay off. Later store operations still need their
-own admission. This follows the
-[historical identity step](2026-09-28-native-creation-history.md).
+completed the lab sequence on one disposable guest. The first native sequence left the intended
+header only false commit. A pure cold read then found that reservation exact and restored as a
+pinned hold. A separately admitted rebind restored the slot mode, rebound the original ID 1 and
+published the predicted LIVE header and body. A final cold bookend found that published state
+exact. The earlier failed and diagnostic scopes stay recorded below. Production stays
+`Format.V1`; native execution and the factory stay off. Any further store operation needs its own
+admission. This follows the [historical identity step](2026-09-28-native-creation-history.md).
 
 ## Why a lab arm is needed
 

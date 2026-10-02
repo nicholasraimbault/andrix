@@ -5,6 +5,8 @@ only framework adaptation, a controlled input generator and predictor, and a hos
 Nothing here applies Android source, builds an image or runs a device. Production stays
 `Format.V1`. Native execution, the native factory and V2 publication stay off in every image.
 See the [plan](../../../plans/2026-09-28-native-header-recovery-lab.md) for the stages and limits.
+The separately admitted Android stages that used this preparation have since completed; the plan
+records their scoped results.
 
 ## Lab format adaptation
 
