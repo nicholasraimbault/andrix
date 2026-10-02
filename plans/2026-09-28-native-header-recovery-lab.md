@@ -358,9 +358,9 @@ The pure cold read and explicit same ID rebind remain separately admitted later 
 ## Android lab stages and remaining gates
 
 P0 and P1 have completed. The incomplete P2 and separate cold observations are recorded above.
-Every remaining stage needs its own admission. The first native sequence has produced the
-intended live V2 header only footprint, and the separate pure cold read below has qualified.
-No same ID rebind has run.
+Every remaining stage needs its own admission. The first native sequence produced the intended
+live V2 header only footprint. The separate pure cold read and the same ID rebind below have
+both completed. Only the P7 cold bookend remains.
 
 ### Cold reservation read
 
@@ -393,6 +393,37 @@ lab producer. It is not physical power loss or universal durability proof. The w
 syncs, background writeback and host backend flush are not excluded. PMS stayed live until the
 host quit, so this closure differs from the writer's quiesced closure. The original request and
 uncertain ID 1 obligation remain open for the separately admitted rebind.
+
+### Same ID rebind
+
+The next separately admitted vehicle booted the saved guest again with the same producer. Before
+any effect it required the store to equal the sealed cold read exactly, including bytes, inodes,
+modes, labels and times. It also required the same restored hold, the original Android anchors,
+the historical sentinels, an idle new fixture instance and the unchanged retained helper, which
+never ran. Only then did it upload and inspect a fresh copy of the sealed helper, restore the
+slot root from 0500 to its initialized 0700, verify that change and sync once. The store was
+still the exact reservation.
+
+It then issued one `select-rebind`, prepare and commit under a new request in the new fixture
+instance. The selection succeeds only for a stored PENDING handle, and its reply reported ID 1.
+This is the first direct observation that the pin restored from the header reservation was
+PENDING with ID 1. Preparation returned the same stored handle, verified the rebind and observed
+ID 1 still PENDING. Commit returned true with an ACTIVE pin. No new ID, new selection or retry
+was issued.
+
+Readback after the commit and again after the captured PMS exit was identical. Both headers were
+the predicted 85 byte LIVE header. The new `slots/10148` directory had mode 0700, and both body
+copies were the predicted 163 byte body. Every object had the system owner and data label, and
+every file had mode 0600. PMS reported the hold with a valid slot, the memory pin and the original
+package mapping. The server process and namespace were unchanged, and the audit window showed no
+relevant denial. No sync, upload, ownership or mode change followed the first native call. The
+scope ended with the host QMP quit, and the host kernel segment for the boot showed no documented
+error pattern.
+
+This completes P5 and produces the P6 state: the body is published and the entry is LIVE. The
+original false reply stays recorded as it was. The ID 1 reservation it left is now bound and
+published through the explicit rebind, with no new ID. This is a live observation, not cold
+persistence or physical power loss proof. The P7 cold bookend remains a separate admission.
 
 The cold reader must build its snapshot from the actual namespace. A reappeared backup, seed or
 body is a captured outcome, not something to omit from a fixed file list. Capture safe bytes and

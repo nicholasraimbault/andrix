@@ -296,8 +296,12 @@ retain their own producers and scopes.
   proof. A later separately admitted pure cold read found both headers byte and metadata exact
   after that unclean stop, with no backup, seed or body. A fresh `system_server` restored the
   reservation as a pinned hold for the original package. This qualifies one cold read of the lab
-  producer, not physical power loss, universal durability or same ID rebind. No production
-  enable follows.
+  producer, not physical power loss, universal durability or same ID rebind. A later separately
+  admitted vehicle restored the slot mode before any native call, then rebound ID 1 with one
+  `select-rebind`, prepare and commit. The selection reply first observed the restored pin as
+  PENDING with ID 1. Commit returned true, and readback showed the predicted LIVE header and body,
+  unchanged after captured PMS exit, with a valid pinned hold. This is a live observation, not
+  cold persistence or physical power loss proof. No production enable follows.
   The [real consent reference](../plans/2026-09-27-native-permission-consent.md) then exercised the
   ordinary Android notification popup without privileged grants. Allow enabled an independent
   command after the helper closed; peer and false attribution controls remained separate. Back,
