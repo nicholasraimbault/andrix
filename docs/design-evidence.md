@@ -293,7 +293,11 @@ retain their own producers and scopes.
   V2 `CREATING` headers and no body, with equal readback after captured PMS exit. No post write
   guest sync was issued. QMP quit and aggregate closure completed. This is a live header only
   observation, not cold persistence, same ID rebind, unique failure site or physical power loss
-  proof. No production enable follows.
+  proof. A later separately admitted pure cold read found both headers byte and metadata exact
+  after that unclean stop, with no backup, seed or body. A fresh `system_server` restored the
+  reservation as a pinned hold for the original package. This qualifies one cold read of the lab
+  producer, not physical power loss, universal durability or same ID rebind. No production
+  enable follows.
   The [real consent reference](../plans/2026-09-27-native-permission-consent.md) then exercised the
   ordinary Android notification popup without privileged grants. Allow enabled an independent
   command after the helper closed; peer and false attribution controls remained separate. Back,

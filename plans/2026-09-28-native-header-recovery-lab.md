@@ -359,7 +359,40 @@ The pure cold read and explicit same ID rebind remain separately admitted later 
 
 P0 and P1 have completed. The incomplete P2 and separate cold observations are recorded above.
 Every remaining stage needs its own admission. The first native sequence has produced the
-intended live V2 header only footprint. No later cold read or same ID rebind is qualified yet.
+intended live V2 header only footprint, and the separate pure cold read below has qualified.
+No same ID rebind has run.
+
+### Cold reservation read
+
+The cold reader booted the saved guest once with the exact admitted producer, after the
+writer's unclean QMP stop and with no harness guest sync after its native calls. It captured
+the store before any other observation, building the snapshot from the guest's own listings.
+Both headers were the exact 164 byte V2 `CREATING` reservation for ID 1, by three read methods.
+Device, inodes, owner, modes, labels and sizes matched the writer's quiescent capture, and all
+modification and change times were equal. No backup, seed, body or other object appeared. A
+second capture at the end of the scope was identical.
+
+A fresh `system_server` reported exactly one hold: app ID 10148, slot missing, a memory pin,
+and the original package mapping. The counter was known, the header valid, enumeration
+complete and creation ready. Because a fresh pin set reports a known counter before any
+restore, the pin itself is the restore evidence. This is the first Android boot to restore a
+pin from a header reservation. The restored PENDING phase and ID 1 binding remain inferred from
+the inspected restore path until a permitted reply observes them.
+
+The raw dump preceded the writer information call, which showed a new idle fixture instance.
+No native selection, preparation, commit, status or rebind was issued, and no helper ran. The
+slot mode fault stayed in place. Original Android anchors and historical sentinels matched. The
+headers carried the fs-verity flag, recorded as a first baseline. The guest's kernel ring had
+wrapped, so the complete host kernel segment for the boot was checked instead. It showed the
+boot, the data mount and clean mount time fsck output with no documented error pattern. No
+roll forward recovery was logged; the mount came from a checkpoint whose trigger is not
+established.
+
+This shows that the exact reservation survived one unclean QMP stop and was restored by the
+lab producer. It is not physical power loss or universal durability proof. The writer's own
+syncs, background writeback and host backend flush are not excluded. PMS stayed live until the
+host quit, so this closure differs from the writer's quiesced closure. The original request and
+uncertain ID 1 obligation remain open for the separately admitted rebind.
 
 The cold reader must build its snapshot from the actual namespace. A reappeared backup, seed or
 body is a captured outcome, not something to omit from a fixed file list. Capture safe bytes and

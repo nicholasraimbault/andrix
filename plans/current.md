@@ -115,9 +115,10 @@ as 70 zero bytes without repair, while the canonical store and Android anchors r
 The historical files remain exact change sentinels, not native inputs. After a separately retained
 observer timeout, the next vehicle ran one original selection, preparation and commit. ID 1 was
 actually prepared. Commit returned false with exact V2 `CREATING` headers and no body, confirmed
-again after captured PMS exit. No guest sync followed the native calls. Cold survival and same ID
-rebind remain separate gates. This guest must now use only its exact V2 capable producer. Normal
-production remains unchanged.
+again after captured PMS exit. No guest sync followed the native calls. A separate pure cold read
+then found the exact reservation after the unclean stop, and a fresh `system_server` restored it as
+a pinned hold for the original package. Same ID rebind remains a separate gate. This guest must now
+use only its exact V2 capable producer. Normal production remains unchanged.
 
 The [installer durability assessment](2026-09-27-package-installer-durability.md) retains an
 unclean stop failure and a separate Android file comparison. The checked writing descriptor sync
