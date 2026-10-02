@@ -119,8 +119,10 @@ again after captured PMS exit. No guest sync followed the native calls. A separa
 then found the exact reservation after the unclean stop, and a fresh `system_server` restored it as
 a pinned hold for the original package. A separately admitted rebind then restored the slot mode
 before any native call, rebound ID 1 through a new fixture instance and published the predicted
-LIVE header and body. A cold bookend remains a separate gate. This guest must now use only its
-exact V2 capable producer. Normal production remains unchanged.
+LIVE header and body. A separate pure cold bookend then found that header and body exact after
+another unclean stop, with a fresh `system_server` holding the pinned body. This completes the lab
+sequence for one guest and producer. This guest must now use only its exact V2 capable producer.
+Normal production remains unchanged.
 
 The [installer durability assessment](2026-09-27-package-installer-durability.md) retains an
 unclean stop failure and a separate Android file comparison. The checked writing descriptor sync

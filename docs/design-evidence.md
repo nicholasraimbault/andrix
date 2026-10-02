@@ -301,7 +301,11 @@ retain their own producers and scopes.
   `select-rebind`, prepare and commit. The selection reply first observed the restored pin as
   PENDING with ID 1. Commit returned true, and readback showed the predicted LIVE header and body,
   unchanged after captured PMS exit, with a valid pinned hold. This is a live observation, not
-  cold persistence or physical power loss proof. No production enable follows.
+  cold persistence or physical power loss proof. A final separately admitted pure cold read found
+  the LIVE header and body byte and metadata exact after that second unclean stop, and a fresh
+  `system_server` restored the pinned hold with a valid slot. This completes the lab sequence for
+  one guest and producer, not physical power loss, writer crash durability or production
+  qualification. No production enable follows.
   The [real consent reference](../plans/2026-09-27-native-permission-consent.md) then exercised the
   ordinary Android notification popup without privileged grants. Allow enabled an independent
   command after the helper closed; peer and false attribution controls remained separate. Back,

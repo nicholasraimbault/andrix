@@ -358,9 +358,9 @@ The pure cold read and explicit same ID rebind remain separately admitted later 
 ## Android lab stages and remaining gates
 
 P0 and P1 have completed. The incomplete P2 and separate cold observations are recorded above.
-Every remaining stage needs its own admission. The first native sequence produced the intended
-live V2 header only footprint. The separate pure cold read and the same ID rebind below have
-both completed. Only the P7 cold bookend remains.
+Each stage had its own admission. The first native sequence produced the intended live V2 header
+only footprint. The separate pure cold read, the same ID rebind and the cold bookend below have
+all completed.
 
 ### Cold reservation read
 
@@ -424,6 +424,31 @@ This completes P5 and produces the P6 state: the body is published and the entry
 original false reply stays recorded as it was. The ID 1 reservation it left is now bound and
 published through the explicit rebind, with no new ID. This is a live observation, not cold
 persistence or physical power loss proof. The P7 cold bookend remains a separate admission.
+
+### Cold bookend
+
+The last separately admitted vehicle booted the saved guest once more with the same producer,
+after the rebind's unclean QMP stop and with no harness sync after its native calls. It read the
+store first, from the guest's own listing. Both headers were the predicted LIVE header and both
+body copies the predicted body, by three read methods. The three directories had mode 0700 and
+the four files mode 0600, all with the system owner and data label. Inodes and sizes matched the
+rebind's quiescent capture, and all modification and change times were equal. No backup, seed or
+other object appeared, and a second capture at the end of the scope was identical.
+
+A fresh `system_server` reported exactly one hold: app ID 10148 with a valid slot, the memory pin
+and the original package mapping. The counter was known, the header valid and creation ready. By
+the inspected restore path, a published body restores its own ID as a PENDING pin. The dump does
+not show the phase, so PENDING stays inferred from source, while ID 1 is read from the exact body
+bytes. No native call other than writer information was issued, and neither retained helper ran.
+Original Android anchors and historical sentinels matched. The body files carried the fs-verity
+flag, recorded as a first baseline. The host kernel segment for the boot showed clean mount time
+fsck output, no documented error pattern and no roll forward recovery.
+
+This completes the lab sequence for one guest and one producer. The ID 1 reservation left by a
+false commit survived an unclean stop, was rebound to the same ID and published, and the published
+state survived a second unclean stop. These were QMP stops, not physical power loss. The writer's
+own syncs, background writeback and host backend flush are not excluded. No production enable,
+writer crash durability, retirement or native execution is qualified by this sequence.
 
 The cold reader must build its snapshot from the actual namespace. A reappeared backup, seed or
 body is a captured outcome, not something to omit from a fixed file list. Capture safe bytes and
