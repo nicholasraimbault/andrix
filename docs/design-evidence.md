@@ -312,8 +312,11 @@ retain their own producers and scopes.
   then built. Its final DEX differs from the last version 1 image only by the boot construction's
   format operand, with the unused creation route removed entirely, and its partitions and super
   image check out. Its first boot on a fresh guest kept ordinary installs, keys and canaries across
-  a clean reboot, read the store as missing throughout and refused the writer route. That is a
-  baseline, not yet a version 2 reader result.
+  a clean reboot, read the store as missing throughout and refused the writer route. On staged
+  layouts it then read an empty version 1 store, a version 2 reservation and a live version 2
+  layout with the designed holds and admission, deferred a package whose binding named another
+  user serial, showed no store change across cold boots, and refused the held package's update,
+  clear and uninstall. These were staged layouts, not writer output.
   The [real consent reference](../plans/2026-09-27-native-permission-consent.md) then exercised the
   ordinary Android notification popup without privileged grants. Allow enabled an independent
   command after the helper closed; peer and false attribution controls remained separate. Back,

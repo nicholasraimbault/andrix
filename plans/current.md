@@ -129,7 +129,11 @@ and host checks show the last version 1 image keeping holds without admitting ve
 The normal image is now built. Its final DEX differs from the last version 1 image only by that one
 boot operand, and R8 removes the unused creation route entirely. Its first boot, on a fresh guest,
 kept ordinary installs, keys and canaries across a clean reboot, read the store as missing
-throughout, and refused the writer route.
+throughout, and refused the writer route. On four disposable guests it then read staged layouts:
+an empty version 1 store, a version 2 reservation, a live version 2 layout and a serial mismatch
+control. Holds and admission matched the design, no store change was observed across cold boots,
+and the held package's update, clear and uninstall were refused. ActivityManager force stops the
+package before Package Manager refuses a clear. Rollback to the last version 1 image comes next.
 
 The [installer durability assessment](2026-09-27-package-installer-durability.md) retains an
 unclean stop failure and a separate Android file comparison. The checked writing descriptor sync

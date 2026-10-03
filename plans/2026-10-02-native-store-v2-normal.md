@@ -1,8 +1,9 @@
 # Version 2 native store in the normal image
 
 Status: R0, the source, guard and host stage, is integrated and host qualified. R1, the normal
-image, is built and its artifacts are inspected. R2, its first boot on a fresh guest, passed. R3
-and R4 come next, each with its own admission.
+image, is built and its artifacts are inspected. R2, its first boot on a fresh guest, passed. R3,
+the version 2 readers on staged layouts, passed. R4, the rollback, comes next with its own
+design and admission.
 
 ## Decision
 
@@ -263,6 +264,49 @@ SELinux enforcement and `services.jar` digest were R1's.
 The subject has no instrumentation, so its claims cover only its APK, UID, map and data
 directories. This is not a native store read, write, rollback, durability or power loss result.
 
+## R3 result
+
+The normal image read four staged store layouts, one per disposable guest: an empty version 1
+store on R2's guest, and on three fresh guests baselined by R2's exact procedure, with the same
+UIDs and user serial, a bound `CREATING` reservation, a `LIVE` header with its slot and body, and
+the reservation again with its binding naming user serial 1.
+
+- Each layout was generated for its guest and checked against the independent oracle. The empty
+  store's header is version 1; the others' headers are version 2. Each was staged into genuine
+  absence with Package Manager's writer quiesced, through exclusive pending names, synced writing
+  descriptors and no clobber renames, with exact owners, modes and labels and a setup sync. Each
+  staging ended with exact, stable captures of the whole namespace, without fs-verity flags, and a
+  QMP quit.
+- Every cold dump read a valid header, a known counter, complete enumeration, creation ready and
+  cursor 10000. The empty store showed no holds and stayed the 70 byte version 1 pair. The
+  reservation held the subject's app ID with a missing slot, and the live layout with a valid slot,
+  both pinned and mapped to the subject. The subject was admitted with its original path, UID, map
+  and APK bytes.
+- No store change was observed on the tested cold boots. Across two or three cold boots per guest,
+  every node's bytes, inode, owner, mode, label, size, type, links, flags and modification and
+  change times equaled that guest's staging record and its previous read.
+- The serial control dumped exactly like the reservation, so the dump alone cannot tell them
+  apart. Its scan deferred the subject: the boot log names native UID ownership recovery and
+  retained code, `pm path` found nothing, the admitted package list omitted it, and the setting
+  kept its UID and code path. Its code bytes and data directory structure stayed unchanged.
+- In a boot that first showed the exact hold, the held subject's update, data clear and two
+  uninstall attempts, one with a wrong version, were refused. The update named an unquiesced
+  native account, the clear reported failure, and the uninstalls had no upstream reason in the log.
+  The subject's measured state, its data directory trees including times, and the app directories
+  stayed unchanged within that boot, and a further cold boot read the same store and subject.
+- Finding: during both clear attempts, ActivityManager logged a force stop for the subject before
+  Package Manager's clear call. The Package Manager barrier does not prevent that earlier action.
+  Other ActivityManager effects were not measured, and `pm clear --cache-only` was not tested.
+- The vehicles were derived from the lab's executed staging protocol, writer session and cold
+  reader by exact substitutions. Independent review shaped the design and four vehicle revisions.
+  Each admission derived its phase from the reviewed generators again, and each closure derived
+  its verdict from the raw records.
+
+These are staged layouts, not writer output. They carry no fs-verity, which the reader does not
+consult. The subject's data trees were compared by structure across boots and with times only
+within one boot. QMP stops are not power loss. No native call, publication, designation or
+initialization ran. This is not a writer, durability, rollback or power loss result.
+
 ## Android stages
 
 Each stage needs its own admission.
@@ -304,7 +348,8 @@ Each stage needs its own admission.
   - The lab guest's disks are not copied. That keeps the lab guest bound to its producer, and
     keeps lab history out as a confound.
 - **R4, rollback.** One dedicated disposable guest per layout, each holding a version 2 store,
-  the deliberate exceptions to producer binding. Boot the version 2 image, then the sealed
+  the deliberate exceptions to producer binding. These are fresh guests staged with R3's qualified
+  protocol; R3's guests are not reused. Boot the version 2 image, then the sealed
   `78456b3` image twice, then the version 2 image again, for a `CREATING` reservation and a
   `LIVE` layout. Expect the rollback effects above, unchanged bytes and a persisted package
   setting, then admission with the same UID and map on the forward boot, with the observer
