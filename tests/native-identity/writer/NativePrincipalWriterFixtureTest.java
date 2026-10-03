@@ -13,6 +13,8 @@ import java.util.concurrent.atomic.AtomicReference;
 /** Actual manager/store below host PMS facades. Not Android authority or filesystem qualification. */
 @SuppressWarnings("try")
 public final class NativePrincipalWriterFixtureTest {
+    // Legacy version 1 writer runs: Format.V1 explicitly, never the facade's production default.
+    private static final NativeIdentityStore.Format LEGACY = NativeIdentityStore.Format.V1;
     private static final String SUBJECT = "dev.andrix.proof.principalclosed";
     private static final String INSTANCE = "a".repeat(32), NEXT = "b".repeat(32), NONCE = "c".repeat(32);
     private static final Set<String> SIGNERS = Set.of(
@@ -29,7 +31,7 @@ public final class NativePrincipalWriterFixtureTest {
         if (!NativePrincipalWriterFixtureTest.class.desiredAssertionStatus()) throw new AssertionError("-ea");
         UserManagerInternal users = new UserManagerInternal();
         LocalServices.addService(UserManagerInternal.class, users);
-        PackageManagerService pm = new PackageManagerService();
+        PackageManagerService pm = new PackageManagerService(null, true, LEGACY);
         PackageSetting subject = pm.mSettings.add(SUBJECT, 10148);
         NativePrincipalManager manager = new NativePrincipalManager(pm);
         LocalServices.addService(NativePrincipalManager.class, manager);
@@ -142,7 +144,7 @@ public final class NativePrincipalWriterFixtureTest {
         refused(() -> probe.execute("select-new", INSTANCE, "d".repeat(32)));
         subject.version--;
 
-        PackageManagerService rebooted = new PackageManagerService(pm.mSettings.root, false);
+        PackageManagerService rebooted = new PackageManagerService(pm.mSettings.root, false, LEGACY);
         rebooted.mSettings.add(SUBJECT, 10148);
         rebooted.mSettings.restoreAfterPackageSettings();
         NativePrincipalManager recovered = new NativePrincipalManager(rebooted);

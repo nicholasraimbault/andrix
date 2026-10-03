@@ -6,6 +6,8 @@ import java.util.Set;
 
 /** Controlled failures compiled into temporary source copies, not hardware OOM qualification. */
 public final class NativePreparationFaultTest {
+    // Legacy version 1 writer runs: Format.V1 explicitly, never the facade's production default.
+    private static final NativeIdentityStore.Format LEGACY = NativeIdentityStore.Format.V1;
     private static final String A = "dev.andrix.copyfirst", B = "dev.andrix.copysecond", C = "dev.andrix.copythird";
     private static void allocationFailure(Runnable operation) {
         try { operation.run(); }
@@ -52,7 +54,7 @@ public final class NativePreparationFaultTest {
     }
     private static void issuedBeforeHandle() {
         NativePreparationFaults.reset(0);
-        PackageManagerService pm = new PackageManagerService();
+        PackageManagerService pm = new PackageManagerService(null, true, LEGACY);
         PackageSetting setting = pm.mSettings.add(A, 11000);
         NativePrincipalManager manager = new NativePrincipalManager(pm);
         var selected = manager.select(A, 0);

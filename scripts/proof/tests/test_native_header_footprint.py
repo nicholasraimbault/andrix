@@ -3,7 +3,7 @@
 the JVM with host facades and host injected write failures. Not Android crash or power loss proof.
 
 The suite runs against the current creation plan sources through the host only B1 NativeHeaderApi
-adapter, in the production V1 format with an explicit signer row for every snapshot record. The
+adapter, in the legacy version 1 format with an explicit signer row for every snapshot record. The
 archived c9264e4 and d104e15 comparisons, with the baseline adapter, are in the guarded
 native_creation_binding runner."""
 from pathlib import Path

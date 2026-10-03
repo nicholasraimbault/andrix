@@ -1,7 +1,7 @@
 # Version 2 native store in the normal image
 
-Status: design accepted after three independent review rounds. R0 is next; no source, guard or
-image has changed yet.
+Status: R0, the source, guard and host stage, is integrated and host qualified. R1 to R4 come
+next, each with its own admission. No normal image with version 2 has been built or booted.
 
 ## Decision
 
@@ -164,6 +164,33 @@ Earlier plans set what a reviewed enable must join.
     body, and asserts the effects above. Scan refusal is asserted in the Settings facade, and
     package deferral in the history harness that runs the Settings seeding.
   - Mutants and exact baseline comparisons run under the required resource scope.
+
+## R0 result
+
+An implementation worker produced R0 in an isolated worktree. Independent review of its first
+candidate found two gaps, both confirmed in source and fixed before integration: three tests that
+guard the build scope and the factory fence had been deleted with the token, and the complete
+stack rule lived only in the writer tool rather than at the shared fence. Review also added
+hardening, and the escape rule now covers every production text.
+
+- The old and new native patches differ by exactly one byte. The new adapted Settings equals the
+  retired lab output byte for byte. Only the patch, Settings candidate and store helper pins
+  changed, and the old and new store helpers compile to identical class files.
+- The guard has seven rules, and twenty mutants each trip exactly their predicted rules. Every rule
+  is tripped alone by some mutant.
+- The `78456b3` sources, pinned from Git objects, and the current sources both read all 47 emitted
+  version 2 layouts under `Format.V1` with holds kept but no pins, history or admission. The same
+  layouts under `Format.V2` gave them, so the rollback assertions discriminate. Across the 45
+  history layouts, version 1 recovery seeding deferred every mapped package and version 2 admitted
+  them.
+- The binding, history, counter admission and lab history runners passed under the required
+  bounded scope with a real JDK, and the full host suite showed no failure beyond the base.
+- Earlier failed runs are kept on record. They were harness causes: a fixture path over the
+  Unix socket limit, unit time limits through disk sync latency, incomplete pinned inputs and an
+  import path. The qualification runs used short tmpfs fixture roots.
+
+These are host results, not Android, boot or power loss evidence. A version 2 run of the writer
+fixture tests is due before the next lab image.
 
 ## Android stages
 

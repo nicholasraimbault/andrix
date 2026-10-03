@@ -1,6 +1,16 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Exact optional lab writer route. Normal framework admission refuses this adaptation."""
+"""Exact optional lab writer route. Normal framework admission refuses this adaptation.
+
+The shared framework fence makes the one admission decision, require_admission, for every tool
+that inspects with it. Normal admission requires the writer fixture upstream. Lab admission,
+--lab-test-only, requires the fixture exactly upstream or exactly adapted, never partial, over
+the complete lab stack: the native principal companion, the owner lifecycle CE companion, and
+package verity with its payload sync companion, each exactly adapted. This tool adds only the
+state each action starts from: exactly upstream before an apply and exactly adapted before a
+revert, so a repeated apply or revert refuses too. Recovering from a partial state is a reviewed
+manual checkout repair; there is no force option.
+"""
 from pathlib import Path
 import argparse
 import hashlib
@@ -113,9 +123,42 @@ def inspect_files(project):
                              'lab_only': True, 'native_execution_enabled': False, 'runtime_qualified': False}
 
 
-def require_admission(result, lab_writer_fixture=False):
-    if result['state'] != 'UPSTREAM' and lab_writer_fixture is not True:
-        raise ValueError('test-only native writer route requires explicit lab admission')
+def require_admission(result, lab_writer_fixture=False, *, ce_state=None, package=None, native_state=None):
+    """The shared fence's one decision for this fixture. Without lab admission the fixture must be
+    upstream. With it, the fixture must be exactly upstream or exactly adapted over the complete
+    stack, whose states the fence passes: the CE companion, the package verity report with its
+    payload sync companion, and the native principal companion. A missing state refuses."""
+    if lab_writer_fixture is not True:
+        if result['state'] != 'UPSTREAM':
+            raise ValueError('test-only native writer route requires explicit lab admission')
+        return
+    problems = lab_problems('check', result['state'], ce_state, package, native_state)
+    if problems:
+        raise ValueError('lab admission requires ' + ', '.join(problems))
+
+
+# The exact writer fixture state each lab action starts from.
+LAB_STATES = {'apply': ('UPSTREAM',), 'revert': ('ADAPTED',), 'check': ('UPSTREAM', 'ADAPTED')}
+
+
+def lab_problems(action, writer_state, ce_state, package, native_state):
+    """What lab admission still lacks for this action, as the parts it needs. Every part is
+    required for every action; nothing is relaxed for a check or a revert. The fence asks for a
+    check, which takes either exact fixture state; main then asks for the action itself."""
+    problems = []
+    if native_state != 'ADAPTED':
+        problems.append('the native principal companion exactly adapted')
+    if ce_state != 'ADAPTED':
+        problems.append('the owner lifecycle CE companion exactly adapted')
+    payload = package.get('payload_sync_companion') if isinstance(package, dict) else None
+    if (not isinstance(payload, dict) or package.get('state') != 'ADAPTED'
+            or payload.get('state') != 'ADAPTED'):
+        problems.append('package verity with its payload sync companion exactly adapted')
+    wanted = LAB_STATES[action]
+    if writer_state not in wanted:
+        problems.append('the writer fixture exactly %s, not %s'
+                        % (' or '.join(state.lower() for state in wanted), str(writer_state).lower()))
+    return problems
 
 
 def main():
@@ -137,9 +180,13 @@ def main():
             or android_lifecycle.sealed_ancestor(evidence)):
         raise ValueError('fresh unsealed evidence outside source/repository required')
     project, _, _, companions = android_lifecycle.inspect(root, lab_writer_fixture=args.lab_test_only)
-    if args.action == 'apply' and companions['native_principal_pins_companion']['state'] != 'ADAPTED':
-        raise ValueError('actual native principal manager adaptation required first')
     original, target, result = inspect_files(project)
+    if args.lab_test_only:
+        problems = lab_problems(args.action, result['state'], companions['state'],
+                                companions['package_verity_companion'],
+                                companions['native_principal_pins_companion']['state'])
+        if problems:
+            raise ValueError('lab admission requires ' + ', '.join(problems))
     if args.action != 'check':
         wanted = target if args.action == 'apply' else original
         for name in (FILE, ADDED):

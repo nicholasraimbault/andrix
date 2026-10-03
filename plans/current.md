@@ -122,7 +122,11 @@ before any native call, rebound ID 1 through a new fixture instance and publishe
 LIVE header and body. A separate pure cold bookend then found that header and body exact after
 another unclean stop, with a fresh `system_server` holding the pinned body. This completes the lab
 sequence for one guest and producer. This guest must now use only its exact V2 capable producer.
-Normal production remains unchanged.
+The owner then approved [version 2 in the normal image](2026-10-02-native-store-v2-normal.md),
+with native execution, the factory, retirement and release still off. Its source, guard and host
+stage is integrated: the one boot construction passes `Format.V2`, the lab format token is retired,
+and host checks show the last version 1 image keeping holds without admitting version 2 bindings.
+No normal image with version 2 has been built or booted yet.
 
 The [installer durability assessment](2026-09-27-package-installer-durability.md) retains an
 unclean stop failure and a separate Android file comparison. The checked writing descriptor sync

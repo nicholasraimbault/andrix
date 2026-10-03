@@ -119,7 +119,7 @@ public final class NativeIdentityPersistenceTest {
         System.out.println("Native identity persistence transactions passed; Android unqualified");
     }
 
-    // The production format's reservation plan with an owned signer row for every record, as
+    // The version 1 format's reservation plan with an owned signer row for every record, as
     // the manager supplies for its own issuances. Rows never change version 1 bytes.
     private static NativeIdentityPersistence.CreationPlan plan(Snapshot snapshot) {
         Map<Long, Set<String>> rows = new TreeMap<>();

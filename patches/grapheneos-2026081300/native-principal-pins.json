@@ -2,7 +2,7 @@
   "version": 1,
   "project": "frameworks/base",
   "head": "aab06a8bd44c4c2b58eeec780fde83baa9d43a40",
-  "patch_sha256": "8e5a3ec75d0e9b0d9d6258c5e332f01c9258092145cbd3e32335aae8bf5f2d3d",
+  "patch_sha256": "eeaf34b2101c58f36d577ec020feb64f30bbdc6ddb982d7647e09ff223f5d4d5",
   "files": [
     {
       "path": "services/core/java/com/android/server/pm/AppIdSettingMap.java",
@@ -12,7 +12,7 @@
     {
       "path": "services/core/java/com/android/server/pm/Settings.java",
       "upstream_sha256": "bff2de579d206a39be81ef0b798df8f6e845d2f28efbbcd63554ccffbddae5a1",
-      "candidate_sha256": "d18ffbd11b4382046ab7df33dec2913ca527bb31e5acfe32b38da2a1d2b17ba6"
+      "candidate_sha256": "301cb589989220fb017fa9ab58fd2a36775dc68ec49362e73e15770a84408455"
     },
     {
       "path": "services/core/java/com/android/server/pm/PackageManagerService.java",
@@ -74,7 +74,7 @@
     {
       "path": "services/core/java/com/android/server/pm/NativeIdentityStore.java",
       "source": "owner/platform/framework/NativeIdentityStore.java",
-      "sha256": "fa69ee859973504b9529c36d85551eda9c8cbe04ae285d89d5390603a6d45c23"
+      "sha256": "183324ae3188717941cc614ceba0d68bd93fbc1d0d0be5e7c0cd80bf97a81138"
     },
     {
       "path": "services/core/java/com/android/server/pm/NativeIdentityPersistence.java",

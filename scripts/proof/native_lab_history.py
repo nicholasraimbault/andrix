@@ -19,7 +19,9 @@ timeout. An exception keeps every finished record and problem, the stopped comma
 the unfinished phases, and the run is NOT_COMPLETE. Nothing is retried.
 
 This qualifies host tools, guards and a host facade rehearsal only. It is not Android, SELinux,
-crash, storage, activation or V2 publication evidence, and it admits no Android build.
+crash, storage, activation or V2 publication evidence, and it admits no Android build. The lab
+format token it once checked is retired: the normal image now constructs Format.V2 itself, and
+the production format guard of the B1 runner checks that construction.
 """
 from pathlib import Path
 import argparse
@@ -39,15 +41,13 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts/proof'))
 import android_lifecycle  # noqa: E402
 import native_creation_binding as b1  # noqa: E402
-import native_lab_format as lab  # noqa: E402
-import native_principal_pins as integration  # noqa: E402
 
 LAB_DIR = ROOT / 'tests/native-identity/lab-history'
 NATIVE_IDENTITY = ROOT / 'tests/native-identity'
 PLATFORM = ROOT / 'owner/tests/platform'
 FRAMEWORK = ROOT / 'owner/platform/framework'
 PREDICTIONS = ROOT / 'scripts/proof/native_lab_history_predictions.json'
-PHASES = ('source', 'jdk', 'store fixture', 'rehearsal', 'writer regression', 'pure suites')
+PHASES = ('jdk', 'store fixture', 'rehearsal', 'writer regression', 'pure suites')
 FAULTS = ('error', 'exception', 'observation')
 GENERATOR = 'dev.andrix.proof.nativelab.LabHistoryStore'
 # The one reviewed host facade overlap, as in the B1 runner: the XML stub's Log replaces the
@@ -55,9 +55,12 @@ GENERATOR = 'dev.andrix.proof.nativelab.LabHistoryStore'
 STUB_OVERLAPS = frozenset({'android/util/Log.java'})
 # The host facade's synthetic test certificate, the bytes 1, 2 and 3 that the existing fixture
 # tests install. Its digest is computed here, independently of any transcript. It is no Android
-# signer: the lab command line predicts only the fixture's development signer from the profile.
+# signer: the lab command line predicts only the development signer of the pinned writer fixture.
 HOST_SIGNER = hashlib.sha256(bytes([1, 2, 3])).hexdigest()
-# The existing writer route and observer, byte identical at this base.
+# The writer route and observer. The fixture, its profile, its patch and the observer are byte
+# identical to the lab producer's. The writer tool changed when the lab format token was retired:
+# its lab admission, at the shared fence and per action, requires the complete stack.
+FIXTURE = 'tests/native-identity/writer/NativePrincipalWriterFixture.java'
 UNCHANGED = {
     'tests/native-identity/writer/NativePrincipalWriterFixture.java':
         '7628d42b1535aac7ea971eb1161fd22e403518f889fe619ad6170d5d5fde8a21',
@@ -65,7 +68,8 @@ UNCHANGED = {
         '1591b623b8b276d0835da91c4e7358c1b13ae10cfd80b8a5bcf4b8622fb119e3',
     'patches/grapheneos-2026081300/native-identity-writer.patch':
         '2ede775d3e67610457b294870854310d38d97ff873bec2f70fe08646253a328b',
-    'scripts/proof/native_identity_writer.py': '332256d84c59a673a7f13b4da56e04d7f9351cdd022ae4e3948b9c851f29eb77',
+    'scripts/proof/native_identity_writer.py':
+        'fc12beb83e0f4706af87f7ec9cfb893e3fe61f90d05d24f97b29189337054032',
     'tests/native-identity/writer_observe.py': 'd9663ba6a880f970c8914a035989e3159cc0ab7ce10e54904ab073cc4f2115e1'}
 # Host facade and fixture calls that would inject state instead of observing the actual writer.
 INJECTIONS = ('restoreBindingsWithoutCounter', '.restore(', 'rememberNative', 'mNativeRememberedBindings',
@@ -79,8 +83,42 @@ def sha(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def unique(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError('duplicate key')
+        result[key] = value
+    return result
+
+
+def invalid_constant(value):
+    raise ValueError('non-finite value')
+
+
 def strict(text):
-    return json.loads(text, object_pairs_hook=lab.unique, parse_constant=lab.invalid_constant)
+    return json.loads(text, object_pairs_hook=unique, parse_constant=invalid_constant)
+
+
+def subject_constants(text):
+    """The fixed subject, development signer, version and user the writer fixture selects."""
+    found = {'package': re.findall(r'^    private static final String SUBJECT = "([^"\n]*)";$', text, re.M),
+             'signer_sha256': re.findall(r'^    private static final String FIXTURE_SIGNER =\n'
+                                         r'            "([0-9a-f]{64})";$', text, re.M),
+             'version_code': re.findall(r'\bchosen\.versionCode != ([0-9]+)\b', text),
+             'user_id': re.findall(r'\bchosen\.userId != ([0-9]+)\b', text)}
+    if any(len(values) != 1 for values in found.values()) or text.count('Set.of(FIXTURE_SIGNER)') != 1:
+        raise ValueError('writer fixture subject constants are not exact')
+    return {'package': found['package'][0], 'signer_sha256': found['signer_sha256'][0],
+            'version_code': int(found['version_code'][0]), 'user_id': int(found['user_id'][0])}
+
+
+def fixture_subject():
+    """The subject constants parsed from the pinned writer fixture, never another copy."""
+    data = (ROOT / FIXTURE).read_bytes()
+    if sha(data) != UNCHANGED[FIXTURE]:
+        raise ValueError('writer fixture differs from its pin')
+    return subject_constants(data.decode())
 
 
 def observer():
@@ -142,32 +180,42 @@ def labels_in(text):
 
 def rehearsal_problems(text):
     """The rehearsal observes the actual writer. It injects no pin, history, issuance, hold or
-    store bytes, and constructs Format.V2 only for its own facade boots."""
+    store bytes, and constructs exactly the production format of the boot read, Format.V2, only
+    for its own facade boots."""
     code = b1.strip_java_comments(text)
     problems = ['rehearsal injects state: ' + item for item in INJECTIONS if item in code]
-    if code.count('NativeIdentityStore.Format.V2') != 2 or 'Format.V1' in code:
+    if (code.count(b1.PRODUCTION) != 2 or 'Format.V1' in code
+            or b1.boot_literal() != b1.PRODUCTION):
         problems.append('rehearsal format selection')
     return problems
+
+
+def subject_problems(subject, store, observe):
+    """The generator's subject, signer and user and the observer's subject and fixed signer, each
+    against the values parsed from the pinned writer fixture."""
+    if (re.findall(r'public static final String SUBJECT = "([^"]+)";', store) != [subject['package']]
+            or re.findall(r'public static final String FIXTURE_SIGNER =\n\s+"([0-9a-f]{64})";', store)
+            != [subject['signer_sha256']]
+            or re.findall(r'public static final int USER = ([0-9]+);', store) != [str(subject['user_id'])]
+            or observe.FIXTURE_SIGNER != subject['signer_sha256'] or observe.SUBJECT != subject['package']):
+        return ['generator or observer subject differs from the writer fixture']
+    return []
 
 
 def source_checks():
     """Pure and read only: nothing is created, and no compiler or JVM starts."""
     problems = []
-    try:
-        value = lab.profile()
-    except ValueError as error:
-        return ['lab profile: %s' % error]
-    problems += ['production format guard: ' + item for item in b1.format_violations(b1.production_texts())]
     for name, digest in UNCHANGED.items():
         if sha((ROOT / name).read_bytes()) != digest:
             problems.append('changed existing input: ' + name)
+    try:
+        subject = fixture_subject()
+    except ValueError as error:
+        return problems + ['writer fixture subject: %s' % error]
+    problems += ['production format guard: ' + item for item in b1.format_violations(b1.production_texts())]
     store = (LAB_DIR / 'LabHistoryStore.java').read_text()
     code = b1.strip_java_comments(store)
-    if (re.findall(r'public static final String SUBJECT = "([^"]+)";', store) != [value['subject']['package']]
-            or re.findall(r'public static final String FIXTURE_SIGNER =\n\s+"([0-9a-f]{64})";', store)
-            != [value['subject']['signer_sha256']] or 'public static final int USER = 0;' not in store
-            or observer().FIXTURE_SIGNER != value['subject']['signer_sha256']):
-        problems.append('generator or observer subject differs from the writer fixture')
+    problems += subject_problems(subject, store, observer())
     for forbidden in ('NativeIdentityStore', 'NativeIdentityPersistence', 'NativePrincipalManager', 'PackageSetting',
                       'initializeNew', 'java.lang.reflect', 'System.getProperty', 'System.getenv'):
         if forbidden in code:
@@ -181,7 +229,7 @@ def source_checks():
     problems += rehearsal_problems(rehearsal)
     predictions = strict(PREDICTIONS.read_text())
     if (predictions['rehearsal']['facade_signer_sha256'] != HOST_SIGNER
-            or HOST_SIGNER == value['subject']['signer_sha256']):
+            or HOST_SIGNER == subject['signer_sha256']):
         problems.append('the host test signer is not distinct from the fixture signer')
     labels = labels_in(b1.strip_java_comments(rehearsal))
     if (len(labels) != len(set(labels)) or set(labels) != set(predictions['rehearsal']['labels'])
@@ -196,68 +244,6 @@ def source_checks():
         if not (ROOT / name).is_file():
             problems.append('missing pure suite: ' + name)
     return problems
-
-
-# ------------------------------------------------------------ checks that write under --work
-
-def guard_trip(work):
-    """The unmodified production format guard over a copy of its inputs, with the lab patch
-    copied under patches: the copy must be refused wherever it lands there."""
-    problems = []
-    copy = work / 'guard-copy'
-    shutil.copytree(ROOT / b1.FRAMEWORK_DIR, copy / b1.FRAMEWORK_DIR)
-    shutil.copytree(ROOT / 'patches', copy / 'patches')
-    fixture = 'tests/native-identity/writer/NativePrincipalWriterFixture.java'
-    (copy / fixture).parent.mkdir(parents=True)
-    shutil.copy2(ROOT / fixture, copy / fixture)
-    original = b1.ROOT
-    b1.ROOT = copy
-    try:
-        if b1.format_violations(b1.production_texts()):
-            problems.append('guard copy is not clean')
-        for target in ('patches/grapheneos-2026081300/native-store-format-v2.patch', 'patches/lab/other-name.patch'):
-            path = copy / target
-            path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(lab.PATCH, path)
-            if not any('Format.V2' in item for item in b1.format_violations(b1.production_texts())):
-                problems.append('unmodified production guard missed the lab patch at ' + target)
-            path.unlink()
-    finally:
-        b1.ROOT = original
-    return problems
-
-
-def pinned_checks(pinned):
-    """The ten native outputs and the lab Settings rebuilt from the pinned canonical copies."""
-    value = integration.profile()
-    original, problems = {}, []
-    for row in value['files']:
-        path = pinned / row['path']
-        if path.is_symlink() or not path.is_file() or sha(path.read_bytes()) != row['upstream_sha256']:
-            raise ValueError('pinned framework copy differs: ' + row['path'])
-        original[row['path']] = path.read_bytes()
-    output = integration.targets(original, value)
-    lab_bytes = lab.candidate(output[lab.FILE])
-    report = {'settings_input_sha256': sha(output[lab.FILE]), 'settings_output_sha256': sha(lab_bytes),
-              'changed_bytes': sum(a != b for a, b in zip(output[lab.FILE], lab_bytes)),
-              'other_outputs': {row['path']: sha(output[row['path']]) for row in value['files']
-                                if row['path'] != lab.FILE}}
-    for row in value['files']:
-        if row['path'] != lab.FILE and sha(output[row['path']]) != row['candidate_sha256']:
-            problems.append('native output differs from its normal candidate: ' + row['path'])
-    lab.one_token(output[lab.FILE], lab_bytes)
-    if report['changed_bytes'] != 1 or report['settings_output_sha256'] != lab.profile()['file']['output_sha256']:
-        problems.append('lab Settings is not the pinned one token candidate')
-    return report, problems
-
-
-def source_phase(work, predictions, pinned, record, problems, save):
-    record['pinned'], found = pinned_checks(pinned)
-    problems.extend(found)
-    save()
-    record['guard_trip'] = guard_trip(work)
-    problems.extend(record['guard_trip'])
-    save()
 
 
 # ------------------------------------------------------------ JVM phases, guarded
@@ -393,7 +379,7 @@ def store_fixture(work, predictions, pinned, record, problems, save):
                                  classes=classes, timeout=120)
     save()
     prediction = observe.load_prediction(predicted)
-    gold = goldens(lineage=generation['lineage'], signer=lab.profile()['subject']['signer_sha256'])
+    gold = goldens(lineage=generation['lineage'], signer=fixture_subject()['signer_sha256'])
     oracle = {generated / 'store.bin': 'EMPTY', generated / 'store.bin.reservecopy': 'EMPTY',
               predicted / 'v2-creating-header.bin': 'CREATING', predicted / 'v2-live-header.bin': 'LIVE',
               predicted / 'v2-slot-body.bin': 'BODY'}
@@ -706,7 +692,7 @@ def writer_regression(work, predictions, pinned, record, problems, save):
     save()
     wanted = 'Ran %d tests' % predictions['writer_regression']['tests']
     if record['run']['returncode'] or wanted not in record['run']['stderr'] or 'skipped' in record['run']['stderr']:
-        problems.append('unchanged writer fixture regression')
+        problems.append('legacy writer fixture regression')
 
 
 def pure_suites(work, predictions, pinned, record, problems, save):
@@ -723,7 +709,7 @@ def pure_suites(work, predictions, pinned, record, problems, save):
             problems.append('required pure suite checks skipped: ' + name)
 
 
-STEPS = {'source': source_phase, 'jdk': jdk_phase, 'store fixture': store_fixture, 'rehearsal': rehearsal,
+STEPS = {'jdk': jdk_phase, 'store fixture': store_fixture, 'rehearsal': rehearsal,
          'writer regression': writer_regression, 'pure suites': pure_suites}
 
 
@@ -805,7 +791,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--evidence', type=Path, help='fresh JSON path outside the repository')
     parser.add_argument('--work', type=Path, help='fresh scratch directory outside the repository')
-    parser.add_argument('--pinned-framework', type=Path, help='pinned canonical framework copies')
+    parser.add_argument('--pinned-framework', type=Path,
+                        help='pinned canonical framework copies, for the pure suites that rebuild them')
     parser.add_argument('--source-checks-only', action='store_true')
     args = parser.parse_args(argv)
     predictions = strict(PREDICTIONS.read_text())
@@ -814,17 +801,9 @@ def main(argv=None):
     problems = source_checks()
     report['source_checks'] = list(problems) or 'PASS'
     if args.source_checks_only:
-        if args.pinned_framework and not args.work:
-            parser.error('--work is required to rebuild the pinned candidates')
-        if args.work:
-            work = fresh_outside(args.work, 'work directory')
-            work.mkdir(parents=True)
-            (work / 'tmp').mkdir()
-            tempfile.tempdir = str(work / 'tmp')
-            problems += guard_trip(work)
-            if args.pinned_framework:
-                report['pinned'], found = pinned_checks(args.pinned_framework.resolve(strict=True))
-                problems += found
+        # The pinned rebuild of the native outputs is the B1 runner's --verify-candidate.
+        if args.work or args.pinned_framework or args.evidence:
+            parser.error('source checks take no --work, --pinned-framework or --evidence')
         report['status'] = 'FAIL' if problems else 'SOURCE_ONLY'
         report['problems'] = problems
         print(json.dumps(report, indent=2))

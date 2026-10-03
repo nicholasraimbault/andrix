@@ -36,8 +36,8 @@ import java.util.TreeSet;
  * no eligibility or counter from around it. Links and special nodes are refused and never
  * followed. Each case isolates one store and restricts exactly one fixture path with real
  * unprivileged permissions, restoring that path's own mode afterwards. A run uses one store
- * format, the production V1 by default. A separate V2 run repeats every case with version 2
- * headers whose CREATING entries carry the complete binding of their slot bodies. Host
+ * format: the legacy version 1 by default, or the production V2, which repeats every case with
+ * version 2 headers whose CREATING entries carry the complete binding of their slot bodies. Host
  * facades only, not Android persistence, SELinux or I/O error qualification.
  */
 public final class NativeIdentityPresenceTest {

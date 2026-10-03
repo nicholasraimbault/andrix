@@ -9,6 +9,16 @@ exact. The earlier failed and diagnostic scopes stay recorded below. Production 
 `Format.V1`; native execution and the factory stay off. Any further store operation needs its own
 admission. This follows the [historical identity step](2026-09-28-native-creation-history.md).
 
+Note, 2026-10-02: the owner approved version 2 as the native store format of the normal image,
+in the [version 2 normal store plan](2026-10-02-native-store-v2-normal.md). Its R0 source step
+makes the normal native patch construct `Format.V2` at this boot read, so the normal adapted
+Settings equals this lab's output byte for byte. R0 also retires the lab format token described
+below: its tool, tests, profile and patch, the `LAB_FORMAT_V2` state of the shared fence and the
+`--lab-history-format` admission. The shared fence's lab admission of the writer fixture now
+requires the complete stack and refuses a partial fixture. The sections below record this lab as it
+ran, when production still constructed `Format.V1`. The generator, predictor and rehearsal remain,
+and the sealed `23cede6` producer records are unchanged.
+
 ## Why a lab arm is needed
 
 B2 restores a complete CREATING header without a body as a PENDING pin, and an explicit

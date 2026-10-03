@@ -23,11 +23,12 @@ import java.util.TreeMap;
  * Shared host fixtures of the header footprint tests: values, direct store layouts, exact file
  * footprints and a reopened host Package Manager facade. It uses only store, manager and
  * facade surface that predates the header footprint correction, so the same tests also run
- * against earlier sources as controls. Store construction, projection and reservation go
- * through the host only NativeHeaderApi adapter that the harness selects for the sources under
- * test. Each reservation carries an explicit signer row for every snapshot record, as the
- * owned manager supplies for its own issuances, so a creation plan source sees the same
- * B0 equivalent case. Host files only, not Android persistence.
+ * against earlier sources as controls. Store and facade construction, projection and
+ * reservation go through the host only NativeHeaderApi adapter that the harness selects for the
+ * sources under test, so the facade's own default format never applies here. Each reservation
+ * carries an explicit signer row for every snapshot record, as the owned manager supplies for
+ * its own issuances, so a creation plan source sees the same B0 equivalent case. Host files
+ * only, not Android persistence.
  */
 final class NativeHeaderTestSupport {
     static final String LINEAGE = "0123456789abcdef0123456789abcdef";
@@ -213,7 +214,7 @@ final class NativeHeaderTestSupport {
 
     // A new PMS over the same files: ordinary package settings first, then the store restore.
     static PackageManagerService reopen(Path root, Map<String, Integer> packages) {
-        PackageManagerService pm = new PackageManagerService(root, false);
+        PackageManagerService pm = NativeHeaderApi.pm(root, false);
         for (Map.Entry<String, Integer> entry : packages.entrySet()) {
             pm.mSettings.add(entry.getKey(), entry.getValue());
         }
@@ -235,7 +236,7 @@ final class NativeHeaderTestSupport {
     }
     // A live PMS over a new store, with the subject packages installed.
     static PackageManagerService livePm() throws Exception {
-        PackageManagerService pm = new PackageManagerService(fresh(), true);
+        PackageManagerService pm = NativeHeaderApi.pm(fresh(), true);
         pm.mSettings.add(PKG_B, B);
         pm.mSettings.add(PKG_C, C);
         pm.mSettings.add(PKG_A, A);

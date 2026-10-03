@@ -30,8 +30,12 @@ FRAMEWORK = ('NativePrincipalPins', 'NativePrincipalManager', 'NativeIdentityRec
 STUB_DIRECTORIES = ('native_principal_stubs', 'native_principal_xml_stubs')
 PREDICTIONS = ROOT / 'scripts/proof/native_creation_binding_predictions.json'
 REVISIONS = {'c926': 'c9264e496777a81c2465ba3d1a0da91d3a4a8855',
-             'd104': 'd104e15bae58a74dbba6e3c3325a93f216773667'}
-# Exact baseline inputs taken from Git objects. Only these two revisions are compared.
+             'd104': 'd104e15bae58a74dbba6e3c3325a93f216773667',
+             '7845': '78456b352267dba916778b90d7c926c4e67ef888'}
+# Exact baseline inputs taken from Git objects. c9264e4 and d104e15 are archived baselines.
+# 78456b3 is the last version 1 normal image and the one supported rollback reader: its sources
+# equal the version 2 normal sources except for the boot literal, the store comments and the host
+# facade default, and the rollback model runs them under Format.V1.
 BASELINE_SHA256 = {
     'c926': {
         'NativePrincipalPins': '6dfdec9565b2b2295c60f2e38ecff4e57f55b7a13fa15ff9beb4b1911ed999bb',
@@ -49,7 +53,38 @@ BASELINE_SHA256 = {
         'NativeIdentityPersistence': 'f20100402ca0284c009097c96d74213533d828d035ab1d83e1d4211c7ce919af',
         'NativePrincipalRecovery': '08ed1d161a632362fd02912abfb2b927b6ad1ee18c78deab0fe0f9129711b88e',
         'Settings': '547078cd90a6b9b1cd2b6b872081ce3b8712a8bf49a6585b869e61cb9c656d69'},
+    '7845': {
+        'NativePrincipalPins': '6dfdec9565b2b2295c60f2e38ecff4e57f55b7a13fa15ff9beb4b1911ed999bb',
+        'NativePrincipalManager': '1fa50501728a66b676020c83fce44d5868686db37a6b5867498975ae4d57ceb4',
+        'NativeIdentityRecords': '412c2271a9efabf9937375bd42f2e49c5e3fb4d09935a9e98d6e5805736a3009',
+        'NativeIdentityStore': 'fa69ee859973504b9529c36d85551eda9c8cbe04ae285d89d5390603a6d45c23',
+        'NativeIdentityPersistence': 'f2fd1a5e6d272f99bb06973700d885523c1dbff033731b4a02e969f8bfb29f54',
+        'NativePrincipalRecovery': '08ed1d161a632362fd02912abfb2b927b6ad1ee18c78deab0fe0f9129711b88e',
+        'Settings': '2eaa6c9dae109f949fb23b553b92d8396d4d65c70b42caa83650821ba2b40669'},
 }
+# The version 1 readers of the emitted version 2 layouts: target, baseline revision and host
+# adapter. b1-v1 is the current sources under Format.V1 and 7845 is the pinned 78456b3 image
+# under Format.V1, both the rollback reader model. c926 is an archived baseline reader.
+READERS = (('b1-v1', None, 'b1'), ('c926', 'c926', 'baseline'), ('7845', '7845', 'b1'))
+# The targets that model the supported 78456b3 rollback reader.
+ROLLBACK_READERS = ('b1-v1', '7845')
+# The emitted layouts that hold a version 2 header copy, predicted from the writer protocol: all
+# 47 but the four seed-synced steps whose prior header copies are version 1, where only the
+# staging seed is version 2. The rollback checks assert this count, so no layout leaves the copy
+# branch unnoticed. The controls are read again under the production Format.V2.
+ROLLBACK_COPY_LAYOUTS = 43
+ROLLBACK_CONTROLS = ('final-published', 'final-reserved')
+
+
+def rollback_names(prefix, layouts, controls):
+    """The case names one rollback check prints: each layout, each control and the copy count."""
+    return sorted(['%s / %s' % (prefix, name) for name in layouts] + ['%s / version 2 copy layouts' % prefix]
+                  + ['%s control / %s' % (prefix, name) for name in controls])
+
+
+def copy_layouts(layouts):
+    """How many emitted layouts record a version 2 header copy as their kind."""
+    return sum((layout / 'kind').read_text() == 'copy\n' for layout in sorted(layouts.iterdir()))
 # The archived header footprint suite, unchanged, as it ran in the B0 qualification.
 ORIGINAL_B0_SHA256 = {
     'NativeHeaderTestSupport': 'fd6c83fd41958f4902e19143ac0fbd53b54e8483f00e9c701ed853ccb1ada91b',
@@ -129,6 +164,136 @@ LAYOUT_NAMES = tuple(sorted(
                                   'restated-then-upgraded-', 'v2-publication-') for step in STEPS]
     + ['final-reserved', 'final-published', 'final-legacy-null', 'final-released']
     + ['bound-collision-' + kind for kind in ('package', 'principal', 'both')]))
+
+# Every host run carries one label. production: Format.V2, as the normal image's one boot read
+# constructs it, or code that constructs no store. rollback-reader: Format.V1 reading version 2
+# state, the model of the supported 78456b3 rollback reader. archived-baseline: pinned Git objects
+# of an earlier revision, compared and never shipped again. legacy: Format.V1 writes or Format.V1
+# end to end, which model no shipped reader since the normal image became version 2; they stay
+# as regressions of the version 1 paths, and none is retired.
+RUN_LABELS = ('production', 'rollback-reader', 'archived-baseline', 'legacy')
+# Which harnesses run under each label: label, runner, the host classes it runs and which runs.
+# A harness that runs cases under more than one format is listed once per label.
+HARNESS_LABELS = (
+    ('production', 'scripts/proof/tests/test_native_identity_store.py', ('NativeIdentityRecordsTest',),
+     'the record codec, which constructs no store'),
+    ('legacy', 'scripts/proof/tests/test_native_identity_store.py',
+     ('NativeIdentityStoreTest', 'NativeIdentityPresenceTest'),
+     'Format.V1 stores, including the default version 1 presence matrix'),
+    ('rollback-reader', 'scripts/proof/tests/test_native_identity_store.py',
+     ('NativeIdentityVersionGateTest', 'NativeIdentityFutureFormatTest'),
+     'Format.V1 over intact version 2 and later frames'),
+    ('production', 'scripts/proof/tests/test_native_identity_persistence.py', ('NativePrincipalRecoveryTest',),
+     'the recovery view, which constructs no store'),
+    ('legacy', 'scripts/proof/tests/test_native_identity_persistence.py', ('NativeIdentityPersistenceTest',),
+     'Format.V1 transactions'),
+    ('production', 'scripts/proof/native_creation_binding.py', ('NativeIdentityPresenceTest',),
+     'the presence and unavailable matrix under Format.V2'),
+    ('production', 'scripts/proof/tests/test_native_principal_pins.py',
+     ('NativePrincipalPinsTest', 'NativePrincipalAllocatorTest'), 'the core and allocator, with no store'),
+    ('legacy', 'scripts/proof/tests/test_native_principal_pins.py',
+     ('NativePrincipalManagerTest', 'NativePreparationAdmissionTest', 'NativePrincipalPersistenceTest'),
+     'explicit Format.V1 facades, and the XML pin codec that no image ships'),
+    ('rollback-reader', 'scripts/proof/tests/test_native_principal_pins.py', ('NativePrincipalManagerTest',),
+     'its last case: a version 2 header copy read as a footprint by the Format.V1 facade'),
+    ('legacy', 'scripts/proof/tests/test_native_preparation_faults.py',
+     ('NativePreparationFaultTest', 'NativePreparationAdmissionTest'), 'explicit Format.V1 facades'),
+    ('production', 'scripts/proof/tests/test_native_recovery_boot.py', ('NativeRecoveryBootTest',),
+     'the exact adapted boot fragments over constructed views, with no store'),
+    ('legacy', 'scripts/proof/tests/test_native_header_footprint.py',
+     ('NativeIdentityHeaderFootprintTest', 'NativeHeaderWriteFaultTest'),
+     'the B0 suite through the B1 adapter: Format.V1 stores and facades'),
+    ('archived-baseline', 'scripts/proof/native_creation_binding.py',
+     ('NativeIdentityHeaderFootprintTest', 'NativeHeaderWriteFaultTest', 'NativeCreationBindingReaderCheck'),
+     'b0 c926 and d104, archived and adapted, and the c926 reader of the version 2 layouts'),
+    ('legacy', 'scripts/proof/native_creation_binding.py',
+     ('NativeIdentityHeaderFootprintTest', 'NativeHeaderWriteFaultTest', 'NativeCreationBindingTest'),
+     'b0 b1-v1 on the current sources, and the V1 writer cases of b1 focused and its mutants'),
+    ('production', 'scripts/proof/native_creation_binding.py',
+     ('NativeCreationBindingTest', 'NativeCreationBindingFaultTest', 'NativeCreationBindingLayouts',
+      'NativeRollbackReaderCheck'),
+     'the V2 cases of b1 focused, the b1 fault matrix, the layout emitter, the B1 mutants and the'
+     ' version 2 controls of the facade rollback checks'),
+    ('rollback-reader', 'scripts/proof/native_creation_binding.py',
+     ('NativeCreationBindingTest', 'NativeCreationBindingReaderCheck', 'NativeRollbackReaderCheck'),
+     'the V1 reader cases of b1 focused, the b1-v1 and 7845 readers and their facade rollback checks'),
+    ('production', 'scripts/proof/native_creation_history.py',
+     ('NativeCreationHistoryTest', 'NativeCreationHistoryFaultTest', 'BodyOriginRetirementProbe',
+      'NativeHistoryParity', 'NativeCreationHistoryLayouts', 'NativeRollbackReaderCheck',
+      'NativeRollbackSeedingCheck'),
+     'the V2 cases and runs of b2 focused, b2 faults, the B2 probe and parity, the emitter, the B2 mutants'
+     ' and the version 2 controls of the rollback checks'),
+    ('legacy', 'scripts/proof/native_creation_history.py', ('NativeCreationHistoryTest', 'BodyOriginRetirementProbe'),
+     'their Format.V1 cases over version 1 stores'),
+    ('rollback-reader', 'scripts/proof/native_creation_history.py',
+     ('NativeCreationHistoryTest', 'NativeHistoryParity', 'NativeCreationBindingReaderCheck',
+      'NativeRollbackReaderCheck', 'NativeRollbackSeedingCheck'),
+     'the Format.V1 reads of version 2 layouts, the b2-v1 and 7845 readers and their facade and seeding'
+     ' rollback checks'),
+    ('archived-baseline', 'scripts/proof/native_creation_history.py',
+     ('BodyOriginRetirementProbe', 'NativeHistoryParity', 'NativeCreationBindingReaderCheck'),
+     'the 0018a1d probe and parity side, and the 0018 and c926 readers'),
+    ('production', 'scripts/proof/native_counter_admission.py', ('NativeCounterAdmissionTest', 'NativeHistoryParity'),
+     'the V2 cases of the focused suite and its mutants, and the V2 runs of the corrected parity side'),
+    ('legacy', 'scripts/proof/native_counter_admission.py',
+     ('NativeCounterAdmissionTest', 'UnsupportedCounterProbe', 'StaleSlotCounterProbe'),
+     'the Format.V1 cases over version 1 stores, and the Format.V1 probes on the corrected sources'),
+    ('rollback-reader', 'scripts/proof/native_counter_admission.py', ('NativeHistoryParity',),
+     'the Format.V1 runs of the corrected parity side over version 2 layouts'),
+    ('archived-baseline', 'scripts/proof/native_counter_admission.py',
+     ('NativeCounterAdmissionTest', 'UnsupportedCounterProbe', 'StaleSlotCounterProbe', 'NativeHistoryParity'),
+     'the 0018a1d and 89491b9 baselines, their probes and the 89491b9 parity side'),
+    ('legacy', 'tests/native-identity/test_writer.py',
+     ('NativePrincipalWriterFixtureTest', 'NativePrincipalWriterFixtureFaultTest',
+      'NativePrincipalWriterFixtureTranscript'), 'the writer fixture tests on explicit Format.V1 facades'),
+    ('production', 'scripts/proof/native_lab_history.py',
+     ('NativeWriterLabRehearsal', 'LabHistoryStoreTest', 'LabHistoryStore'),
+     'the lab rehearsal under Format.V2, and the codec controls, generator and predictor'),
+)
+# The labels of this runner's steps, by step or by the step's first two words, and of its readers.
+STEP_LABELS = {'store classes': ('production', 'archived-baseline'),
+               'b0 c926': ('archived-baseline',), 'b0 d104': ('archived-baseline',), 'b0 b1-v1': ('legacy',),
+               'b1 focused': ('production', 'legacy', 'rollback-reader'), 'b1 faults': ('production',),
+               'presence v2': ('production',),
+               'readers': ('production', 'rollback-reader', 'archived-baseline'),
+               'rollback': ('rollback-reader', 'production'),
+               'mutants': ('production', 'legacy', 'rollback-reader')}
+READER_LABELS = {'b1-v1': 'rollback-reader', 'c926': 'archived-baseline', '7845': 'rollback-reader'}
+
+
+def step_labels(step):
+    """The labels of one of this runner's steps."""
+    return STEP_LABELS[step] if step in STEP_LABELS else STEP_LABELS[step.rsplit(' ', 1)[0]]
+
+
+def harness_class(name):
+    """The one host source of a labelled host class, under the platform tests or the native
+    identity tests, or None."""
+    found = [path for path in (ROOT / PLATFORM / (name + '.java'), ROOT / PLATFORM / (name + '.java.in'))
+             if path.is_file()]
+    found += sorted((ROOT / 'tests/native-identity').rglob(name + '.java'))
+    return found[0] if len(found) == 1 else None
+
+
+def label_problems():
+    """The labels name only known runners and host classes, use every label, and label every step
+    and reader of this runner."""
+    problems = []
+    for label, runner, classes, runs in HARNESS_LABELS:
+        if label not in RUN_LABELS or not (ROOT / runner).is_file() or not classes or not runs:
+            problems.append('harness label row %s %s' % (label, runner))
+        for name in classes:
+            if harness_class(name) is None:
+                problems.append('labelled host class not found once: ' + name)
+    if {row[0] for row in HARNESS_LABELS} != set(RUN_LABELS):
+        problems.append('a run label names no harness')
+    for labels in list(STEP_LABELS.values()) + [(label,) for label in READER_LABELS.values()]:
+        if not labels or not set(labels) <= set(RUN_LABELS):
+            problems.append('unknown step label %s' % (labels,))
+    if set(READER_LABELS) != {target for target, _, _ in READERS} or not set(ROLLBACK_READERS) <= {
+            target for target, label in READER_LABELS.items() if label == 'rollback-reader'}:
+        problems.append('reader labels differ from the readers')
+    return problems
 
 STORE = FRAMEWORK_DIR + 'NativeIdentityStore.java'
 PERSISTENCE = FRAMEWORK_DIR + 'NativeIdentityPersistence.java'
@@ -330,46 +495,258 @@ def added_java(patch_text):
     return '\n'.join(lines)
 
 
+# ---------------------------------------------------------------- the production format guard
+
+NATIVE_PATCH = 'patches/grapheneos-2026081300/native-principal-pins.patch'
+WRITER_PATCH = 'patches/grapheneos-2026081300/native-identity-writer.patch'
+WRITER_FIXTURE = 'tests/native-identity/writer/NativePrincipalWriterFixture.java'
+# The native helpers the native patch adds to the framework, by production text name.
+NATIVE_HELPERS = tuple(path.relative_to(ROOT).as_posix() for path in integration.ADDED.values())
+SETTINGS_SECTION = NATIVE_PATCH + ':' + integration.SETTINGS
+FACADE = PLATFORM + 'native_principal_stubs/com/android/server/pm/Settings.java'
+# The one boot construction of the adapted Settings, ported from the retired lab format tool:
+# its method, the construction up to its format argument and the persistence that follows it.
+METHOD = '    NativeIdentityStore.Loaded readNativeIdentityStoreForBoot() {\n'
+CONSTRUCTION = ('        mNativeIdentityStore = new NativeIdentityStore(\n'
+                '                new File(Environment.getDataSystemDirectory(), "native-principals"),\n'
+                '                ')
+BOOT_END = '        mNativeIdentityPersistence = new NativeIdentityPersistence(mNativeIdentityStore);\n'
+# The format the boot construction passes, and the format of the earlier normal images.
+PRODUCTION = 'NativeIdentityStore.Format.V2'
+RETIRED = 'NativeIdentityStore.Format.V1'
+# The store's whole Format enum, comments aside: two closed versions fixed at construction.
+FORMAT_ENUM = ('enum Format { V1(1, 1), V2(2, 2); final int headerCeiling; final int reservationVersion;'
+               ' Format(int headerCeiling, int reservationVersion) { this.headerCeiling = headerCeiling;'
+               ' this.reservationVersion = reservationVersion; } }')
+# Value, property, settings, reflection and enum selection. This set is refused in every
+# production text. The retired lab tool's wider set, with EnumSet, method and variable handles,
+# Unsafe, and field and declaring class lookups, is refused in the native sources.
+SELECTORS = (r'\bFormat\s*\.\s*valueOf\b', r'\bFormat\s*\.\s*values\s*\(', r'\bEnum\s*\.\s*valueOf\b',
+             r'\bFormat\s*\.\s*class\b', r'getEnumConstants')
+NATIVE_SELECTORS = SELECTORS + (r'SystemProperties', r'\bSettings\.Global\b', r'java\.lang\.reflect',
+                                r'\.forName\(', r'\.getDeclared', r'setAccessible\(', r'\bEnumSet\b',
+                                r'\bMethodHandle', r'\bVarHandle', r'\bUnsafe\b', r'\bgetField',
+                                r'\bgetDeclaringClass\b')
+# A store construction: direct, by simple or qualified name, or a constructor reference.
+CONSTRUCTIONS = (r'\bnew\s+(?:[\w$]+\s*\.\s*)*NativeIdentityStore\s*\(', r'\bNativeIdentityStore\s*::\s*new\b')
+# A Java unicode escape. Java decodes it before comments and literals, so it could hide code from
+# the comment stripper and every pattern here. No production text carries one.
+UNICODE_ESCAPE = r'\\+u+[0-9A-Fa-f]{4}'
+# The guard's rules, by the name each violation starts with.
+FORMAT_RULES = ('sites', 'format', 'v1', 'mention', 'selector', 'enum', 'escape')
+HUNK = re.compile(r'@@ -[0-9]+(?:,([0-9]+))? \+[0-9]+(?:,([0-9]+))? @@')
+
+
+def patch_sections(text):
+    """The added lines of each file section of a unified diff, in order, as (target, text). A
+    section starts at its header pair. Hunk counts decide which lines are hunk content, so a
+    content line that looks like a header stays in its own section. A malformed hunk refuses."""
+    sections, lines, index = [], text.split('\n'), 0
+    if lines and lines[-1] == '':
+        lines.pop()  # The final newline ends the last line; it starts no empty one.
+    while index < len(lines):
+        line = lines[index]
+        if line.startswith('--- ') and index + 1 < len(lines) and lines[index + 1].startswith('+++ '):
+            target = lines[index + 1][4:].split('\t')[0]
+            sections.append((target[2:] if target.startswith('b/') else target, []))
+            index += 2
+            continue
+        hunk = HUNK.match(line)
+        index += 1
+        if hunk is None:
+            continue
+        if not sections:
+            raise ValueError('patch hunk before any file header')
+        old, new = (1 if count is None else int(count) for count in hunk.groups())
+        added = sections[-1][1]
+        while old > 0 or new > 0:
+            if index >= len(lines):
+                raise ValueError('truncated patch hunk')
+            body = lines[index]
+            index += 1
+            if body.startswith('\\'):
+                continue
+            if body.startswith('+'):
+                added.append(body[1:])
+                new -= 1
+            elif body.startswith('-'):
+                old -= 1
+            elif body.startswith(' ') or body == '':
+                old -= 1
+                new -= 1
+            else:
+                raise ValueError('malformed patch hunk line')
+            if old < 0 or new < 0:
+                raise ValueError('patch hunk count mismatch')
+    return [(target, '\n'.join(added)) for target, added in sections]
+
+
 def production_texts():
-    """Every production Java text: framework sources, added patch lines and the lab fixture."""
+    """Every production Java text by name: the framework sources, each Java file section of every
+    patch by its added lines, named '<patch>:<file>', and the lab writer fixture. A patch is read
+    per file section, never as one merged text."""
     texts = {path.relative_to(ROOT).as_posix(): path.read_text()
              for path in sorted((ROOT / FRAMEWORK_DIR).glob('*.java'))}
     for patch in sorted((ROOT / 'patches').rglob('*.patch')):
-        texts[patch.relative_to(ROOT).as_posix()] = added_java(patch.read_text())
-    fixture = ROOT / 'tests/native-identity/writer/NativePrincipalWriterFixture.java'
-    texts[fixture.relative_to(ROOT).as_posix()] = fixture.read_text()
+        name = patch.relative_to(ROOT).as_posix()
+        for target, added in patch_sections(patch.read_text()):
+            key = '%s:%s' % (name, target)
+            if key in texts:
+                raise ValueError('patch with two sections for one file: ' + key)
+            if target.endswith('.java'):
+                texts[key] = added
+    texts[WRITER_FIXTURE] = (ROOT / WRITER_FIXTURE).read_text()
     return texts
 
 
+def native_source(name):
+    """Whether a production text is native: a native helper, a section of the native patch, or the
+    lab writer route, its fixture and its patch section."""
+    return (name in NATIVE_HELPERS or name.startswith(NATIVE_PATCH + ':') or name == WRITER_FIXTURE
+            or name.startswith(WRITER_PATCH + ':'))
+
+
+def boot_site(text):
+    """The offset of the format argument of the one anchored boot construction in a comment free
+    Settings section, or None. The method, the construction and the persistence after it each
+    occur once, in that order, inside that one method."""
+    if text is None:
+        return None
+    start, site = text.find(METHOD), text.find(CONSTRUCTION)
+    end = text.find(BOOT_END, max(start, 0))
+    if (text.count(METHOD) != 1 or text.count(CONSTRUCTION) != 1 or text.count(BOOT_END) != 1
+            or not 0 <= start < site < end or '\n    }\n' in text[start:end]):
+        return None
+    return site + len(CONSTRUCTION)
+
+
+def boot_argument(text, offset):
+    """The format argument from offset up to the parenthesis that closes the construction."""
+    depth, index = 1, offset
+    while depth and index < len(text):
+        depth += {'(': 1, ')': -1}.get(text[index], 0)
+        index += 1
+    return re.sub(r'\s+', ' ', text[offset:index - 1]).strip()
+
+
+def enum_definition(text):
+    """The store's Format enum from its keyword through its closing brace, whitespace collapsed,
+    or None when there is not exactly one."""
+    found = list(re.finditer(r'\benum\s+Format\s*\{', text))
+    if len(found) != 1:
+        return None
+    depth, index = 0, found[0].end() - 1
+    while index < len(text):
+        depth += {'{': 1, '}': -1}.get(text[index], 0)
+        index += 1
+        if depth == 0:
+            return ' '.join(text[found[0].start():index].split())
+    return None
+
+
 def format_violations(texts):
-    """Production store construction and format selection. Every construction names the
-    literal production format V1, and nothing selects a format by value or reflection. The
-    enum's own constants are not construction sites."""
-    problems, sites = [], []
-    for name, raw in texts.items():
-        text = strip_java_comments(raw)
-        for match in re.finditer(r'new\s+NativeIdentityStore\s*\(', text):
-            depth, j = 1, match.end()
-            while depth and j < len(text):
-                depth += {'(': 1, ')': -1}.get(text[j], 0)
-                j += 1
-            arguments = re.sub(r'\s+', ' ', text[match.end():j - 1]).strip()
-            sites.append((name, arguments))
-            if not arguments.endswith(', NativeIdentityStore.Format.V1'):
-                problems.append('%s constructs a store with %s' % (name, arguments))
-        for pattern in (r'\bFormat\s*\.\s*valueOf\b', r'\bFormat\s*\.\s*values\s*\(',
-                        r'\bEnum\s*\.\s*valueOf\b', r'\bFormat\s*\.\s*V2\b',
-                        r'\bFormat\s*\.\s*class\b', r'getEnumConstants'):
+    """Every production format violation, as 'rule: detail'.
+
+    sites: exactly one store construction and one Format.V2 in all production texts, both the
+    anchored boot construction in readNativeIdentityStoreForBoot of the native patch's Settings
+    section. A qualified construction or a constructor reference is a construction too. format:
+    that construction passes exactly Format.V2. v1: no production text names Format.V1 or imports
+    the enum's constants by wildcard. mention: only the native helpers and the native patch name
+    NativeIdentityStore. selector: no value, property, settings, reflection or enum selection,
+    with the wider set in the native sources. enum: the store's Format enum is exactly its two
+    closed versions. escape: no production text carries a Java unicode escape, which could hide
+    code from every other rule. Comments are not code."""
+    problems = []
+    code = {name: strip_java_comments(raw) for name, raw in texts.items()}
+    boot = boot_site(code.get(SETTINGS_SECTION))
+    if boot is None:
+        problems.append('sites: no anchored boot construction in readNativeIdentityStoreForBoot of '
+                        + SETTINGS_SECTION)
+        construction = literal = None
+    else:
+        construction = boot - len(CONSTRUCTION) + CONSTRUCTION.index('new ')
+        literal = boot + PRODUCTION.index('Format')
+    for name, text in code.items():
+        here = name == SETTINGS_SECTION
+        for pattern in CONSTRUCTIONS:
             for found in re.finditer(pattern, text):
-                problems.append('%s selects a store format: %s' % (name, found.group(0)))
-    if len(sites) != 1 or not sites[0][0].endswith('native-principal-pins.patch'):
-        problems.append('production construction sites %s' % sites)
+                if not (here and found.start() == construction):
+                    problems.append('sites: %s constructs a store outside the boot read: %s'
+                                    % (name, ' '.join(found.group(0).split())))
+        for found in re.finditer(r'\bFormat\s*\.\s*V2\b', text):
+            if not (here and found.start() == literal):
+                problems.append('sites: %s names Format.V2 outside the boot construction' % name)
+        for pattern in (r'\bFormat\s*\.\s*V1\b', r'\bimport\s+static\s+[\w.]*\bFormat\s*\.\s*\*'):
+            for found in re.finditer(pattern, text):
+                problems.append('v1: %s names the retired format: %s' % (name, found.group(0)))
+        if (re.search(r'\bNativeIdentityStore\b', text) and name not in NATIVE_HELPERS
+                and not name.startswith(NATIVE_PATCH + ':')):
+            problems.append('mention: %s names NativeIdentityStore outside the native helpers and patch'
+                            % name)
+        for pattern in NATIVE_SELECTORS if native_source(name) else SELECTORS:
+            for found in re.finditer(pattern, text):
+                problems.append('selector: %s selects by %s' % (name, found.group(0)))
+        # Escapes are refused in the raw text of every production text, comments included, since
+        # Java decodes them first.
+        for found in re.finditer(UNICODE_ESCAPE, texts[name]):
+            problems.append('escape: %s carries the unicode escape %s' % (name, found.group(0)))
+    if boot is not None and not code[SETTINGS_SECTION].startswith(PRODUCTION + ');', boot):
+        problems.append('format: the boot construction passes %s, not %s'
+                        % (boot_argument(code[SETTINGS_SECTION], boot), PRODUCTION))
+    store = code.get(STORE)
+    definition = None if store is None else enum_definition(store)
+    if definition != FORMAT_ENUM:
+        problems.append('enum: the store Format enum is not exactly V1(1, 1) and V2(2, 2): %s' % definition)
     return problems
+
+
+def format_rules(texts):
+    """The guard rules these production texts trip."""
+    return {problem.split(':', 1)[0] for problem in format_violations(texts)}
+
+
+def boot_literal(texts=None):
+    """The format argument of the anchored boot construction in the native patch, or None."""
+    texts = production_texts() if texts is None else texts
+    code = strip_java_comments(texts.get(SETTINGS_SECTION, ''))
+    boot = boot_site(code)
+    return None if boot is None else boot_argument(code, boot)
+
+
+def facade_default(text=None):
+    """The format the host Settings facade constructs when a test passes none, or None. Both
+    constructors without a format must reach the one default."""
+    text = (ROOT / FACADE).read_text() if text is None else text
+    found = re.findall(r'^    Settings\(Path existing, boolean initialize\) '
+                       r'\{ this\(existing, initialize, ([A-Za-z0-9_.]+)\); \}$', text, re.M)
+    if len(found) != 1 or text.count('\n    Settings() { this(null, true); }\n') != 1:
+        return None
+    return found[0]
+
+
+def r0_forward(text):
+    """The text with the earlier images' boot literal Format.V1 replaced by Format.V2: the whole R0
+    change of the native patch and of the adapted Settings, and the code change of the host
+    facade's default. None unless exactly one earlier literal and no production literal occur.
+    Historical comparisons use it to allow exactly that change and nothing else."""
+    old, new = RETIRED + ');', PRODUCTION + ');'
+    if text.count(old) != 1 or text.count(new):
+        return None
+    return text.replace(old, new, 1)
+
+
+def facade_violations(texts=None, facade=None):
+    """The host facade's default format is the literal of the patch's boot construction."""
+    literal, default = boot_literal(texts), facade_default(facade)
+    if literal is None or default != literal:
+        return ['host Settings facade default %s differs from the boot construction literal %s'
+                % (default, literal)]
+    return []
 
 
 def surface_violations():
     """The B1 production surface: no Snapshot overload beside plans, one fixed format, and the
-    encoder's own byte measure."""
+    encoder's own byte measure. The format guard pins the Format enum itself."""
     problems = []
     store = strip_java_comments((ROOT / STORE).read_text())
     persistence = strip_java_comments((ROOT / PERSISTENCE).read_text())
@@ -383,9 +760,6 @@ def surface_violations():
         problems.append('reservePending is not one plan method')
     if len(re.findall(r'\bHeader\s+projectReservation\s*\(', persistence)) != 1:
         problems.append('projectReservation is not one method')
-    if (len(re.findall(r'\benum\s+Format\b', store)) != 1
-            or not re.search(r'\benum\s+Format\s*\{\s*V1\(1,\s*1\),\s*V2\(2,\s*2\);', store)):
-        problems.append('store format enum is not exactly V1(1, 1) and V2(2, 2)')
     if len(re.findall(r'NativeIdentityStore\s*\(\s*File\s+root\s*,\s*Format\s+format\s*\)', store)) != 1 \
             or re.search(r'NativeIdentityStore\s*\(\s*File\s+root\s*\)', store):
         problems.append('store is not constructed only with an explicit format')
@@ -412,26 +786,105 @@ def mutant_sources():
     return result
 
 
+def one_token_patch(old, new):
+    """A one token Settings patch, as the retired lab format was, from one boot format literal to
+    another."""
+    first, second, indent = CONSTRUCTION.split('\n')
+    return ('--- a/%s\n+++ b/%s\n@@ -611,7 +611,7 @@\n' % (integration.SETTINGS, integration.SETTINGS)
+            + '         if (mNativeIdentityPersistence != null) throw new IllegalStateException('
+              '"Native store loaded twice");\n'
+            + ' %s\n %s\n-%s%s);\n+%s%s);\n %s' % (first, second, indent, old, indent, new, BOOT_END)
+            + '         NativeIdentityStore.Loaded loaded = mNativeIdentityPersistence.load();\n'
+            + '         // This is negative preservation evidence, never signer/owner identity.\n')
+
+
+# Where each guard mutant's one token version 1 patch lands under patches/.
+ONE_TOKEN_PATHS = {'one-token-v1-patch-beside-native': 'patches/grapheneos-2026081300/native-store-format-v1.patch',
+                   'one-token-v1-patch-other-directory': 'patches/lab/any-name.patch'}
+# Code the guard mutants insert before the persistence constructor, or pass at the boot site.
+HOST_CONSTRUCTION = ('    static NativeIdentityPersistence host(java.io.File root) {\n'
+                     '        return new NativeIdentityPersistence(new NativeIdentityStore(root,\n'
+                     '                NativeIdentityStore.Format.V2));\n    }\n\n')
+REFLECTIVE_WRITE = ('    static void copyFormat(NativeIdentityStore store, NativeIdentityStore from)\n'
+                    '            throws ReflectiveOperationException {\n'
+                    '        java.lang.reflect.Field field = NativeIdentityStore.class.getDeclaredField("format");\n'
+                    '        field.setAccessible(true);\n'
+                    '        field.set(store, field.get(from));\n    }\n\n')
+COMPLEMENT = ('    static NativeIdentityStore.Format otherFormat(NativeIdentityStore store) {\n'
+              '        return java.util.EnumSet.complementOf(java.util.EnumSet.of(store.format()))\n'
+              '                .iterator().next();\n    }\n\n')
+SELECTED = ('NativeIdentityStore.Format.valueOf(android.os.SystemProperties.get('
+            '"persist.andrix.native_format", "V2")));\n')
+QUALIFIED = ('    static NativeIdentityStore qualified(java.io.File root, NativeIdentityStore.Format format) {\n'
+             '        return new com.android.server.pm.NativeIdentityStore(root, format);\n    }\n\n')
+REFERENCE = ('    static final java.util.function.BiFunction<java.io.File, NativeIdentityStore.Format,\n'
+             '            NativeIdentityStore> STORES = %sNativeIdentityStore::new;\n\n')
+DECLARING_FIELD = ('    static Object retired(NativeIdentityStore store) throws ReflectiveOperationException {\n'
+                   '        return store.format().getDeclaringClass().getField("V1").get(null);\n    }\n\n')
+# Java ends this comment at the escaped line break and compiles the rest of the line as code.
+HIDDEN = ('    // \\u000a static final NativeIdentityStore HIDDEN = new NativeIdentityStore('
+          'new java.io.File("/"), NativeIdentityStore.Format.V1);\n')
+RETIRED_NAME = ('    static NativeIdentityStore.Format earlierFormat() {\n'
+                '        return NativeIdentityStore.Format.V1;\n    }\n\n')
+# A non native framework source that names the store, and the non native class it goes in.
+MENTION = '    private static final String STORE = "NativeIdentityStore";\n'
+NON_NATIVE = FRAMEWORK_DIR + 'CeStorageAccessTracker.java'
+
+
 def guard_mutants():
-    """Production format selection defects the pure guard must report."""
+    """Production format defects, each with the exact set of guard rules it must trip."""
     texts = production_texts()
-    patch = 'patches/grapheneos-2026081300/native-principal-pins.patch'
-    v2 = dict(texts)
-    v2[patch] = replace_once(texts[patch], 'NativeIdentityStore.Format.V1);',
-                             'NativeIdentityStore.Format.V2);')
-    value_of = dict(texts)
-    value_of[patch] = replace_once(texts[patch], 'NativeIdentityStore.Format.V1);',
-                                   'NativeIdentityStore.Format.valueOf(android.os.SystemProperties.get('
-                                   '"persist.andrix.native_format", "V1")));')
-    framework = dict(texts)
-    persistence = FRAMEWORK_DIR + 'NativeIdentityPersistence.java'
-    framework[persistence] = replace_once(texts[persistence], '    NativeIdentityPersistence(NativeIdentityStore store) {\n',
-                                          '    static NativeIdentityPersistence host(java.io.File root) {\n'
-                                          '        return new NativeIdentityPersistence(new NativeIdentityStore(root,\n'
-                                          '                NativeIdentityStore.Format.V2));\n    }\n\n'
-                                          '    NativeIdentityPersistence(NativeIdentityStore store) {\n')
-    return {'production-v2-construction': v2, 'production-format-value-of': value_of,
-            'framework-v2-construction': framework}
+    settings, persistence = SETTINGS_SECTION, FRAMEWORK_DIR + 'NativeIdentityPersistence.java'
+    manager = NATIVE_PATCH + ':' + integration.PREFIX + 'PackageManagerService.java'
+    boot = CONSTRUCTION + PRODUCTION + ');\n'
+    anchor = '    NativeIdentityPersistence(NativeIdentityStore store) {\n'
+
+    def changed(*edits):
+        result = dict(texts)
+        for name, old, new in edits:
+            result[name] = replace_once(result[name], old, new)
+        return result
+
+    # The boot method's head, construction and persistence move to the start of the next file's
+    # section. Read as one merged text, that anchored construction would still be found.
+    head = texts[settings][texts[settings].index(METHOD):texts[settings].index(BOOT_END) + len(BOOT_END)]
+    other_section = changed((settings, head, ''))
+    other_section[manager] = head + texts[manager]
+    outside = changed((settings, boot, ''))
+    outside[settings] = replace_once(outside[settings], METHOD,
+                                     '    void openNativeIdentityStoreLPw() {\n' + boot + '    }\n\n' + METHOD)
+    second = boot.replace('mNativeIdentityStore =', 'NativeIdentityStore second =', 1)
+    result = {
+        'regression-to-v1': (changed((settings, boot, CONSTRUCTION + RETIRED + ');\n')), {'format', 'v1'}),
+        'second-construction': (changed((settings, BOOT_END, BOOT_END + second)), {'sites'}),
+        'framework-construction': (changed((persistence, anchor, HOST_CONSTRUCTION + anchor)), {'sites'}),
+        'other-file-section': (other_section, {'sites'}),
+        'value-and-property-selection': (changed((settings, boot, CONSTRUCTION + SELECTED)), {'format', 'selector'}),
+        'reflective-field-write': (changed((persistence, anchor, REFLECTIVE_WRITE + anchor)), {'selector'}),
+        'enumset-complement': (changed((persistence, anchor, COMPLEMENT + anchor)), {'selector'}),
+        'enum-version-swap': (changed((STORE, 'V1(1, 1),', 'V1(2, 2),'), (STORE, 'V2(2, 2);', 'V2(1, 1);')),
+                              {'enum'}),
+        'construction-outside-boot': (outside, {'sites'}),
+        'qualified-construction': (changed((persistence, anchor, QUALIFIED + anchor)), {'sites'}),
+        'constructor-reference': (changed((persistence, anchor, REFERENCE % '' + anchor)), {'sites'}),
+        'qualified-constructor-reference': (
+            changed((persistence, anchor, REFERENCE % 'com.android.server.pm.' + anchor)), {'sites'}),
+        'declaring-class-field': (changed((persistence, anchor, DECLARING_FIELD + anchor)), {'selector'}),
+        'unicode-escape': (changed((persistence, anchor, HIDDEN + anchor)), {'escape'}),
+        'format-alone': (changed((settings, boot, CONSTRUCTION + 'productionFormat());\n')), {'format'}),
+        'v1-alone': (changed((persistence, anchor, RETIRED_NAME + anchor)), {'v1'}),
+        'mention-alone': (changed((NON_NATIVE, 'public final class CeStorageAccessTracker {\n',
+                                   'public final class CeStorageAccessTracker {\n' + MENTION)), {'mention'}),
+        'non-native-unicode-escape': (changed((NON_NATIVE, 'public final class CeStorageAccessTracker {\n',
+                                               'public final class CeStorageAccessTracker {\n' + HIDDEN)),
+                                      {'escape'}),
+    }
+    for name, path in ONE_TOKEN_PATHS.items():
+        patched = dict(texts)
+        for target, added in patch_sections(one_token_patch(PRODUCTION, RETIRED)):
+            patched['%s:%s' % (path, target)] = added
+        result[name] = (patched, {'v1', 'mention'})
+    return result
 
 
 def verify_candidate(pinned):
@@ -452,15 +905,17 @@ def verify_candidate(pinned):
 
 def source_checks():
     integration.profile()
-    problems = format_violations(production_texts()) + surface_violations()
-    for name, texts in guard_mutants().items():
-        if not format_violations(texts):
-            problems.append('guard missed ' + name)
+    texts = production_texts()
+    problems = format_violations(texts) + surface_violations() + facade_violations(texts)
+    for name, (mutated, rules) in guard_mutants().items():
+        tripped = format_rules(mutated)
+        if tripped != rules:
+            problems.append('guard mutant %s tripped %s, not %s' % (name, sorted(tripped), sorted(rules)))
     # Each anchor must exist exactly once in the current sources, or this raises.
     mutant_sources()
     b0.mutants()
     admission = integration.FRAGMENTS['admission'][1].read_bytes()
-    facade = (ROOT / PLATFORM / 'native_principal_stubs/com/android/server/pm/Settings.java').read_bytes()
+    facade = (ROOT / FACADE).read_bytes()
     if facade.count(admission) != 1:
         problems.append('host admission differs from the production fragment')
     predictions = json.loads(PREDICTIONS.read_text())
@@ -474,6 +929,10 @@ def source_checks():
             problems.append('mutant prediction inconsistent: ' + name)
     if len(set(FOCUSED_NAMES)) != len(FOCUSED_NAMES) or len(set(FAULT_NAMES)) != len(FAULT_NAMES):
         problems.append('duplicate check names')
+    problems += label_problems()
+    for revision in REVISIONS:
+        if set(BASELINE_SHA256.get(revision, ())) != set(FRAMEWORK) | {'Settings'}:
+            problems.append('baseline pins incomplete: ' + revision)
     return problems
 
 
@@ -636,6 +1095,32 @@ def b1_suite(work, kind, framework_override=None):
     return suite(work, {**product, **test_sources(names, adapter='b1')}, main)
 
 
+def class_differences(first, second):
+    """Class files that differ between two output trees, or exist in only one of them. Pure."""
+    trees = [{path.relative_to(root).as_posix(): path.read_bytes() for path in root.rglob('*.class')}
+             for root in (first, second)]
+    return sorted(name for name in set(trees[0]) | set(trees[1]) if trees[0].get(name) != trees[1].get(name))
+
+
+def store_class_identity(work):
+    """R0 changed only comments of the store helper. Compiled with the same records, strict writer
+    and facades, the 78456b3 helper and the current one give identical class files. Guarded."""
+    current = store_sources()
+    archived = dict(current)
+    archived['framework/NativeIdentityStore.java'] = git_bytes(REVISIONS['7845'], STORE)
+    if sha(archived['framework/NativeIdentityStore.java']) != BASELINE_SHA256['7845']['NativeIdentityStore']:
+        raise ValueError('baseline drift: 7845 NativeIdentityStore')
+    record = {'differences': None}
+    for name, files in (('current', current), ('7845', archived)):
+        (work / name).mkdir(parents=True)
+        record[name] = build(work / name, files)
+        if record[name]['returncode']:
+            return record
+    record['differences'] = class_differences(work / 'current/classes', work / '7845/classes')
+    record['classes'] = len(list((work / 'current/classes').rglob('*.class')))
+    return record
+
+
 def outcome(record, names):
     """Passed and failed names of a finished suite, or why it is not a result."""
     if record.get('compile_failure'):
@@ -654,6 +1139,11 @@ def qualify(work):
     evidence = {'java': subprocess.run(['java', '-version'], capture_output=True, text=True,
                                        timeout=60).stderr.strip(), 'steps': {}, 'problems': []}
     steps, problems = evidence['steps'], evidence['problems']
+
+    # The store helper's R0 comment change: class files identical to the 78456b3 helper's.
+    steps['store classes'] = store_class_identity(work / 'store-classes')
+    if steps['store classes']['differences'] != [] or not steps['store classes'].get('classes'):
+        problems.append('store helper class files differ from 78456b3: %s' % steps['store classes']['differences'])
 
     # The archived suite, unchanged, then the adapted suite through each adapter.
     for baseline in ('c926', 'd104'):
@@ -722,7 +1212,8 @@ def qualify(work):
                 or 'Unprivileged DAC refused' not in run['stdout']:
             problems.append('presence V2 matrix')
 
-    # Version 2 layouts from the host writer, read by B1's V1 format and by c9264e4.
+    # Version 2 layouts from the production host writer, read by the version 1 rollback reader,
+    # the current sources under Format.V1 and the pinned 78456b3 image, and by archived c9264e4.
     emitter = work / 'layouts-emitter'
     emitter.mkdir(parents=True)
     files = {**with_seams(product_sources()),
@@ -740,7 +1231,11 @@ def qualify(work):
                             'emitter_build': built, 'emitter_run': emitted}
         if emitted['returncode'] or tuple(names) != LAYOUT_NAMES:
             problems.append('layout emitter')
-        for target, baseline, adapter in (('b1-v1', None, 'b1'), ('c926', 'c926', 'baseline')):
+        steps['readers']['copy_layouts'] = copy_layouts(layouts) if layouts.is_dir() else None
+        if steps['readers']['copy_layouts'] != ROLLBACK_COPY_LAYOUTS:
+            problems.append('version 2 copy layouts %s, not the predicted %d'
+                            % (steps['readers']['copy_layouts'], ROLLBACK_COPY_LAYOUTS))
+        for target, baseline, adapter in READERS:
             copy = work / ('layouts-' + target)
             shutil.copytree(layouts, copy, symlinks=True)
             reader = work / ('reader-' + target)
@@ -758,6 +1253,29 @@ def qualify(work):
             if (run['returncode'] or run['failed'] or run['passed'] !=
                     ['version 1 reader / ' + name for name in LAYOUT_NAMES]):
                 problems.append('reader ' + target)
+        # The rollback effects in the Settings facade: no history, holds without pins and every
+        # mapped native package kept but refused by the scan.
+        steps['rollback'] = {}
+        for target in ROLLBACK_READERS:
+            baseline = dict((name, revision) for name, revision, _ in READERS)[target]
+            copy = work / ('layouts-rollback-' + target)
+            shutil.copytree(layouts, copy, symlinks=True)
+            checker = work / ('rollback-' + target)
+            checker.mkdir(parents=True)
+            built = build(checker, {**product_sources(baseline),
+                                    **test_sources(['NativeHeaderTestSupport', 'NativeRollbackReaderCheck'],
+                                                   adapter='b1')})
+            if built['returncode']:
+                problems.append('rollback reader %s did not compile' % target)
+                steps['rollback'][target] = {'build': built}
+                continue
+            run = execute(checker, 'NativeRollbackReaderCheck', [str(copy), str(checker / 'state'),
+                                                                 str(ROLLBACK_COPY_LAYOUTS), ','.join(ROLLBACK_CONTROLS)])
+            steps['rollback'][target] = {'returncode': run['returncode'], 'failed': run['failed'],
+                                         'passed': len(run['passed']), 'build': built, 'run': run}
+            if (run['returncode'] or run['failed'] or sorted(run['passed']) !=
+                    rollback_names('rollback reader', LAYOUT_NAMES, ROLLBACK_CONTROLS)):
+                problems.append('rollback reader ' + target)
 
     # Deliberate B1 defects must compile and be caught.
     steps['mutants'] = {}
@@ -780,6 +1298,8 @@ def qualify(work):
         steps['mutants'][name] = record
         if missed or not failed:
             problems.append('mutant %s not caught: %s' % (name, missed))
+    evidence['labels'] = {step: list(step_labels(step)) for step in steps}
+    evidence['reader_labels'] = dict(READER_LABELS)
     return evidence
 
 

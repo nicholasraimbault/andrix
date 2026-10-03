@@ -16,12 +16,13 @@ import java.util.Set;
 import java.util.TreeSet;
 
 /**
- * Reads the emitted version 2 layouts with a version 1 reader: the production V1 format of the
- * creation plan sources, or the reviewed c9264e4 sources. Only store, facade and codec surface
- * common to both is used, through the host NativeHeaderApi adapter the harness selects. Every
- * layout must stay read only with every known hold. A version 2 header copy also withholds the
- * counter and every binding; a version 2 staging seed alone withholds the counter and creation.
- * A constructed layout may also list the status each reader must give its slots. The bound
+ * Reads the emitted version 2 layouts with a version 1 reader: the rollback reader model, the
+ * creation plan sources under Format.V1 or the pinned 78456b3 image, or the archived c9264e4
+ * sources. Only store, facade and codec surface common to all of them is used, through the host
+ * NativeHeaderApi adapter the harness selects. Every layout must stay read only with every known
+ * hold, also across the reopened registry. A version 2 header copy also withholds the counter
+ * and every binding; a version 2 staging seed alone withholds the counter and creation. A
+ * constructed layout may also list the status each reader must give its slots. The bound
  * collision layouts require the CONFLICT outcome of the reviewed c9264e4 reader for both.
  * The layouts are fresh copies, never the emitted originals. Host files only, not Android boot.
  */
@@ -78,6 +79,7 @@ public final class NativeCreationBindingReaderCheck {
             for (int appId : holds) {
                 check(problems, pm.mSettings.isNativePrincipalAppIdLPr(appId), "hold " + appId + " lost");
             }
+            check(problems, footprint(root).equals(before), "layout changed by the reopened registry");
         });
     }
 

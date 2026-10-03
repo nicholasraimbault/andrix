@@ -6,6 +6,8 @@ import java.util.Set;
 
 /** Wrapper fault injection over actual manager handles. No Android runtime claim. */
 public final class NativePrincipalWriterFixtureFaultTest {
+    // Legacy version 1 writer runs: Format.V1 explicitly, never the facade's production default.
+    private static final NativeIdentityStore.Format LEGACY = NativeIdentityStore.Format.V1;
     private static final String SUBJECT = "dev.andrix.proof.principalclosed";
     private static final String INSTANCE = "a".repeat(32), NONCE = "b".repeat(32);
     private static final Set<String> SIGNERS = Set.of(
@@ -72,7 +74,7 @@ public final class NativePrincipalWriterFixtureFaultTest {
         }
     }
     static final class Case {
-        final PackageManagerService pm = new PackageManagerService();
+        final PackageManagerService pm = new PackageManagerService(null, true, LEGACY);
         final PackageSetting subject = pm.mSettings.add(SUBJECT, 10148);
         final NativePrincipalManager manager = new NativePrincipalManager(pm);
         final Inject calls = new Inject(manager);
@@ -157,7 +159,7 @@ public final class NativePrincipalWriterFixtureFaultTest {
 
         for (String fault : new String[]{"observation", "record", "handle", "serial", "post-commit-record"}) {
             Case prior = committed();
-            PackageManagerService boot = new PackageManagerService(prior.pm.mSettings.root, false);
+            PackageManagerService boot = new PackageManagerService(prior.pm.mSettings.root, false, LEGACY);
             boot.mSettings.add(SUBJECT, 10148); boot.mSettings.restoreAfterPackageSettings();
             NativePrincipalManager manager = new NativePrincipalManager(boot);
             Inject calls = new Inject(manager);

@@ -34,21 +34,30 @@ runtime are separate gates.
 `native-principal-pins.*` adds the internal Package Manager reservation component for native
 account identity lifetime. Use `scripts/proof/native_principal_pins.py`. The
 [implementation and limits](../../owner/platform/principal-pins.md) distinguish checked settings
-persistence and allocator fencing from the still disabled native account/factory path.
+persistence and allocator fencing from the still disabled native account/factory path. Its one
+boot read constructs the version 2 store format, `Format.V2`, as the
+[version 2 normal store plan](../../plans/2026-10-02-native-store-v2-normal.md) describes. The
+production format guard in `scripts/proof/native_creation_binding.py` reads every patch here per
+file section. It requires that one anchored construction and refuses `Format.V1` in any of them.
+A checkout that still holds the earlier adapted bytes, with the version 1 boot literal, is refused
+as unknown bytes. It needs a revert with the earlier tools or a reviewed manual repair.
 
 `native-identity-writer.*` is a separate lab test adaptation. It adds one fixed subject writer
 route to the package shell and the [test helper](../../tests/native-identity/writer/README.md).
 Normal framework admission rejects its adapted or partial state. The dedicated
 `scripts/proof/native_identity_writer.py` requires explicit lab scope for apply/revert and
-build admission. This does not enable the native execution factory. Reverse this fixture
-before reversing the native principal companion.
+build admission. The shared framework fence makes the lab admission decision for every tool that
+inspects with it. It requires the complete stack: the native principal companion, the owner
+lifecycle CE companion, and package verity with its payload sync companion, each exactly adapted.
+It accepts the fixture exactly upstream or exactly adapted, so a partial fixture refuses every
+inspection, check, apply and revert. The writer tool also requires the fixture exactly upstream
+before an apply and exactly adapted before a revert, so a repeated apply or revert refuses. This
+does not enable the native execution factory. Reverse this fixture before reversing the native
+principal companion.
 
-The separate [lab native store format](../../tests/native-identity/lab-history/README.md) lives
-outside this directory, and the production format guard refuses a copy of it here. It is applied
-after this fixture with `scripts/proof/native_lab_format.py` and reversed before it, while the
-whole stack is still complete. Normal framework admission detects and refuses its state. Lab
-admission requires the complete stack: the native principal, writer, CE, package verity and
-payload sync companions all adapted.
+The earlier lab native store format token changed the boot literal to `Format.V2` in a marked lab
+image only. It is retired, because the normal image now constructs `Format.V2` itself. Its tool,
+tests, profile and patch stay in Git history and in the sealed records of the `23cede6` lab build.
 
 All framework inspectors check the complete known change set. Recognizing the companion
 requires its exact original or candidate bytes. Unknown changes, staged changes and

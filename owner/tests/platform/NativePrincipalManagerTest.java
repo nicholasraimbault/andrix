@@ -12,13 +12,15 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /** Actual adapter logic with PMS/user/write facades, not Android authority proof. */
 public final class NativePrincipalManagerTest {
+    // Legacy version 1 writer runs: Format.V1 explicitly, never the facade's production default.
+    private static final NativeIdentityStore.Format LEGACY = NativeIdentityStore.Format.V1;
     private static void refused(Runnable operation) {
         try { operation.run(); } catch (IllegalArgumentException | IllegalStateException expected) { return; }
         throw new AssertionError("operation unexpectedly accepted");
     }
     @SuppressWarnings("try")
     private static void installLockExcludesAcquire() throws Exception {
-        PackageManagerService pm = new PackageManagerService();
+        PackageManagerService pm = new PackageManagerService(null, true, LEGACY);
         pm.mSettings.add("dev.andrix.locked", 10130);
         NativePrincipalManager manager = new NativePrincipalManager(pm);
         CountDownLatch started = new CountDownLatch(1);
@@ -43,7 +45,7 @@ public final class NativePrincipalManagerTest {
         UserManagerInternal users = new UserManagerInternal();
         LocalServices.addService(UserManagerInternal.class, users);
         installLockExcludesAcquire();
-        PackageManagerService pm = new PackageManagerService();
+        PackageManagerService pm = new PackageManagerService(null, true, LEGACY);
         PackageSetting a = pm.mSettings.add("dev.andrix.first", 10123);
         pm.mSettings.add("dev.andrix.second", 10124);
         NativePrincipalManager manager = new NativePrincipalManager(pm);
@@ -162,7 +164,7 @@ public final class NativePrincipalManagerTest {
         assert manager.identity(fresh).id > secondId;
         assert manager.commit(fresh);
         Path persistedRoot = pm.mSettings.root;
-        PackageManagerService restoredPm = new PackageManagerService(persistedRoot, false);
+        PackageManagerService restoredPm = new PackageManagerService(persistedRoot, false, LEGACY);
         restoredPm.mSettings.add(a.getPackageName(), 10123); // Ordinary Settings read comes first.
         restoredPm.mSettings.restoreAfterPackageSettings();
         Os.forbiddenMonitor = restoredPm.mLock;
@@ -180,7 +182,7 @@ public final class NativePrincipalManagerTest {
         assert restored.commit(recovery);
         assert restored.beginRetirement(recovery);
 
-        PackageManagerService afterMarker = new PackageManagerService(persistedRoot, false);
+        PackageManagerService afterMarker = new PackageManagerService(persistedRoot, false, LEGACY);
         afterMarker.mSettings.add(a.getPackageName(), 10123);
         afterMarker.mSettings.restoreAfterPackageSettings();
         Os.forbiddenMonitor = afterMarker.mLock;
@@ -194,7 +196,7 @@ public final class NativePrincipalManagerTest {
         Os.forbiddenMonitor = null;
 
         // Counter/header damage does not destroy prior signer/user binding.
-        PackageManagerService damaged = new PackageManagerService();
+        PackageManagerService damaged = new PackageManagerService(null, true, LEGACY);
         damaged.mSettings.add(a.getPackageName(), 10123);
         NativePrincipalManager original = new NativePrincipalManager(damaged);
         NativePrincipalManager.Handle source = original.prepare(original.select(a.getPackageName(), 0));
@@ -204,7 +206,7 @@ public final class NativePrincipalManagerTest {
         byte[] savedHeader = Files.readAllBytes(header);
         Files.delete(header); Files.write(header, new byte[]{1});
         Files.delete(reserve); Files.write(reserve, new byte[]{2});
-        PackageManagerService missingCounter = new PackageManagerService(damaged.mSettings.root, false);
+        PackageManagerService missingCounter = new PackageManagerService(damaged.mSettings.root, false, LEGACY);
         missingCounter.mSettings.add(a.getPackageName(), 10123);
         missingCounter.mSettings.add("dev.andrix.third", 10125);
         missingCounter.mSettings.restoreAfterPackageSettings();
@@ -227,7 +229,7 @@ public final class NativePrincipalManagerTest {
 
         // Retirement of a prepared but never published identity still owns its
         // reservation. It is not skipped while the issuance counter advances.
-        PackageManagerService early = new PackageManagerService();
+        PackageManagerService early = new PackageManagerService(null, true, LEGACY);
         early.mSettings.add("dev.andrix.early", 10126);
         NativePrincipalManager earlyManager = new NativePrincipalManager(early);
         NativePrincipalManager.Handle neverActive = earlyManager.prepare(
@@ -240,7 +242,7 @@ public final class NativePrincipalManagerTest {
 
         // Codec support for a future header is not manager admission. Its
         // header-only UID hold survives even when no directory can reveal it.
-        PackageManagerService versioned = new PackageManagerService();
+        PackageManagerService versioned = new PackageManagerService(null, true, LEGACY);
         String knownName = "dev.andrix.versioned";
         versioned.mSettings.add(knownName, 10001);
         NativePrincipalManager oldVersion = new NativePrincipalManager(versioned);
@@ -254,7 +256,7 @@ public final class NativePrincipalManagerTest {
         byte[] futureBytes = NativeIdentityRecords.encodeHeader(future);
         Files.write(versioned.mSettings.root.resolve("store.bin"), futureBytes);
         Files.write(versioned.mSettings.root.resolve("store.bin.reservecopy"), futureBytes);
-        PackageManagerService unsupported = new PackageManagerService(versioned.mSettings.root, false);
+        PackageManagerService unsupported = new PackageManagerService(versioned.mSettings.root, false, LEGACY);
         unsupported.mSettings.add(knownName, 10001);
         unsupported.mSettings.restoreAfterPackageSettings();
         NativePrincipalManager refusedVersion = new NativePrincipalManager(unsupported);

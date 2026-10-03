@@ -1,25 +1,46 @@
 # SPDX-License-Identifier: Apache-2.0
 """The guarded lab history runner: its read only source checks, independent goldens, transcript
-assessment rules and refusals. These tests start no compiler or JVM. The actual fixture
-transcripts run only in the guarded runner. Not Android runtime proof."""
+assessment rules and refusals, and the build scope audit that no build definition selects a lab
+file. These tests start no compiler or JVM. The actual fixture transcripts run only in the
+guarded runner. Not Android runtime proof."""
 from pathlib import Path
 import base64
 import contextlib
 import io
 import json
 import os
+import pathlib
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / 'scripts/proof'))
+import native_identity_writer as writer  # noqa: E402
 import native_lab_history as runner  # noqa: E402
+import native_principal_pins as pins  # noqa: E402
 
-PINNED = os.environ.get('ANDRIX_PINNED_FRAMEWORK')
+# The build source allowlist, checked for completeness against tracked build definitions. Untracked output, evidence,
+# download and node trees are never inputs, whatever they contain.
+BUILD_SCOPE = ('Android.bp', 'AndroidProducts.mk', 'andrix.mk', 'apex', 'board', 'experiments', 'init', 'keys',
+               'overlays', 'owner', 'products', 'sepolicy', 'supervision', 'tests', 'third_party', 'toolchain',
+               'scripts/proof/tests/fixtures')
+PRUNED = {'out', 'node_modules', 'downloads'}
+# The lab preparation's remaining files, with the writer fixture and the observers it drives.
+LAB_FILES = ('scripts/proof/native_lab_history.py', 'scripts/proof/native_lab_history_predictions.json',
+             'tests/native-identity/lab_history_observe.py', 'tests/native-identity/writer_observe.py',
+             'tests/native-identity/lab-history/LabHistoryStore.java',
+             'tests/native-identity/lab-history/LabHistoryStoreTest.java',
+             'tests/native-identity/lab-history/NativeWriterLabRehearsal.java',
+             'tests/native-identity/lab-history/README.md',
+             'tests/native-identity/writer/NativePrincipalWriterFixture.java')
+LAB_TOKENS = ('lab-history', 'LabHistoryStore', 'NativeWriterLabRehearsal', 'NativePrincipalWriterFixture',
+              'lab_history_observe')
 INSTANCE, NONCE = 'a' * 32, '1' * 32
 SELECTED = {'app_id': 10148, 'user_id': 0, 'user_serial': 7, 'version_code': 1,
             'signer_sha256': '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81'}
@@ -29,6 +50,53 @@ def scratch(test):
     directory = Path(tempfile.mkdtemp()).resolve()
     test.addCleanup(shutil.rmtree, directory)
     return directory
+
+
+def build_definitions(root):
+    """Build and product definitions inside the explicit source allowlist, never outside it."""
+    found = []
+    for name in BUILD_SCOPE:
+        path = root / name
+        if path.is_symlink():
+            continue
+        if path.is_file():
+            found.append(path)
+        elif path.is_dir():
+            for current, directories, files in os.walk(path):
+                directories[:] = sorted(item for item in directories
+                                        if item not in PRUNED and not item.startswith('.'))
+                found.extend(Path(current) / item for item in sorted(files) if item.endswith(('.mk', '.bp'))
+                             and not (Path(current) / item).is_symlink())
+    return found
+
+
+def glob_matches(pattern, path):
+    regex, index = '', 0
+    while index < len(pattern):
+        if pattern.startswith('**/', index):
+            regex, index = regex + '(?:[^/]+/)*', index + 3
+        elif pattern.startswith('**', index):
+            regex, index = regex + '.*', index + 2
+        elif pattern[index] == '*':
+            regex, index = regex + '[^/]*', index + 1
+        else:
+            regex, index = regex + re.escape(pattern[index]), index + 1
+    return re.fullmatch(regex, path) is not None
+
+
+def lab_selections(root, definitions):
+    """Definitions that name the lab, or whose source globs reach one of its named files."""
+    found = []
+    for path in definitions:
+        text = path.read_text(errors='replace')
+        base = path.parent.relative_to(root).as_posix()
+        inside = [name if base == '.' else name[len(base) + 1:] for name in LAB_FILES
+                  if base == '.' or name.startswith(base + '/')]
+        if (any(token in text for token in LAB_TOKENS)
+                or any(glob_matches(pattern, name) for pattern in re.findall(r'"([^"]*\*[^"]*)"', text)
+                       for name in inside)):
+            found.append(path)
+    return found
 
 
 def false_reply(**changes):
@@ -293,20 +361,16 @@ class LabHistoryRunnerTests(unittest.TestCase):
                 return compiled
             raise subprocess.TimeoutExpired(calls[-1], timeout, output=b'partial output', stderr=b'partial errors')
 
-        def fake_source(work, predictions, pinned, record, problems, save):
-            record['pinned'] = {'synthetic': True}
-            problems.append('an earlier source failure')
-            save()
-
         def fake_jdk(work, predictions, pinned, record, problems, save):
             record['bounded'] = 'synthetic'
+            problems.append('an earlier phase failure')
             save()
         # The runner points tempfile at its own work directory; this test restores the caller's.
         with mock.patch.object(runner.b1, 'resource_guard', return_value=None), \
                 mock.patch.object(runner.shutil, 'which', return_value='/usr/bin/java'), \
                 mock.patch.object(runner, 'run', side_effect=fake_run), \
                 mock.patch.object(tempfile, 'tempdir', tempfile.tempdir), \
-                mock.patch.dict(runner.STEPS, {'source': fake_source, 'jdk': fake_jdk}), \
+                mock.patch.dict(runner.STEPS, {'jdk': fake_jdk}), \
                 contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(runner.main(['--evidence', str(evidence), '--work', str(work),
                                           '--pinned-framework', str(directory)]), 1)
@@ -318,10 +382,10 @@ class LabHistoryRunnerTests(unittest.TestCase):
                          ('TimeoutExpired', 'partial output', 'partial errors'))
         self.assertEqual(report['exception']['command'][0], 'java')
         self.assertEqual((report['completed_phases'], report['not_completed_phases'], report['running_phase']),
-                         (['source', 'jdk'], ['store fixture', 'rehearsal', 'writer regression', 'pure suites'],
+                         (['jdk'], ['store fixture', 'rehearsal', 'writer regression', 'pure suites'],
                           'store fixture'))
-        self.assertEqual(report['problems'], ['an earlier source failure', 'qualification did not complete'])
-        self.assertTrue(report['source']['complete'])
+        self.assertEqual(report['problems'], ['an earlier phase failure', 'qualification did not complete'])
+        self.assertEqual(report['jdk'], {'complete': True, 'bounded': 'synthetic'})
         self.assertEqual(len(calls), 2)
 
     def test_stub_overlaps_are_reviewed_never_silent(self):
@@ -458,29 +522,124 @@ class LabHistoryRunnerTests(unittest.TestCase):
             self.assertNotEqual(runner.goldens(**dict(values, **changed))['CREATING'], gold['CREATING'], changed)
         self.assertNotEqual(runner.goldens(**dict(values, app_id=10201))['BODY'], gold['BODY'])
 
-    def test_guard_trip_uses_the_unmodified_guard(self):
-        work = scratch(self)
-        self.assertEqual(runner.guard_trip(work), [])
-        self.assertEqual(runner.b1.ROOT, ROOT)
-        with mock.patch.object(runner.lab, 'PATCH', runner.LAB_DIR / 'native-store-format-v2.json'):
-            self.assertTrue(runner.guard_trip(scratch(self)))
+    def test_subject_is_parsed_from_the_pinned_writer_fixture(self):
+        text = (ROOT / runner.FIXTURE).read_text()
+        subject = runner.fixture_subject()
+        self.assertEqual(subject, runner.subject_constants(text))
+        self.assertEqual(runner.UNCHANGED[runner.FIXTURE], runner.sha(text.encode()))
+        changes = {'signer': (subject['signer_sha256'], '0' * 64),
+                   'version': ('chosen.versionCode != %d' % subject['version_code'],
+                               'chosen.versionCode != %d' % (subject['version_code'] + 1)),
+                   'user': ('chosen.userId != %d' % subject['user_id'],
+                            'chosen.userId != %d' % (subject['user_id'] + 10)),
+                   'package': ('"%s"' % subject['package'], '"%s.other"' % subject['package'])}
+        for name, (old, new) in changes.items():
+            changed = text.replace(old, new)
+            self.assertNotEqual(changed, text, name)
+            self.assertNotEqual(runner.subject_constants(changed), subject, name)
+        for broken in (text.replace('Set.of(FIXTURE_SIGNER)', 'Set.of()'), text + '\n' + text):
+            with self.assertRaises(ValueError):
+                runner.subject_constants(broken)
+        # A fixture that differs from its pin is never parsed for a subject.
+        with mock.patch.dict(runner.UNCHANGED, {runner.FIXTURE: '0' * 64}), \
+                self.assertRaisesRegex(ValueError, 'differs from its pin'):
+            runner.fixture_subject()
 
-    @unittest.skipUnless(PINNED, 'ANDRIX_PINNED_FRAMEWORK not set')
-    def test_pinned_rebuild_changes_only_settings(self):
-        report, problems = runner.pinned_checks(Path(PINNED).resolve(strict=True))
-        self.assertEqual(problems, [])
-        self.assertEqual((report['changed_bytes'], len(report['other_outputs'])), (1, 9))
+    def test_generator_and_observer_subject_are_compared_with_the_fixture(self):
+        subject = runner.fixture_subject()
+        store = (runner.LAB_DIR / 'LabHistoryStore.java').read_text()
+        observe = runner.observer()
+        self.assertEqual(runner.subject_problems(subject, store, observe), [])
+        for name, changed in (('signer', dict(subject, signer_sha256='0' * 64)),
+                              ('package', dict(subject, package=subject['package'] + '.other')),
+                              ('user', dict(subject, user_id=subject['user_id'] + 10))):
+            with self.subTest(name=name):
+                self.assertTrue(runner.subject_problems(changed, store, observe))
+        wrong_store = store.replace('"%s"' % subject['signer_sha256'], '"%s"' % ('1' * 64))
+        self.assertNotEqual(wrong_store, store)
+        self.assertTrue(runner.subject_problems(subject, wrong_store, observe))
+        for name in ('FIXTURE_SIGNER', 'SUBJECT'):
+            other = types.SimpleNamespace(FIXTURE_SIGNER=observe.FIXTURE_SIGNER, SUBJECT=observe.SUBJECT)
+            setattr(other, name, 'x')
+            with self.subTest(observer=name):
+                self.assertTrue(runner.subject_problems(subject, store, other))
+
+    def test_rehearsal_runs_the_production_boot_format(self):
+        text = (runner.LAB_DIR / 'NativeWriterLabRehearsal.java').read_text()
+        self.assertEqual(runner.b1.boot_literal(), runner.b1.PRODUCTION)
+        self.assertEqual(runner.rehearsal_problems(text), [])
+        with mock.patch.object(runner.b1, 'boot_literal', return_value=runner.b1.RETIRED):
+            self.assertEqual(runner.rehearsal_problems(text), ['rehearsal format selection'])
+
+    def test_source_checks_take_no_work_pinned_copies_or_evidence(self):
+        directory = scratch(self)
+        for extra in (['--work', str(directory / 'work')], ['--pinned-framework', str(directory)],
+                      ['--evidence', str(directory / 'evidence.json')]):
+            with self.subTest(extra=extra[0]), self.assertRaises(SystemExit), \
+                    contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+                runner.main(['--source-checks-only', *extra])
+        self.assertEqual(sorted(os.listdir(directory)), [])
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(runner.main(['--source-checks-only']), 0)
+        self.assertEqual(json.loads(output.getvalue())['status'], 'SOURCE_ONLY')
+
+    def test_build_scope_reads_no_untracked_output_download_or_evidence_tree(self):
+        root = scratch(self)
+        for name in ('Android.bp', 'owner/Android.bp', 'products/phone.mk', 'tests/native-identity/Android.bp'):
+            (root / name).parent.mkdir(parents=True, exist_ok=True)
+            (root / name).write_text('clean\n')
+        for decoy in ('out/native-history-lab/Android.bp', 'out/evidence/product.mk', 'node_modules/a/Android.bp',
+                      'downloads/b.mk', 'private/c.bp', 'owner/out/d.mk', 'tests/node_modules/e.bp'):
+            path = root / decoy
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('NativePrincipalWriterFixture LabHistoryStore lab-history\n')
+        with mock.patch.object(pathlib.Path, 'read_text', autospec=True, side_effect=pathlib.Path.read_text) as read:
+            scanned = build_definitions(root)
+            self.assertEqual(lab_selections(root, scanned), [])
+        self.assertEqual(sorted(path.relative_to(root).as_posix() for path in scanned),
+                         ['Android.bp', 'owner/Android.bp', 'products/phone.mk', 'tests/native-identity/Android.bp'])
+        self.assertFalse(any('out' in Path(call.args[0]).parts or 'node_modules' in Path(call.args[0]).parts
+                             for call in read.call_args_list))
+        # A scoped definition that names or globs the lab files is found.
+        (root / 'owner/Android.bp').write_text('srcs: ["tests/native-identity/lab-history/LabHistoryStore.java"]\n')
+        (root / 'tests/native-identity/Android.bp').write_text('srcs: ["**/*.java"]\n')
+        self.assertEqual(len(lab_selections(root, build_definitions(root))), 2)
+        # The writer fixture is reached by a glob too, and by its name.
+        (root / 'tests/native-identity/Android.bp').write_text('srcs: ["writer/*.java"]\n')
+        (root / 'owner/Android.bp').write_text('name: "NativePrincipalWriterFixture"\n')
+        self.assertEqual(len(lab_selections(root, build_definitions(root))), 2)
+
+    def test_build_scope_covers_every_tracked_build_definition(self):
+        tracked = subprocess.run(['git', '-C', str(ROOT), 'ls-files', '-z', '--', '*.bp', '*.mk'],
+                                 capture_output=True, check=True, timeout=30).stdout
+        paths = {name.decode('utf-8') for name in tracked.split(b'\0') if name}
+        covered = {path.relative_to(ROOT).as_posix() for path in build_definitions(ROOT)}
+        self.assertTrue(paths)
+        self.assertEqual(paths - covered, set(), 'new build source needs an explicit audit scope')
+
+    def test_native_execution_factory_stays_off_and_nothing_selects_the_lab(self):
+        self.assertIs(writer.profile()['native_execution_enabled'], False)
+        self.assertIn('owner account designation/factory not connected', pins.profile()['activation_fences'])
+        for name in LAB_FILES:
+            self.assertTrue((ROOT / name).is_file(), name)
+        scanned = build_definitions(ROOT)
+        self.assertIn(ROOT / 'tests/native-identity/Android.bp', scanned)
+        self.assertEqual(lab_selections(ROOT, scanned), [])
+        # No production framework source names a lab file either.
+        framework = ''.join(path.read_text() for path in sorted((ROOT / runner.b1.FRAMEWORK_DIR).glob('*.java')))
+        for token in LAB_TOKENS:
+            self.assertNotIn(token, framework)
 
     def test_progress_checkpoints_and_timeout_records(self):
         directory = scratch(self)
         report = {}
         progress = runner.Progress(report, directory / 'progress.json')
-        progress.begin('source')
-        self.assertEqual(json.loads((directory / 'progress.json').read_text())['running_phase'], 'source')
-        progress.done('source')
+        progress.begin('jdk')
+        self.assertEqual(json.loads((directory / 'progress.json').read_text())['running_phase'], 'jdk')
+        progress.done('jdk')
         saved = json.loads((directory / 'progress.json').read_text())
         self.assertEqual((saved['status'], saved['completed_phases'], saved['running_phase']),
-                         ('RUNNING', ['source'], None))
+                         ('RUNNING', ['jdk'], None))
         record = runner.exception_record(subprocess.TimeoutExpired(['java'], 1, output=b'out', stderr=b'err'))
         self.assertEqual((record['type'], record['stdout'], record['stderr']), ('TimeoutExpired', 'out', 'err'))
 

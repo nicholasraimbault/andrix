@@ -305,7 +305,11 @@ retain their own producers and scopes.
   the LIVE header and body byte and metadata exact after that second unclean stop, and a fresh
   `system_server` restored the pinned hold with a valid slot. This completes the lab sequence for
   one guest and producer, not physical power loss, writer crash durability or production
-  qualification. No production enable follows.
+  qualification. The owner then approved [version 2 in the normal image](../plans/2026-10-02-native-store-v2-normal.md)
+  with execution, the factory, retirement and release still off. Its source, guard and host stage
+  passed guarded checks, including the last version 1 image's reader over every emitted version 2
+  layout with discriminating version 2 controls, and identical store class files. No normal image
+  with version 2 has been built or booted yet.
   The [real consent reference](../plans/2026-09-27-native-permission-consent.md) then exercised the
   ordinary Android notification popup without privileged grants. Allow enabled an independent
   command after the helper closed; peer and false attribution controls remained separate. Back,

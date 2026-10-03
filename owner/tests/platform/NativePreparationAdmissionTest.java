@@ -12,6 +12,8 @@ import java.util.Set;
 
 /** Exact preparation admission and retained ownership, not Android authority qualification. */
 public final class NativePreparationAdmissionTest {
+    // Legacy version 1 writer runs: Format.V1 explicitly, never the facade's production default.
+    private static final NativeIdentityStore.Format LEGACY = NativeIdentityStore.Format.V1;
     private static final String A = "dev.andrix.admission", B = "dev.andrix.admissionpeer";
     // The facade's installed signer digest, as an owned manager issuance would carry it.
     private static final Set<String> SIGNERS =
@@ -28,7 +30,7 @@ public final class NativePreparationAdmissionTest {
         throw new AssertionError("operation unexpectedly accepted");
     }
     private static PackageManagerService fixture(int count, boolean mixed) throws Exception {
-        PackageManagerService initial = new PackageManagerService();
+        PackageManagerService initial = new PackageManagerService(null, true, LEGACY);
         List<NativeIdentityRecords.HeaderEntry> entries = new ArrayList<>();
         for (int i = 0; i < count; i++) {
             var phase = !mixed ? NativeIdentityRecords.SlotPhase.LIVE
@@ -41,7 +43,7 @@ public final class NativePreparationAdmissionTest {
         byte[] bytes = NativeIdentityRecords.encodeHeader(header);
         Files.write(initial.mSettings.root.resolve("store.bin"), bytes);
         Files.write(initial.mSettings.root.resolve("store.bin.reservecopy"), bytes);
-        PackageManagerService pm = new PackageManagerService(initial.mSettings.root, false);
+        PackageManagerService pm = new PackageManagerService(initial.mSettings.root, false, LEGACY);
         pm.mSettings.add(A, 11000); pm.mSettings.add(B, 11001);
         pm.mSettings.add("dev.andrix.admissionthird", 11002);
         pm.mSettings.restoreAfterPackageSettings();

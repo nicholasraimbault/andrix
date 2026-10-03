@@ -2,6 +2,7 @@
   "version": 1,
   "status": "PREDICTIONS_NOT_RESULTS",
   "revision": "Revised after review: 42 issued labels, with the lost commit's issued ledger line, retention pairs and live store modes. The original handoff's 41 label predictions and its modeled transcript stay separate, and neither is a Java result.",
+  "retirement": "R0 of the version 2 normal store retired the lab format token: its tool, suite, profile and patch, and the source phase that rebuilt and guard tripped it. Every prediction below is unchanged.",
   "store_fixture": {
     "pass": ["golden bytes and sizes", "actual codec round trips",
              "empty version 1 input equals store initialization", "predictions equal the goldens",
@@ -83,7 +84,6 @@
   },
   "writer_regression": {"module": "tests/native-identity/test_writer.py", "tests": 3},
   "pure_suites": [
-    "scripts/proof/tests/test_native_lab_format.py",
     "scripts/proof/tests/test_native_lab_history.py",
     "tests/native-identity/test_lab_history_observe.py",
     "tests/native-identity/test_writer_observe.py",

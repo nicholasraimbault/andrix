@@ -49,8 +49,8 @@ import com.android.server.pm.NativeIdentityRecords.UserEntry;
  *
  * Each store has one Format, fixed at construction: the highest header version it
  * reads as supported and the version a new bound reservation writes. Production
- * constructs Format.V1, which reads and writes version 1 headers only, as before.
- * Format.V2 is for host tests until a reviewed enable. Slots and slot seeds are
+ * constructs Format.V2 once, at the Settings boot read. Format.V1 reads and writes
+ * version 1 headers only, as the earlier images did. Slots and slot seeds are
  * version 1 in every format, and initialization writes an empty version 1 header.
  * An intact record frame (bounded size, magic, expected type, length and SHA-256)
  * that declares a version above the format's ceiling is an unsupported footprint,
@@ -118,8 +118,8 @@ final class NativeIdentityStore {
     /**
      * The header versions one store instance reads and writes. Closed and fixed at
      * construction; nothing selects it from configuration, properties, settings or
-     * stored bytes. Production constructs V1. V2 is for host tests until a reviewed
-     * enable joins its readers, rollback and recovery. Slots stay version 1 in both.
+     * stored bytes. Production constructs V2 at its one boot read. V1, the earlier
+     * images' format, remains for host rollback models. Slots stay version 1 in both.
      */
     enum Format {
         /** Reads and writes version 1 headers. Version 2 and above are unsupported footprints. */

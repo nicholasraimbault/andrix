@@ -782,7 +782,8 @@ public final class NativeCreationBindingTest {
     // package and principal evidence for siblings, also beside an ordinary conflict. Each
     // layout has R's CREATING creation 1 and N's LIVE entry under counter 2. It is read bound,
     // with R's version 2 binding of user 0, serial 7 and a signer set, and as its bindings
-    // cleared twin under the production version 1 format, then reopened in a host PMS facade.
+    // cleared twin under the version 1 format of the rollback reader, then reopened in a host
+    // PMS facade.
     // The bound layout never makes more usable, holds the same IDs and is never readier.
     // Without an ordinary conflict for R, N fares the same in both. An ordinary conflict alone
     // stays no evidence. Expected statuses are R's, then N's. Host facades only.
@@ -1199,8 +1200,9 @@ public final class NativeCreationBindingTest {
         });
     }
 
-    // The production version 1 format reads every version 2 layout the host format writes as
-    // unsupported and read only. It keeps each known hold and restores no counter or binding.
+    // The version 1 format, the rollback reader model, reads every version 2 layout the host format
+    // writes as unsupported and read only. It keeps each known hold and restores no counter or
+    // binding.
     private static void v1Readers() {
         run("V1 reader / version 2 layouts stay read only with every hold", problems -> {
             List<Path> layouts = new ArrayList<>();

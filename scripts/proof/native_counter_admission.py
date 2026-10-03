@@ -61,6 +61,9 @@ BASELINE_8949 = {
     'NativePrincipalRecovery': '08ed1d161a632362fd02912abfb2b927b6ad1ee18c78deab0fe0f9129711b88e',
     'Settings': '2eaa6c9dae109f949fb23b553b92d8396d4d65c70b42caa83650821ba2b40669'}
 b1.REVISIONS[BASE_8949] = REVISION_8949
+# The exact R0 bytes of the host facade, beside the code comparison with 89491b9: its default is
+# the boot construction's Format.V2, and a later edit, also of a comment, needs a new pin.
+FACADE_R0_SHA256 = '0b78a6518a21bf3a5a365705a85bde454a41448e561b0c7cdf7d07b287120806'
 b1.BASELINE_SHA256[BASE_8949] = dict(BASELINE_8949)
 SIDES = (BASE_0018, BASE_8949, 'fix')
 # Every guarded phase in order. A run reports those it completed and those it did not.
@@ -256,15 +259,46 @@ def b1_test_problems(current, base):
     return []
 
 
+def r0_problems(old_profile, profile):
+    """Whether the later R0 change of the version 2 normal store is exactly its boot literal: the
+    patch is 89491b9's with that one literal, the profile pins that patch and changes only the
+    Settings candidate among its file rows, and the facade's code differs only by its default.
+    The pinned candidate rebuild checks the Settings candidate itself. Reads Git objects only."""
+    problems = []
+    old_patch = b1.git_bytes(REVISION_8949, b2.PATCH_PATH)
+    if (sha(old_patch) != old_profile['patch_sha256'] or profile['patch_sha256'] != sha(integration.PATCH.read_bytes())
+            or b1.r0_forward(old_patch.decode()) != integration.PATCH.read_text()):
+        problems.append('patch differs from 89491b9 beyond the R0 boot literal')
+    old_files = {row['path']: row for row in old_profile['files']}
+    if [row['path'] for row in profile['files']] != list(old_files):
+        problems.append('profile file rows changed')
+    for row in profile['files']:
+        prior = old_files.get(row['path'], {})
+        changed = {key for key in set(row) | set(prior) if row.get(key) != prior.get(key)}
+        if changed - ({'candidate_sha256'} if row['path'] == SETTINGS else set()):
+            problems.append('profile file row differs from 89491b9 beyond the R0 Settings candidate: '
+                            + row['path'])
+    base = b1.git_bytes(REVISION_8949, FACADE).decode()
+    forward = b1.r0_forward(base)
+    current = (ROOT / FACADE).read_bytes()
+    if (sha(base.encode()) != BASELINE_8949['Settings'] or forward is None
+            or normalized(forward) != normalized(current.decode())):
+        problems.append('Settings facade differs from 89491b9 beyond the R0 default')
+    if sha(current) != FACADE_R0_SHA256:
+        problems.append('Settings facade differs from its reviewed R0 bytes')
+    return problems
+
+
 def surface_violations():
     """The correction's surface: only the Store's code changed among the product sources, by the
     one rule and its helper; the patch, facade, fragments and other framework sources are the
     89491b9 bytes; the profile differs only by the Store's hash; and the B1 suite changed only
-    its one incidental readiness check."""
+    its one incidental readiness check. The later R0 boot literal, its profile pins and the
+    facade's default are allowed exactly, as r0_problems checks."""
     problems = []
     for name, digest in BASELINE_8949.items():
         path = FACADE if name == 'Settings' else FRAMEWORK_DIR + name + '.java'
-        if name != 'NativeIdentityStore' and sha((ROOT / path).read_bytes()) != digest:
+        if name not in ('NativeIdentityStore', 'Settings') and sha((ROOT / path).read_bytes()) != digest:
             problems.append('%s differs from 89491b9' % name)
     base = b1.git_bytes(REVISION_8949, STORE).decode()
     if sha(base.encode()) != BASELINE_8949['NativeIdentityStore']:
@@ -274,10 +308,11 @@ def surface_violations():
     profile = json.loads((ROOT / PROFILE_PATH).read_text())
     store_row = integration.PREFIX + 'NativeIdentityStore.java'
     for key in set(old_profile) | set(profile):
-        if key == 'added':
+        if key in ('added', 'patch_sha256', 'files'):
             continue
         if old_profile.get(key) != profile.get(key):
             problems.append('profile %s differs from 89491b9' % key)
+    problems += r0_problems(old_profile, profile)
     old_added = {row['path']: row for row in old_profile.get('added', [])}
     for row in profile.get('added', []):
         prior = old_added.get(row['path'])
@@ -511,17 +546,28 @@ def parity_side(work, side, settings):
 
 def candidates(pinned, scratch):
     """The corrected and 0018a1d candidate Settings from the pinned canonical framework copies,
-    and the problems of the ten outputs against the 89491b9 profile: every output unchanged."""
+    and the problems of the ten outputs against the 89491b9 profile: every output unchanged, except
+    the later R0 boot literal of Settings and the patch."""
     built = b2.candidates(pinned, scratch)
     problems = []
     if built['changed'] != [SETTINGS]:
         problems.append('framework targets changed against 0018a1d: %s' % built['changed'])
     old_profile = json.loads(b1.git_bytes(REVISION_8949, PROFILE_PATH))
-    for row in old_profile['files']:
-        if built['outputs'].get(row['path']) != row['candidate_sha256']:
-            problems.append('framework output differs from 89491b9: ' + row['path'])
-    if sha(integration.PATCH.read_bytes()) != old_profile['patch_sha256']:
-        problems.append('patch differs from 89491b9')
+    old_rows = {row['path']: row for row in old_profile['files']}
+    for path, row in old_rows.items():
+        if path != SETTINGS and built['outputs'].get(path) != row['candidate_sha256']:
+            problems.append('framework output differs from 89491b9: ' + path)
+    # R0 changed the boot literal alone: the current Settings with the earlier literal back is
+    # 89491b9's candidate, and the patch is 89491b9's with that one literal.
+    current = built['b2']
+    reverted = current.replace(b1.CONSTRUCTION + b1.PRODUCTION + ');', b1.CONSTRUCTION + b1.RETIRED + ');', 1)
+    if (reverted == current or b1.r0_forward(reverted) != current
+            or sha(reverted.encode()) != old_rows[SETTINGS]['candidate_sha256']):
+        problems.append('Settings output differs from 89491b9 beyond the R0 boot literal')
+    old_patch = b1.git_bytes(REVISION_8949, b2.PATCH_PATH)
+    if (sha(old_patch) != old_profile['patch_sha256']
+            or b1.r0_forward(old_patch.decode()) != integration.PATCH.read_text()):
+        problems.append('patch differs from 89491b9 beyond the R0 boot literal')
     problems += b2.b2_text_checks(built['b2'])
     return built, problems
 

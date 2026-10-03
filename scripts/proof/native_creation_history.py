@@ -65,9 +65,55 @@ SUPPORT_0018 = {
     'NativeBindingTestSupport.java': '2426ad2e672f28b762444727c9c34b9987fe5db4d7a1927a6c1d74b7ba8c199d',
     'native_header_api/b1/NativeHeaderApi.java':
         '674f66fb85586a68b0f9adb2f13facf30551ca47693f6ed3e1026ea8093bbc4b'}
+# R0 of the version 2 normal store routes the shared support's host facades through the adapter,
+# so the B1 adapter keeps them Format.V1 after the facade's default became the production V2.
+# Comments aside, the worktree support is 0018a1d's with exactly these code replacements. The
+# 0018a1d side of every comparison still compiles its own Git objects.
+SUPPORT_R0 = {
+    'NativeHeaderTestSupport.java': (
+        ('PackageManagerService pm = new PackageManagerService(root, false);',
+         'PackageManagerService pm = NativeHeaderApi.pm(root, false);'),
+        ('PackageManagerService pm = new PackageManagerService(fresh(), true);',
+         'PackageManagerService pm = NativeHeaderApi.pm(fresh(), true);')),
+    'native_header_api/b1/NativeHeaderApi.java': ((
+        'return new NativeIdentityStore(root.toFile(), NativeIdentityStore.Format.V1); }',
+        'return new NativeIdentityStore(root.toFile(), NativeIdentityStore.Format.V1); }'
+        ' static PackageManagerService pm(Path root, boolean initialize) {'
+        ' return new PackageManagerService(root, initialize, NativeIdentityStore.Format.V1); }'),)}
+# The exact R0 bytes of the shared support, beside the code comparison above: a later edit, also
+# of a comment, needs its own review and a new pin.
+SUPPORT_R0_SHA256 = {
+    'NativeHeaderTestSupport.java': '8632e5257eeb24f0c0d23fd8fdfd4ee363d30bc4890093b7421c24e43aa71560',
+    'NativeBindingTestSupport.java': '2426ad2e672f28b762444727c9c34b9987fe5db4d7a1927a6c1d74b7ba8c199d',
+    'native_header_api/b1/NativeHeaderApi.java':
+        '781f7d345cdcdc4c7a28ae1cb89deb90f219093600d50906337aa7e4f24bda25'}
 PATCH_PATH = 'patches/grapheneos-2026081300/native-principal-pins.patch'
 PATCH_0018_SHA256 = '072c964b4887ef7ff2e246cb1e8f0e633975b05d36e05b8e6daf6262e08a9209'
 SETTINGS_0018_SHA256 = '17cfd8f7c9b436f83cccf749703ee2a584467fd59dedc1b7bc7709511275655c'
+# The 78456b3 rollback reader, the last version 1 normal image, registered by the B1 runner: its
+# patch and adapted Settings, which construct Format.V1 at the boot read.
+ROLLBACK = '7845'
+PATCH_7845_SHA256 = '8e5a3ec75d0e9b0d9d6258c5e332f01c9258092145cbd3e32335aae8bf5f2d3d'
+SETTINGS_7845_SHA256 = 'd18ffbd11b4382046ab7df33dec2913ca527bb31e5acfe32b38da2a1d2b17ba6'
+# The version 1 readers of the emitted history layouts: target, baseline revision and adapter.
+READERS = (('b2-v1', None, 'b1'), (BASE, BASE, 'b1'), ('c926', 'c926', 'baseline'), (ROLLBACK, ROLLBACK, 'b1'))
+# The rollback model's targets: the current sources under Format.V1 and the pinned 78456b3 image.
+ROLLBACK_READERS = (('b2-v1', None), (ROLLBACK, ROLLBACK))
+ROLLBACK_CHECKS = (('NativeRollbackReaderCheck', 'rollback reader'),
+                   ('NativeRollbackSeedingCheck', 'rollback seeding'))
+# Every emitted history layout holds a version 2 header copy: each starts from version 2 copies.
+# The rollback checks assert this count. Their controls, the reservation and the rebound body, are
+# read again under the production Format.V2.
+ROLLBACK_COPY_LAYOUTS = 45
+ROLLBACK_CONTROLS = ('history-rebound', 'history-reserved')
+# The labels of this runner's guarded steps and readers, as the B1 runner's HARNESS_LABELS name them.
+STEP_LABELS = {'b2 focused': ('production', 'legacy', 'rollback-reader'), 'b2 faults': ('production',),
+               'probe': ('archived-baseline', 'production', 'legacy'),
+               'parity': ('archived-baseline', 'production', 'rollback-reader'),
+               'readers': ('production', 'rollback-reader', 'archived-baseline'),
+               'mutants': ('production', 'legacy', 'rollback-reader')}
+READER_LABELS = {'b2-v1': 'rollback-reader', BASE: 'archived-baseline', 'c926': 'archived-baseline',
+                 ROLLBACK: 'rollback-reader'}
 # 0018a1d becomes one more exact baseline of the B1 Git object loader, in memory only.
 b1.REVISIONS[BASE] = REVISION_0018
 b1.BASELINE_SHA256[BASE] = dict(BASELINE_0018)
@@ -80,7 +126,8 @@ FOCUSED_NAMES = (
     'history / a complete creation without a body is a reservation',
     'history / an empty slot directory keeps the reservation',
     'history / a torn seed keeps the reservation and is no history', 'history / an intact seed is never history',
-    'history / a damaged header keeps an eligible body', 'history / the production V1 format reads no reservation',
+    'history / a damaged header keeps an eligible body',
+    'history / the version 1 rollback reader reads no reservation',
     'history / a protected V2 target beside V1 predecessors is a reservation',
     'history / bodies with a nonzero user give none and claim their principals',
     'history / tombstones give none and keep their holds',
@@ -530,6 +577,34 @@ def work_path_problem(work):
                              SOCKET_LIMIT - 1 - len('/tmp') - len(tail)))
 
 
+def normalized(text):
+    """Java code with comments removed and every whitespace run one space."""
+    return ' '.join(b1.strip_java_comments(text).split())
+
+
+def support_problems():
+    """Whether the shared test support, comments aside, is 0018a1d's Git objects with exactly the
+    R0 facade routing, and is byte for byte the reviewed R0 support. Reads Git objects only."""
+    problems = []
+    if set(SUPPORT_R0_SHA256) != set(SUPPORT_0018):
+        problems.append('R0 support pins differ from the 0018a1d support set')
+    for relative, digest in SUPPORT_0018.items():
+        base = b1.git_bytes(REVISION_0018, PLATFORM + relative)
+        if sha(base) != digest:
+            problems.append('0018a1d test support object drift: ' + relative)
+            continue
+        expected = normalized(base.decode())
+        for old, new in SUPPORT_R0.get(relative, ()):
+            expected = b1.replace_once(expected, old, new)
+        current = (ROOT / PLATFORM / relative).read_bytes()
+        if normalized(current.decode()) != expected:
+            problems.append('shared test support differs from 0018a1d beyond the R0 facade routing: '
+                            + relative)
+        if sha(current) != SUPPORT_R0_SHA256.get(relative):
+            problems.append('shared test support differs from its reviewed R0 bytes: ' + relative)
+    return problems
+
+
 def mutant_sources():
     """Each B2 mutant applied to the current text of its target, anchored exactly once."""
     result = {}
@@ -558,9 +633,17 @@ def source_checks():
         problems.append('surface: %s' % error)
     if sha(PROBE.read_bytes()) != PROBE_SHA256:
         problems.append('BODY origin probe differs from the reviewed probe')
-    for relative, digest in SUPPORT_0018.items():
-        if sha((ROOT / PLATFORM / relative).read_bytes()) != digest:
-            problems.append('shared test support drifted from 0018a1d: ' + relative)
+    try:
+        problems += support_problems()
+    except ValueError as error:
+        problems.append('shared test support: %s' % error)
+    for labels in list(STEP_LABELS.values()) + [(label,) for label in READER_LABELS.values()]:
+        if not labels or not set(labels) <= set(b1.RUN_LABELS):
+            problems.append('unknown step label %s' % (labels,))
+    if set(READER_LABELS) != {target for target, _, _ in READERS} or {
+            target for target, _ in ROLLBACK_READERS} - {
+            target for target, label in READER_LABELS.items() if label == 'rollback-reader'}:
+        problems.append('reader labels differ from the readers')
     try:
         mutant_sources()
     except ValueError as error:
@@ -585,20 +668,12 @@ def source_checks():
     return problems
 
 
-def candidates(pinned, scratch):
-    """B2 and 0018a1d candidate Settings built from the pinned canonical framework copies by
-    their own patches, and which of the ten outputs B2 changed. Pure patch reproduction."""
-    value = integration.profile()
-    original = {}
-    for row in value['files']:
-        path = pinned / row['path']
-        if path.is_symlink() or not path.is_file():
-            raise ValueError('pinned framework copy missing: ' + row['path'])
-        original[row['path']] = path.read_bytes()
-    current = integration.targets(original, value)
-    patch = b1.git_bytes(REVISION_0018, PATCH_PATH)
-    if sha(patch) != PATCH_0018_SHA256:
-        raise ValueError('0018a1d patch drift')
+def revision_outputs(revision, digest, original, scratch):
+    """The ten outputs of one revision's exact native patch, a pinned Git object, over the pinned
+    canonical copies, in private scratch. Pure patch reproduction."""
+    patch = b1.git_bytes(b1.REVISIONS[revision] if revision in b1.REVISIONS else revision, PATCH_PATH)
+    if sha(patch) != digest:
+        raise ValueError('%s patch drift' % revision)
     tree = scratch / 'tree'
     for name, data in original.items():
         target = tree / name
@@ -608,13 +683,52 @@ def candidates(pinned, scratch):
     applied = subprocess.run(['/usr/bin/patch', '--batch', '--forward', '--fuzz=0', '--no-backup-if-mismatch',
                               '-p1', '-i', str(scratch / 'patch')], cwd=tree, capture_output=True, timeout=30)
     if applied.returncode:
-        raise ValueError('0018a1d patch failed: ' + applied.stderr.decode(errors='replace'))
-    baseline = {name: (tree / name).read_bytes() for name in original}
+        raise ValueError('%s patch failed: %s' % (revision, applied.stderr.decode(errors='replace')))
+    return {name: (tree / name).read_bytes() for name in original}
+
+
+def candidates(pinned, scratch):
+    """B2, 0018a1d and 78456b3 candidate Settings built from the pinned canonical framework copies
+    by their own patches, and which of the ten outputs B2 changed against 0018a1d. Pure patch
+    reproduction."""
+    value = integration.profile()
+    original = {}
+    for row in value['files']:
+        path = pinned / row['path']
+        if path.is_symlink() or not path.is_file():
+            raise ValueError('pinned framework copy missing: ' + row['path'])
+        original[row['path']] = path.read_bytes()
+    current = integration.targets(original, value)
+    baseline = revision_outputs(REVISION_0018, PATCH_0018_SHA256, original, scratch)
     if sha(baseline[SETTINGS]) != SETTINGS_0018_SHA256:
         raise ValueError('0018a1d Settings candidate drift')
+    rollback = revision_outputs(ROLLBACK, PATCH_7845_SHA256, original, scratch / ROLLBACK)
+    if sha(rollback[SETTINGS]) != SETTINGS_7845_SHA256:
+        raise ValueError('78456b3 Settings candidate drift')
     changed = sorted(name for name in original if baseline[name] != current[name])
-    return {'b2': current[SETTINGS].decode(), BASE: baseline[SETTINGS].decode(), 'changed': changed,
+    return {'b2': current[SETTINGS].decode(), BASE: baseline[SETTINGS].decode(),
+            ROLLBACK: rollback[SETTINGS].decode(), 'changed': changed,
+            'rollback_changed': sorted(name for name in original if rollback[name] != current[name]),
             'outputs': {name: sha(current[name]) for name in sorted(original)}}
+
+
+def rollback_candidate_problems(built):
+    """The 78456b3 candidate differs from the current one only in the boot construction's format
+    literal, so every text the harness takes from either is the same."""
+    problems = []
+    old, new = built[ROLLBACK], built['b2']
+    if built['rollback_changed'] != [SETTINGS]:
+        problems.append('78456b3 outputs differ beyond Settings: %s' % built['rollback_changed'])
+    if (len(old) != len(new) or old.replace(b1.CONSTRUCTION + b1.RETIRED + ');',
+                                            b1.CONSTRUCTION + b1.PRODUCTION + ');', 1) != new
+            or sum(a != b for a, b in zip(old, new)) != 1):
+        problems.append('78456b3 Settings differs from the current Settings beyond the boot literal')
+    try:
+        if settings_texts(old) != settings_texts(new):
+            problems.append('78456b3 and current harness texts differ')
+    except ValueError as error:
+        problems.append('78456b3 harness texts: %s' % error)
+    return problems
 
 
 # ---------------------------------------------------------------- parity comparison
@@ -839,11 +953,14 @@ def qualify(work, pinned, progress):
                                     timeout=60).stderr.strip()
     (work / 'candidates').mkdir(parents=True)
     built = candidates(pinned, work / 'candidates')
-    steps['candidates'] = {'changed': built['changed'], 'outputs': built['outputs']}
+    steps['candidates'] = {'changed': built['changed'], 'outputs': built['outputs'],
+                           'rollback_changed': built['rollback_changed']}
     if built['changed'] != [SETTINGS]:
         problems.append('B2 changed framework targets other than Settings: %s' % built['changed'])
     problems += b2_text_checks(built['b2'])
+    problems += rollback_candidate_problems(built)
     settings = built['b2']
+    rollback_settings = {'b2-v1': settings, ROLLBACK: built[ROLLBACK]}
     progress.done('candidates')
 
     # The focused and fault matrices: each case exactly once, all passing, exit status 0.
@@ -896,7 +1013,9 @@ def qualify(work, pinned, progress):
             problems.append('twinned layouts did not differ as predicted: %s' % differing)
     progress.done('parity')
 
-    # Version 2 history layouts, read by version 1 readers of B2, 0018a1d and c9264e4.
+    # Version 2 history layouts from the production writer, read by the version 1 rollback reader,
+    # the current sources under Format.V1 and the pinned 78456b3 image, and by archived 0018a1d
+    # and c9264e4. The rollback reader's facade and recovery seeding then read them again.
     progress.begin('readers')
     emitter = work / 'layouts-emitter'
     emitter.mkdir(parents=True)
@@ -914,8 +1033,11 @@ def qualify(work, pinned, progress):
         steps['readers'].update(emitted=names, emitter_run=emitted)
         if emitted['returncode'] or tuple(names) != LAYOUT_NAMES:
             problems.append('history layout emitter')
-        readers = (('b2-v1', None, 'b1'), (BASE, BASE, 'b1'), ('c926', 'c926', 'baseline'))
-        for target, baseline, adapter in readers if tuple(names) == LAYOUT_NAMES else ():
+        steps['readers']['copy_layouts'] = b1.copy_layouts(layouts) if layouts.is_dir() else None
+        if steps['readers']['copy_layouts'] != ROLLBACK_COPY_LAYOUTS:
+            problems.append('version 2 copy history layouts %s, not the predicted %d'
+                            % (steps['readers']['copy_layouts'], ROLLBACK_COPY_LAYOUTS))
+        for target, baseline, adapter in READERS if tuple(names) == LAYOUT_NAMES else ():
             copy = work / ('layouts-' + target)
             shutil.copytree(layouts, copy, symlinks=True)
             reader = work / ('reader-' + target)
@@ -933,6 +1055,30 @@ def qualify(work, pinned, progress):
             if (run['returncode'] or run['failed'] or sorted(run['passed']) !=
                     ['version 1 reader / ' + name for name in LAYOUT_NAMES]):
                 problems.append('reader ' + target)
+            progress.write()
+        for target, baseline in ROLLBACK_READERS if tuple(names) == LAYOUT_NAMES else ():
+            checker = work / ('rollback-' + target)
+            checker.mkdir(parents=True)
+            files = {**b1.product_sources(baseline), **history_stubs(),
+                     'tests/NativeHistoryHarness.java': harness_source(rollback_settings[target], 'b2').encode(),
+                     **b1.test_sources(['NativeHeaderTestSupport', 'NativeBindingTestSupport',
+                                        'NativeHistoryTestSupport', *(main for main, _ in ROLLBACK_CHECKS)],
+                                       adapter='b1')}
+            built_checker = b1.build(checker, files)
+            record = steps['readers']['rollback ' + target] = {'build': built_checker}
+            if built_checker['returncode']:
+                problems.append('rollback %s did not compile' % target)
+                continue
+            for main, prefix in ROLLBACK_CHECKS:
+                copy = work / ('layouts-%s-%s' % (main, target))
+                shutil.copytree(layouts, copy, symlinks=True)
+                run = b1.execute(checker, main, [str(copy), str(checker / ('state-' + main)),
+                                                 str(ROLLBACK_COPY_LAYOUTS), ','.join(ROLLBACK_CONTROLS)])
+                record[main] = {'returncode': run['returncode'], 'failed': run['failed'],
+                                'passed': len(run['passed']), 'run': run}
+                if (run['returncode'] or run['failed'] or sorted(run['passed']) !=
+                        b1.rollback_names(prefix, LAYOUT_NAMES, ROLLBACK_CONTROLS)):
+                    problems.append('rollback %s %s' % (main, target))
             progress.write()
     progress.done('readers')
 
@@ -974,6 +1120,8 @@ def qualify(work, pinned, progress):
         if missed or not failed:
             problems.append('mutant %s not caught: %s' % (name, missed))
         progress.write()
+    report['labels'] = {step: list(STEP_LABELS[step]) for step in steps if step in STEP_LABELS}
+    report['reader_labels'] = dict(READER_LABELS)
     progress.done('mutants')
 
 
@@ -1024,8 +1172,10 @@ def main(argv=None):
             work.mkdir(parents=True)
             tempfile.tempdir = str(work)
             built = candidates(args.pinned_framework.resolve(strict=True), work)
-            report['candidate'] = {'changed': built['changed'], 'outputs': built['outputs']}
+            report['candidate'] = {'changed': built['changed'], 'outputs': built['outputs'],
+                                   'rollback_changed': built['rollback_changed']}
             problems += b2_text_checks(built['b2'])
+            problems += rollback_candidate_problems(built)
             if built['changed'] != [SETTINGS]:
                 problems.append('B2 changed framework targets other than Settings')
         report['status'] = 'FAIL' if problems else 'SOURCE_ONLY'

@@ -11,6 +11,8 @@ import java.util.Set;
 
 /** Host-only bridge from actual fixture replies to the independent Python observer. */
 public final class NativePrincipalWriterFixtureTranscript {
+    // Legacy version 1 writer runs: Format.V1 explicitly, never the facade's production default.
+    private static final NativeIdentityStore.Format LEGACY = NativeIdentityStore.Format.V1;
     private static final String INSTANCE = "a".repeat(32), NONCE = "b".repeat(32);
     private static final Set<String> SIGNERS = Set.of(
             "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81");
@@ -29,7 +31,7 @@ public final class NativePrincipalWriterFixtureTranscript {
     public static void main(String[] args) throws Exception {
         if (!NativePrincipalWriterFixtureTranscript.class.desiredAssertionStatus()) throw new AssertionError("-ea");
         LocalServices.addService(UserManagerInternal.class, new UserManagerInternal());
-        PackageManagerService pm = new PackageManagerService();
+        PackageManagerService pm = new PackageManagerService(null, true, LEGACY);
         pm.mSettings.add("dev.andrix.proof.principalclosed", 10148);
         NativePrincipalManager manager = new NativePrincipalManager(pm);
         installHostFixture(new NativePrincipalWriterFixture(manager, INSTANCE, SIGNERS));
@@ -40,7 +42,7 @@ public final class NativePrincipalWriterFixtureTranscript {
         call("prepare", "prepare", INSTANCE, NONCE);
         call("commit", "commit", INSTANCE, NONCE);
         call("status", "status", INSTANCE, NONCE);
-        PackageManagerService reboot = new PackageManagerService(pm.mSettings.root, false);
+        PackageManagerService reboot = new PackageManagerService(pm.mSettings.root, false, LEGACY);
         reboot.mSettings.add("dev.andrix.proof.principalclosed", 10148);
         reboot.mSettings.restoreAfterPackageSettings();
         NativePrincipalManager restored = new NativePrincipalManager(reboot);

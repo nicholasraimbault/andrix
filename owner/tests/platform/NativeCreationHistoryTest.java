@@ -197,7 +197,7 @@ public final class NativeCreationHistoryTest {
             check(problems, !pm.mSettings.pins.hasKnownCounter()
                     && pm.mSettings.pins.find(PKG_A, 0) != null, "restoration beside a damaged header");
         });
-        run("history / the production V1 format reads no reservation", problems -> {
+        run("history / the version 1 rollback reader reads no reservation", problems -> {
             Path root = reserved();
             NativeIdentityStore.Loaded view = loadedOf(root, V1);
             check(problems, view.header.status == Status.UNSUPPORTED && view.histories().isEmpty()

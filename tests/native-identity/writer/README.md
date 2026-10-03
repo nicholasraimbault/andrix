@@ -9,6 +9,10 @@ final release command. Test userdata must remain disposable lab state, never pro
 The caller check requires actual Binder UID 0 and a debuggable build. This is not the separation
 boundary. The route and helper are absent from normal source inputs. The shared framework guard
 refuses even the exact lab adaptation unless the caller explicitly requests lab admission.
+Its lab admission requires the native principal, owner lifecycle CE, package verity and payload
+sync companions exactly adapted, and the fixture exactly upstream or adapted, so a partial fixture
+refuses every inspection. The writer tool also requires the fixture exactly upstream before an
+apply and exactly adapted before a revert, so a repeated apply or revert refuses.
 The optional patch changes only `PackageManagerShellCommand` and adds this helper. It does not
 change the writer being tested. The separate image built at `6caeedd` contains the route and helper
 in its actual services jar. Compilation alone is not a writer runtime result. The separate
@@ -66,6 +70,9 @@ call adapter injects wrapper failures while forwarding to real manager handles. 
 prepare results, abnormal exits, observation failures after acknowledgements and mismatched
 handles or records. This adapter is not an alternate production writer. They do not
 prove Android caller authentication, SELinux behavior, filesystem durability or crash recovery.
+These host tests construct their facades with `Format.V1` explicitly. Since the normal image
+constructs `Format.V2`, they are legacy version 1 writer runs; the lab rehearsal runs this fixture
+under `Format.V2`.
 
 A device run can qualify the real writer path, same instance retry and metadata restoration for
 this case. A clean restart is not power loss or a mid publication crash test. Partial CREATING

@@ -102,6 +102,41 @@ class CounterAdmissionSourceTests(unittest.TestCase):
             self.assertTrue(runner.store_problems(current.replace(old, new, 1), base), old)
         self.assertTrue(runner.store_problems(base, base))
 
+    def test_the_later_r0_change_is_allowed_exactly(self):
+        old_profile = json.loads(runner.b1.git_bytes(runner.REVISION_8949, runner.PROFILE_PATH))
+        profile = json.loads((ROOT / runner.PROFILE_PATH).read_text())
+        self.assertEqual(runner.r0_problems(old_profile, profile), [])
+        settings = [row['path'] for row in profile['files']].index(runner.SETTINGS)
+        other = json.loads(json.dumps(profile))
+        other['files'][0]['candidate_sha256'] = '0' * 64
+        self.assertTrue(runner.r0_problems(old_profile, other))
+        upstream = json.loads(json.dumps(profile))
+        upstream['files'][settings]['upstream_sha256'] = '0' * 64
+        self.assertTrue(runner.r0_problems(old_profile, upstream))
+        stale = json.loads(json.dumps(profile))
+        stale['patch_sha256'] = old_profile['patch_sha256']
+        self.assertTrue(runner.r0_problems(old_profile, stale))
+        facade = (ROOT / runner.FACADE).read_bytes()
+        self.assertEqual(runner.sha(facade), runner.FACADE_R0_SHA256)
+        real = Path.read_bytes
+
+        def facade_problems(changed):
+            with mock.patch.object(Path, 'read_bytes', autospec=True,
+                                   side_effect=lambda path, *a, **k: changed if path == ROOT / runner.FACADE
+                                   else real(path, *a, **k)):
+                return runner.r0_problems(old_profile, profile)
+        code = 'Settings facade differs from 89491b9 beyond the R0 default'
+        pinned = 'Settings facade differs from its reviewed R0 bytes'
+        for changed in (facade.replace(b'        storeHolds.remove(record.appId);\n', b''),
+                        facade.replace(b'initialize, NativeIdentityStore.Format.V2); }',
+                                       b'initialize, NativeIdentityStore.Format.V1); }')):
+            self.assertNotEqual(changed, facade)
+            self.assertEqual(facade_problems(changed), [code, pinned])
+        # A comment change keeps the code comparison and trips only the exact byte pin.
+        commented = facade.replace(b'// Host PMS facade', b'// The host PMS facade')
+        self.assertNotEqual(commented, facade)
+        self.assertEqual(facade_problems(commented), [pinned])
+
     def test_b1_suite_changed_only_its_readiness_check(self):
         base = runner.b1.git_bytes(runner.REVISION_8949, runner.B1_TEST).decode()
         current = (ROOT / runner.B1_TEST).read_text()

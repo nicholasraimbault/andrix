@@ -189,6 +189,79 @@ class CreationHistorySourceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             runner.fresh_outside(runner.ROOT, 'work directory')
 
+    def test_shared_support_is_0018a1d_with_exactly_the_r0_facade_routing(self):
+        self.assertEqual(runner.support_problems(), [])
+        self.assertEqual(set(runner.SUPPORT_R0_SHA256), set(runner.SUPPORT_0018))
+        relative = 'NativeHeaderTestSupport.java'
+        current = (runner.ROOT / runner.PLATFORM / relative).read_bytes()
+        real = runner.Path.read_bytes
+
+        def problems(changed):
+            with mock.patch.object(runner.Path, 'read_bytes', autospec=True,
+                                   side_effect=lambda path, *a, **k: changed if path.name == relative
+                                   else real(path, *a, **k)):
+                return runner.support_problems()
+        code = 'shared test support differs from 0018a1d beyond the R0 facade routing: ' + relative
+        pinned = 'shared test support differs from its reviewed R0 bytes: ' + relative
+        # Code beyond the reviewed routing trips both checks; a comment change trips the byte pin.
+        for changed in (current.replace(b'NativeHeaderApi.pm(root, false)', b'new PackageManagerService(root, false)'),
+                        current.replace(b'static final long SERIAL = 7;', b'static final long SERIAL = 8;')):
+            self.assertNotEqual(changed, current)
+            self.assertEqual(problems(changed), [code, pinned])
+        commented = current.replace(b'Shared host fixtures', b'The shared host fixtures', 1)
+        self.assertNotEqual(commented, current)
+        self.assertEqual(problems(commented), [pinned])
+        with mock.patch.dict(runner.SUPPORT_R0, {relative: ()}):
+            self.assertTrue(runner.support_problems())
+        with mock.patch.dict(runner.SUPPORT_R0_SHA256, {relative: '0' * 64}):
+            self.assertEqual(runner.support_problems(), [pinned])
+
+    def test_rollback_reader_targets_and_labels(self):
+        self.assertIn((runner.ROLLBACK, runner.ROLLBACK, 'b1'), runner.READERS)
+        self.assertEqual(runner.ROLLBACK_READERS, (('b2-v1', None), (runner.ROLLBACK, runner.ROLLBACK)))
+        self.assertEqual(runner.b1.REVISIONS[runner.ROLLBACK], '78456b352267dba916778b90d7c926c4e67ef888')
+        self.assertEqual(runner.sha(runner.b1.git_bytes(runner.b1.REVISIONS[runner.ROLLBACK], runner.PATCH_PATH)),
+                         runner.PATCH_7845_SHA256)
+        for target, _ in runner.ROLLBACK_READERS:
+            self.assertEqual(runner.READER_LABELS[target], 'rollback-reader')
+        self.assertEqual({runner.READER_LABELS[runner.BASE], runner.READER_LABELS['c926']}, {'archived-baseline'})
+        self.assertEqual([prefix for _, prefix in runner.ROLLBACK_CHECKS], ['rollback reader', 'rollback seeding'])
+        for main, prefix in runner.ROLLBACK_CHECKS:
+            source = (runner.ROOT / runner.PLATFORM / (main + '.java')).read_text()
+            self.assertIn('public final class %s ' % main, source)
+            # Each printed case name of the check is one the runner expects.
+            for name in ('"%s / "' % prefix, '"%s control / "' % prefix, '"%s / version 2 copy layouts"' % prefix):
+                self.assertEqual(source.count(name), 1, (main, name))
+        predicted = json.loads(runner.PREDICTIONS.read_text())['r0_rollback_reader']
+        self.assertEqual(predicted['readers'], {target: len(runner.LAYOUT_NAMES) for target, _, _ in runner.READERS})
+        cases = len(runner.LAYOUT_NAMES) + len(runner.ROLLBACK_CONTROLS) + 1
+        self.assertEqual(predicted['rollback_checks'],
+                         {target: {main: cases for main, _ in runner.ROLLBACK_CHECKS}
+                          for target, _ in runner.ROLLBACK_READERS})
+        self.assertEqual((predicted['copy_layouts'], tuple(predicted['controls'])),
+                         (runner.ROLLBACK_COPY_LAYOUTS, runner.ROLLBACK_CONTROLS))
+        # Every history layout starts from version 2 copies, and both controls are emitted layouts.
+        self.assertEqual(runner.ROLLBACK_COPY_LAYOUTS, len(runner.LAYOUT_NAMES))
+        self.assertTrue(set(runner.ROLLBACK_CONTROLS) <= set(runner.LAYOUT_NAMES))
+        self.assertEqual(len(runner.b1.rollback_names('rollback reader', runner.LAYOUT_NAMES,
+                                                      runner.ROLLBACK_CONTROLS)), cases)
+        for old, new in predicted['renamed_check'].items():
+            self.assertNotIn(old, runner.FOCUSED_NAMES)
+            self.assertIn(new, runner.FOCUSED_NAMES)
+
+    def test_rollback_candidate_differs_only_by_the_boot_literal(self):
+        settings = synthetic_settings()
+        boot = runner.b1.CONSTRUCTION + runner.b1.PRODUCTION + ');'
+        current = settings.replace('final class Settings {\n', 'final class Settings {\n' + boot + '\n', 1)
+        old = current.replace(boot, runner.b1.CONSTRUCTION + runner.b1.RETIRED + ');')
+        built = {'b2': current, runner.ROLLBACK: old, 'rollback_changed': [runner.SETTINGS]}
+        self.assertEqual(runner.rollback_candidate_problems(built), [])
+        self.assertTrue(runner.rollback_candidate_problems(dict(built, rollback_changed=[runner.SETTINGS, 'x'])))
+        self.assertTrue(runner.rollback_candidate_problems(dict(built, **{runner.ROLLBACK: current})))
+        seeding = '    private void seedNativeRecoveryLPw() {\n'
+        moved = old.replace(seeding, seeding + '\n', 1)
+        self.assertTrue(runner.rollback_candidate_problems(dict(built, **{runner.ROLLBACK: moved})))
+
     def test_baselines_are_pinned_git_objects(self):
         self.assertEqual(runner.b1.REVISIONS[runner.BASE], runner.REVISION_0018)
         self.assertEqual(set(runner.BASELINE_0018), set(runner.b1.FRAMEWORK) | {'Settings'})
