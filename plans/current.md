@@ -127,7 +127,9 @@ with native execution, the factory, retirement and release still off. Its source
 stage is integrated: the one boot construction passes `Format.V2`, the lab format token is retired,
 and host checks show the last version 1 image keeping holds without admitting version 2 bindings.
 The normal image is now built. Its final DEX differs from the last version 1 image only by that one
-boot operand, and R8 removes the unused creation route entirely. It has not booted yet.
+boot operand, and R8 removes the unused creation route entirely. Its first boot, on a fresh guest,
+kept ordinary installs, keys and canaries across a clean reboot, read the store as missing
+throughout, and refused the writer route.
 
 The [installer durability assessment](2026-09-27-package-installer-durability.md) retains an
 unclean stop failure and a separate Android file comparison. The checked writing descriptor sync

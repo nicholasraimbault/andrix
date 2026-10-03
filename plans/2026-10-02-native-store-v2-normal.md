@@ -1,8 +1,8 @@
 # Version 2 native store in the normal image
 
 Status: R0, the source, guard and host stage, is integrated and host qualified. R1, the normal
-image, is built and its artifacts are inspected. R2 to R4 come next, each with its own admission.
-No normal image with version 2 has booted yet.
+image, is built and its artifacts are inspected. R2, its first boot on a fresh guest, passed. R3
+and R4 come next, each with its own admission.
 
 ## Decision
 
@@ -235,6 +235,33 @@ compilation and artifact results, not Android boot, rollback or power loss evide
   prediction, about the lab comparison. All are kept on record. Each corrected check was set from
   the sealed images before it ran unchanged on R1. Dexpreopt files and whether the emulator
   enforces rollback indexes were not inspected.
+
+## R2 result
+
+A fresh disposable guest booted the version 2 normal image for the first time. Its fingerprint,
+SELinux enforcement and `services.jar` digest were R1's.
+
+- Ordinary installs placed the two observer APKs and the separately signed subject. Each observer
+  initialized its dummy key once. A clean reboot preserved the APK paths and bytes, the UIDs, the
+  full package map, the subject's data directories, and the observers' keys and canaries.
+- The native store dump read exactly the missing store before the installs, after them and after
+  the reboot: a missing header, incomplete enumeration, an unknown counter, creation not ready,
+  cursor 10000 and no holds.
+- The writer route is absent at runtime as well: on both boots the Package Manager shell refused
+  the writer command as unknown.
+- Nothing overrode a setting. The animation scales read the same at the start and the end. No
+  grant, clear, reinstall or key restoration was issued, and every command fell within a fixed list.
+- With a missing store, version 1 and version 2 images dump alike. The version 2 evidence here is
+  the `services.jar` digest, tied to R1's final DEX inspection.
+- The vehicle was derived from the lab's executed fresh baseline vehicle by exact substitutions,
+  then reviewed independently. Review found that the first draft's writer refusal check matched a
+  substring, and that the second kept an inherited instrumentation option that writes global
+  animation settings. Both drafts were staged, never launched, and are kept on record. The final
+  assessment derived its verdict again from the raw records, including a signature check of every
+  instrumentation reply.
+
+The subject has no instrumentation, so its claims cover only its APK, UID, map and data
+directories. This is not a native store read, write, rollback, durability or power loss result.
 
 ## Android stages
 
