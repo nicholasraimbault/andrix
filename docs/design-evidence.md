@@ -308,8 +308,10 @@ retain their own producers and scopes.
   qualification. The owner then approved [version 2 in the normal image](../plans/2026-10-02-native-store-v2-normal.md)
   with execution, the factory, retirement and release still off. Its source, guard and host stage
   passed guarded checks, including the last version 1 image's reader over every emitted version 2
-  layout with discriminating version 2 controls, and identical store class files. No normal image
-  with version 2 has been built or booted yet.
+  layout with discriminating version 2 controls, and identical store class files. The normal image
+  then built. Its final DEX differs from the last version 1 image only by the boot construction's
+  format operand, with the unused creation route removed entirely, and its partitions and super
+  image check out. No normal image with version 2 has booted yet.
   The [real consent reference](../plans/2026-09-27-native-permission-consent.md) then exercised the
   ordinary Android notification popup without privileged grants. Allow enabled an independent
   command after the helper closed; peer and false attribution controls remained separate. Back,

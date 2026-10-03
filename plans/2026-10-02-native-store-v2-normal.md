@@ -1,7 +1,8 @@
 # Version 2 native store in the normal image
 
-Status: R0, the source, guard and host stage, is integrated and host qualified. R1 to R4 come
-next, each with its own admission. No normal image with version 2 has been built or booted.
+Status: R0, the source, guard and host stage, is integrated and host qualified. R1, the normal
+image, is built and its artifacts are inspected. R2 to R4 come next, each with its own admission.
+No normal image with version 2 has booted yet.
 
 ## Decision
 
@@ -45,10 +46,11 @@ factory, designation interface, retirement, release or native execution is enabl
   through the header version ceiling, and reads never write. Under `Format.V2` a header write
   changes version only when it adds a truly new bound entry. No normal image path writes the
   store at all: `initializeNew` has no production caller, the release finish only updates
-  memory, and nothing in the normal image calls the native principal manager. R8 removed only
-  the retirement, `currentIdentity` and initialization paths. The manager's creation route stays
-  in the normal DEX with no caller, so this safety rests on there being no caller, and R1 checks
-  that in final DEX.
+  memory, and nothing calls the native principal manager's creation route. With no caller, R8
+  removes that route from the normal image entirely, along with retirement, `currentIdentity`,
+  initialization and the header writer. R1 confirmed this in final DEX: the manager keeps only its
+  constructor and the static signer digest helper that Settings uses. Safety still rests on there
+  being no caller, since adding one would bring the route back.
 - With a valid, unblocked store whose copies agree, the dump reports a known counter and
   creation ready. Creation stays off only because no caller exists. A held, admitted package runs
   as an ordinary app and cannot be updated, uninstalled or cleared while held.
@@ -191,6 +193,48 @@ hardening, and the escape rule now covers every production text.
 
 These are host results, not Android, boot or power loss evidence. A version 2 run of the writer
 fixture tests is due before the next lab image.
+
+## R1 result
+
+The normal image was built from the integrated source and its artifacts inspected. These are
+compilation and artifact results, not Android boot, rollback or power loss evidence.
+
+- The first build attempt failed. Its memory cap was sized from builds that skip Soong's full
+  analysis, but this build must re-run it, because the lab's writer files present at the last
+  analysis are gone. The kernel killed the analysis for memory at the cap, and the adaptations
+  were reverted by hand once nothing remained running. The second attempt used a larger cap
+  within the build budget and let a memory kill fail only the build step, so the build could
+  clean up after itself. It built with a 47.4 GiB peak, then retired its producers and reverted
+  its adaptations.
+- Against `78456b3`, 18,440 of the 18,441 final DEX classes are byte identical, in the same order.
+  Settings differs by one operand: the boot read loads `Format.V2` where `78456b3` loads
+  `Format.V1`. The store, the CE, verity and payload companions and every other class are
+  therefore exactly those of the inspected `78456b3` image, and the R8 removal record is the same.
+- Direct checks of the final DEX: the store is constructed once, at the boot read. The manager is
+  constructed once, where the Package Manager registers it, and the only call into it from outside
+  is the signer digest helper. No other code names its class, so nothing looks it up. Its creation
+  route is absent, as are retirement, `currentIdentity`, `initializeNew` and the header writer. The
+  writer route is absent, the dump route is present, and the format enum is exactly versions 1 and 2.
+- The expected difference from the lab image, the writer route alone, did not hold at the final
+  DEX level. Whole program optimization made 31 classes differ between `78456b3` and the lab,
+  including display, media and network classes. R1 differs from the lab in exactly those classes.
+  Its Settings lacks only the eight writer route members the lab keeps, all listed in R1's removal
+  record, and every member they share is identical.
+- Images: the boot image, kernel, device tree and boot configuration equal `78456b3`'s. Both
+  ramdisks change only build identity properties, and every partition and ramdisk identity carries
+  the new build number. The kernel only boot image is byte identical, so its verified boot footer
+  still names an older build. All 93 SELinux policy files are unchanged, all eight super image
+  partitions equal the inspected standalone images, and the verified boot chain verifies with
+  unchanged keys.
+- For R4: both images run OS 17.0.0 with security patch level 2026-08-05 and the same verified boot
+  rollback index, at the same locations, so rolling back to `78456b3` lowers neither. Its vendor
+  partition carries the older vendor build identity, so the vendor fingerprint also changes between
+  the two images.
+- Each check first ran over the sealed `78456b3` and lab images, with positive and negative
+  controls. That found three defects in the checks, and the first R1 run found one wrong
+  prediction, about the lab comparison. All are kept on record. Each corrected check was set from
+  the sealed images before it ran unchanged on R1. Dexpreopt files and whether the emulator
+  enforces rollback indexes were not inspected.
 
 ## Android stages
 

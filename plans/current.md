@@ -126,7 +126,8 @@ The owner then approved [version 2 in the normal image](2026-10-02-native-store-
 with native execution, the factory, retirement and release still off. Its source, guard and host
 stage is integrated: the one boot construction passes `Format.V2`, the lab format token is retired,
 and host checks show the last version 1 image keeping holds without admitting version 2 bindings.
-No normal image with version 2 has been built or booted yet.
+The normal image is now built. Its final DEX differs from the last version 1 image only by that one
+boot operand, and R8 removes the unused creation route entirely. It has not booted yet.
 
 The [installer durability assessment](2026-09-27-package-installer-durability.md) retains an
 unclean stop failure and a separate Android file comparison. The checked writing descriptor sync
