@@ -133,7 +133,12 @@ throughout, and refused the writer route. On four disposable guests it then read
 an empty version 1 store, a version 2 reservation, a live version 2 layout and a serial mismatch
 control. Holds and admission matched the design, no store change was observed across cold boots,
 and the held package's update, clear and uninstall were refused. ActivityManager force stops the
-package before Package Manager refuses a clear. Rollback to the last version 1 image comes next.
+package before Package Manager refuses a clear. Switched to the last version 1 image, the version 2
+reservation and live layouts read as unsupported footprints: holds kept without pins, and the held
+package deferred with its setting, code and data kept. Switched back, the version 2 image read them
+as before and admitted the package again; the observers' keys survived both switches. This models
+reflashing, not an over the air update. Retirement and identity recovery wait on the owner's policy
+for who may designate, suspend or retire a native account and authorize its data disposition.
 
 The [installer durability assessment](2026-09-27-package-installer-durability.md) retains an
 unclean stop failure and a separate Android file comparison. The checked writing descriptor sync

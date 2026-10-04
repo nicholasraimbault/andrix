@@ -316,7 +316,10 @@ retain their own producers and scopes.
   layouts it then read an empty version 1 store, a version 2 reservation and a live version 2
   layout with the designed holds and admission, deferred a package whose binding named another
   user serial, showed no store change across cold boots, and refused the held package's update,
-  clear and uninstall. These were staged layouts, not writer output.
+  clear and uninstall. These were staged layouts, not writer output. Switched to the last version 1
+  image, the reservation and live layouts read as unsupported footprints with holds kept and the held
+  package deferred, then read and admitted again on return to version 2, with the observers' keys
+  intact. That models reflashing, not an over the air update or a locked device.
   The [real consent reference](../plans/2026-09-27-native-permission-consent.md) then exercised the
   ordinary Android notification popup without privileged grants. Allow enabled an independent
   command after the helper closed; peer and false attribution controls remained separate. Back,

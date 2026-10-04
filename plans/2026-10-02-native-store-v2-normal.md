@@ -2,8 +2,8 @@
 
 Status: R0, the source, guard and host stage, is integrated and host qualified. R1, the normal
 image, is built and its artifacts are inspected. R2, its first boot on a fresh guest, passed. R3,
-the version 2 readers on staged layouts, passed. R4, the rollback, comes next with its own
-design and admission.
+the version 2 readers on staged layouts, passed. R4, the rollback to `78456b3` and back, passed.
+A retirement and identity recovery step follows after the owner sets its policy.
 
 ## Decision
 
@@ -307,6 +307,62 @@ consult. The subject's data trees were compared by structure across boots and wi
 within one boot. QMP stops are not power loss. No native call, publication, designation or
 initialization ran. This is not a writer, durability, rollback or power loss result.
 
+## R4 result
+
+The last version 1 normal image, `78456b3`, read version 2 stores on Android, and the normal image
+read them again afterwards. This supports the rollback contract for the two staged version 2
+layouts, in both directions, under a reflash model.
+
+- A fresh guest booting `78456b3` passed R2's procedure as the first boot control: ordinary
+  installs, keys and canaries across a clean reboot, the exact missing store dump and the refused
+  writer route. Staged by R3's protocol with an empty version 1 store, it then read VALID, counter
+  known, creation ready, cursor 10000 and no holds, as the version 2 image does.
+- Three fresh version 2 guests, baselined by R2's procedure, were staged by R3's protocol: the
+  empty version 1 store as the switch control, the bound `CREATING` reservation, and the `LIVE`
+  header with its slot and body. Each first cold read was as in R3.
+- With each guest stopped, its OS partitions were switched to `78456b3`'s. The host built a sparse
+  copy of the guest's own disk image in which only boot, init_boot, vendor_boot, the four vbmeta
+  images and super were replaced. It checked the replaced ranges against the sealed images and
+  against the control guest's own assembled disk image, and the kept ranges against the guest's
+  image. It checked that the guest's overlay, which holds every guest write and which the host never
+  wrote, presents exactly those bytes, then exchanged the disk images. The switch back restored the
+  original disk image byte for byte. R1's image inspection had found the same boot image and
+  SELinux files in both builds, and vbmeta images signed with the same key at the same rollback
+  index. The two builds also ship byte identical host packages, bootloader included.
+- Each switched guest booted `78456b3` over its existing userdata. Package Manager logged one
+  upgrade from the version 2 fingerprint. The KeyMint inputs stayed equal: orange boot state,
+  unlocked, the same KeyMint and Gatekeeper selections, release and all three patch levels. The
+  vbmeta digest equaled the control guest's, and the trial found both observers' keys and canaries
+  intact.
+- Under `78456b3` the empty store read as on the control guest, and the subject stayed admitted.
+  The reservation and the live layout read as unsupported footprints: header UNSUPPORTED, counter
+  withheld, creation not ready, enumeration complete, and the subject's app ID held without a pin,
+  its slot MISSING for the reservation and VALID for the live layout. The scan deferred the subject
+  with both log lines: no path, not admitted, its setting kept at UID 10148 with its code path and
+  APK, and its data directories' structure unchanged. A second `78456b3` boot read the same and
+  logged no upgrade.
+- Switched back, the version 2 image logged one upgrade from `78456b3`, read every store as before
+  the rollback, and admitted the subject again with UID 10148 and its original code path. A further
+  ordinary boot read the same.
+- No store change was observed. At the start and end of each cold read, every node of the store
+  matched staging in bytes, inode, owner, mode, label, size, type, links, flags and modification
+  and change times, within each guest. Each cold read ended with packages.xml unchanged across
+  Package Manager's write delay and no backup file, then one guest sync before the QMP quit, and
+  no later boot read a settings backup or reserve copy. fsck found nothing to repair on any boot.
+
+The switch replaces the OS partition bytes of a stopped guest. It models reflashing those
+partitions, not an over the air update, a slot switch or a bootloader's rollback protection, which
+stays a release gate. The guests were unlocked and both images had equal patch levels by
+construction, so a locked device and a patch level downgrade were not tested. Package Manager
+stayed live between the sync and the quit, and the settle step watched packages.xml only, so the
+state after each guest's last phase is not shown. Two version 2 layouts were tested, once each.
+The held package refusals were not tried under `78456b3`, and that rollback leaves no history and
+the deferred app cannot run are inferences from source. The layouts were staged, not written by
+the writer, and this is not a power loss result. Only `78456b3` is a supported rollback target. No
+native call, publication, designation or initialization ran. The first switch on the control guest
+was refused before any change, because the switch tool's listing followed Cuttlefish's dangling log
+symlinks; the tool was corrected and reviewed before the retry.
+
 ## Android stages
 
 Each stage needs its own admission.
@@ -373,5 +429,5 @@ Each stage needs its own admission.
   rollback floor is a later gate.
 - The dump shows neither the pin phase nor the header version, and stays unchanged. PENDING stays
   inferred from source, and the version is read from the store bytes.
-- Host facades are not Android evidence. Until R2 to R4 pass, the change is implemented, not
-  qualified on Android.
+- Host facades are not Android evidence. R2 to R4 qualify the tested layouts on Android; the other
+  layouts rest on R0's host model.
