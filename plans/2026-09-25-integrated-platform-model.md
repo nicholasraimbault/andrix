@@ -566,7 +566,8 @@ falsifiers rather than becoming permanent merely because one fixture works.
 Before production, the owner still needs meaningful choices about installation authority holders,
 trust realization, stronger compromised-OS signing assurance, permission/delegation defaults and
 ordinary disruption policy. Define who may designate, suspend or retire an account and authorize
-its destructive data disposition, including cross-user administration. Ordinary account ownership,
+its destructive data disposition, including cross-user administration. The owner has since accepted
+that [lifecycle authority](2026-10-06-native-account-lifecycle.md). Ordinary account ownership,
 Android user administration and device installation authority are not interchangeable. Numeric budgets, path spelling, transport encoding and routine build
 steps are engineering work to measure, not a new questionnaire. General root, shared login
 semantics, genuine CE authority, portable recovery and whole transaction signing approval are

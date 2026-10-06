@@ -3,7 +3,8 @@
 Status: R0, the source, guard and host stage, is integrated and host qualified. R1, the normal
 image, is built and its artifacts are inspected. R2, its first boot on a fresh guest, passed. R3,
 the version 2 readers on staged layouts, passed. R4, the rollback to `78456b3` and back, passed.
-A retirement and identity recovery step follows after the owner sets its policy.
+The owner has since set the [native account lifecycle authority](2026-10-06-native-account-lifecycle.md),
+and retirement and identity recovery are designed next.
 
 ## Decision
 
@@ -12,7 +13,8 @@ with native execution, the native factory, retirement and release still off. Thi
 completed [header recovery lab](2026-09-28-native-header-recovery-lab.md). It replaces the
 earlier standing rule that production constructs `Format.V1`. A retirement and identity recovery
 step follows later, after the owner sets who may designate, suspend or retire a native account
-and authorize its data disposition.
+and authorize its data disposition. The owner set that policy on 2026-10-06 in the
+[native account lifecycle authority](2026-10-06-native-account-lifecycle.md).
 
 ## What changes
 

@@ -23,6 +23,11 @@ The next [writer qualification](2026-09-26-native-writer-qualification.md) exerc
 manager through a separate bounded test route, without native execution or final UID release.
 The [unused creation binding codec](2026-09-26-native-creation-binding-codec.md) preserves old
 record formats and adds a hold only gate for future headers. It does not enable their writer.
+The [version 2 normal image](2026-10-02-native-store-v2-normal.md) later completed its Android
+stages, including rollback to the last version 1 image and back. The
+[native account lifecycle authority](2026-10-06-native-account-lifecycle.md) records the owner's
+accepted policy for creating, suspending, retiring and deleting native accounts and releasing
+their UIDs.
 
 The [2026-09-21 accepted vision revision](2026-09-21-owner-composable-android.md) expands
 Andrix from a Unix focused layer to an owner composable Android OS. Its platform work is

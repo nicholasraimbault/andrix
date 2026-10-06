@@ -319,7 +319,11 @@ retain their own producers and scopes.
   clear and uninstall. These were staged layouts, not writer output. Switched to the last version 1
   image, the reservation and live layouts read as unsupported footprints with holds kept and the held
   package deferred, then read and admitted again on return to version 2, with the observers' keys
-  intact. That models reflashing, not an over the air update or a locked device.
+  intact. That models reflashing, not an over the air update or a locked device. The owner then
+  accepted the [native account lifecycle authority](../plans/2026-10-06-native-account-lifecycle.md):
+  self management by each Android user, an explicit administration grant across users, retirement
+  that deletes and releases nothing, separate data deletion, and UID release only after nothing
+  depends on it. That is an accepted contract, not an implementation.
   The [real consent reference](../plans/2026-09-27-native-permission-consent.md) then exercised the
   ordinary Android notification popup without privileged grants. Allow enabled an independent
   command after the helper closed; peer and false attribution controls remained separate. Back,

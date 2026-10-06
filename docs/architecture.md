@@ -138,6 +138,14 @@ different meanings. Resource constraints are explicit, not a product limit inher
 a user0 prototype. The current implementation does not yet qualify this account model.
 See the [account plan](../plans/2026-09-21-android-unix-accounts.md).
 
+The owner accepted the [native account lifecycle authority](../plans/2026-10-06-native-account-lifecycle.md).
+Each Android user's normal login comes with that user, and the user manages its own native
+accounts. Acting on another user's accounts needs an explicit administration grant, normally
+held by the phone's owner. Android user administration, signing and installation authority do
+not imply it. Retirement deletes and releases nothing. Data deletion is a separate explicit step,
+and a UID is released only after nothing depends on it, without passing on the old account's
+identity or grants.
+
 APKs retain Android application identities. Installation or owner signing does not make an
 ordinary APK a Unix login or grant it platform privileges. Native execution and APKs are
 both first class interfaces to the same OS. Trusted crossings use explicit operations,

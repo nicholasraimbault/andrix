@@ -137,8 +137,12 @@ package before Package Manager refuses a clear. Switched to the last version 1 i
 reservation and live layouts read as unsupported footprints: holds kept without pins, and the held
 package deferred with its setting, code and data kept. Switched back, the version 2 image read them
 as before and admitted the package again; the observers' keys survived both switches. This models
-reflashing, not an over the air update. Retirement and identity recovery wait on the owner's policy
-for who may designate, suspend or retire a native account and authorize its data disposition.
+reflashing, not an over the air update. The owner then accepted the
+[native account lifecycle authority](2026-10-06-native-account-lifecycle.md). Each Android user
+manages its own native accounts, and an explicit grant, normally held by the phone's owner, covers
+administration across users. Retirement deletes and releases nothing, data deletion is a separate
+step, and a UID is released only after nothing depends on it. Retirement and identity recovery are
+designed next.
 
 The [installer durability assessment](2026-09-27-package-installer-durability.md) retains an
 unclean stop failure and a separate Android file comparison. The checked writing descriptor sync
