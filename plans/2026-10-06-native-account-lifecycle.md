@@ -77,6 +77,8 @@ suspension, user removal, recovery and shared carrier cases recorded above.
 - Prompts, credential types, and how the grant is held, delegated and revoked belong to the
   [authority design](2026-09-21-owner-authority.md).
 - The retirement protocol, its completion evidence, what suspension closes beyond running work,
-  and qualified release are the next design work.
+  and qualified release are the next design work. The owner accepted the
+  [native account lifecycle record](2026-10-08-native-lifecycle-record.md) on 2026-10-08 as its
+  first stage.
 - Protection against an actively malicious platform administrator is not promised, and
   administrative access does not supply a locked account's credential encrypted keys.
