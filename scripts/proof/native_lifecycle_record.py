@@ -23,9 +23,13 @@ Format.V1, V2 and V3 with the facade identity predicate and the candidate's seed
 lifecycle store and transaction tests under every format and the fault sweeps of every lifecycle
 transaction at each writer step under Format.V3, through the existing host write fault seams, runs
 the Settings test, whose seeding, boot facts, retired boot and release body cases go through both
-the facade and the history harness, and runs each deliberate defect against the suites predicted to
-catch it, a Settings fragment defect in the facade and the harness alike. It does not nest another
-runner.
+the facade and the history harness, assembles the rollback models' inputs of 24bfb6a and 78456b3 from
+pinned Git objects alone with the working tree closed, checks every read against the manifest and
+compiles each, runs the layout emitter under Format.V3 and reads every layout it writes with an
+independent decoder, which must show every lifecycle state, entry class, scope value, inventory,
+obligation state, tombstone, RELEASING tail, companion and writer step, each control removing one of
+them failing the check, and runs each deliberate defect against the suites predicted to catch it, a
+Settings fragment defect in the facade and the harness alike. It does not nest another runner.
 
 Host JVM evidence only: not Android, crash, power loss, storage or activation evidence. Format.V3
 is constructed only by host tests here; no production text constructs it."""
@@ -72,15 +76,21 @@ HARNESS = 'harness'
 # A mutant target naming a Settings fragment: the defect is in the fragment text, so it is applied to
 # the facade and to the harness, which both carry that text verbatim, and both copies run it.
 FRAGMENT = 'fragment:'
-PHASES = ('candidate', 'codec', 'reads', 'store', 'transactions', 'faults', 'settings', 'manager', 'mutants')
-# Every step is living. The read, store and transaction tests run each store format under its own
-# label: Format.V1 is legacy, Format.V2 production and Format.V3 the new format, which B1 builds and
-# does not ship. The fault sweeps run Format.V3 only.
+PHASES = ('candidate', 'codec', 'reads', 'store', 'transactions', 'faults', 'settings', 'manager', 'pinned',
+          'layouts', 'mutants')
+# Every step but the pinned one is living. The read, store and transaction tests run each store format
+# under its own label: Format.V1 is legacy, Format.V2 production and Format.V3 the new format, which B1
+# builds and does not ship. The fault sweeps and the layout emitter run Format.V3 only. The pinned step
+# assembles and compiles the rollback models' inputs from pinned Git objects only, under the rollback
+# reader label.
 STEP_LABELS = {'codec': ('production',), 'reads': ('production', 'legacy', 'new-format'),
                'store': ('production', 'legacy', 'new-format'),
                'transactions': ('production', 'legacy', 'new-format'), 'faults': ('new-format',),
                'settings': ('production', 'new-format'), 'manager': ('production', 'legacy', 'new-format'),
+               'pinned': ('rollback-reader',), 'layouts': ('new-format',),
                'mutants': ('production', 'legacy', 'new-format')}
+# The steps whose inputs are pinned Git objects only. They carry only archived labels.
+PINNED_STEPS = ('pinned',)
 FORMAT_LABELS = {'V1': 'legacy', 'V2': 'production', 'V3': 'new-format'}
 
 # ---------------------------------------------------------------- the independent encoder
@@ -455,6 +465,503 @@ MANAGER_NAMES = (
     'V3 / a lost reply after the omission is acknowledged in the instance and freed at the next boot',
     'V3 / release refuses before any effect without its gate',
     'V3 / release refuses a suspension closed in memory before any effect')
+
+# ---------------------------------------------------------------- the lifecycle layouts
+# NativeLifecycleLayouts emits, under Format.V3 with the existing host write fault seams, the store
+# layouts that the rollback models of 24bfb6a and 78456b3 and B1's own readers read. Its layout names
+# are predicted here. Each layout's facts are read from its bytes by an independent decoder, written
+# from the plan's layout alone, never from the Java codec, and the layouts together must show every
+# fact below and every writer step, or the check names what is missing.
+LAYOUTS = 'NativeLifecycleLayouts'
+# The manager's lifecycle operations, each failed at every step of one strict write. releaseUid makes
+# five strict writes from LIVE, as the release engine's fault sweeps name them.
+MANAGER_OPERATIONS = ('suspend', 'lift', 'beginRetirement', 'confirmRetired', 'beginDisposition',
+                      'confirmDisposition', 'releaseUid tombstone', 'releaseUid tombstone confirmation',
+                      'releaseUid RELEASING', 'releaseUid RELEASING confirmation', 'releaseUid omission')
+# The retirement families that the binding and history emitters wrote under the old retirement, now
+# written by the lifecycle record's retirement: a pending reservation's retirement, which publishes its
+# body first, a published account's retirement block, and a reservation interrupted beside a retiring
+# account. Each is failed at every writer step. The account released through the lifecycle path
+# replaces the old final release.
+MOVED_FAMILIES = ('retirement-publication', 'retirement-block', 'pending-retiring')
+STATE_LAYOUTS = (
+    'state-suspended-user', 'state-suspended-grant', 'state-suspended-noted', 'state-six-entries',
+    'state-recovery-prior-unknown', 'state-recovery-retired', 'state-retiring-user', 'state-retiring-grant',
+    'state-legacy-continued', 'state-legacy-suspended', 'state-retired', 'state-retired-suspended',
+    'state-disposing', 'state-disposal-confirmed', 'state-releasable', 'state-lifted', 'state-tombstone-ticketed',
+    'state-releasing-tombstone', 'state-releasing-without-directory', 'state-released')
+# Values no writer of this stage writes, through the codec: durable state of a later writer or an older image.
+VALUE_LAYOUTS = (
+    'value-scope-blocks-disposition', 'value-hold-both-scope-bits', 'value-user-removal-retiring',
+    'value-orphaned-disposition', 'value-maximum', 'value-two-users', 'value-legacy-marker',
+    'value-tombstone-without-ticket', 'value-releasing-tombstone-without-ticket')
+COMPANION_LAYOUTS = tuple('companion-%s-%s' % (kind, state) for state in ('suspended', 'retiring', 'retired')
+                          for kind in ('reservation', 'sibling-package', 'lost')) + (
+    'companion-sibling-principal-suspended', 'companion-reservation-tombstone')
+
+
+def dashed(text):
+    return text.lower().replace(' ', '-')
+
+
+STEP_LAYOUTS = tuple('step-%s-%s' % (dashed(kind), step) for kind in FAULT_KINDS for step in FAULT_STEPS)
+MANAGER_LAYOUTS = tuple('manager-%s-%s' % (dashed(operation), step) for operation in MANAGER_OPERATIONS
+                        for step in FAULT_STEPS)
+MOVED_LAYOUTS = tuple('moved-%s-%s' % (family, step) for step in FAULT_STEPS for family in MOVED_FAMILIES) + (
+    'moved-final-released',)
+LAYOUT_NAMES = STATE_LAYOUTS + VALUE_LAYOUTS + STEP_LAYOUTS + MANAGER_LAYOUTS + MOVED_LAYOUTS + COMPANION_LAYOUTS
+# The writer step families, each of which must be present at all eight steps.
+LAYOUT_STEP_FAMILIES = (tuple('step-' + dashed(kind) for kind in FAULT_KINDS)
+                        + tuple('manager-' + dashed(operation) for operation in MANAGER_OPERATIONS)
+                        + tuple('moved-' + family for family in MOVED_FAMILIES))
+# Every fact that the layouts must show, read from their bytes: each lifecycle state, entry class,
+# scope value and noted entry, the entry bound, each retirement class, both inventories, each
+# obligation state, two users and the maximum record, tombstones with and without a ticket, RELEASING
+# beside each and without a directory, the version 1 values that older images read, a version 2 slot
+# under each header version, and the three companions.
+LAYOUT_FACTS = (
+    'state ELIGIBLE suspended', 'state RETIRING', 'state RETIRED',
+    'entry ACCOUNT_USER', 'entry ADMIN_GRANT', 'entry RECOVERY_HOLD',
+    'scope 0', 'scope 1', 'scope 2', 'scope 3', 'noted entry', 'six entries',
+    'retirement ACCOUNT_USER', 'retirement ADMIN_GRANT', 'retirement USER_REMOVAL', 'retirement LEGACY_MARKER',
+    'inventory 0', 'inventory 1',
+    'obligation OUTSTANDING', 'obligation DISPOSING', 'obligation DISCHARGED', 'obligation ORPHANED_WITH_USER',
+    'RETIRED with DISPOSING', 'two users', 'maximum record',
+    'ticketed tombstone', 'tombstone without a ticket',
+    'RELEASING beside a ticketed tombstone', 'RELEASING beside a tombstone without a ticket',
+    'RELEASING without a directory',
+    'version 1 legacy marker', 'version 1 eligible',
+    'version 2 slot under header 1', 'version 2 slot under header 2',
+    'companion reservation', 'companion sibling package', 'companion sibling principal', 'companion lost')
+LAYOUT_KINDS = ('slot', 'version1', 'reservation', 'sibling', 'lost')
+TYPE_HEADER = 1
+PHASE_NAMES = {1: 'CREATING', 2: 'LIVE', 3: 'RELEASING'}
+STATE_NAMES = {code: name for name, code in STATES.items()}
+CLASS_NAMES = {code: name for name, code in CLASSES.items()}
+DUTY_NAMES = {code: name for name, code in DUTY_STATES.items()}
+MAX_RECORD = 65536
+# The header copies a reader reads: the main, its reserve and the preferred backup. A staging seed is
+# no copy. Every file of a slot directory, its staging seed included, counts for the slot kind.
+HEADER_COPIES = ('store.bin', 'store.bin.reservecopy', 'store.bin-backup')
+
+
+def decode_frame(data, kind):
+    """The version and body of an intact frame of this record type, or None: magic, type, version and
+    total length, the body, then the SHA-256 of everything before it."""
+    if not 44 <= len(data) <= MAX_RECORD:
+        return None
+    magic, record_type, version, length = struct.unpack_from('<IHHI', data)
+    if (magic, record_type, length) != (MAGIC, kind, len(data)) or hashlib.sha256(data[:-32]).digest() != data[-32:]:
+        return None
+    return version, data[12:-32]
+
+
+class Cursor:
+    """Little endian fields of one body, read in order; a short body raises struct.error or ValueError."""
+
+    def __init__(self, data):
+        self.data, self.at = data, 0
+
+    def take(self, layout):
+        values = struct.unpack_from(layout, self.data, self.at)
+        self.at += struct.calcsize(layout)
+        return values[0] if len(values) == 1 else values
+
+    def raw(self, count):
+        if self.at + count > len(self.data):
+            raise ValueError('short body')
+        self.at += count
+        return self.data[self.at - count:self.at].hex()
+
+    def text(self):
+        return bytes.fromhex(self.raw(self.take('<H'))).decode('ascii')
+
+    def done(self):
+        if self.at != len(self.data):
+            raise ValueError('trailing bytes')
+
+
+def decode_slot(data):
+    """An independent reading of an intact version 1 or 2 slot frame, from the plan's layout alone: its
+    version, app ID, package, principals, each user's lifecycle and a tombstone's ticket, or None for any
+    other input. It reads fields and does not judge the encoding rules, which the codec suites own."""
+    frame = decode_frame(data, TYPE_SLOT)
+    if frame is None or frame[0] not in (1, 2):
+        return None
+    version, body = frame
+    cursor = Cursor(body)
+    try:
+        cursor.raw(16)
+        app_id, _ = cursor.take('<iq')
+        package = cursor.text()
+        for _ in range(cursor.take('<H')):
+            cursor.raw(32)
+        count = cursor.take('<H')
+        users = []
+        if version == 1:
+            for _ in range(count):
+                principal, user, serial, flag = cursor.take('<qiqB')
+                if flag not in (0, 1):
+                    raise ValueError('flag')
+                users.append({'principal': principal, 'user': user, 'serial': serial,
+                              'state': 'RETIRING' if flag else 'ELIGIBLE', 'entries': [], 'legacy': bool(flag),
+                              'retirement': {'class': 'LEGACY_MARKER', 'inventory': 0, 'obligations': []}
+                              if flag else None})
+            ticket = None
+        else:
+            identities = [cursor.take('<qiq') for _ in range(count)]
+            for principal, user, serial in identities:
+                state, entry_count = cursor.take('<BB')
+                entries = []
+                for _ in range(entry_count):
+                    actor, scope, _, _ = cursor.take('<BBiq')
+                    cursor.raw(16)
+                    cursor.take('<Hq')
+                    note = cursor.take('<B')
+                    if note not in (0, 1):
+                        raise ValueError('note')
+                    if note:
+                        cursor.raw(32)
+                    entries.append({'class': CLASS_NAMES[actor], 'scope': scope, 'note': bool(note)})
+                retirement = None
+                if STATE_NAMES[state] != 'ELIGIBLE':
+                    actor, _, _ = cursor.take('<Biq')
+                    cursor.raw(16)
+                    cursor.take('<q')
+                    inventory, duty_count = cursor.take('<BB')
+                    duties = []
+                    for _ in range(duty_count):
+                        kind, duty = cursor.take('<BB')
+                        cursor.raw(16)
+                        cursor.take('<Bq')
+                        duties.append((KINDS[kind - 1], DUTY_NAMES[duty]))
+                    retirement = {'class': CLASS_NAMES[actor], 'inventory': inventory, 'obligations': duties}
+                users.append({'principal': principal, 'user': user, 'serial': serial, 'state': STATE_NAMES[state],
+                              'entries': entries, 'legacy': False, 'retirement': retirement})
+            ticket = None if count else cursor.take('<qiq') + (cursor.raw(16),)
+        cursor.done()
+    except (struct.error, ValueError, KeyError, IndexError, UnicodeDecodeError):
+        return None
+    return {'version': version, 'app_id': app_id, 'package': package, 'users': users, 'ticket': ticket,
+            'size': len(data)}
+
+
+def decode_header(data):
+    """An independent reading of an intact version 1 or 2 header frame: its version and each entry's app
+    ID, phase, creation package and whether a version 2 creation entry carries its binding, or None."""
+    frame = decode_frame(data, TYPE_HEADER)
+    if frame is None or frame[0] not in (1, 2):
+        return None
+    version, body = frame
+    cursor = Cursor(body)
+    try:
+        cursor.raw(16)
+        cursor.take('<q')
+        entries = []
+        for _ in range(cursor.take('<H')):
+            app_id, phase, _ = cursor.take('<iBq')
+            package = cursor.text()
+            bound = False
+            if version == 2 and phase == 1:
+                flag = cursor.take('<B')
+                if flag not in (0, 1):
+                    raise ValueError('binding')
+                if flag:
+                    cursor.take('<iq')
+                    for _ in range(cursor.take('<H')):
+                        cursor.raw(32)
+                    bound = True
+            entries.append({'app_id': app_id, 'phase': PHASE_NAMES[phase], 'package': package, 'bound': bound})
+        cursor.done()
+    except (struct.error, ValueError, KeyError, UnicodeDecodeError):
+        return None
+    return {'version': version, 'entries': entries}
+
+
+def read_layout(path):
+    """One emitted layout: its three files and every intact header and slot copy of its store, read by
+    the independent decoder. Raises ValueError for a malformed file."""
+    words = (path / 'kind').read_text().split()
+    if len(words) != 2 or words[0] not in LAYOUT_KINDS or words[1] not in ('0', '1', '2') or (
+            (path / 'kind').read_text() != ' '.join(words) + '\n'):
+        raise ValueError('%s: kind %r' % (path.name, (path / 'kind').read_text()))
+    holds_text = (path / 'holds').read_text()
+    holds = sorted(int(line) for line in holds_text.splitlines())
+    if holds_text != ''.join('%d\n' % hold for hold in holds):
+        raise ValueError('%s: holds' % path.name)
+    packages = {}
+    for line in (path / 'packages').read_text().splitlines():
+        name, _, where = line.partition(' ')
+        if not name or not (where == 'lost' or where.isdigit()) or name in packages:
+            raise ValueError('%s: packages %r' % (path.name, line))
+        packages[name] = where if where == 'lost' else int(where)
+    store = path / 'store'
+    headers = [header for header in (decode_header((store / name).read_bytes()) for name in HEADER_COPIES
+                                     if (store / name).is_file()) if header]
+    directories = {}
+    slots_dir = store / 'slots'
+    for directory in sorted(slots_dir.iterdir()) if slots_dir.is_dir() else ():
+        directories[int(directory.name)] = [slot for slot in (decode_slot(file.read_bytes())
+                                                              for file in sorted(directory.iterdir()) if file.is_file())
+                                            if slot]
+    return {'name': path.name, 'kind': words[0], 'header': int(words[1]), 'holds': holds, 'packages': packages,
+            'headers': headers, 'slots': directories}
+
+
+def layout_facts(layout):
+    """The facts of LAYOUT_FACTS that one layout's bytes and files show."""
+    facts = set()
+    copies = [(app_id, slot) for app_id, slots in layout['slots'].items() for slot in slots]
+    newer = [(app_id, slot) for app_id, slot in copies if slot['version'] == 2]
+    for _, slot in copies:
+        for user in slot['users']:
+            if slot['version'] == 1:
+                facts.add('version 1 legacy marker' if user['legacy'] else 'version 1 eligible')
+                continue
+            if user['state'] != 'ELIGIBLE' or user['entries']:
+                facts.add('state ELIGIBLE suspended' if user['state'] == 'ELIGIBLE' else 'state ' + user['state'])
+            for entry in user['entries']:
+                facts.add('entry ' + entry['class'])
+                facts.add('scope %d' % entry['scope'])
+                if entry['note']:
+                    facts.add('noted entry')
+            if len(user['entries']) == 6:
+                facts.add('six entries')
+            retirement = user['retirement']
+            if retirement:
+                facts.add('retirement ' + retirement['class'])
+                facts.add('inventory %d' % retirement['inventory'])
+                for _, duty in retirement['obligations']:
+                    facts.add('obligation ' + duty)
+                    if duty == 'DISPOSING' and user['state'] == 'RETIRED':
+                        facts.add('RETIRED with DISPOSING')
+        if slot['version'] == 2 and len(slot['users']) >= 2:
+            facts.add('two users')
+        if slot['version'] == 2 and len(slot['users']) == 64 and slot['size'] == PLAN_SIZES['largest']:
+            facts.add('maximum record')
+        if not slot['users']:
+            facts.add('ticketed tombstone' if slot['version'] == 2 else 'tombstone without a ticket')
+    for header in layout['headers']:
+        for entry in header['entries']:
+            if entry['phase'] != 'RELEASING':
+                continue
+            if entry['app_id'] not in layout['slots']:
+                facts.add('RELEASING without a directory')
+            for slot in layout['slots'][entry['app_id']] if entry['app_id'] in layout['slots'] else ():
+                if not slot['users']:
+                    facts.add('RELEASING beside a ticketed tombstone' if slot['version'] == 2
+                              else 'RELEASING beside a tombstone without a ticket')
+    if newer and layout['header'] in (1, 2):
+        facts.add('version 2 slot under header %d' % layout['header'])
+    newer_ids = {app_id for app_id, _ in newer}
+    if layout['kind'] == 'reservation' and newer and any(
+            entry['phase'] == 'CREATING' and entry['bound'] and entry['app_id'] not in newer_ids
+            for header in layout['headers'] for entry in header['entries']):
+        facts.add('companion reservation')
+    if layout['kind'] == 'sibling':
+        for app_id, slot in newer:
+            principals = {user['principal'] for user in slot['users']}
+            for other, sibling in copies:
+                if other == app_id or sibling['version'] != 1:
+                    continue
+                if sibling['package'] == slot['package']:
+                    facts.add('companion sibling package')
+                if principals & {user['principal'] for user in sibling['users']} and sibling['package'] != slot['package']:
+                    facts.add('companion sibling principal')
+    if layout['kind'] == 'lost' and any(layout['packages'].get(slot['package']) == 'lost' for _, slot in newer):
+        facts.add('companion lost')
+    return facts
+
+
+def layout_problems(layout):
+    """How one layout's files disagree with its bytes: its kind is version1 exactly when no intact
+    version 2 slot frame is present, a companion has one, its header version is the highest intact
+    header copy's, its holds include every slot directory and every header entry, and it maps
+    packages only at held app IDs."""
+    problems = []
+    newer = any(slot['version'] == 2 for slots in layout['slots'].values() for slot in slots)
+    if newer == (layout['kind'] == 'version1'):
+        problems.append('%s: kind %s with%s an intact version 2 slot' % (
+            layout['name'], layout['kind'], '' if newer else 'out'))
+    if layout['header'] != max([header['version'] for header in layout['headers']] or [0]):
+        problems.append('%s: header version %d' % (layout['name'], layout['header']))
+    named = set(layout['slots']) | {entry['app_id'] for header in layout['headers'] for entry in header['entries']}
+    if not named <= set(layout['holds']):
+        problems.append('%s: holds %s without %s' % (layout['name'], layout['holds'], sorted(named)))
+    unheld = sorted(name for name, where in layout['packages'].items() if where != 'lost' and where not in layout['holds'])
+    if unheld:
+        problems.append('%s: packages mapped at an app ID that is not held: %s' % (layout['name'], unheld))
+    return problems
+
+
+def coverage_problems(layouts):
+    """Whether the layouts, by name, are exactly the predicted ones and show every fact and every writer
+    step: each missing fact, missing or unexpected name and step family is a problem."""
+    problems = []
+    names = set(layouts)
+    missing = [name for name in LAYOUT_NAMES if name not in names]
+    if missing:
+        problems.append('missing layouts: %s' % missing)
+    if names - set(LAYOUT_NAMES):
+        problems.append('unexpected layouts: %s' % sorted(names - set(LAYOUT_NAMES)))
+    for family in LAYOUT_STEP_FAMILIES:
+        absent = [step for step in FAULT_STEPS if '%s-%s' % (family, step) not in names]
+        if absent:
+            problems.append('writer steps missing: %s at %s' % (family, absent))
+    shown = set().union(*layouts.values()) if layouts else set()
+    for fact in LAYOUT_FACTS:
+        if fact not in shown:
+            problems.append('fact missing: ' + fact)
+    return problems
+
+
+def coverage_controls(layouts):
+    """The discrimination controls of the coverage check: without every layout that shows a fact, or
+    without any one layout, the check names what is missing. Returns each control that it missed."""
+    missed = []
+    for fact in LAYOUT_FACTS:
+        reduced = {name: facts for name, facts in layouts.items() if fact not in facts}
+        if 'fact missing: ' + fact not in coverage_problems(reduced):
+            missed.append('fact ' + fact)
+    for name in layouts:
+        reduced = {other: facts for other, facts in layouts.items() if other != name}
+        if 'missing layouts: %s' % [name] not in coverage_problems(reduced):
+            missed.append('layout ' + name)
+    return missed
+
+
+def layouts_check(directory):
+    """The coverage check over an emitted directory: each layout's files against its bytes, the
+    coverage of every fact and step, and the controls. Returns the problems and each layout's facts."""
+    problems, facts = [], {}
+    for path in sorted(directory.iterdir()):
+        try:
+            layout = read_layout(path)
+        except (OSError, ValueError) as error:
+            problems.append('layout %s: %s' % (path.name, error))
+            continue
+        problems += layout_problems(layout)
+        facts[path.name] = layout_facts(layout)
+    problems += coverage_problems(facts)
+    problems += ['coverage control missed: ' + control for control in coverage_controls(facts)]
+    return problems, facts
+
+
+def layout_groups():
+    """How many layouts each group of the emitter writes, by the group argument it takes."""
+    return {'states': len(STATE_LAYOUTS), 'values': len(VALUE_LAYOUTS), 'steps': len(STEP_LAYOUTS),
+            'manager': len(MANAGER_LAYOUTS), 'moved': len(MOVED_LAYOUTS), 'companions': len(COMPANION_LAYOUTS)}
+
+
+def layout_name_problems():
+    """The emitter names each state and value layout once, sweeps each transaction and manager operation
+    once over the eight steps of the existing write fault seams, and names each moved family and the
+    companions as predicted."""
+    problems = []
+    source = (ROOT / PLATFORM / (LAYOUTS + '.java')).read_text()
+    for name in STATE_LAYOUTS + VALUE_LAYOUTS + ('moved-final-released', 'companion-sibling-principal-suspended',
+                                                 'companion-reservation-tombstone'):
+        if source.count('"%s"' % name) != 1:
+            problems.append('layout not named once in the emitter: ' + name)
+    for kind in FAULT_KINDS:
+        if source.count('sweep("%s", ' % kind) != 1:
+            problems.append('transaction not swept once by the emitter: ' + kind)
+    for operation in MANAGER_OPERATIONS:
+        if source.count('managerSweep("%s", ' % operation) != 1:
+            problems.append('manager operation not swept once by the emitter: ' + operation)
+    for family in MOVED_FAMILIES:
+        if source.count('"moved-%s-" + step' % family) != 1:
+            problems.append('moved family not named once in the emitter: ' + family)
+    for kind in ('reservation', 'sibling-package', 'lost'):
+        if source.count('"companion-%s-" + account.getKey()' % kind) != 1:
+            problems.append('companion not named once in the emitter: ' + kind)
+    steps = ', '.join('"%s"' % step for step in FAULT_STEPS)
+    if ' '.join(steps.split()) not in ' '.join(source.split()):
+        problems.append('the emitter steps are not the eight steps of the existing write fault seams')
+    if len(set(LAYOUT_NAMES)) != len(LAYOUT_NAMES) or any(
+            not re.fullmatch(r'[a-z0-9]+(-[a-z0-9]+)*', name) for name in LAYOUT_NAMES):
+        problems.append('layout names are not distinct directory names')
+    if sum(layout_groups().values()) != len(LAYOUT_NAMES):
+        problems.append('layout groups do not add up to the layout names')
+    return problems
+
+# ---------------------------------------------------------------- the rollback models' pinned inputs
+# The rollback models of B1 compile a check written against the old API twice, each time against one
+# old product read only from its pinned Git objects: 24bfb6a under Format.V2, its production format,
+# and 78456b3 under Format.V1. The 24bfb6a history stubs, harness template, body inputs and test
+# support with its B1 adapter compile against both products, whose APIs are equal: 78456b3 differs
+# from 24bfb6a only by the boot literal, the store comments and the host facade default. Each model
+# fills the harness template with the Settings texts of its own candidate, which the history runner's
+# archive rebuilds from that revision's pinned patch. The pinned half of each compile set is assembled
+# with the working tree closed, so any read of a living file raises.
+ROLLBACK_MODELS = (('24bf', 'V2'), ('7845', 'V1'))
+ROLLBACK_SUPPORT = ('NativeHeaderTestSupport', 'NativeBindingTestSupport', 'NativeHistoryTestSupport')
+
+
+@b1.archived
+def rollback_model_files(revision, settings):
+    """The pinned half of one rollback model's compile set: the registered revision's product, the
+    24bfb6a history stubs, the 24bfb6a harness template filled with this revision's candidate Settings
+    texts, and the 24bfb6a test support with its B1 adapter."""
+    if revision not in dict(ROLLBACK_MODELS):
+        raise ValueError('not a rollback model: %s' % revision)
+    return {**b1.archived_product_sources(revision), **b2.archived_history_stubs(),
+            'tests/NativeHistoryHarness.java': b2.archived_harness_source(settings, 'b2').encode(),
+            **b1.archived_test_sources(ROLLBACK_SUPPORT, adapter='b1')}
+
+
+def rollback_model_paths(revision):
+    """Every (revision, repository path) that one model's pinned half reads, each pinned by the manifest
+    of the revision that supplies it: the product of the model's revision, and from 24bfb6a the history
+    stubs, harness template, body inputs, the recovery fragments that the harness texts are checked
+    against, and the test support with its B1 adapter."""
+    product = {(revision, path) for path in b1.manifest(revision)
+               if (b1.archived_product_path(path) or path.startswith(b1.ARCHIVED_FRAMEWORK_DIR)
+                   or path == b1.ARCHIVED_FACADE) and not path.endswith('/Xml.java')}
+    shared = [b2.ARCHIVED_TEMPLATE, b2.ARCHIVED_BODY_INPUTS['b2'], *b1.ARCHIVED_FRAGMENTS.values(),
+              b1.ARCHIVED_PLATFORM + 'native_header_api/b1/NativeHeaderApi.java']
+    shared += [path for path in b1.manifest(b1.ARCHIVE) if path.startswith(b2.ARCHIVED_HISTORY_STUBS)]
+    shared += [b1.ARCHIVED_PLATFORM + name + '.java' for name in ROLLBACK_SUPPORT]
+    return product | {(b1.ARCHIVE, path) for path in shared}
+
+
+def rollback_manifest_problems(reads):
+    """The manifest test of the pinned rollback inputs: every read of an assembly, as (revision, path),
+    is a path the manifest of that revision pins, the product comes from the model's own revision and
+    the shared inputs from 24bfb6a, and nothing else is read."""
+    problems = []
+    for revision, _ in ROLLBACK_MODELS:
+        expected = rollback_model_paths(revision)
+        actual = set(reads.get(revision, ()))
+        for source, path in sorted(actual):
+            if path not in b1.manifest(source):
+                problems.append('%s read an unpinned input: %s %s' % (revision, source, path))
+        if actual != expected:
+            problems.append('%s read %s and missed %s' % (revision, sorted(actual - expected)[:5],
+                                                           sorted(expected - actual)[:5]))
+    return problems
+
+
+def rollback_inputs(pinned, scratch):
+    """Each rollback model's pinned half and the (revision, path) of every Git object it read. The
+    candidate Settings of 24bfb6a and 78456b3 come from their pinned patches over the pinned framework
+    copies, as the history runner's archive builds them."""
+    built = b2.archived_candidates(pinned, scratch)
+    settings = {'24bf': built[b2.ARCHIVE], '7845': built[b2.ROLLBACK]}
+    files, reads = {}, {}
+    original = b1.pinned_bytes
+    for revision, _ in ROLLBACK_MODELS:
+        log = reads[revision] = []
+
+        def recorded(source, path, log=log):
+            log.append((source, path))
+            return original(source, path)
+        try:
+            b1.pinned_bytes = recorded
+            files[revision] = rollback_model_files(revision, settings[revision])
+        finally:
+            b1.pinned_bytes = original
+    return files, reads
 
 # ---------------------------------------------------------------- deliberate defects
 
@@ -1671,11 +2178,13 @@ def lifecycle_name_problems():
 
 
 def label_problems():
-    """Every step is living and carries living labels. This runner's harness rows name its tests,
-    and the new-format label names only cases that are not production in B1."""
+    """Every step but the pinned one is living and carries living labels, and the pinned step only
+    archived ones. This runner's harness rows name its tests, and the new-format label names only cases
+    that are not production in B1."""
     problems = []
     for step, labels in STEP_LABELS.items():
-        if step not in PHASES or not labels or not set(labels) <= set(b1.LIVING_RUN_LABELS):
+        allowed = b1.ARCHIVED_RUN_LABELS if step in PINNED_STEPS else b1.LIVING_RUN_LABELS
+        if step not in PHASES or not labels or not set(labels) <= set(allowed):
             problems.append('step %s carries labels %s' % (step, labels))
     rows = [row for row in b1.HARNESS_LABELS if row[1] == 'scripts/proof/native_lifecycle_record.py']
     labelled = {}
@@ -1687,8 +2196,8 @@ def label_problems():
             or labelled.get(STORE_TEST) != every or labelled.get(TRANSACTION_TEST) != every
             or labelled.get(FAULT_TEST) != {'new-format'}
             or labelled.get(SETTINGS_TEST) != {'production', 'new-format'}
-            or labelled.get(MANAGER_TEST) != every or set(labelled) != {
-                CODEC_TEST, READ_TEST, STORE_TEST, TRANSACTION_TEST, FAULT_TEST, SETTINGS_TEST, MANAGER_TEST}):
+            or labelled.get(MANAGER_TEST) != every or labelled.get(LAYOUTS) != {'new-format'} or set(labelled) != {
+                CODEC_TEST, READ_TEST, STORE_TEST, TRANSACTION_TEST, FAULT_TEST, SETTINGS_TEST, MANAGER_TEST, LAYOUTS}):
         problems.append('harness labels of this runner differ: %s' % labelled)
     if {row[0] for row in b1.HARNESS_LABELS if row[0] == 'new-format'} != {'new-format'} or any(
             row[1] != 'scripts/proof/native_lifecycle_record.py' for row in b1.HARNESS_LABELS if row[0] == 'new-format'):
@@ -1720,6 +2229,7 @@ def source_checks():
         if not name.startswith('golden / ') and codec.count('"%s"' % name) != 1:
             problems.append('codec case not named once in its source: ' + name)
     problems += lifecycle_name_problems()
+    problems += layout_name_problems()
     settings_source = (ROOT / PLATFORM / (SETTINGS_TEST + '.java')).read_text()
     for name in SETTINGS_NAMES:
         if settings_source.count('"%s"' % name) != 1 or name.split(' / ', 1)[0] not in ('V2', 'V3'):
@@ -1758,10 +2268,14 @@ def source_checks():
             problems.append('mutant prediction inconsistent: ' + name)
     counts = predictions['cases']
     if (counts['codec'], counts['reads'], counts['goldens'], counts['mutants'], counts['store'],
-            counts['transactions'], counts['faults'], counts['settings'], counts['manager']) != (
+            counts['transactions'], counts['faults'], counts['settings'], counts['manager'], counts['layouts']) != (
             len(CODEC_NAMES), len(READ_NAMES), len(GOLDEN_NAMES), len(MUTANTS), len(STORE_NAMES),
-            len(TRANSACTION_NAMES), len(FAULT_NAMES), len(SETTINGS_NAMES), len(MANAGER_NAMES)):
+            len(TRANSACTION_NAMES), len(FAULT_NAMES), len(SETTINGS_NAMES), len(MANAGER_NAMES), len(LAYOUT_NAMES)):
         problems.append('predicted counts differ from the case lists')
+    layouts = predictions['p5_checkpoint_1']['layouts']
+    if (layouts['names'], layouts['facts'], layouts['step_families'], layouts['by_group']) != (
+            len(LAYOUT_NAMES), len(LAYOUT_FACTS), len(LAYOUT_STEP_FAMILIES), layout_groups()):
+        problems.append('predicted layouts differ from the layout lists')
     by_label = {suite: {} for suite in ('store', 'transactions', 'manager')}
     for suite in by_label:
         for name in SUITE_NAMES[suite]:
@@ -1898,6 +2412,20 @@ def lifecycle_suite(work, suite, texts=None):
     return run_suite(work, lifecycle_files(test, texts), test, [str(work / 'lifecycle-state')], names)
 
 
+def layout_files():
+    """The current product sources with the existing host write fault seams, the seam class, the shared
+    fixtures and the layout emitter."""
+    files = b1.with_seams(b1.product_sources())
+    for name in (FAULT_SEAM, SUPPORT, LAYOUTS):
+        files['tests/%s.java' % name] = (ROOT / PLATFORM / (name + '.java')).read_bytes()
+    return files
+
+
+def emitted_names(stdout):
+    """The layout names the emitter printed, in order."""
+    return [line[len('LAYOUT '):] for line in stdout.splitlines() if line.startswith('LAYOUT ')]
+
+
 def golden_problems(gold):
     """Each golden the codec test wrote against the independent encoder, byte for byte."""
     expected = goldens()
@@ -1979,6 +2507,45 @@ def qualify(work, pinned, report):
     report['completed_phases'].append('settings')
 
     lifecycle_phase('manager')
+
+    # The rollback models' pinned inputs: assembled from Git objects with the working tree closed, read
+    # only where the manifest pins, and compiled against each old product.
+    files, reads = rollback_inputs(pinned, work / 'pinned-candidates')
+    steps['pinned'] = {'manifest': rollback_manifest_problems(reads), 'builds': {}}
+    problems += ['pinned rollback inputs: ' + item for item in steps['pinned']['manifest']]
+    for revision, _ in ROLLBACK_MODELS:
+        built = b1.build(Path(tempfile.mkdtemp(dir=work, prefix='pinned-' + revision + '-')), files[revision])
+        steps['pinned']['builds'][revision] = {'returncode': built['returncode'], 'inputs': built['inputs'],
+                                               'output': built['output'][-4000:]}
+        if built['returncode']:
+            problems.append('pinned rollback inputs of %s do not compile' % revision)
+    report['completed_phases'].append('pinned')
+
+    layouts = work / 'layouts'
+    (layouts / 'build').mkdir(parents=True)
+    built = b1.build(layouts / 'build', layout_files())
+    steps['layouts'] = {'build': {'returncode': built['returncode'], 'output': built['output'][-4000:]}}
+    if built['returncode']:
+        problems.append('layout emitter does not compile')
+    else:
+        run = b1.execute(layouts / 'build', LAYOUTS, [str(layouts / 'emitted'), str(layouts / 'state')],
+                         timeout=3600)
+        steps['layouts']['run'] = {'returncode': run['returncode'], 'stdout': run['stdout'][-4000:],
+                                   'stderr': run['stderr'][-4000:]}
+        names = emitted_names(run['stdout'])
+        if (run['returncode'] or len(names) != len(set(names)) or sorted(names) != sorted(LAYOUT_NAMES)
+                or 'unqualified' not in run['stdout']):
+            problems.append('layout emitter run')
+        else:
+            refused = b1.execute(layouts / 'build', LAYOUTS, [str(layouts / 'no-assertions'), str(layouts / 'state')],
+                                 assertions=False, timeout=120)
+            if not refused['returncode'] or '-ea' not in refused['stderr']:
+                problems.append('layout emitter ran without assertions')
+            found, facts = layouts_check(layouts / 'emitted')
+            steps['layouts']['coverage'] = found
+            steps['layouts']['facts'] = {name: sorted(value) for name, value in facts.items()}
+            problems += ['layouts: ' + item for item in found]
+    report['completed_phases'].append('layouts')
 
     steps['mutants'] = {}
     expectations = predictions['mutants_caught_at_least']

@@ -92,7 +92,8 @@ class LifecycleRecordSourceTests(unittest.TestCase):
         predictions = json.loads(runner.PREDICTIONS.read_text())
         self.assertIn('PREDICTED', predictions['status'])
         self.assertEqual(predictions['cases'], {'codec': 47, 'reads': 60, 'goldens': 9, 'mutants': 183, 'store': 49,
-                                                'transactions': 57, 'faults': 136, 'settings': 12, 'manager': 19})
+                                                'transactions': 57, 'faults': 136, 'settings': 12, 'manager': 19,
+                                                'layouts': 289})
         self.assertEqual((len(runner.CODEC_NAMES), len(runner.READ_NAMES), len(runner.STORE_NAMES),
                           len(runner.TRANSACTION_NAMES), len(runner.FAULT_NAMES), len(runner.SETTINGS_NAMES),
                           len(runner.MANAGER_NAMES)), (47, 60, 49, 57, 136, 12, 19))
@@ -194,9 +195,15 @@ class LifecycleRecordSourceTests(unittest.TestCase):
         self.assertEqual(runner.label_problems(), [])
         self.assertIn('new-format', runner.b1.LIVING_RUN_LABELS)
         rows = [row for row in runner.b1.HARNESS_LABELS if row[0] == 'new-format']
-        # The read test's row, the store, transaction and fault tests' row, the Settings test's row and
-        # the manager test's row, all of this runner.
-        self.assertEqual([row[1] for row in rows], ['scripts/proof/native_lifecycle_record.py'] * 4)
+        # The read test's row, the store, transaction and fault tests' row, the Settings test's row, the
+        # manager test's row and the layout emitter's row, all of this runner.
+        self.assertEqual([row[1] for row in rows], ['scripts/proof/native_lifecycle_record.py'] * 5)
+        # The pinned step carries only the archived rollback reader label, and no living one.
+        self.assertEqual(runner.STEP_LABELS['pinned'], ('rollback-reader',))
+        with mock.patch.dict(runner.STEP_LABELS, {'pinned': ('new-format',)}):
+            self.assertTrue(runner.label_problems())
+        with mock.patch.dict(runner.STEP_LABELS, {'layouts': ('rollback-reader',)}):
+            self.assertTrue(runner.label_problems())
         for label in (('production', 'archived-baseline'), ('rollback-reader',)):
             for step in ('reads', 'store', 'transactions', 'faults'):
                 with mock.patch.dict(runner.STEP_LABELS, {step: label}):
@@ -234,7 +241,7 @@ class LifecycleTransitionSourceTests(unittest.TestCase):
     def test_lifecycle_cases_are_named_once_and_labelled_by_format(self):
         self.assertEqual(runner.lifecycle_name_problems(), [])
         self.assertEqual(runner.PHASES, ('candidate', 'codec', 'reads', 'store', 'transactions', 'faults',
-                                         'settings', 'manager', 'mutants'))
+                                         'settings', 'manager', 'pinned', 'layouts', 'mutants'))
         self.assertEqual({runner.case_label(name) for name in runner.MANAGER_NAMES},
                          {'legacy', 'production', 'new-format'})
         self.assertEqual({runner.FORMAT_LABELS[name.split(' / ', 1)[0]] for name in runner.SETTINGS_NAMES},
@@ -287,7 +294,7 @@ class LifecycleTransitionSourceTests(unittest.TestCase):
                                     runner.STORE_TEST: every, runner.TRANSACTION_TEST: every,
                                     runner.FAULT_TEST: {'new-format'},
                                     runner.SETTINGS_TEST: {'production', 'new-format'},
-                                    runner.MANAGER_TEST: every})
+                                    runner.MANAGER_TEST: every, runner.LAYOUTS: {'new-format'}})
         # Every Settings fragment mutant changes the facade and the harness alike.
         for name, (edits, suites) in runner.MUTANTS.items():
             if any(target.startswith(runner.FRAGMENT) for target, _, _ in edits):
@@ -333,6 +340,143 @@ class LifecycleRecordRefusalTests(unittest.TestCase):
         calls = [node for node in ast.walk(tree) if isinstance(node, ast.Attribute)
                  and node.attr in ('qualify', 'main', 'regressions', 'archived_qualify')]
         self.assertEqual([ast.unparse(node) for node in calls if ast.unparse(node).startswith(('b1.', 'b2.'))], [])
+
+
+class LifecycleLayoutTests(unittest.TestCase):
+    """The layout emitter's names, the independent decoder, the coverage check with its controls, and
+    the pinned rollback inputs with their manifest test."""
+
+    def test_layout_names_groups_and_predictions(self):
+        self.assertEqual(runner.layout_name_problems(), [])
+        predicted = json.loads(runner.PREDICTIONS.read_text())['p5_checkpoint_1']
+        self.assertEqual(predicted['layouts']['by_group'], runner.layout_groups())
+        self.assertEqual((len(runner.LAYOUT_NAMES), len(runner.LAYOUT_FACTS), len(runner.LAYOUT_STEP_FAMILIES)),
+                         (289, 38, 31))
+        self.assertEqual(predicted['phases'], list(runner.PHASES))
+        # Every transaction of the fault sweeps and every manager operation is a step family.
+        self.assertEqual(len(runner.STEP_LAYOUTS), 8 * len(runner.FAULT_KINDS))
+        self.assertEqual(len(runner.MANAGER_LAYOUTS), 8 * len(runner.MANAGER_OPERATIONS))
+        with mock.patch.object(runner, 'MANAGER_OPERATIONS', runner.MANAGER_OPERATIONS + ('restore',)):
+            self.assertIn('manager operation not swept once by the emitter: restore', runner.layout_name_problems())
+        with mock.patch.object(runner, 'STATE_LAYOUTS', runner.STATE_LAYOUTS + ('state-unwritten',)):
+            self.assertIn('layout not named once in the emitter: state-unwritten', runner.layout_name_problems())
+
+    def test_the_decoder_reads_the_independent_goldens(self):
+        gold = runner.goldens()
+        for name, data in gold.items():
+            slot = runner.decode_slot(data)
+            self.assertIsNotNone(slot, name)
+            self.assertEqual((slot['version'], slot['size']), (2, len(data)), name)
+        self.assertEqual(runner.decode_slot(gold['MAXIMUM'])['size'], runner.PLAN_SIZES['largest'])
+        self.assertEqual(len(runner.decode_slot(gold['MAXIMUM'])['users']), 64)
+        ticket = runner.decode_slot(gold['TICKET'])
+        self.assertEqual((ticket['users'], ticket['ticket'][0]), ([], 17))
+        legacy = runner.decode_slot(gold['LEGACY_SUSPENDED'])['users'][0]
+        self.assertEqual((legacy['state'], legacy['retirement']['class'], legacy['retirement']['inventory']),
+                         ('RETIRING', 'LEGACY_MARKER', 0))
+        held = runner.decode_slot(gold['HOLDS'])['users'][0]['entries']
+        self.assertEqual([(entry['class'], entry['scope'], entry['note']) for entry in held],
+                         [('ACCOUNT_USER', 0, True), ('ADMIN_GRANT', 0, False), ('ADMIN_GRANT', 1, False),
+                          ('RECOVERY_HOLD', 3, True)])
+        # Damage, another record type and a later version give no reading.
+        damaged = bytearray(gold['SUSPENDED'])
+        damaged[20] ^= 1
+        self.assertIsNone(runner.decode_slot(bytes(damaged)))
+        self.assertIsNone(runner.decode_header(gold['SUSPENDED']))
+        later = bytearray(gold['SUSPENDED'][:-32])
+        later[6:8] = (3).to_bytes(2, 'little')
+        self.assertIsNone(runner.decode_slot(bytes(later) + runner.hashlib.sha256(bytes(later)).digest()))
+        # A version 1 header with a RELEASING entry, framed by the independent encoder's framing.
+        body = bytes.fromhex(runner.LINEAGE) + runner.struct.pack('<qH', 1, 1)
+        body += runner.struct.pack('<iBq', 10200, 3, 0) + runner.text('')
+        header = runner.decode_header(runner.record(1, 1, body))
+        self.assertEqual(header, {'version': 1, 'entries': [
+            {'app_id': 10200, 'phase': 'RELEASING', 'package': '', 'bound': False}]})
+
+    def layout(self, kind, holds, slots, header=None):
+        directory = scratch(self) / 'layout'
+        (directory / 'store' / 'slots').mkdir(parents=True)
+        for app_id, data in slots.items():
+            (directory / 'store' / 'slots' / str(app_id)).mkdir()
+            (directory / 'store' / 'slots' / str(app_id) / 'record.bin').write_bytes(data)
+        if header:
+            (directory / 'store' / 'store.bin').write_bytes(header)
+        (directory / 'kind').write_text(kind + '\n')
+        (directory / 'holds').write_text(''.join('%d\n' % hold for hold in holds))
+        (directory / 'packages').write_text('a.b 10123\n')
+        return directory
+
+    def test_layout_files_must_agree_with_their_bytes(self):
+        data = runner.goldens()['SUSPENDED']
+        good = runner.read_layout(self.layout('slot 0', [10123], {10123: data}))
+        self.assertEqual(runner.layout_problems(good), [])
+        self.assertIn('state ELIGIBLE suspended', runner.layout_facts(good))
+        wrong = runner.read_layout(self.layout('version1 0', [10123], {10123: data}))
+        self.assertIn('kind version1 with an intact version 2 slot', runner.layout_problems(wrong)[0])
+        unheld = runner.read_layout(self.layout('slot 0', [], {10123: data}))
+        self.assertIn('holds', runner.layout_problems(unheld)[0])
+        stated = runner.read_layout(self.layout('slot 2', [10123], {10123: data}))
+        self.assertIn('header version 2', runner.layout_problems(stated)[0])
+        # A package is mapped only at a held app ID: one at another app ID is no store named package.
+        elsewhere = self.layout('slot 0', [10123], {10123: data})
+        (elsewhere / 'packages').write_text('a.b 10123\nc.d 10200\n')
+        self.assertIn("packages mapped at an app ID that is not held: ['c.d']",
+                      runner.layout_problems(runner.read_layout(elsewhere))[0])
+        with self.assertRaises(ValueError):
+            runner.read_layout(self.layout('copy 1', [10123], {10123: data}))
+
+    def test_coverage_fails_when_a_fact_layout_or_step_is_missing(self):
+        facts = {name: set() for name in runner.LAYOUT_NAMES}
+        for index, fact in enumerate(runner.LAYOUT_FACTS):
+            facts[runner.LAYOUT_NAMES[index]].add(fact)
+        self.assertEqual(runner.coverage_problems(facts), [])
+        self.assertEqual(runner.coverage_controls(facts), [])
+        without = {name: value for name, value in facts.items() if name != 'step-lift-main-synced'}
+        problems = runner.coverage_problems(without)
+        self.assertIn("missing layouts: ['step-lift-main-synced']", problems)
+        self.assertIn("writer steps missing: step-lift at ['main-synced']", problems)
+        manager = {name: value for name, value in facts.items() if not name.startswith('manager-releaseuid-omission-')}
+        self.assertIn("writer steps missing: manager-releaseuid-omission at %s" % list(runner.FAULT_STEPS),
+                      runner.coverage_problems(manager))
+        holder = runner.LAYOUT_NAMES[runner.LAYOUT_FACTS.index('companion lost')]
+        lost = dict(facts, **{holder: set()})
+        self.assertIn('fact missing: companion lost', runner.coverage_problems(lost))
+        self.assertIn('unexpected layouts: [\'extra\']', runner.coverage_problems(dict(facts, extra=set())))
+        # A control that cannot discriminate is reported: a fact that no reduction removes.
+        with mock.patch.object(runner, 'coverage_problems', lambda layouts: []):
+            self.assertEqual(len(runner.coverage_controls(facts)), len(runner.LAYOUT_FACTS) + len(facts))
+
+    def test_pinned_rollback_inputs_refuse_living_reads(self):
+        # The assembly runs with the working tree closed: a living read raises.
+        with mock.patch.object(runner.b1, 'archived_product_sources',
+                               lambda revision: {'x': (ROOT / runner.RECORDS).read_bytes()}):
+            with self.assertRaises(runner.b1.WorktreeRead):
+                runner.rollback_model_files('24bf', '')
+        with self.assertRaises(ValueError):
+            runner.rollback_model_files('0018', '')
+        # The manifest test: exactly the pinned paths, the product from the model's revision.
+        reads = {revision: sorted(runner.rollback_model_paths(revision)) for revision, _ in runner.ROLLBACK_MODELS}
+        self.assertEqual(runner.rollback_manifest_problems(reads), [])
+        self.assertEqual({source for source, _ in reads['7845']}, {'7845', '24bf'})
+        self.assertIn(('7845', runner.b1.ARCHIVED_FACADE), reads['7845'])
+        self.assertNotIn(('24bf', runner.b1.ARCHIVED_FACADE), reads['7845'])
+        extra = dict(reads, **{'7845': reads['7845'] + [('7845', 'owner/tests/platform/NativeLifecycleLayouts.java')]})
+        self.assertIn('7845 read an unpinned input: 7845 owner/tests/platform/NativeLifecycleLayouts.java',
+                      runner.rollback_manifest_problems(extra))
+        missing = dict(reads, **{'24bf': reads['24bf'][1:]})
+        self.assertEqual(len(runner.rollback_manifest_problems(missing)), 1)
+        self.assertEqual(dict(runner.ROLLBACK_MODELS), {'24bf': 'V2', '7845': 'V1'})
+
+    def test_pinned_rollback_inputs_from_git_objects(self):
+        if not PINNED:
+            self.skipTest('NOT RUN: ANDRIX_PINNED_FRAMEWORK does not name the pinned framework copies')
+        files, reads = runner.rollback_inputs(Path(PINNED), scratch(self) / 'candidates')
+        self.assertEqual(runner.rollback_manifest_problems(reads), [])
+        predicted = json.loads(runner.PREDICTIONS.read_text())['p5_checkpoint_1']['pinned']
+        self.assertEqual(sorted(name for name in set(files['24bf']) | set(files['7845'])
+                                if files['24bf'].get(name) != files['7845'].get(name)), predicted['differing_files'])
+        self.assertEqual({revision: len(value) for revision, value in files.items()},
+                         {revision: predicted['files_per_model'] for revision in files})
 
 
 class LifecycleRecordJvmTests(unittest.TestCase):

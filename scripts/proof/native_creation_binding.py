@@ -484,6 +484,10 @@ HARNESS_LABELS = (
     ('new-format', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleManagerTest',),
      'the Format.V3 lifecycle operations of the manager, its suspension closure and every activation point\'s'
      ' suspension refusal, which B1 builds but does not ship'),
+    ('new-format', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleLayouts',),
+     'the store layouts that the Format.V3 lifecycle writers leave, at each state and every writer step of each'
+     ' transaction and manager operation, with the values no writer of B1 writes and the companions, for the'
+     ' rollback models and B1\'s readers, which B1 builds but does not ship'),
     ('production', 'scripts/proof/tests/test_native_identity_persistence.py', ('NativePrincipalRecoveryTest',),
      'the recovery view, which constructs no store'),
     ('legacy', 'scripts/proof/tests/test_native_identity_persistence.py', ('NativeIdentityPersistenceTest',),
