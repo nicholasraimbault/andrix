@@ -74,7 +74,9 @@ Host-only regression checks:
 
 ```sh
 python3 -B -m unittest discover -s scripts/proof/tests -p 'test_*.py'
+python3 -B -m unittest discover -s scripts/pixel/tests -p 'test_*.py'
 bash -n scripts/gen-apex-keys.sh scripts/proof/*.sh
+sh -n scripts/pixel/readings.sh
 ```
 
 Those checks do not boot Android or establish runtime qualification. Public documents

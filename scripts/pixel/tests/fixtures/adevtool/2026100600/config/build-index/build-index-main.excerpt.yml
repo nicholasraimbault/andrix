@@ -1,0 +1,39 @@
+tegu BD4A.240925.111:
+  desc: Apr 2025
+  factory: eb8b02663f40b73b7f0b8d945ca100f3223b05715253268a5ac664a13e26f758 tegu-bd4a.240925.111-factory-eb8b0266.zip
+  ota: 2e1b0f30cfc79bc1125aed9cf4eacc84e38a2a288e511e0e5129ae20a335f2fe tegu-ota-bd4a.240925.111-2e1b0f30.zip
+  vendor/google_devices: ccece1b1cbb147508ae17daee83192195a5c75eff5e7953c092016ce12901567 google_devices-tegu-bd4a.240925.111-7f8389d3.tgz
+bluejay SD2A.220601.001.A1:
+  vendor/google_devices: 77d5f05efb753517b717cad3226447339d7a4dff51eb0a47e4293644d793a14d google_devices-bluejay-sd2a.220601.001.a1-0145bbe6.tgz
+caiman CP2A.260605.012:
+  desc: Jun 2026
+  factory: c03767fafb6d009c077dd2170c79addc21988c6ef0a2e5e5313609a42f3307b2 caiman-cp2a.260605.012-factory-c03767fa.zip
+  ota: 326be154b1054d0c303460470318e605de61a83c87ffbb8d0623ff1ed32d4d04 caiman-ota-cp2a.260605.012-326be154.zip
+caiman CP2A.260605.012.C1:
+  desc: Jun 2026, Rogers
+  factory: 4c60b265f2a6398bb41b612489f71aef7267af3c10e30929a21c14b1e06b28b4 caiman-cp2a.260605.012.c1-factory-4c60b265.zip
+  ota: 9850cc63d126f360f8e2214441b887a140856ef031bb449e88d132cf1cc44871 caiman-ota-cp2a.260605.012.c1-9850cc63.zip
+caiman CP2A.260705.006:
+  desc: Jul 2026
+  factory: 91465b2e1e47aca047a88772c6d5c82a4ed8c035eb55a66b588cc40b6a6ad3b1 caiman-cp2a.260705.006-factory-91465b2e.zip
+  ota: 9207e5cc2dc7737afaee6ccff370c35f2dfdb2f4e7ec51eb8257886fe15697c3 caiman-ota-cp2a.260705.006-9207e5cc.zip
+caiman CP2A.260705.006.A1:
+  desc: Jul 2026, Rogers
+  factory: 35713de6f44ec94b79ab79e3637f4ffd7b9a753431613b55f9f84cac8d8a16ce caiman-cp2a.260705.006.a1-factory-35713de6.zip
+  ota: 444ef1dcdaf02c5db7f530f69e3f90a0655588f35b1925b3515e75a715153230 caiman-ota-cp2a.260705.006.a1-444ef1dc.zip
+caiman CP2A.260805.005:
+  desc: Aug 2026
+  factory: f9bb5a6871b70f9ef5b217401bb8feb817b2d3c743efba1d29f4f3e9a8ab06f6 caiman-cp2a.260805.005-factory-f9bb5a68.zip
+  ota: df29d8ee83efce0eae66510463bdd2cb4befd4b21df515bdc321c736f38d92fd caiman-ota-cp2a.260805.005-df29d8ee.zip
+caiman CP2A.260805.005.A1:
+  desc: Aug 2026, Rogers
+  factory: beae4cb2639a8a0c467a4444b784af0217b90cfcb111c25a23b42c18db3898c9 caiman-cp2a.260805.005.a1-factory-beae4cb2.zip
+  ota: 4868fd8c7644ab6f9a7c7ddd1d0f6408c4432568021ef246570c18f87af199ac caiman-ota-cp2a.260805.005.a1-4868fd8c.zip
+caiman CP3A.260905.009:
+  desc: Sep 2026
+  factory: a60553a6a57c84021fdeb0c7477d105b3eb1f78b15ffed0e443c4a9b6268b738 caiman-cp3a.260905.009-factory-a60553a6.zip
+  ota: a921f42fa29d5a0719064ab90492cef2358c0d25edb96a6f28ca1dfeb477dc34 caiman-ota-cp3a.260905.009-a921f42f.zip
+caiman CP3A.261005.005:
+  desc: Oct 2026
+  factory: 6c37847c9db3601e1228b48a08e7124af24f0fe936a36c2eada98c28abfe144c caiman-cp3a.261005.005-factory-6c37847c.zip
+  ota: 9eef946868ce133a507e6c626299923db7561f016aa34bca6c212623bb2d0e79 caiman-ota-cp3a.261005.005-9eef9468.zip

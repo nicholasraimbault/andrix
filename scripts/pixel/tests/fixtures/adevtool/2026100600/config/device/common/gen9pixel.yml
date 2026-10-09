@@ -1,0 +1,6 @@
+includes:
+  - pixel.yml
+
+device:
+  platform: zumapro
+  build_id: CP3A.261005.005

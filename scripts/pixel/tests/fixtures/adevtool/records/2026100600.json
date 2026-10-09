@@ -1,0 +1,379 @@
+{
+  "adevtool_revision": "17df3b79a73e67ad68387b35c7d41c85e1d8103c",
+  "build_index": {
+    "caiman": {
+      "AD1A.240530.030": {
+        "desc": "Aug 2024",
+        "factory_file": "caiman-ad1a.240530.030-factory-5e2727b9.zip",
+        "factory_sha256": "5e2727b97027f14ff26f89b68ce04559c0caf43ce8feda39e6ca3e5925c66309"
+      },
+      "AD1A.240530.030.A1": {
+        "desc": "Aug 2024, India only",
+        "factory_file": "caiman-ad1a.240530.030.a1-factory-5a5409a8.zip",
+        "factory_sha256": "5a5409a8729388391712fb5d2818a54317da43f825c3fe96a0230a168f9c8a8a"
+      },
+      "AD1A.240530.030.A2": {
+        "desc": "Aug 2024, VZW/US Emerging carriers + gStore",
+        "factory_file": "caiman-ad1a.240530.030.a2-factory-b6c8d14d.zip",
+        "factory_sha256": "b6c8d14d245f1f158fe81c3ebee74f2fe65e6dce76e11c1510992d7064258f66"
+      },
+      "AD1A.240530.047": {
+        "desc": "Aug 2024",
+        "factory_file": "caiman-ad1a.240530.047-factory-073ef35d.zip",
+        "factory_sha256": "073ef35db1e5949f561de1eb3021e3be703c19834cf05bfe730dd0903bd5fc58"
+      },
+      "AD1A.240905.004": {
+        "desc": "Sep 2024",
+        "factory_file": "caiman-ad1a.240905.004-factory-470ee0b9.zip",
+        "factory_sha256": "470ee0b9886dbb71fff50df8f8c88e5892272b7e3c58d0f166df0db97d296bf2"
+      },
+      "AP3A.241005.015": {
+        "desc": "Oct 2024",
+        "factory_file": "caiman-ap3a.241005.015-factory-78027787.zip",
+        "factory_sha256": "780277871f9baf483baf1e60e08dedd5d012c4db2164e8ada1c992ff1d872462"
+      },
+      "AP3A.241005.015.A2": {
+        "desc": "Oct 2024, Google Fi",
+        "factory_file": "caiman-ap3a.241005.015.a2-factory-66452cdd.zip",
+        "factory_sha256": "66452cdd3a1444211a48611d929fddcfb0eee40bc3406c736482c8826ca07c32"
+      },
+      "AP3A.241105.008": {
+        "desc": "Nov 2024",
+        "factory_file": "caiman-ap3a.241105.008-factory-0e1c388b.zip",
+        "factory_sha256": "0e1c388bf004a048b2ad488a22ac979660bdfc28c4d9eb05adaf3dc89bc3018d"
+      },
+      "AP4A.241205.013": {
+        "desc": "Dec 2024",
+        "factory_file": "caiman-ap4a.241205.013-factory-d7703f4c.zip",
+        "factory_sha256": "d7703f4cd55e0214d03d35a31cba4c7da1e05966fd68b356653de68ee70c8f9f"
+      },
+      "AP4A.241205.013.B1": {
+        "desc": "Dec 2024, Telstra",
+        "factory_file": "caiman-ap4a.241205.013.b1-factory-63763b8c.zip",
+        "factory_sha256": "63763b8c96171de8012a1f33d23c01a5fb5d2ce9016fa9dec123ea9f9fd9b243"
+      },
+      "AP4A.241205.013.C1": {
+        "desc": "Dec 2024, T-Mobile",
+        "factory_file": "caiman-ap4a.241205.013.c1-factory-db9b5f0e.zip",
+        "factory_sha256": "db9b5f0eefba9d87ca9aa47891f3a90b262c536ae5a45df9b298f42998b11b92"
+      },
+      "AP4A.250105.002": {
+        "desc": "Jan 2025",
+        "factory_file": "caiman-ap4a.250105.002-factory-c63e0cc2.zip",
+        "factory_sha256": "c63e0cc23ddf96bf963dc9e473024ee0059009143addb5d54c5d3731e8ef0317"
+      },
+      "AP4A.250105.002.B1": {
+        "desc": "Jan 2025, Telstra",
+        "factory_file": "caiman-ap4a.250105.002.b1-factory-ca78c16b.zip",
+        "factory_sha256": "ca78c16b210aee0594fcaf2786a516305296e216bce2c3d58eb3fb73063062a5"
+      },
+      "AP4A.250105.002.C1": {
+        "desc": "Jan 2025, T-Mobile",
+        "factory_file": "caiman-ap4a.250105.002.c1-factory-b7ac21a1.zip",
+        "factory_sha256": "b7ac21a1d10fe4b919913994c84996052ffa67e2510d8a289145cca8c5d182f2"
+      },
+      "AP4A.250205.002": {
+        "desc": "Feb 2025",
+        "factory_file": "caiman-ap4a.250205.002-factory-651a08f8.zip",
+        "factory_sha256": "651a08f8b932fbc635eac80a0132506333fbffd6d369c5fb81a8edb7d51e8814"
+      },
+      "AP4A.250205.002.B2": {
+        "desc": "Feb 2025, Telstra",
+        "factory_file": "caiman-ap4a.250205.002.b2-factory-419b476e.zip",
+        "factory_sha256": "419b476eb4f9e79bb442c6cf76936e03f7bea3a014905a12244bd740fac8e5a5"
+      },
+      "AP4A.250205.002.C1": {
+        "desc": "Feb 2025, T-Mobile",
+        "factory_file": "caiman-ap4a.250205.002.c1-factory-172e8dc1.zip",
+        "factory_sha256": "172e8dc12a4d7c6197a0963c97fe20562115723a498d1dce1d939492aa00d80c"
+      },
+      "BP1A.250305.020": {
+        "desc": "Mar 2025",
+        "factory_file": "caiman-bp1a.250305.020-factory-8ece3008.zip",
+        "factory_sha256": "8ece3008a79be804415daaee2e2e311662518de9f07f16bed8f56030351bdfdf"
+      },
+      "BP1A.250305.020.A2": {
+        "desc": "Mar 2025, EMEA + TW",
+        "factory_file": "caiman-bp1a.250305.020.a2-factory-aff1586b.zip",
+        "factory_sha256": "aff1586b75cc5b66c078f7039a67407bf3b2498ba48e831806289955626e5a50"
+      },
+      "BP1A.250405.007": {
+        "desc": "Apr 2025",
+        "factory_file": "caiman-bp1a.250405.007-factory-950878bf.zip",
+        "factory_sha256": "950878bf853704c8cacba68dea87f811c5b85a51f4c224e73d5c2637eb01089d"
+      },
+      "BP1A.250405.007.A1": {
+        "desc": "Apr 2025, TW, EMEA",
+        "factory_file": "caiman-bp1a.250405.007.a1-factory-9a8874da.zip",
+        "factory_sha256": "9a8874da84685cadaa55f7daa287380aed562ccc9fa2c7212936aaaabbc1107a"
+      },
+      "BP1A.250405.007.C1": {
+        "desc": "Apr 2025, DTAG",
+        "factory_file": "caiman-bp1a.250405.007.c1-factory-ba186720.zip",
+        "factory_sha256": "ba1867202ae80c4ac717108eea9afe4fe072a53636d208302551a09fdf1011fa"
+      },
+      "BP1A.250405.007.D1": {
+        "desc": "Apr 2025, Verizon",
+        "factory_file": "caiman-bp1a.250405.007.d1-factory-d07edfd1.zip",
+        "factory_sha256": "d07edfd1887be1137a0feab83ff65e696a9fb4c62a3a0e9d650f1cfad05640e5"
+      },
+      "BP1A.250505.005": {
+        "desc": "May 2025",
+        "factory_file": "caiman-bp1a.250505.005-factory-f158d94e.zip",
+        "factory_sha256": "f158d94e5e9209ed9b22a4a4d81b1ae70a1631410adf75d2a2a8297d02d7363a"
+      },
+      "BP1A.250505.005.A1": {
+        "desc": "May 2025, TW, EMEA",
+        "factory_file": "caiman-bp1a.250505.005.a1-factory-a62a8ca9.zip",
+        "factory_sha256": "a62a8ca92f8211e614aa5472517acff1871542b11246afcb6440244dd32e4adb"
+      },
+      "BP1A.250505.005.C1": {
+        "desc": "May 2025, DTAG",
+        "factory_file": "caiman-bp1a.250505.005.c1-factory-71715b57.zip",
+        "factory_sha256": "71715b577659f1d15ab867a259ba01458b1f29bc814f9eb4a251226ecccf26ab"
+      },
+      "BP1A.250505.005.D1": {
+        "desc": "May 2025, Verizon",
+        "factory_file": "caiman-bp1a.250505.005.d1-factory-c526436d.zip",
+        "factory_sha256": "c526436d4bf8336dec02a748628906a2f716a642a24419369994590ae24306e3"
+      },
+      "BP2A.250605.031.A2": {
+        "desc": "Jun 2025",
+        "factory_file": "caiman-bp2a.250605.031.a2-factory-ff281827.zip",
+        "factory_sha256": "ff28182737365d31b5a40033c943ad820507fa7e68a7cd8735cd220cdf78bb0e"
+      },
+      "BP2A.250705.008": {
+        "desc": "Jul 2025",
+        "factory_file": "caiman-bp2a.250705.008-factory-fa2e0329.zip",
+        "factory_sha256": "fa2e0329f8c4b3730e74131d81b8a0288f061d39f18961c2252ccc14ed5dbc1c"
+      },
+      "BP2A.250805.005": {
+        "desc": "Aug 2025",
+        "factory_file": "caiman-bp2a.250805.005-factory-e817ec2c.zip",
+        "factory_sha256": "e817ec2c0c6100c0f1ea0a745157f74c2a7c9c54c399306f07164c60192de347"
+      },
+      "BP3A.250905.014": {
+        "desc": "Sep 2025",
+        "factory_file": "caiman-bp3a.250905.014-factory-37c6bbe7.zip",
+        "factory_sha256": "37c6bbe768c722e8c53d8be486530af5d54b637b72ccd10790420e1434b0aae7"
+      },
+      "BP3A.251005.004.B1": {
+        "desc": "Oct 2025",
+        "factory_file": "caiman-bp3a.251005.004.b1-factory-d138c458.zip",
+        "factory_sha256": "d138c458f58bdfd1cf7eb802f0a6d8c1bba4bcc17f643de2cdb2208a31ea0e02"
+      },
+      "BP3A.251005.004.B3": {
+        "desc": "Oct 2025",
+        "factory_file": "caiman-bp3a.251005.004.b3-factory-8c242be5.zip",
+        "factory_sha256": "8c242be58700ba3cb8407773f6c2eace754d1cb26a8f64fd88867589ed14a604"
+      },
+      "BP3A.251105.015": {
+        "desc": "Nov 2025",
+        "factory_file": "caiman-bp3a.251105.015-factory-443a364b.zip",
+        "factory_sha256": "443a364bb3b6e351c79c4b1db3391615587b3ae63083c5d37a0bdc9914573947"
+      },
+      "BP4A.251205.006": {
+        "desc": "Dec 2025",
+        "factory_file": "caiman-bp4a.251205.006-factory-7edab18d.zip",
+        "factory_sha256": "7edab18d68210cd86aa6d5fa9a002d9a8bf72f8537e7c6db592190288cad4ce8"
+      },
+      "BP4A.251205.006.A1": {
+        "desc": "Dec 2025, EMEA",
+        "factory_file": "caiman-bp4a.251205.006.a1-factory-e6760b86.zip",
+        "factory_sha256": "e6760b866916ed952b4c59ae93d95338695b825d95e3a2ac8e65077b24acb443"
+      },
+      "BP4A.251205.006.A4": {
+        "desc": "Dec 2025, EMEA",
+        "factory_file": "caiman-bp4a.251205.006.a4-factory-22e19f9d.zip",
+        "factory_sha256": "22e19f9dae31d37992d16a7848876cfce9b11cf1bb721e66a1b3d863cb37b504"
+      },
+      "BP4A.251205.006.E1": {
+        "desc": "Dec 2025",
+        "factory_file": "caiman-bp4a.251205.006.e1-factory-58258dd2.zip",
+        "factory_sha256": "58258dd23029aa62b5dbd82aa155e7da9b766ae7a1359d4288d5d7d974e00488"
+      },
+      "BP4A.260105.004.A2": {
+        "desc": "Jan 2026, EMEA",
+        "factory_file": "caiman-bp4a.260105.004.a2-factory-d6c8eb0c.zip",
+        "factory_sha256": "d6c8eb0cda1d98ac313315402eda7b27726693abbcc7850a2d2ce8a9934d4ad2"
+      },
+      "BP4A.260105.004.E1": {
+        "desc": "Jan 2026",
+        "factory_file": "caiman-bp4a.260105.004.e1-factory-7b8ad0de.zip",
+        "factory_sha256": "7b8ad0def0395eac402d4290f0a1a2704e55a47d323f7fa6d025bf4e76f6e1ac"
+      },
+      "BP4A.260205.002": {
+        "desc": "Feb 2026",
+        "factory_file": "caiman-bp4a.260205.002-factory-df6fb7c7.zip",
+        "factory_sha256": "df6fb7c724ba17f88c243a3cb9caad4ff7f2c9168c521c28976a9e16011d78a6"
+      },
+      "BP4A.260205.002.A1": {
+        "desc": "Feb 2026, EMEA",
+        "factory_file": "caiman-bp4a.260205.002.a1-factory-e2358a57.zip",
+        "factory_sha256": "e2358a57d4dbdef306a4d928af425bb86a5ba2c7abe910ae5d90b5ff947e44d8"
+      },
+      "CP1A.260305.018": {
+        "desc": "Mar 2026",
+        "factory_file": "caiman-cp1a.260305.018-factory-c0dc1d72.zip",
+        "factory_sha256": "c0dc1d7211aba9bc6751b7ea1989fec3db2783f190e84780db2018a6924bbf4e"
+      },
+      "CP1A.260405.005": {
+        "desc": "Apr 2026",
+        "factory_file": "caiman-cp1a.260405.005-factory-7e13d556.zip",
+        "factory_sha256": "7e13d5562a547de0d60fc1a04550166ddb262a60ba93c85233c6f7748850d985"
+      },
+      "CP1A.260505.005": {
+        "desc": "May 2026",
+        "factory_file": "caiman-cp1a.260505.005-factory-28248db3.zip",
+        "factory_sha256": "28248db36a623fc4713c2479e08f879be68fcf69e6d8bef3655caf6940c183d3"
+      },
+      "CP1A.260505.005.A1": {
+        "desc": "May 2026, Telia",
+        "factory_file": "caiman-cp1a.260505.005.a1-factory-33692ece.zip",
+        "factory_sha256": "33692ece740c1d05d94a22754c53d9ff997ed912d2af77ffd97226545be932a3"
+      },
+      "CP2A.260605.012": {
+        "desc": "Jun 2026",
+        "factory_file": "caiman-cp2a.260605.012-factory-c03767fa.zip",
+        "factory_sha256": "c03767fafb6d009c077dd2170c79addc21988c6ef0a2e5e5313609a42f3307b2"
+      },
+      "CP2A.260605.012.C1": {
+        "desc": "Jun 2026, Rogers",
+        "factory_file": "caiman-cp2a.260605.012.c1-factory-4c60b265.zip",
+        "factory_sha256": "4c60b265f2a6398bb41b612489f71aef7267af3c10e30929a21c14b1e06b28b4"
+      },
+      "CP2A.260705.006": {
+        "desc": "Jul 2026",
+        "factory_file": "caiman-cp2a.260705.006-factory-91465b2e.zip",
+        "factory_sha256": "91465b2e1e47aca047a88772c6d5c82a4ed8c035eb55a66b588cc40b6a6ad3b1"
+      },
+      "CP2A.260705.006.A1": {
+        "desc": "Jul 2026, Rogers",
+        "factory_file": "caiman-cp2a.260705.006.a1-factory-35713de6.zip",
+        "factory_sha256": "35713de6f44ec94b79ab79e3637f4ffd7b9a753431613b55f9f84cac8d8a16ce"
+      },
+      "CP2A.260805.005": {
+        "desc": "Aug 2026",
+        "factory_file": "caiman-cp2a.260805.005-factory-f9bb5a68.zip",
+        "factory_sha256": "f9bb5a6871b70f9ef5b217401bb8feb817b2d3c743efba1d29f4f3e9a8ab06f6"
+      },
+      "CP2A.260805.005.A1": {
+        "desc": "Aug 2026, Rogers",
+        "factory_file": "caiman-cp2a.260805.005.a1-factory-beae4cb2.zip",
+        "factory_sha256": "beae4cb2639a8a0c467a4444b784af0217b90cfcb111c25a23b42c18db3898c9"
+      },
+      "CP3A.260905.009": {
+        "desc": "Sep 2026",
+        "factory_file": "caiman-cp3a.260905.009-factory-a60553a6.zip",
+        "factory_sha256": "a60553a6a57c84021fdeb0c7477d105b3eb1f78b15ffed0e443c4a9b6268b738"
+      },
+      "CP3A.261005.005": {
+        "desc": "Oct 2026",
+        "factory_file": "caiman-cp3a.261005.005-factory-6c37847c.zip",
+        "factory_sha256": "6c37847c9db3601e1228b48a08e7124af24f0fe936a36c2eada98c28abfe144c"
+      }
+    },
+    "path": "config/build-index/build-index-main.yml",
+    "sha256": "a108c6dd08afe9ad5e3fe09f36ae513b2fac34c7d18a2a66d5a90ebb742933f4"
+  },
+  "config_chain": [
+    {
+      "path": "config/device/common/apk.yml",
+      "sha256": "6bae005f34247dcaac4b2997a7eccc23095cc5182731b831874b3f639a070f74"
+    },
+    {
+      "path": "config/device/common/file-exclusion.yml",
+      "sha256": "73370dd3c965346c31c767953b7016771c9bb8f479aed096938d6aeec6646e4a"
+    },
+    {
+      "path": "config/device/common/file-inclusion.yml",
+      "sha256": "e5b3630b33bbe5a55c06cdc08102cc563ee584525634ced6bbb598880ea4f34f"
+    },
+    {
+      "path": "config/device/common/kernel-cmdline.yml",
+      "sha256": "ab91805ea062aaf2190e398cd14f3ecb2a233480cdc72092c8b166d0e76b3661"
+    },
+    {
+      "path": "config/device/common/overlay-inclusion.yml",
+      "sha256": "0e8de85109e249598f56589d51826bb5403836ea5bf65feb5b4cb1bebbc9a20c"
+    },
+    {
+      "path": "config/device/common/overlay-removal.yml",
+      "sha256": "7103a3da4a366d11e815298bc738b83678e6e9c8ebcad7bd062be194f15b36c0"
+    },
+    {
+      "path": "config/device/common/replacement_modules.yml",
+      "sha256": "4fb374e6f301599eefec486e133f41ad9ad1f9f65727ac9dca214c3dbf19fb78"
+    },
+    {
+      "path": "config/device/common/sepolicy-inclusion.yml",
+      "sha256": "48176923919e5231a5c621d3f54d477601502c55b1256a1cabab573e5c35602e"
+    },
+    {
+      "path": "config/device/common/sepolicy-exclusion.yml",
+      "sha256": "98d7987509d7c2cf1bedb49bd7874f045ca4b43f0a8be084fc4481a3ef0dae95"
+    },
+    {
+      "path": "config/device/common/synthetic-overlays.yml",
+      "sha256": "99d58afe226d4f3ccd1c8158214eea6a441e4391a3278254d4e8bbe4e6d65c10"
+    },
+    {
+      "path": "config/device/common/sysconfig-exclusion.yml",
+      "sha256": "35533a7346c45ca84150a2a1b586e2f8f9403176423bbb97a0284d156d3a0fb8"
+    },
+    {
+      "path": "config/device/common/sysconfig-inclusion.yml",
+      "sha256": "185995b05b7a139f3dc9ec10a3e91fafe3f4398e12a8f770f63f0057a7ef6a63"
+    },
+    {
+      "path": "config/device/common/sysprop-exclusion.yml",
+      "sha256": "26b262617b61c4702c23413183f8700e1e21e6ea1c6325036b6d3734bd9b0f15"
+    },
+    {
+      "path": "config/device/common/sysprop-inclusion.yml",
+      "sha256": "d1371b8afb79a6edfd3e3939fb4c83691988c3060e6da835e8b14171a3055004"
+    },
+    {
+      "path": "config/device/common/vintf-inclusion.yml",
+      "sha256": "f9a91b691121f93a8ebbd17098979957806e8797aeaff73b59ca7e26f9f89b4e"
+    },
+    {
+      "path": "config/device/common/pixel.yml",
+      "sha256": "6fed150dd9c819dcff5424744b4102d921df5ccddb861d16cf5ef5e749064537"
+    },
+    {
+      "path": "config/device/common/gen9pixel.yml",
+      "sha256": "f9a386005239b03601c86abe7f4580def097bdd4b1fbb3796b919db65cdfe078"
+    },
+    {
+      "path": "config/device/caiman.yml",
+      "sha256": "bd87b53dfc4ec8da28f10d8d4bdcf6927496c88b253905111d9e54a214cd6969"
+    }
+  ],
+  "device": "caiman",
+  "generated_module": {
+    "android-info.txt": {
+      "baseband": "g5400c-260604-260807-B-16035863",
+      "board": "caiman",
+      "bootloader": "ripcurrentpro-17.0-15819938",
+      "partitions": [
+        "vendor_kernel_boot"
+      ],
+      "sha256": "cafea040b542d02adf5998a7b762bfa9c3fcceb698b4e69885177c04e73b8dac"
+    },
+    "caiman.mk": {
+      "build_id": "CP3A.261005.005",
+      "sha256": "8c77c4e636d20206d88da30be96f563f466e95de789f5326ac822f97c93fb463"
+    },
+    "cmds-for-envsetup.sh": {
+      "build_id": "CP3A.261005.005",
+      "sha256": "86f7297e23402dfa7a3e6e7ac4187abbb7aca0fea18cd7d68d337075c99dadfa"
+    }
+  },
+  "manifest_sha256": "32d30e70ee59d373a17fe8090bdded898afa80651f27c331caca4578b3008888",
+  "release": "2026100600",
+  "revision_source": "upstream/reports/2026081300-2026100600.json, sealed; this fixture was derived without reading the tree Git metadata, so it carries no tree_head",
+  "schema": "andrix.pixel.adevtool/1",
+  "stock_build": "CP3A.261005.005",
+  "stock_build_set_by": "config/device/common/gen9pixel.yml:6"
+}
