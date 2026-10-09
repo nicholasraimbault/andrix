@@ -597,6 +597,9 @@ These are the stop points, in an approved session. GrapheneOS's web installer re
 
 These must be designed for caiman, not copied from the Cuttlefish product.
 
+The [stage 1 design](2026-10-09-caiman-design-items.md) works out each item below against the
+2026100600 source tree.
+
 1. **Product and board composition.** `PRODUCT_DEVICE` stays `caiman`, because the generated module
    registers its firmware only for that device. GrapheneOS's release scripts take the device as an
    argument but name their files after the product (`script/finalize.sh` and
@@ -849,6 +852,7 @@ GrapheneOS, unchanged, until stage 7.
 - **Changes:** design notes in the repository for the nine design items, and the session runbooks.
   Host checkers for the gate are written too. They cover the flash script, the image comparison, the
   boot checks and the neverallow check.
+  The design notes for the nine items are in the [stage 1 design](2026-10-09-caiman-design-items.md).
 - **Qualifies:** reviewed design notes. Each checker passes its own failing controls. The neverallow
   check fails on every mutant policy and on an unresolved name.
 - **Stays off:** downloads of Google's files, builds and the phone.
