@@ -215,11 +215,16 @@ shared today with the Terminal APK and the signing custody test APKs. Separate i
   target cohort, which is the build fingerprint plus the factory SystemUI APK digest.
 - **The signing input** is the exact APK bytes and their `SHA-256`. Trusted code parses facts from
   them: package, versionCode, `sharedUserId`, the persistent flag and the SDK fields. The input also
-  carries a digest of every ZIP entry outside the signing block.
+  carries a digest of every ZIP entry outside the signing block. A built APK may already carry
+  signatures, which prove nothing about the outputs, so that entry digest is the input's identity
+  for signing.
 - **A bundle** has two members, `base.apk` and `base.apk.idsig`, and a canonical manifest. The
   manifest lists the member digests, the signer certificate and key digests, the schemes verified
-  at SDK 37, the v4 check, the versionCode, the input digests and the signing request ID. The bundle
-  ID is the manifest digest. It names bytes, not approval.
+  over the APK's declared SDK range, the v4 check, the versionCode, the input digests and the
+  signing transaction ID. Each scheme is checked explicitly, because `apksigner verify` can report
+  v2 as unverified at a high minimum SDK although its block is present. The operations' own IDs stay
+  in the signer's records. No time enters the manifest, so the same bytes always give the same
+  bundle ID, which is the manifest digest. It names bytes, not approval.
 - **A restoration bundle** carries known good source at the next versionCode. It is signed in the
   same transaction and kept as a recovery root.
 - **A native session reference** is the session ID, `createdMillis`, the stage directory and the
@@ -228,14 +233,21 @@ shared today with the Terminal APK and the signing custody test APKs. Separate i
   installer UID and to UIDs below 10000. The session ID alone is not enough, because Android can
   issue it again after a reboot. The readback routes below say where each field can be read.
 
-Publication has three steps:
+Publication makes a variant and its restoration visible together, under decision 8:
 
-1. Stage the members privately and verify the bundle.
+1. Stage the members of both bundles privately and verify both.
 2. Sync every file through its writing descriptor.
-3. Rename into `bundles/<id>`, then sync the parent directory.
+3. Rename each bundle into `bundles/<id>`, then sync the parent directory.
+4. Write the plan's publication record, which names both bundles and each one's signing
+   transaction, and sync it. Its rename is the single commit point. A bundle that no publication
+   names is not published.
 
 A published bundle never changes. A lost acknowledgement is resolved by reading the exact bytes,
-never by publishing again.
+never by publishing again. A publication that stopped before its record was written had no effect.
+The store shows this by reading the plan's publication record absent after the PUBLISH call has
+ended, in an observation that names that PUBLISH attempt. The ticket may then publish once more,
+from the exact bundles the store already holds, and never by signing again. D1's ledger allows two
+PUBLISH entries for this.
 
 ### Signatures and grants
 
@@ -276,11 +288,13 @@ key. In the lab image that is the public AOSP development key.
 
 There are five record kinds:
 
-- **Plan**, immutable. Lineage, component and class, native base, bundle and restoration IDs,
-  affected users and a forward only data statement. It names the selection revision and trust
-  policy it expects. It also holds the health criteria and window, the recovery route and the
-  commit mode, with a boot limit, a reboot time limit, a limit on repeated requests and an expiry
-  window for an unused ACTIVATE. The affected users are all users, because the code is shared.
+- **Plan**, immutable. Lineage, component and class, native base, the signing input digests of the
+  bundle and its restoration, affected users and a forward only data statement. A plan cannot name
+  the bundles its own signing produces, because their IDs cover the signed bytes. The publication
+  record binds them to the plan instead. It names the selection revision and trust policy it
+  expects. It also holds the health criteria and window, the recovery route and the commit mode,
+  with a boot limit, a reboot time limit, a limit on repeated requests and an expiry window for an
+  unused ACTIVATE. The affected users are all users, because the code is shared.
 - **Authorization**, append only. Plan, one effect, actor, and the grant reference with its
   component scope. An interaction that grants several effects writes one record for each.
 - **Ticket**, one attempt with exactly one owning coordinator. ID, plan, attempt, state, an
@@ -303,7 +317,8 @@ They follow the rules the native store established:
   know.
 - Each kind begins with a stable prefix that every later version keeps. An older reader can then
   still tell what a newer record concerns, and fail closed.
-- The bundle manifest and the artifact index follow the same rules.
+- The bundle manifest and the publication records, which serve as the artifact index, follow the
+  same rules.
 - No device writer reaches the normal image until the rollback contract of decision 5 is in place.
 
 Native accounts are out of scope for version 1. It refuses any target that the native store holds
