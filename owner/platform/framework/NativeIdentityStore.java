@@ -35,6 +35,7 @@ import com.android.server.pm.NativeIdentityRecords.LifecycleState;
 import com.android.server.pm.NativeIdentityRecords.Obligation;
 import com.android.server.pm.NativeIdentityRecords.ObligationKind;
 import com.android.server.pm.NativeIdentityRecords.ObligationState;
+import com.android.server.pm.NativeIdentityRecords.ReleaseTicket;
 import com.android.server.pm.NativeIdentityRecords.Retirement;
 import com.android.server.pm.NativeIdentityRecords.Slot;
 import com.android.server.pm.NativeIdentityRecords.SlotPhase;
@@ -136,10 +137,15 @@ import com.android.server.pm.NativeIdentityRecords.UserEntry;
  * dischargeSlotDisposition confirms disposal per kind. The state only moves forward, ELIGIBLE
  * to RETIRING to RETIRED. A written retirement block never changes, except that a legacy
  * marker's unknown inventory continues once to every kind outstanding, and its obligations
- * move only forward as the record's obligation transitions list them. No user leaves a slot:
- * only the release engine, which does not exist yet, will drop a user, RETIRED with every
- * obligation discharged and no suspension entry. The generic update keeps every lifecycle
- * there. A tombstone's release ticket is likewise the release engine's alone. Each transition
+ * move only forward as the record's obligation transitions list them. A user leaves a slot only
+ * through the release engine's named primitives: dropReleasedUser writes the ticketed tombstone of
+ * an account RETIRED with every obligation discharged and no suspension entry, markSlotReleasing
+ * turns its LIVE entry RELEASING, removeReleasingSlot removes the directory, omitReleasedSlot omits
+ * the entry and confirmReleasedSlot confirms that omission. The generic update keeps every lifecycle
+ * there and drops no user, and the generic header write turns no entry RELEASING and omits none. A
+ * tombstone's release ticket is likewise the release engine's alone, and LIVE becomes RELEASING
+ * only over a ticketed tombstone. No production text calls a release primitive outside the release
+ * bodies of NativeIdentityPersistence. Each transition
  * also applies the writer rules of the lifecycle record, which are narrower than what its
  * decoder accepts: see writableSuspension, placeFree, writableRetirement, writableReceipts
  * and writableDispositionReceipts. Restore, the recovery route's writer, is separate: it
@@ -778,7 +784,10 @@ final class NativeIdentityStore {
             // lineage, whatever its record's status, selection, app ID or tuple, or when its
             // record is such evidence, whatever its lineage. That is only a refusal: no
             // counter is raised or derived from the copy, and no status, binding, hold or
-            // evidence changes. A staging seed is never a copy.
+            // evidence changes. A staging seed is never a copy. A tombstone's release ticket
+            // names a principal ID too, as sibling evidence and for this bound. A stable prefix
+            // need not feed the bound: only an unsupported record has one, and that footprint
+            // already blocks creation.
             Header selected = header.status == Status.VALID ? header.value : null;
             for (Map.Entry<Integer, ReadResult<Slot>> entry : loaded.entrySet()) {
                 boolean evidence = entry.getValue().status == Status.UNSUPPORTED
@@ -790,6 +799,8 @@ final class NativeIdentityStore {
                     if (!evidence) continue;
                     packages.putIfAbsent(copy.packageName, entry.getKey());
                     for (UserEntry user : copy.users) incarnations.putIfAbsent(user.id, entry.getKey());
+                    // A tombstone's release ticket names its last principal: evidence too.
+                    if (copy.ticket != null) incarnations.putIfAbsent(copy.ticket.lastId, entry.getKey());
                 }
                 // A later slot version's stable prefix. Only an unsupported record has one, so it
                 // is always negative evidence, and that footprint already blocks creation.
@@ -805,6 +816,11 @@ final class NativeIdentityStore {
                 if (previous != null) { conflicts.add(previous); conflicts.add(entry.getKey()); }
                 for (UserEntry user : slot.users) {
                     previous = incarnations.putIfAbsent(user.id, entry.getKey());
+                    if (previous != null) { conflicts.add(previous); conflicts.add(entry.getKey()); }
+                }
+                // A valid tombstone's ticket names its last principal, which no sibling may name.
+                if (slot.ticket != null) {
+                    previous = incarnations.putIfAbsent(slot.ticket.lastId, entry.getKey());
                     if (previous != null) { conflicts.add(previous); conflicts.add(entry.getKey()); }
                 }
             }
@@ -823,13 +839,15 @@ final class NativeIdentityStore {
         return new Loaded(header, loaded, occupied, blocked, complete, unsupported, unavailable);
     }
 
-    // Whether this decoded slot copy names a principal ID above the counter. A refusal bound for
-    // new issuance only: the ID is never taken as a counter or an allocation floor.
+    // Whether this decoded slot copy names a principal ID above the counter: a user's, or a
+    // tombstone ticket's last principal. A refusal bound for new issuance only: the ID is never taken
+    // as a counter or an allocation floor. A later slot version's stable prefix need not feed this
+    // rule: a prefix exists only in an unsupported record, which already blocks creation.
     private static boolean claimsAbove(Slot copy, long counter) {
         for (UserEntry user : copy.users) {
             if (user.id > counter) return true;
         }
-        return false;
+        return copy.ticket != null && copy.ticket.lastId > counter;
     }
 
     /** Explicit fresh creation or its exact empty-result retry, never called by load(). */
@@ -1078,7 +1096,8 @@ final class NativeIdentityStore {
     }
 
     // Whether another app ID claims this creation's package or principal ID: any decoded slot
-    // copy there, whatever its status, or a CREATING entry there in any decoded header copy. A
+    // copy there, whatever its status, a tombstone's ticket included, or a CREATING entry there in
+    // any decoded header copy. A
     // claim is located by the slot's physical app ID or the entry's own, never by a body's own
     // app ID field. Claims are only negative: they withdraw a reservation and supply nothing.
     private static boolean claimed(Loaded view, HeaderEntry creation) {
@@ -1086,6 +1105,7 @@ final class NativeIdentityStore {
             if (other.getKey().intValue() == creation.appId) continue;
             for (Slot claim : other.getValue().decodedCopies) {
                 if (claim.packageName.equals(creation.creationPackage)) return true;
+                if (claim.ticket != null && claim.ticket.lastId == creation.creationId) return true;
                 for (UserEntry user : claim.users) {
                     if (user.id == creation.creationId) return true;
                 }
@@ -1145,8 +1165,21 @@ final class NativeIdentityStore {
         return next.version == selected.version || newlyBound;
     }
 
+    /**
+     * The checked header writer. Under a format that writes version 2 slots it turns no entry
+     * RELEASING and omits none: those are the release engine's header writes, which only
+     * markSlotReleasing and omitReleasedSlot make. Under the earlier formats the version 1 release
+     * still makes them here.
+     */
     boolean writeHeader(Header expected, Header next) {
         Objects.requireNonNull(expected); Objects.requireNonNull(next);
+        if (format.slotCeiling >= LIFECYCLE_SLOT_VERSION && releases(expected, next)) return false;
+        return writeAnyHeader(expected, next);
+    }
+
+    // Every header write, the release engine's RELEASING and omission writes included. Their phase
+    // and omission rules are validHeaderTransition's.
+    private boolean writeAnyHeader(Header expected, Header next) {
         if (expected.version > format.headerCeiling || next.version > format.headerCeiling
                 || next.version < expected.version
                 || !expected.lineage.equals(next.lineage) || next.lastId < expected.lastId
@@ -1247,6 +1280,69 @@ final class NativeIdentityStore {
                 && user.userSerial == binding.userSerial;
     }
 
+    /**
+     * The release engine's RELEASING write: this LIVE entry becomes RELEASING, with the same
+     * version, counter and every other entry. Its slot must already be the engine's ticketed
+     * tombstone, which validHeaderTransition requires under this format. It refuses before any
+     * effect under a format whose slot ceiling is 1, where the version 1 release writes the phase
+     * through the generic header writer.
+     */
+    boolean markSlotReleasing(Header expected, int appId) {
+        Objects.requireNonNull(expected);
+        HeaderEntry entry = headerEntry(expected, appId);
+        if (format.slotCeiling < LIFECYCLE_SLOT_VERSION || entry == null
+                || entry.phase != SlotPhase.LIVE) return false;
+        return writeAnyHeader(expected, phased(expected, appId, SlotPhase.RELEASING));
+    }
+
+    /**
+     * The release engine's omission: this RELEASING entry is dropped, with the same version,
+     * counter and every other entry, once its directory is genuinely absent. It refuses before any
+     * effect under a format whose slot ceiling is 1, where the version 1 release omits the entry
+     * through the generic header writer.
+     */
+    boolean omitReleasedSlot(Header expected, int appId) {
+        Objects.requireNonNull(expected);
+        HeaderEntry entry = headerEntry(expected, appId);
+        if (format.slotCeiling < LIFECYCLE_SLOT_VERSION || entry == null
+                || entry.phase != SlotPhase.RELEASING) return false;
+        return writeAnyHeader(expected, omitted(expected, appId));
+    }
+
+    // Whether next turns an entry of previous RELEASING or omits one: the release engine's header
+    // writes.
+    private static boolean releases(Header previous, Header next) {
+        for (HeaderEntry old : previous.entries) {
+            HeaderEntry changed = headerEntry(next, old.appId);
+            if (changed == null || (changed.phase == SlotPhase.RELEASING
+                    && old.phase != SlotPhase.RELEASING)) return true;
+        }
+        return false;
+    }
+
+    // This entry in another phase, with the header's own version, lineage, counter and every other
+    // entry. A phase change never converts a version.
+    private static Header phased(Header header, int appId, SlotPhase phase) {
+        List<HeaderEntry> entries = new ArrayList<>(header.entries.size());
+        for (HeaderEntry entry : header.entries) {
+            entries.add(entry.appId == appId ? new HeaderEntry(appId, phase, 0, "") : entry);
+        }
+        return sameVersion(header, entries);
+    }
+
+    // The header without this entry, with its own version, lineage and counter.
+    private static Header omitted(Header header, int appId) {
+        List<HeaderEntry> entries = new ArrayList<>(header.entries.size());
+        for (HeaderEntry entry : header.entries) if (entry.appId != appId) entries.add(entry);
+        return sameVersion(header, entries);
+    }
+
+    private static Header sameVersion(Header header, List<HeaderEntry> entries) {
+        if (header.version == HEADER_V1) return new Header(header.lineage, header.lastId, entries);
+        if (header.version == HEADER_V2) return Header.newV2(header.lineage, header.lastId, entries);
+        throw new IllegalStateException("header version without a writer");
+    }
+
     /** Exact retirement reconciliation only, never a general absence-is-free test. */
     boolean confirmReleasedSlot(Header expected, int appId) {
         if (headerEntry(expected, appId) != null || !absent(slotDirectory(appId))
@@ -1292,13 +1388,49 @@ final class NativeIdentityStore {
      */
     boolean updateExistingSlot(Slot expected, Slot next) {
         Objects.requireNonNull(expected); Objects.requireNonNull(next);
-        return writeExistingSlot(expected, next, false);
+        return writeExistingSlot(expected, next, false, false);
     }
 
-    // The checked writer of an existing slot, shared by the generic update and the named
-    // transitions. A transition passes true for the one lifecycle its own rule computed; the
-    // generic update passes false.
-    private boolean writeExistingSlot(Slot expected, Slot next, boolean transition) {
+    /**
+     * The release engine's user drop, its only one: the expected slot's one account, of principal
+     * ID id, leaves the slot, which becomes its tombstone at the next generation with this release
+     * ticket. The account must be RETIRED with a known inventory, every obligation discharged and
+     * no suspension entry, the ticket must name its principal ID, user and serial, and the selected
+     * valid header must list the app ID LIVE: a CREATING entry completes to LIVE first, or the
+     * tombstone would strand. Otherwise it refuses before any effect, and so it does beside any
+     * store footprint, when expected is not the fresh durable value and under a format whose slot
+     * ceiling is 1.
+     */
+    boolean dropReleasedUser(Slot expected, long id, ReleaseTicket ticket) {
+        Objects.requireNonNull(expected); Objects.requireNonNull(ticket);
+        UserEntry user = user(expected, id);
+        if (format.slotCeiling < LIFECYCLE_SLOT_VERSION || user == null || expected.users.size() != 1
+                || !releasable(user.lifecycle) || ticket.lastId != user.id
+                || ticket.userId != user.userId || ticket.userSerial != user.userSerial
+                || expected.generation == Long.MAX_VALUE) return false;
+        return writeExistingSlot(expected, new Slot(expected.lineage, expected.appId,
+                expected.packageName, expected.generation + 1, expected.signerSha256, List.of(),
+                ticket), false, true);
+    }
+
+    /**
+     * Whether release may drop this account: RETIRED with a known inventory, every obligation
+     * DISCHARGED and no suspension entry. A kind orphaned with its Android user blocks it until
+     * stage C defines its discharge.
+     */
+    static boolean releasable(Lifecycle lifecycle) {
+        if (lifecycle.state != LifecycleState.RETIRED || !lifecycle.suspensions.isEmpty()
+                || lifecycle.retirement == null || lifecycle.retirement.obligations.isEmpty()) return false;
+        for (Obligation duty : lifecycle.retirement.obligations) {
+            if (duty.state != ObligationState.DISCHARGED) return false;
+        }
+        return true;
+    }
+
+    // The checked writer of an existing slot, shared by the generic update, the named transitions
+    // and the release engine's drop. A transition passes true for the one lifecycle its own rule
+    // computed; the generic update passes false. Only dropReleasedUser passes drop.
+    private boolean writeExistingSlot(Slot expected, Slot next, boolean transition, boolean drop) {
         if (expected.version > format.slotCeiling || next.version > format.slotCeiling) return false;
         if (writeInspectionBlocked(next.appId)) return false;
         Loaded loaded = load();
@@ -1308,6 +1440,8 @@ final class NativeIdentityStore {
                 || read == null || read.status != Status.VALID) return false;
         HeaderEntry index = loaded.header.value == null ? null : headerEntry(loaded.header.value, next.appId);
         if (index != null && index.phase == SlotPhase.RELEASING && !next.users.isEmpty()) return false;
+        if (drop && (loaded.header.status != Status.VALID || index == null
+                || index.phase != SlotPhase.LIVE)) return false;
         for (Header copy : loaded.header.decodedCopies) {
             HeaderEntry known = headerEntry(copy, next.appId);
             if (known != null && known.phase == SlotPhase.CREATING
@@ -1333,7 +1467,7 @@ final class NativeIdentityStore {
                 }
                 if (!retained && !prior.retiring) return false;
             }
-        } else if (!lifecyclesKept(expected, next, transition)) {
+        } else if (!lifecyclesKept(expected, next, transition, drop)) {
             return false;
         }
         // User additions need their own durable issuance proof. The first
@@ -1353,13 +1487,18 @@ final class NativeIdentityStore {
     // records. Every user keeps its identity: its principal ID, Android user and serial. A
     // tombstone keeps its release ticket, which only the release engine writes. The generic update
     // keeps every lifecycle, and a named transition changes at most the one lifecycle its rule
-    // computed.
-    private static boolean lifecyclesKept(Slot expected, Slot next, boolean transition) {
+    // computed. Only the release engine's drop turns the one releasable account into its ticketed
+    // tombstone.
+    private static boolean lifecyclesKept(Slot expected, Slot next, boolean transition, boolean drop) {
+        if (drop) {
+            return expected.users.size() == 1 && expected.ticket == null && next.users.isEmpty()
+                    && next.ticket != null && releasable(expected.users.get(0).lifecycle);
+        }
         if (!Objects.equals(expected.ticket, next.ticket)) return false;
         int changed = 0;
         for (UserEntry prior : expected.users) {
             UserEntry current = user(next, prior.id);
-            // No user leaves: only the release engine will drop one, RETIRED with every
+            // No user leaves: only the release engine's drop does, RETIRED with every
             // obligation discharged and no suspension entry.
             if (current == null) return false;
             if (current.userId != prior.userId
@@ -1478,10 +1617,11 @@ final class NativeIdentityStore {
      * <p>It needs the selected valid header of the account's lineage, whose counter covers the
      * principal ID, with a LIVE entry for the app ID or the account's own CREATING entry, the slot
      * directory and at least one present copy. It refuses before any effect beside any store
-     * footprint, under a RELEASING entry, beside a copy of another lineage, account or package or a
-     * tombstone, beside two different intact copies of the highest generation, when the account
-     * has no free place for a recovery hold, at the last generation and under a format whose slot
-     * ceiling is 1, because a recovery hold needs version 2. Unlike every other slot writer it
+     * footprint, under a RELEASING entry or beside a header copy that lists the app ID RELEASING,
+     * beside a copy of another lineage, account or package or a tombstone, beside two different
+     * intact copies of the highest generation, when the account has no free place for a recovery
+     * hold, at the last generation and under a format whose slot ceiling is 1, because a recovery
+     * hold needs version 2. Unlike every other slot writer it
      * replaces a damaged or older preferred backup, after the last known state was chosen from
      * every intact copy, so it also restores a record that no checked writer can write.
      */
@@ -1496,6 +1636,12 @@ final class NativeIdentityStore {
                 || read == null || read.status == Status.MISSING || read.unavailable
                 || !directory(slotDirectory(account.appId))) return false;
         HeaderEntry index = headerEntry(expected, account.appId);
+        // Nor beside any decoded header copy that lists it RELEASING, as an interrupted release's
+        // phase change leaves one: the record would read as a conflict.
+        for (Header copy : loaded.header.decodedCopies) {
+            HeaderEntry listed = headerEntry(copy, account.appId);
+            if (listed != null && listed.phase == SlotPhase.RELEASING) return false;
+        }
         // The header stays as found, and a releasing entry never regains a user.
         if (index == null || index.phase == SlotPhase.RELEASING
                 || (index.phase == SlotPhase.CREATING && !matchesCreation(account, expected, index))
@@ -1594,7 +1740,7 @@ final class NativeIdentityStore {
                     : new UserEntry(each.id, each.userId, each.userSerial, next));
         }
         return writeExistingSlot(expected, new Slot(expected.lineage, expected.appId,
-                expected.packageName, expected.generation + 1, expected.signerSha256, users), true);
+                expected.packageName, expected.generation + 1, expected.signerSha256, users), true, false);
     }
 
     private static UserEntry user(Slot slot, long id) {
@@ -1970,6 +2116,9 @@ final class NativeIdentityStore {
                         || !bindingHolds(old, slot.value)) return false;
             } else if (old.phase == SlotPhase.LIVE && changed.phase == SlotPhase.RELEASING) {
                 if (!slot.value.users.isEmpty()) return false;
+                // Under a format that writes lifecycle records, only the release engine's ticketed
+                // tombstone becomes RELEASING.
+                if (format.slotCeiling >= LIFECYCLE_SLOT_VERSION && slot.value.ticket == null) return false;
                 // The caller's exact account retirement owns the work/API/key/
                 // data evidence. A tombstone is not independently that proof.
             } else return false;

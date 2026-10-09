@@ -458,15 +458,17 @@ HARNESS_LABELS = (
      ' version 2 slot writes, which B1 builds but does not ship'),
     ('production', 'scripts/proof/native_lifecycle_record.py',
      ('NativeLifecycleStoreTest', 'NativeLifecycleTransactionTest'),
-     'the Format.V2 refusals of every lifecycle store transition and transaction, disposition and Restore'
-     ' included, before any effect, and the version 1 marker and release that still work there'),
+     'the Format.V2 refusals of every lifecycle store transition and transaction, disposition, Restore and the'
+     ' release engine with its store primitives included, before any effect, and the version 1 marker and release'
+     ' that still work there'),
     ('legacy', 'scripts/proof/native_lifecycle_record.py',
      ('NativeLifecycleStoreTest', 'NativeLifecycleTransactionTest'), 'the same refusals and controls under Format.V1'),
     ('new-format', 'scripts/proof/native_lifecycle_record.py',
      ('NativeLifecycleStoreTest', 'NativeLifecycleTransactionTest', 'NativeLifecycleFaultTest'),
-     'the Format.V3 lifecycle store transitions and transactions, the boot facts, disposition in a retired boot'
-     ' and Restore, their writer rules and refusals, and the fault sweeps of every transaction at each writer'
-     ' step, which B1 builds but does not ship'),
+     'the Format.V3 lifecycle store transitions and transactions, the boot facts, disposition in a retired boot,'
+     ' Restore and the gated release engine with its continuation from durable state, their writer rules and'
+     ' refusals, and the fault sweeps of every transaction at each writer step, which B1 builds but does not'
+     ' ship'),
     ('production', 'scripts/proof/tests/test_native_identity_persistence.py', ('NativePrincipalRecoveryTest',),
      'the recovery view, which constructs no store'),
     ('legacy', 'scripts/proof/tests/test_native_identity_persistence.py', ('NativeIdentityPersistenceTest',),

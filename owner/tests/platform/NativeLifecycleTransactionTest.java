@@ -7,6 +7,7 @@ import android.system.Os;
 import com.android.server.pm.NativeIdentityPersistence.SuspensionResult;
 import com.android.server.pm.NativeIdentityRecords.ActorClass;
 import com.android.server.pm.NativeIdentityRecords.Header;
+import com.android.server.pm.NativeIdentityRecords.HeaderEntry;
 import com.android.server.pm.NativeIdentityRecords.Lifecycle;
 import com.android.server.pm.NativeIdentityRecords.LifecycleState;
 import com.android.server.pm.NativeIdentityRecords.Obligation;
@@ -20,7 +21,11 @@ import com.android.server.pm.NativeIdentityRecords.UserEntry;
 import com.android.server.pm.NativeIdentityStore.Format;
 import com.android.server.pm.NativeIdentityStore.History;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -37,10 +42,12 @@ import java.util.Set;
  * markRetired with one receipt per retirement kind; the writer rules as invalid requests;
  * publication refusing a suspended binding before the header changes; the version 1 marker and
  * release refusing before any effect; the boot facts of one durable read; beginDisposition and
- * confirmDisposition only in a boot that began with the account RETIRED; and restore, whose hold
- * keeps the restored record from becoming active directly. Under Format.V1 and V2 every lifecycle
- * transaction refuses before any effect, and the version 1 marker and release still work. Host
- * files only, not Android persistence.
+ * confirmDisposition only in a boot that began with the account RETIRED; restore, whose hold
+ * keeps the restored record from becoming active directly; and the gated release engine, which
+ * starts only in a retired boot and continues only from durable state, in a boot that began with
+ * its ticketed tombstone or with its RELEASING entry and no directory. Under Format.V1 and V2 every
+ * lifecycle transaction refuses before any effect, and the version 1 marker and release still work.
+ * Host files only, not Android persistence.
  */
 public final class NativeLifecycleTransactionTest {
     private static final Slot ELIGIBLE = slotA(1, Lifecycle.version1(false));
@@ -478,6 +485,16 @@ public final class NativeLifecycleTransactionTest {
                 new NativeIdentityRecords.ReleaseTicket(id, 0, SERIAL, "5".repeat(31) + id));
     }
 
+    // This header's intact frame relabeled version 3, above every format's header ceiling.
+    private static byte[] newer(Header header) throws Exception {
+        byte[] bytes = NativeIdentityRecords.encodeHeader(header);
+        bytes[6] = 3;
+        bytes[7] = 0;
+        byte[] digest = MessageDigest.getInstance("SHA-256").digest(Arrays.copyOf(bytes, bytes.length - 32));
+        System.arraycopy(digest, 0, bytes, bytes.length - 32, 32);
+        return bytes;
+    }
+
     private static NativeIdentityRecords.HeaderEntry releasing(int appId) {
         return new NativeIdentityRecords.HeaderEntry(appId, NativeIdentityRecords.SlotPhase.RELEASING, 0, "");
     }
@@ -520,6 +537,45 @@ public final class NativeLifecycleTransactionTest {
             raw(damaged, A, NativeIdentityRecords.encodeSlot(slotA(3, retired(retiredBlock()))), new byte[] {1});
             Files.write(damaged.resolve("slots/" + A + "/record.bin-backup"), new byte[] {2});
             check(problems, facts(damaged).retired.isEmpty(), "damage gave a fact");
+        });
+        run("V3 / the boot facts give no fact beside a newer header", problems -> {
+            Header held = header(7, live(A), live(C));
+            Path root = store(held);
+            slot(root, slotA(3, retired(retiredBlock())));
+            slot(root, tombstone(C, "dev.andrix.lifecyclec", 3, 4));
+            check(problems, facts(root).retired.size() == 1 && facts(root).ticketedTombstones.size() == 1,
+                    "the control gave no facts");
+            // An intact header copy above the format's ceiling withdraws every binding and fact.
+            Files.write(root.resolve("store.bin"), newer(held));
+            NativeIdentityPersistence.BootFacts facts = facts(root);
+            check(problems, load(root, V3).header.status == NativeIdentityStore.Status.UNSUPPORTED,
+                    "the header read " + load(root, V3).header.status);
+            check(problems, facts.retired.isEmpty() && facts.ticketedTombstones.isEmpty()
+                    && facts.releasingWithoutDirectory.isEmpty(), "facts " + facts.retired + " "
+                    + facts.ticketedTombstones);
+        });
+        run("V3 / the boot facts give no fact beside an unreadable header copy", problems -> {
+            Header held = header(7, live(A), live(C));
+            Path root = store(held);
+            slot(root, slotA(3, retired(retiredBlock())));
+            slot(root, tombstone(C, "dev.andrix.lifecyclec", 3, 4));
+            Path backup = Files.write(root.resolve("store.bin-backup"), NativeIdentityRecords.encodeHeader(held));
+            check(problems, facts(root).retired.size() == 1 && facts(root).ticketedTombstones.size() == 1,
+                    "the control gave no facts");
+            // A header copy whose bytes cannot be read may be newer: it withdraws every binding and fact.
+            // Only the fixture's own mode changes, and it is restored even when a check fails.
+            Set<PosixFilePermission> mode = Files.getPosixFilePermissions(backup, LinkOption.NOFOLLOW_LINKS);
+            Files.setPosixFilePermissions(backup, PosixFilePermissions.fromString("---------"));
+            try {
+                NativeIdentityStore.Loaded loaded = load(root, V3);
+                check(problems, loaded.header.unavailable && loaded.enumerationComplete, "the unreadable copy was read");
+                NativeIdentityPersistence.BootFacts facts = NativeIdentityPersistence.bootFacts(loaded);
+                check(problems, facts.retired.isEmpty() && facts.ticketedTombstones.isEmpty()
+                        && facts.releasingWithoutDirectory.isEmpty(), "facts " + facts.retired + " "
+                        + facts.ticketedTombstones);
+            } finally {
+                Files.setPosixFilePermissions(backup, mode);
+            }
         });
         run("V3 / disposition waits for a boot that began with the account RETIRED", problems -> {
             Path root = layout(slotA(2, retiring(byUserRetirement())));
@@ -604,6 +660,8 @@ public final class NativeLifecycleTransactionTest {
                     ObligationState.ORPHANED_WITH_USER, ZERO, 0, 0)))));
             unchanged(problems, orphaned, "an orphaned kind", () -> persistence(orphaned, V3).confirmDisposition(
                     RECORD_A, SIGNERS, disposals(ObligationKind.HOME), facts(orphaned)));
+            unchanged(problems, began, "other signers", () -> persistence(began, V3).confirmDisposition(RECORD_A,
+                    OTHER_SIGNERS, disposals(ObligationKind.HOME), facts(began)));
         });
         run("V3 / confirmDisposition refuses receipts that are not disposal receipts before any effect", problems -> {
             Path root = layout(slotA(4, retired(disposing(retiredBlock()))));
@@ -712,6 +770,250 @@ public final class NativeLifecycleTransactionTest {
             unchanged(problems, releasing, "a RELEASING entry", () -> persistence(releasing, V3).restore(RECORD_A,
                     LINEAGE, SIGNERS, RECOVERY));
         });
+        run("V3 / restore refuses a sibling's reservation or tombstone of its package and a damaged header before any effect",
+                problems -> {
+            byte[] broken = torn(ELIGIBLE);
+            // Another app ID's CREATING entry for A's package, under another creation ID.
+            Path reserved = store(Header.newV2(LINEAGE, ID_B, List.of(live(A), new NativeIdentityRecords.HeaderEntry(B,
+                    NativeIdentityRecords.SlotPhase.CREATING, ID_B, PKG_A,
+                    new NativeIdentityRecords.CreationBinding(0, SERIAL, SIGNERS)))));
+            copies(reserved, broken, broken, null);
+            unchanged(problems, reserved, "a sibling reservation of the package", () -> persistence(reserved, V3)
+                    .restore(RECORD_A, LINEAGE, SIGNERS, RECOVERY));
+            // A valid ticketed tombstone of A's package at another app ID.
+            Path tombstoned = store(header(ID_B, live(A), live(B)));
+            copies(tombstoned, broken, broken, null);
+            slot(tombstoned, tombstone(B, PKG_A, ID_B, 3));
+            unchanged(problems, tombstoned, "a sibling tombstone of the package", () -> persistence(tombstoned, V3)
+                    .restore(RECORD_A, LINEAGE, SIGNERS, RECOVERY));
+            // A tombstone whose ticket names A's principal ID, under another package.
+            Path ticketed = store(header(ID_B, live(A), live(B)));
+            copies(ticketed, broken, broken, null);
+            slot(ticketed, tombstone(B, PKG_B, ID_A, 3));
+            unchanged(problems, ticketed, "a sibling ticket of the principal", () -> persistence(ticketed, V3)
+                    .restore(RECORD_A, LINEAGE, SIGNERS, RECOVERY));
+            Path damaged = damagedHeader();
+            copies(damaged, broken, broken, null);
+            unchanged(problems, damaged, "a damaged header", () -> persistence(damaged, V3).restore(RECORD_A, LINEAGE,
+                    SIGNERS, RECOVERY));
+        });
+    }
+
+    // ------------------------------------------------------------------ release
+
+    private static boolean release(Path root, NativePrincipalPins.Record record, NativeIdentityRecords.ReleaseTicket ticket,
+            Keys keys, NativeIdentityPersistence.BootFacts facts) {
+        return persistence(root, V3).release(record, LINEAGE, SIGNERS, ticket, capability(keys), facts);
+    }
+
+    private static boolean released(Path root, Header before) {
+        Header expected = new Header(LINEAGE, before.lastId, List.of());
+        if (before.version == 2) expected = Header.newV2(LINEAGE, before.lastId, List.of());
+        return releasePhase(root).equals("omitted") && expected.equals(load(root, V3).header.value);
+    }
+
+    private static void releaseCases() {
+        run("V3 / release clears the key namespace, then writes the ticketed tombstone, RELEASING and the omission",
+                problems -> {
+            Path root = layout(releasableA());
+            NativeIdentityPersistence.BootFacts facts = facts(root);
+            Keys keys = new Keys();
+            List<String> seen = new ArrayList<>();
+            keys.observe = () -> seen.add(releasePhase(root));
+            check(problems, release(root, RECORD_A, TICKET_A, keys, facts), "refused");
+            check(problems, keys.cleared.equals(List.of(A)) && seen.equals(List.of("retired")),
+                    "keys " + keys.cleared + " at " + seen);
+            check(problems, released(root, header(ID_A, live(A))), "left " + releasePhase(root));
+            // A lost reply in the same boot: the durable omission is confirmed, never written again.
+            keys.cleared.clear();
+            check(problems, release(root, RECORD_A, TICKET_A, keys, facts) && keys.cleared.isEmpty(),
+                    "the omission was not confirmed");
+            // A later boot has no fact of the account, so nothing is confirmed there.
+            unchanged(problems, root, "a confirmation without facts", () -> release(root, RECORD_A, TICKET_A,
+                    new Keys(), facts(root)));
+        });
+        run("V3 / release completes a CREATING entry to LIVE before the key namespace and the tombstone", problems -> {
+            Path root = store(creatingA());
+            slot(root, releasableA());
+            NativeIdentityPersistence.BootFacts facts = facts(root);
+            Keys keys = new Keys();
+            List<String> seen = new ArrayList<>();
+            keys.observe = () -> seen.add(load(root, V3).header.value.entries.get(0).phase + " " + releasePhase(root));
+            check(problems, facts.retiredBoot(RECORD_A), "no retired boot");
+            check(problems, release(root, RECORD_A, TICKET_A, keys, facts), "refused");
+            check(problems, seen.equals(List.of("LIVE retired")), "the keys were cleared at " + seen);
+            check(problems, released(root, creatingA()), "left " + releasePhase(root));
+        });
+        run("V3 / release refuses outside a retired boot before any effect", problems -> {
+            Path root = layout(releasableA());
+            // No account, and the boot in which the account became RETIRED.
+            Path retiring = layout(slotA(2, retiring(byUserRetirement())));
+            Path otherSerial = layout(new Slot(LINEAGE, A, PKG_A, 3, SIGNERS, List.of(new UserEntry(ID_A, 0, SERIAL + 1,
+                    retired(allDischarged(byUserRetirement()))))));
+            for (NativeIdentityPersistence.BootFacts facts : List.of(facts(store(header(0))), facts(retiring),
+                    facts(otherSerial))) {
+                Keys keys = new Keys();
+                unchanged(problems, root, "outside a retired boot", () -> release(root, RECORD_A, TICKET_A, keys, facts));
+                check(problems, keys.cleared.isEmpty(), "the keys were cleared outside a retired boot");
+            }
+        });
+        run("V3 / release refuses beside a suspension entry or an open obligation before any effect", problems -> {
+            Retirement done = allDischarged(byUserRetirement());
+            List<Slot> blocked = new ArrayList<>(List.of(slotA(3, retired(done, USER)), slotA(3, retired(done, GRANT)),
+                    slotA(3, retired(retiredBlock())), slotA(4, retired(disposing(retiredBlock()))),
+                    slotA(3, retired(with(done, obligation(ObligationKind.HOME, ObligationState.ORPHANED_WITH_USER,
+                            ZERO, 0, 0)))),
+                    slotA(3, retired(with(done, obligation(ObligationKind.DATA_CE, ObligationState.DISPOSING,
+                            ZERO, 0, 0)))),
+                    slotA(2, retiring(byUserRetirement()))));
+            for (Slot durable : blocked) {
+                Path root = layout(durable);
+                Keys keys = new Keys();
+                NativeIdentityPersistence.BootFacts facts = facts(root);
+                unchanged(problems, root, "release of " + durable, () -> release(root, RECORD_A, TICKET_A, keys, facts));
+                check(problems, keys.cleared.isEmpty(), "the keys were cleared for " + durable);
+            }
+            Path other = layout(releasableA());
+            unchanged(problems, other, "other signers", () -> persistence(other, V3).release(RECORD_A, LINEAGE,
+                    OTHER_SIGNERS, TICKET_A, capability(new Keys()), facts(other)));
+        });
+        run("V3 / release refuses tickets of another principal and unchecked users before any effect", problems -> {
+            Path root = layout(releasableA());
+            NativeIdentityPersistence.BootFacts facts = facts(root);
+            String id = TICKET_A.ticketId;
+            // User 134217728 times the per user range wraps to user 0's UID in int arithmetic.
+            for (NativeIdentityRecords.ReleaseTicket ticket : List.of(
+                    new NativeIdentityRecords.ReleaseTicket(ID_B, 0, SERIAL, id),
+                    new NativeIdentityRecords.ReleaseTicket(ID_A, 0, SERIAL + 1, id),
+                    new NativeIdentityRecords.ReleaseTicket(ID_A, 10, SERIAL, id),
+                    new NativeIdentityRecords.ReleaseTicket(ID_A, 134_217_728, SERIAL, id),
+                    new NativeIdentityRecords.ReleaseTicket(ID_A, Integer.MAX_VALUE, SERIAL, id))) {
+                Keys keys = new Keys();
+                invalid(problems, root, "a ticket " + ticket, () -> release(root, RECORD_A, ticket, keys, facts));
+                check(problems, keys.cleared.isEmpty(), "the keys were cleared for " + ticket);
+            }
+            check(problems, NativeIdentityPersistence.ticketUid(new NativeIdentityRecords.ReleaseTicket(ID_A, 134_217_728,
+                    SERIAL, id), A) == -1 && NativeIdentityPersistence.ticketUid(TICKET_A, A) == A, "ticket UIDs");
+        });
+        run("V3 / release refuses beside a foreign copy or another ticket's tombstone before any effect", problems -> {
+            NativeIdentityRecords.ReleaseTicket other = new NativeIdentityRecords.ReleaseTicket(ID_A, 0, SERIAL,
+                    "8".repeat(32));
+            Slot foreign = new Slot(LINEAGE, A, PKG_A, 3, SIGNERS, List.of(new UserEntry(ID_B, 0, SERIAL,
+                    retired(allDischarged(byUserRetirement())))));
+            Slot otherTombstone = new Slot(LINEAGE, A, PKG_A, 4, SIGNERS, List.of(), other);
+            for (Slot beside : List.of(foreign, otherTombstone)) {
+                // The selected backup is A's releasable binding, and main holds the other copy.
+                Path root = store(header(ID_B, live(A)));
+                copies(root, bytes(beside), null, bytes(releasableA()));
+                NativeIdentityPersistence.BootFacts facts = facts(root);
+                check(problems, facts.retiredBoot(RECORD_A) && releasableA().equals(stored(root, V3)),
+                        "no retired boot beside " + beside);
+                Keys keys = new Keys();
+                unchanged(problems, root, "release beside " + beside, () -> release(root, RECORD_A, TICKET_A, keys,
+                        facts));
+                check(problems, keys.cleared.isEmpty(), "the keys were cleared beside " + beside);
+            }
+        });
+        run("V3 / release refuses before any effect when the key namespace is not cleared", problems -> {
+            Path root = layout(releasableA());
+            Keys keys = new Keys();
+            keys.clear = false;
+            unchanged(problems, root, "an uncleared namespace", () -> release(root, RECORD_A, TICKET_A, keys,
+                    facts(root)));
+            check(problems, keys.cleared.equals(List.of(A)), "keys " + keys.cleared);
+        });
+        run("V3 / an interrupted release continues only in a boot that began with its ticketed tombstone", problems -> {
+            for (HeaderEntry entry : List.of(live(A), releasingEntry(A))) {
+                Path root = store(header(ID_A, entry));
+                // The boot that began with the account RETIRED wrote the tombstone, and its reply was lost.
+                NativeIdentityPersistence.BootFacts same = facts(layout(releasableA()));
+                slot(root, tombstoneA());
+                Keys keys = new Keys();
+                unchanged(problems, root, "continuation in the same boot under " + entry.phase,
+                        () -> release(root, RECORD_A, TICKET_A, keys, same));
+                // The next boot began with the ticketed tombstone.
+                NativeIdentityPersistence.BootFacts next = facts(root);
+                check(problems, next.ticketedTombstones.get(A).equals(tombstoneA()), "no tombstone fact");
+                NativeIdentityRecords.ReleaseTicket other = new NativeIdentityRecords.ReleaseTicket(ID_A, 0, SERIAL,
+                        "8".repeat(32));
+                unchanged(problems, root, "another ticket under " + entry.phase, () -> release(root, RECORD_A, other,
+                        new Keys(), next));
+                check(problems, release(root, RECORD_A, TICKET_A, keys, next) && keys.cleared.isEmpty(),
+                        "continuation under " + entry.phase + " refused");
+                check(problems, released(root, header(ID_A, entry)), "left " + releasePhase(root));
+            }
+        });
+        run("V3 / an interrupted release continues from RELEASING without a directory or with an emptied one",
+                problems -> {
+            for (String left : List.of("none", "empty", "seed", "torn seed")) {
+                Path root = store(header(ID_A, releasingEntry(A)));
+                Path directory = root.resolve("slots/" + A);
+                if (!left.equals("none")) Files.createDirectories(directory);
+                if (left.equals("seed")) Files.write(directory.resolve("record.bin-seed"), bytes(tombstoneA()));
+                if (left.equals("torn seed")) Files.write(directory.resolve("record.bin-seed"), new byte[] {1, 2});
+                NativeIdentityPersistence.BootFacts facts = facts(root);
+                check(problems, facts.releasingWithoutDirectory.equals(Set.of(A)), left + " gave no fact");
+                // The same durable state in a boot that began otherwise is not continued.
+                unchanged(problems, root, "continuation without its fact, " + left, () -> release(root, RECORD_A,
+                        TICKET_A, new Keys(), facts(layout(releasableA()))));
+                check(problems, release(root, RECORD_A, TICKET_A, new Keys(), facts), left + " was not continued");
+                check(problems, released(root, header(ID_A, releasingEntry(A))), left + " left " + releasePhase(root));
+            }
+        });
+        run("V3 / continuation passes only the checked removal and omission", problems -> {
+            // An unknown file, or a seed holding the binding, beside a directory that reads as missing.
+            for (String left : List.of("unknown", "binding seed")) {
+                Path root = store(header(ID_A, releasingEntry(A)));
+                Path directory = Files.createDirectories(root.resolve("slots/" + A));
+                if (left.equals("unknown")) Files.write(directory.resolve("other"), new byte[] {1});
+                else Files.write(directory.resolve("record.bin-seed"), bytes(releasableA()));
+                NativeIdentityPersistence.BootFacts facts = facts(root);
+                check(problems, facts.releasingWithoutDirectory.equals(Set.of(A)), left + " gave no fact");
+                check(problems, !release(root, RECORD_A, TICKET_A, new Keys(), facts), left + " was removed");
+                check(problems, Files.isDirectory(directory) && load(root, V3).occupiedAppIds.contains(A),
+                        left + " lost its hold");
+            }
+            // A tombstone copy of another ticket beside this release's own.
+            Path foreign = store(header(ID_A, releasingEntry(A)));
+            NativeIdentityRecords.ReleaseTicket other = new NativeIdentityRecords.ReleaseTicket(ID_A, 0, SERIAL,
+                    "8".repeat(32));
+            raw(foreign, A, bytes(tombstoneA()), bytes(new Slot(LINEAGE, A, PKG_A, 4, SIGNERS, List.of(), other)));
+            unchanged(problems, foreign, "a copy of another ticket", () -> release(foreign, RECORD_A, TICKET_A,
+                    new Keys(), facts(foreign)));
+        });
+        run("V3 / continuation refuses a counter that does not cover the account before any effect", problems -> {
+            // The ticketed tombstone's boot, under a header whose counter is below its principal ID.
+            Path root = store(header(0, live(A)));
+            slot(root, tombstoneA());
+            NativeIdentityPersistence.BootFacts facts = facts(root);
+            check(problems, tombstoneA().equals(facts.ticketedTombstones.get(A)), "no tombstone fact");
+            unchanged(problems, root, "continuation above the counter", () -> release(root, RECORD_A, TICKET_A,
+                    new Keys(), facts));
+        });
+        run("V3 / continuation refuses a live binding of the package elsewhere before any effect", problems -> {
+            // B's two copies disagree, so B is a conflict and gives no evidence to the load, yet each
+            // binds A's package to a user.
+            Path root = store(header(ID_B, live(A), live(B)));
+            slot(root, tombstoneA());
+            raw(root, B, bytes(new Slot(LINEAGE, B, PKG_A, 1, SIGNERS, List.of(new UserEntry(ID_B, 0, SERIAL, false)))),
+                    bytes(new Slot(LINEAGE, B, PKG_A, 2, SIGNERS, List.of(new UserEntry(ID_B, 0, SERIAL, false)))));
+            NativeIdentityPersistence.BootFacts facts = facts(root);
+            check(problems, tombstoneA().equals(facts.ticketedTombstones.get(A))
+                    && load(root, V3).slots.get(B).status == NativeIdentityStore.Status.CONFLICT, "no tombstone fact");
+            unchanged(problems, root, "continuation beside a binding of the package", () -> release(root, RECORD_A,
+                    TICKET_A, new Keys(), facts));
+        });
+        run("V3 / an unticketed tombstone of the version 1 release stays held", problems -> {
+            for (HeaderEntry entry : List.of(live(A), releasingEntry(A))) {
+                Path root = store(header(ID_A, entry));
+                slot(root, new Slot(LINEAGE, A, PKG_A, 4, SIGNERS, List.of()));
+                NativeIdentityPersistence.BootFacts facts = facts(root);
+                check(problems, facts.ticketedTombstones.isEmpty() && facts.releasingWithoutDirectory.isEmpty(),
+                        "the unticketed tombstone gave a fact");
+                unchanged(problems, root, "the unticketed tombstone under " + entry.phase, () -> release(root, RECORD_A,
+                        TICKET_A, new Keys(), facts));
+            }
+        });
     }
 
     // ------------------------------------------------------------------ earlier formats
@@ -746,6 +1048,15 @@ public final class NativeLifecycleTransactionTest {
                 copies(damaged, torn(ELIGIBLE), torn(ELIGIBLE), null);
                 unchanged(problems, damaged, "restore of a damaged record", () -> persistence(damaged, format).restore(
                         RECORD_A, LINEAGE, SIGNERS, RECOVERY));
+                // Facts that show the account RETIRED and its ticketed tombstone, as a lifecycle format boot would.
+                Path ready = layout(releasableA());
+                Keys keys = new Keys();
+                unchanged(problems, ready, "release", () -> persistence(ready, format).release(RECORD_A, LINEAGE, SIGNERS,
+                        TICKET_A, capability(keys), facts(ready)));
+                Path tombstoned = layout(tombstoneA());
+                unchanged(problems, tombstoned, "release from a ticketed tombstone", () -> persistence(tombstoned, format)
+                        .release(RECORD_A, LINEAGE, SIGNERS, TICKET_A, capability(keys), facts(tombstoned)));
+                check(problems, keys.cleared.isEmpty(), "the keys were cleared");
             });
             run(format + " / the version 1 marker and release still work", problems -> {
                 Path root = layout(ELIGIBLE);
@@ -774,6 +1085,7 @@ public final class NativeLifecycleTransactionTest {
         bindingCases();
         bootFactCases();
         restoreCases();
+        releaseCases();
         earlierCases();
         finish(Os.allClosed());
         System.out.println("Lifecycle transactions kept the record's rules and refusals; Android unqualified");

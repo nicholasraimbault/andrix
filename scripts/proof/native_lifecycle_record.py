@@ -4,13 +4,17 @@
 first writers: the slot version 2 codec, the stable prefix reader of later slot versions and the
 reads of every store format, as B1 package P1 of plans/2026-10-08-native-lifecycle-record.md
 defines them, the store's named lifecycle transitions with the suspend, lift, markRetiring and
-markRetired transactions of package P2a, and the boot facts, the deletion or migration step, confirm
-disposal and Restore of package P2b, with their fault sweeps.
+markRetired transactions of package P2a, the boot facts, the deletion or migration step, confirm
+disposal and Restore of package P2b, and the gated release engine of package P2c with its
+capability, its store primitives and its continuation from durable state, with their fault sweeps.
 
 Pure source checks run first. An independent encoder, written here from the plan's layout alone,
 gives every version 2 golden. Each must have the length and SHA-256 that the Java codec test pins,
 and the plan's size arithmetic must hold for it. The mutant anchors, the predictions and the labels
-must agree, and the production format guard of the binding runner must hold. No compiler or JVM
+must agree, and the production format guard of the binding runner must hold. Release stays
+unreachable: no production text constructs the release capability or names it, only the release
+engine's named tests construct it, and no production text calls or references a release entry point
+outside the persistence's release bodies, each rule with its mutants. No compiler or JVM
 starts unless an actual cgroup bounds this process to 2 GiB of memory, no swap, 2 CPUs and 256
 tasks, with core dumps disabled, and a JDK is on PATH. Otherwise the run is NOT_RUN. A guarded run
 rebuilds the candidate Settings from the pinned framework copies, runs the codec test and compares
@@ -326,6 +330,12 @@ STORE_NAMES = (
     'V3 / restore refuses a RELEASING or missing entry, a stale header, a footprint and a missing body before any'
     ' effect',
     'V3 / restore keeps a held recovery hold and confirms its own retry',
+    # P2c: Restore beside a RELEASING header copy, and the release engine's primitives.
+    'V3 / restore refuses beside a header copy that lists the account RELEASING',
+    'V3 / the user drop writes the ticketed tombstone of a releasable account only',
+    "V3 / RELEASING needs the release engine's ticketed tombstone",
+    "V3 / a ticket's principal ID is sibling, claim and counter evidence",
+    'V3 / the generic header write never turns an entry RELEASING or omits one',
     *('%s / every transition refuses before any effect' % format_name for format_name in ('V1', 'V2')))
 # The lifecycle transaction test: the persistence transactions under Format.V3, then each earlier
 # format's refusals and its version 1 marker and release.
@@ -369,6 +379,24 @@ TRANSACTION_NAMES = (
     'V3 / a restored record never becomes active directly',
     'V3 / restore refuses requests no writer writes before any effect',
     'V3 / restore refuses another claim, lineage or counter and a missing body before any effect',
+    # P2c: Restore's claims, the boot facts beside a header the format cannot read, and the gated
+    # release engine.
+    'V3 / the boot facts give no fact beside a newer header',
+    'V3 / the boot facts give no fact beside an unreadable header copy',
+    "V3 / restore refuses a sibling's reservation or tombstone of its package and a damaged header before any effect",
+    'V3 / release clears the key namespace, then writes the ticketed tombstone, RELEASING and the omission',
+    'V3 / release completes a CREATING entry to LIVE before the key namespace and the tombstone',
+    'V3 / release refuses outside a retired boot before any effect',
+    'V3 / release refuses beside a suspension entry or an open obligation before any effect',
+    'V3 / release refuses tickets of another principal and unchecked users before any effect',
+    "V3 / release refuses beside a foreign copy or another ticket's tombstone before any effect",
+    'V3 / release refuses before any effect when the key namespace is not cleared',
+    'V3 / an interrupted release continues only in a boot that began with its ticketed tombstone',
+    'V3 / an interrupted release continues from RELEASING without a directory or with an emptied one',
+    'V3 / continuation passes only the checked removal and omission',
+    'V3 / continuation refuses a counter that does not cover the account before any effect',
+    'V3 / continuation refuses a live binding of the package elsewhere before any effect',
+    'V3 / an unticketed tombstone of the version 1 release stays held',
     *('%s / %s' % (format_name, case) for format_name in ('V1', 'V2')
       for case in ('every lifecycle transaction refuses before any effect',
                    'the version 1 marker and release still work')))
@@ -376,7 +404,10 @@ TRANSACTION_NAMES = (
 FAULT_STEPS = ('seed-synced', 'backup-renamed', 'backup-published', 'write-started', 'main-synced',
                'reserve-synced', 'backup-unlink', 'backup-unlinked')
 FAULT_KINDS = ('suspend', 'repeated suspension', 'lift', 'markRetiring', 'legacy continuation', 'markRetired',
-               'beginDisposition', 'confirmDisposition', 'restore', 'restore without an intact copy')
+               'beginDisposition', 'confirmDisposition', 'restore', 'restore without an intact copy',
+               'release tombstone', 'release tombstone confirmation', 'release RELEASING',
+               'release RELEASING confirmation', 'release omission', 'release completion confirmation',
+               'release completion')
 FAULT_NAMES = tuple('%s / %s' % (kind, step) for kind in FAULT_KINDS for step in FAULT_STEPS)
 
 # ---------------------------------------------------------------- deliberate defects
@@ -849,13 +880,135 @@ MUTANTS = {
         '            if (copy.generation == last.generation && !copy.equals(last)) return null;\n', ''),), ('store',)),
     'restore-past-allotment': (((STORE, '        if (!placeFree(prior, ActorClass.RECOVERY_HOLD)) return null;\n', ''),),
                                ('store',)),
+    # Both refusals of RELEASING: in any decoded header copy, and the selected entry's own phase, which
+    # the first already covers. The copy loop alone is restore-beside-a-releasing-copy.
     'restore-under-releasing': (((STORE,
-        '        if (index == null || index.phase == SlotPhase.RELEASING\n',
-        '        if (index == null\n'),), ('store', 'transactions')),
+        '        for (Header copy : loaded.header.decodedCopies) {\n'
+        '            HeaderEntry listed = headerEntry(copy, account.appId);\n'
+        '            if (listed != null && listed.phase == SlotPhase.RELEASING) return false;\n        }\n', ''),
+        (STORE, '        if (index == null || index.phase == SlotPhase.RELEASING\n', '        if (index == null\n')),
+        ('store', 'transactions')),
     'restore-above-counter': (((STORE, '                || account.users.get(0).id > expected.lastId) return false;\n',
                                 '                ) return false;\n'),), ('store', 'transactions')),
-    'restore-beside-a-claim': (((PERSISTENCE, '        if (liveElsewhere(loaded, record)) return false;\n', ''),),
+    'restore-beside-a-claim': (((PERSISTENCE, '        if (claimedElsewhere(loaded, record)) return false;\n', ''),),
                                ('transactions',)),
+    # P2c, Restore: the release's narrower claim check, which skips tombstones and matches a
+    # reservation only by principal ID, and the selected header's phase alone.
+    'restore-claim-as-release': (((PERSISTENCE, '        if (claimedElsewhere(loaded, record)) return false;\n',
+                                   '        if (liveElsewhere(loaded, record)) return false;\n'),), ('transactions',)),
+    'restore-beside-a-releasing-copy': (((STORE,
+        '        for (Header copy : loaded.header.decodedCopies) {\n'
+        '            HeaderEntry listed = headerEntry(copy, account.appId);\n'
+        '            if (listed != null && listed.phase == SlotPhase.RELEASING) return false;\n        }\n', ''),),
+        ('store',)),
+    'disposal-signers-unchecked': (((PERSISTENCE,
+        '        if (slot == null || !slot.signerSha256.equals(signers)) return false;\n'
+        '        Lifecycle lifecycle = slot.users.get(0).lifecycle;\n'
+        '        if (lifecycle.state == LifecycleState.RETIRED\n'
+        '                && lifecycle.retirement.obligations.containsAll(copy)) {\n',
+        '        if (slot == null) return false;\n'
+        '        Lifecycle lifecycle = slot.users.get(0).lifecycle;\n'
+        '        if (lifecycle.state == LifecycleState.RETIRED\n'
+        '                && lifecycle.retirement.obligations.containsAll(copy)) {\n'),), ('transactions',)),
+    # The boot facts beside a header copy above the format's ceiling or one that cannot be read: a
+    # tombstone fact, or a RETIRED fact taken from a VALID slot without an eligible binding.
+    'boot-facts-beside-newer-header': (((PERSISTENCE,
+        '                    && loaded.header.status != NativeIdentityStore.Status.UNSUPPORTED\n', ''),),
+        ('transactions',)),
+    'boot-facts-beside-unreadable-header': (((PERSISTENCE,
+        '                    && !loaded.header.unavailable && read.value.users.isEmpty()\n',
+        '                    && read.value.users.isEmpty()\n'),), ('transactions',)),
+    'boot-facts-retired-without-binding': (((PERSISTENCE,
+        '            if (loaded.bindingUsable(appId) && read.value.users.size() == 1) {\n',
+        '            if (read.status == NativeIdentityStore.Status.VALID && read.value.users.size() == 1) {\n'),),
+        ('transactions',)),
+    # P2c, the gated release engine: when it may start, its order, its continuation and its store rules.
+    'release-outside-retired-boot': (((PERSISTENCE,
+        '        if (!retiredBoot && !tombstoneBoot && !emptiedBoot) return false;\n', ''),
+        (PERSISTENCE, '        if (!retiredBoot || !loaded.bindingUsable(appId) || !boundTo(slot, record)\n',
+         '        if (!loaded.bindingUsable(appId) || !boundTo(slot, record)\n')), ('transactions',)),
+    'release-beside-a-suspension': (((STORE,
+        '        if (lifecycle.state != LifecycleState.RETIRED || !lifecycle.suspensions.isEmpty()\n',
+        '        if (lifecycle.state != LifecycleState.RETIRED\n'),), ('store', 'transactions')),
+    'release-with-an-open-obligation': (((STORE,
+        '            if (duty.state != ObligationState.DISCHARGED) return false;\n',
+        '            if (duty.state == ObligationState.OUTSTANDING) return false;\n'),), ('store', 'transactions')),
+    # A step out of order: the tombstone before the key namespace, or the key namespace before a
+    # CREATING entry completes.
+    'release-tombstone-before-key-clear': (((PERSISTENCE,
+        '        if (!capability.keys.clear(uid)) return false;\n'
+        '        return store.dropReleasedUser(slot, record.id, ticket)\n'
+        '                && store.markSlotReleasing(live, appId)\n',
+        '        if (!store.dropReleasedUser(slot, record.id, ticket) || !capability.keys.clear(uid)) return false;\n'
+        '        return store.markSlotReleasing(live, appId)\n'),), ('transactions',)),
+    'release-keys-before-creating-completes': (((PERSISTENCE,
+        '        if (entry.phase == SlotPhase.CREATING && !store.writeHeader(header, live)) return false;\n'
+        '        if (!capability.keys.clear(uid)) return false;\n',
+        '        if (!capability.keys.clear(uid)) return false;\n'
+        '        if (entry.phase == SlotPhase.CREATING && !store.writeHeader(header, live)) return false;\n'),),
+        ('transactions',)),
+    'release-skips-key-clear': (((PERSISTENCE, '        if (!capability.keys.clear(uid)) return false;\n', ''),),
+                                ('transactions',)),
+    'release-before-creating-completes': (((PERSISTENCE,
+        '        if (entry.phase == SlotPhase.CREATING && !store.writeHeader(header, live)) return false;\n', ''),),
+        ('transactions',)),
+    # Continuation from memory: the boot that wrote the tombstone continues it, without the next boot's
+    # facts.
+    'release-continues-from-memory': (((PERSISTENCE,
+        '            if (!tombstoneBoot || entry.phase != SlotPhase.LIVE) return false;\n',
+        '            if (entry.phase != SlotPhase.LIVE) return false;\n'),
+        (PERSISTENCE, '            if (!tombstoneBoot && !emptiedBoot) return false;\n', '')), ('transactions', 'faults')),
+    # Every remaining copy is this account's binding or its tombstone with this ticket.
+    'release-copies-unchecked': (((PERSISTENCE,
+        '        for (Slot copy : read.decodedCopies) {\n'
+        '            if (!releaseCopy(copy, record, expectedLineage, signers, ticket)) return false;\n'
+        '        }\n', ''),), ('transactions',)),
+    # During a continuation the counter and the sibling check are the only guards.
+    'continuation-above-counter': (((PERSISTENCE, '        if (header.lastId < record.id) return false;\n', ''),),
+                                   ('transactions',)),
+    'continuation-beside-a-live-binding': (((PERSISTENCE,
+        '        if (liveElsewhere(loaded, record)) return false;\n', ''),), ('transactions',)),
+    'continuation-ticket-unchecked': (((PERSISTENCE,
+        '                && (copy.users.isEmpty() ? ticket.equals(copy.ticket)\n',
+        '                && (copy.users.isEmpty() ? copy.ticket != null\n'),), ('transactions',)),
+    # User 134217728 wraps to user 0's UID in int arithmetic.
+    'ticket-uid-unchecked': (((PERSISTENCE,
+        '        long uid = (long) ticket.userId * PER_USER_RANGE + appId;\n'
+        '        return uid > Integer.MAX_VALUE ? -1 : (int) uid;\n',
+        '        return ticket.userId * PER_USER_RANGE + appId;\n'),), ('transactions',)),
+    'removal-of-unknown-files': (((STORE,
+        '                if (!allowed.contains(file.getName()) || node(file) != Node.FILE) return false;\n',
+        '                if (node(file) != Node.FILE) return false;\n'),), ('transactions',)),
+    'releasing-without-ticket-under-v3': (((STORE,
+        '                if (format.slotCeiling >= LIFECYCLE_SLOT_VERSION && slot.value.ticket == null) return false;\n',
+        ''),), ('store',)),
+    'generic-header-write-releases': (((STORE,
+        '        if (format.slotCeiling >= LIFECYCLE_SLOT_VERSION && releases(expected, next)) return false;\n', ''),),
+        ('store',)),
+    # The generic update takes the release engine's drop.
+    'generic-update-is-the-drop': (((STORE, '        return writeExistingSlot(expected, next, false, false);\n',
+                                     '        return writeExistingSlot(expected, next, false, true);\n'),), ('store',)),
+    # P2c, tickets: a ticket's principal ID as sibling evidence, in a valid tombstone and in an
+    # unsupported record's decoded copy, as a reservation's claim, and for the counter bound.
+    'ticket-not-sibling-evidence': (((STORE,
+        '                    previous = incarnations.putIfAbsent(slot.ticket.lastId, entry.getKey());\n',
+        '                    previous = null;\n'),), ('store',)),
+    'unsupported-ticket-not-evidence': (((STORE,
+        '                    if (copy.ticket != null) incarnations.putIfAbsent(copy.ticket.lastId, entry.getKey());\n',
+        ''),), ('store',)),
+    'ticket-not-claimed': (((STORE,
+        '                if (claim.ticket != null && claim.ticket.lastId == creation.creationId) return true;\n', ''),),
+        ('store',)),
+    'ticket-above-counter-ignored': (((STORE,
+        '        return copy.ticket != null && copy.ticket.lastId > counter;\n', '        return false;\n'),),
+        ('store',)),
+    'release-primitives-under-earlier-formats': (((STORE,
+        '        if (format.slotCeiling < LIFECYCLE_SLOT_VERSION || entry == null\n'
+        '                || entry.phase != SlotPhase.LIVE) return false;\n',
+        '        if (entry == null\n                || entry.phase != SlotPhase.LIVE) return false;\n'),
+        (STORE, '        if (format.slotCeiling < LIFECYCLE_SLOT_VERSION || entry == null\n'
+                '                || entry.phase != SlotPhase.RELEASING) return false;\n',
+         '        if (entry == null\n                || entry.phase != SlotPhase.RELEASING) return false;\n')), ('store',)),
     'recovery-hold-request-unchecked': (((PERSISTENCE,
         '        if (!NativeIdentityStore.writableRecoveryHold(hold)) {\n'
         '            throw new IllegalArgumentException("recovery hold outside the writer rules");\n'
@@ -885,6 +1038,217 @@ MUTANTS = {
         (STORE, '        if (next == null || next.version > format.slotCeiling) return false;\n',
          '        if (next == null) return false;\n')), ('store', 'transactions')),
 }
+
+
+# ---------------------------------------------------------------- release stays unreachable
+
+# The release capability. Every class lives in one Java package, so access rules cannot stop its
+# construction. No production text constructs it, references its constructor, takes its class
+# literal or names it in a string. Among every other Java text only the release engine's named
+# tests construct it.
+CAPABILITY_USES = (('construction', r'\bnew\s+(?:[\w$]+\s*\.\s*)*ReleaseCapability\s*\('),
+                   ('constructor reference', r'\bReleaseCapability\s*::\s*new\b'),
+                   ('class literal', r'\bReleaseCapability\s*\.\s*class\b'),
+                   ('name string', r'"(?:[^"\\\n]|\\.)*ReleaseCapability(?:[^"\\\n]|\\.)*"'))
+CAPABILITY_TESTS = tuple(PLATFORM + name + '.java' for name in (SUPPORT, TRANSACTION_TEST, FAULT_TEST))
+# The release entry points: the persistence release and the store primitives that only release uses,
+# which remove a releasing slot, confirm a released slot, write RELEASING, write the omission and drop
+# a user. No production text calls or references one outside the release bodies of the persistence:
+# the release engine, and the version 1 release finishRetirement until P6 retires it. The manager's
+# releaseUid, the pins' finishRelease and Settings' finishNativeIdentityReleaseLPw join in P3 and P4.
+RELEASE_ENTRY_POINTS = ('release', 'removeReleasingSlot', 'confirmReleasedSlot', 'markSlotReleasing',
+                        'omitReleasedSlot', 'dropReleasedUser')
+RELEASE_BODIES = ('    boolean release(NativePrincipalPins.Record record, String expectedLineage,',
+                  '    boolean finishRetirement(NativePrincipalPins.Record record, String expectedLineage,')
+# The store's own release powers behind the named primitives: writeAnyHeader, which makes RELEASING
+# and omission writes, and the drop flag of the existing slot writer. Only the generic header write
+# and the two named header writes call writeAnyHeader, and only dropReleasedUser passes the drop flag,
+# the last argument of writeExistingSlot, as anything but the literal false.
+ANY_HEADER_CALLERS = ('    boolean writeHeader(Header expected, Header next) {',
+                      '    boolean markSlotReleasing(Header expected, int appId) {',
+                      '    boolean omitReleasedSlot(Header expected, int appId) {')
+DROP_CALLERS = ('    boolean dropReleasedUser(Slot expected, long id, ReleaseTicket ticket) {',)
+UNREACHABLE_RULES = ('capability', 'release', 'primitives')
+MANAGER = FRAMEWORK_DIR + 'NativePrincipalManager.java'
+NON_NATIVE = FRAMEWORK_DIR + 'CeStorageAccessTracker.java'
+
+
+def other_java_texts(production):
+    """Every Java text of the repository's own sources that is not a production text, by path."""
+    texts = {}
+    for top in ('owner', 'tests', 'scripts'):
+        for path in sorted((ROOT / top).rglob('*.java')):
+            name = path.relative_to(ROOT).as_posix()
+            if name not in production:
+                texts[name] = path.read_text()
+    return texts
+
+
+def body_spans(code, heads):
+    """The offsets of each named method's body in comment free text, from its opening brace through
+    the brace that closes it. A head that does not occur exactly once gives no span."""
+    spans = []
+    for head in heads:
+        if code.count(head) != 1:
+            continue
+        start = code.index('{', code.index(head))
+        depth, index = 0, start
+        while index < len(code):
+            depth += {'{': 1, '}': -1}.get(code[index], 0)
+            index += 1
+            if depth == 0:
+                spans.append((start, index))
+                break
+    return spans
+
+
+def unreachable_violations(texts, others):
+    """Every violation of "Release stays unreachable", as 'rule: detail'.
+
+    capability: a production text constructs the release capability, references its constructor,
+    takes its class literal or names it in a string, or another Java text does so outside the
+    release engine's named tests. release: a production text calls or references a release entry
+    point outside the release bodies of the persistence. primitives: the store calls writeAnyHeader,
+    or passes writeExistingSlot's drop flag, outside the bodies that may. A declaration is no call.
+    Comments are not code."""
+    problems = []
+    for group, names in ((texts, None), (others, CAPABILITY_TESTS)):
+        for name, raw in group.items():
+            if names is not None and name in names:
+                continue
+            code = b1.strip_java_comments(raw)
+            for what, pattern in CAPABILITY_USES:
+                for found in re.finditer(pattern, code):
+                    problems.append('capability: %s holds a %s of the release capability: %s'
+                                    % (name, what, ' '.join(found.group(0).split())))
+    for name, raw in texts.items():
+        code = b1.strip_java_comments(raw)
+        allowed = body_spans(code, RELEASE_BODIES) if name == PERSISTENCE else []
+        if name == PERSISTENCE and len(allowed) != len(RELEASE_BODIES):
+            problems.append('release: the release bodies of %s are not each found once' % name)
+        for entry in RELEASE_ENTRY_POINTS:
+            pattern = r'(?:\.\s*|::\s*|(?<![\w$.:]))%s\b(?=\s*\()|::\s*%s\b' % (entry, entry)
+            for found in re.finditer(pattern, code):
+                line = code[code.rfind('\n', 0, found.start()) + 1:found.start()]
+                if re.fullmatch(r'\s*(?:(?:static|final|synchronized)\s+)*boolean\s+', line):
+                    continue  # Its declaration.
+                if any(start <= found.start() < end for start, end in allowed):
+                    continue
+                problems.append('release: %s calls or references %s outside the release bodies' % (name, entry))
+    if STORE in texts:
+        problems += primitive_violations(texts[STORE])
+    return problems
+
+
+def call_arguments(code, offset):
+    """The top level arguments of the call whose opening parenthesis is at offset, stripped."""
+    depth, start, arguments, index = 0, offset + 1, [], offset
+    while index < len(code):
+        char = code[index]
+        if char in '([{':
+            depth += 1
+        elif char in ')]}':
+            depth -= 1
+            if depth == 0:
+                arguments.append(code[start:index].strip())
+                return arguments
+        elif char == ',' and depth == 1:
+            arguments.append(code[start:index].strip())
+            start = index + 1
+        index += 1
+    return arguments
+
+
+def primitive_violations(store):
+    """'primitives: detail' for each call of the store's own release powers outside the bodies that
+    may make it: writeAnyHeader outside the generic and the two named header writes, and a drop flag
+    other than the literal false outside dropReleasedUser."""
+    code = b1.strip_java_comments(store)
+    problems = []
+    any_header, drop = body_spans(code, ANY_HEADER_CALLERS), body_spans(code, DROP_CALLERS)
+    if len(any_header) != len(ANY_HEADER_CALLERS) or len(drop) != len(DROP_CALLERS):
+        problems.append('primitives: the bodies that may use the release powers are not each found once')
+    for found in re.finditer(r'(?<![\w$])writeAnyHeader\s*\(', code):
+        line = code[code.rfind('\n', 0, found.start()) + 1:found.start()]
+        if re.fullmatch(r'\s*private\s+boolean\s+', line):
+            continue  # Its declaration.
+        if not any(start <= found.start() < end for start, end in any_header):
+            problems.append('primitives: writeAnyHeader is called outside the header writes that may')
+    for found in re.finditer(r'(?<![\w$])writeExistingSlot\s*\(', code):
+        line = code[code.rfind('\n', 0, found.start()) + 1:found.start()]
+        if re.fullmatch(r'\s*private\s+boolean\s+', line):
+            continue
+        arguments = call_arguments(code, found.end() - 1)
+        if (len(arguments) != 4 or arguments[3] != 'false') and not any(
+                start <= found.start() < end for start, end in drop):
+            problems.append('primitives: writeExistingSlot passes the drop flag outside dropReleasedUser')
+    return problems
+
+
+def unreachable_rules(texts, others):
+    return {problem.split(':', 1)[0] for problem in unreachable_violations(texts, others)}
+
+
+def unreachable_mutants():
+    """Release reachability defects, each with the exact set of rules it must trip: the capability in
+    the Settings section, in a framework file outside the native sources and in a test that is not
+    allowed, a call or reference of each release entry point, and each of the store's own release
+    powers used outside the bodies that may."""
+    texts = b1.production_texts()
+    others = other_java_texts(texts)
+    settings = b1.SETTINGS_SECTION
+    store_test = PLATFORM + STORE_TEST + '.java'
+
+    def changed(*edits):
+        production, other = dict(texts), dict(others)
+        for name, old, new in edits:
+            target = production if name in production else other
+            target[name] = b1.replace_once(target[name], old, new) if old else target[name] + new
+        return production, other
+
+    tracker = 'public final class CeStorageAccessTracker {\n'
+    manager = '    public boolean finishRetirementAfterQuiescence(Handle handle) {\n'
+    restore = '        return store.restoreSlot(loaded.header.value, account, hold);\n'
+    confirm = '    boolean confirmExistingSlot(Slot expected) {\n'
+    publish = '        return store.confirmExistingSlot(slot);\n    }\n\n    /**\n     * Durably marks'
+    store_main = '    public static void main(String[] args) throws Exception {\n'
+    released = '        if (headerEntry(expected, appId) != null || !absent(slotDirectory(appId))\n'
+    generic = '        return writeExistingSlot(expected, next, false, false);\n'
+    return {
+        'capability-in-settings': (changed((settings, None,
+            '\n        NativeIdentityPersistence.ReleaseCapability capability =\n'
+            '                new NativeIdentityPersistence.ReleaseCapability(uid -> true);\n')), {'capability'}),
+        'capability-name-in-framework': (changed((NON_NATIVE, tracker, tracker
+            + '    private static final String RELEASE = "NativeIdentityPersistence$ReleaseCapability";\n')),
+            {'capability'}),
+        'capability-in-another-test': (changed((store_test, store_main, store_main
+            + '        java.util.function.Function<NativeIdentityPersistence.ReleaseCapability.KeyNamespace,\n'
+            '                NativeIdentityPersistence.ReleaseCapability> made = NativeIdentityPersistence.ReleaseCapability::new;\n')),
+            {'capability'}),
+        'capability-class-in-manager': (changed((MANAGER, manager,
+            '    private static final Class<?> RELEASE = NativeIdentityPersistence.ReleaseCapability.class;\n\n'
+            + manager)), {'capability'}),
+        'release-called-from-manager': (changed((MANAGER, manager,
+            '    boolean releaseNow(NativeIdentityPersistence persistence) {\n'
+            '        return persistence.release(null, null, null, null, null, null);\n    }\n\n' + manager)),
+            {'release'}),
+        'removal-referenced-from-settings': (changed((settings, None,
+            '\n        java.util.function.BiPredicate<NativeIdentityRecords.Header, Integer> remove =\n'
+            '                mNativeIdentityStore::removeReleasingSlot;\n')), {'release'}),
+        'released-slot-confirmed-from-restore': (changed((PERSISTENCE, restore,
+            '        store.confirmReleasedSlot(loaded.header.value, record.appId);\n' + restore)), {'release'}),
+        'releasing-written-from-publish': (changed((PERSISTENCE, publish,
+            '        store.markSlotReleasing(loaded.header.value, record.appId);\n' + publish)), {'release'}),
+        'omission-inside-the-store': (changed((STORE, confirm,
+            confirm + '        omitReleasedSlot(null, expected.appId);\n')), {'release'}),
+        'any-header-write-elsewhere': (changed((STORE, released,
+            '        writeAnyHeader(expected, expected);\n' + released)), {'primitives'}),
+        'drop-flag-in-the-generic-update': (changed((STORE, generic,
+            '        return writeExistingSlot(expected, next, false, true);\n')), {'primitives'}),
+        'drop-referenced-from-manager': (changed((MANAGER, manager,
+            '    private static final Object DROP = (Object) (java.util.function.Predicate<NativeIdentityStore>)\n'
+            '            store -> store.dropReleasedUser(null, 0, null);\n\n' + manager)), {'release'}),
+    }
 
 
 def sha(data):
@@ -1032,6 +1396,15 @@ def source_checks():
         if not name.startswith('golden / ') and codec.count('"%s"' % name) != 1:
             problems.append('codec case not named once in its source: ' + name)
     problems += lifecycle_name_problems()
+    try:
+        texts = b1.production_texts()
+        problems += unreachable_violations(texts, other_java_texts(texts))
+        for name, ((production, others), rules) in unreachable_mutants().items():
+            tripped = unreachable_rules(production, others)
+            if tripped != rules:
+                problems.append('unreachable mutant %s tripped %s, not %s' % (name, sorted(tripped), sorted(rules)))
+    except (OSError, ValueError) as error:
+        problems.append('release reachability: %s' % error)
     try:
         mutant_texts()
     except ValueError as error:

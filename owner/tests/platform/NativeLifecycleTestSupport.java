@@ -10,6 +10,7 @@ import com.android.server.pm.NativeIdentityRecords.LifecycleState;
 import com.android.server.pm.NativeIdentityRecords.Obligation;
 import com.android.server.pm.NativeIdentityRecords.ObligationKind;
 import com.android.server.pm.NativeIdentityRecords.ObligationState;
+import com.android.server.pm.NativeIdentityRecords.ReleaseTicket;
 import com.android.server.pm.NativeIdentityRecords.Retirement;
 import com.android.server.pm.NativeIdentityRecords.Slot;
 import com.android.server.pm.NativeIdentityRecords.SlotPhase;
@@ -37,7 +38,8 @@ import java.util.TreeMap;
  * direct store layouts, exact file footprints and the case runner. A layout is written through
  * the codec directly, as durable state that a writer, an earlier image or a later one may leave,
  * never through the writers under test. Fixtures are aged, so any later write, rename or unlink
- * shows in the footprint. Host files only, not Android persistence.
+ * shows in the footprint. The release engine's tests construct its capability here, as the
+ * capability's source rule allows. Host files only, not Android persistence.
  */
 final class NativeLifecycleTestSupport {
     static final String LINEAGE = "e".repeat(32);
@@ -257,6 +259,67 @@ final class NativeLifecycleTestSupport {
     /** The boot facts of this store's durable read under Format.V3. */
     static NativeIdentityPersistence.BootFacts facts(Path root) {
         return NativeIdentityPersistence.bootFacts(load(root, V3));
+    }
+
+    // ------------------------------------------------------------------ release
+
+    /** A's release ticket: its principal, user and serial, and a ticket ID. */
+    static final ReleaseTicket TICKET_A = new ReleaseTicket(ID_A, 0, SERIAL, "7".repeat(32));
+
+    /** A RETIRED with every obligation discharged and no suspension entry: releasable. */
+    static Slot releasableA() {
+        return slotA(3, retired(allDischarged(byUserRetirement())));
+    }
+
+    /** A's ticketed tombstone, as the release engine writes it after releasableA. */
+    static Slot tombstoneA() {
+        return new Slot(LINEAGE, A, PKG_A, 4, SIGNERS, List.of(), TICKET_A);
+    }
+
+    static HeaderEntry releasingEntry(int appId) {
+        return new HeaderEntry(appId, SlotPhase.RELEASING, 0, "");
+    }
+
+    /** The key namespace hook of a test capability: it records each UID and answers clear. */
+    static final class Keys implements NativeIdentityPersistence.ReleaseCapability.KeyNamespace {
+        final List<Integer> cleared = new ArrayList<>();
+        boolean clear = true;
+        // Run at each clear, to observe the durable state at that step.
+        Runnable observe = () -> { };
+
+        @Override
+        public boolean clear(int uid) {
+            cleared.add(uid);
+            observe.run();
+            return clear;
+        }
+    }
+
+    /** The release engine's capability with this hook. Only the engine's tests construct one. */
+    static NativeIdentityPersistence.ReleaseCapability capability(Keys keys) {
+        return new NativeIdentityPersistence.ReleaseCapability(keys);
+    }
+
+    /**
+     * Where A's release stands in this store's durable read under Format.V3: retired, tombstone,
+     * releasing, gone (RELEASING with no copy) or omitted, else other.
+     */
+    static String releasePhase(Path root) {
+        NativeIdentityStore.Loaded loaded = load(root, V3);
+        if (loaded.header.status != Status.VALID) return "other";
+        HeaderEntry entry = null;
+        for (HeaderEntry each : loaded.header.value.entries) if (each.appId == A) entry = each;
+        ReadResult<Slot> read = loaded.slots.get(A);
+        if (entry == null) {
+            return read == null && !Files.exists(root.resolve("slots/" + A), LinkOption.NOFOLLOW_LINKS)
+                    ? "omitted" : "other";
+        }
+        if (read == null) return "other";
+        if (entry.phase == SlotPhase.RELEASING && read.status == Status.MISSING) return "gone";
+        if (read.status != Status.VALID) return "other";
+        if (read.value.equals(releasableA()) && entry.phase != SlotPhase.RELEASING) return "retired";
+        if (!read.value.equals(tombstoneA())) return "other";
+        return entry.phase == SlotPhase.LIVE ? "tombstone" : entry.phase == SlotPhase.RELEASING ? "releasing" : "other";
     }
 
     /** The block with one obligation replaced. */

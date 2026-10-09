@@ -9,6 +9,7 @@ import com.android.server.pm.NativeIdentityRecords.Lifecycle;
 import com.android.server.pm.NativeIdentityRecords.LifecycleState;
 import com.android.server.pm.NativeIdentityRecords.Obligation;
 import com.android.server.pm.NativeIdentityRecords.ObligationState;
+import com.android.server.pm.NativeIdentityRecords.ReleaseTicket;
 import com.android.server.pm.NativeIdentityRecords.Retirement;
 import com.android.server.pm.NativeIdentityRecords.Slot;
 import com.android.server.pm.NativeIdentityRecords.SlotPhase;
@@ -68,14 +69,17 @@ import java.util.TreeSet;
  * writer of this stage writes. Both happen before any effect.
  *
  * <p>The lifecycle transactions, suspend, lift, markRetiring with a {@link Retirement},
- * markRetired, beginDisposition, confirmDisposition and restore, write version 2 slots. Each
- * refuses under a format whose slot ceiling is 1 before any effect, and the store's named
- * transitions and Restore writer apply the lifecycle record's store rules again. Disposition runs
- * only in a retired boot, which the caller's {@link BootFacts} show. Restore is the recovery
- * route's writer, and only it writes a recovery hold. Under the lifecycle format the version 1
- * retirement marker and the final release refuse before any effect: the marker would drop
- * suspension entries and create a legacy marker, and a user leaves a slot only through the
- * release engine, which does not exist yet.
+ * markRetired, beginDisposition, confirmDisposition, restore and release, write version 2 slots.
+ * Each refuses under a format whose slot ceiling is 1 before any effect, and the store's named
+ * transitions, Restore writer and release primitives apply the lifecycle record's store rules
+ * again. Disposition and release run only in a retired boot, which the caller's {@link BootFacts}
+ * show, and an interrupted release continues only in a boot that began with its ticketed tombstone
+ * or with its RELEASING entry and no directory. Restore is the recovery route's writer, and only it
+ * writes a recovery hold. Release is the gated release engine: it needs a {@link
+ * ReleaseCapability}, which only its tests construct, and it is off, so no production text calls
+ * it. Under the lifecycle format the version 1 retirement marker and the final release refuse
+ * before any effect: the marker would drop suspension entries and create a legacy marker, and a
+ * user leaves a slot only through the release engine.
  *
  * <p>Pure static helpers shared by real Settings and its host facade interpret the store's
  * historical identities: the pins a view restores, the exact record a history names, the rule
@@ -85,6 +89,7 @@ import java.util.TreeSet;
  */
 final class NativeIdentityPersistence {
     private static final int USER_SYSTEM = 0;
+    private static final int PER_USER_RANGE = 100_000;
     private static final int LINEAGE_DIGITS = 32;
     private static final int SIGNER_DIGITS = 64;
     private static final int VERSION_1 = 1;
@@ -228,6 +233,29 @@ final class NativeIdentityPersistence {
          */
         boolean retiredBoot(NativePrincipalPins.Record record) {
             return record.equals(retired.get(record.appId));
+        }
+    }
+
+    /**
+     * The release engine's capability. Release is off: nobody chooses it, and only the release
+     * engine's tests construct this. Every class lives in one Java package, so access rules cannot
+     * stop its construction; a source rule refuses its construction, constructor references, class
+     * literals and name strings in every production text and allows construction only in the
+     * engine's named test classes. It has no factory. It carries the hook that clears the key
+     * namespace, so release cannot skip that step. It grants nothing by itself: release still needs
+     * the durable record and the boot facts.
+     */
+    static final class ReleaseCapability {
+        /** Clears the key namespace of one UID once more, which also removes grants it received. */
+        interface KeyNamespace {
+            /** True only once the namespace of this UID is clear. False keeps every hold. */
+            boolean clear(int uid);
+        }
+
+        private final KeyNamespace keys;
+
+        ReleaseCapability(KeyNamespace keys) {
+            this.keys = Objects.requireNonNull(keys, "keys");
         }
     }
 
@@ -855,14 +883,19 @@ final class NativeIdentityPersistence {
      * active directly: every activation point refuses a suspended account, and a recovery hold has
      * no lift path in this stage. A restored RETIRING or RETIRED account restores a RETIRING pin.
      * If the account already holds a recovery hold, that hold stays as it is. The header entry
-     * stays as found.
+     * stays as found. The caller closes admission in memory first, as for a suspension, and keeps
+     * that closure through an uncertain result: false may follow a durable restore.
      *
      * <p>The caller names the account by its record, the store lineage and its original signer
      * set, from the recovery route's own evidence. The record's own CREATING entry must match it,
-     * and no other slot or reservation may claim its package or principal ID. Restore needs a
+     * and no other app ID may claim its package or principal ID: no decoded slot copy there,
+     * tombstones and their tickets included, and no CREATING entry there in any decoded header
+     * copy, because a load reads such a sibling and the restored record as conflicting. Restore
+     * needs a
      * valid header of the expected lineage that holds the app ID, and the slot directory with at
      * least one copy, intact or not. It needs no valid read of the slot: it is the one writer for
-     * a damaged or conflicting record. A missing body, an unsupported footprint, a RELEASING entry,
+     * a damaged or conflicting record. A missing body, an unsupported footprint, a RELEASING entry
+     * in any decoded header copy,
      * a copy of another account, lineage or package, a tombstone, two different intact copies of
      * the highest generation and an account without a free place for the hold refuse before any
      * effect. No production caller exists.
@@ -884,10 +917,132 @@ final class NativeIdentityPersistence {
         if (!loaded.enumerationComplete
                 || loaded.header.status != NativeIdentityStore.Status.VALID) return false;
         // The store checks the header's lineage, entry and counter against the account itself.
-        if (liveElsewhere(loaded, record)) return false;
+        if (claimedElsewhere(loaded, record)) return false;
         Slot account = new Slot(expectedLineage, record.appId, record.packageName, 1, signers,
                 List.of(new UserEntry(record.id, record.userId, record.userSerial, false)));
         return store.restoreSlot(loaded.header.value, account, hold);
+    }
+
+    /**
+     * The gated release engine, which is off: nothing in production calls it. It releases this
+     * user 0 record's slot and index entry under the lifecycle format, one checked step per durable
+     * state, in this order: a CREATING entry completes to LIVE before the user is omitted, the
+     * capability's hook clears the key namespace once more, the account becomes its tombstone with
+     * this release ticket, the entry becomes RELEASING, the directory is removed and the entry is
+     * omitted. The app ID stays held in memory until the next boot, which is the caller's.
+     *
+     * <p>It starts only when the durable record is RETIRED with a known inventory, every obligation
+     * discharged and no suspension entry, the exact binding with the expected signers, and only in
+     * a retired boot: facts, this boot's facts, show exactly this account RETIRED. An interrupted
+     * release continues from durable state only, in a boot that began with this account's ticketed
+     * tombstone, the caller's ticket, or with its RELEASING entry and no directory. In the boot that
+     * wrote the tombstone the release waits for the next boot, since nothing remembered in memory
+     * is evidence. A durable omission is confirmed in a boot whose facts show any of the three.
+     * Continuation passes only the store's checked steps: removal refuses unknown files and any
+     * copy but the tombstone, and omission needs the directory's genuine absence.
+     *
+     * <p>Needs a valid header of the expected lineage whose counter covers the record, and no live
+     * binding of this package or ID elsewhere. During a continuation those two are the only checks
+     * of the counter and of siblings, because a tombstone binds no user. Every remaining copy must
+     * be this account's binding while retiring, or its tombstone with this ticket. A tombstone
+     * without a ticket, which only the version 1 release writes, has no owner here and stays held.
+     *
+     * <p>Every check of the durable state comes before any effect. A step the store refuses later
+     * keeps the steps already acknowledged durable, and a refusal after the key namespace was
+     * cleared leaves it cleared. That is harmless: the record's KEYSTORE obligation is already
+     * discharged, and the app ID stays held. True means the final omission is durable.
+     *
+     * @throws IllegalArgumentException for a ticket that does not name this record's principal ID,
+     *     user and serial, including a user whose UID with the app ID would not fit in an int; and
+     *     for a malformed lineage or signers
+     */
+    boolean release(NativePrincipalPins.Record record, String expectedLineage,
+            Set<String> expectedSigners, ReleaseTicket ticket, ReleaseCapability capability,
+            BootFacts facts) {
+        Objects.requireNonNull(record, "record");
+        checkLineage(expectedLineage);
+        Set<String> signers = signers(expectedSigners);
+        Objects.requireNonNull(ticket, "ticket");
+        Objects.requireNonNull(capability, "capability");
+        Objects.requireNonNull(facts, "facts");
+        // The UID comes from the ticket's user only after that user is checked against the app ID.
+        int uid = ticketUid(ticket, record.appId);
+        if (uid < 0 || uid != record.userId * PER_USER_RANGE + record.appId
+                || ticket.lastId != record.id || ticket.userSerial != record.userSerial) {
+            throw new IllegalArgumentException("ticket of another principal, user or serial");
+        }
+        if (record.userId != USER_SYSTEM || !lifecycleFormat()) return false;
+        int appId = record.appId;
+        Slot began = facts.ticketedTombstones.get(appId);
+        boolean tombstoneBoot = began != null
+                && releaseCopy(began, record, expectedLineage, signers, ticket) && began.users.isEmpty();
+        boolean emptiedBoot = facts.releasingWithoutDirectory.contains(appId);
+        boolean retiredBoot = facts.retiredBoot(record);
+        if (!retiredBoot && !tombstoneBoot && !emptiedBoot) return false;
+        NativeIdentityStore.Loaded loaded = store.load();
+        if (!loaded.enumerationComplete
+                || loaded.header.status != NativeIdentityStore.Status.VALID) return false;
+        Header header = loaded.header.value;
+        if (!header.lineage.equals(expectedLineage)) return false;
+        // At the start a conflict already makes the binding unusable. During a continuation these
+        // two are the only guards: a tombstone binds no user.
+        if (header.lastId < record.id) return false;
+        if (liveElsewhere(loaded, record)) return false;
+        HeaderEntry entry = entry(header, appId);
+        NativeIdentityStore.ReadResult<Slot> read = loaded.slots.get(appId);
+        // A durable omission: index and directory are both gone. Any remaining hold refuses.
+        if (entry == null) return read == null && store.confirmReleasedSlot(header, appId);
+        if (read == null) return false;
+        for (Slot copy : read.decodedCopies) {
+            if (!releaseCopy(copy, record, expectedLineage, signers, ticket)) return false;
+        }
+        Header releasing = withPhase(header, appId, SlotPhase.RELEASING);
+        if (entry.phase == SlotPhase.RELEASING) {
+            // Continuation only: the tombstone's boot, or an emptied or removed directory's.
+            if (!tombstoneBoot && !emptiedBoot) return false;
+            for (Slot copy : read.decodedCopies) if (!copy.users.isEmpty()) return false;
+            return store.removeReleasingSlot(releasing, appId)
+                    && store.omitReleasedSlot(releasing, appId);
+        }
+        if (read.status != NativeIdentityStore.Status.VALID) return false;
+        Slot slot = read.value;
+        if (slot.users.isEmpty()) {
+            // This release's ticketed tombstone under LIVE, continued in a boot that began with it.
+            if (!tombstoneBoot || entry.phase != SlotPhase.LIVE) return false;
+            return store.markSlotReleasing(header, appId)
+                    && store.removeReleasingSlot(releasing, appId)
+                    && store.omitReleasedSlot(releasing, appId);
+        }
+        // The start: this boot began with the account RETIRED, and it still is, releasable.
+        if (!retiredBoot || !loaded.bindingUsable(appId) || !boundTo(slot, record)
+                || !slot.signerSha256.equals(signers)
+                || !NativeIdentityStore.releasable(slot.users.get(0).lifecycle)) return false;
+        Header live = withPhase(header, appId, SlotPhase.LIVE);
+        // A CREATING entry completes to LIVE before the user is omitted, or the tombstone would
+        // strand. Then the key namespace is cleared once more, before the tombstone.
+        if (entry.phase == SlotPhase.CREATING && !store.writeHeader(header, live)) return false;
+        if (!capability.keys.clear(uid)) return false;
+        return store.dropReleasedUser(slot, record.id, ticket)
+                && store.markSlotReleasing(live, appId)
+                && store.removeReleasingSlot(releasing, appId)
+                && store.omitReleasedSlot(releasing, appId);
+    }
+
+    // The UID of this ticket's user under this app ID, or -1 when it would not fit in an int: a
+    // decoded ticket bounds its user only as not negative, so no UID comes from it unchecked.
+    static int ticketUid(ReleaseTicket ticket, int appId) {
+        long uid = (long) ticket.userId * PER_USER_RANGE + appId;
+        return uid > Integer.MAX_VALUE ? -1 : (int) uid;
+    }
+
+    // A copy of this record's slot during its release: its binding while retiring, or its
+    // tombstone with this ticket, never another principal, package, lineage, signer set or ticket.
+    private static boolean releaseCopy(Slot copy, NativePrincipalPins.Record record, String lineage,
+            Set<String> signers, ReleaseTicket ticket) {
+        return copy.appId == record.appId && copy.lineage.equals(lineage)
+                && copy.packageName.equals(record.packageName) && copy.signerSha256.equals(signers)
+                && (copy.users.isEmpty() ? ticket.equals(copy.ticket)
+                : boundTo(copy, record) && copy.users.get(0).retiring);
     }
 
     // Whether the deletion or migration step already began: no disposition kind is OUTSTANDING or
@@ -954,6 +1109,31 @@ final class NativeIdentityPersistence {
                 if (copy.users.isEmpty()) continue;
                 if (copy.packageName.equals(record.packageName)) return true;
                 for (UserEntry user : copy.users) if (user.id == record.id) return true;
+            }
+        }
+        return false;
+    }
+
+    // Restore's claim rule, the store's rule for a reservation: another app ID claims this record's
+    // package or principal ID through any decoded slot copy there, whatever its status, tombstones
+    // and their tickets included, or through a CREATING entry there in any decoded header copy. A
+    // claim is located by the slot's physical app ID or the entry's own. The release keeps
+    // liveElsewhere.
+    private static boolean claimedElsewhere(NativeIdentityStore.Loaded loaded,
+            NativePrincipalPins.Record record) {
+        for (Map.Entry<Integer, NativeIdentityStore.ReadResult<Slot>> other : loaded.slots.entrySet()) {
+            if (other.getKey().intValue() == record.appId) continue;
+            for (Slot claim : other.getValue().decodedCopies) {
+                if (claim.packageName.equals(record.packageName)
+                        || (claim.ticket != null && claim.ticket.lastId == record.id)) return true;
+                for (UserEntry user : claim.users) if (user.id == record.id) return true;
+            }
+        }
+        for (Header seen : loaded.header.decodedCopies) {
+            for (HeaderEntry entry : seen.entries) {
+                if (entry.appId != record.appId && entry.phase == SlotPhase.CREATING
+                        && (entry.creationId == record.id
+                        || entry.creationPackage.equals(record.packageName))) return true;
             }
         }
         return false;

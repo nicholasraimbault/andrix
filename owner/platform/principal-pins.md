@@ -130,9 +130,15 @@ change suspension entries, retire writes the retirement block, confirm retired d
 retirement kinds, the deletion or migration step moves every disposition kind to DISPOSING at once,
 and confirm disposal discharges a DISPOSING kind. The state only moves forward. A written retirement
 block never changes, except that a legacy marker's unknown inventory continues once to every kind
-outstanding. No user leaves a slot until the release engine exists, and the generic update keeps
+outstanding. A user leaves a slot only through the release engine, and the generic update keeps
 every lifecycle, every user's identity and a tombstone's release ticket, which only the release
-engine writes. The writers are narrower than the decoder: no writer sets scope bit 0, only Restore
+engine writes. The generic header write turns no entry RELEASING and omits none, and LIVE becomes
+RELEASING only over a ticketed tombstone. The release engine is off: it needs a release capability,
+which only its tests construct, and source rules refuse its construction and every call of a release
+entry point in production texts. It starts only from a RETIRED account with every obligation
+discharged and no suspension entry, in a retired boot, and an interrupted release continues only in
+a boot that began with its ticketed tombstone or with its RELEASING entry and no directory. The
+writers are narrower than the decoder: no writer sets scope bit 0, only Restore
 writes a recovery hold, a reason must be in the registry and allowed for its actor class, an
 account user entry or retirement names the account's own user and serial, the six entries are
 allotted one to the account's user, one to a recovery hold and four to grants, no writer creates a

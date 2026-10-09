@@ -29,6 +29,10 @@ def scratch(test):
     return directory
 
 
+def predictions_rules():
+    return json.loads(runner.PREDICTIONS.read_text())['p2c']['source_rule_mutants']
+
+
 class LifecycleRecordSourceTests(unittest.TestCase):
     def test_source_checks_pass(self):
         self.assertEqual(runner.source_checks(), [])
@@ -83,15 +87,20 @@ class LifecycleRecordSourceTests(unittest.TestCase):
     def test_case_names_and_counts(self):
         predictions = json.loads(runner.PREDICTIONS.read_text())
         self.assertIn('PREDICTED', predictions['status'])
-        self.assertEqual(predictions['cases'], {'codec': 47, 'reads': 60, 'goldens': 9, 'mutants': 131, 'store': 44,
-                                                'transactions': 41, 'faults': 80})
+        self.assertEqual(predictions['cases'], {'codec': 47, 'reads': 60, 'goldens': 9, 'mutants': 159, 'store': 49,
+                                                'transactions': 57, 'faults': 136})
         self.assertEqual((len(runner.CODEC_NAMES), len(runner.READ_NAMES), len(runner.STORE_NAMES),
-                          len(runner.TRANSACTION_NAMES), len(runner.FAULT_NAMES)), (47, 60, 44, 41, 80))
-        self.assertEqual(predictions['store_by_label'], {'new-format': 42, 'legacy': 1, 'production': 1})
-        self.assertEqual(predictions['transactions_by_label'], {'new-format': 37, 'legacy': 2, 'production': 2})
+                          len(runner.TRANSACTION_NAMES), len(runner.FAULT_NAMES)), (47, 60, 49, 57, 136))
+        self.assertEqual(predictions['store_by_label'], {'new-format': 47, 'legacy': 1, 'production': 1})
+        self.assertEqual(predictions['transactions_by_label'], {'new-format': 53, 'legacy': 2, 'production': 2})
         # P2b's fault kinds: the two disposition transactions and Restore, with and without an intact copy.
-        self.assertEqual(runner.FAULT_KINDS[6:], ('beginDisposition', 'confirmDisposition', 'restore',
-                                                  'restore without an intact copy'))
+        self.assertEqual(runner.FAULT_KINDS[6:10], ('beginDisposition', 'confirmDisposition', 'restore',
+                                                    'restore without an intact copy'))
+        # P2c's: each strict write of the release engine, from LIVE and from CREATING.
+        self.assertEqual(runner.FAULT_KINDS[10:], ('release tombstone', 'release tombstone confirmation',
+                                                   'release RELEASING', 'release RELEASING confirmation',
+                                                   'release omission', 'release completion confirmation',
+                                                   'release completion'))
         self.assertEqual(predictions['reads_by_label'], {'legacy': 20, 'production': 20, 'new-format': 20})
         for format_name in ('V1', 'V2', 'V3'):
             self.assertEqual(len(runner.read_names(format_name)), 20)
@@ -104,6 +113,30 @@ class LifecycleRecordSourceTests(unittest.TestCase):
         self.assertEqual(runner.FORMAT_LABELS, {'V1': 'legacy', 'V2': 'production', 'V3': 'new-format'})
         source = (ROOT / runner.PLATFORM / (runner.READ_TEST + '.java')).read_text()
         self.assertIn('private static final Format[] FORMATS = {Format.V1, Format.V2, Format.V3};', source)
+
+    def test_release_stays_unreachable(self):
+        texts = runner.b1.production_texts()
+        others = runner.other_java_texts(texts)
+        self.assertEqual(runner.unreachable_violations(texts, others), [])
+        # The engine's own tests construct the capability, and nothing else does.
+        for name in runner.CAPABILITY_TESTS:
+            self.assertIn(name, others)
+        support = others[runner.PLATFORM + runner.SUPPORT + '.java']
+        self.assertEqual(support.count('new NativeIdentityPersistence.ReleaseCapability('), 1)
+        # Both release bodies are found, and a declaration is no call.
+        code = runner.b1.strip_java_comments(texts[runner.PERSISTENCE])
+        self.assertEqual(len(runner.body_spans(code, runner.RELEASE_BODIES)), 2)
+        mutants = runner.unreachable_mutants()
+        self.assertEqual(sum(rules == {'capability'} for _, rules in mutants.values()), 4)
+        self.assertEqual(sum(rules == {'release'} for _, rules in mutants.values()), len(runner.RELEASE_ENTRY_POINTS))
+        self.assertEqual(sum(rules == {'primitives'} for _, rules in mutants.values()), 2)
+        for name, ((production, other), rules) in mutants.items():
+            self.assertEqual(runner.unreachable_rules(production, other), rules, name)
+        # A release body that is not found refuses every call in it.
+        moved = dict(texts)
+        moved[runner.PERSISTENCE] = moved[runner.PERSISTENCE].replace(runner.RELEASE_BODIES[0], '    boolean free(', 1)
+        self.assertIn('release', runner.unreachable_rules(moved, others))
+        self.assertEqual(predictions_rules(), {'capability': 4, 'release': 6, 'primitives': 2})
 
     def test_mutants_anchor_once_change_their_text_and_are_predicted(self):
         texts = runner.mutant_texts()

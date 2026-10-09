@@ -554,6 +554,16 @@ public final class NativeLifecycleStoreTest {
                 Path damagedA = damaged(torn(ELIGIBLE), torn(ELIGIBLE), null);
                 unchanged(problems, damagedA, "restore of a damaged record", () -> open(damagedA, format).restoreSlot(
                         header(ID_A, live(A)), accountA(), RECOVERY));
+                // The release primitives: a version 1 tombstone keeps the version 1 release's own path.
+                Path ready = layout(releasableA());
+                unchanged(problems, ready, "the user drop", () -> open(ready, format).dropReleasedUser(releasableA(),
+                        ID_A, TICKET_A));
+                Path tombstoned = layout(new Slot(LINEAGE, A, PKG_A, 4, SIGNERS, List.of()));
+                unchanged(problems, tombstoned, "the RELEASING write", () -> open(tombstoned, format).markSlotReleasing(
+                        header(1, live(A)), A));
+                Path gone = store(header(ID_A, releasingEntry(A)));
+                unchanged(problems, gone, "the omission", () -> open(gone, format).omitReleasedSlot(
+                        header(ID_A, releasingEntry(A)), A));
             });
         }
     }
@@ -755,6 +765,17 @@ public final class NativeLifecycleStoreTest {
                 unchanged(problems, invalid, "restore with " + hold, () -> restore(invalid, V3, hold));
             }
         });
+        run("V3 / restore refuses beside a header copy that lists the account RELEASING", problems -> {
+            // An interrupted phase change: the selected backup lists A LIVE, main and reserve RELEASING.
+            byte[] broken = torn(slotA(3, retired(retiredBlock())));
+            Path root = store(header(ID_A, new NativeIdentityRecords.HeaderEntry(A,
+                    NativeIdentityRecords.SlotPhase.RELEASING, 0, "")));
+            java.nio.file.Files.write(root.resolve("store.bin-backup"), NativeIdentityRecords.encodeHeader(
+                    header(ID_A, live(A))));
+            copies(root, broken, broken, null);
+            check(problems, header(ID_A, live(A)).equals(load(root, V3).header.value), "the LIVE copy was not selected");
+            unchanged(problems, root, "restore beside a RELEASING copy", () -> restore(root, V3, RECOVERY));
+        });
         run("V3 / restore refuses a RELEASING or missing entry, a stale header, a footprint and a missing body before any effect", problems -> {
             byte[] broken = torn(slotA(3, retired(retiredBlock())));
             Path releasing = store(header(ID_A, new NativeIdentityRecords.HeaderEntry(A,
@@ -824,6 +845,106 @@ public final class NativeLifecycleStoreTest {
         return record;
     }
 
+    // ------------------------------------------------------------------ release primitives
+
+    private static void releaseCases() {
+        Suspension user = byUser(SuspensionReason.USER_PAUSED);
+        run("V3 / the user drop writes the ticketed tombstone of a releasable account only", problems -> {
+            Path root = layout(releasableA());
+            check(problems, open(root, V3).dropReleasedUser(releasableA(), ID_A, TICKET_A)
+                    && tombstoneA().equals(stored(root, V3)) && holds(root, tombstoneA(), 2), "wrote " + stored(root, V3));
+            Retirement done = allDischarged(byUserRetirement());
+            for (Slot durable : List.of(slotA(3, retired(done, user)), slotA(3, retired(retiredBlock())),
+                    slotA(4, retired(disposing(retiredBlock()))), slotA(2, retiring(byUserRetirement())), ELIGIBLE,
+                    slotA(3, retired(with(done, obligation(ObligationKind.KEYSTORE, ObligationState.ORPHANED_WITH_USER,
+                            ZERO, 0, 0)))))) {
+                Path held = layout(durable);
+                unchanged(problems, held, "the drop of " + durable, () -> open(held, V3).dropReleasedUser(durable, ID_A,
+                        TICKET_A));
+            }
+            Path ready = layout(releasableA());
+            for (ReleaseTicket ticket : List.of(new ReleaseTicket(ID_B, 0, SERIAL, TICKET_A.ticketId),
+                    new ReleaseTicket(ID_A, 0, SERIAL + 1, TICKET_A.ticketId),
+                    new ReleaseTicket(ID_A, 10, SERIAL, TICKET_A.ticketId))) {
+                unchanged(problems, ready, "the drop with " + ticket, () -> open(ready, V3).dropReleasedUser(
+                        releasableA(), ID_A, ticket));
+            }
+            unchanged(problems, ready, "a stale value", () -> open(ready, V3).dropReleasedUser(slotA(2,
+                    retired(allDischarged(byUserRetirement()))), ID_A, TICKET_A));
+            // A CREATING entry completes to LIVE first, or the tombstone would strand.
+            Path creating = store(creatingA());
+            slot(creating, releasableA());
+            unchanged(problems, creating, "the drop under CREATING", () -> open(creating, V3).dropReleasedUser(
+                    releasableA(), ID_A, TICKET_A));
+        });
+        run("V3 / RELEASING needs the release engine's ticketed tombstone", problems -> {
+            Header live = header(1, live(A));
+            Header releasing = header(1, releasingEntry(A));
+            Path unticketed = layout(new Slot(LINEAGE, A, PKG_A, 4, SIGNERS, List.of()));
+            unchanged(problems, unticketed, "RELEASING over an unticketed tombstone", () -> open(unticketed, V3)
+                    .markSlotReleasing(live, A));
+            Path bound = layout(releasableA());
+            unchanged(problems, bound, "RELEASING over the binding", () -> open(bound, V3).markSlotReleasing(
+                    header(ID_A, live(A)), A));
+            Path root = layout(tombstoneA());
+            unchanged(problems, root, "an omission under LIVE", () -> open(root, V3).omitReleasedSlot(live, A));
+            check(problems, open(root, V3).markSlotReleasing(live, A) && releasing.equals(load(root, V3).header.value),
+                    "RELEASING was refused");
+            // The omission needs the directory's genuine absence.
+            unchanged(problems, root, "an omission beside the directory", () -> open(root, V3).omitReleasedSlot(
+                    releasing, A));
+            check(problems, open(root, V3).removeReleasingSlot(releasing, A) && open(root, V3).omitReleasedSlot(
+                    releasing, A) && header(1).equals(load(root, V3).header.value), "the omission was refused");
+            check(problems, open(root, V3).confirmReleasedSlot(header(1), A), "the omission was not confirmed");
+        });
+        run("V3 / a ticket's principal ID is sibling, claim and counter evidence", problems -> {
+            // A valid tombstone whose ticket names A's principal, beside A's valid binding.
+            Slot ticketed = new Slot(LINEAGE, B, PKG_B, 4, SIGNERS, List.of(), TICKET_A);
+            Path sibling = store(header(ID_B, live(A), live(B)));
+            slot(sibling, ELIGIBLE);
+            slot(sibling, ticketed);
+            NativeIdentityStore.Loaded both = load(sibling, V3);
+            check(problems, both.slots.get(A).status == NativeIdentityStore.Status.CONFLICT
+                    && both.slots.get(B).status == NativeIdentityStore.Status.CONFLICT, "V3 read "
+                    + both.slots.get(A).status + " " + both.slots.get(B).status);
+            // Under Format.V2 the tombstone is an unsupported footprint, whose ticket is negative evidence.
+            check(problems, load(sibling, V2).slots.get(A).status == NativeIdentityStore.Status.CONFLICT,
+                    "V2 read " + load(sibling, V2).slots.get(A).status);
+            // A ticket above the selected counter blocks creation, and only that.
+            Path above = store(header(ID_A, live(A), live(B)));
+            slot(above, ELIGIBLE);
+            slot(above, new Slot(LINEAGE, B, PKG_B, 4, SIGNERS, List.of(), new ReleaseTicket(5, 0, SERIAL,
+                    TICKET_A.ticketId)));
+            NativeIdentityStore.Loaded blocked = load(above, V3);
+            check(problems, !blocked.creationReady() && blocked.bindingUsable(A)
+                    && blocked.slots.get(B).status == NativeIdentityStore.Status.VALID, "counter read");
+            // A reservation whose creation ID a tombstone's ticket elsewhere names is withdrawn.
+            Header creating = Header.newV2(LINEAGE, ID_B, List.of(creatingA().entries.get(0), live(B)));
+            Path reserved = store(creating);
+            slot(reserved, new Slot(LINEAGE, B, PKG_B, 4, SIGNERS, List.of(), TICKET_A));
+            check(problems, load(reserved, V3).history(A) == null, "history " + load(reserved, V3).history(A));
+            // A ticket of another principal leaves the reservation's history.
+            Path control = store(creating);
+            slot(control, new Slot(LINEAGE, B, PKG_B, 4, SIGNERS, List.of(), new ReleaseTicket(ID_B, 0, SERIAL,
+                    TICKET_A.ticketId)));
+            History history = load(control, V3).history(A);
+            check(problems, history != null && history.source == NativeIdentityStore.Source.RESERVATION,
+                    "control history " + history);
+        });
+        run("V3 / the generic header write never turns an entry RELEASING or omits one", problems -> {
+            Path root = layout(tombstoneA());
+            unchanged(problems, root, "a generic RELEASING write", () -> open(root, V3).writeHeader(header(1, live(A)),
+                    header(1, releasingEntry(A))));
+            Path gone = store(header(ID_A, releasingEntry(A)));
+            unchanged(problems, gone, "a generic omission", () -> open(gone, V3).writeHeader(header(ID_A,
+                    releasingEntry(A)), header(ID_A)));
+            Path both = store(header(ID_B, live(A), live(B)));
+            slot(both, tombstoneA());
+            unchanged(problems, both, "a generic omission of another entry", () -> open(both, V3).writeHeader(
+                    header(ID_B, live(A), live(B)), header(ID_B, live(A))));
+        });
+    }
+
     public static void main(String[] args) throws Exception {
         if (!NativeLifecycleStoreTest.class.desiredAssertionStatus()) throw new AssertionError("run with java -ea");
         start(Path.of(args[0]).resolve("lifecycle-store"));
@@ -835,6 +956,7 @@ public final class NativeLifecycleStoreTest {
         sharedCases();
         dispositionCases();
         restoreCases();
+        releaseCases();
         finish(Os.allClosed());
         System.out.println("Lifecycle store transitions kept the record's store rules; Android unqualified");
     }

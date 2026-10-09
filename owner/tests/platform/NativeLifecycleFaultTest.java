@@ -32,14 +32,19 @@ import java.util.Set;
  * gone and the target after it, never anything else, with the app ID held and the binding intact.
  * The caller then retries its own durable intent through a fresh persistence and store, which
  * continue from the durable files alone, and the target is durable in its one encoding. Restore
- * publishes its target as the preferred backup first, so its target is selected from that step on. These are
- * host injected failures, not Android crash or power loss evidence.
+ * publishes its target as the preferred backup first, so its target is selected from that step on. The
+ * release engine is failed at each step of each of its strict writes, from LIVE and from CREATING. A retry
+ * in the same boot starts again only from the account RETIRED, or confirms a durable omission. Every other
+ * state continues only in a fresh boot whose facts come from the durable files alone: the ticketed
+ * tombstone, or RELEASING without a directory. These are host injected failures, not Android crash or power
+ * loss evidence.
  */
 public final class NativeLifecycleFaultTest {
     private static final List<String> STEPS = List.of("seed-synced", "backup-renamed",
             "backup-published", "write-started", "main-synced", "reserve-synced", "backup-unlink",
             "backup-unlinked");
     private static final String SLOT = "record.bin";
+    private static final String HEADER = "store.bin";
     private static final Suspension USER = byUser(SuspensionReason.USER_PAUSED);
     private static final Suspension GRANT = byGrant(1, SuspensionReason.CREDENTIAL_EXPOSED);
 
@@ -126,6 +131,54 @@ public final class NativeLifecycleFaultTest {
         }
     }
 
+    // The fault at this step of the skip-th strict write of this file name: earlier writes pass.
+    private static void arm(String step, String file, int skip) {
+        if (skip == 0) NativeHeaderWriteFaults.arm(step, file);
+        else NativeHeaderWriteFaults.arm(step, file, () -> arm(step, file, skip - 1));
+    }
+
+    private static boolean release(Path root, NativeIdentityPersistence.BootFacts facts) {
+        return persistence(root, V3).release(RECORD_A, LINEAGE, SIGNERS, TICKET_A, capability(new Keys()), facts);
+    }
+
+    // Release of A, releasable under this header, failed at each writer step of its skip-th strict write
+    // of this file. The durable state is the release's state before that write until the backup is gone,
+    // and after it from then on. The same boot starts again only from the account RETIRED and confirms a
+    // durable omission; any other state waits for a fresh boot, whose facts come from the durable files
+    // alone, never from this test's memory.
+    private static void sweep(String name, NativeIdentityRecords.Header header, String file, int skip,
+            String before, String after) {
+        for (String step : STEPS) {
+            run(name + " / " + step, problems -> {
+                try {
+                    Path root = store(header);
+                    slot(root, releasableA());
+                    NativeIdentityPersistence.BootFacts facts = boot(persistence(root, V3));
+                    arm(step, file, skip);
+                    check(problems, !release(root, facts) && NativeHeaderWriteFaults.reached(), "no injected failure");
+                    NativeHeaderWriteFaults.disarm();
+                    String durable = step.equals("backup-unlinked") ? after : before;
+                    check(problems, releasePhase(root).equals(durable), "durable " + releasePhase(root));
+                    check(problems, durable.equals("omitted") || load(root, V3).occupiedAppIds.contains(A),
+                            "the hold was lost");
+                    if (durable.equals("retired") || durable.equals("omitted")) {
+                        check(problems, release(root, facts), "the same boot's retry was refused");
+                    } else {
+                        unchanged(problems, root, "the same boot's continuation", () -> release(root, facts));
+                        NativeIdentityPersistence.BootFacts next = boot(persistence(root, V3));
+                        check(problems, durable.equals("gone") ? next.releasingWithoutDirectory.contains(A)
+                                : tombstoneA().equals(next.ticketedTombstones.get(A)), "the next boot has no fact");
+                        check(problems, release(root, next), "the next boot's continuation was refused");
+                    }
+                    check(problems, releasePhase(root).equals("omitted")
+                            && load(root, V3).header.value.entries.isEmpty(), "the retry left " + releasePhase(root));
+                } finally {
+                    NativeHeaderWriteFaults.disarm();
+                }
+            });
+        }
+    }
+
     // The boot facts of a fresh boot's own read.
     private static NativeIdentityPersistence.BootFacts boot(NativeIdentityPersistence persistence) {
         return NativeIdentityPersistence.bootFacts(persistence.load());
@@ -165,6 +218,17 @@ public final class NativeLifecycleFaultTest {
         sweep("restore", bytes(newer), bytes(slotA(4, retiring(byUserRetirement(), USER))), torn(newer),
                 slotA(6, retired(retiredBlock(), USER, RECOVERY)));
         sweep("restore without an intact copy", torn(newer), torn(newer), null, slotA(1, eligible(RECOVERY_UNKNOWN)));
+        // Release from LIVE: the tombstone, its confirmation in the RELEASING write, the RELEASING write, its
+        // confirmation in the removal, and the omission after the directory is gone.
+        NativeIdentityRecords.Header live = header(ID_A, live(A));
+        sweep("release tombstone", live, SLOT, 0, "retired", "tombstone");
+        sweep("release tombstone confirmation", live, SLOT, 1, "tombstone", "tombstone");
+        sweep("release RELEASING", live, HEADER, 0, "tombstone", "releasing");
+        sweep("release RELEASING confirmation", live, HEADER, 1, "releasing", "releasing");
+        sweep("release omission", live, HEADER, 2, "gone", "omitted");
+        // From CREATING: the completion to LIVE and its slot confirmation, before the key namespace.
+        sweep("release completion confirmation", creatingA(), SLOT, 0, "retired", "retired");
+        sweep("release completion", creatingA(), HEADER, 0, "retired", "retired");
         finish(Os.allClosed());
         System.out.println("Every lifecycle transaction continued from durable state after host injected"
                 + " failures; Android crash and power loss unqualified");
