@@ -247,7 +247,15 @@ never by publishing again. A publication that stopped before its record was writ
 The store shows this by reading the plan's publication record absent after the PUBLISH call has
 ended, in an observation that names that PUBLISH attempt. The ticket may then publish once more,
 from the exact bundles the store already holds, and never by signing again. D1's ledger allows two
-PUBLISH entries for this.
+PUBLISH entries for this. A publication record that names other bytes than the store holds is
+damage, which never heals on its own. The ticket then holds with the REQUEST_LIMIT alert, and only
+cancelling or voiding ends it.
+
+A restoration plan approved in advance under decision 3 signs nothing. Its own publication record
+names the restoration bundle that the original change's publication already made visible, matched
+by its signing input and versionCode, with that bundle's own signing transaction. The store verifies
+the bundle again before it writes the record. Decision 8 is kept, because the pair was published
+together first, and a plan that signs can never publish a bundle signed for another role.
 
 ### Signatures and grants
 
@@ -303,7 +311,9 @@ There are five record kinds:
   crossing.
 - **Observation**, append only. Boot ID, Android user and serial, kind, digest of the raw capture,
   and classification. An observation of the boot or the device carries a value that means no user.
-  Observations are facts scoped to one boot, not standing assertions.
+  Observations are facts scoped to one boot, not standing assertions. One exception: a read that
+  finds a plan's publication PUBLISHED stays true across boots, because a published bundle never
+  changes. A read of anything else is repeated in each boot.
 - **Selection**, one for each component. It holds the owner's choice, which is a plan or the
   factory copy, with a revision and the update responsibility from decision 6. A separate
   realization status says how the active bytes relate to that choice.
@@ -381,7 +391,7 @@ A ticket covers one attempt under one plan. Every state has an exit:
 | PLANNED | AUTHORIZED, CANCELLED, VOID |
 | AUTHORIZED | SIGNING, CANCELLED, VOID |
 | SIGNING | SIGNED. SIGN_FAILED on a refusal, or when the signer proves that the request can no longer complete. |
-| SIGNED, verified and private | PUBLISHED, CANCELLED, VOID |
+| SIGNED, verified and private | PUBLISHED, CANCELLED, VOID. A publication that had no effect allows one more PUBLISH. A second one with no effect, or a publication that names other bytes, holds the ticket with REQUEST_LIMIT. |
 | PUBLISHED | SESSION_INTENT, CANCELLED, VOID |
 | SESSION_INTENT | SESSION_BOUND, NO_SESSION |
 | SESSION_BOUND | WRITTEN or ABANDON_INTENT. NATIVE_RECORD_LOST when the session is gone. |
