@@ -269,6 +269,14 @@ selection model. Image assembly from cached components need not recompile the wh
 Framework integration is legitimate where it produces the cleaner complete contract.
 The exact mechanisms remain under investigation.
 
+Gate 2 now has a [release carry check](../scripts/proof/grapheneos_carry.md) that needs no
+second source tree. Its first sealed report compares the pinned base, 2026081300 at security
+patch level 2026-08-05, with the latest release, 2026100600 at 2026-10-05. All six Andrix
+patches still apply at fuzz 0, two of them at line offsets. The pinned base lacks 51 known
+frameworks/base security fixes, and 2026100600 has all of them. Four touch Andrix patch
+targets, one of them only the lab writer's target. These are source facts about the
+[upstream records](../upstream/README.md). They select no base and qualify no build.
+
 ## Product checkpoint
 
 There is no supported Andrix release or buildable Pixel deployment product. Current results
