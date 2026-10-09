@@ -460,7 +460,8 @@ In this stage, with only user 0 and no native execution:
 - **The boot scan defers the package** of a suspended account, as it does a retired one. Seeding
   defers both too, so the recovery view agrees with the scan. Under the current format that is an
   observable change for a version 1 retiring body whose package is not scanned at that boot. B1
-  predicts and stages it.
+  predicts and stages it. The native identity dump names the deferred packages, because without
+  them the old and new seeding look the same on a guest when the package's code is absent.
 - **Resuming needs a fresh boot.** A per UID gate in process start and Binder is needed before
   shared carriers or other users.
 - **Reversibility is unproven.** Whether a deferred boot prunes permissions, app operations,
@@ -517,7 +518,10 @@ Android's own package suspension is a different mechanism and must not carry thi
   - version 2 slots read as negative evidence;
   - a version 2 slot beside a bound reservation;
   - a version 2 slot beside a valid sibling naming the same package;
-  - a version 2 only slot with its mapping removed.
+  - a version 2 only slot with its mapping removed. The boot scan rejects the unknown package
+    before any app ID is registered, and an install of it is refused even earlier, so this layout
+    shows the protection: the code is kept, the app ID stays held and no other owner receives it.
+    The registration guard itself is qualified on the host.
 
   The image is the candidate floor.
 - **Frozen guards to update.**
