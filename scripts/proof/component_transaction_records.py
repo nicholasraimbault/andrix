@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Guarded host qualification of step D1 of the first durable component transaction: the deployment
-records, their codec, the ticket state machine, reconciliation and host storage, as
-plans/2026-10-09-component-transaction.md and owner/deployment/README.md define them.
+"""Guarded host qualification of step D1 of the first durable component transaction, and of the
+artifact store of step D2: the deployment records, their codec, the ticket state machine,
+reconciliation and host storage, and the bundle manifest, the publication record and durable
+publication, as plans/2026-10-09-component-transaction.md and owner/deployment/README.md define them.
 
 Pure source checks run first. An independent encoder, written here from the README's layout tables
 alone, gives every golden. Each must have the length and SHA-256 that the Java codec test pins, and
@@ -10,9 +11,9 @@ the README must still state the layout facts this encoder relies on. The case li
 anchors and the predictions must agree. No compiler or JVM starts unless an actual cgroup bounds this
 process to 2 GiB of memory, no swap, 2 CPUs and 256 tasks, with core dumps disabled, and a JDK is on
 PATH. Otherwise the run is NOT_RUN. A guarded run compiles the package and its tests, runs the codec,
-machine, store and transaction suites, compares every golden the codec suite writes with the
-independent encoder byte for byte, and runs each deliberate defect against the suites predicted to
-catch it. It nests no other runner and imports none of the native account lifecycle runners.
+machine, store, transaction and artifact suites, compares every golden the codec and artifact suites
+write with the independent encoder byte for byte, and runs each deliberate defect against the suites
+predicted to catch it. It nests no other runner and imports none of the native account lifecycle runners.
 
 Host JVM evidence only: not Android, device storage, power loss or activation evidence."""
 from pathlib import Path
@@ -35,16 +36,19 @@ PLAN_TEXT = ROOT / 'plans/2026-10-09-component-transaction.md'
 MAIN_DIR = 'owner/deployment/java/dev/andrix/server/deployment/'
 TEST_DIR = 'owner/tests/deployment/'
 PACKAGE = 'dev.andrix.server.deployment'
-MAIN = ('DeploymentRecords', 'TicketMachine', 'Reconciler', 'DeploymentStore', 'Coordinator')
+MAIN = ('DeploymentRecords', 'TicketMachine', 'Reconciler', 'DeploymentStore', 'Coordinator', 'ArtifactRecords',
+        'ArtifactStore')
 SUPPORT = ('Cases', 'Fixtures', 'AndroidFacade')
 SUITES = {'codec': 'DeploymentRecordsTest', 'machine': 'TicketMachineTest', 'store': 'DeploymentStoreTest',
-          'transactions': 'TransactionTest'}
+          'transactions': 'TransactionTest', 'artifacts': 'ArtifactStoreTest'}
 RECORDS = MAIN_DIR + 'DeploymentRecords.java'
 MACHINE = MAIN_DIR + 'TicketMachine.java'
 RECONCILER = MAIN_DIR + 'Reconciler.java'
 STORE = MAIN_DIR + 'DeploymentStore.java'
 COORDINATOR = MAIN_DIR + 'Coordinator.java'
-PHASES = ('build', 'codec', 'machine', 'store', 'transactions', 'mutants')
+ARTIFACT_RECORDS = MAIN_DIR + 'ArtifactRecords.java'
+ARTIFACT_STORE = MAIN_DIR + 'ArtifactStore.java'
+PHASES = ('build', 'codec', 'machine', 'store', 'transactions', 'artifacts', 'mutants')
 GIB = 1 << 30
 
 # ---------------------------------------------------------------- the independent encoder
@@ -52,7 +56,8 @@ GIB = 1 << 30
 # field order, widths and codes as the README states them. A test oracle only.
 
 MAGIC = 0x52445841
-TYPES = {'plan': 1, 'authorization': 2, 'ticket': 3, 'observation': 4, 'selection': 5}
+TYPES = {'plan': 1, 'authorization': 2, 'ticket': 3, 'observation': 4, 'selection': 5, 'manifest': 6,
+         'publication': 7}
 CLASSES = {'STAGED_SYSTEM_APK': 1, 'STAGED_APEX': 2, 'NONSTAGED_APK': 3}
 TARGETS = {'VARIANT': 1, 'FACTORY': 2, 'TEMPORARY_FACTORY': 3}
 COMMIT_MODES = {'LATE': 1, 'EARLY': 2}
@@ -86,6 +91,9 @@ CLASSIFICATIONS = {
 CHOICES = {'FACTORY': 1, 'PLAN': 2}
 RESPONSIBILITIES = {'REBUILD_WINDOW': 1, 'KEEP_STALE': 2}
 REALIZATIONS = {'UNCHECKED': 1, 'CURRENT': 2, 'STALE_BASE': 3, 'DISPLACED': 4, 'DIVERGED': 5, 'TEMPORARY_FACTORY': 6}
+ROLES = {'VARIANT': 1, 'RESTORATION': 2}
+V4_CHECKS = {'VERIFIED': 1}
+SCHEMES = 1 | 2 | 4  # v2, v3 and v4
 NO_USER, NO_SERIAL = -10000, -1
 ZERO_ID, ZERO_DIGEST = '00' * 16, '00' * 32
 MAX_LEDGER = sum(bound for _, bound in CROSSINGS.values())
@@ -190,6 +198,25 @@ def selection(s):
     body += struct.pack('<B', REALIZATIONS[s['realization']]) + raw(s['checkedBoot'], 16) + raw(s['repair'], 16)
     body += raw(s['temporary'], 16) + struct.pack('<q', s['changedAt'])
     return record('selection', body)
+
+
+def manifest(m):
+    """A bundle manifest, type 6, from the README's artifact store table."""
+    body = raw(m['installation'], 16) + text(m['component']) + struct.pack('<B', ROLES[m['role']])
+    body += raw(m['request'], 16) + raw(m['input'], 32) + raw(m['inputEntries'], 32)
+    body += struct.pack('<q', m['versionCode']) + raw(m['apk'], 32) + struct.pack('<q', m['apkBytes'])
+    body += raw(m['idsig'], 32) + struct.pack('<q', m['idsigBytes']) + raw(m['certificate'], 32) + raw(m['key'], 32)
+    body += struct.pack('<BHHBq', m['schemes'], m['sdkMin'], m['sdkMax'], V4_CHECKS[m['v4']], m['created'])
+    return record('manifest', body)
+
+
+def publication(p):
+    """A publication, type 7: the bundles in order, the variant first, then its restoration."""
+    body = raw(p['installation'], 16) + raw(p['plan'], 16) + text(p['component']) + raw(p['request'], 16)
+    body += struct.pack('<B', len(p['bundles']))
+    for index, bundle in enumerate(p['bundles']):
+        body += raw(bundle, 32) + struct.pack('<B', ROLES['VARIANT' if index == 0 else 'RESTORATION'])
+    return record('publication', body + struct.pack('<q', p['published']))
 
 
 # ---------------------------------------------------------------- the golden values
@@ -370,6 +397,31 @@ def goldens():
     }
 
 
+def artifact_member(n):
+    apk = (('signed apk %d ' % n) * (50 + n)).encode('ascii')
+    return apk, ('v4 sidecar %d' % n).encode('ascii')
+
+
+def artifact_manifest(role, n):
+    apk, idsig = artifact_member(n)
+    return manifest({'installation': INSTALLATION, 'component': COMPONENT, 'role': role, 'request': ident(0x5e),
+                     'input': digest(0x30 + n), 'inputEntries': digest(0x40 + n),
+                     'versionCode': 40 if role == 'VARIANT' else 41, 'apk': sha(apk), 'apkBytes': len(apk),
+                     'idsig': sha(idsig), 'idsigBytes': len(idsig), 'certificate': digest(0xc1), 'key': digest(0xc2),
+                     'schemes': SCHEMES, 'sdkMin': 37, 'sdkMax': 37, 'v4': 'VERIFIED', 'created': TIME + n})
+
+
+def artifact_goldens():
+    """The artifact store's goldens, the same values the Java artifact suite builds."""
+    variant, restoration = artifact_manifest('VARIANT', 1), artifact_manifest('RESTORATION', 2)
+    pair = {'installation': INSTALLATION, 'plan': ident(0x101), 'component': COMPONENT, 'request': ident(0x5e),
+            'bundles': [sha(variant), sha(restoration)], 'published': TIME + 9}
+    return {'MANIFEST_VARIANT': variant, 'MANIFEST_RESTORATION': restoration, 'PUBLICATION_PAIR': publication(pair),
+            'PUBLICATION_ONE': publication(dict(pair, bundles=[sha(variant)]))}
+
+
+ARTIFACT_GOLDEN_NAMES = ('MANIFEST_VARIANT', 'MANIFEST_RESTORATION', 'PUBLICATION_PAIR', 'PUBLICATION_ONE')
+
 GOLDEN_NAMES = ('PLAN_LATE_ONE', 'PLAN_EARLY_TWO', 'PLAN_FACTORY', 'PLAN_TEMPORARY', 'AUTH_SIGN', 'AUTH_ACTIVATE_LAB',
                 'AUTH_EMERGENCY',
                 'TICKET_PLANNED', 'TICKET_UNRESOLVED', 'TICKET_WINDOW', 'TICKET_SUPERSEDED', 'TICKET_MAXIMUM',
@@ -384,6 +436,10 @@ README_FACTS = (
     'The crossings, with the most entries of each in one ledger, are 1 SIGN (2), 2 PUBLISH (1), 3 CREATE (1), '
     '4 WRITE (1), 5 COMMIT (1), 6 ABANDON (16), 7 REBOOT (16), 8 NOTICE (17) and 9 HANDOVER (4).',
     'i32   user                  >= 0, or -10000 (USER_NULL) for no user          prefix',
+    'They use the frame above with types 6 and 7, version 1, and at most 4,096 bytes.',
+    'u8    schemes               bit 0 v2, 1 v3, 2 v4: exactly 7                         strict',
+    'then for each: d32 bundle, nonzero, and u8 role, VARIANT first, then RESTORATION',
+    'The bundle ID is the SHA-256 of the manifest\'s whole frame, checksum included.',
 )
 
 
@@ -487,6 +543,7 @@ MACHINE_NAMES = (
     'health / probes that miss a declared criterion are inconclusive',
     'selection / the choice moves at APPLIED and only then',
     'selection / a move lost between two writes is made at APPLIED or in the health window',
+    'selection / an owed move in a step that closes DIVERGED takes the realization from its facts',
     'selection / a void or cancelled plan never moves the choice',
     'cohort / CURRENT, STALE_BASE, DISPLACED and DIVERGED',
     'cohort / an Android deletion keeps the choice',
@@ -554,7 +611,23 @@ TRANSACTION_NAMES = (
     'faults / world events at every round',
     'invariants / every run kept every invariant')
 
-NAMES = {'codec': CODEC_NAMES, 'machine': MACHINE_NAMES, 'store': STORE_NAMES, 'transactions': TRANSACTION_NAMES}
+ARTIFACT_NAMES = (
+    'records / goldens of both manifests and both publications',
+    'records / strict codes, relations and trailing bytes are refused',
+    'records / informational times decide nothing and the prefix reads a later version',
+    'records / every single byte change is refused or canonical',
+    'store / the pair is staged, published together and read back exactly',
+    'store / a stop at every step leaves both bundles visible or neither',
+    "store / refusing either bundle's verification publishes nothing",
+    'store / every bundle is verified before anything is renamed',
+    'store / a bundle is never published alone',
+    'store / a lost acknowledgement resolves by reading the exact bytes',
+    'store / changed, missing or extra members read as MISMATCH',
+    'store / unpublished bundles, staging leftovers and unreadable publications',
+    'store / a different bundle under the same ID is never replaced')
+
+NAMES = {'codec': CODEC_NAMES, 'machine': MACHINE_NAMES, 'store': STORE_NAMES, 'transactions': TRANSACTION_NAMES,
+         'artifacts': ARTIFACT_NAMES}
 
 # The loop built names: a pattern for the names and the source fragments that build them.
 GENERATED = {
@@ -592,6 +665,9 @@ _ABANDON_HOLD = ('            if (t.count(Crossing.ABANDON) >= p.requestLimit) {
                  '                b.set(FLAG_REQUEST_LIMIT);\n'
                  '                return done(c, b, null, null, "abandon request limit: holding and alerting");\n'
                  '            }\n')
+_PUBLICATION_WRITE = '            if (!write(index, bytes)) return false; // Visible from here.\n'
+_VERIFY_EACH = ('                String reason = verifier.verify(b);\n'
+                '                if (reason != null) return false;\n')
 _OBSERVATION_END = ('            case BUNDLE:\n                b.digest = in.digest();\n                break;\n'
                     '            default:\n                break;\n        }\n        in.finish();\n')
 
@@ -749,17 +825,23 @@ MUTANTS = {
         '                if (committed(t) || t.state != null) '
         'return to(c, b, State.APPLIED_PROVISIONAL, "the bundle\'s bytes are active");\n'),), ('machine',)),
     'diverged-without-commit-accepted': (((MACHINE, _COMMIT_CHECK, ''),), ('machine',)),
+    # The second CREATE reuses the ticket's nonce and the machine accepts it in place, so the codec
+    # and the step check pass it and only the replay checks can catch it.
     'create-replayed': (((RECORDS, 'SIGN(1, 2), PUBLISH(2, 1), CREATE(3, 1), WRITE(4, 1),',
                           'SIGN(1, 2), PUBLISH(2, 1), CREATE(3, 2), WRITE(4, 1),'),
+                         (MACHINE, '            case WRITE: return state == State.SESSION_BOUND;\n',
+                          '            case CREATE: return state == State.SESSION_INTENT;\n'
+                          '            case WRITE: return state == State.SESSION_BOUND;\n'),
                          (RECONCILER, '        return unresolved(c, b, "create reply lost or incomplete");\n',
                           '        return issue(c, b, State.SESSION_INTENT, entry(c, Crossing.CREATE, create.grant, '
-                          'c.ids.get()), "create again");\n')), ('codec', 'machine', 'transactions')),
+                          't.reference.nonce), "create again");\n')), ('machine', 'transactions')),
     'signing-skipped-after-create': (((RECONCILER, '        if (published(c)) return 0;\n',
         '        for (Ticket other : c.planTickets) {\n'
         '            if (!other.ticketId.equals(c.ticket.ticketId) && other.count(Crossing.CREATE) > 0) return 0;\n'
         '        }\n'),), ('machine',)),
-    'repeats-any-earlier-fact': (((COORDINATOR, '            return identical(old, o);\n',
-                                   '            if (identical(old, o)) return true;\n'),), ('transactions',)),
+    'repeats-any-earlier-fact': (((COORDINATOR,
+        '        boolean precedence = o.kind == ObservationKind.SIGNER || o.kind == ObservationKind.BUNDLE;\n',
+        '        boolean precedence = true;\n'),), ('transactions',)),
     'repair-link-cleared-on-change': (((RECONCILER, '        String repair = repairable ? s.repair : NO_ID;\n',
                                         '        String repair = status == s.realization ? s.repair : NO_ID;\n'),),
                                        ('machine',)),
@@ -768,10 +850,57 @@ MUTANTS = {
     'temporary-factory-emergency-delay': (((RECORDS,
         '            if (emergencyNoticeMillis < noticeDelayMillis && target == Target.TEMPORARY_FACTORY) {\n',
         '            if (emergencyNoticeMillis < noticeDelayMillis && target == null) {\n'),), ('codec', 'machine')),
+    # An independent review of D1: the latest fact by time, and the owed realization from the facts.
+    'repeats-by-list-position': (((COORDINATOR, '            } else if (old.elapsed > latest) {\n',
+                                   '            } else if (old.elapsed >= 0) {\n'),), ('transactions',)),
+    'owed-move-writes-current': (((RECONCILER, '        return cohortCheck(next, p, null, c.view, null, null);\n',
+                                   '        return next;\n'),), ('machine',)),
+    'owed-temporary-on-other-bytes': (((RECONCILER,
+        '            if (active != null && !active.digest.equals(p.bundleApk)) return null;\n', ''),), ('machine',)),
     'store-update-unchecked': (((STORE,
         '        if (!expected.ticketId.equals(next.ticketId) || TicketMachine.check(expected, next) != null) '
         'return false;\n',
         '        if (!expected.ticketId.equals(next.ticketId)) return false;\n'),), ('store',)),
+    # D2's artifact store: visible only when complete, verified first, never alone, read back exactly.
+    'artifact-partial-publication': (((ARTIFACT_STORE, '            for (Staged b : staged) place(b);\n',
+                                       '            place(staged.get(0));\n'),
+                                      (ARTIFACT_STORE, _PUBLICATION_WRITE,
+                                       _PUBLICATION_WRITE + '            for (Staged b : staged.subList(1, staged.size())) '
+                                       'place(b);\n')), ('artifacts',)),
+    'artifact-published-before-verification': (((ARTIFACT_STORE, _VERIFY_EACH, ''),
+                                                (ARTIFACT_STORE, _PUBLICATION_WRITE,
+                                                 _PUBLICATION_WRITE + '            for (Staged b : staged) '
+                                                 'if (verifier.verify(b) != null) return false;\n')), ('artifacts',)),
+    'artifact-bundle-published-alone': (((ARTIFACT_STORE,
+        '        if (!publication.bundles.equals(expected)) return false;\n',
+        '        if (!publication.bundles.get(0).equals(plan.bundle)) return false;\n'),), ('artifacts',)),
+    'artifact-unnamed-bundle-visible': (((ARTIFACT_STORE, '        if (!named) return Presence.ABSENT;\n', ''),),
+                                        ('artifacts',)),
+    'artifact-read-back-trusts-the-name': (((ARTIFACT_STORE,
+        '            return exact ? Presence.PUBLISHED : Presence.MISMATCH;\n',
+        '            return Presence.PUBLISHED;\n'),), ('artifacts',)),
+    'artifact-lost-acknowledgement-republished': (((ARTIFACT_STORE, '        if (current.found != Node.ABSENT) {\n',
+                                                    '        if (current.found == null) {\n'),
+                                                   (ARTIFACT_STORE,
+        '        if (node(parent) != Node.DIRECTORY || node(target) != Node.ABSENT) return false;\n',
+        '        if (node(parent) != Node.DIRECTORY) return false;\n')), ('artifacts',)),
+    'artifact-staging-read-as-record': (((ARTIFACT_STORE,
+        '            if (name.startsWith(".") && name.endsWith(STAGING)) continue; // Never a record.\n', ''),),
+        ('artifacts',)),
+    'artifact-stage-unchecked': (((ARTIFACT_STORE,
+        '        if (apk.length != manifest.apkBytes || idsig.length != manifest.idsigBytes\n'
+        '                || !DeploymentRecords.sha256Hex(apk).equals(manifest.apk)\n'
+        '                || !DeploymentRecords.sha256Hex(idsig).equals(manifest.idsig)) {\n',
+        '        if (apk.length == 0 || idsig.length == 0) {\n'),), ('artifacts',)),
+    'artifact-schemes-unchecked': (((ARTIFACT_RECORDS,
+        '            if (schemes != SCHEMES) throw DeploymentRecords.invalid("schemes other than v2, v3 and v4");\n',
+        ''),), ('artifacts',)),
+    'artifact-roles-unordered': (((ARTIFACT_RECORDS,
+        '            if (Role.of(in.u8()) != Publication.roleAt(i)) throw DeploymentRecords.invalid("roles out of order");\n',
+        '            Role.of(in.u8());\n'),), ('artifacts',)),
+    'artifact-trailing-bytes': (((ARTIFACT_RECORDS,
+        '        long createdAt = in.i64();\n        in.finish();\n', '        long createdAt = in.i64();\n'),),
+        ('artifacts',)),
 }
 
 REQUIRED_DEFECTS = {
@@ -784,6 +913,11 @@ REQUIRED_DEFECTS = {
     'a stale base reported as healthy': ('stale-base-reported-healthy',),
     'an expired ACTIVATE used': ('expired-activate-used',),
     'a DIVERGED close with a live session': ('diverged-close-with-live-session',),
+    'a partial publication': ('artifact-partial-publication', 'artifact-unnamed-bundle-visible'),
+    'publication before verification': ('artifact-published-before-verification',),
+    'a bundle published alone': ('artifact-bundle-published-alone',),
+    'a lost acknowledgement not resolved by reading': ('artifact-lost-acknowledgement-republished',
+                                                       'artifact-read-back-trusts-the-name'),
 }
 
 
@@ -836,6 +970,13 @@ def oracle_problems():
             problems.append('the README no longer states: ' + fact[:60])
     if MAX_LEDGER != 59:
         problems.append('ledger bound %d' % MAX_LEDGER)
+    artifact_pins = java_goldens(source_text('artifacts'))
+    artifact_gold = artifact_goldens()
+    if set(artifact_pins) != set(artifact_gold) or tuple(artifact_gold) != ARTIFACT_GOLDEN_NAMES:
+        problems.append('artifact golden names differ: %s' % sorted(set(artifact_pins) ^ set(artifact_gold)))
+    for name, data in artifact_gold.items():
+        if artifact_pins.get(name) != (len(data), sha(data)):
+            problems.append('Java golden %s differs from the independent encoder' % name)
     return problems
 
 
@@ -890,12 +1031,15 @@ def prediction_problems(predictions):
         problems.append('predictions are not marked as predictions')
     counts = predictions['cases']
     expected = {suite: len(names) for suite, names in NAMES.items()}
-    expected.update(goldens=len(GOLDEN_NAMES), mutants=len(MUTANTS))
+    expected.update(goldens=len(GOLDEN_NAMES), artifact_goldens=len(ARTIFACT_GOLDEN_NAMES), mutants=len(MUTANTS))
     if counts != expected:
         problems.append('predicted counts %s differ from the case lists %s' % (counts, expected))
     gold = {name: {'bytes': len(data), 'sha256': sha(data)} for name, data in goldens().items()}
     if predictions['goldens'] != gold:
         problems.append('predicted goldens differ from the independent encoder')
+    artifact_gold = {name: {'bytes': len(data), 'sha256': sha(data)} for name, data in artifact_goldens().items()}
+    if predictions['artifact_goldens'] != artifact_gold:
+        problems.append('predicted artifact goldens differ from the independent encoder')
     caught = predictions['mutants_caught_at_least']
     if set(caught) != set(MUTANTS):
         problems.append('mutant predictions do not list every mutant')
@@ -1056,9 +1200,9 @@ def run_suite(work, suite):
     return outcome(run, NAMES[suite]), run
 
 
-def golden_problems(directory):
-    """Each golden the codec suite wrote against the independent encoder, byte for byte."""
-    expected = goldens()
+def golden_problems(directory, expected=None):
+    """Each golden the codec or artifact suite wrote against the independent encoder, byte for byte."""
+    expected = goldens() if expected is None else expected
     written = sorted(path.name for path in directory.iterdir()) if directory.is_dir() else []
     problems = []
     if written != sorted(name + '.bin' for name in expected):
@@ -1084,11 +1228,13 @@ def qualify(work, report):
         problems.append('build')
         return
     report['completed_phases'].append('build')
-    for suite in ('codec', 'machine', 'store', 'transactions'):
+    for suite in ('codec', 'machine', 'store', 'transactions', 'artifacts'):
         result, run = run_suite(base, suite)
         steps[suite] = result
         if red_names(result, NAMES[suite]) != set() or 'unqualified' not in run['stdout']:
             problems.append('%s suite' % suite)
+        if suite == 'artifacts' and not problems:
+            problems += golden_problems(base / 'artifacts-out' / 'goldens', artifact_goldens())
         if suite == 'codec' and not problems:
             problems += golden_problems(base / 'codec-out')
             refused = execute(base, SUITES['codec'], [str(base / 'no-assertions')], assertions=False, timeout=120)

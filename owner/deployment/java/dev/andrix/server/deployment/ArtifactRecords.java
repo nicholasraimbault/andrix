@@ -1,0 +1,423 @@
+// SPDX-License-Identifier: Apache-2.0
+package dev.andrix.server.deployment;
+
+import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
+
+/**
+ * The artifact store's records, version 1: the bundle manifest, type 6, and the publication,
+ * type 7. They use the frame of the deployment records: magic "AXDR", a u16 type, a u16 version,
+ * a u32 length, the body and the SHA-256 of every preceding byte. Integers are little endian.
+ *
+ * <p>A manifest names bytes, never approval. Its SHA-256 over the whole frame is the bundle ID.
+ * A publication names the bundles of one plan that become visible together: the variant, and its
+ * restoration when the plan has one (decision 8). Each kind has a fixed version, strict fields
+ * that refuse unknown codes, one informational time that decides nothing, and a stable prefix
+ * that every later version keeps.
+ */
+public final class ArtifactRecords {
+    public static final int MANIFEST = 6;
+    public static final int PUBLICATION = 7;
+    public static final int VERSION = 1;
+    /** No artifact record is larger. */
+    public static final int MAX_BYTES = 4096;
+    public static final int SCHEME_V2 = 1;
+    public static final int SCHEME_V3 = 2;
+    public static final int SCHEME_V4 = 4;
+    /** The schemes a staged system APK needs: v2 and v3, plus the signed v4 sidecar. */
+    public static final int SCHEMES = SCHEME_V2 | SCHEME_V3 | SCHEME_V4;
+
+    private static final int FRAME_BYTES = 12;
+    private static final int CHECKSUM_BYTES = 32;
+
+    private ArtifactRecords() {}
+
+    /** Which APK of the pair a bundle holds. The prompt says which one is the recovery copy. */
+    public enum Role {
+        VARIANT(1), RESTORATION(2);
+
+        final int code;
+
+        Role(int code) { this.code = code; }
+
+        static Role of(int code) {
+            for (Role r : values()) if (r.code == code) return r;
+            throw DeploymentRecords.invalid("unknown role");
+        }
+    }
+
+    /** The v4 check of the sidecar against base.apk. Version 1 knows only a passed check. */
+    public enum V4Check {
+        VERIFIED(1);
+
+        final int code;
+
+        V4Check(int code) { this.code = code; }
+
+        static V4Check of(int code) {
+            for (V4Check v : values()) if (v.code == code) return v;
+            throw DeploymentRecords.invalid("unknown v4 check");
+        }
+    }
+
+    /** The canonical manifest of one bundle. */
+    public static final class Manifest {
+        public final String installation;
+        public final String component;
+        public final Role role;
+        public final String request;
+        public final String input;
+        public final String inputEntries;
+        public final long versionCode;
+        public final String apk;
+        public final long apkBytes;
+        public final String idsig;
+        public final long idsigBytes;
+        public final String certificate;
+        public final String key;
+        public final int schemes;
+        public final int sdkMin;
+        public final int sdkMax;
+        public final V4Check v4;
+        /** Informational. */
+        public final long createdAt;
+
+        public Manifest(String installation, String component, Role role, String request, String input,
+                String inputEntries, long versionCode, String apk, long apkBytes, String idsig, long idsigBytes,
+                String certificate, String key, int schemes, int sdkMin, int sdkMax, V4Check v4, long createdAt) {
+            DeploymentRecords.checkId(installation, "installation", false);
+            DeploymentRecords.checkPackage(component);
+            this.role = Objects.requireNonNull(role, "role");
+            DeploymentRecords.checkId(request, "request", false);
+            for (String d : List.of(input, inputEntries, apk, idsig, certificate, key)) {
+                DeploymentRecords.checkDigest(d, "digest", false);
+            }
+            if (versionCode <= 0) throw DeploymentRecords.invalid("versionCode not positive");
+            if (apkBytes <= 0 || idsigBytes <= 0) throw DeploymentRecords.invalid("an empty member");
+            if (schemes != SCHEMES) throw DeploymentRecords.invalid("schemes other than v2, v3 and v4");
+            if (sdkMin < 1 || sdkMax < sdkMin || sdkMax > 0xffff) throw DeploymentRecords.invalid("SDK range");
+            if (input.equals(apk)) throw DeploymentRecords.invalid("the input is not signed output");
+            this.installation = installation;
+            this.component = component;
+            this.request = request;
+            this.input = input;
+            this.inputEntries = inputEntries;
+            this.versionCode = versionCode;
+            this.apk = apk;
+            this.apkBytes = apkBytes;
+            this.idsig = idsig;
+            this.idsigBytes = idsigBytes;
+            this.certificate = certificate;
+            this.key = key;
+            this.schemes = schemes;
+            this.sdkMin = sdkMin;
+            this.sdkMax = sdkMax;
+            this.v4 = Objects.requireNonNull(v4, "v4");
+            this.createdAt = createdAt;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof Manifest && Arrays.equals(encodeManifest(this), encodeManifest((Manifest) other));
+        }
+
+        @Override
+        public int hashCode() { return Arrays.hashCode(encodeManifest(this)); }
+    }
+
+    /** The bundles of one plan that become visible together, the variant first. */
+    public static final class Publication {
+        public final String installation;
+        public final String plan;
+        public final String component;
+        public final String request;
+        /** The bundle IDs: the variant, then the restoration when there is one. */
+        public final List<String> bundles;
+        /** Informational. */
+        public final long publishedAt;
+
+        public Publication(String installation, String plan, String component, String request, List<String> bundles,
+                long publishedAt) {
+            DeploymentRecords.checkId(installation, "installation", false);
+            DeploymentRecords.checkId(plan, "plan", false);
+            DeploymentRecords.checkPackage(component);
+            DeploymentRecords.checkId(request, "request", false);
+            List<String> copy = new ArrayList<>(bundles);
+            if (copy.isEmpty() || copy.size() > 2) throw DeploymentRecords.invalid("one or two bundles");
+            for (String b : copy) DeploymentRecords.checkDigest(b, "bundle", false);
+            if (copy.size() == 2 && copy.get(0).equals(copy.get(1))) throw DeploymentRecords.invalid("a bundle twice");
+            this.installation = installation;
+            this.plan = plan;
+            this.component = component;
+            this.request = request;
+            this.bundles = Collections.unmodifiableList(copy);
+            this.publishedAt = publishedAt;
+        }
+
+        /** The role of the bundle at an index: the variant first, then its restoration. */
+        public static Role roleAt(int index) { return index == 0 ? Role.VARIANT : Role.RESTORATION; }
+
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof Publication
+                    && Arrays.equals(encodePublication(this), encodePublication((Publication) other));
+        }
+
+        @Override
+        public int hashCode() { return Arrays.hashCode(encodePublication(this)); }
+    }
+
+    /** What a record of a later version concerns. It decides nothing else. */
+    public static final class Prefix {
+        public final int type;
+        public final int version;
+        public final String installation;
+        /** The manifest's component, or the publication's. */
+        public final String component;
+        /** The manifest's request, or the publication's plan. */
+        public final String id;
+
+        Prefix(int type, int version, String installation, String component, String id) {
+            this.type = type;
+            this.version = version;
+            this.installation = installation;
+            this.component = component;
+            this.id = id;
+        }
+    }
+
+    /** The bundle ID: the SHA-256 of the manifest's whole frame. */
+    public static String bundleId(Manifest m) { return DeploymentRecords.sha256Hex(encodeManifest(m)); }
+
+    // ------------------------------------------------------------------ encoding
+
+    public static byte[] encodeManifest(Manifest m) {
+        Out out = new Out(MANIFEST);
+        out.id(m.installation);
+        out.text(m.component);
+        out.u8(m.role.code);
+        out.id(m.request);
+        out.raw(m.input);
+        out.raw(m.inputEntries);
+        out.i64(m.versionCode);
+        out.raw(m.apk);
+        out.i64(m.apkBytes);
+        out.raw(m.idsig);
+        out.i64(m.idsigBytes);
+        out.raw(m.certificate);
+        out.raw(m.key);
+        out.u8(m.schemes);
+        out.u16(m.sdkMin);
+        out.u16(m.sdkMax);
+        out.u8(m.v4.code);
+        out.i64(m.createdAt);
+        return out.seal();
+    }
+
+    public static byte[] encodePublication(Publication p) {
+        Out out = new Out(PUBLICATION);
+        out.id(p.installation);
+        out.id(p.plan);
+        out.text(p.component);
+        out.id(p.request);
+        out.u8(p.bundles.size());
+        for (int i = 0; i < p.bundles.size(); i++) {
+            out.raw(p.bundles.get(i));
+            out.u8(Publication.roleAt(i).code);
+        }
+        out.i64(p.publishedAt);
+        return out.seal();
+    }
+
+    public static Manifest decodeManifest(byte[] record) {
+        In in = new In(record, MANIFEST, false);
+        String installation = in.hex(16);
+        String component = in.text();
+        Role role = Role.of(in.u8());
+        String request = in.hex(16);
+        String input = in.hex(32);
+        String entries = in.hex(32);
+        long version = in.i64();
+        String apk = in.hex(32);
+        long apkBytes = in.i64();
+        String idsig = in.hex(32);
+        long idsigBytes = in.i64();
+        String certificate = in.hex(32);
+        String key = in.hex(32);
+        int schemes = in.u8();
+        int sdkMin = in.u16();
+        int sdkMax = in.u16();
+        V4Check v4 = V4Check.of(in.u8());
+        long createdAt = in.i64();
+        in.finish();
+        return new Manifest(installation, component, role, request, input, entries, version, apk, apkBytes, idsig,
+                idsigBytes, certificate, key, schemes, sdkMin, sdkMax, v4, createdAt);
+    }
+
+    public static Publication decodePublication(byte[] record) {
+        In in = new In(record, PUBLICATION, false);
+        String installation = in.hex(16);
+        String plan = in.hex(16);
+        String component = in.text();
+        String request = in.hex(16);
+        int count = in.u8();
+        if (count < 1 || count > 2) throw DeploymentRecords.invalid("one or two bundles");
+        List<String> bundles = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            bundles.add(in.hex(32));
+            if (Role.of(in.u8()) != Publication.roleAt(i)) throw DeploymentRecords.invalid("roles out of order");
+        }
+        long publishedAt = in.i64();
+        in.finish();
+        return new Publication(installation, plan, component, request, bundles, publishedAt);
+    }
+
+    /**
+     * The stable prefix of an intact frame of a later version: the installation, then the
+     * component and request of a manifest, or the plan and component of a publication. It reads
+     * nothing after the prefix.
+     */
+    public static Prefix decodePrefix(byte[] record) {
+        In in = new In(record, 0, true);
+        if (in.version <= VERSION) throw DeploymentRecords.invalid("no prefix reading of this version");
+        String installation = in.hex(16);
+        DeploymentRecords.checkId(installation, "installation", false);
+        if (in.type == MANIFEST) {
+            String component = in.text();
+            in.u8(); // The role: a later version may add codes.
+            String request = in.hex(16);
+            DeploymentRecords.checkId(request, "request", false);
+            return new Prefix(in.type, in.version, installation, component, request);
+        }
+        String plan = in.hex(16);
+        DeploymentRecords.checkId(plan, "plan", false);
+        String component = in.text();
+        return new Prefix(in.type, in.version, installation, component, plan);
+    }
+
+    /** The type and version of an intact artifact frame, or null. */
+    public static int[] intactFrame(byte[] record) {
+        try {
+            In in = new In(record, 0, true);
+            return new int[] {in.type, in.version};
+        } catch (IllegalArgumentException damaged) {
+            return null;
+        }
+    }
+
+    private static final class Out {
+        private final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+
+        Out(int type) {
+            i32(DeploymentRecords.MAGIC);
+            u16(type);
+            u16(VERSION);
+            i32(0);
+        }
+
+        void u8(int v) { bytes.write(v); }
+
+        void u16(int v) {
+            u8(v & 0xff);
+            u8((v >>> 8) & 0xff);
+        }
+
+        void i32(int v) { for (int i = 0; i < 4; i++) u8((v >>> (8 * i)) & 0xff); }
+
+        void i64(long v) { for (int i = 0; i < 8; i++) u8((int) ((v >>> (8 * i)) & 0xff)); }
+
+        void raw(String hex) {
+            for (int i = 0; i < hex.length(); i += 2) u8(Integer.parseInt(hex.substring(i, i + 2), 16));
+        }
+
+        void id(String hex) { raw(hex); }
+
+        void text(String value) {
+            byte[] t = value.getBytes(StandardCharsets.US_ASCII);
+            u16(t.length);
+            bytes.write(t, 0, t.length);
+        }
+
+        byte[] seal() {
+            byte[] body = bytes.toByteArray();
+            int length = body.length + CHECKSUM_BYTES;
+            for (int i = 0; i < 4; i++) body[8 + i] = (byte) (length >>> (8 * i));
+            byte[] sum = DeploymentRecords.sha256(body, body.length);
+            byte[] record = Arrays.copyOf(body, length);
+            System.arraycopy(sum, 0, record, body.length, CHECKSUM_BYTES);
+            return record;
+        }
+    }
+
+    private static final class In {
+        private final byte[] bytes;
+        private final int end;
+        final int type;
+        final int version;
+        private int at = FRAME_BYTES;
+
+        // Checks the size, the frame and the checksum first, then the type and the version.
+        In(byte[] record, int expectedType, boolean anyVersion) {
+            Objects.requireNonNull(record, "record");
+            if (record.length < FRAME_BYTES + CHECKSUM_BYTES || record.length > MAX_BYTES) {
+                throw DeploymentRecords.invalid("record size");
+            }
+            bytes = record.clone();
+            if (le(0, 4) != (DeploymentRecords.MAGIC & 0xffffffffL)) throw DeploymentRecords.invalid("not an artifact record");
+            if (le(8, 4) != bytes.length) throw DeploymentRecords.invalid("length differs");
+            end = bytes.length - CHECKSUM_BYTES;
+            byte[] sum = DeploymentRecords.sha256(bytes, end);
+            if (!Arrays.equals(sum, Arrays.copyOfRange(bytes, end, bytes.length))) {
+                throw DeploymentRecords.invalid("checksum differs");
+            }
+            type = (int) le(4, 2);
+            version = (int) le(6, 2);
+            if (type != MANIFEST && type != PUBLICATION) throw DeploymentRecords.invalid("not an artifact record type");
+            if (expectedType != 0 && type != expectedType) throw DeploymentRecords.invalid("another record type");
+            if (!anyVersion && version != VERSION) throw DeploymentRecords.invalid("unknown version");
+        }
+
+        private long le(int from, int count) {
+            long v = 0;
+            for (int i = count - 1; i >= 0; i--) v = (v << 8) | (bytes[from + i] & 0xff);
+            return v;
+        }
+
+        private int take(int count) {
+            if (at + count > end) throw DeploymentRecords.invalid("truncated");
+            int from = at;
+            at += count;
+            return from;
+        }
+
+        int u8() { return (int) le(take(1), 1); }
+
+        int u16() { return (int) le(take(2), 2); }
+
+        long i64() { return le(take(8), 8); }
+
+        String hex(int count) {
+            int from = take(count);
+            StringBuilder s = new StringBuilder();
+            for (int i = from; i < from + count; i++) s.append(String.format("%02x", bytes[i] & 0xff));
+            return s.toString();
+        }
+
+        String text() {
+            int length = u16();
+            int from = take(length);
+            String value = new String(bytes, from, length, StandardCharsets.US_ASCII);
+            DeploymentRecords.checkPackage(value);
+            return value;
+        }
+
+        void finish() {
+            if (at != end) throw DeploymentRecords.invalid("trailing bytes");
+        }
+    }
+}

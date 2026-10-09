@@ -186,6 +186,8 @@ final class AndroidFacade {
     DeploymentStore store;
     private long observationCount;
     private int sequence;
+    /** Observation IDs that fall with time, so the store's listing by ID is the reverse of time. */
+    boolean fallingIds;
 
     AndroidFacade(long seed, Apk factory) {
         this.random = new Random(seed);
@@ -447,7 +449,7 @@ final class AndroidFacade {
     private Observation.Builder fact(Route route, Classification c) {
         String text = route + " " + c + " " + boot + " " + elapsed + " " + (++observationCount);
         return new Observation.Builder().installation(Fixtures.INSTALLATION)
-                .observationId(Fixtures.id(0x10000000L + (++sequence)))
+                .observationId(Fixtures.id(fallingIds ? 0x1fffffffL - (++sequence) : 0x10000000L + (++sequence)))
                 .boot(boot).route(route).raw(DeploymentRecords.sha256Hex(text.getBytes(StandardCharsets.US_ASCII)))
                 .classification(c).at(-1, elapsed, wall());
     }

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The D1 deployment record runner: pure source guards and the independent encoder here, and the
-guarded JVM run, which is NOT RUN without the required resource bounds and a JDK. Not Android
+"""The D1 deployment record and D2 artifact store runner: pure source guards and the independent
+encoder here, and the guarded JVM run, which is NOT RUN without the required resource bounds and a JDK. Not Android
 runtime proof."""
 from pathlib import Path
 import ast
@@ -47,17 +47,36 @@ class ComponentTransactionSourceTests(unittest.TestCase):
         (root / runner.TEST_DIR).mkdir(parents=True)
         (root / runner.TEST_DIR / 'DeploymentRecordsTest.java').write_text(
             runner.source_text('codec').replace(pins['TICKET_WINDOW'][1], '0' * 64))
+        shutil.copy(ROOT / runner.TEST_DIR / 'ArtifactStoreTest.java', root / runner.TEST_DIR / 'ArtifactStoreTest.java')
         shutil.copytree(ROOT / 'owner/deployment', root / 'owner/deployment')
         with mock.patch.object(runner, 'ROOT', root), \
                 mock.patch.object(runner, 'README', root / 'owner/deployment/README.md'):
             self.assertIn('Java golden TICKET_WINDOW differs from the independent encoder', runner.oracle_problems())
 
+    def test_artifact_goldens_are_the_independent_encoder_bytes(self):
+        pins = runner.java_goldens(runner.source_text('artifacts'))
+        gold = runner.artifact_goldens()
+        self.assertEqual(tuple(pins), runner.ARTIFACT_GOLDEN_NAMES)
+        for name, data in gold.items():
+            self.assertEqual(pins[name], (len(data), runner.sha(data)), name)
+            kind = {'MANIFEST': 6, 'PUBLICATION': 7}[name.split('_')[0]]
+            self.assertEqual(data[:4], b'AXDR', name)
+            self.assertEqual(struct.unpack('<HHI', data[4:12]), (kind, 1, len(data)), name)
+        # The pair names both manifests by their digests, the variant first.
+        pair = gold['PUBLICATION_PAIR']
+        self.assertIn(bytes.fromhex(runner.sha(gold['MANIFEST_VARIANT'])) + b'\x01'
+                      + bytes.fromhex(runner.sha(gold['MANIFEST_RESTORATION'])) + b'\x02', pair)
+        predictions = json.loads(runner.PREDICTIONS.read_text())['artifact_goldens']
+        self.assertEqual({name: (row['bytes'], row['sha256']) for name, row in predictions.items()}, pins)
+
     def test_the_encoder_is_independent_of_the_codec(self):
         # The encoder is written here from the README's layout; no part of it reads the Java codec.
         for function in (runner.record, runner.text, runner.ref, runner.plan, runner.authorization, runner.ticket,
-                         runner.observation, runner.selection, runner.goldens):
+                         runner.observation, runner.selection, runner.goldens, runner.manifest, runner.publication,
+                         runner.artifact_manifest, runner.artifact_goldens):
             source = inspect.getsource(function)
             self.assertNotIn('DeploymentRecords', source, function.__name__)
+            self.assertNotIn('ArtifactRecords', source, function.__name__)
             self.assertNotIn('read_', source, function.__name__)
         # The authorization golden, field by field from the README's table.
         data = runner.goldens()['AUTH_SIGN']
@@ -80,11 +99,11 @@ class ComponentTransactionSourceTests(unittest.TestCase):
     def test_case_names_and_counts(self):
         predictions = json.loads(runner.PREDICTIONS.read_text())
         self.assertIn('PREDICTED', predictions['status'])
-        self.assertEqual(predictions['cases'], {'codec': 49, 'machine': 65, 'store': 14, 'transactions': 44,
-                                                'goldens': 22, 'mutants': 54})
+        self.assertEqual(predictions['cases'], {'codec': 49, 'machine': 66, 'store': 14, 'transactions': 44,
+                                                'artifacts': 13, 'goldens': 22, 'artifact_goldens': 4, 'mutants': 68})
         self.assertEqual({suite: len(names) for suite, names in runner.NAMES.items()},
-                         {'codec': 49, 'machine': 65, 'store': 14, 'transactions': 44})
-        self.assertEqual(predictions['guarded_run']['cases_passed'], 172)
+                         {'codec': 49, 'machine': 66, 'store': 14, 'transactions': 44, 'artifacts': 13})
+        self.assertEqual(predictions['guarded_run']['cases_passed'], 186)
         for names in runner.NAMES.values():
             for name in names:
                 self.assertNotIn(': ', name)
@@ -112,7 +131,7 @@ class ComponentTransactionSourceTests(unittest.TestCase):
                 runner.mutant_texts()
 
     def test_every_required_defect_has_a_mutant(self):
-        self.assertEqual(len(runner.REQUIRED_DEFECTS), 9)
+        self.assertEqual(len(runner.REQUIRED_DEFECTS), 13)
         for defect, names in runner.REQUIRED_DEFECTS.items():
             for name in names:
                 self.assertIn(name, runner.MUTANTS, defect)

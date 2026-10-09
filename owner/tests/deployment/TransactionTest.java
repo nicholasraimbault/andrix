@@ -626,19 +626,30 @@ public final class TransactionTest {
             account(w, problems);
         });
         cases.run("recovery / chosen bytes that return after other bytes are CURRENT again", problems -> {
-            World w = world(Route.SHELL, 77);
-            Plan plan = plan(w, Fixtures.plan(1));
-            String id = w.open(plan, 1);
-            check(problems, w.run(id, 80, false).state == State.CLOSED_APPLIED, "applied");
-            w.android.otherInstaller(new Apk(Fixtures.digest(0xee), 45, World.SIGNER, true));
-            w.android.tick(1000);
-            w.settle(id);
-            check(problems, w.selection().realization == Realization.DIVERGED, "other bytes " + w.selection());
-            w.android.otherInstaller(World.BUNDLE); // The same framework instance throughout.
-            w.android.tick(1000);
-            w.settle(id);
-            check(problems, w.selection().realization == Realization.CURRENT, "the chosen bytes back " + w.selection());
-            account(w, problems);
+            // Observation IDs that rise and that fall with time. A new coordinator lists the store
+            // by ID, so with falling IDs the listing runs against time.
+            for (boolean falling : List.of(false, true)) {
+                for (boolean restart : List.of(false, true)) {
+                    String label = (falling ? "falling" : "rising") + (restart ? " after a restart" : "");
+                    World w = world(Route.SHELL, 77);
+                    w.android.fallingIds = falling;
+                    Plan plan = plan(w, Fixtures.plan(1));
+                    String id = w.open(plan, 1);
+                    check(problems, w.run(id, 80, false).state == State.CLOSED_APPLIED, label + " applied");
+                    w.android.otherInstaller(new Apk(Fixtures.digest(0xee), 45, World.SIGNER, true));
+                    w.android.tick(1000);
+                    w.settle(id);
+                    check(problems, w.selection().realization == Realization.DIVERGED,
+                            label + " other bytes " + w.selection());
+                    if (restart) w.coordinator = w.coordinator();
+                    w.android.otherInstaller(World.BUNDLE); // The same framework instance throughout.
+                    w.android.tick(1000);
+                    w.settle(id);
+                    check(problems, w.selection().realization == Realization.CURRENT,
+                            label + " the chosen bytes back " + w.selection());
+                    account(w, problems);
+                }
+            }
         });
         cases.run("recovery / crash during the health window", problems -> {
             World crash = world(Route.SHELL, 80);

@@ -1,21 +1,24 @@
 {
-  "status": "PREDICTED for D1, after an independent review of the first candidate: its three blocking findings and nine of its smaller issues fixed. Written before any run of these sources, guarded, unguarded or mutant. Runs of earlier sources preceded it. Nothing here is a guarded or mutant result.",
+  "status": "PREDICTED for D1 with three follow-ups from an independent review, and for the artifact store of D2: the latest fact by time, the owed realization from the step's facts, a replayed create that only the replay checks can catch, and durable publication of a variant with its restoration. Written before any run of these sources, guarded, unguarded or mutant. Runs of earlier sources preceded it. Nothing here is a guarded or mutant result.",
   "plan": "plans/2026-10-09-component-transaction.md",
-  "package": "D1: the deployment records, their codec, the ticket state machine, reconciliation and host storage",
+  "package": "D1: the deployment records, their codec, the ticket state machine, reconciliation and host storage. D2, first part: the bundle manifest, the publication record and the artifact store",
   "basis": "Each count is the length of the runner's case lists. Each golden is the independent encoder's bytes. Each mutant's catches are traced against the cases that reach the changed rule; a defect that another rule also refuses names only the cases that reach it.",
   "cases": {
     "codec": 49,
-    "machine": 65,
+    "machine": 66,
     "store": 14,
     "transactions": 44,
+    "artifacts": 13,
     "goldens": 22,
-    "mutants": 54
+    "artifact_goldens": 4,
+    "mutants": 68
   },
   "guarded_run": {
-    "cases_passed": 172,
+    "cases_passed": 186,
     "cases_failed": 0,
     "goldens_equal_to_the_encoder": 22,
-    "mutants_caught": 54,
+    "artifact_goldens_equal_to_the_encoder": 4,
+    "mutants_caught": 68,
     "status": "PASS"
   },
   "goldens": {
@@ -106,6 +109,24 @@
     "SELECTION_TEMPORARY": {
       "bytes": 173,
       "sha256": "b4449fa53d49dcb053bd5561cd3f2072542f9888ee45fa1d3c6a3a8936b80ff4"
+    }
+  },
+  "artifact_goldens": {
+    "MANIFEST_VARIANT": {
+      "bytes": 329,
+      "sha256": "78aca427279c846a3c2963a724971313ad63e0683a9e09acb33111f683d5808e"
+    },
+    "MANIFEST_RESTORATION": {
+      "bytes": 329,
+      "sha256": "86a448487e6567ac5a5836a8c29f2a5f01edd3cfb78aa3b0465322a14192b55b"
+    },
+    "PUBLICATION_PAIR": {
+      "bytes": 189,
+      "sha256": "63625b68147359c0ea9e3d7053f34fb80b57bd0781852cc643abecff4bb70499"
+    },
+    "PUBLICATION_ONE": {
+      "bytes": 156,
+      "sha256": "35915c5304625e9233e39b2f23544890c363f80787853a35c7786a728fd24fa9"
     }
   },
   "mutants_caught_at_least": {
@@ -298,8 +319,6 @@
       "check / ABANDON_INTENT to BOOT_OBSERVED and every DIVERGED exit need a COMMIT in the ledger"
     ],
     "create-replayed": [
-      "decoder refuses / ledger bounds, order and references",
-      "size / the largest ticket fits MAX_BYTES",
       "unresolved / every intent state waits without evidence and never replays",
       "recovery / create reply lost on the shell route stays unresolved until a listing shows none"
     ],
@@ -319,8 +338,57 @@
       "decoder refuses / plan relations",
       "notice / a rebuilt variant, an unlisted repair or a temporary factory plan never shortens notice"
     ],
+    "repeats-by-list-position": [
+      "recovery / chosen bytes that return after other bytes are CURRENT again"
+    ],
+    "owed-move-writes-current": [
+      "selection / an owed move in a step that closes DIVERGED takes the realization from its facts"
+    ],
+    "owed-temporary-on-other-bytes": [
+      "selection / an owed move in a step that closes DIVERGED takes the realization from its facts"
+    ],
     "store-update-unchecked": [
       "store / ticket updates must be legal steps from the exact stored bytes"
+    ],
+    "artifact-partial-publication": [
+      "store / a stop at every step leaves both bundles visible or neither"
+    ],
+    "artifact-published-before-verification": [
+      "store / refusing either bundle's verification publishes nothing",
+      "store / every bundle is verified before anything is renamed"
+    ],
+    "artifact-bundle-published-alone": [
+      "store / a bundle is never published alone"
+    ],
+    "artifact-unnamed-bundle-visible": [
+      "store / the pair is staged, published together and read back exactly",
+      "store / a stop at every step leaves both bundles visible or neither",
+      "store / refusing either bundle's verification publishes nothing",
+      "store / unpublished bundles, staging leftovers and unreadable publications"
+    ],
+    "artifact-read-back-trusts-the-name": [
+      "store / changed, missing or extra members read as MISMATCH"
+    ],
+    "artifact-lost-acknowledgement-republished": [
+      "store / a lost acknowledgement resolves by reading the exact bytes",
+      "store / a stop at every step leaves both bundles visible or neither"
+    ],
+    "artifact-staging-read-as-record": [
+      "store / unpublished bundles, staging leftovers and unreadable publications",
+      "store / a stop at every step leaves both bundles visible or neither"
+    ],
+    "artifact-stage-unchecked": [
+      "store / a different bundle under the same ID is never replaced"
+    ],
+    "artifact-schemes-unchecked": [
+      "records / strict codes, relations and trailing bytes are refused"
+    ],
+    "artifact-roles-unordered": [
+      "records / strict codes, relations and trailing bytes are refused",
+      "records / every single byte change is refused or canonical"
+    ],
+    "artifact-trailing-bytes": [
+      "records / strict codes, relations and trailing bytes are refused"
     ]
   }
 }

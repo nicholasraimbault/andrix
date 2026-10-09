@@ -178,18 +178,31 @@ public final class Coordinator {
     }
 
     // A fact identical to the latest recorded fact about the same thing, in the same boot and
-    // framework instance, adds nothing and is not recorded again. An older identical fact does not
-    // count: a fact that returns after another is recorded again, so the latest fact of its kind
-    // stays true. Users and health are judged by time within the health window, so they are always
-    // recorded.
+    // framework instance, adds nothing and is not recorded again. The latest is the one with the
+    // largest elapsed time in its boot, as the reconciler's view reads it, never a position in
+    // this list: a new coordinator lists the store by ID, and IDs need not rise with time. When
+    // several facts share that time, the new fact repeats only if it equals each of them. An older
+    // identical fact does not count: a fact that returns after another is recorded again, so the
+    // latest fact of its kind stays true. Signer and bundle facts are decided by precedence, not by
+    // time, so any identical fact about the same request or bundle settles them. Users and health
+    // are judged by time within the health window, so they are always recorded.
     private boolean repeats(Observation o) {
         if (o.kind == ObservationKind.USER || o.kind == ObservationKind.HEALTH) return false;
-        for (int i = observations.size() - 1; i >= 0; i--) {
-            Observation old = observations.get(i);
+        boolean precedence = o.kind == ObservationKind.SIGNER || o.kind == ObservationKind.BUNDLE;
+        long latest = -1;
+        boolean repeat = false;
+        for (Observation old : observations) {
             if (!sameSubject(old, o)) continue;
-            return identical(old, o);
+            if (precedence) {
+                if (identical(old, o)) return true;
+            } else if (old.elapsed > latest) {
+                latest = old.elapsed;
+                repeat = identical(old, o);
+            } else if (old.elapsed == latest) {
+                repeat &= identical(old, o);
+            }
         }
-        return false;
+        return repeat;
     }
 
     // Facts about the same thing: the same kind, boot, framework instance, route, component, user

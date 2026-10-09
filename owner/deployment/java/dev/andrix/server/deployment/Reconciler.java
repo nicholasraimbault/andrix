@@ -794,6 +794,13 @@ public final class Reconciler {
      * revision of the plan it stands in for and becomes the selection's {@code temporary} (decision
      * 6). It is computed again at APPLIED and in every step of the health window, so a move lost
      * between two writes is made by the next step and never silently dropped.
+     *
+     * <p>The owed realization comes from this step's cohort facts, as the cohort check reads them,
+     * so a step that closes DIVERGED on other bytes moves the choice with DIVERGED, never CURRENT.
+     * The temporary factory state is owed only while the stand in's bytes are active. Otherwise the
+     * selection keeps the realization that this round's cohort check read from the same facts.
+     * When the step's facts are incomplete, the move keeps the realization it names, and the next
+     * round's cohort check reads it again.
      */
     private static Selection move(Context c, Cause cause) {
         Plan p = c.plan;
@@ -801,10 +808,13 @@ public final class Reconciler {
         if (cause != Cause.NONE || s.revision != p.selectionRevision || c.now == null) return null;
         if (p.target == Target.TEMPORARY_FACTORY) {
             if (s.choice != ChoiceKind.PLAN || !s.planId.equals(p.repairs)) return null;
+            Observation active = c.view.latest(ObservationKind.ACTIVE);
+            if (active != null && !active.digest.equals(p.bundleApk)) return null;
             Selection next = s.realized(Realization.TEMPORARY_FACTORY, c.view.boot, s.repair, p.planId);
             return next.equals(s) ? null : next;
         }
-        return s.chosen(ChoiceKind.PLAN, p.planId, Realization.CURRENT, c.view.boot, c.now.wall);
+        Selection next = s.chosen(ChoiceKind.PLAN, p.planId, Realization.CURRENT, c.view.boot, c.now.wall);
+        return cohortCheck(next, p, null, c.view, null, null);
     }
 
     // Whether the selection already holds this plan's own move: the plan chosen at the revision

@@ -376,8 +376,12 @@ issues the crossing and records the reply as an observation. A lost reply record
   becomes TEMPORARY_FACTORY and names the plan as `temporary`. The move is computed from the
   records, so it is owed until the selection holds it: at APPLIED and in every step of the health
   window, a ticket with no recorded cause whose plan still expects the selection's revision moves
-  the choice, or sets TEMPORARY_FACTORY, with that step. The plan's own move, at the revision after
-  the one it expected, is no change of revision and voids nothing.
+  the choice, or sets TEMPORARY_FACTORY, with that step. The owed realization comes from that
+  step's cohort facts, so a step that closes DIVERGED on other bytes moves the choice with
+  DIVERGED, and TEMPORARY_FACTORY is set only while the stand in's bytes are active. When the
+  step's facts are incomplete the move keeps the realization it names, and the next round's cohort
+  check reads it again. The plan's own move, at the revision after the one it expected, is no
+  change of revision and voids nothing.
 - **Health.** The window starts at APPLIED and restarts after each reboot. Users are bound by
   serial. A crash makes a user UNHEALTHY at once, a removal REMOVED, and a user first seen during
   the window gets its own outcome. At the window's end a user is HEALTHY only when every probe held
@@ -411,8 +415,12 @@ and the next step reads that move as the plan's own. A host fault point sits bet
 writes. A fact identical to the latest recorded fact about the same thing, in the same boot and
 framework instance, is not recorded again, so a polling coordinator does not grow the store with
 every round. The same thing is the kind, route, component, user, request or ledger entry, and for
-a session its ID, for a bundle its digest. An older identical fact does not count, so bytes that
-return after other bytes are recorded again and the realization follows them. User and health
+a session its ID, for a bundle its digest. The latest such fact is the one with the largest elapsed
+time in its boot, never a position in a list, because a new coordinator lists the store by ID and
+IDs need not rise with time. When several share that time, a new fact repeats only if it equals
+each of them. Signer and bundle facts are decided by precedence, so any identical fact settles
+them. An older identical fact does not count, so bytes that return after other bytes are recorded
+again and the realization follows them. User and health
 observations are always recorded, because the window judges them by time. A new coordinator on the
 same store resumes by observation.
 
@@ -476,17 +484,99 @@ source other than the store names `unsynced`.
   after the effect, a framework restart or an unclean stop after it, an unrecognized reply, and no
   effect at all. Every crossing first checks that the store holds its entry.
 
+## Artifact store
+
+This part of step D2 keeps signed bundles on the host. `ArtifactRecords.java` holds its two record
+kinds and `ArtifactStore.java` the store. They use the frame above with types 6 and 7, version 1,
+and at most 4,096 bytes.
+
+### Bundle manifest, type 6
+
+```
+id    installation          nonzero                                         prefix
+pkg   component                                                             prefix
+u8    role                  1 VARIANT, 2 RESTORATION                        prefix
+id    request               the signing transaction, nonzero                prefix
+d32   input                 SHA-256 of the unsigned input APK, nonzero              strict
+d32   inputEntries          digest of the input's ZIP entries outside the signing block, nonzero
+i64   versionCode           > 0
+d32   apk                   SHA-256 of base.apk, nonzero, not the input's
+i64   apkBytes              > 0
+d32   idsig                 SHA-256 of base.apk.idsig, nonzero
+i64   idsigBytes            > 0
+d32   certificate           SHA-256 of the signer certificate, nonzero
+d32   key                   SHA-256 of the signer public key, nonzero
+u8    schemes               bit 0 v2, 1 v3, 2 v4: exactly 7                         strict
+u16   sdkMin                >= 1, the range the schemes were verified for
+u16   sdkMax                >= sdkMin
+u8    v4                    1 VERIFIED                                              strict
+i64   createdAt             wall clock ms                                           informational
+```
+
+The bundle ID is the SHA-256 of the manifest's whole frame, checksum included. It names bytes,
+not approval: the manifest names the signing request but no plan or grant.
+
+### Publication, type 7
+
+```
+id    installation          nonzero                                         prefix
+id    plan                  nonzero                                         prefix
+pkg   component                                                             prefix
+id    request               the signing transaction, nonzero
+u8    count                 1 or 2                                                  strict
+      then for each: d32 bundle, nonzero, and u8 role, VARIANT first, then RESTORATION
+i64   publishedAt           wall clock ms                                           informational
+```
+
+A publication never names one bundle twice. `decodePrefix` reads a later version's installation,
+then a manifest's component and request or a publication's plan and component, and nothing after.
+
+### Layout and publication
+
+```
+<root>/bundles/<id>/manifest.rec        the manifest, whose digest is <id>
+<root>/bundles/<id>/base.apk
+<root>/bundles/<id>/base.apk.idsig
+<root>/publications/<plan>.rec          the publication of one plan
+<root>/.staging-<id>/                   the private staging copy of one bundle
+```
+
+- **Visible only when complete.** A bundle is PUBLISHED only when a publication names it and its
+  directory holds exactly the three files, with the manifest's digest as its name and the members'
+  digests and sizes as the manifest's. A directory that no publication names is ABSENT, whatever
+  it holds. A named bundle that differs, lacks a file or holds another is MISMATCH. A damaged,
+  newer or unreadable publication makes every ID UNAVAILABLE, because it might name it.
+- **Together or not at all.** A plan's publication names its bundle and, when it has one, its
+  restoration, from one signing request, in that order. The store refuses any other set, so a
+  bundle is never published alone (decision 8).
+- **Order.** Staging writes each member and the manifest through its own descriptor, syncs each,
+  then syncs the staging directory and the root. Publication then reads every staged bundle back,
+  verifies all of them, renames each into `bundles/<id>`, syncs `bundles/`, and writes the
+  publication by the deployment store's protocol: stage, sync, read back, rename, sync the parent,
+  read back. Nothing is visible before that last rename, so a stop at any point leaves both
+  bundles visible or neither.
+- **A lost acknowledgement.** It resolves by reading the exact bytes. A second publication of a
+  plan writes nothing: it is true only when the stored publication has exactly its bytes and every
+  bundle it names reads back PUBLISHED.
+- **Resuming.** A bundle already in `bundles/<id>` with the exact bytes is the same content,
+  because its name is its manifest's digest. A resumed publication keeps it and drops the staging
+  copy. Other bytes under that name are never replaced, and the publication fails.
+
+The store holds no lock, like the deployment store, and its one coordinator serializes every
+call. On the device, restoration bundles live in system DE storage, which D7 owns.
+
 ## Qualification
 
 | Suite | Cases | What it shows |
 | --- | --- | --- |
 | `DeploymentRecordsTest` | 49 | 22 goldens, two layouts by hand, every strict code refused by position, informational fields free, every relation, resealed mutations of every kind refused or canonical, the stable prefix |
-| `TicketMachineTest` | 65 | the exit table equals the plan's, every cycle passes a counted edge, each loop meets its limit, and every rule in single steps |
+| `TicketMachineTest` | 66 | the exit table equals the plan's, every cycle passes a counted edge, each loop meets its limit, and every rule in single steps |
 | `DeploymentStoreTest` | 14 | write once, compare and set, a crash at each write step, presence and footprints, one open ticket, the selection's revision rules |
 | `TransactionTest` | 44 | both routes and both commit modes end to end, decisions 3, 6 and 7 over whole runs, each row of the recovery table, fault sweeps at every crossing, a coordinator lost between the selection and ticket writes, world events at every round, and the invariants of every run |
+| `ArtifactStoreTest` | 13 | 4 goldens, strict codes by position, informational times, the stable prefix, resealed mutations refused or canonical, and publication: together or not at all, verified first, a stop at every step, a lost acknowledgement read back, damage as MISMATCH |
 
 `scripts/proof/component_transaction_records.py` checks every golden against its own encoder,
-written from the tables above, and runs 54 deliberate defects against the suites predicted to catch
+written from the tables above, and runs 63 deliberate defects against the suites predicted to catch
 them.
 
 ## What the owner decisions changed

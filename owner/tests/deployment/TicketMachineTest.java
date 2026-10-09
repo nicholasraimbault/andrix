@@ -1076,6 +1076,30 @@ public final class TicketMachineTest {
             stand.selection = t.selection;
             check(problems, stand.step().selection == null, "the temporary factory state set twice");
         });
+        cases.run("selection / an owed move in a step that closes DIVERGED takes the realization from its facts",
+                problems -> {
+            Bed other = Bed.late().grants().at(State.HEALTH_WINDOW, TO_REBOOT).committed(Fixtures.digest(0xee));
+            Step o = other.step();
+            check(problems, o.ticket.state == State.DIVERGED && o.selection != null
+                    && o.selection.planId.equals(other.plan.planId) && o.selection.revision == 1
+                    && o.selection.realization == Realization.DIVERGED, "other bytes " + o + " " + o.selection);
+            Bed same = Bed.late().grants().at(State.HEALTH_WINDOW, TO_REBOOT).committed(BUNDLE_APK);
+            Step c = same.step();
+            check(problems, c.selection != null && c.selection.realization == Realization.CURRENT,
+                    "the bundle's bytes " + c.selection);
+            // Decision 6: the temporary factory state is owed only while the stand in's bytes are active.
+            Plan temporary = DeploymentRecordsTest.planTemporary();
+            Bed stand = new Bed(temporary).grants().at(State.HEALTH_WINDOW, TO_REBOOT);
+            stand.selection = new Selection(Fixtures.INSTALLATION, Fixtures.COMPONENT, 1, ChoiceKind.PLAN, id(0x101),
+                    UpdateResponsibility.REBUILD_WINDOW, Fixtures.WINDOW, Realization.DIVERGED, B1, NO_ID, NO_ID, TIME);
+            stand.add(stand.f(Classification.BOOT_COMPLETED).text(Fixtures.NEW_FINGERPRINT));
+            stand.add(stand.f(Classification.CHECKPOINT_COMMITTED));
+            stand.add(stand.f(Classification.FACTORY_PRESENT).digest(Fixtures.digest(0xf1)).version(38));
+            stand.add(stand.f(Classification.DATA_COPY).digest(Fixtures.digest(0xee)).version(45));
+            Step t = stand.step();
+            check(problems, t.ticket.state == State.DIVERGED && (t.selection == null
+                    || t.selection.realization != Realization.TEMPORARY_FACTORY), "temporary " + t + " " + t.selection);
+        });
         cases.run("selection / a void or cancelled plan never moves the choice", problems -> {
             for (Cause cause : List.of(Cause.CANCELLED, Cause.VOID_TRUST)) {
                 Bed bed = Bed.late().grants().at(State.APPLIED_PROVISIONAL, TO_REBOOT).committed(BUNDLE_APK)
