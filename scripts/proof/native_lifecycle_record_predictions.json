@@ -1,0 +1,261 @@
+{
+  "status": "PREDICTED before any guarded execution of the P1 round 2 sources. Nothing here is an executed result.",
+  "plan": "plans/2026-10-08-native-lifecycle-record.md",
+  "package": "B1 P1: the slot version 2 codec, the stable prefix reader and the readers in every format",
+  "basis": "Each count is the length of the runner's case lists. Each mutant's catches are traced against the cases it breaks; a defect that another rule also refuses names only the cases that reach it.",
+  "cases": {
+    "codec": 47,
+    "reads": 60,
+    "goldens": 9,
+    "mutants": 35
+  },
+  "reads_by_label": {
+    "legacy": 20,
+    "production": 20,
+    "new-format": 20
+  },
+  "goldens": {
+    "SUSPENDED": {
+      "bytes": 176,
+      "sha256": "160fb3c1b00f2e25132671f89e6042871b9e18423463b57ece352cfcde937582"
+    },
+    "HOLDS": {
+      "bytes": 412,
+      "sha256": "6a9f04924546138a6dd16d9d011d21b2d715847e07587cd6781fdc1310a03ded"
+    },
+    "RETIRING": {
+      "bytes": 622,
+      "sha256": "08b196deaf47aff6c5b0c4e34680f87cfca7ef444490447e47765fc1d38dfb15"
+    },
+    "RETIRED": {
+      "bytes": 662,
+      "sha256": "dcf3ecbf1a3525856c6f77163fcace5b89326bc1725ff79a2eb61264827b2c1a"
+    },
+    "LEGACY_CONTINUED": {
+      "bytes": 620,
+      "sha256": "52f94713179ebb28423cc2d69c7bb0265d9c68ef82a3060db094da63d76be78c"
+    },
+    "LEGACY_SUSPENDED": {
+      "bytes": 227,
+      "sha256": "d1a7f1247f4cc95c9c8656a9abbc02df6926c517d0249a469759f1ff0f47b5d0"
+    },
+    "TWO_USERS": {
+      "bytes": 244,
+      "sha256": "6b80e29a3485ca7842bcd8b74bf19040e5a27cab5679fa2361c626c6998b0792"
+    },
+    "TICKET": {
+      "bytes": 165,
+      "sha256": "735555c75d0579dfd9b74f12675e0d9a9f8de8ad996883cf4b944aaaf621f192"
+    },
+    "MAXIMUM": {
+      "bytes": 60941,
+      "sha256": "0481574f619b2a6235020ce92a20d23da77ee687d8eff572b44f44c99bea2875"
+    }
+  },
+  "sizes": {
+    "fixed": 1357,
+    "entry": 41,
+    "noted_entry": 73,
+    "retirement": 471,
+    "user": 931,
+    "largest": 60941
+  },
+  "mutants_caught_at_least": {
+    "v2-admits-v1-values": [
+      "one encoding / every version 1 value is refused in version 2"
+    ],
+    "legacy-marker-written-as-v2": [
+      "golden / version 1 values built from lifecycles keep their version 1 bytes",
+      "version / each value has the version its lifecycle needs",
+      "one encoding / every version 1 value is refused in version 2",
+      "one encoding / confirming a legacy marker rewrites version 1 bytes"
+    ],
+    "unknown-inventory-anywhere": [
+      "decoder refuses / an unknown inventory outside RETIRING",
+      "values / the constructors enforce the same rules"
+    ],
+    "retired-with-open-retirement-kind": [
+      "decoder refuses / RETIRED with a retirement kind not DISCHARGED",
+      "values / the constructors enforce the same rules"
+    ],
+    "disposing-on-retirement-kind": [
+      "values / the constructors enforce the same rules"
+    ],
+    "disposing-outside-retired": [
+      "decoder refuses / DISPOSING on a retirement kind or outside RETIRED"
+    ],
+    "seventh-entry": [
+      "decoder refuses / more than six entries"
+    ],
+    "second-entry-per-actor": [
+      "decoder refuses / entries out of order or two from one actor"
+    ],
+    "order-grant-before-serial": [
+      "decoder orders / entries by class, then actor serial, then grant",
+      "golden / holds",
+      "decoder refuses / entries out of order or two from one actor"
+    ],
+    "scope-bit-1-anywhere": [
+      "decoder refuses / unknown scope bits and bit 1 outside a recovery hold",
+      "values / the constructors enforce the same rules"
+    ],
+    "scope-bit-0-refused": [
+      "decoder accepts / scope bit 0, unknown reasons, notes and any times",
+      "golden / holds",
+      "golden / maximum",
+      "values / the constructors enforce the same rules"
+    ],
+    "note-tag-lenient": [
+      "decoder refuses / unknown note tags"
+    ],
+    "legacy-marker-with-actor": [
+      "decoder refuses / a legacy marker with an actor, grant or time",
+      "values / the constructors enforce the same rules"
+    ],
+    "inventory-byte-unchecked": [
+      "decoder refuses / inventories other than every kind once or a legacy marker's none"
+    ],
+    "zero-ticket-id": [
+      "decoder refuses / ticket fields out of bounds",
+      "values / the constructors enforce the same rules"
+    ],
+    "unknown-reason-refused": [
+      "decoder accepts / scope bit 0, unknown reasons, notes and any times",
+      "golden / holds",
+      "reasons / a registry of specific codes without a catch-all"
+    ],
+    "reason-catch-all": [
+      "reasons / a registry of specific codes without a catch-all"
+    ],
+    "reason-actors-widened": [
+      "reasons / a registry of specific codes without a catch-all"
+    ],
+    "prefix-reads-version-2": [
+      "prefix / version 1 and 2 frames give no prefix"
+    ],
+    "prefix-needs-its-end": [
+      "prefix / later versions give their package and principals",
+      "prefix / nothing after the prefix is read"
+    ],
+    "prefix-user-bound-raised": [
+      "prefix / each frozen bound and rule refuses"
+    ],
+    "prefix-without-order": [
+      "prefix / each frozen bound and rule refuses"
+    ],
+    "slot-ceiling-fixed-at-1": [
+      "V3 / a suspended version 2 slot",
+      "V3 / a retired version 2 slot",
+      "V3 / a reservation elsewhere beside a version 2 slot",
+      "V3 / version 2 slot writes succeed"
+    ],
+    "slot-ceiling-fixed-at-2": [
+      "V1 / a suspended version 2 slot",
+      "V2 / a suspended version 2 slot",
+      "V1 / a retired version 2 slot",
+      "V2 / a retired version 2 slot",
+      "V1 / a version 2 slot beside a sibling naming its package",
+      "V2 / a version 2 slot beside a sibling naming its package",
+      "V2 / a reservation elsewhere beside a version 2 slot"
+    ],
+    "broken-prefix-is-damage": [
+      "V1 / a later frame with a broken prefix gives no evidence",
+      "V2 / a later frame with a broken prefix gives no evidence",
+      "V3 / a later frame with a broken prefix gives no evidence",
+      "V1 / a later frame with a broken prefix in the main, nothing restored from the older copies and every writer refuses",
+      "V1 / a later frame with a broken prefix in the reserve, nothing restored from the older copies and every writer refuses",
+      "V1 / a later frame with a broken prefix in the backup, nothing restored from the older copies and every writer refuses",
+      "V2 / a later frame with a broken prefix in the main, nothing restored from the older copies and every writer refuses",
+      "V2 / a later frame with a broken prefix in the reserve, nothing restored from the older copies and every writer refuses",
+      "V2 / a later frame with a broken prefix in the backup, nothing restored from the older copies and every writer refuses",
+      "V3 / a later frame with a broken prefix in the main, nothing restored from the older copies and every writer refuses",
+      "V3 / a later frame with a broken prefix in the reserve, nothing restored from the older copies and every writer refuses",
+      "V3 / a later frame with a broken prefix in the backup, nothing restored from the older copies and every writer refuses"
+    ],
+    "prefixes-not-read": [
+      "V1 / a later frame with a valid prefix is negative evidence only",
+      "V2 / a later frame with a valid prefix is negative evidence only",
+      "V3 / a later frame with a valid prefix is negative evidence only",
+      "V1 / the identity predicate and seeding read a later frame's valid prefix",
+      "V2 / the identity predicate and seeding read a later frame's valid prefix",
+      "V3 / the identity predicate and seeding read a later frame's valid prefix",
+      "V1 / a later frame with a valid prefix in the main, nothing restored from the older copies and every writer refuses",
+      "V2 / a later frame with a valid prefix in the main, nothing restored from the older copies and every writer refuses",
+      "V3 / a later frame with a valid prefix in the main, nothing restored from the older copies and every writer refuses"
+    ],
+    "prefix-evidence-dropped": [
+      "V1 / a later frame with a valid prefix is negative evidence only",
+      "V2 / a later frame with a valid prefix is negative evidence only",
+      "V3 / a later frame with a valid prefix is negative evidence only"
+    ],
+    "version-2-copies-dropped": [
+      "V1 / a suspended version 2 slot",
+      "V2 / a suspended version 2 slot",
+      "V1 / a version 2 slot beside a sibling naming its package",
+      "V2 / a version 2 slot beside a sibling naming its package",
+      "V1 / a version 2 slot beside a sibling naming its principal",
+      "V2 / a version 2 slot beside a sibling naming its principal",
+      "V1 / the identity predicate and seeding name a package that only a version 2 slot holds",
+      "V2 / the identity predicate and seeding name a package that only a version 2 slot holds"
+    ],
+    "publish-past-slot-ceiling": [
+      "V1 / version 2 slot writes refuse before any effect",
+      "V2 / version 2 slot writes refuse before any effect"
+    ],
+    "update-past-slot-ceiling": [
+      "V1 / version 2 slot writes refuse before any effect",
+      "V2 / version 2 slot writes refuse before any effect"
+    ],
+    "history-drops-suspensions": [
+      "V3 / a suspended version 2 slot"
+    ],
+    "retired-restores-pending": [
+      "V3 / a retired version 2 slot"
+    ],
+    "scan-allows-suspended": [
+      "V3 / a suspended version 2 slot"
+    ],
+    "identity-ignores-prefixes": [
+      "V1 / the identity predicate and seeding read a later frame's valid prefix",
+      "V2 / the identity predicate and seeding read a later frame's valid prefix",
+      "V3 / the identity predicate and seeding read a later frame's valid prefix"
+    ],
+    "seeding-ignores-prefixes": [
+      "V1 / the identity predicate and seeding read a later frame's valid prefix",
+      "V2 / the identity predicate and seeding read a later frame's valid prefix",
+      "V3 / the identity predicate and seeding read a later frame's valid prefix"
+    ]
+  },
+  "round_2": {
+    "changes": "The HOLDS golden orders its two grant entries by actor serial against their grant order, and a new codec case orders entries by class, then actor serial, then grant, refusing each swapped neighbour pair. The reason registry becomes USER_PAUSED 1, CREDENTIAL_EXPOSED 2, SUSPECTED_COMPROMISE 3, RESOURCE_OVERUSE 4, DEVICE_HANDOVER 5, DATA_TRANSFER 6 and RECOVERY_REVIEW 7, each with the actor classes that may use it. The read test pins the older copies' history beside a newer seed.",
+    "changed_counts": {
+      "codec": [
+        46,
+        47
+      ],
+      "mutants": [
+        33,
+        35
+      ],
+      "reads": [
+        60,
+        60
+      ],
+      "goldens": [
+        9,
+        9
+      ]
+    },
+    "changed_goldens": {
+      "HOLDS": [
+        "cb0cd16f8c105f845fe20320e5abf647b6aaaf8e8987d6f59b3d801b73450b8b",
+        "6a9f04924546138a6dd16d9d011d21b2d715847e07587cd6781fdc1310a03ded"
+      ]
+    },
+    "new_mutants": [
+      "order-grant-before-serial",
+      "reason-actors-widened"
+    ],
+    "not_added": "A mutant that drops the actor serial from the order is the same defect as comparing the grant first: two entries of one class always differ in their grant references, so the same cases catch it and no case can tell them apart."
+  }
+}

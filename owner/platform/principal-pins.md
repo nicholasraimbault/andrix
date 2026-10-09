@@ -97,6 +97,34 @@ The old embedded `packages.xml` implementation was module qualified at `5284ca9`
 removes that native section and its global write/read coupling. The legacy codec remains as a
 historical host component, not a second active store.
 
+## Account lifecycle record
+
+The [native account lifecycle record](../../plans/2026-10-08-native-lifecycle-record.md) adds slot
+version 2. A slot stays version 1, with unchanged bytes, while every user is eligible with no
+suspension entry or carries only the legacy retirement marker, and a tombstone without a release
+ticket stays version 1 too. A suspension entry, a retirement with its actor and obligation
+inventory, or a release ticket makes the slot version 2, and the version 2 decoder refuses every
+value that version 1 can express. A version 2 slot starts with a stable prefix of identities that
+every later slot version keeps. Its bounds are frozen: at most 64 users and 32 signers, a package
+name of at most 255 characters and an app ID in the application range. So are its other rules,
+which the prefix reader enforces and which bind later versions too: a positive generation, a valid
+package name, at least one signer in ascending order, users in ascending user ID order, positive
+and distinct principal IDs, users and serials that are not negative, and a UID that fits an int.
+Suspension reasons come from a registry of specific codes with no catch-all. Each code names the
+actor classes that may use it, and a code's number is never reused once B1's image ships. An
+optional private note is named only by its salted digest.
+
+The store's format also fixes a slot ceiling. Format.V1 and Format.V2 read and write version 1
+slots, and Format.V3 reads and writes version 2 slots; no production text constructs Format.V3
+yet. Under a slot ceiling of 1, an intact version 2 frame is an unsupported footprint whatever it
+holds, and its decoded copies are only negative evidence: the identity predicate and recovery
+seeding protect its package name, a valid sibling naming its package or principal reads as a
+conflict, and nothing is restored from it. Every format reads the stable prefix of a slot frame
+above version 2 as the same evidence. A broken prefix gives none, and the frame stays a footprint.
+Every slot writer refuses a value above its format's ceiling before its first effect. A RETIRED
+body restores a RETIRING pin, and only a body in the policy's Eligible state, ELIGIBLE with no
+suspension entry, owns a scan or restores as a reservation. Nothing writes a lifecycle record yet.
+
 ## Persistence and lock discipline
 
 The store reader never calls the resilient reader's destructive fallback. A preferred backup

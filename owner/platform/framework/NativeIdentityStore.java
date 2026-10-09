@@ -48,16 +48,24 @@ import com.android.server.pm.NativeIdentityRecords.UserEntry;
  * existing strict writer is reused to check the original writing descriptors.
  *
  * Each store has one Format, fixed at construction: the highest header version it
- * reads as supported and the version a new bound reservation writes. Production
- * constructs Format.V2 once, at the Settings boot read. Format.V1 reads and writes
- * version 1 headers only, as the earlier images did. Slots and slot seeds are
- * version 1 in every format, and initialization writes an empty version 1 header.
+ * reads as supported, the version a new bound reservation writes, and the highest
+ * slot version it reads as supported and writes. Production constructs Format.V2
+ * once, at the Settings boot read. Format.V1 reads and writes version 1 headers
+ * only, as the earlier images did. Format.V1 and Format.V2 read and write version 1
+ * slots only. Format.V3 also reads and writes version 2 slots, which carry the
+ * account lifecycle record; no production text constructs it. Initialization
+ * writes an empty version 1 header in every format.
  * An intact record frame (bounded size, magic, expected type, length and SHA-256)
  * that declares a version above the format's ceiling is an unsupported footprint,
  * not damage. Under Format.V1 a decoded version 2 header copy still contributes
- * its holds, and only holds. A frame the codec cannot decode is no value: no app
- * ID, binding or counter is invented from it. Such a main, reserve or backup copy
- * makes its record UNSUPPORTED even when an older valid copy exists. A staging
+ * its holds, and only holds. Under a slot ceiling of 1, a decoded version 2 slot
+ * copy is negative evidence only, and so is the stable prefix of a slot frame above
+ * version 2 in every format: package names, principal IDs and sibling conflicts.
+ * Nothing is restored from either. The frame alone classifies a record: a body or
+ * prefix that fails to decode never turns an intact newer frame into damage, and a
+ * broken prefix only gives no evidence. A frame the codec cannot decode is no
+ * value: no app ID, binding or counter is invented from it. Such a main, reserve or
+ * backup copy makes its record UNSUPPORTED even when an older valid copy exists. A staging
  * seed is never a copy or positive history, but it is preserved too. While any
  * such footprint is recognized, every writer refuses before its first effect:
  * the whole native store stays read only. That is an availability choice,
@@ -116,28 +124,44 @@ final class NativeIdentityStore {
     enum Status { MISSING, VALID, DAMAGED, CONFLICT, UNSUPPORTED }
 
     /**
-     * The header versions one store instance reads and writes. Closed and fixed at
-     * construction; nothing selects it from configuration, properties, settings or
+     * The header and slot versions one store instance reads and writes. Closed and fixed
+     * at construction; nothing selects it from configuration, properties, settings or
      * stored bytes. Production constructs V2 at its one boot read. V1, the earlier
-     * images' format, remains for host rollback models. Slots stay version 1 in both.
+     * images' format, remains for host rollback models. V3 is the lifecycle format, which
+     * no production text constructs yet.
      */
     enum Format {
-        /** Reads and writes version 1 headers. Version 2 and above are unsupported footprints. */
-        V1(1, 1),
+        /**
+         * Reads and writes version 1 headers and slots. Every newer intact frame is an
+         * unsupported footprint.
+         */
+        V1(1, 1, 1),
         /**
          * Also reads version 2 headers. A reservation with a truly new entry writes version 2
-         * with that entry's complete creation binding. Version 3 and above are unsupported.
+         * with that entry's complete creation binding. Version 3 headers and above, and slots
+         * above version 1, are unsupported footprints.
          */
-        V2(2, 2);
+        V2(2, 2, 1),
+        /**
+         * Also reads and writes version 2 slots, with their lifecycle records. Version 3
+         * headers and slots and above are unsupported footprints.
+         */
+        V3(2, 2, 2);
 
         /** Highest header version read as supported. A newer intact frame is a footprint. */
         final int headerCeiling;
         /** Header version of a reservation that adds a truly new entry. */
         final int reservationVersion;
+        /**
+         * Highest slot version read as supported and written. A newer intact frame is a
+         * footprint, and every slot writer refuses a newer value before its first effect.
+         */
+        final int slotCeiling;
 
-        Format(int headerCeiling, int reservationVersion) {
+        Format(int headerCeiling, int reservationVersion, int slotCeiling) {
             this.headerCeiling = headerCeiling;
             this.reservationVersion = reservationVersion;
+            this.slotCeiling = slotCeiling;
         }
     }
 
@@ -145,6 +169,10 @@ final class NativeIdentityStore {
         final Status status;
         final T value; // Positive metadata only when VALID.
         final List<T> decodedCopies; // Negative holds only; never merged into a grant.
+        // The stable prefixes of slot copies above every version the codec decodes. Only an
+        // unsupported record has them. Negative package and principal evidence only: never a
+        // value, binding, history, counter or hold. A copy whose prefix is broken gives none.
+        final List<NativeIdentityRecords.SlotPrefix> prefixes;
         // Some copy's presence or bytes could not be observed. It may be newer, so
         // the record is never VALID or MISSING. This is I/O, not parser damage.
         final boolean unavailable;
@@ -152,9 +180,14 @@ final class NativeIdentityStore {
             this(status, value, decodedCopies, false);
         }
         ReadResult(Status status, T value, List<T> decodedCopies, boolean unavailable) {
+            this(status, value, decodedCopies, List.of(), unavailable);
+        }
+        ReadResult(Status status, T value, List<T> decodedCopies,
+                List<NativeIdentityRecords.SlotPrefix> prefixes, boolean unavailable) {
             this.status = status;
             this.value = value;
             this.decodedCopies = List.copyOf(decodedCopies);
+            this.prefixes = List.copyOf(prefixes);
             this.unavailable = unavailable;
         }
     }
@@ -174,12 +207,13 @@ final class NativeIdentityStore {
 
     /**
      * The historical native identity of one app ID in one view: its original lineage, package,
-     * principal ID, user, serial and signer set, and a body's durable retirement marker. It is
-     * metadata for restoring a PENDING or RETIRING pin and for matching an explicit designation
-     * against actual Package Manager state. It is never execution, CE, designation or
-     * allocation authority, and never a current identity. Only the store builds it, from a
-     * view's own immutable data, without I/O. Nothing fills it from an APK, a PackageSetting, a
-     * directory, a staging seed, an unselected header copy or a counter.
+     * principal ID, user, serial and signer set, and a body's lifecycle state and suspension
+     * entries. It is metadata for restoring a PENDING or RETIRING pin and for matching an
+     * explicit designation against actual Package Manager state. It is never execution, CE,
+     * designation or allocation authority, and never a current identity. Only the store builds
+     * it, from a view's own immutable data, without I/O. Nothing fills it from an APK, a
+     * PackageSetting, a directory, a staging seed, an unselected header copy, a stable prefix or
+     * a counter.
      */
     static final class History {
         final String lineage;
@@ -191,12 +225,20 @@ final class NativeIdentityStore {
         final long userSerial;
         /** Unmodifiable: the body's stored signers, or the selected creation binding's. */
         final Set<String> signerSha256;
-        /** The body's durable retirement marker. A reservation is never retiring. */
+        /** The body's lifecycle state. A reservation is ELIGIBLE. */
+        final NativeIdentityRecords.LifecycleState state;
+        /** Unmodifiable: the body's suspension entries, in record order. A reservation has none. */
+        final List<NativeIdentityRecords.Suspension> suspensions;
+        /**
+         * The body's durable retirement: its state is RETIRING or RETIRED, and either restores a
+         * RETIRING pin. A reservation is never retiring.
+         */
         final boolean retiring;
         final Source source;
 
         private History(String lineage, int appId, String packageName, long id, int userId,
-                long userSerial, Set<String> signerSha256, boolean retiring, Source source) {
+                long userSerial, Set<String> signerSha256, NativeIdentityRecords.Lifecycle lifecycle,
+                Source source) {
             this.lineage = Objects.requireNonNull(lineage);
             this.appId = appId;
             this.packageName = Objects.requireNonNull(packageName);
@@ -205,8 +247,19 @@ final class NativeIdentityStore {
             this.userSerial = userSerial;
             // Already an unmodifiable ascending set of the record it came from.
             this.signerSha256 = Objects.requireNonNull(signerSha256);
-            this.retiring = retiring;
+            this.state = lifecycle.state;
+            // Already an unmodifiable list of the record it came from.
+            this.suspensions = lifecycle.suspensions;
+            this.retiring = lifecycle.state != NativeIdentityRecords.LifecycleState.ELIGIBLE;
             this.source = Objects.requireNonNull(source);
+        }
+
+        /**
+         * The policy's Eligible state: ELIGIBLE with no suspension entry. Only such a history
+         * may own a scan or restore as a reservation. A suspended or retiring one never does.
+         */
+        boolean eligible() {
+            return state == NativeIdentityRecords.LifecycleState.ELIGIBLE && suspensions.isEmpty();
         }
 
         @Override
@@ -215,7 +268,8 @@ final class NativeIdentityStore {
             if (!(other instanceof History)) return false;
             History history = (History) other;
             return appId == history.appId && id == history.id && userId == history.userId
-                    && userSerial == history.userSerial && retiring == history.retiring
+                    && userSerial == history.userSerial && state == history.state
+                    && suspensions.equals(history.suspensions)
                     && source == history.source && lineage.equals(history.lineage)
                     && packageName.equals(history.packageName)
                     && signerSha256.equals(history.signerSha256);
@@ -224,14 +278,15 @@ final class NativeIdentityStore {
         @Override
         public int hashCode() {
             return Objects.hash(lineage, appId, packageName, id, userId, userSerial, signerSha256,
-                    retiring, source.ordinal());
+                    state.ordinal(), suspensions, source.ordinal());
         }
 
         @Override
         public String toString() {
             return "History{" + source + ", appId=" + appId + ", package=" + packageName + ", id="
                     + id + ", user=" + userId + ", serial=" + userSerial + ", signers="
-                    + signerSha256.size() + (retiring ? ", retiring}" : "}");
+                    + signerSha256.size() + (state == NativeIdentityRecords.LifecycleState.ELIGIBLE
+                    ? "" : ", " + state) + (suspensions.isEmpty() ? "}" : ", suspended}");
         }
     }
 
@@ -316,11 +371,10 @@ final class NativeIdentityStore {
     private interface Decoder<T> { T decode(byte[] bytes); }
 
     // The codec can preserve future header data, but this store's transition and
-    // admission protocols implement only its format's header versions. A decoded
-    // newer footprint is a hold, not permission to reinterpret or mutate that
-    // state. An intact frame of a newer version that does not decode keeps no hold
-    // of its own. Slots are version 1 in every format.
-    private static final int SUPPORTED_SLOT_VERSION = 1;
+    // admission protocols implement only its format's header and slot versions. A
+    // decoded newer footprint is a hold, or for a slot negative evidence, not
+    // permission to reinterpret or mutate that state. An intact frame of a newer
+    // version that does not decode keeps no hold of its own.
     // The one cross-version relation between copies: a version 1 predecessor of a
     // version 2 protected reservation. Not a rule for any other or future version.
     private static final int HEADER_V1 = 1;
@@ -413,12 +467,21 @@ final class NativeIdentityStore {
     }
 
     // An intact frame of the expected type which declares a version above what this
-    // store's format reads: the header ceiling, or version 1 for slots. Torn,
-    // foreign, wrongly typed, oversized, version 0 and bad checksum bytes are not
-    // recognized. They remain ordinary damage.
+    // store's format reads: its header or slot ceiling. The frame alone decides,
+    // whatever the body holds. Torn, foreign, wrongly typed, oversized, version 0 and
+    // bad checksum bytes are not recognized. They remain ordinary damage.
     private boolean unsupportedBytes(byte[] bytes, boolean header) {
         return header ? NativeIdentityRecords.intactHeaderVersion(bytes) > format.headerCeiling
-                : NativeIdentityRecords.intactSlotVersion(bytes) > SUPPORTED_SLOT_VERSION;
+                : NativeIdentityRecords.intactSlotVersion(bytes) > format.slotCeiling;
+    }
+    // The stable prefix of a slot copy that the codec cannot decode, as negative evidence,
+    // or none when the prefix breaks its rules. It never decides the record's status.
+    private static List<NativeIdentityRecords.SlotPrefix> stablePrefix(byte[] bytes) {
+        try {
+            return List.of(NativeIdentityRecords.decodeSlotPrefix(bytes));
+        } catch (IllegalArgumentException broken) {
+            return List.of();
+        }
     }
     private boolean newer(Copy copy, boolean header) {
         return copy.found == Found.BYTES && unsupportedBytes(copy.bytes, header);
@@ -468,6 +531,7 @@ final class NativeIdentityStore {
         File[] paths = {main, reserve(main), backup(main)};
         ArrayList<T> valid = new ArrayList<>();
         ArrayList<T> values = new ArrayList<>();
+        ArrayList<NativeIdentityRecords.SlotPrefix> prefixes = new ArrayList<>();
         boolean[] present = new boolean[3];
         boolean bad = false, unsupported = false, unavailable = false;
         for (int i = 0; i < paths.length; ++i) {
@@ -481,13 +545,20 @@ final class NativeIdentityStore {
                     value = decoder.decode(copy.bytes);
                     valid.add(value);
                 } catch (RuntimeException error) { bad = true; }
-                if (unsupportedBytes(copy.bytes, header)) unsupported = true;
+                if (unsupportedBytes(copy.bytes, header)) {
+                    unsupported = true;
+                    // A slot frame above every version the codec decodes still names its
+                    // package and principals in its stable prefix: evidence, never a value.
+                    if (!header && value == null) prefixes.addAll(stablePrefix(copy.bytes));
+                }
             }
             values.add(value);
         }
         // A newer copy, selected or not, is never hidden by an older valid one.
-        // Decoded copies still contribute their negative holds.
-        if (unsupported) return new ReadResult<>(Status.UNSUPPORTED, null, valid, unavailable);
+        // Decoded copies and stable prefixes still contribute their negative evidence.
+        if (unsupported) {
+            return new ReadResult<>(Status.UNSUPPORTED, null, valid, prefixes, unavailable);
+        }
         // Nor is a copy that could not be observed. It may be newer, or the
         // authoritative backup. It is not absence, so the record is never
         // MISSING, and no value is selected around it. Decoded copies stay holds.
@@ -685,6 +756,12 @@ final class NativeIdentityStore {
                     if (!evidence) continue;
                     packages.putIfAbsent(copy.packageName, entry.getKey());
                     for (UserEntry user : copy.users) incarnations.putIfAbsent(user.id, entry.getKey());
+                }
+                // A later slot version's stable prefix. Only an unsupported record has one, so it
+                // is always negative evidence, and that footprint already blocks creation.
+                for (NativeIdentityRecords.SlotPrefix prefix : entry.getValue().prefixes) {
+                    packages.putIfAbsent(prefix.packageName, entry.getKey());
+                    for (long id : prefix.principalIds) incarnations.putIfAbsent(id, entry.getKey());
                 }
             }
             for (Map.Entry<Integer, ReadResult<Slot>> entry : loaded.entrySet()) {
@@ -906,8 +983,9 @@ final class NativeIdentityStore {
      * The historical identities of one view, by app ID. Pure: no I/O, no writer format and
      * nothing from any source but the view itself.
      *
-     * A BODY exists exactly where bindingUsable holds, for the slot's one user, retiring or not.
-     * That is the eligibility restoration has always used, and nothing stricter is added.
+     * A BODY exists exactly where bindingUsable holds, for the slot's one user, whatever its
+     * lifecycle. That is the eligibility restoration has always used, and nothing stricter is
+     * added: the history carries the lifecycle state and suspension entries for its readers.
      *
      * A RESERVATION exists only in a creation ready view whose header copies have
      * {@link HeaderCopies} facts, for a SELECTED CREATING entry with a complete creation binding
@@ -931,7 +1009,7 @@ final class NativeIdentityStore {
             Slot body = held.getValue().value;
             UserEntry user = body.users.get(0);
             result.put(appId, new History(body.lineage, appId, body.packageName, user.id,
-                    user.userId, user.userSerial, body.signerSha256, user.retiring, Source.BODY));
+                    user.userId, user.userSerial, body.signerSha256, user.lifecycle, Source.BODY));
         }
         if (!view.creationReady() || HeaderCopies.of(view.header) == null) {
             return Collections.unmodifiableMap(result);
@@ -946,7 +1024,8 @@ final class NativeIdentityStore {
                     || !corroborated(view.header, creation) || claimed(view, creation)) continue;
             result.put(creation.appId, new History(selected.lineage, creation.appId,
                     creation.creationPackage, creation.creationId, binding.userId,
-                    binding.userSerial, binding.signerSha256, false, Source.RESERVATION));
+                    binding.userSerial, binding.signerSha256,
+                    NativeIdentityRecords.Lifecycle.version1(false), Source.RESERVATION));
         }
         return Collections.unmodifiableMap(result);
     }
@@ -1145,6 +1224,8 @@ final class NativeIdentityStore {
     boolean publishCreatingSlot(Header expectedHeader, Slot next) {
         Objects.requireNonNull(next);
         Objects.requireNonNull(expectedHeader);
+        // Before the header confirmation, which writes: no slot above the ceiling is written.
+        if (next.version > format.slotCeiling) return false;
         HeaderEntry index = headerEntry(expectedHeader, next.appId);
         if (writeInspectionBlocked(next.appId) || !confirmHeader(expectedHeader) || index == null
                 || !directory(slotDirectory(next.appId))
@@ -1167,9 +1248,13 @@ final class NativeIdentityStore {
                 read.value == null ? null : NativeIdentityRecords.encodeSlot(read.value), false, false);
     }
 
-    /** Existing binding mutation only: no counter reconstruction or new identity issuance. */
+    /**
+     * Existing binding mutation only: no counter reconstruction or new identity issuance. A slot
+     * of a version above this format's ceiling is refused before anything else.
+     */
     boolean updateExistingSlot(Slot expected, Slot next) {
         Objects.requireNonNull(expected); Objects.requireNonNull(next);
+        if (expected.version > format.slotCeiling || next.version > format.slotCeiling) return false;
         if (writeInspectionBlocked(next.appId)) return false;
         Loaded loaded = load();
         ReadResult<Slot> read = loaded.slots.get(next.appId);
@@ -1215,8 +1300,12 @@ final class NativeIdentityStore {
                 NativeIdentityRecords.encodeSlot(read.value), false, false);
     }
 
-    /** Confirm exact observed bytes through new checked writing FDs, not reader sync. */
+    /**
+     * Confirm exact observed bytes through new checked writing FDs, not reader sync. A slot of a
+     * version above this format's ceiling is refused before anything else, as it is never VALID.
+     */
     boolean confirmExistingSlot(Slot expected) {
+        if (expected.version > format.slotCeiling) return false;
         if (writeInspectionBlocked(expected.appId)) return false;
         Loaded loaded = load();
         ReadResult<Slot> read = loaded.slots.get(expected.appId);

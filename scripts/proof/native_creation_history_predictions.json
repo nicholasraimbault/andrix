@@ -246,5 +246,16 @@
     "relabelled": {"b2-v1": "legacy"},
     "labels": "The Format.V1 reads of version 2 layouts in b2 focused and its mutants are legacy. The archived 24bfb6a parity side's Format.V1 runs are rollback-reader, like the 24bf-v1 reader; its version 2 runs and the 0018a1d side are archived-baseline.",
     "unchanged_living": "b2 focused passes 87 and b2 faults 40; the current emitter writes 45 layouts, each with a version 2 copy; 40 B2 mutants are caught."
+  },
+  "p1_lifecycle_record": {
+    "status": "PREDICTED before any guarded execution of the P1 sources. Nothing here is an executed result.",
+    "plan": "plans/2026-10-08-native-lifecycle-record.md",
+    "living_parity": "No difference: predicted_differences above stays empty. The parity layouts hold version 1 slots, version 2 header copies and two relabeled version 1 slot bodies under version 2, the future-body main and the unsupported-slot-seed. The version 2 decoder refuses those bodies, whose flag byte reads as lifecycle state 0, so no decoded copy, prefix or history appears that 24bfb6a lacked. A version 1 retiring body keeps its retiring history and RETIRING pin, the scan rule refuses exactly what it refused, and seeding and the identity predicate find the same names: no prefix exists below version 3.",
+    "moved_anchors": {
+      "retiring-history-dropped": "The BODY history takes the user's lifecycle, so the defect gives it the version 1 ELIGIBLE lifecycle in place of the dropped marker.",
+      "scan-allows-retiring": "The scan rule refuses every history outside the policy's Eligible state; the defect drops that check.",
+      "backstop-withdraws-everything": "The backstop needs a reservation in the Eligible state; the defect is unchanged."
+    },
+    "unchanged_living": "b2 focused passes 87 and b2 faults 40; the current emitter writes 45 layouts; the b2-v1 reader reads 45 and its rollback checks pass 48 each; 40 B2 mutants are caught with their predicted checks; the living probe passes."
   }
 }

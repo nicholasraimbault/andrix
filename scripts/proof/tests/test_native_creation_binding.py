@@ -123,7 +123,8 @@ class CreationBindingSourceTests(unittest.TestCase):
                          [runner.SETTINGS_SECTION])
         store = (ROOT / runner.STORE).read_text()
         # The enum's own constants and comments are neither constructions nor format names.
-        self.assertIn('V2(2, 2);', store)
+        self.assertIn('V2(2, 2, 1),', store)
+        self.assertIn('V3(2, 2, 2);', store)
         self.assertIn('Production constructs Format.V2 once', store.replace('\n * ', ' '))
         self.assertEqual(runner.enum_definition(runner.strip_java_comments(store)), runner.FORMAT_ENUM)
 
@@ -134,8 +135,14 @@ class CreationBindingSourceTests(unittest.TestCase):
             'value-and-property-selection', 'reflective-field-write', 'enumset-complement',
             'enum-version-swap', 'construction-outside-boot', 'qualified-construction', 'constructor-reference',
             'qualified-constructor-reference', 'declaring-class-field', 'unicode-escape', 'format-alone',
-            'v1-alone', 'mention-alone', 'non-native-unicode-escape', *runner.ONE_TOKEN_PATHS})
-        predictions = json.loads(runner.PREDICTIONS.read_text())['r0_format_guard']['mutant_rules']
+            'v1-alone', 'mention-alone', 'non-native-unicode-escape', *runner.ONE_TOKEN_PATHS,
+            'slot-ceiling-raise', 'promotion-to-v3', 'v3-alone'})
+        # The R0 guard's mutants as R0 predicted them, and the three P1 adds for the slot ceiling and
+        # the lifecycle format.
+        recorded = json.loads(runner.PREDICTIONS.read_text())
+        predictions = {**recorded['r0_format_guard']['mutant_rules'],
+                       **recorded['p1_lifecycle_record']['mutant_rules']}
+        self.assertEqual(len(mutants), recorded['p1_lifecycle_record']['guard_mutants']['after'])
         self.assertEqual(set(predictions), set(mutants))
         # Every rule is tripped alone by at least one mutant, so none is only ever a bystander.
         alone = {next(iter(rules)) for _, rules in mutants.values() if len(rules) == 1}

@@ -28,14 +28,18 @@ import java.util.TreeSet;
  * An intact newer frame in one main, reserve, backup or staging seed refuses that call before
  * any effect: the bytes, file identities and every hold stay. The same frame with a bad
  * checksum stays ordinary damage: load() reports it as it reports garbage there, and the
- * writer does what it does over such damage. Only store and codec surface which predates the
- * gate is used, so this file also runs against the older store as a control. Host facades
- * only, not Android persistence, UID authority or a format migration.
+ * writer does what it does over such damage. Slot frames here are above version 2, the newest
+ * the codec decodes. Such a copy whose stable prefix is valid gives that prefix's package and
+ * principal as negative evidence only, and a broken prefix gives none: either way the frame
+ * stays an unsupported footprint. A staging seed gives no evidence. Only store and codec
+ * surface which predates the gate is used for writes. Host facades only, not Android
+ * persistence, UID authority or a format migration.
  */
 public final class NativeIdentityFutureFormatTest {
     private static final String LINEAGE = "c".repeat(32);
     private static final Set<String> SIGNERS = Set.of("d".repeat(64));
-    // HIDDEN and PKG_HIDDEN appear only inside bodies no reader may decode.
+    // HIDDEN and PKG_HIDDEN appear only inside bodies no reader may decode. PKG_HIDDEN and
+    // principal 9 are also the stable prefix of later slot frames: negative evidence only.
     private static final int A = 10123, B = 10124, C = 10200, HIDDEN = 10300, KNOWN_V2 = 10301;
     private static final String PKG_A = "dev.andrix.futurea", PKG_B = "dev.andrix.futureb",
             PKG_C = "dev.andrix.futurec", PKG_HIDDEN = "dev.andrix.hidden";
@@ -112,7 +116,10 @@ public final class NativeIdentityFutureFormatTest {
     private static byte[] slotBody(int appId) {
         return body(NativeIdentityRecords.encodeSlot(bound(appId, PKG_HIDDEN, 9, true, 5)));
     }
-    // Intact frames this protocol does not write, rotated over the cases and positions.
+    // Intact frames this protocol does not write, rotated over the cases and positions. A slot
+    // frame is above version 2: a version 3 frame whose prefix breaks off in its package name, or
+    // a version 3 or 65535 frame of a relabeled one user version 1 body with an extension, whose
+    // stable prefix is valid.
     private static byte[] future(Integer target, int variant) throws Exception {
         if (target == null) {
             switch (variant % 3) {
@@ -121,8 +128,15 @@ public final class NativeIdentityFutureFormatTest {
                 default: return frame(TYPE_HEADER, 0xffff, concat(headerBody(), EXTENSION));
             }
         }
-        int version = variant % 3 == 0 ? 2 : variant % 3 == 1 ? 3 : 0xffff;
-        return frame(TYPE_SLOT, version, concat(slotBody(target), EXTENSION));
+        switch (variant % 3) {
+            case 0: return frame(TYPE_SLOT, 3, Arrays.copyOf(slotBody(target), 40));
+            case 1: return frame(TYPE_SLOT, 3, concat(slotBody(target), EXTENSION));
+            default: return frame(TYPE_SLOT, 0xffff, concat(slotBody(target), EXTENSION));
+        }
+    }
+    // The negative evidence such a frame gives as a copy: its valid prefix's package, or nothing.
+    private static Set<String> evidence(Integer target, int variant) {
+        return target != null && variant % 3 != 0 ? Set.of(PKG_HIDDEN) : Set.of();
     }
 
     // A store as its own writers leave it: main and reserve of the header and of each slot, a
@@ -174,6 +188,8 @@ public final class NativeIdentityFutureFormatTest {
         final Status header, target;
         final boolean creationReady;
         final Set<Integer> occupied = new TreeSet<>(), usable = new TreeSet<>();
+        // Package names that stable prefixes of later slot frames give, in any record.
+        final Set<String> evidence = new TreeSet<>();
         final boolean invented;
         Boolean result;
         Seen(NativeIdentityStore.Loaded loaded, Integer target) {
@@ -189,12 +205,15 @@ public final class NativeIdentityFutureFormatTest {
             }
             for (NativeIdentityStore.ReadResult<Slot> copies : loaded.slots.values()) {
                 for (Slot copy : copies.decodedCopies) found |= copy.packageName.equals(PKG_HIDDEN);
+                for (NativeIdentityRecords.SlotPrefix prefix : copies.prefixes) {
+                    evidence.add(prefix.packageName);
+                }
             }
             invented = found || occupied.contains(HIDDEN);
         }
         String view() {
             return "header=" + header + " slot=" + target + " ready=" + creationReady + " holds="
-                    + occupied + " usable=" + usable;
+                    + occupied + " usable=" + usable + " evidence=" + evidence;
         }
         @Override public String toString() {
             return view() + " result=" + result;
@@ -349,14 +368,16 @@ public final class NativeIdentityFutureFormatTest {
             seen[0].result = c.action.run(store);
             check(problems, seen[0].result, "otherwise valid writer refused");
             check(problems, !seen[0].invented, "hidden hold");
+            check(problems, seen[0].evidence.isEmpty(), "evidence without a later frame");
         });
         return seen[0];
     }
 
     // A recognized footprint: refused before any effect, holds and file identities kept, no
-    // value read from it. A copy withdraws its record's eligibility; a seed does not.
+    // value read from it. A copy withdraws its record's eligibility; a seed does not. A copy
+    // gives exactly the evidence of its valid stable prefix; a seed gives none.
     private static void unsupported(Path parent, Case c, Seen healthy, At at, byte[] bytes,
-            String name) {
+            String name, Set<String> evidence) {
         run(name, problems -> {
             if (healthy == null || !Boolean.TRUE.equals(healthy.result)) throw new AssertionError("healthy control failed");
             Path root = c.layout.build(fresh(parent));
@@ -376,6 +397,9 @@ public final class NativeIdentityFutureFormatTest {
             check(problems, !before.invented && !after.invented, "hold invented from newer body");
             check(problems, !before.creationReady, "creation ready");
             boolean copy = at != At.SEED;
+            Set<String> given = copy ? evidence : Set.of();
+            check(problems, before.evidence.equals(given) && after.evidence.equals(given),
+                    "evidence " + before.evidence);
             Status header = c.target == null && copy ? Status.UNSUPPORTED : healthy.header;
             check(problems, before.header == header, "header " + before.header);
             if (c.target != null) {
@@ -418,6 +442,7 @@ public final class NativeIdentityFutureFormatTest {
             check(problems, damaged.header != Status.UNSUPPORTED
                     && damaged.target != Status.UNSUPPORTED, "damage read as unsupported");
             check(problems, !damaged.invented, "hold invented from damaged body");
+            check(problems, damaged.evidence.isEmpty(), "evidence from a damaged frame");
         });
     }
 
@@ -436,7 +461,7 @@ public final class NativeIdentityFutureFormatTest {
             for (At at : At.values()) {
                 byte[] newer = future(c.target, i + at.ordinal());
                 String name = c.name + " / " + at + " v" + ((newer[6] & 0xff) | (newer[7] & 0xff) << 8);
-                unsupported(parent, c, healthy, at, newer, name);
+                unsupported(parent, c, healthy, at, newer, name, evidence(c.target, i + at.ordinal()));
                 damaged(parent, c, healthy, at, badChecksum(newer), name + " bad checksum");
             }
         }
@@ -473,7 +498,7 @@ public final class NativeIdentityFutureFormatTest {
         Seen healthy = healthy(parent, header);
         for (Map.Entry<String, byte[]> entry : recognized.entrySet()) {
             unsupported(parent, header, healthy, At.RESERVE, entry.getValue(),
-                    "header bounds / " + entry.getKey());
+                    "header bounds / " + entry.getKey(), Set.of());
         }
         for (Map.Entry<String, byte[]> entry : damage.entrySet()) {
             damaged(parent, header, healthy, At.RESERVE, entry.getValue(),
@@ -482,7 +507,7 @@ public final class NativeIdentityFutureFormatTest {
         // A decodable version 2 copy is the known hold only case: its holds are kept.
         byte[] knownV2 = NativeIdentityRecords.encodeHeader(Header.newV2(LINEAGE, 7, List.of(
                 live(A), creating(KNOWN_V2, 7, "dev.andrix.knownv2"))));
-        unsupported(parent, header, healthy, At.RESERVE, knownV2, "header bounds / known v2");
+        unsupported(parent, header, healthy, At.RESERVE, knownV2, "header bounds / known v2", Set.of());
         run("header bounds / known v2 hold kept", problems -> {
             Path root = header.layout.build(fresh(parent));
             Files.write(at(root, null, At.RESERVE), knownV2);
@@ -490,54 +515,115 @@ public final class NativeIdentityFutureFormatTest {
                     .equals(Set.of(A, KNOWN_V2)), "known version 2 hold lost");
         });
 
+        // A decodable version 2 slot copy is a footprint under this format, and only negative
+        // evidence: it withdraws its record and contradicts a sibling naming its package.
+        Slot suspendedA = new Slot(LINEAGE, A, PKG_A, 2, SIGNERS, List.of(new UserEntry(1, 0, 7,
+                new NativeIdentityRecords.Lifecycle(NativeIdentityRecords.LifecycleState.ELIGIBLE,
+                        List.of(new NativeIdentityRecords.Suspension(
+                                NativeIdentityRecords.ActorClass.ACCOUNT_USER, 0, 0, 7, "0".repeat(32), 1,
+                                1_700_000_000_000L, null)), null))));
+        byte[] knownSlot = NativeIdentityRecords.encodeSlot(suspendedA);
+        if (knownSlot[6] != 2) throw new AssertionError("known version 2 slot fixture");
         for (Case target : List.of(slot, last)) {
             At at = target == slot ? At.RESERVE : At.MAIN;
             int appId = target.target;
             recognized.clear();
             damage.clear();
-            byte[] v2 = frame(TYPE_SLOT, 2, concat(slotBody(appId), EXTENSION));
-            recognized.put("v2", v2);
-            recognized.put("v2 empty body", frame(TYPE_SLOT, 2, new byte[0]));
+            // Version 2 is a slot version the codec decodes: a version 1 body under it decodes to
+            // nothing and has no prefix reading, so it gives no evidence. Above version 2, a valid
+            // stable prefix gives PKG_HIDDEN as evidence and a broken one gives nothing.
+            Set<String> prefixed = Set.of("v3", "v3 version 1 body", "v65535");
+            byte[] slotV3 = frame(TYPE_SLOT, 3, concat(slotBody(appId), EXTENSION));
             recognized.put("v2 version 1 body", frame(TYPE_SLOT, 2, slotBody(appId)));
-            recognized.put("v3", frame(TYPE_SLOT, 3, slotBody(appId)));
+            recognized.put("v3", slotV3);
+            recognized.put("v3 empty body", frame(TYPE_SLOT, 3, new byte[0]));
+            recognized.put("v3 version 1 body", frame(TYPE_SLOT, 3, slotBody(appId)));
+            recognized.put("v3 broken prefix", frame(TYPE_SLOT, 3, Arrays.copyOf(slotBody(appId), 40)));
             recognized.put("v65535", frame(TYPE_SLOT, 0xffff, slotBody(appId)));
-            recognized.put("v2 at MAX_BYTES", frame(TYPE_SLOT, 2, new byte[MAX_BYTES - 44]));
+            recognized.put("v3 at MAX_BYTES", frame(TYPE_SLOT, 3, new byte[MAX_BYTES - 44]));
             damage.put("v0", frame(TYPE_SLOT, 0, slotBody(appId)));
             damage.put("v1 with trailing body", frame(TYPE_SLOT, 1, concat(slotBody(appId), EXTENSION)));
-            damage.put("other magic", frame(MAGIC ^ 0x100, TYPE_SLOT, 2, slotBody(appId)));
-            damage.put("header type", frame(TYPE_HEADER, 2, slotBody(appId)));
-            for (int type : new int[] {0, 3, 0xffff}) damage.put("type " + type, frame(type, 2, slotBody(appId)));
-            damage.put("bad checksum", badChecksum(v2));
-            damage.put("truncated", Arrays.copyOf(v2, v2.length - 1));
-            damage.put("extended", concat(v2, new byte[1]));
-            unsealed = Arrays.copyOf(v2, v2.length - CHECKSUM);
-            damage.put("length field", sealed(put(unsealed, 8, 4, v2.length - 1)));
-            damage.put("above MAX_BYTES", frame(TYPE_SLOT, 2, new byte[MAX_BYTES - 43]));
+            damage.put("other magic", frame(MAGIC ^ 0x100, TYPE_SLOT, 3, slotBody(appId)));
+            damage.put("header type", frame(TYPE_HEADER, 3, slotBody(appId)));
+            for (int type : new int[] {0, 3, 0xffff}) damage.put("type " + type, frame(type, 3, slotBody(appId)));
+            damage.put("bad checksum", badChecksum(slotV3));
+            damage.put("truncated", Arrays.copyOf(slotV3, slotV3.length - 1));
+            damage.put("extended", concat(slotV3, new byte[1]));
+            unsealed = Arrays.copyOf(slotV3, slotV3.length - CHECKSUM);
+            damage.put("length field", sealed(put(unsealed, 8, 4, slotV3.length - 1)));
+            damage.put("above MAX_BYTES", frame(TYPE_SLOT, 3, new byte[MAX_BYTES - 43]));
             Seen seen = healthy(parent, target);
             for (Map.Entry<String, byte[]> entry : recognized.entrySet()) {
                 unsupported(parent, target, seen, at, entry.getValue(),
-                        target.name + " bounds / " + entry.getKey());
+                        target.name + " bounds / " + entry.getKey(),
+                        prefixed.contains(entry.getKey()) ? Set.of(PKG_HIDDEN) : Set.of());
+            }
+            if (target == slot) {
+                unsupported(parent, target, seen, at, knownSlot, target.name + " bounds / known v2", Set.of());
             }
             for (Map.Entry<String, byte[]> entry : damage.entrySet()) {
                 damaged(parent, target, seen, at, entry.getValue(),
                         target.name + " bounds / " + entry.getKey());
             }
         }
+        run("known v2 slot copy is negative evidence", problems -> {
+            Header liveAB = header(2, live(A), live(B));
+            Slot sibling = bound(B, PKG_A, 2, false, 1);
+            for (boolean decodable : new boolean[] {true, false}) {
+                Path root = new Layout(liveAB).slot(B, sibling).build(fresh(parent));
+                Path directory = Files.createDirectory(root.resolve("slots/" + A));
+                // The control has a version 3 frame whose prefix breaks off: no evidence.
+                pair(directory.resolve("record.bin"), decodable ? knownSlot
+                        : frame(TYPE_SLOT, 3, Arrays.copyOf(body(knownSlot), 40)));
+                NativeIdentityStore.Loaded loaded =
+                        new NativeIdentityStore(root.toFile(), NativeIdentityStore.Format.V1).load();
+                NativeIdentityStore.ReadResult<Slot> read = loaded.slots.get(A);
+                check(problems, read.status == Status.UNSUPPORTED && read.prefixes.isEmpty()
+                        && read.decodedCopies.equals(decodable ? List.of(suspendedA, suspendedA) : List.of()),
+                        "version 2 copies " + read.decodedCopies);
+                check(problems, !loaded.bindingUsable(A) && loaded.history(A) == null, "version 2 value used");
+                check(problems, loaded.slots.get(B).status == (decodable ? Status.CONFLICT : Status.VALID),
+                        "sibling " + loaded.slots.get(B).status + " beside decodable " + decodable);
+                check(problems, loaded.occupiedAppIds.equals(Set.of(A, B)), "holds " + loaded.occupiedAppIds);
+            }
+        });
         // A numeric directory holds its ID even when its only record is a newer one.
         run("newer sole record keeps its directory hold", problems -> {
             Path root = new Layout(header(2, live(A))).slot(A, SLOT_A).build(fresh(parent));
             Path directory = Files.createDirectory(root.resolve("slots/" + B));
-            Files.write(directory.resolve("record.bin"), frame(TYPE_SLOT, 2, slotBody(B)));
+            Files.write(directory.resolve("record.bin"), frame(TYPE_SLOT, 3, slotBody(B)));
             NativeIdentityStore.Loaded loaded = new NativeIdentityStore(root.toFile(), NativeIdentityStore.Format.V1).load();
             check(problems, loaded.occupiedAppIds.equals(Set.of(A, B)), "holds " + loaded.occupiedAppIds);
             check(problems, loaded.slots.get(B).status == Status.UNSUPPORTED, "status");
             check(problems, loaded.bindingUsable(A) && !loaded.bindingUsable(B), "eligibility");
+            check(problems, loaded.slots.get(B).prefixes.size() == 1
+                    && loaded.slots.get(B).prefixes.get(0).packageName.equals(PKG_HIDDEN), "prefix evidence");
         });
     }
 
     // Decodable older copies of an unsupported record still contradict a related
-    // binding. Withdrawing one record's eligibility must not promote its collider.
+    // binding. Withdrawing one record's eligibility must not promote its collider. So does
+    // the stable prefix of a later slot frame, when no decodable copy remains.
     private static void relatedBindings(Path parent) throws Exception {
+        byte[] later = frame(TYPE_SLOT, 3, concat(body(NativeIdentityRecords.encodeSlot(SLOT_A)), EXTENSION));
+        for (String kind : List.of("package", "incarnation", "unrelated")) {
+            run("later prefix retains negative " + kind + " evidence", problems -> {
+                Slot second = bound(B, kind.equals("package") ? PKG_A : PKG_B,
+                        kind.equals("incarnation") ? 1 : 2, false, 1);
+                Path root = new Layout(header(2, live(A), live(B))).slot(B, second).build(fresh(parent));
+                pair(Files.createDirectory(root.resolve("slots/" + A)).resolve("record.bin"), later);
+                NativeIdentityStore.Loaded loaded = new NativeIdentityStore(root.toFile(),
+                        NativeIdentityStore.Format.V1).load();
+                boolean unrelated = kind.equals("unrelated");
+                NativeIdentityStore.ReadResult<Slot> read = loaded.slots.get(A);
+                check(problems, read.status == Status.UNSUPPORTED && read.decodedCopies.isEmpty()
+                        && read.prefixes.size() == 2, "later frame read " + read.status);
+                check(problems, loaded.slots.get(B).status == (unrelated ? Status.VALID : Status.CONFLICT),
+                        "related binding became usable");
+                check(problems, loaded.bindingUsable(B) == unrelated, "negative evidence ignored");
+                check(problems, loaded.occupiedAppIds.equals(Set.of(A, B)), "known holds changed");
+            });
+        }
         for (String kind : List.of("package", "incarnation", "unrelated")) {
             run("unsupported copy retains negative " + kind + " evidence", problems -> {
                 Slot second = bound(B, kind.equals("package") ? PKG_A : PKG_B,

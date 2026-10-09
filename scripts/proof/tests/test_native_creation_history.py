@@ -328,7 +328,8 @@ class CreationHistorySourceTests(unittest.TestCase):
                 for name in classes:
                     history.setdefault(name, set()).add(label)
         self.assertEqual(history['NativeCreationHistoryTest'], {'production', 'legacy'})
-        self.assertEqual(history['NativeHistoryParity'], set(runner.b1.RUN_LABELS))
+        # Every label but new-format, which only the lifecycle record runner's Format.V3 cases carry.
+        self.assertEqual(history['NativeHistoryParity'], set(runner.b1.RUN_LABELS) - {'new-format'})
         # The label rules: each break is refused.
         for change in ({'READER_LABELS': dict(runner.READER_LABELS, **{'b2-v1': 'rollback-reader'})},
                        {'READER_LABELS': {k: v for k, v in runner.READER_LABELS.items() if k != '24bf-v1'}},

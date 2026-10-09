@@ -9,6 +9,10 @@
                 for (NativeIdentityRecords.Slot slot : copies.decodedCopies) {
                     if (slot.packageName.equals(packageName)) return true;
                 }
+                // A later slot version's stable prefix names its package as negative evidence.
+                for (NativeIdentityRecords.SlotPrefix prefix : copies.prefixes) {
+                    if (prefix.packageName.equals(packageName)) return true;
+                }
             }
             for (NativeIdentityRecords.Header header : mNativeIdentityLoaded.header.decodedCopies) {
                 for (NativeIdentityRecords.HeaderEntry entry : header.entries) {

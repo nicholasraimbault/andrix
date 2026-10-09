@@ -267,8 +267,9 @@ class ArchivedCounterTests(unittest.TestCase):
         with mock.patch.object(Path, 'read_bytes', side_effect=AssertionError('working tree read')), \
                 mock.patch.object(Path, 'read_text', side_effect=AssertionError('working tree read')):
             self.assertEqual(runner.archived_surface_violations(), [])
-        # The living side reads the current sources, as it must.
-        living = runner.suite_files(settings[runner.CORRECTED], [runner.TEST])
+        # The living side reads the current sources, as it must, with a candidate of the current
+        # fragments: since B1 changed the identity fragment, the archived ones are no living candidate.
+        living = runner.suite_files(synthetic_settings(), [runner.TEST])
         self.assertEqual(living['tests/%s.java' % runner.TEST],
                          (ROOT / runner.PLATFORM / (runner.TEST + '.java')).read_bytes())
         self.assertEqual(living['framework/NativeIdentityStore.java'], (ROOT / runner.STORE).read_bytes())

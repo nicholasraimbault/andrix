@@ -109,7 +109,7 @@
  import android.os.FileUtils;
  import android.os.Handler;
  import android.os.Message;
-@@ -563,6 +564,389 @@
+@@ -563,6 +564,394 @@
      final WatchedArrayMap<String, SharedUserSetting> mSharedUsers = new WatchedArrayMap<>();
      @Watched(manual = true)
      private final AppIdSettingMap mAppIds;
@@ -333,6 +333,10 @@
 +                for (NativeIdentityRecords.Slot slot : copies.decodedCopies) {
 +                    if (slot.packageName.equals(packageName)) return true;
 +                }
++                // A later slot version's stable prefix names its package as negative evidence.
++                for (NativeIdentityRecords.SlotPrefix prefix : copies.prefixes) {
++                    if (prefix.packageName.equals(packageName)) return true;
++                }
 +            }
 +            for (NativeIdentityRecords.Header header : mNativeIdentityLoaded.header.decodedCopies) {
 +                for (NativeIdentityRecords.HeaderEntry entry : header.entries) {
@@ -443,6 +447,7 @@
 +        for (NativeIdentityStore.ReadResult<NativeIdentityRecords.Slot> copies
 +                : mNativeIdentityLoaded.slots.values()) {
 +            for (NativeIdentityRecords.Slot slot : copies.decodedCopies) names.add(slot.packageName);
++            for (NativeIdentityRecords.SlotPrefix prefix : copies.prefixes) names.add(prefix.packageName);
 +        }
 +        for (NativeIdentityRecords.Header header : mNativeIdentityLoaded.header.decodedCopies) {
 +            for (NativeIdentityRecords.HeaderEntry entry : header.entries) {
@@ -499,7 +504,7 @@
  
      @Watched(manual = true)
      private final PccIdSettingMap mPccIds;
-@@ -828,6 +1212,7 @@
+@@ -828,6 +1217,7 @@
  
          mSharedUsers.snapshot(r.mSharedUsers);
          mAppIds = r.mAppIds.snapshot();
@@ -507,7 +512,7 @@
          mPccIds = r.mPccIds.snapshot();
  
          mRenamedPackages.snapshot(r.mRenamedPackages);
-@@ -1396,14 +1781,32 @@
+@@ -1396,14 +1786,32 @@
      boolean registerAppIdLPw(PackageSetting p, boolean forceNew) throws PackageManagerException {
          final boolean createdNew;
          if (p.getAppId() == 0 || forceNew) {

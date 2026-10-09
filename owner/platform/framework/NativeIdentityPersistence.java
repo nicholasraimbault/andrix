@@ -158,8 +158,11 @@ final class NativeIdentityPersistence {
 
     /**
      * The shared restoration of real Settings and its host facade. A BODY history gives its
-     * record, and its ID when retiring, exactly as eligible bodies were always restored. A
-     * RESERVATION history gives its record, never retiring, only when it relates to every other
+     * record, and its ID when retiring, exactly as eligible bodies were always restored. Retiring
+     * means RETIRING or RETIRED: both restore a RETIRING pin, so a retired account never becomes
+     * PENDING again. A suspended ELIGIBLE body restores PENDING, because suspension is no pin
+     * phase; every activation point refuses it instead. A RESERVATION history gives its record,
+     * never retiring, only when it is in the policy's Eligible state and relates to every other
      * history as NativePrincipalPins.restore requires: its own app ID key, user 0, and an ID,
      * package and app ID that no other history has. Otherwise it is withdrawn here, never
      * repaired or merged, and its app ID stays held by the store footprint. This backstop never
@@ -191,7 +194,7 @@ final class NativeIdentityPersistence {
     private static NativePrincipalPins.Record restorable(int key,
             NativeIdentityStore.History reservation,
             Map<Integer, NativeIdentityStore.History> histories) {
-        if (reservation.appId != key || reservation.retiring
+        if (reservation.appId != key || !reservation.eligible()
                 || reservation.userId != USER_SYSTEM) return null;
         for (Map.Entry<Integer, NativeIdentityStore.History> other : histories.entrySet()) {
             if (other.getKey().intValue() == key) continue;
@@ -224,17 +227,19 @@ final class NativeIdentityPersistence {
      * The one scan rule of real Settings and its host facade: the history of the candidate's
      * app ID when actual Package Manager state matches it, or null. The candidate and the app
      * ID's existing mapping must both be the history's package, neither of them a shared user,
-     * and the current user 0 serial must equal the history's. A retiring history owns no scan.
-     * A null mapping package means no PackageSetting maps the app ID. A negative serial means
-     * the user is unavailable. The same rule holds for a body and a reservation. The caller then
-     * compares the APK's signers with the history's recorded set. Pure: it creates no mapping or
-     * PackageSetting, allocates no UID and reconstructs no history from the APK.
+     * and the current user 0 serial must equal the history's. Only a history in the policy's
+     * Eligible state, ELIGIBLE with no suspension entry, owns a scan: a suspended, retiring or
+     * retired one never does. A null mapping package means no PackageSetting maps the app ID. A
+     * negative serial means the user is unavailable. The same rule holds for a body and a
+     * reservation. The caller then compares the APK's signers with the history's recorded set.
+     * Pure: it creates no mapping or PackageSetting, allocates no UID and reconstructs no history
+     * from the APK.
      */
     static NativeIdentityStore.History scanOwner(NativeIdentityStore.History history,
             String candidatePackage, int candidateAppId, boolean candidateShared,
             String mappingPackage, boolean mappingShared, long currentSerial) {
         if (history == null || candidateShared || mappingPackage == null || mappingShared
-                || currentSerial < 0 || history.appId != candidateAppId || history.retiring
+                || currentSerial < 0 || history.appId != candidateAppId || !history.eligible()
                 || history.userId != USER_SYSTEM || history.userSerial != currentSerial
                 || !history.packageName.equals(candidatePackage)
                 || !mappingPackage.equals(candidatePackage)) return null;

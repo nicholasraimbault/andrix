@@ -435,5 +435,16 @@
     "relabelled": {"b1-v1": "legacy"},
     "labels": "Living runs carry production or legacy, archived runs rollback-reader or archived-baseline. Every Format.V1 read by the current sources is legacy: the version gate and future format tests, the last manager case, the b1-v1 reader and its rollback check, and the V1 reader cases of b1 focused and its mutants. In this runner rollback-reader labels only the pinned 24bf-v1 and 7845 readers and their rollback checks; the history and counter admission runners also give it to the Format.V1 runs of the archived 24bfb6a parity side.",
     "unchanged_living": "b0 b1-v1 passes 53 and 27; b1 focused passes 80 and b1 faults 53; presence v2 passes 93; the current emitter writes 47 layouts, 43 with a version 2 copy; 21 B1 mutants are caught and 20 guard mutants trip exactly their rules."
+  },
+  "p1_lifecycle_record": {
+    "status": "PREDICTED before any guarded execution of the P1 sources. Nothing here is an executed result.",
+    "plan": "plans/2026-10-08-native-lifecycle-record.md",
+    "format_enum": "The store Format enum becomes V1(1, 1, 1), V2(2, 2, 1) and V3(2, 2, 2): header ceiling, reservation version and slot ceiling. Production still constructs Format.V2 at the one boot read.",
+    "new_rule": "v3: no production text names Format.V3, the lifecycle format that B1 builds but does not ship.",
+    "mutant_rules": {"slot-ceiling-raise": ["enum"], "promotion-to-v3": ["format", "v3"], "v3-alone": ["v3"]},
+    "changed_mutants": {"enum-version-swap": "Its anchors follow the constants V1(1, 1, 1) and V2(2, 2, 1). It still trips exactly enum."},
+    "guard_mutants": {"before": 20, "after": 23},
+    "labels": "A new-format run label names the Format.V3 cases of the lifecycle record runner, which are not production in B1. The future format test row now also names the stable prefix evidence of slot frames above version 2.",
+    "unchanged_living": "b0 b1-v1 passes 53 and 27; b1 focused passes 80 and b1 faults 53; presence v2 passes 93; the current emitter writes 47 layouts, 43 with a version 2 copy; the b1-v1 reader reads 47 and its rollback check passes 50; 21 B1 mutants are caught, none of whose anchors moved. No living case writes a version 2 slot, and every relabeled version 1 body these suites write as a version 2 slot frame fails the version 2 decoder, so their reads are unchanged."
   }
 }

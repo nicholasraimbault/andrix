@@ -44,8 +44,9 @@ class NativeIdentityStoreTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertIn('unqualified', result.stdout)
                 if name == 'NativeIdentityFutureFormatTest':
-                    # Every isolated writer path ran with its healthy control and damaged twin.
-                    self.assertIn('384 passed, 0 failed', result.stdout)
+                    # Every isolated writer path ran with its healthy control and damaged twin,
+                    # over slot frames above version 2 with and without a valid stable prefix.
+                    self.assertIn('391 passed, 0 failed', result.stdout)
                     self.assertNotIn('FAIL ', result.stdout)
                 if name == 'NativeIdentityPresenceTest':
                     # Actual unprivileged permissions refused both probes; a bypass fails the run.

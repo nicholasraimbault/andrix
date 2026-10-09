@@ -271,9 +271,11 @@ MUTANTS = {
         '            if (!view.bindingUsable(appId) || held.getValue().value.users.size() != 1) continue;\n',
         '            if (!view.bindingUsable(appId) || !view.creationReady()\n'
         '                    || held.getValue().value.users.size() != 1) continue;\n'),), ('focused',)),
+    # The body's lifecycle record dropped: a retiring body's history reads ELIGIBLE.
     'retiring-history-dropped': (STORE, ((
-        'user.userId, user.userSerial, body.signerSha256, user.retiring, Source.BODY));',
-        'user.userId, user.userSerial, body.signerSha256, false, Source.BODY));'),), ('focused',)),
+        'user.userId, user.userSerial, body.signerSha256, user.lifecycle, Source.BODY));',
+        'user.userId, user.userSerial, body.signerSha256,\n'
+        '                    NativeIdentityRecords.Lifecycle.version1(false), Source.BODY));'),), ('focused',)),
     'reservation-without-creation-ready': (STORE, ((
         _ALWAYS, '        if (view.header.status != Status.VALID || HeaderCopies.of(view.header) == null) {\n'),),
         ('focused',)),
@@ -331,7 +333,7 @@ MUTANTS = {
         '                    histories);\n',
         '            NativePrincipalPins.Record restored = record(entry.getValue());\n'),), ('focused',)),
     'backstop-withdraws-everything': (PERSISTENCE, ((
-        '        if (reservation.appId != key || reservation.retiring\n'
+        '        if (reservation.appId != key || !reservation.eligible()\n'
         '                || reservation.userId != USER_SYSTEM) return null;\n',
         '        if (reservation.appId == key) return null;\n'),), ('focused', 'faults')),
     'scan-ignores-mapping': (PERSISTENCE, (
@@ -344,8 +346,9 @@ MUTANTS = {
     'scan-ignores-serial': (PERSISTENCE, ((
         '                || history.userId != USER_SYSTEM || history.userSerial != currentSerial\n',
         '                || history.userId != USER_SYSTEM\n'),), ('focused',)),
+    # The scan rule's lifecycle check dropped: a retiring history owns the scan.
     'scan-allows-retiring': (PERSISTENCE, ((
-        '                || currentSerial < 0 || history.appId != candidateAppId || history.retiring\n',
+        '                || currentSerial < 0 || history.appId != candidateAppId || !history.eligible()\n',
         '                || currentSerial < 0 || history.appId != candidateAppId\n'),), ('focused',)),
     'selection-only-guard': (MANAGER, ((
         _ORIGIN, '        return handle.selection != null;\n'),), ('focused', 'probe')),

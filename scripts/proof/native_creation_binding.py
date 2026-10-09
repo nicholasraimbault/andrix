@@ -425,10 +425,11 @@ LAYOUT_NAMES = tuple(sorted(
 # the supported 78456b3 rollback reader does: the pinned 78456b3 image and its twin, the pinned
 # 24bfb6a sources, in archived runs only. archived-baseline: every other archived run, over pinned
 # Git objects of an earlier revision, compared as history, whose inputs and results no edit of the
-# working tree changes.
-RUN_LABELS = ('production', 'rollback-reader', 'archived-baseline', 'legacy')
+# working tree changes. new-format: Format.V3 runs of the current sources, the lifecycle format that
+# reads and writes version 2 slots, which B1 builds but no production text constructs.
+RUN_LABELS = ('production', 'rollback-reader', 'archived-baseline', 'legacy', 'new-format')
 # Living runs carry only the living labels and archived runs only the archived ones.
-LIVING_RUN_LABELS = ('production', 'legacy')
+LIVING_RUN_LABELS = ('production', 'legacy', 'new-format')
 ARCHIVED_RUN_LABELS = ('rollback-reader', 'archived-baseline')
 # Which harnesses run under each label: label, runner, the host classes it runs and which runs.
 # A harness that runs cases under more than one format is listed once per label. A living row's
@@ -442,7 +443,19 @@ HARNESS_LABELS = (
      ('NativeIdentityStoreTest', 'NativeIdentityPresenceTest', 'NativeIdentityVersionGateTest',
       'NativeIdentityFutureFormatTest'),
      'Format.V1 stores, including the default version 1 presence matrix, and the Format.V1 reads of'
-     ' intact version 2 and later frames'),
+     ' intact version 2 and later header frames and of version 2 and later slot frames, with the stable'
+     ' prefix evidence of slot frames above version 2'),
+    ('production', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleCodecTest',),
+     'the lifecycle record codec, its stable prefix reader and its goldens against the independent'
+     ' encoder, which construct no store'),
+    ('production', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleReadTest',),
+     'the Format.V2 reads of version 2 slots and later frames as negative evidence only, with the facade'
+     ' identity predicate and the candidate seeding, and its version 2 slot write refusals'),
+    ('legacy', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleReadTest',),
+     'the same reads and refusals under Format.V1'),
+    ('new-format', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleReadTest',),
+     'the Format.V3 reads of version 2 slots as positive state, the discrimination controls, and its'
+     ' version 2 slot writes, which B1 builds but does not ship'),
     ('production', 'scripts/proof/tests/test_native_identity_persistence.py', ('NativePrincipalRecoveryTest',),
      'the recovery view, which constructs no store'),
     ('legacy', 'scripts/proof/tests/test_native_identity_persistence.py', ('NativeIdentityPersistenceTest',),
@@ -811,10 +824,15 @@ BOOT_END = '        mNativeIdentityPersistence = new NativeIdentityPersistence(m
 # The format the boot construction passes, and the format of the earlier normal images.
 PRODUCTION = 'NativeIdentityStore.Format.V2'
 RETIRED = 'NativeIdentityStore.Format.V1'
-# The store's whole Format enum, comments aside: two closed versions fixed at construction.
-FORMAT_ENUM = ('enum Format { V1(1, 1), V2(2, 2); final int headerCeiling; final int reservationVersion;'
-               ' Format(int headerCeiling, int reservationVersion) { this.headerCeiling = headerCeiling;'
-               ' this.reservationVersion = reservationVersion; } }')
+# The lifecycle format, which reads and writes version 2 slots. No production text constructs it in B1.
+NEW_FORMAT = 'NativeIdentityStore.Format.V3'
+# The store's whole Format enum, comments aside: three closed versions fixed at construction, each with
+# its header ceiling, its reservation version and its slot ceiling.
+FORMAT_ENUM = ('enum Format { V1(1, 1, 1), V2(2, 2, 1), V3(2, 2, 2); final int headerCeiling;'
+               ' final int reservationVersion; final int slotCeiling;'
+               ' Format(int headerCeiling, int reservationVersion, int slotCeiling) {'
+               ' this.headerCeiling = headerCeiling; this.reservationVersion = reservationVersion;'
+               ' this.slotCeiling = slotCeiling; } }')
 # Value, property, settings, reflection and enum selection. This set is refused in every
 # production text. The retired lab tool's wider set, with EnumSet, method and variable handles,
 # Unsafe, and field and declaring class lookups, is refused in the native sources.
@@ -830,7 +848,7 @@ CONSTRUCTIONS = (r'\bnew\s+(?:[\w$]+\s*\.\s*)*NativeIdentityStore\s*\(', r'\bNat
 # the comment stripper and every pattern here. No production text carries one.
 UNICODE_ESCAPE = r'\\+u+[0-9A-Fa-f]{4}'
 # The guard's rules, by the name each violation starts with.
-FORMAT_RULES = ('sites', 'format', 'v1', 'mention', 'selector', 'enum', 'escape')
+FORMAT_RULES = ('sites', 'format', 'v1', 'v3', 'mention', 'selector', 'enum', 'escape')
 HUNK = re.compile(r'@@ -[0-9]+(?:,([0-9]+))? \+[0-9]+(?:,([0-9]+))? @@')
 
 
@@ -948,11 +966,12 @@ def format_violations(texts):
     anchored boot construction in readNativeIdentityStoreForBoot of the native patch's Settings
     section. A qualified construction or a constructor reference is a construction too. format:
     that construction passes exactly Format.V2. v1: no production text names Format.V1 or imports
-    the enum's constants by wildcard. mention: only the native helpers and the native patch name
+    the enum's constants by wildcard. v3: no production text names Format.V3, the lifecycle format
+    that B1 builds but never constructs. mention: only the native helpers and the native patch name
     NativeIdentityStore. selector: no value, property, settings, reflection or enum selection,
-    with the wider set in the native sources. enum: the store's Format enum is exactly its two
-    closed versions. escape: no production text carries a Java unicode escape, which could hide
-    code from every other rule. Comments are not code."""
+    with the wider set in the native sources. enum: the store's Format enum is exactly its three
+    closed versions with their header and slot ceilings. escape: no production text carries a Java
+    unicode escape, which could hide code from every other rule. Comments are not code."""
     problems = []
     code = {name: strip_java_comments(raw) for name, raw in texts.items()}
     boot = boot_site(code.get(SETTINGS_SECTION))
@@ -976,6 +995,9 @@ def format_violations(texts):
         for pattern in (r'\bFormat\s*\.\s*V1\b', r'\bimport\s+static\s+[\w.]*\bFormat\s*\.\s*\*'):
             for found in re.finditer(pattern, text):
                 problems.append('v1: %s names the retired format: %s' % (name, found.group(0)))
+        for found in re.finditer(r'\bFormat\s*\.\s*V3\b', text):
+            problems.append('v3: %s names the lifecycle format, which production does not construct: %s'
+                            % (name, found.group(0)))
         if (re.search(r'\bNativeIdentityStore\b', text) and name not in NATIVE_HELPERS
                 and not name.startswith(NATIVE_PATCH + ':')):
             problems.append('mention: %s names NativeIdentityStore outside the native helpers and patch'
@@ -993,7 +1015,8 @@ def format_violations(texts):
     store = code.get(STORE)
     definition = None if store is None else enum_definition(store)
     if definition != FORMAT_ENUM:
-        problems.append('enum: the store Format enum is not exactly V1(1, 1) and V2(2, 2): %s' % definition)
+        problems.append('enum: the store Format enum is not exactly V1(1, 1, 1), V2(2, 2, 1) and V3(2, 2, 2): %s'
+                        % definition)
     return problems
 
 
@@ -1123,6 +1146,8 @@ HIDDEN = ('    // \\u000a static final NativeIdentityStore HIDDEN = new NativeId
           'new java.io.File("/"), NativeIdentityStore.Format.V1);\n')
 RETIRED_NAME = ('    static NativeIdentityStore.Format earlierFormat() {\n'
                 '        return NativeIdentityStore.Format.V1;\n    }\n\n')
+NEW_NAME = ('    static NativeIdentityStore.Format lifecycleFormat() {\n'
+            '        return NativeIdentityStore.Format.V3;\n    }\n\n')
 # A non native framework source that names the store, and the non native class it goes in.
 MENTION = '    private static final String STORE = "NativeIdentityStore";\n'
 NON_NATIVE = FRAMEWORK_DIR + 'CeStorageAccessTracker.java'
@@ -1159,8 +1184,13 @@ def guard_mutants():
         'value-and-property-selection': (changed((settings, boot, CONSTRUCTION + SELECTED)), {'format', 'selector'}),
         'reflective-field-write': (changed((persistence, anchor, REFLECTIVE_WRITE + anchor)), {'selector'}),
         'enumset-complement': (changed((persistence, anchor, COMPLEMENT + anchor)), {'selector'}),
-        'enum-version-swap': (changed((STORE, 'V1(1, 1),', 'V1(2, 2),'), (STORE, 'V2(2, 2);', 'V2(1, 1);')),
+        'enum-version-swap': (changed((STORE, 'V1(1, 1, 1),', 'V1(2, 2, 1),'), (STORE, 'V2(2, 2, 1),', 'V2(1, 1, 1),')),
                               {'enum'}),
+        # The production format reading version 2 slots as positive state: a slot ceiling raised.
+        'slot-ceiling-raise': (changed((STORE, 'V2(2, 2, 1),', 'V2(2, 2, 2),')), {'enum'}),
+        # The boot read constructs the lifecycle format, which B1 builds but does not ship.
+        'promotion-to-v3': (changed((settings, boot, CONSTRUCTION + NEW_FORMAT + ');\n')), {'format', 'v3'}),
+        'v3-alone': (changed((persistence, anchor, NEW_NAME + anchor)), {'v3'}),
         'construction-outside-boot': (outside, {'sites'}),
         'qualified-construction': (changed((persistence, anchor, QUALIFIED + anchor)), {'sites'}),
         'constructor-reference': (changed((persistence, anchor, REFERENCE % '' + anchor)), {'sites'}),

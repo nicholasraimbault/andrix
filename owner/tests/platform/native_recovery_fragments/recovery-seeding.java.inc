@@ -3,6 +3,7 @@
         for (NativeIdentityStore.ReadResult<NativeIdentityRecords.Slot> copies
                 : mNativeIdentityLoaded.slots.values()) {
             for (NativeIdentityRecords.Slot slot : copies.decodedCopies) names.add(slot.packageName);
+            for (NativeIdentityRecords.SlotPrefix prefix : copies.prefixes) names.add(prefix.packageName);
         }
         for (NativeIdentityRecords.Header header : mNativeIdentityLoaded.header.decodedCopies) {
             for (NativeIdentityRecords.HeaderEntry entry : header.entries) {

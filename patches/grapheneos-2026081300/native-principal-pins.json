@@ -2,7 +2,7 @@
   "version": 1,
   "project": "frameworks/base",
   "head": "aab06a8bd44c4c2b58eeec780fde83baa9d43a40",
-  "patch_sha256": "eeaf34b2101c58f36d577ec020feb64f30bbdc6ddb982d7647e09ff223f5d4d5",
+  "patch_sha256": "4534a490e767824182fdf8e7ca035eaad9a6245bf7100006ddfd0fd7012ecf43",
   "files": [
     {
       "path": "services/core/java/com/android/server/pm/AppIdSettingMap.java",
@@ -12,7 +12,7 @@
     {
       "path": "services/core/java/com/android/server/pm/Settings.java",
       "upstream_sha256": "bff2de579d206a39be81ef0b798df8f6e845d2f28efbbcd63554ccffbddae5a1",
-      "candidate_sha256": "301cb589989220fb017fa9ab58fd2a36775dc68ec49362e73e15770a84408455"
+      "candidate_sha256": "8b995677f53b92656e2e50f8860ca6ab24139f1eb9e41c248ef98a7e76317709"
     },
     {
       "path": "services/core/java/com/android/server/pm/PackageManagerService.java",
@@ -69,17 +69,17 @@
     {
       "path": "services/core/java/com/android/server/pm/NativeIdentityRecords.java",
       "source": "owner/platform/framework/NativeIdentityRecords.java",
-      "sha256": "412c2271a9efabf9937375bd42f2e49c5e3fb4d09935a9e98d6e5805736a3009"
+      "sha256": "e580fae94471813dcf4e33dc59a23273ef9bdbc3146c6cec0ffbc599daa6f9b0"
     },
     {
       "path": "services/core/java/com/android/server/pm/NativeIdentityStore.java",
       "source": "owner/platform/framework/NativeIdentityStore.java",
-      "sha256": "183324ae3188717941cc614ceba0d68bd93fbc1d0d0be5e7c0cd80bf97a81138"
+      "sha256": "a82bf9017daa93745c964bfa950d458b48ff642a38b10afa548a25012fd1f723"
     },
     {
       "path": "services/core/java/com/android/server/pm/NativeIdentityPersistence.java",
       "source": "owner/platform/framework/NativeIdentityPersistence.java",
-      "sha256": "f2fd1a5e6d272f99bb06973700d885523c1dbff033731b4a02e969f8bfb29f54"
+      "sha256": "08e262fe2c784a09156a3dbbdcaa1bc3c7c3d4104625ca4008b9be47a2b88e0f"
     },
     {
       "path": "services/core/java/com/android/server/pm/NativePrincipalRecovery.java",
@@ -111,7 +111,7 @@
       "name": "identity",
       "path": "services/core/java/com/android/server/pm/Settings.java",
       "source": "owner/tests/platform/native_recovery_fragments/identity.java.inc",
-      "sha256": "c7ba56ef6f687453db5a1c4c4a21d6c95ce036bdd4cf9b3ed1d1bb0ee5dd21bc"
+      "sha256": "04a06cad1791ba2b3a22b24152469f5b32da2404e91a863961569238e42ff7ce"
     },
     {
       "name": "system-cleanup",
@@ -177,7 +177,7 @@
       "name": "recovery-seeding",
       "path": "services/core/java/com/android/server/pm/Settings.java",
       "source": "owner/tests/platform/native_recovery_fragments/recovery-seeding.java.inc",
-      "sha256": "ddaed9137f94165c48c62528ead6a022005ff4f83296f11737a1cd9aba96de7b"
+      "sha256": "ecbe75a94f02054353c0f50e8d5f13f0a581f1f7509f1fcf9d64d7f303fd9d40"
     }
   ]
 }

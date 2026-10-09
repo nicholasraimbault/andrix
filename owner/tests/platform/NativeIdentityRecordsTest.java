@@ -883,7 +883,8 @@ public final class NativeIdentityRecordsTest {
         invalid(() -> NativeIdentityRecords.decodeHeader(slot));
         byte[] headerAsSlot = changed(header, bytes -> put(bytes, TYPE, 2, 2));
         byte[] slotAsHeader = changed(slot, bytes -> put(bytes, TYPE, 2, 1));
-        // Version 2 exists only for headers. A slot of version 2 is refused too.
+        // A version 2 header is no slot, and a version 1 slot relabeled as a version 2 header,
+        // or as a version 2 slot, is no version 2 body. Each is refused.
         byte[] v2 = NativeIdentityRecords.encodeHeader(goldenV2Header());
         invalid(() -> NativeIdentityRecords.decodeSlot(v2));
         byte[] v2AsSlot = changed(v2, bytes -> put(bytes, TYPE, 2, 2));
@@ -1205,7 +1206,8 @@ public final class NativeIdentityRecordsTest {
             byte[] s = changed(slot, b -> put(b, VERSION, 2, version));
             assert NativeIdentityRecords.intactHeaderVersion(h) == version;
             assert NativeIdentityRecords.intactSlotVersion(s) == version;
-            // A version 1 body under version 2 has no binding tags and does not decode either.
+            // A version 1 body under version 2 has no binding tags, and no lifecycle blocks for
+            // a slot, so it does not decode either.
             refusedHeader("version " + version, h);
             refusedSlot("version " + version, s);
             // Every single bit of such a frame is covered, including its version field.
@@ -1438,7 +1440,9 @@ public final class NativeIdentityRecordsTest {
     }
 
     // No authority, allocation or alternative encoding path is public. The only additions for
-    // version 2 are the binding value, an entry constructor with it and Header.newV2.
+    // version 2 headers are the binding value, an entry constructor with it and Header.newV2.
+    // Version 2 slots add the lifecycle values and their enums, a user entry constructor with a
+    // lifecycle and a slot constructor with a ticket. The prefix reader stays with the store.
     private static void closedSurface() throws ReflectiveOperationException {
         Class<?> codec = NativeIdentityRecords.class;
         assert Modifier.isFinal(codec.getModifiers()) && codec.getConstructors().length == 0;
@@ -1459,11 +1463,23 @@ public final class NativeIdentityRecordsTest {
         assert constants.equals(Set.of("MAX_BYTES=65536", "MAX_SLOTS=64", "MAX_USERS=64",
                 "MAX_SIGNERS=32")) : constants;
         assert Set.of(codec.getClasses()).equals(Set.of(SlotPhase.class, CreationBinding.class,
-                HeaderEntry.class, Header.class, UserEntry.class, Slot.class));
+                HeaderEntry.class, Header.class, UserEntry.class, Slot.class,
+                NativeIdentityRecords.LifecycleState.class, NativeIdentityRecords.ActorClass.class,
+                NativeIdentityRecords.SuspensionReason.class,
+                NativeIdentityRecords.ObligationKind.class,
+                NativeIdentityRecords.ObligationState.class, NativeIdentityRecords.Suspension.class,
+                NativeIdentityRecords.Obligation.class, NativeIdentityRecords.Retirement.class,
+                NativeIdentityRecords.Lifecycle.class, NativeIdentityRecords.ReleaseTicket.class));
         assert Arrays.asList(SlotPhase.values())
                 .equals(List.of(SlotPhase.CREATING, SlotPhase.LIVE, SlotPhase.RELEASING));
-        Map<Class<?>, Integer> constructors = Map.of(CreationBinding.class, 1,
-                HeaderEntry.class, 2, Header.class, 1, UserEntry.class, 1, Slot.class, 1);
+        Map<Class<?>, Integer> constructors = Map.ofEntries(Map.entry(CreationBinding.class, 1),
+                Map.entry(HeaderEntry.class, 2), Map.entry(Header.class, 1),
+                Map.entry(UserEntry.class, 2), Map.entry(Slot.class, 2),
+                Map.entry(NativeIdentityRecords.Suspension.class, 1),
+                Map.entry(NativeIdentityRecords.Obligation.class, 1),
+                Map.entry(NativeIdentityRecords.Retirement.class, 1),
+                Map.entry(NativeIdentityRecords.Lifecycle.class, 1),
+                Map.entry(NativeIdentityRecords.ReleaseTicket.class, 1));
         for (Map.Entry<Class<?>, Integer> value : constructors.entrySet()) {
             Class<?> type = value.getKey();
             assert Modifier.isFinal(type.getModifiers()) : type;
@@ -1489,6 +1505,13 @@ public final class NativeIdentityRecordsTest {
         Header.class.getConstructor(String.class, long.class, List.class);
         Header.class.getMethod("newV2", String.class, long.class, List.class);
         CreationBinding.class.getConstructor(int.class, long.class, Set.class);
+        UserEntry.class.getConstructor(long.class, int.class, long.class, boolean.class);
+        UserEntry.class.getConstructor(long.class, int.class, long.class,
+                NativeIdentityRecords.Lifecycle.class);
+        Slot.class.getConstructor(String.class, int.class, String.class, long.class, Set.class,
+                List.class);
+        Slot.class.getConstructor(String.class, int.class, String.class, long.class, Set.class,
+                List.class, NativeIdentityRecords.ReleaseTicket.class);
     }
 
     public static void main(String[] args) throws Exception {
