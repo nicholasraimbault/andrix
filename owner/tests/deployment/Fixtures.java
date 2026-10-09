@@ -27,12 +27,15 @@ final class Fixtures {
     static final String FACTORY_APK = digest(0xf0);
     /** The variant's signing input: the digest of its ZIP entries outside the signing block. */
     static final String BUNDLE_INPUT = digest(0xb1);
+    /** The variant's signed APK: signed output, which only its publication binds to the plan. */
     static final String BUNDLE_APK = digest(0xa1);
     static final String RESTORATION_INPUT = digest(0xb2);
     static final String RESTORATION_APK = digest(0xa2);
     static final String SIGNER = digest(0x51);
     /** The PUBLISH attempt that host bundle facts name by default. */
     static final String PUBLISH_ATTEMPT = id(0x9b1);
+    /** An earlier read of a plan's publication, after an attempt that no test ledger holds. */
+    static final String READ_ATTEMPT = id(0x9b0);
     /** The digest of a plan's publication record, read back complete. */
     static final String PUBLICATION = digest(0xd7);
     static final long FACTORY_VERSION = 37, BUNDLE_VERSION = 40, RESTORATION_VERSION = 41;
@@ -52,11 +55,26 @@ final class Fixtures {
         return String.format("%02x", b & 0xff).repeat(32);
     }
 
+    /**
+     * The APK digest that the host signer produces from a fixture input: 0xa1 from 0xb1, 0xa2
+     * from 0xb2 and so on. NO_DIGEST for no input.
+     */
+    static String signed(String input) {
+        if (input.equals(DeploymentRecords.NO_DIGEST)) return DeploymentRecords.NO_DIGEST;
+        return digest(0xa0 | (Integer.parseInt(input.substring(0, 2), 16) & 0x0f));
+    }
+
+    /** A host fact that read the plan's publication back complete, binding the signed fixture APKs. */
+    static Observation.Builder published(long n, Plan plan, String attempt) {
+        return fact(n, DeploymentRecords.NO_ID, Classification.BUNDLE_PUBLISHED, 0).subject(attempt)
+                .plan(plan.planId).apks(signed(plan.bundleInput), signed(plan.restorationInput));
+    }
+
     /** A variant plan on the factory base: late commit, one signing transaction, a restoration. */
     static Plan.Builder plan(long n) {
         return new Plan.Builder().installation(INSTALLATION).planId(id(0x100 + n)).component(COMPONENT)
-                .bundle(BUNDLE_INPUT, BUNDLE_APK, BUNDLE_VERSION).signer(SIGNER)
-                .restoration(RESTORATION_INPUT, RESTORATION_APK, RESTORATION_VERSION).signing(1)
+                .bundle(BUNDLE_INPUT, BUNDLE_VERSION).signer(SIGNER)
+                .restoration(RESTORATION_INPUT, RESTORATION_VERSION).signing(1)
                 .cohort(FINGERPRINT, FACTORY_APK, FACTORY_VERSION).base(FACTORY_APK, FACTORY_VERSION, UID, CONTEXT)
                 .selectionRevision(0).trustPolicy(TRUST).commitMode(CommitMode.LATE).healthWindow(600_000)
                 .limits(4, 120_000, 3, 3_600_000, 300_000).createdAt(TIME);
@@ -110,11 +128,15 @@ final class Fixtures {
             case SIGNER:
                 b.component(COMPONENT).route(Route.HOST).boot(DeploymentRecords.NO_ID).at(-1, 0, TIME);
                 break;
-            case BUNDLE:
+            case BUNDLE: {
+                boolean published = c == Classification.BUNDLE_PUBLISHED;
                 b.component(COMPONENT).route(Route.HOST).boot(DeploymentRecords.NO_ID).at(-1, 0, TIME)
-                        .subject(PUBLISH_ATTEMPT)
-                        .digest(c == Classification.BUNDLE_PUBLISHED ? PUBLICATION : DeploymentRecords.NO_DIGEST);
+                        .subject(PUBLISH_ATTEMPT).plan(id(0x101))
+                        .digest(published ? PUBLICATION : DeploymentRecords.NO_DIGEST)
+                        .apks(published ? BUNDLE_APK : DeploymentRecords.NO_DIGEST,
+                                published ? RESTORATION_APK : DeploymentRecords.NO_DIGEST);
                 break;
+            }
             default:
                 break;
         }

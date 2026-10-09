@@ -133,8 +133,8 @@ def ref(presence=0, session=0, created=0, stage='', installer=0, nonce=ZERO_ID):
 def plan(p):
     body = raw(p['installation'], 16) + raw(p['plan'], 16) + text(p['component'])
     body += struct.pack('<BB', CLASSES[p['class']], TARGETS[p['target']]) + raw(p['repairs'], 16)
-    body += raw(p['bundleInput'], 32) + raw(p['bundleApk'], 32) + struct.pack('<q', p['bundleVersion'])
-    body += raw(p['signer'], 32) + raw(p['restorationInput'], 32) + raw(p['restorationApk'], 32)
+    body += raw(p['bundleInput'], 32) + struct.pack('<q', p['bundleVersion'])
+    body += raw(p['signer'], 32) + raw(p['restorationInput'], 32)
     body += struct.pack('<qB', p['restorationVersion'], p['signing']) + text(p['fingerprint'])
     body += raw(p['factoryApk'], 32) + struct.pack('<q', p['factoryVersion'])
     body += raw(p['baseApk'], 32) + struct.pack('<qi', p['baseVersion'], p['baseUid']) + text(p['baseContext'])
@@ -194,7 +194,8 @@ def observation(o):
     elif kind == 'SIGNER':
         body += raw(facts['request'], 16)
     elif kind == 'BUNDLE':
-        body += raw(facts['attempt'], 16) + raw(facts['publication'], 32)
+        body += raw(facts['attempt'], 16) + raw(facts['plan'], 16) + raw(facts['publication'], 32)
+        body += raw(facts['bundleApk'], 32) + raw(facts['restorationApk'], 32)
     return record('observation', body)
 
 
@@ -251,8 +252,8 @@ def digest(b):
 def base_plan(n):
     return {'installation': INSTALLATION, 'plan': ident(0x100 + n), 'component': COMPONENT,
             'class': 'STAGED_SYSTEM_APK', 'target': 'VARIANT', 'repairs': ZERO_ID, 'bundleInput': digest(0xb1),
-            'bundleApk': digest(0xa1), 'bundleVersion': 40, 'signer': digest(0x51), 'restorationInput': digest(0xb2),
-            'restorationApk': digest(0xa2), 'restorationVersion': 41, 'signing': 1, 'fingerprint': FINGERPRINT,
+            'bundleVersion': 40, 'signer': digest(0x51), 'restorationInput': digest(0xb2),
+            'restorationVersion': 41, 'signing': 1, 'fingerprint': FINGERPRINT,
             'factoryApk': digest(0xf0), 'factoryVersion': 37, 'baseApk': digest(0xf0), 'baseVersion': 37,
             'baseUid': UID, 'baseContext': CONTEXT, 'selectionRevision': 0, 'trustPolicy': digest(0x7a),
             'commitMode': 'LATE', 'criteria': 0x7f, 'healthWindow': 600_000, 'healthResponse': 'REPORT_AND_WAIT',
@@ -317,12 +318,12 @@ def goldens():
                  repairs=ident(0x101), baseApk=digest(0xa0), baseVersion=39, criteria=0x3f, bootLimit=8,
                  rebootTimeLimit=60_000, requestLimit=5, activateWindow=7_200_000, verificationWait=600_000,
                  selectionRevision=2, created=TIME + 1)
-    factory = dict(base_plan(3), target='FACTORY', bundleInput=ZERO_DIGEST, bundleApk=ZERO_DIGEST, bundleVersion=0,
-                   signer=ZERO_DIGEST, restorationInput=ZERO_DIGEST, restorationApk=ZERO_DIGEST, restorationVersion=0,
+    factory = dict(base_plan(3), target='FACTORY', bundleInput=ZERO_DIGEST, bundleVersion=0,
+                   signer=ZERO_DIGEST, restorationInput=ZERO_DIGEST, restorationVersion=0,
                    signing=0, noticeDelay=120_000, emergencyNoticeDelay=120_000, selectionRevision=5,
                    repairs=ident(0x102))
     temporary = dict(base_plan(4), target='TEMPORARY_FACTORY', repairs=ident(0x101), bundleInput=digest(0xb3),
-                     bundleApk=digest(0xa3), bundleVersion=42, restorationInput=ZERO_DIGEST, restorationApk=ZERO_DIGEST,
+                     bundleVersion=42, restorationInput=ZERO_DIGEST,
                      restorationVersion=0, fingerprint=NEW_FINGERPRINT, factoryApk=digest(0xf1), factoryVersion=38,
                      baseApk=digest(0xa1), baseVersion=40, selectionRevision=1, created=TIME + 3)
     holder = {'installation': INSTALLATION, 'component': COMPONENT, 'actor': 'GRANT_HOLDER', 'user': 0, 'serial': 0,
@@ -391,7 +392,8 @@ def goldens():
                                        facts={'count': 0x7b})),
         'OBS_SIGNER': observation(fact(5, ZERO_ID, 'SIGNER', 'COMPLETED', 0, facts={'request': ident(0x7001)})),
         'OBS_BUNDLE': observation(fact(8, ZERO_ID, 'BUNDLE', 'PUBLISHED', 0, facts={
-            'attempt': ident(0x9b01), 'publication': digest(0xd7)})),
+            'attempt': ident(0x9b01), 'plan': ident(0x101), 'publication': digest(0xd7), 'bundleApk': digest(0xa1),
+            'restorationApk': digest(0xa2)})),
         'SELECTION_FACTORY': selection({'installation': INSTALLATION, 'component': COMPONENT, 'revision': 0,
                                         'choice': 'FACTORY', 'plan': ZERO_ID, 'responsibility': 'REBUILD_WINDOW',
                                         'rebuildWindow': WINDOW, 'realization': 'UNCHECKED', 'checkedBoot': ZERO_ID,
@@ -447,7 +449,8 @@ README_FACTS = (
     'u16   count, then ledger entries in issue order, at most 60:',
     'The crossings, with the most entries of each in one ledger, are 1 SIGN (2), 2 PUBLISH (2), 3 CREATE (1), '
     '4 WRITE (1), 5 COMMIT (1), 6 ABANDON (16), 7 REBOOT (16), 8 NOTICE (17) and 9 HANDOVER (4).',
-    '| 11 BUNDLE | component | id attempt, d32 publication | 1 PUBLISHED, 2 ABSENT, 3 MISMATCH |',
+    '| 11 BUNDLE | component | id attempt, id plan, d32 publication, d32 bundleApk, d32 restorationApk '
+    '| 1 PUBLISHED, 2 ABSENT, 3 MISMATCH |',
     'i32   user                  >= 0, or -10000 (USER_NULL) for no user          prefix',
     'They use the frame above with types 6 and 7, version 1, and at most 4,096 bytes.',
     'u8    schemes               bit 0 v2, 1 v3, 2 v4: exactly 7                         strict',
@@ -491,6 +494,8 @@ CODEC_NAMES = (
     'decoder refuses / ticket relations',
     'decoder refuses / ledger bounds, order and references',
     'decoder refuses / observation scope',
+    'decoder refuses / a bundle fact names its attempt and its plan',
+    'decoder refuses / bundle fact digests are set exactly when it read the publication',
     'decoder refuses / selection relations',
     'decision 8 / one or two signing transactions fit the layout',
     'decision 2 / both commit modes fit the layout',
@@ -534,6 +539,8 @@ MACHINE_NAMES = (
     'notice / a rebuilt variant, an unlisted repair or a temporary factory plan never shortens notice',
     'checkpoint / no crossing and no close before the commit',
     'checkpoint / APPLIED only once the checkpoint is observed committed',
+    "applied / the bundle's bytes are the APK that its publication bound",
+    'publish / a missing publication read holds with the alert, and a cancellation still abandons',
     'applied / a changed UID or context is not applied',
     'boot / a boot during COMMIT_INTENT is BOOT_OBSERVED',
     'boot / outcomes after the activation boot',
@@ -570,6 +577,7 @@ MACHINE_NAMES = (
     'signing / a later attempt skips signing only when the bundles read back published',
     'publish / a lost acknowledgement is resolved by reading, never by publishing again',
     'publish / a second publication follows only a read of absence naming the attempt',
+    'publish / a read of other bytes holds with the request limit alert',
     'handover / the coordinator changes only by a recorded handover')
 
 STORE_NAMES = (
@@ -643,7 +651,10 @@ ARTIFACT_NAMES = (
     'store / a different bundle under the same ID is never replaced',
     'store / the plan names its inputs and the publication binds the bundles signed from them',
     'store / a second publication completes from the bundles the store already holds',
-    'store / a pair from two signing transactions fits the publication')
+    'store / a pair from two signing transactions fits the publication',
+    "store / a restoration plan publishes the restoration that its pair's publication made visible",
+    'store / a plan that signs nothing publishes only the restoration its repaired pair published',
+    "store / every bundle carries the plan's signer certificate")
 
 NAMES = {'codec': CODEC_NAMES, 'machine': MACHINE_NAMES, 'store': STORE_NAMES, 'transactions': TRANSACTION_NAMES,
          'artifacts': ARTIFACT_NAMES}
@@ -687,13 +698,20 @@ _ABANDON_HOLD = ('            if (t.count(Crossing.ABANDON) >= p.requestLimit) {
 _PUBLICATION_WRITE = '            if (!write(index, bytes)) return false; // Visible from here.\n'
 _VERIFY_EACH = ('                String reason = verifier.verify(b);\n'
                 '                if (reason != null) return false;\n')
-_OBSERVATION_END = ('            case BUNDLE:\n                b.subject = in.id();\n                b.digest = in.digest();\n'
+_OBSERVATION_END = ('            case BUNDLE:\n                b.subject = in.id();\n                b.plan = in.id();\n'
+                    '                b.digest = in.digest();\n                b.bundleApk = in.digest();\n'
+                    '                b.restorationApk = in.digest();\n'
                     '                break;\n            default:\n                break;\n        }\n        in.finish();\n')
-_PUBLISH_READ = '        if (c.view.publication(last.reference) != Classification.BUNDLE_ABSENT) return null;\n'
+_PUBLISH_READ = ('        if (c.view.publication(last.reference, c.plan.planId) != Classification.BUNDLE_ABSENT) '
+                 'return null;\n')
 _PUBLISH_HOLD = ('        b.set(FLAG_REQUEST_LIMIT);\n'
                  '        return done(c, b, null, null, "a second publication had no effect: holding and alerting");\n')
 _HELD_OR_STAGED = ('                if (!exact(root.resolve(STAGING + "-" + b.id), b) && !exact(bundle(b.id), b)) '
                    'return false;\n')
+_MISMATCH_HOLD = ('        if (mismatch(c)) {\n'
+                  '            b.set(FLAG_REQUEST_LIMIT);\n'
+                  '            return done(c, b, null, null, "the publication names other bytes: holding and alerting");\n'
+                  '        }\n')
 _BOUND = ('                    || !m.component.equals(plan.component) || !m.inputEntries.equals(inputs.get(i))\n'
           '                    || m.versionCode != version || !m.transaction.equals(publication.transactions.get(i))) {\n')
 
@@ -882,7 +900,7 @@ MUTANTS = {
     'owed-move-writes-current': (((RECONCILER, '        return cohortCheck(next, p, null, c.view, null, null);\n',
                                    '        return next;\n'),), ('machine',)),
     'owed-temporary-on-other-bytes': (((RECONCILER,
-        '            if (active != null && !active.digest.equals(p.bundleApk)) return null;\n', ''),), ('machine',)),
+        '            if (active != null && !active.digest.equals(bundleApk(c))) return null;\n', ''),), ('machine',)),
     'store-update-unchecked': (((STORE,
         '        if (!expected.ticketId.equals(next.ticketId) || TicketMachine.check(expected, next) != null) '
         'return false;\n',
@@ -930,19 +948,17 @@ MUTANTS = {
     # The second publication: a proof of no effect tied to the attempt, a bound of two, a hold
     # with the alert, and completion from the bundles the store holds.
     'publish-again-without-proof': (((RECONCILER, _PUBLISH_READ,
-        '        if (c.view.publication(last.reference) == Classification.BUNDLE_MISMATCH) return null;\n'),),
+        '        if (c.view.publication(last.reference, c.plan.planId) == Classification.BUNDLE_MISMATCH) '
+        'return null;\n'),),
         ('machine', 'transactions')),
     'absence-not-tied-to-attempt': (((RECONCILER,
-        '                if (o.kind == ObservationKind.BUNDLE && o.subject.equals(attempt)\n',
-        '                if (o.kind == ObservationKind.BUNDLE\n'),), ('machine', 'transactions')),
+        '                if (o.kind == ObservationKind.BUNDLE && o.subject.equals(attempt) && o.plan.equals(plan)\n',
+        '                if (o.kind == ObservationKind.BUNDLE && o.plan.equals(plan)\n'),), ('machine', 'transactions')),
     'publish-bound-one': (((RECORDS, 'SIGN(1, 2), PUBLISH(2, 2), CREATE(3, 1), WRITE(4, 1),',
                             'SIGN(1, 2), PUBLISH(2, 1), CREATE(3, 1), WRITE(4, 1),'),), ('codec', 'machine')),
     'second-publication-unheld': (((RECONCILER, _PUBLISH_HOLD, '        return null;\n'),), ('machine',)),
-    'bundle-fact-without-attempt': (((RECORDS,
-        '            boolean subjectKind = kind == ObservationKind.REPLY || kind == ObservationKind.SIGNER\n'
-        '                    || kind == ObservationKind.BUNDLE;\n',
-        '            boolean subjectKind = kind == ObservationKind.REPLY || kind == ObservationKind.SIGNER;\n'),),
-        ('codec',)),
+    'bundle-fact-without-attempt': (((RECORDS, '            checkId(subject, "subject", !subjectKind);\n',
+        '            checkId(subject, "subject", !subjectKind || kind == ObservationKind.BUNDLE);\n'),), ('codec',)),
     'artifact-held-bundles-refused': (((ARTIFACT_STORE, _HELD_OR_STAGED,
         '                if (!exact(root.resolve(STAGING + "-" + b.id), b)) return false;\n'),), ('artifacts',)),
     'artifact-plan-inputs-unbound': (((ARTIFACT_STORE, _BOUND,
@@ -951,6 +967,47 @@ MUTANTS = {
         ('artifacts',)),
     'artifact-one-transaction': (((ARTIFACT_STORE, _BOUND,
         _BOUND.replace('publication.transactions.get(i)', 'publication.transactions.get(0)')),), ('artifacts',)),
+    # Signed output leaves the plan: the bundle's APK digest is what its publication bound, read
+    # from the plan's own facts, and a missing read is missing evidence.
+    'mismatch-waits-silently': (((RECONCILER, _MISMATCH_HOLD, '        if (mismatch(c)) return null;\n'),),
+                                ('machine',)),
+    'apk-from-another-plan': (((RECONCILER,
+        '                if (o.classification != Classification.BUNDLE_PUBLISHED || !o.plan.equals(plan)) continue;\n',
+        '                if (o.classification != Classification.BUNDLE_PUBLISHED) continue;\n'),), ('machine',)),
+    'disagreeing-reads-bind': (((RECONCILER,
+        '                if (found != null && (!found.digest.equals(o.digest) || !found.bundleApk.equals(o.bundleApk)\n',
+        '                if (found == o && (!found.digest.equals(o.digest) || !found.bundleApk.equals(o.bundleApk)\n'),),
+        ('machine',)),
+    'missing-publication-fact-is-other-bytes': (((RECONCILER,
+        '        if (t.state.code >= State.PUBLISHED.code && t.state != State.SIGN_FAILED && bundleApk(c) == null) {\n',
+        '        if (t.state.code >= State.PUBLISHED.code && t.state != State.SIGN_FAILED && t.state == null) {\n'),),
+        ('machine',)),
+    'cohort-without-chosen-publication': (((RECONCILER,
+        '            if (chosenApk == null || (standing && temporaryApk == null)) return s;\n',
+        '            if (standing && temporaryApk == null) return s;\n'),), ('machine',)),
+    # The restoration plan's publication and the signer certificate.
+    'artifact-certificate-unchecked': (((ARTIFACT_STORE,
+        '            if (!b.id.equals(publication.bundles.get(i)) || !role || !m.certificate.equals(plan.signer)\n',
+        '            if (!b.id.equals(publication.bundles.get(i)) || !role\n'),), ('artifacts',)),
+    'artifact-restoration-repairs-unbound': (((ARTIFACT_STORE,
+        '            if (planPublication(plan.repairs) != Presence.PUBLISHED || repaired == null\n'
+        '                    || repaired.bundles.size() != 2 || !repaired.bundles.get(1).equals(staged.get(0).id)) {\n'
+        '                return false;\n            }\n', ''),), ('artifacts',)),
+    'artifact-restoration-role-unchecked': (((ARTIFACT_STORE,
+        '            boolean role = m.role == (plan.signing == 0 ? Role.RESTORATION : Publication.roleAt(i));\n',
+        '            boolean role = plan.signing == 0 || m.role == Publication.roleAt(i);\n'),), ('artifacts',)),
+    'artifact-restoration-not-single': (((ARTIFACT_STORE,
+        '        if (plan.signing == 0 && (plan.repairs.equals(DeploymentRecords.NO_ID) || plan.hasRestoration())) {\n',
+        '        if (plan.signing == 0 && plan.repairs.equals(DeploymentRecords.NO_ID)) {\n'),), ('artifacts',)),
+    'artifact-signing-plan-any-role': (((ARTIFACT_STORE,
+        '            boolean role = m.role == (plan.signing == 0 ? Role.RESTORATION : Publication.roleAt(i));\n',
+        '            boolean role = m.role == (plan.signing == 0 ? Role.RESTORATION : m.role);\n'),), ('artifacts',)),
+    # A missing or disagreeing publication read holds with the alert, and never blocks an abandon.
+    'missing-read-holds-silently': (((RECONCILER, '            b.set(FLAG_REQUEST_LIMIT);\n            if (b.cause()',
+                                      '            if (b.cause()'),), ('machine',)),
+    'missing-read-blocks-abandon': (((RECONCILER,
+        '            if (b.cause() != Cause.NONE && !judgesBytes(t.state)) {\n',
+        '            if (b.cause() == null) {\n'),), ('machine',)),
     'artifact-input-equal-output-refused': (((ARTIFACT_RECORDS,
         '            this.installation = installation;\n            this.component = component;\n'
         '            this.transaction = transaction;\n',
@@ -979,6 +1036,16 @@ REQUIRED_DEFECTS = {
     'a second publication that cannot finish from the held bundles': ('artifact-held-bundles-refused',),
     'a publication not bound to the plan\'s signing inputs': ('artifact-plan-inputs-unbound',),
     'a pair from two signing transactions refused': ('artifact-one-transaction',),
+    'a silent wait on a publication that names other bytes': ('mismatch-waits-silently',),
+    "an APK digest not bound by the plan's own publication": ('apk-from-another-plan', 'disagreeing-reads-bind',
+                                                              'missing-publication-fact-is-other-bytes',
+                                                              'cohort-without-chosen-publication'),
+    'a restoration published alone by its restoration plan': ('artifact-restoration-repairs-unbound',
+                                                              'artifact-restoration-not-single'),
+    'a bundle signed as a variant in a RESTORATION role': ('artifact-restoration-role-unchecked',),
+    'a ticket frozen by a missing publication read': ('missing-read-holds-silently', 'missing-read-blocks-abandon'),
+    'a bundle of another signer published': ('artifact-certificate-unchecked',),
+    'a signing plan publishing a bundle signed in another role': ('artifact-signing-plan-any-role',),
 }
 
 

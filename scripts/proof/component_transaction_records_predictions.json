@@ -1,42 +1,42 @@
 {
-  "status": "PREDICTED for D1 with the layout changes of D2, and for the artifact store of D2: the plan names its signing inputs, the publication names each bundle's signing transaction, the manifest holds no time and takes the input's identity from its entries outside the signing block, and a second publication follows a read of absence naming the PUBLISH attempt, completes from the bundles the store holds, and holds with the alert after a second attempt without effect. Written before any run of these sources, guarded, unguarded or mutant. Runs of earlier sources preceded it. Nothing here is a guarded or mutant result.",
+  "status": "PREDICTED for D1 with the layout changes of D2, and for the artifact store of D2: the plan names only facts known before signing, its signing inputs, versionCodes and signer, and a bundle fact names the plan and carries the APK digests that the plan's publication binds, which every comparison with the active bytes reads. A read of other bytes holds with the request limit alert. A plan that signs nothing publishes bundles that another publication made visible, and every bundle carries the plan's signer. Earlier: the publication names each bundle's signing transaction, the manifest holds no time and takes the input's identity from its entries outside the signing block, and a second publication follows a read of absence naming the PUBLISH attempt. A plan that signs nothing publishes only decision 3's restoration, and a missing or disagreeing publication read holds with the alert while a recorded cause still abandons a live session. Written before any run of these sources, guarded, unguarded or mutant. Runs of earlier sources preceded it. Nothing here is a guarded or mutant result.",
   "plan": "plans/2026-10-09-component-transaction.md",
-  "package": "D1: the deployment records, their codec, the ticket state machine, reconciliation and host storage. D2: the bundle manifest, the publication record, the artifact store and the second publication",
+  "package": "D1: the deployment records, their codec, the ticket state machine, reconciliation and host storage. D2: the bundle manifest, the publication record, the artifact store, the second publication and the restoration plan's publication",
   "basis": "Each count is the length of the runner's case lists. Each golden is the independent encoder's bytes. Each mutant's catches are traced against the cases that reach the changed rule; a defect that another rule also refuses names only the cases that reach it.",
   "cases": {
-    "codec": 50,
-    "machine": 67,
+    "codec": 52,
+    "machine": 70,
     "store": 14,
     "transactions": 44,
-    "artifacts": 17,
+    "artifacts": 20,
     "goldens": 23,
     "artifact_goldens": 4,
-    "mutants": 77
+    "mutants": 89
   },
   "guarded_run": {
-    "cases_passed": 192,
+    "cases_passed": 200,
     "cases_failed": 0,
     "goldens_equal_to_the_encoder": 23,
     "artifact_goldens_equal_to_the_encoder": 4,
-    "mutants_caught": 77,
+    "mutants_caught": 89,
     "status": "PASS"
   },
   "goldens": {
     "PLAN_LATE_ONE": {
-      "bytes": 603,
-      "sha256": "23beb3ce9dd66c9f50c57395206830e616c28dbf06602abdbc1dbc8a648d21e8"
+      "bytes": 539,
+      "sha256": "d30fa483d138983351bb151cf071865e8e8bbd34ebe62c9d914ab7c5223804e1"
     },
     "PLAN_EARLY_TWO": {
-      "bytes": 603,
-      "sha256": "450dac1637ba0017fdc05ba372145e14796a4f2a84aae04fe360fe5f34070e21"
+      "bytes": 539,
+      "sha256": "0e3390040804cf95ce8708fc61749202077cacc33d78ba6a98ad88acbde7e934"
     },
     "PLAN_FACTORY": {
-      "bytes": 603,
-      "sha256": "304b7055a474d7392cf673c001f5a7120e3357631bda3d995710644e2297b465"
+      "bytes": 539,
+      "sha256": "58693ed7bccb962d16d106ce9cd2577f8fdcb556d04ed0642cb96ee4b907c339"
     },
     "PLAN_TEMPORARY": {
-      "bytes": 603,
-      "sha256": "21bb74dbd5269b9eacdc6e613f9085867ca59e0dccc7b83ec1534767c9cf8e76"
+      "bytes": 539,
+      "sha256": "d0561059d255f7c287be1d5dcf3d257528004a682056f7276470732048a73179"
     },
     "AUTH_SIGN": {
       "bytes": 170,
@@ -99,8 +99,8 @@
       "sha256": "7b6e0563786f4ee0de90009a1c93ab80c625b08ba887c99bcd29a254f7d4e857"
     },
     "OBS_BUNDLE": {
-      "bytes": 233,
-      "sha256": "d9750442fd9492f2f5c6f1a573560fe2ce1e599e408cedbc819b62a2bdbde4a4"
+      "bytes": 313,
+      "sha256": "e1c772d949efa5177d243daac91836b2e6dec7ec3928cee96339e7b3acaf5ab6"
     },
     "SELECTION_FACTORY": {
       "bytes": 173,
@@ -409,7 +409,7 @@
       "publish / a second publication follows only a read of absence naming the attempt"
     ],
     "bundle-fact-without-attempt": [
-      "golden / obs bundle"
+      "decoder refuses / a bundle fact names its attempt and its plan"
     ],
     "artifact-held-bundles-refused": [
       "store / a second publication completes from the bundles the store already holds"
@@ -422,6 +422,45 @@
     ],
     "artifact-input-equal-output-refused": [
       "records / the same bytes keep one bundle ID, and the output may equal its input"
+    ],
+    "mismatch-waits-silently": [
+      "publish / a read of other bytes holds with the request limit alert"
+    ],
+    "apk-from-another-plan": [
+      "applied / the bundle's bytes are the APK that its publication bound"
+    ],
+    "disagreeing-reads-bind": [
+      "applied / the bundle's bytes are the APK that its publication bound"
+    ],
+    "missing-publication-fact-is-other-bytes": [
+      "applied / the bundle's bytes are the APK that its publication bound"
+    ],
+    "cohort-without-chosen-publication": [
+      "applied / the bundle's bytes are the APK that its publication bound"
+    ],
+    "artifact-certificate-unchecked": [
+      "store / every bundle carries the plan's signer certificate",
+      "store / a restoration plan publishes the restoration that its pair's publication made visible"
+    ],
+    "artifact-signing-plan-any-role": [
+      "store / a restoration plan publishes the restoration that its pair's publication made visible"
+    ],
+    "artifact-restoration-repairs-unbound": [
+      "store / a plan that signs nothing publishes only the restoration its repaired pair published",
+      "store / a restoration plan publishes the restoration that its pair's publication made visible"
+    ],
+    "artifact-restoration-role-unchecked": [
+      "store / a plan that signs nothing publishes only the restoration its repaired pair published"
+    ],
+    "artifact-restoration-not-single": [
+      "store / a plan that signs nothing publishes only the restoration its repaired pair published"
+    ],
+    "missing-read-holds-silently": [
+      "publish / a missing publication read holds with the alert, and a cancellation still abandons",
+      "applied / the bundle's bytes are the APK that its publication bound"
+    ],
+    "missing-read-blocks-abandon": [
+      "publish / a missing publication read holds with the alert, and a cancellation still abandons"
     ]
   }
 }

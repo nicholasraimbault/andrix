@@ -459,15 +459,17 @@ public final class DeploymentRecords {
         public final Target target;
         /** The plan this one repairs or replaces, or NO_ID. */
         public final String repairs;
-        /** The variant's signing input: the SHA-256 over its ZIP entries outside the signing block. */
+        /**
+         * The variant's signing input: the SHA-256 over its ZIP entries outside the signing block.
+         * The signed APK's digest is signed output, which the plan cannot know: the bundle that
+         * the plan's publication binds carries it, and a BUNDLE fact reports it.
+         */
         public final String bundleInput;
-        /** The APK digest the cohort check compares with the active bytes. */
-        public final String bundleApk;
         public final long bundleVersion;
+        /** The signer certificate's digest, known before signing. */
         public final String signer;
         /** The restoration's signing input, as for the variant, or NO_DIGEST. */
         public final String restorationInput;
-        public final String restorationApk;
         public final long restorationVersion;
         /** Signing transactions: 0 when the bundles are already signed, 1 or 2 (decision 8). */
         public final int signing;
@@ -509,11 +511,9 @@ public final class DeploymentRecords {
             target = Objects.requireNonNull(b.target, "target");
             repairs = b.repairs;
             bundleInput = b.bundleInput;
-            bundleApk = b.bundleApk;
             bundleVersion = b.bundleVersion;
             signer = b.signer;
             restorationInput = b.restorationInput;
-            restorationApk = b.restorationApk;
             restorationVersion = b.restorationVersion;
             signing = b.signing;
             fingerprint = b.fingerprint;
@@ -551,10 +551,8 @@ public final class DeploymentRecords {
             checkId(repairs, "repairs", true);
             if (repairs.equals(planId)) throw invalid("a plan cannot repair itself");
             checkDigest(bundleInput, "bundle input", true);
-            checkDigest(bundleApk, "bundle APK", true);
             checkDigest(signer, "signer", true);
             checkDigest(restorationInput, "restoration input", true);
-            checkDigest(restorationApk, "restoration APK", true);
             checkText(fingerprint, 1, "fingerprint");
             checkDigest(factoryApk, "factory APK", false);
             checkDigest(baseApk, "base APK", false);
@@ -568,18 +566,15 @@ public final class DeploymentRecords {
             if (baseUid < 0) throw invalid("negative base UID");
             if (selectionRevision < 0) throw invalid("negative selection revision");
             boolean hasRestoration = !restorationInput.equals(NO_DIGEST);
-            if (hasRestoration == restorationApk.equals(NO_DIGEST)) {
-                throw invalid("restoration and its APK differ in presence");
-            }
             if (target == Target.FACTORY) {
-                if (!bundleInput.equals(NO_DIGEST) || !bundleApk.equals(NO_DIGEST) || bundleVersion != 0
+                if (!bundleInput.equals(NO_DIGEST) || bundleVersion != 0
                         || !signer.equals(NO_DIGEST) || hasRestoration || restorationVersion != 0 || signing != 0) {
                     throw invalid("a factory plan names no bundle");
                 }
                 if (!baseApk.equals(factoryApk)) throw invalid("a factory plan needs the factory copy active");
             } else {
-                if (bundleInput.equals(NO_DIGEST) || bundleApk.equals(NO_DIGEST) || signer.equals(NO_DIGEST)) {
-                    throw invalid("a variant plan names its bundle input, APK and signer");
+                if (bundleInput.equals(NO_DIGEST) || signer.equals(NO_DIGEST)) {
+                    throw invalid("a variant plan names its bundle input and signer");
                 }
                 if (bundleVersion <= factoryVersion || bundleVersion <= baseVersion) {
                     throw invalid("bundle versionCode not above the factory and base copies");
@@ -590,7 +585,7 @@ public final class DeploymentRecords {
                 if (signing < 0 || signing > 2 || (signing == 2 && !hasRestoration)) {
                     throw invalid("signing transactions outside 0..2 or two without a restoration");
                 }
-                if (bundleInput.equals(restorationInput) || bundleApk.equals(restorationApk)) {
+                if (bundleInput.equals(restorationInput)) {
                     throw invalid("restoration equals the bundle");
                 }
                 if (target == Target.TEMPORARY_FACTORY && repairs.equals(NO_ID)) {
@@ -653,9 +648,9 @@ public final class DeploymentRecords {
             String installation = NO_ID, planId = NO_ID, component = "";
             ComponentClass componentClass = ComponentClass.STAGED_SYSTEM_APK;
             Target target = Target.VARIANT;
-            String repairs = NO_ID, bundleInput = NO_DIGEST, bundleApk = NO_DIGEST, signer = NO_DIGEST;
+            String repairs = NO_ID, bundleInput = NO_DIGEST, signer = NO_DIGEST;
             long bundleVersion;
-            String restorationInput = NO_DIGEST, restorationApk = NO_DIGEST;
+            String restorationInput = NO_DIGEST;
             long restorationVersion;
             int signing;
             String fingerprint = "", factoryApk = NO_DIGEST, baseApk = NO_DIGEST, baseContext = "";
@@ -680,8 +675,7 @@ public final class DeploymentRecords {
             Builder(Plan p) {
                 installation = p.installation; planId = p.planId; component = p.component;
                 componentClass = p.componentClass; target = p.target; repairs = p.repairs; bundleInput = p.bundleInput;
-                bundleApk = p.bundleApk; bundleVersion = p.bundleVersion; signer = p.signer;
-                restorationInput = p.restorationInput; restorationApk = p.restorationApk;
+                bundleVersion = p.bundleVersion; signer = p.signer; restorationInput = p.restorationInput;
                 restorationVersion = p.restorationVersion; signing = p.signing; fingerprint = p.fingerprint;
                 factoryApk = p.factoryApk; factoryVersion = p.factoryVersion; baseApk = p.baseApk;
                 baseVersion = p.baseVersion; baseUid = p.baseUid; baseContext = p.baseContext; users = p.users;
@@ -701,12 +695,12 @@ public final class DeploymentRecords {
             public Builder componentClass(ComponentClass v) { componentClass = v; return this; }
             public Builder target(Target v) { target = v; return this; }
             public Builder repairs(String v) { repairs = v; return this; }
-            public Builder bundle(String input, String apk, long version) {
-                bundleInput = input; bundleApk = apk; bundleVersion = version; return this;
+            public Builder bundle(String input, long version) {
+                bundleInput = input; bundleVersion = version; return this;
             }
             public Builder signer(String v) { signer = v; return this; }
-            public Builder restoration(String input, String apk, long version) {
-                restorationInput = input; restorationApk = apk; restorationVersion = version; return this;
+            public Builder restoration(String input, long version) {
+                restorationInput = input; restorationVersion = version; return this;
             }
             public Builder signing(int v) { signing = v; return this; }
             public Builder cohort(String fingerprintValue, String factoryApkValue, long factoryVersionValue) {
@@ -744,10 +738,8 @@ public final class DeploymentRecords {
                 Objects.requireNonNull(component, "component");
                 Objects.requireNonNull(repairs, "repairs");
                 Objects.requireNonNull(bundleInput, "bundle");
-                Objects.requireNonNull(bundleApk, "bundleApk");
                 Objects.requireNonNull(signer, "signer");
                 Objects.requireNonNull(restorationInput, "restoration");
-                Objects.requireNonNull(restorationApk, "restorationApk");
                 Objects.requireNonNull(fingerprint, "fingerprint");
                 Objects.requireNonNull(factoryApk, "factoryApk");
                 Objects.requireNonNull(baseApk, "baseApk");
@@ -1234,6 +1226,18 @@ public final class DeploymentRecords {
         public final int number;
         /** REPLY: the ticket. SIGNER: the request ID. BUNDLE: the PUBLISH attempt read after. Else NO_ID. */
         public final String subject;
+        /** BUNDLE: the plan whose publication record was read. Else NO_ID. */
+        public final String plan;
+        /**
+         * BUNDLE_PUBLISHED: the SHA-256 of base.apk in the bundle that the publication names in the
+         * plan's VARIANT role. Else NO_DIGEST.
+         */
+        public final String bundleApk;
+        /**
+         * BUNDLE_PUBLISHED: the same for the bundle in the plan's RESTORATION role, or NO_DIGEST when
+         * the publication names none. Else NO_DIGEST.
+         */
+        public final String restorationApk;
         /** REPLY: the ledger index answered. Else 0. */
         public final int sequence;
         /** REPLY: the crossing answered. Else null. */
@@ -1248,6 +1252,9 @@ public final class DeploymentRecords {
             wall = b.wall; raw = b.raw; classification = Objects.requireNonNull(b.classification, "classification");
             text = Objects.requireNonNull(b.text, "text"); digest = Objects.requireNonNull(b.digest, "digest");
             version = b.version; number = b.number; subject = Objects.requireNonNull(b.subject, "subject");
+            plan = Objects.requireNonNull(b.plan, "plan");
+            bundleApk = Objects.requireNonNull(b.bundleApk, "bundleApk");
+            restorationApk = Objects.requireNonNull(b.restorationApk, "restorationApk");
             sequence = b.sequence; crossing = b.crossing; reference = Objects.requireNonNull(b.reference, "reference");
             validate();
         }
@@ -1312,6 +1319,20 @@ public final class DeploymentRecords {
                     || kind == ObservationKind.BUNDLE;
             checkId(subject, "subject", !subjectKind);
             if (!subjectKind && !subject.equals(NO_ID)) throw invalid("subject of another kind");
+            // A bundle fact names the plan whose record it read, and the APKs of the bundles that the
+            // publication binds to the plan's two roles, exactly when it read the record complete.
+            boolean bundleKind = kind == ObservationKind.BUNDLE;
+            checkId(plan, "plan", !bundleKind);
+            if (!bundleKind && !plan.equals(NO_ID)) throw invalid("plan of another kind");
+            boolean published = classification == Classification.BUNDLE_PUBLISHED;
+            checkDigest(bundleApk, "bundle APK", !published);
+            checkDigest(restorationApk, "restoration APK", true);
+            if (!published && (!bundleApk.equals(NO_DIGEST) || !restorationApk.equals(NO_DIGEST))) {
+                throw invalid("APK digests outside a published bundle fact");
+            }
+            if (bundleApk.equals(restorationApk) && !bundleApk.equals(NO_DIGEST)) {
+                throw invalid("a publication binds one APK to both roles");
+            }
             if (kind == ObservationKind.REPLY) {
                 Objects.requireNonNull(crossing, "crossing");
                 if (sequence < 0 || sequence >= MAX_LEDGER) throw invalid("reply sequence outside the ledger bound");
@@ -1363,7 +1384,8 @@ public final class DeploymentRecords {
             long instance = -1, elapsed, wall;
             String raw = NO_DIGEST;
             Classification classification;
-            String text = "", digest = NO_DIGEST, subject = NO_ID;
+            String text = "", digest = NO_DIGEST, subject = NO_ID, plan = NO_ID;
+            String bundleApk = NO_DIGEST, restorationApk = NO_DIGEST;
             long version;
             int number, sequence;
             Crossing crossing;
@@ -1387,6 +1409,11 @@ public final class DeploymentRecords {
             public Builder version(long v) { version = v; return this; }
             public Builder number(int v) { number = v; return this; }
             public Builder subject(String v) { subject = v; return this; }
+            public Builder plan(String v) { plan = v; return this; }
+            /** A published bundle fact: the APKs in the plan's VARIANT and RESTORATION roles. */
+            public Builder apks(String bundle, String restoration) {
+                bundleApk = bundle; restorationApk = restoration; return this;
+            }
             public Builder reply(String ticket, int index, Crossing c) {
                 subject = ticket; sequence = index; crossing = c; return this;
             }
@@ -1542,11 +1569,9 @@ public final class DeploymentRecords {
         out.u8(p.target.code);
         out.id(p.repairs);
         out.digest(p.bundleInput);
-        out.digest(p.bundleApk);
         out.i64(p.bundleVersion);
         out.digest(p.signer);
         out.digest(p.restorationInput);
-        out.digest(p.restorationApk);
         out.i64(p.restorationVersion);
         out.u8(p.signing);
         out.text(p.fingerprint);
@@ -1687,7 +1712,10 @@ public final class DeploymentRecords {
                 break;
             case BUNDLE:
                 out.id(o.subject);
+                out.id(o.plan);
                 out.digest(o.digest);
+                out.digest(o.bundleApk);
+                out.digest(o.restorationApk);
                 break;
             default:
                 break; // CHECKPOINT and USER carry no further facts.
@@ -1727,11 +1755,9 @@ public final class DeploymentRecords {
         b.target = code(Target.values(), in.u8(), c -> c.code, "target");
         b.repairs = in.id();
         b.bundleInput = in.digest();
-        b.bundleApk = in.digest();
         b.bundleVersion = in.i64();
         b.signer = in.digest();
         b.restorationInput = in.digest();
-        b.restorationApk = in.digest();
         b.restorationVersion = in.i64();
         b.signing = in.u8();
         b.fingerprint = in.text();
@@ -1883,7 +1909,10 @@ public final class DeploymentRecords {
                 break;
             case BUNDLE:
                 b.subject = in.id();
+                b.plan = in.id();
                 b.digest = in.digest();
+                b.bundleApk = in.digest();
+                b.restorationApk = in.digest();
                 break;
             default:
                 break;

@@ -3,7 +3,9 @@ package dev.andrix.server.deployment;
 
 import dev.andrix.server.deployment.ArtifactRecords.Manifest;
 import dev.andrix.server.deployment.ArtifactRecords.Publication;
+import dev.andrix.server.deployment.ArtifactRecords.Role;
 import dev.andrix.server.deployment.DeploymentRecords.Plan;
+import dev.andrix.server.deployment.DeploymentRecords.Target;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
@@ -47,7 +49,10 @@ import java.util.TreeSet;
  * publication of a plan that has a publication only reads.
  *
  * <p>The plan names the signing inputs of its bundles, and the publication binds the bundles
- * signed from them to the plan. A publication that stopped before its record was written had no
+ * signed from them to the plan. A plan that signs nothing is decision 3's restoration plan: it
+ * publishes the one bundle that the publication of the plan it repairs bound in its RESTORATION
+ * role, so no bundle is ever published alone and no bundle signed as a variant fills a
+ * RESTORATION role. A publication that stopped before its record was written had no
  * effect, which {@link #planPublication} shows by reading the record absent. One more publication
  * then completes from the exact bundles the store already holds, whether still staged or already
  * renamed, never from a second signing: {@link #held} reads such a bundle back.
@@ -199,16 +204,23 @@ public final class ArtifactStore {
 
     /**
      * Publishes the plan's bundles together: the variant, and its restoration when the plan has
-     * one. Each bundle must be signed from the plan's input for its role, at the plan's
-     * versionCode, in the transaction the publication names for it. Every bundle is verified
-     * before anything is renamed. True only when the publication reads back with every bundle
-     * PUBLISHED. When the plan already has a publication, nothing is written: the result is
-     * whether it reads back as exactly this one. A plan that signs nothing names bundles another
-     * publication made visible, and version 1 of this store does not bind those.
+     * one. Each bundle must be signed from the plan's input for its role in this plan, at the plan's
+     * versionCode, by the plan's signer, in the transaction the publication names for it, which is
+     * the bundle's own. A plan that signs names the bundles it signed, each in its signing role. A
+     * plan that signs nothing is only decision 3's restoration plan: it names the plan it repairs,
+     * and publishes one bundle in its VARIANT role, which was signed as RESTORATION and which the
+     * publication of the plan it repairs binds in its RESTORATION role. Every bundle is verified
+     * again before anything is renamed or written. True
+     * only when the publication reads back with every bundle PUBLISHED. When the plan already has a
+     * publication, nothing is written: the result is whether it reads back as exactly this one.
      */
     public boolean publish(Plan plan, Publication publication, List<Staged> staged, Verifier verifier) {
         if (!installation.equals(publication.installation) || !publication.plan.equals(plan.planId)
-                || !publication.component.equals(plan.component) || plan.signing == 0) {
+                || !publication.component.equals(plan.component) || plan.target == Target.FACTORY) {
+            return false;
+        }
+        // Decision 3: a plan that signs nothing names the plan it repairs and publishes one bundle.
+        if (plan.signing == 0 && (plan.repairs.equals(DeploymentRecords.NO_ID) || plan.hasRestoration())) {
             return false;
         }
         // Decision 8: the variant and its restoration are published together or not at all.
@@ -221,7 +233,10 @@ public final class ArtifactStore {
             Staged b = staged.get(i);
             Manifest m = b.manifest;
             long version = i == 0 ? plan.bundleVersion : plan.restorationVersion;
-            if (!b.id.equals(publication.bundles.get(i)) || m.role != Publication.roleAt(i)
+            // Each bundle fills the role it was signed in, except the restoration plan's one bundle,
+            // signed as RESTORATION. No bundle signed as a variant fills a RESTORATION role.
+            boolean role = m.role == (plan.signing == 0 ? Role.RESTORATION : Publication.roleAt(i));
+            if (!b.id.equals(publication.bundles.get(i)) || !role || !m.certificate.equals(plan.signer)
                     || !m.component.equals(plan.component) || !m.inputEntries.equals(inputs.get(i))
                     || m.versionCode != version || !m.transaction.equals(publication.transactions.get(i))) {
                 return false;
@@ -234,9 +249,19 @@ public final class ArtifactStore {
             // Resolved by reading, never by publishing again.
             return current.found == Node.FILE && Arrays.equals(current.bytes, bytes) && visible(publication);
         }
+        if (plan.signing == 0) {
+            // The publication of the plan it repairs reads back PUBLISHED and binds this same bundle
+            // in its RESTORATION role: the pair was published together first.
+            Publication repaired = publication(plan.repairs);
+            if (planPublication(plan.repairs) != Presence.PUBLISHED || repaired == null
+                    || repaired.bundles.size() != 2 || !repaired.bundles.get(1).equals(staged.get(0).id)) {
+                return false;
+            }
+        }
         try {
             for (Staged b : staged) {
-                // The private copy, or the exact bundle an earlier publication renamed and no record names.
+                // The private copy, or the exact bundle already under bundles/<id>: renamed by an earlier
+                // attempt that no record names, or published by another plan's record.
                 if (!exact(root.resolve(STAGING + "-" + b.id), b) && !exact(bundle(b.id), b)) return false;
                 String reason = verifier.verify(b);
                 if (reason != null) return false;
@@ -402,6 +427,29 @@ public final class ArtifactStore {
         } catch (IOException | RuntimeException unavailable) {
             return Presence.UNAVAILABLE;
         }
+    }
+
+    /**
+     * The base.apk digests of the bundles that a plan's PUBLISHED publication binds to its roles:
+     * the VARIANT role first, then the RESTORATION role when it names one. A BUNDLE_PUBLISHED fact
+     * carries them, because a plan cannot know its signed output. Null unless the publication reads
+     * PUBLISHED.
+     */
+    public List<String> apks(String plan) {
+        if (planPublication(plan) != Presence.PUBLISHED) return null;
+        Publication p = publication(plan);
+        if (p == null) return null;
+        List<String> result = new ArrayList<>();
+        for (String id : p.bundles) {
+            Read manifest = readRaw(bundle(id).resolve(MANIFEST_FILE));
+            if (manifest.found != Node.FILE || !DeploymentRecords.sha256Hex(manifest.bytes).equals(id)) return null;
+            try {
+                result.add(ArtifactRecords.decodeManifest(manifest.bytes).apk);
+            } catch (IllegalArgumentException damaged) {
+                return null;
+            }
+        }
+        return result;
     }
 
     /** The members of a PUBLISHED bundle, base.apk then base.apk.idsig, or null. */

@@ -59,7 +59,8 @@ public final class Coordinator {
 
         /**
          * Publishes the plan's bundles. Returns the store's read of the plan's publication after the
-         * call, naming the entry's attempt, or null when the reply is lost.
+         * call, naming the entry's attempt and the plan, with the APK digests of the bundles it binds
+         * when it read the publication complete, or null when the reply is lost.
          */
         Observation publish(Ticket ticket, Plan plan, Entry entry);
 
@@ -222,7 +223,9 @@ public final class Coordinator {
 
     private static boolean identical(Observation a, Observation b) {
         return a.classification == b.classification && a.text.equals(b.text) && a.digest.equals(b.digest)
-                && a.version == b.version && a.number == b.number && a.reference.equals(b.reference);
+                && a.version == b.version && a.number == b.number && a.reference.equals(b.reference)
+                && a.plan.equals(b.plan) && a.bundleApk.equals(b.bundleApk)
+                && a.restorationApk.equals(b.restorationApk);
     }
 
     private Observation cross(Ticket ticket, Plan plan, Entry entry) {

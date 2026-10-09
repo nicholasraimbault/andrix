@@ -79,7 +79,7 @@ public final class TransactionTest {
     // revision, and nothing else changes the choice.
     static void consistent(World w, Plan plan, Ticket t, List<String> problems) {
         check(problems, t.state.terminal(), "not closed: " + t);
-        boolean bundle = w.android.active().digest.equals(plan.bundleApk);
+        boolean bundle = w.android.active().digest.equals(Fixtures.signed(plan.bundleInput));
         boolean sameBase = w.android.fingerprint.equals(Fixtures.FINGERPRINT);
         if (sameBase) {
             check(problems, bundle == (t.state == State.CLOSED_APPLIED || t.state == State.SUPERSEDED),
@@ -610,8 +610,8 @@ public final class TransactionTest {
             Apk factorySource = new Apk(Fixtures.digest(0xa3), 42, World.SIGNER, true);
             w.android.apks.put(factorySource.digest, factorySource);
             Plan temporary = plan(w, Fixtures.plan(4).target(DeploymentRecords.Target.TEMPORARY_FACTORY)
-                    .repairs(variant.planId).bundle(Fixtures.digest(0xb3), factorySource.digest, 42)
-                    .restoration(DeploymentRecords.NO_DIGEST, DeploymentRecords.NO_DIGEST, 0)
+                    .repairs(variant.planId).bundle(Fixtures.digest(0xb3), 42)
+                    .restoration(DeploymentRecords.NO_DIGEST, 0)
                     .cohort(Fixtures.NEW_FINGERPRINT, newFactory.digest, 38)
                     .base(Fixtures.BUNDLE_APK, 40, Fixtures.UID, Fixtures.CONTEXT).selectionRevision(1));
             w.betweenWrites = 0;
@@ -685,8 +685,8 @@ public final class TransactionTest {
             w.run(id, 10, false, State.HEALTH_WINDOW);
             check(problems, w.open(plan, 9) == null, "a second open ticket for the component");
             Plan repair = w.add(Fixtures.plan(5).repairs(plan.planId).bundle(Fixtures.RESTORATION_INPUT,
-                    Fixtures.RESTORATION_APK, Fixtures.RESTORATION_VERSION).restoration(DeploymentRecords.NO_DIGEST,
-                    DeploymentRecords.NO_DIGEST, 0).signing(0).base(Fixtures.BUNDLE_APK, Fixtures.BUNDLE_VERSION,
+                    Fixtures.RESTORATION_VERSION).restoration(DeploymentRecords.NO_DIGEST, 0).signing(0)
+                    .base(Fixtures.BUNDLE_APK, Fixtures.BUNDLE_VERSION,
                     Fixtures.UID, Fixtures.CONTEXT).selectionRevision(1).build());
             w.grant(Fixtures.lab(30, repair, Effect.STAGE, 0, w.android.wall()));
             w.grant(Fixtures.lab(31, repair, Effect.ACTIVATE, 0, w.android.wall()));
@@ -709,8 +709,8 @@ public final class TransactionTest {
                     .restorationPlan(Fixtures.id(0x105)));
             // The approval lists the restoration reboot and grants its STAGE and ACTIVATE up front.
             Plan restoration = w.add(Fixtures.plan(5).repairs(plan.planId).bundle(Fixtures.RESTORATION_INPUT,
-                    Fixtures.RESTORATION_APK, Fixtures.RESTORATION_VERSION).restoration(DeploymentRecords.NO_DIGEST,
-                    DeploymentRecords.NO_DIGEST, 0).signing(0).base(Fixtures.BUNDLE_APK, Fixtures.BUNDLE_VERSION,
+                    Fixtures.RESTORATION_VERSION).restoration(DeploymentRecords.NO_DIGEST, 0).signing(0)
+                    .base(Fixtures.BUNDLE_APK, Fixtures.BUNDLE_VERSION,
                     Fixtures.UID, Fixtures.CONTEXT).selectionRevision(1).build());
             w.grant(Fixtures.lab(40, restoration, Effect.STAGE, 0, w.android.wall()));
             w.grant(Fixtures.lab(41, restoration, Effect.ACTIVATE, 0, w.android.wall()));
@@ -737,8 +737,8 @@ public final class TransactionTest {
             Plan plan = plan(w, Fixtures.plan(1).healthResponse(HealthResponse.RESTORE_AUTOMATICALLY)
                     .restorationPlan(Fixtures.id(0x105)));
             Plan restoration = w.add(Fixtures.plan(5).repairs(plan.planId).bundle(Fixtures.RESTORATION_INPUT,
-                    Fixtures.RESTORATION_APK, Fixtures.RESTORATION_VERSION).restoration(DeploymentRecords.NO_DIGEST,
-                    DeploymentRecords.NO_DIGEST, 0).signing(0).base(Fixtures.BUNDLE_APK, Fixtures.BUNDLE_VERSION,
+                    Fixtures.RESTORATION_VERSION).restoration(DeploymentRecords.NO_DIGEST, 0).signing(0)
+                    .base(Fixtures.BUNDLE_APK, Fixtures.BUNDLE_VERSION,
                     Fixtures.UID, Fixtures.CONTEXT).selectionRevision(1).build());
             w.grant(Fixtures.lab(40, restoration, Effect.STAGE, 0, w.android.wall()));
             w.grant(Fixtures.lab(41, restoration, Effect.ACTIVATE, 0, w.android.wall()));
@@ -775,8 +775,8 @@ public final class TransactionTest {
             Apk factorySource = new Apk(Fixtures.digest(0xa3), 42, World.SIGNER, true);
             w.android.apks.put(factorySource.digest, factorySource);
             Plan temporary = plan(w, Fixtures.plan(4).target(DeploymentRecords.Target.TEMPORARY_FACTORY)
-                    .repairs(variant.planId).bundle(Fixtures.digest(0xb3), factorySource.digest, 42)
-                    .restoration(DeploymentRecords.NO_DIGEST, DeploymentRecords.NO_DIGEST, 0)
+                    .repairs(variant.planId).bundle(Fixtures.digest(0xb3), 42)
+                    .restoration(DeploymentRecords.NO_DIGEST, 0)
                     .cohort(Fixtures.NEW_FINGERPRINT, newFactory.digest, 38)
                     .base(Fixtures.BUNDLE_APK, 40, Fixtures.UID, Fixtures.CONTEXT).selectionRevision(1));
             String tid = w.open(temporary, 2);
@@ -788,8 +788,8 @@ public final class TransactionTest {
                     && standing.temporary.equals(temporary.planId), "temporary " + t + " " + standing);
             Apk rebuilt = new Apk(Fixtures.digest(0xa4), 43, World.SIGNER, true);
             w.android.apks.put(rebuilt.digest, rebuilt);
-            Plan rebuild = plan(w, Fixtures.plan(6).repairs(variant.planId).bundle(Fixtures.digest(0xb4), rebuilt.digest, 43)
-                    .restoration(DeploymentRecords.NO_DIGEST, DeploymentRecords.NO_DIGEST, 0)
+            Plan rebuild = plan(w, Fixtures.plan(6).repairs(variant.planId).bundle(Fixtures.digest(0xb4), 43)
+                    .restoration(DeploymentRecords.NO_DIGEST, 0)
                     .cohort(Fixtures.NEW_FINGERPRINT, newFactory.digest, 38)
                     .base(factorySource.digest, 42, Fixtures.UID, Fixtures.CONTEXT).selectionRevision(1));
             String rid = w.open(rebuild, 3);

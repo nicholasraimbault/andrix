@@ -78,15 +78,24 @@ public final class ArtifactStoreTest {
 
     static String restorationId() { return ArtifactRecords.bundleId(restoration()); }
 
-    // The plan names the signing inputs by their entry digests, never the bundles signed from them.
+    // The plan names the signing inputs by their entry digests and the signer certificate, never
+    // the bundles signed from them or their APK digests.
     static Plan plan(boolean withRestoration) {
-        Plan.Builder b = Fixtures.plan(1).bundle(variant().inputEntries, variant().apk, Fixtures.BUNDLE_VERSION);
+        Plan.Builder b = Fixtures.plan(1).bundle(variant().inputEntries, Fixtures.BUNDLE_VERSION).signer(CERT);
         if (withRestoration) {
-            b.restoration(restoration().inputEntries, restoration().apk, Fixtures.RESTORATION_VERSION);
+            b.restoration(restoration().inputEntries, Fixtures.RESTORATION_VERSION);
         } else {
-            b.restoration(DeploymentRecords.NO_DIGEST, DeploymentRecords.NO_DIGEST, 0);
+            b.restoration(DeploymentRecords.NO_DIGEST, 0);
         }
         return b.build();
+    }
+
+    // Decision 3's restoration plan: it installs the variant plan's restoration bundle and signs nothing.
+    static Plan restorationPlan(Plan variant) {
+        return Fixtures.plan(5).repairs(variant.planId).bundle(variant.restorationInput, variant.restorationVersion)
+                .restoration(DeploymentRecords.NO_DIGEST, 0).signing(0).signer(CERT)
+                .base(Fixtures.digest(0xa1), Fixtures.BUNDLE_VERSION, Fixtures.UID, Fixtures.CONTEXT)
+                .selectionRevision(1).build();
     }
 
     static Publication publication(Plan plan) {
@@ -241,6 +250,15 @@ public final class ArtifactStoreTest {
     private static boolean refusedManifest(byte[] record) {
         try {
             ArtifactRecords.decodeManifest(record);
+            return false;
+        } catch (IllegalArgumentException expected) {
+            return true;
+        }
+    }
+
+    private static boolean refusedPlan(Runnable build) {
+        try {
+            build.run();
             return false;
         } catch (IllegalArgumentException expected) {
             return true;
@@ -484,10 +502,9 @@ public final class ArtifactStoreTest {
             Plan plan = plan(true);
             ArtifactStore s = store(fresh(base), step -> { });
             List<Staged> staged = stageBoth(s);
-            Plan otherInput = plan.toBuilder().restoration(Fixtures.digest(0x49), restoration().apk,
-                    Fixtures.RESTORATION_VERSION).build();
+            Plan otherInput = plan.toBuilder().restoration(Fixtures.digest(0x49), Fixtures.RESTORATION_VERSION).build();
             check(problems, !s.publish(otherInput, publication(otherInput), staged, PASS), "a bundle of another input");
-            Plan otherVersion = plan.toBuilder().restoration(restoration().inputEntries, restoration().apk, 42).build();
+            Plan otherVersion = plan.toBuilder().restoration(restoration().inputEntries, 42).build();
             check(problems, !s.publish(otherVersion, publication(otherVersion), staged, PASS), "another versionCode");
             Plan signsNothing = plan.toBuilder().signing(0).build();
             check(problems, !s.publish(signsNothing, publication(signsNothing), staged, PASS), "a plan that signs nothing");
@@ -555,6 +572,148 @@ public final class ArtifactStoreTest {
             check(problems, s.publish(plan, two, staged, PASS) && s.presence(variantId()) == Presence.PUBLISHED
                     && s.presence(rid) == Presence.PUBLISHED && s.publication(plan.planId).equals(two),
                     "the pair of two transactions");
+        });
+        cases.run("store / a restoration plan publishes the restoration that its pair's publication made visible",
+                problems -> {
+            Plan variant = plan(true);
+            Plan restoring = restorationPlan(variant);
+            Publication own = new Publication(INSTALLATION, restoring.planId, restoring.component,
+                    List.of(restorationId()), List.of(REQUEST), TIME + 10);
+            Path root = fresh(base);
+            ArtifactStore s = store(root, step -> { });
+            List<Staged> staged = stageBoth(s);
+            // Before the pair is published, the restoration is no published bundle: never alone.
+            check(problems, !s.publish(restoring, own, List.of(s.held(restorationId())), PASS)
+                    && s.planPublication(restoring.planId) == Presence.ABSENT
+                    && s.presence(restorationId()) == Presence.ABSENT, "a restoration published before its pair");
+            check(problems, s.publish(variant, publication(variant), staged, PASS)
+                    && s.apks(variant.planId).equals(List.of(variant().apk, restoration().apk)), "the pair");
+            Staged held = s.held(restorationId());
+            check(problems, held != null && held.manifest.role == Role.RESTORATION, "held restoration");
+            // Matched by input, versionCode, signer and the bundle's own transaction.
+            Plan otherInput = restoring.toBuilder().bundle(Fixtures.digest(0x49), Fixtures.RESTORATION_VERSION).build();
+            check(problems, !s.publish(otherInput, own, List.of(held), PASS), "another input");
+            Plan otherVersion = restoring.toBuilder().bundle(restoration().inputEntries, 42).build();
+            check(problems, !s.publish(otherVersion, own, List.of(held), PASS), "another versionCode");
+            Plan otherSigner = restoring.toBuilder().signer(Fixtures.digest(0xc9)).build();
+            check(problems, !s.publish(otherSigner, own, List.of(held), PASS), "another signer");
+            Publication otherTransaction = new Publication(INSTALLATION, restoring.planId, restoring.component,
+                    List.of(restorationId()), List.of(Fixtures.id(0x5f)), TIME + 10);
+            check(problems, !s.publish(restoring, otherTransaction, List.of(held), PASS), "another transaction");
+            Plan signing = restoring.toBuilder().signing(1).build();
+            check(problems, !s.publish(signing, own, List.of(held), PASS),
+                    "a signing plan publishing a bundle signed in another role");
+            // Verified again before the record is written.
+            List<String> verified = new ArrayList<>();
+            check(problems, !s.publish(restoring, own, List.of(held), b -> {
+                verified.add(b.id);
+                return "refused";
+            }) && s.planPublication(restoring.planId) == Presence.ABSENT, "published although its check failed");
+            check(problems, s.publish(restoring, own, List.of(held), b -> {
+                verified.add(b.id);
+                return null;
+            }) && s.planPublication(restoring.planId) == Presence.PUBLISHED
+                    && s.planPublication(variant.planId) == Presence.PUBLISHED, "the restoration plan's publication");
+            check(problems, verified.equals(List.of(restorationId(), restorationId())), "verified again " + verified);
+            // The manifest keeps its signing role, and the publication gives the role in this plan.
+            Manifest m = ArtifactRecords.decodeManifest(Files.readAllBytes(root.resolve("bundles")
+                    .resolve(restorationId()).resolve("manifest.rec")));
+            check(problems, m.role == Role.RESTORATION && s.publication(restoring.planId).equals(own)
+                    && s.apks(restoring.planId).equals(List.of(restoration().apk)), "roles " + m.role);
+            check(problems, s.publish(restoring, own, List.of(held), PASS), "a lost acknowledgement read back");
+        });
+        cases.run("store / a plan that signs nothing publishes only the restoration its repaired pair published",
+                problems -> {
+            Plan variant = plan(true);
+            Plan restoring = restorationPlan(variant);
+            Path root = fresh(base);
+            ArtifactStore s = store(root, step -> { });
+            check(problems, s.publish(variant, publication(variant), stageBoth(s), PASS), "the pair");
+            // Another pair's variant, in place of the restoration: refused by its signing role.
+            Plan takesVariant = restoring.toBuilder().bundle(variant().inputEntries, Fixtures.BUNDLE_VERSION)
+                    .base(Fixtures.FACTORY_APK, Fixtures.FACTORY_VERSION, Fixtures.UID, Fixtures.CONTEXT).build();
+            Publication variantOwn = new Publication(INSTALLATION, takesVariant.planId, takesVariant.component,
+                    List.of(variantId()), List.of(REQUEST), TIME);
+            check(problems, !s.publish(takesVariant, variantOwn, List.of(s.held(variantId())), PASS)
+                    && s.planPublication(takesVariant.planId) == Presence.ABSENT, "another pair's variant");
+            // A record from another writer that binds a variant in its RESTORATION role: still a variant.
+            String forged = Fixtures.id(0x1f0);
+            Files.write(root.resolve("publications").resolve(forged + ".rec"), ArtifactRecords.encodePublication(
+                    new Publication(INSTALLATION, forged, Fixtures.COMPONENT, List.of(restorationId(), variantId()),
+                            List.of(REQUEST, REQUEST), TIME)));
+            Plan forgedRestoration = takesVariant.toBuilder().repairs(forged).build();
+            Publication forgedOwn = new Publication(INSTALLATION, forgedRestoration.planId,
+                    forgedRestoration.component, List.of(variantId()), List.of(REQUEST), TIME);
+            check(problems, s.planPublication(forged) == Presence.PUBLISHED
+                    && !s.publish(forgedRestoration, forgedOwn, List.of(s.held(variantId())), PASS),
+                    "a variant bound in a RESTORATION role");
+            // A variant published alone, by a plan without a restoration: still a variant.
+            Path alone = fresh(base);
+            ArtifactStore t = store(alone, step -> { });
+            Plan single = plan(false);
+            check(problems, t.publish(single, publication(single), List.of(t.stage(variant(), apk(1), idsig(1))), PASS),
+                    "a variant alone");
+            Plan restoresSingle = takesVariant.toBuilder().repairs(single.planId).build();
+            Publication singleOwn = new Publication(INSTALLATION, restoresSingle.planId, restoresSingle.component,
+                    List.of(variantId()), List.of(REQUEST), TIME);
+            check(problems, !t.publish(restoresSingle, singleOwn, List.of(t.held(variantId())), PASS),
+                    "a variant published alone");
+            // The restoration of a plan other than the one it repairs.
+            Plan elsewhere = restoring.toBuilder().repairs(Fixtures.id(0x199)).build();
+            Publication elsewhereOwn = new Publication(INSTALLATION, elsewhere.planId, elsewhere.component,
+                    List.of(restorationId()), List.of(REQUEST), TIME);
+            check(problems, !s.publish(elsewhere, elsewhereOwn, List.of(s.held(restorationId())), PASS),
+                    "a restoration of another plan");
+            // More than one bundle: a second restoration of another pair in its RESTORATION role.
+            Manifest other = new Manifest(INSTALLATION, Fixtures.COMPONENT, Role.RESTORATION, REQUEST,
+                    Fixtures.digest(0x33), Fixtures.digest(0x43), 42, DeploymentRecords.sha256Hex(apk(3)),
+                    apk(3).length, DeploymentRecords.sha256Hex(idsig(3)), idsig(3).length, CERT, KEY,
+                    ArtifactRecords.SCHEMES, 37, 37, V4Check.VERIFIED);
+            Manifest otherVariant = new Manifest(INSTALLATION, Fixtures.COMPONENT, Role.VARIANT, REQUEST,
+                    Fixtures.digest(0x34), Fixtures.digest(0x44), 40, DeploymentRecords.sha256Hex(apk(4)),
+                    apk(4).length, DeploymentRecords.sha256Hex(idsig(4)), idsig(4).length, CERT, KEY,
+                    ArtifactRecords.SCHEMES, 37, 37, V4Check.VERIFIED);
+            Plan second = Fixtures.plan(2).bundle(otherVariant.inputEntries, 40).restoration(other.inputEntries, 42)
+                    .signer(CERT).build();
+            String otherId = ArtifactRecords.bundleId(other);
+            Publication secondPair = new Publication(INSTALLATION, second.planId, second.component,
+                    List.of(ArtifactRecords.bundleId(otherVariant), otherId), List.of(REQUEST, REQUEST), TIME);
+            check(problems, s.publish(second, secondPair, List.of(s.stage(otherVariant, apk(4), idsig(4)),
+                    s.stage(other, apk(3), idsig(3))), PASS), "the second pair");
+            Plan two = restoring.toBuilder().restoration(other.inputEntries, 42).build();
+            Publication twoOwn = new Publication(INSTALLATION, two.planId, two.component,
+                    List.of(restorationId(), otherId), List.of(REQUEST, REQUEST), TIME);
+            check(problems, !s.publish(two, twoOwn, List.of(s.held(restorationId()), s.held(otherId)), PASS),
+                    "two bundles for a plan that signs nothing");
+            check(problems, refusedPlan(() -> restoring.toBuilder().repairs(DeploymentRecords.NO_ID).build())
+                    || !s.publish(restoring.toBuilder().repairs(DeploymentRecords.NO_ID).build(),
+                    publication(restoring), List.of(s.held(restorationId())), PASS), "no plan it repairs");
+            // Decision 3's case.
+            Publication own = new Publication(INSTALLATION, restoring.planId, restoring.component,
+                    List.of(restorationId()), List.of(REQUEST), TIME);
+            check(problems, s.publish(restoring, own, List.of(s.held(restorationId())), PASS)
+                    && s.planPublication(restoring.planId) == Presence.PUBLISHED, "decision 3's restoration refused");
+        });
+        cases.run("store / every bundle carries the plan's signer certificate", problems -> {
+            Plan plan = plan(true);
+            ArtifactStore s = store(fresh(base), step -> { });
+            List<Staged> staged = stageBoth(s);
+            Plan otherSigner = plan.toBuilder().signer(Fixtures.SIGNER).build();
+            check(problems, !s.publish(otherSigner, publication(otherSigner), staged, PASS)
+                    && both(s, plan).equals(ABSENT) && s.planPublication(plan.planId) == Presence.ABSENT,
+                    "bundles of another certificate published");
+            Manifest other = new Manifest(INSTALLATION, Fixtures.COMPONENT, Role.RESTORATION, REQUEST,
+                    Fixtures.digest(0x32), Fixtures.digest(0x42), Fixtures.RESTORATION_VERSION,
+                    DeploymentRecords.sha256Hex(apk(2)), apk(2).length, DeploymentRecords.sha256Hex(idsig(2)),
+                    idsig(2).length, Fixtures.digest(0xc9), KEY, ArtifactRecords.SCHEMES, 37, 37, V4Check.VERIFIED);
+            String otherId = ArtifactRecords.bundleId(other);
+            List<Staged> mixed = List.of(staged.get(0), s.stage(other, apk(2), idsig(2)));
+            Publication pair = new Publication(INSTALLATION, plan.planId, plan.component, List.of(variantId(), otherId),
+                    List.of(REQUEST, REQUEST), TIME);
+            check(problems, !s.publish(plan, pair, mixed, PASS) && s.presence(variantId()) == Presence.ABSENT
+                    && s.presence(otherId) == Presence.ABSENT, "a restoration of another certificate published");
+            check(problems, s.publish(plan, publication(plan), staged, PASS) && both(s, plan).equals(PUBLISHED),
+                    "the plan's own signer refused");
         });
     }
 }

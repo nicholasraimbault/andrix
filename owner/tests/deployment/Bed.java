@@ -60,6 +60,21 @@ final class Bed {
     Bed(Plan plan) {
         this.plan = plan;
         this.ticket = Fixtures.ticket(1, plan).build();
+        // The plan's publication as an earlier read found it. A plan cannot know its signed APKs,
+        // so every rule that compares the active bytes with the bundle reads them from this fact.
+        // It names an attempt that no ticket here holds, so it shows no publication of its own.
+        if (plan.target != DeploymentRecords.Target.FACTORY) published(plan);
+    }
+
+    /** Adds a read of another plan's publication, binding the fixture APKs signed from its inputs. */
+    Bed published(Plan other) {
+        return add(Fixtures.published(++n, other, Fixtures.READ_ATTEMPT));
+    }
+
+    /** Drops every read of a publication, as for a store whose facts cannot be read. */
+    Bed unpublished() {
+        obs.removeIf(o -> o.kind == DeploymentRecords.ObservationKind.BUNDLE);
+        return this;
     }
 
     static Bed late() { return new Bed(Fixtures.plan(1).build()); }
@@ -137,7 +152,7 @@ final class Bed {
         user(0, 0, Classification.RUNNING_UNLOCKED);
         add(f(checkpoint));
         add(f(Classification.FACTORY_PRESENT));
-        long version = activeApk.equals(plan.bundleApk) ? plan.bundleVersion
+        long version = activeApk.equals(Fixtures.signed(plan.bundleInput)) ? plan.bundleVersion
                 : activeApk.equals(Fixtures.FACTORY_APK) ? Fixtures.FACTORY_VERSION : 45;
         return add(f(activeApk.equals(Fixtures.FACTORY_APK) ? Classification.FACTORY_COPY : Classification.DATA_COPY)
                 .digest(activeApk).version(version));
@@ -166,9 +181,15 @@ final class Bed {
         return add(f(c).user(user, serial).number(criteria));
     }
 
-    /** A host fact: a signer fact names its request, a bundle fact the PUBLISH attempt it read after. */
+    /**
+     * A host fact: a signer fact names its request, a bundle fact the PUBLISH attempt it read after
+     * and this bed's plan.
+     */
     Bed host(Classification c, String subject) {
-        return add(Fixtures.fact(++n, NO_ID, c, 0).subject(subject));
+        if (c == Classification.BUNDLE_PUBLISHED) return add(Fixtures.published(++n, plan, subject));
+        Observation.Builder b = Fixtures.fact(++n, NO_ID, c, 0).subject(subject);
+        if (c.kind == DeploymentRecords.ObservationKind.BUNDLE) b.plan(plan.planId);
+        return add(b);
     }
 
     Context context() {

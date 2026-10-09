@@ -557,6 +557,7 @@ public final class TicketMachineTest {
             for (int i = 0; i < 3; i++) {
                 Bed bed = readyAgain(new Bed(restoration).grants());
                 bed.repaired = original;
+                bed.published(original);
                 bed.user(10, 12, Classification.RUNNING_UNLOCKED);
                 if (i != 1) bed.grant(Effect.EMERGENCY_NOTICE, id(0x2e0), TIME);
                 Step given = bed.step();
@@ -586,6 +587,7 @@ public final class TicketMachineTest {
             for (Object[] run : runs) {
                 Bed bed = readyAgain(new Bed((Plan) run[0]).grants());
                 bed.repaired = (Plan) run[1];
+                if (bed.repaired != null) bed.published(bed.repaired);
                 bed.user(10, 12, Classification.RUNNING_UNLOCKED);
                 bed.grant(Effect.EMERGENCY_NOTICE, id(0x2e0), TIME);
                 Step given = bed.step();
@@ -634,6 +636,71 @@ public final class TicketMachineTest {
             Step a = bed.step();
             check(problems, a.ticket.state == State.APPLIED && a.selection != null, "applied " + a);
         });
+        cases.run("applied / the bundle's bytes are the APK that its publication bound", problems -> {
+            // Without a read of the plan's publication, the evidence is missing: never other bytes.
+            Bed bed = Bed.late().grants().at(State.APPLIED_PROVISIONAL, TO_REBOOT).unpublished().committed(BUNDLE_APK);
+            bed.listing(1).session(Classification.SESSION_APPLIED, SHELL_REF);
+            Ticket before = bed.ticket;
+            Step none = bed.step();
+            check(problems, none.issue == null && none.ticket.state == before.state && none.ticket.cause == Cause.NONE
+                    && none.ticket.flag(FLAG_REQUEST_LIMIT), "judged without its publication " + none);
+            bed.published(Fixtures.plan(2).build());
+            Step another = bed.step();
+            check(problems, another.ticket.state == before.state && another.ticket.cause == Cause.NONE,
+                    "another plan's publication read as its own");
+            bed.published(bed.plan);
+            Step applied = bed.step();
+            check(problems, applied.ticket.state == State.APPLIED && applied.ticket.cause == Cause.NONE,
+                    "applied with its publication " + applied);
+            // Bytes that the publication did not bind are other bytes.
+            Bed other = Bed.late().grants().at(State.APPLIED_PROVISIONAL, TO_REBOOT).unpublished();
+            other.add(Fixtures.published(0x77, other.plan, Fixtures.READ_ATTEMPT).apks(Fixtures.digest(0xa7),
+                    Fixtures.RESTORATION_APK));
+            other.committed(BUNDLE_APK).listing(1).session(Classification.SESSION_APPLIED, SHELL_REF);
+            Step o = other.step();
+            check(problems, o.ticket.state == State.APPLIED_PROVISIONAL && o.ticket.cause == Cause.OTHER_BYTES,
+                    "unbound bytes applied " + o);
+            // Two reads that disagree bind nothing.
+            Bed split = Bed.late().grants().at(State.APPLIED_PROVISIONAL, TO_REBOOT);
+            split.add(Fixtures.published(0x78, split.plan, Fixtures.PUBLISH_ATTEMPT).apks(Fixtures.digest(0xa7),
+                    Fixtures.RESTORATION_APK));
+            split.committed(BUNDLE_APK).listing(1).session(Classification.SESSION_APPLIED, SHELL_REF);
+            Step splitStep = split.step();
+            check(problems, splitStep.ticket.state == State.APPLIED_PROVISIONAL && splitStep.ticket.cause == Cause.NONE
+                    && splitStep.ticket.flag(FLAG_REQUEST_LIMIT), "disagreeing reads applied " + splitStep);
+            // The cohort check reads the chosen bytes the same way.
+            Plan plan = Fixtures.plan(1).build();
+            Selection chosen = new Selection(Fixtures.INSTALLATION, Fixtures.COMPONENT, 1, ChoiceKind.PLAN,
+                    plan.planId, UpdateResponsibility.REBUILD_WINDOW, Fixtures.WINDOW, Realization.DIVERGED, B1, NO_ID,
+                    NO_ID, TIME);
+            Bed facts = new Bed(plan).unpublished().moveTo(B2, 1, 1000).committed(BUNDLE_APK);
+            check(problems, Reconciler.cohortCheck(chosen, plan, null, View.of(B2, Fixtures.COMPONENT, facts.obs), null,
+                    null) == chosen, "a realization judged without the chosen plan's publication");
+            facts.published(plan);
+            check(problems, Reconciler.cohortCheck(chosen, plan, null, View.of(B2, Fixtures.COMPONENT, facts.obs), null,
+                    null).realization == Realization.CURRENT, "the chosen bytes not CURRENT");
+        });
+        cases.run("publish / a missing publication read holds with the alert, and a cancellation still abandons",
+                problems -> {
+            Bed bed = Bed.late().grants().at(State.READY, TO_COMMIT).unpublished();
+            bed.moveTo(B1, 1, 20_000).committed(FACTORY_APK).listing(1).session(Classification.SESSION_READY, SHELL_REF);
+            Step held = bed.step();
+            check(problems, held.issue == null && held.ticket.state == State.READY
+                    && held.ticket.flag(FLAG_REQUEST_LIMIT), "a missing read waited silently or moved on " + held);
+            bed.ticket = bed.ticket.toBuilder().cause(Cause.CANCELLED).build();
+            Step cancelled = bed.step();
+            check(problems, cancelled.issue != null && cancelled.issue.crossing == Crossing.ABANDON
+                    && cancelled.ticket.state == State.ABANDON_INTENT, "a cancellation could not abandon " + cancelled);
+            // Two reads that disagree hold the same way.
+            Bed split = Bed.late().grants().at(State.READY, TO_COMMIT);
+            split.add(Fixtures.published(0x7a, split.plan, Fixtures.PUBLISH_ATTEMPT).apks(Fixtures.digest(0xa7),
+                    Fixtures.RESTORATION_APK));
+            split.moveTo(B1, 1, 20_000).committed(FACTORY_APK).listing(1).session(Classification.SESSION_READY,
+                    SHELL_REF);
+            Step splitHeld = split.step();
+            check(problems, splitHeld.issue == null && splitHeld.ticket.flag(FLAG_REQUEST_LIMIT)
+                    && splitHeld.ticket.cause == Cause.NONE, "disagreeing reads " + splitHeld);
+        });
         cases.run("applied / a changed UID or context is not applied", problems -> {
             Bed bed = Bed.late().grants().at(State.APPLIED_PROVISIONAL, TO_REBOOT);
             bed.add(bed.f(Classification.BOOT_COMPLETED));
@@ -653,8 +720,8 @@ public final class TicketMachineTest {
 
     // A plan that installs another plan's restoration bundle in its place, as its restoration does.
     private static Plan.Builder restorationOf(Plan original, long n) {
-        return Fixtures.plan(n).repairs(original.planId).bundle(original.restorationInput, original.restorationApk,
-                original.restorationVersion).restoration(DeploymentRecords.NO_DIGEST, DeploymentRecords.NO_DIGEST, 0)
+        return Fixtures.plan(n).repairs(original.planId).bundle(original.restorationInput, original.restorationVersion)
+                .restoration(DeploymentRecords.NO_DIGEST, 0)
                 .signing(0);
     }
 
@@ -974,8 +1041,8 @@ public final class TicketMachineTest {
         cases.run("restoration / automatic restoration runs only when the approval listed it", problems -> {
             Plan listed = Fixtures.plan(1).healthResponse(HealthResponse.RESTORE_AUTOMATICALLY)
                     .restorationPlan(id(0x105)).build();
-            Plan restoration = Fixtures.plan(5).repairs(listed.planId).bundle(Fixtures.RESTORATION_INPUT,
-                    Fixtures.RESTORATION_APK, 41).restoration(DeploymentRecords.NO_DIGEST, DeploymentRecords.NO_DIGEST, 0)
+            Plan restoration = Fixtures.plan(5).repairs(listed.planId).bundle(Fixtures.RESTORATION_INPUT, 41)
+                    .restoration(DeploymentRecords.NO_DIGEST, 0)
                     .signing(0).base(BUNDLE_APK, 40, Fixtures.UID, Fixtures.CONTEXT).selectionRevision(1).build();
             Classification[] probes = {Classification.HEALTH_HELD, Classification.HEALTH_CRASH,
                 Classification.HEALTH_INCONCLUSIVE};
@@ -1068,7 +1135,7 @@ public final class TicketMachineTest {
             stand.add(stand.f(Classification.BOOT_COMPLETED).text(Fixtures.NEW_FINGERPRINT));
             stand.add(stand.f(Classification.CHECKPOINT_COMMITTED));
             stand.add(stand.f(Classification.FACTORY_PRESENT).digest(Fixtures.digest(0xf1)).version(38));
-            stand.add(stand.f(Classification.DATA_COPY).digest(temporary.bundleApk).version(42));
+            stand.add(stand.f(Classification.DATA_COPY).digest(Fixtures.signed(temporary.bundleInput)).version(42));
             Step t = stand.step();
             check(problems, t.selection != null && t.selection.revision == 1 && t.selection.planId.equals(id(0x101))
                     && t.selection.realization == Realization.TEMPORARY_FACTORY
@@ -1139,8 +1206,8 @@ public final class TicketMachineTest {
         });
         cases.run("cohort / an open repair plan is linked and the link outlives a status change", problems -> {
             Plan plan = Fixtures.plan(1).build();
-            Plan rebuild = Fixtures.plan(6).repairs(plan.planId).bundle(Fixtures.digest(0xb4), Fixtures.digest(0xa4), 43)
-                    .restoration(DeploymentRecords.NO_DIGEST, DeploymentRecords.NO_DIGEST, 0)
+            Plan rebuild = Fixtures.plan(6).repairs(plan.planId).bundle(Fixtures.digest(0xb4), 43)
+                    .restoration(DeploymentRecords.NO_DIGEST, 0)
                     .cohort(Fixtures.NEW_FINGERPRINT, Fixtures.digest(0xf1), 38)
                     .base(BUNDLE_APK, Fixtures.BUNDLE_VERSION, Fixtures.UID, Fixtures.CONTEXT).selectionRevision(1).build();
             Selection chosen = new Selection(Fixtures.INSTALLATION, Fixtures.COMPONENT, 1, ChoiceKind.PLAN, plan.planId,
@@ -1190,21 +1257,21 @@ public final class TicketMachineTest {
             Selection standing = new Selection(Fixtures.INSTALLATION, Fixtures.COMPONENT, 1, ChoiceKind.PLAN,
                     chosen.planId, UpdateResponsibility.REBUILD_WINDOW, Fixtures.WINDOW, Realization.TEMPORARY_FACTORY,
                     B1, NO_ID, temporary.planId, TIME);
-            Bed bed = new Bed(temporary).moveTo(B2, 1, 1000);
+            Bed bed = new Bed(temporary).published(chosen).moveTo(B2, 1, 1000);
             bed.add(bed.f(Classification.BOOT_COMPLETED).text(Fixtures.NEW_FINGERPRINT));
             bed.add(bed.f(Classification.FACTORY_PRESENT).digest(Fixtures.digest(0xf1)).version(38));
-            bed.add(bed.f(Classification.DATA_COPY).digest(temporary.bundleApk).version(42));
+            bed.add(bed.f(Classification.DATA_COPY).digest(Fixtures.signed(temporary.bundleInput)).version(42));
             Selection after = Reconciler.cohortCheck(standing, chosen, temporary, View.of(B2, Fixtures.COMPONENT,
                     bed.obs), null, null);
             check(problems, after.realization == Realization.TEMPORARY_FACTORY && after.choice == ChoiceKind.PLAN
                     && after.planId.equals(chosen.planId) && after.revision == 1
                     && after.temporary.equals(temporary.planId), "temporary " + after);
-            Bed back = new Bed(chosen).moveTo(B3, 1, 1000).committed(BUNDLE_APK);
+            Bed back = new Bed(chosen).published(temporary).moveTo(B3, 1, 1000).committed(BUNDLE_APK);
             Selection current = Reconciler.cohortCheck(standing, chosen, temporary, View.of(B3, Fixtures.COMPONENT,
                     back.obs), null, null);
             check(problems, current.realization == Realization.CURRENT && current.temporary.equals(NO_ID),
                     "current " + current);
-            Bed removed = new Bed(chosen).moveTo(B3, 1, 1000).committed(FACTORY_APK);
+            Bed removed = new Bed(chosen).published(temporary).moveTo(B3, 1, 1000).committed(FACTORY_APK);
             check(problems, Reconciler.cohortCheck(standing, chosen, temporary, View.of(B3, Fixtures.COMPONENT,
                     removed.obs), null, null).realization == Realization.DISPLACED, "Android's removal");
         });
@@ -1216,7 +1283,7 @@ public final class TicketMachineTest {
             bed.add(bed.f(Classification.BOOT_COMPLETED).text(Fixtures.NEW_FINGERPRINT));
             bed.add(bed.f(Classification.CHECKPOINT_COMMITTED));
             bed.add(bed.f(Classification.FACTORY_PRESENT).digest(Fixtures.digest(0xf1)).version(38));
-            bed.add(bed.f(Classification.DATA_COPY).digest(temporary.bundleApk).version(42));
+            bed.add(bed.f(Classification.DATA_COPY).digest(Fixtures.signed(temporary.bundleInput)).version(42));
             bed.listing(1).session(Classification.SESSION_APPLIED, SHELL_REF);
             Step s = bed.step();
             Selection next = s.selection;
@@ -1227,8 +1294,8 @@ public final class TicketMachineTest {
         });
         cases.run("factory / a factory plan changes the choice by authorization alone", problems -> {
             String none = DeploymentRecords.NO_DIGEST;
-            Plan plan = Fixtures.plan(3).target(Target.FACTORY).bundle(none, none, 0).signer(none)
-                    .restoration(none, none, 0).signing(0).build();
+            Plan plan = Fixtures.plan(3).target(Target.FACTORY).bundle(none, 0).signer(none)
+                    .restoration(none, 0).signing(0).build();
             Selection factory = new Selection(Fixtures.INSTALLATION, Fixtures.COMPONENT, 0, ChoiceKind.FACTORY, NO_ID,
                     UpdateResponsibility.REBUILD_WINDOW, Fixtures.WINDOW, Realization.CURRENT, B1, NO_ID, NO_ID, TIME);
             Bed bed = new Bed(plan).committed(FACTORY_APK);
@@ -1358,6 +1425,35 @@ public final class TicketMachineTest {
             Bed cancelled = Bed.late().grants().at(State.SIGNED, Crossing.SIGN, Crossing.PUBLISH);
             cancelled.ticket = cancelled.ticket.toBuilder().cause(Cause.CANCELLED).build();
             check(problems, cancelled.step().ticket.state == State.CANCELLED, "the hold has an exit");
+        });
+        cases.run("publish / a read of other bytes holds with the request limit alert", problems -> {
+            Bed bed = Bed.late().grants().at(State.SIGNED, Crossing.SIGN, Crossing.PUBLISH)
+                    .host(Classification.BUNDLE_MISMATCH, Fixtures.PUBLISH_ATTEMPT);
+            Step held = bed.step();
+            check(problems, held.issue == null && held.ticket.state == State.SIGNED
+                    && held.ticket.flag(FLAG_REQUEST_LIMIT), "a mismatch waited silently " + held);
+            Step still = bed.step();
+            check(problems, still.issue == null && still.ticket.equals(held.ticket), "published again " + still);
+            // Store damage never heals: a later attempt of the plan holds on the earlier attempt's read.
+            Bed later = Bed.late().grants().at(State.SIGNED, Crossing.SIGN, Crossing.PUBLISH);
+            Ticket.Builder earlier = Fixtures.ticket(2, later.plan).state(State.CANCELLED).cause(Cause.CANCELLED);
+            earlier.append(Bed.entry(Crossing.SIGN, B1, 1, 1100))
+                    .append(new Entry(Crossing.PUBLISH, NO_ID, -1, 0, NO_ID, id(0x9b77), TIME));
+            later.others.add(earlier.build());
+            later.host(Classification.BUNDLE_MISMATCH, id(0x9b77));
+            check(problems, later.step().ticket.flag(FLAG_REQUEST_LIMIT), "an earlier attempt's mismatch ignored");
+            // An unreadable record gives no fact: the ticket waits without the alert.
+            Bed unread = Bed.late().grants().at(State.SIGNED, Crossing.SIGN, Crossing.PUBLISH);
+            Step wait = unread.step();
+            check(problems, wait.issue == null && wait.ticket.state == State.SIGNED
+                    && !wait.ticket.flag(FLAG_REQUEST_LIMIT), "no fact alerted " + wait);
+            // Another plan's mismatch is not this plan's.
+            Bed other = Bed.late().grants().at(State.SIGNED, Crossing.SIGN, Crossing.PUBLISH);
+            other.add(Fixtures.fact(0x79, NO_ID, Classification.BUNDLE_MISMATCH, 0).plan(id(0x199)));
+            check(problems, !other.step().ticket.flag(FLAG_REQUEST_LIMIT), "another plan's mismatch");
+            // The hold keeps its exits.
+            bed.ticket = bed.ticket.toBuilder().cause(Cause.CANCELLED).build();
+            check(problems, bed.step().ticket.state == State.CANCELLED, "the hold has no exit");
         });
         cases.run("handover / the coordinator changes only by a recorded handover", problems -> {
             Bed bed = Bed.late().grants().at(State.READY, TO_COMMIT);

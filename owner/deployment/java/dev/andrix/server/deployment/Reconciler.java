@@ -150,17 +150,42 @@ public final class Reconciler {
 
         // What the store read of the plan's publication after one PUBLISH attempt's call had ended.
         // A published bundle never changes: published wins over absent, and a mismatch over both.
-        Classification publication(String attempt) {
+        Classification publication(String attempt, String plan) {
             List<Classification> order = List.of(Classification.BUNDLE_ABSENT, Classification.BUNDLE_PUBLISHED,
                     Classification.BUNDLE_MISMATCH);
             Classification best = null;
             for (Observation o : facts) {
-                if (o.kind == ObservationKind.BUNDLE && o.subject.equals(attempt)
+                if (o.kind == ObservationKind.BUNDLE && o.subject.equals(attempt) && o.plan.equals(plan)
                         && (best == null || order.indexOf(o.classification) > order.indexOf(best))) {
                     best = o.classification;
                 }
             }
             return best;
+        }
+
+        /**
+         * The plan's publication as the store read it back complete: a BUNDLE_PUBLISHED fact naming
+         * the plan, whose APK digests are those of the bundles the publication binds to the plan's
+         * roles. A publication never changes, so any such read serves, whichever attempt it
+         * followed. Null when there is none, or when two such reads disagree.
+         */
+        Observation bound(String plan) {
+            Observation found = null;
+            for (Observation o : facts) {
+                if (o.classification != Classification.BUNDLE_PUBLISHED || !o.plan.equals(plan)) continue;
+                if (found != null && (!found.digest.equals(o.digest) || !found.bundleApk.equals(o.bundleApk)
+                        || !found.restorationApk.equals(o.restorationApk))) {
+                    return null;
+                }
+                found = o;
+            }
+            return found;
+        }
+
+        /** The APK digest the plan's publication binds to its VARIANT role, or null. */
+        String boundApk(String plan) {
+            Observation o = bound(plan);
+            return o == null ? null : o.bundleApk;
         }
 
         List<Observation> of(ObservationKind kind) {
@@ -262,7 +287,7 @@ public final class Reconciler {
         Observation factory = view.latest(ObservationKind.FACTORY);
         if (boot == null || active == null || factory == null) return s;
         if (open != null && openPlan != null && !open.state.terminal() && !reachedApplied(open.state)
-                && openPlan.target != Target.FACTORY && active.digest.equals(openPlan.bundleApk)) {
+                && openPlan.target != Target.FACTORY && active.digest.equals(view.boundApk(openPlan.planId))) {
             return s;
         }
         Realization status;
@@ -271,12 +296,17 @@ public final class Reconciler {
             status = active.digest.equals(factory.digest) ? Realization.CURRENT : Realization.DIVERGED;
         } else {
             if (chosen == null || !chosen.planId.equals(s.planId)) return s;
-            if (temporary != null && temporary.planId.equals(s.temporary)
-                    && active.digest.equals(temporary.bundleApk)) {
+            // The chosen and stand in bytes are what their publications bound. Without that read
+            // the facts are incomplete.
+            String chosenApk = view.boundApk(chosen.planId);
+            boolean standing = temporary != null && temporary.planId.equals(s.temporary);
+            String temporaryApk = standing ? view.boundApk(temporary.planId) : null;
+            if (chosenApk == null || (standing && temporaryApk == null)) return s;
+            if (standing && active.digest.equals(temporaryApk)) {
                 // Decision 6: the owner's approved stand in from factory source. The choice stays.
                 status = Realization.TEMPORARY_FACTORY;
                 standIn = temporary.planId;
-            } else if (active.digest.equals(chosen.bundleApk)) {
+            } else if (active.digest.equals(chosenApk)) {
                 boolean cohort = boot.text.equals(chosen.fingerprint) && factory.digest.equals(chosen.factoryApk);
                 status = cohort ? Realization.CURRENT : Realization.STALE_BASE;
             } else if (active.digest.equals(factory.digest) && active.classification == Classification.FACTORY_COPY) {
@@ -347,6 +377,20 @@ public final class Reconciler {
         // Causes are recorded at once. A cause takes effect only once any intent resolves.
         Cause cause = observedCause(c);
         if (cause.code > t.cause.code) b.cause(cause);
+
+        // The bundle's APK digest is signed output: the plan's publication binds it, and a fact that
+        // read the publication back carries it. A ticket reaches PUBLISHED only on such a fact, so
+        // from there on a missing or disagreeing read is missing evidence, never other bytes. The
+        // ticket holds with the alert. A recorded cause still takes effect where no bytes are
+        // judged, so a cancellation abandons a live session: an abandon needs no APK digest.
+        if (t.state.code >= State.PUBLISHED.code && t.state != State.SIGN_FAILED && bundleApk(c) == null) {
+            b.set(FLAG_REQUEST_LIMIT);
+            if (b.cause() != Cause.NONE && !judgesBytes(t.state)) {
+                Step caused = transition(c, b, newBoot);
+                if (caused != null) return caused;
+            }
+            return done(c, b, null, null, "the plan's publication read is missing or disagrees: holding and alerting");
+        }
 
         Step step = transition(c, b, newBoot);
         if (step != null) return step;
@@ -481,7 +525,7 @@ public final class Reconciler {
         for (Ticket other : c.planTickets) {
             for (Entry e : other.ledger) {
                 if (e.crossing != Crossing.PUBLISH) continue;
-                Classification seen = c.view.publication(e.reference);
+                Classification seen = c.view.publication(e.reference, c.plan.planId);
                 if (seen == Classification.BUNDLE_MISMATCH) return false;
                 complete |= seen == Classification.BUNDLE_PUBLISHED;
             }
@@ -489,16 +533,35 @@ public final class Reconciler {
         return complete;
     }
 
+    // Whether any PUBLISH attempt of the plan's tickets read the plan's publication naming other
+    // bytes. Store damage never heals on its own.
+    private static boolean mismatch(Context c) {
+        for (Ticket other : c.planTickets) {
+            for (Entry e : other.ledger) {
+                if (e.crossing == Crossing.PUBLISH
+                        && c.view.publication(e.reference, c.plan.planId) == Classification.BUNDLE_MISMATCH) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     // A lost acknowledgement is resolved by reading, never by publishing again. Only the plan's
     // publication record read absent after the last attempt's call had ended, in a fact naming
     // that attempt, shows that the attempt had no effect. One more attempt then follows, which the
     // store completes from the bundles it already holds. After a second attempt without effect the
-    // ticket holds and alerts.
+    // ticket holds and alerts, and so does a read of other bytes, which never heals on its own.
+    // An unreadable record gives no fact, so the ticket waits.
     private static Step publish(Context c, Ticket.Builder b) {
         Ticket t = c.ticket;
         Entry last = t.last(Crossing.PUBLISH);
         if (last == null) return issue(c, b, State.SIGNED, entry(c, Crossing.PUBLISH, NO_ID, c.ids.get()), "publish");
-        if (c.view.publication(last.reference) != Classification.BUNDLE_ABSENT) return null;
+        if (mismatch(c)) {
+            b.set(FLAG_REQUEST_LIMIT);
+            return done(c, b, null, null, "the publication names other bytes: holding and alerting");
+        }
+        if (c.view.publication(last.reference, c.plan.planId) != Classification.BUNDLE_ABSENT) return null;
         if (t.count(Crossing.PUBLISH) < Crossing.PUBLISH.bound) {
             return issue(c, b, State.SIGNED, entry(c, Crossing.PUBLISH, NO_ID, c.ids.get()),
                     "the publication had no effect: publish once more from the held bundles");
@@ -796,7 +859,7 @@ public final class Reconciler {
     private static boolean appliedFacts(Context c) {
         Plan p = c.plan;
         Observation active = c.view.latest(ObservationKind.ACTIVE);
-        if (active == null || !active.digest.equals(p.bundleApk) || active.version != p.bundleVersion
+        if (active == null || !active.digest.equals(bundleApk(c)) || active.version != p.bundleVersion
                 || active.number != p.baseUid || !active.text.equals(p.baseContext)) {
             return false;
         }
@@ -834,7 +897,7 @@ public final class Reconciler {
         if (p.target == Target.TEMPORARY_FACTORY) {
             if (s.choice != ChoiceKind.PLAN || !s.planId.equals(p.repairs)) return null;
             Observation active = c.view.latest(ObservationKind.ACTIVE);
-            if (active != null && !active.digest.equals(p.bundleApk)) return null;
+            if (active != null && !active.digest.equals(bundleApk(c))) return null;
             Selection next = s.realized(Realization.TEMPORARY_FACTORY, c.view.boot, s.repair, p.planId);
             return next.equals(s) ? null : next;
         }
@@ -895,7 +958,7 @@ public final class Reconciler {
             return done(c, b, null, null, "a reboot restarts the window");
         }
         Observation active = c.view.latest(ObservationKind.ACTIVE);
-        if (active != null && !active.digest.equals(p.bundleApk) && !cohortChanged(c)) {
+        if (active != null && !active.digest.equals(bundleApk(c)) && !cohortChanged(c)) {
             b.cause(maxCause(b.cause(), Cause.OTHER_BYTES));
             b.health(finish(b.health(), Outcome.INCONCLUSIVE));
             return close(c, b, State.DIVERGED, "other bytes became active");
@@ -1072,14 +1135,18 @@ public final class Reconciler {
     }
 
     // A restoration approved in advance: the plan it repairs names it as its restorationPlan, and it
-    // installs exactly that plan's restoration bundle. A rebuilt variant, any other repair and a
-    // temporary factory plan are none.
+    // installs exactly that plan's restoration bundle: the same input and versionCode, and the APK
+    // that the repaired plan's publication bound to its restoration role. A rebuilt variant, any
+    // other repair and a temporary factory plan are none.
     private static boolean approvedRestoration(Context c) {
         Plan p = c.plan;
         Plan r = c.repaired;
-        return r != null && p.target == Target.VARIANT && r.restorationPlan.equals(p.planId) && r.hasRestoration()
-                && p.bundleInput.equals(r.restorationInput) && p.bundleApk.equals(r.restorationApk)
-                && p.bundleVersion == r.restorationVersion;
+        if (r == null) return false;
+        Observation listed = c.view.bound(r.planId);
+        String own = bundleApk(c);
+        return p.target == Target.VARIANT && r.restorationPlan.equals(p.planId) && r.hasRestoration()
+                && p.bundleInput.equals(r.restorationInput) && p.bundleVersion == r.restorationVersion
+                && listed != null && own != null && own.equals(listed.restorationApk);
     }
 
     private static boolean failed(List<Health> outcomes) {
@@ -1126,10 +1193,19 @@ public final class Reconciler {
 
     private enum Bytes { BUNDLE, PRIOR, OTHER }
 
+    // The APK digest the plan's publication binds to its VARIANT role, or null before it is read.
+    private static String bundleApk(Context c) { return c.view.boundApk(c.plan.planId); }
+
     private static Bytes bytes(Context c, Observation active) {
-        if (active.digest.equals(c.plan.bundleApk)) return Bytes.BUNDLE;
+        if (active.digest.equals(bundleApk(c))) return Bytes.BUNDLE;
         if (active.digest.equals(c.plan.baseApk)) return Bytes.PRIOR;
         return Bytes.OTHER;
+    }
+
+    // The states whose rules compare the active bytes with the bundle's.
+    private static boolean judgesBytes(State state) {
+        return state == State.BOOT_OBSERVED || state == State.APPLIED_PROVISIONAL || state == State.APPLIED
+                || state == State.HEALTH_WINDOW || state == State.NATIVE_RECORD_LOST;
     }
 
     private static Cause observedCause(Context c) {
@@ -1146,7 +1222,9 @@ public final class Reconciler {
         }
         if (cohortChanged(c)) cause = maxCause(cause, Cause.VOID_BASE);
         Observation active = c.view.latest(ObservationKind.ACTIVE);
-        if (active != null && !cohortChanged(c) && bytes(c, active) == Bytes.OTHER
+        // From PUBLISHED on, bytes are judged only against the bundle that the publication read binds.
+        boolean unbound = t.state.code >= State.PUBLISHED.code && t.state != State.SIGN_FAILED && bundleApk(c) == null;
+        if (active != null && !cohortChanged(c) && !unbound && bytes(c, active) == Bytes.OTHER
                 && t.state != State.HEALTH_WINDOW) {
             cause = maxCause(cause, Cause.OTHER_BYTES);
         }

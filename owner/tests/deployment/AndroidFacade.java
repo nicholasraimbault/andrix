@@ -584,7 +584,8 @@ final class AndroidFacade {
                     break;
                 }
                 case WRITE:
-                    answer = write(session, apks.get(plan.bundleApk)) ? Classification.REPLY_SUCCESS
+                    // The bytes of the bundle that the plan's publication bound, as the host signed them.
+                    answer = write(session, apks.get(Fixtures.signed(plan.bundleInput))) ? Classification.REPLY_SUCCESS
                             : Classification.REPLY_REFUSED;
                     break;
                 case COMMIT:
@@ -700,11 +701,15 @@ final class AndroidFacade {
             return publication(plan, entry.reference);
         }
 
-        // The store's read of the plan's publication record, naming the attempt it follows.
+        // The store's read of the plan's publication record, naming the attempt it follows and the
+        // plan, with the APKs of the bundles it binds: the signed output of the plan's inputs. A
+        // plan that signs nothing binds bundles that another plan's publication made visible.
         private Observation publication(Plan plan, String attempt) {
             boolean written = published.contains(plan.planId);
-            return hostFact(written ? Classification.BUNDLE_PUBLISHED : Classification.BUNDLE_ABSENT).subject(attempt)
-                    .digest(written ? Fixtures.PUBLICATION : NO_DIGEST).build();
+            Observation.Builder b = hostFact(written ? Classification.BUNDLE_PUBLISHED : Classification.BUNDLE_ABSENT)
+                    .subject(attempt).plan(plan.planId).digest(written ? Fixtures.PUBLICATION : NO_DIGEST);
+            if (written) b.apks(Fixtures.signed(plan.bundleInput), Fixtures.signed(plan.restorationInput));
+            return b.build();
         }
 
         // The signer answers by request ID. A request it never received can no longer complete:

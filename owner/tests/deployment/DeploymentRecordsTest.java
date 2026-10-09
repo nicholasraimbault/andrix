@@ -68,14 +68,14 @@ public final class DeploymentRecordsTest {
     private static final Cases cases = new Cases();
 
     // The goldens: length and SHA-256 of the whole record, from the runner's independent encoder.
-    private static final int GOLDEN_PLAN_LATE_ONE_BYTES = 603;
-    private static final String GOLDEN_PLAN_LATE_ONE_SHA256 = "23beb3ce9dd66c9f50c57395206830e616c28dbf06602abdbc1dbc8a648d21e8";
-    private static final int GOLDEN_PLAN_EARLY_TWO_BYTES = 603;
-    private static final String GOLDEN_PLAN_EARLY_TWO_SHA256 = "450dac1637ba0017fdc05ba372145e14796a4f2a84aae04fe360fe5f34070e21";
-    private static final int GOLDEN_PLAN_FACTORY_BYTES = 603;
-    private static final String GOLDEN_PLAN_FACTORY_SHA256 = "304b7055a474d7392cf673c001f5a7120e3357631bda3d995710644e2297b465";
-    private static final int GOLDEN_PLAN_TEMPORARY_BYTES = 603;
-    private static final String GOLDEN_PLAN_TEMPORARY_SHA256 = "21bb74dbd5269b9eacdc6e613f9085867ca59e0dccc7b83ec1534767c9cf8e76";
+    private static final int GOLDEN_PLAN_LATE_ONE_BYTES = 539;
+    private static final String GOLDEN_PLAN_LATE_ONE_SHA256 = "d30fa483d138983351bb151cf071865e8e8bbd34ebe62c9d914ab7c5223804e1";
+    private static final int GOLDEN_PLAN_EARLY_TWO_BYTES = 539;
+    private static final String GOLDEN_PLAN_EARLY_TWO_SHA256 = "0e3390040804cf95ce8708fc61749202077cacc33d78ba6a98ad88acbde7e934";
+    private static final int GOLDEN_PLAN_FACTORY_BYTES = 539;
+    private static final String GOLDEN_PLAN_FACTORY_SHA256 = "58693ed7bccb962d16d106ce9cd2577f8fdcb556d04ed0642cb96ee4b907c339";
+    private static final int GOLDEN_PLAN_TEMPORARY_BYTES = 539;
+    private static final String GOLDEN_PLAN_TEMPORARY_SHA256 = "d0561059d255f7c287be1d5dcf3d257528004a682056f7276470732048a73179";
     private static final int GOLDEN_AUTH_SIGN_BYTES = 170;
     private static final String GOLDEN_AUTH_SIGN_SHA256 = "8a1faf2a9901ce724ea0350aaab3c49187aa7adee35ed58de6576574bfd0f46b";
     private static final int GOLDEN_AUTH_ACTIVATE_LAB_BYTES = 170;
@@ -106,8 +106,8 @@ public final class DeploymentRecordsTest {
     private static final String GOLDEN_OBS_HEALTH_SHA256 = "fd7aa73d6982b0810a061f4b55f456b65363bc724cc92d5c0f60691fc2373048";
     private static final int GOLDEN_OBS_SIGNER_BYTES = 201;
     private static final String GOLDEN_OBS_SIGNER_SHA256 = "7b6e0563786f4ee0de90009a1c93ab80c625b08ba887c99bcd29a254f7d4e857";
-    private static final int GOLDEN_OBS_BUNDLE_BYTES = 233;
-    private static final String GOLDEN_OBS_BUNDLE_SHA256 = "d9750442fd9492f2f5c6f1a573560fe2ce1e599e408cedbc819b62a2bdbde4a4";
+    private static final int GOLDEN_OBS_BUNDLE_BYTES = 313;
+    private static final String GOLDEN_OBS_BUNDLE_SHA256 = "e1c772d949efa5177d243daac91836b2e6dec7ec3928cee96339e7b3acaf5ab6";
     private static final int GOLDEN_SELECTION_FACTORY_BYTES = 173;
     private static final String GOLDEN_SELECTION_FACTORY_SHA256 = "4995f27093bbd21aad786b99f73a32db49f0a3f145ea2cbb22aeb5f06f96c13a";
     private static final int GOLDEN_SELECTION_STALE_BYTES = 173;
@@ -149,15 +149,15 @@ public final class DeploymentRecordsTest {
     }
 
     static Plan planFactory() {
-        return Fixtures.plan(3).target(Target.FACTORY).bundle(NO_DIGEST, NO_DIGEST, 0).signer(NO_DIGEST)
-                .restoration(NO_DIGEST, NO_DIGEST, 0).signing(0).notice(120_000, 120_000)
+        return Fixtures.plan(3).target(Target.FACTORY).bundle(NO_DIGEST, 0).signer(NO_DIGEST)
+                .restoration(NO_DIGEST, 0).signing(0).notice(120_000, 120_000)
                 .selectionRevision(5).repairs(id(0x102)).build();
     }
 
     // Decision 6: the new image's own SystemUI from factory source, standing in for plan 0x101.
     static Plan planTemporary() {
         return Fixtures.plan(4).target(Target.TEMPORARY_FACTORY).repairs(id(0x101))
-                .bundle(digest(0xb3), digest(0xa3), 42).restoration(NO_DIGEST, NO_DIGEST, 0)
+                .bundle(digest(0xb3), 42).restoration(NO_DIGEST, 0)
                 .cohort(Fixtures.NEW_FINGERPRINT, digest(0xf1), 38).base(BUNDLE_APK, 40, UID, CONTEXT)
                 .selectionRevision(1).createdAt(TIME + 3).build();
     }
@@ -287,10 +287,11 @@ public final class DeploymentRecordsTest {
         return Fixtures.fact(5, NO_ID, Classification.SIGN_COMPLETED, 0).subject(id(0x7001)).build();
     }
 
-    // The store's read of the plan's publication after the PUBLISH attempt of ticketUnresolved().
+    // The store's read of plan 0x101's publication after the PUBLISH attempt of ticketUnresolved(),
+    // with the APKs of the bundles it binds to the plan's two roles.
     static Observation obsBundle() {
-        return Fixtures.fact(8, NO_ID, Classification.BUNDLE_PUBLISHED, 0).subject(id(0x9b01)).digest(digest(0xd7))
-                .build();
+        return Fixtures.fact(8, NO_ID, Classification.BUNDLE_PUBLISHED, 0).subject(id(0x9b01)).plan(id(0x101))
+                .digest(digest(0xd7)).apks(digest(0xa1), digest(0xa2)).build();
     }
 
     static Selection selectionFactory() {
@@ -487,7 +488,7 @@ public final class DeploymentRecordsTest {
 
         PlanAt(Plan p) {
             base = 12 + 32 + 2 + p.component.length();
-            after = base + 197 + p.fingerprint.length();
+            after = base + 133 + p.fingerprint.length();
             b = after + 86 + p.baseContext.length();
         }
     }
@@ -589,7 +590,7 @@ public final class DeploymentRecordsTest {
             Function<byte[], ?> dp = DeploymentRecords::decodePlan;
             strictByte(problems, "class", plan, p.base, dp, 1, 2, 3);
             strictByte(problems, "target", plan, p.base + 1, dp, 1, 2, 3);
-            strictByte(problems, "signing", plan, p.base + 194, dp, 0, 1, 2);
+            strictByte(problems, "signing", plan, p.base + 130, dp, 0, 1, 2);
             strictByte(problems, "users", plan, p.b, dp, 1);
             strictByte(problems, "data", plan, p.b + 1, dp, 1);
             strictByte(problems, "commit mode", plan, p.b + 42, dp, 1, 2);
@@ -665,7 +666,7 @@ public final class DeploymentRecordsTest {
             check(problems, refusedValue(() -> Fixtures.plan(1).planId(NO_ID).build()), "plan ID");
             check(problems, refusedValue(() -> Fixtures.plan(1).trustPolicy(NO_DIGEST).build()), "trust policy");
             check(problems, refusedValue(() -> Fixtures.plan(1).cohort(FINGERPRINT, NO_DIGEST, 37).build()), "factory");
-            check(problems, refusedValue(() -> Fixtures.plan(1).bundle(NO_DIGEST, BUNDLE_APK, 40).build()), "bundle");
+            check(problems, refusedValue(() -> Fixtures.plan(1).bundle(NO_DIGEST, 40).build()), "bundle");
             check(problems, refusedValue(() -> Fixtures.plan(1).signer(NO_DIGEST).build()), "signer");
             check(problems, refusedValue(() -> new Authorization(INSTALLATION, id(1), COMPONENT, id(2), Effect.STAGE, 0,
                     ActorClass.GRANT_HOLDER, 0, 0, id(3), GrantScope.ALL_COMPONENTS, NO_ID, TIME)), "interaction");
@@ -699,7 +700,7 @@ public final class DeploymentRecordsTest {
             check(problems, refusedValue(() -> Fixtures.plan(1).target(Target.FACTORY).build()), "factory with bundle");
             check(problems, refusedValue(() -> planFactory().toBuilder().base(digest(0xa0), 39, UID, CONTEXT).build()),
                     "factory plan with a variant active");
-            check(problems, refusedValue(() -> Fixtures.plan(1).bundle(Fixtures.BUNDLE_INPUT, BUNDLE_APK, 37).build()),
+            check(problems, refusedValue(() -> Fixtures.plan(1).bundle(Fixtures.BUNDLE_INPUT, 37).build()),
                     "bundle at the factory version");
             check(problems, refusedValue(() -> Fixtures.plan(1).base(digest(0xa0), 45, UID, CONTEXT).build()),
                     "bundle below the base");
@@ -707,16 +708,16 @@ public final class DeploymentRecordsTest {
                     "factory bytes at another version");
             check(problems, refusedValue(() -> Fixtures.plan(1).base(digest(0xa0), 36, UID, CONTEXT).build()),
                     "base below the factory");
-            check(problems, refusedValue(() -> Fixtures.plan(1).restoration(Fixtures.RESTORATION_INPUT,
-                    Fixtures.RESTORATION_APK, 40).build()), "restoration not above the bundle");
-            check(problems, refusedValue(() -> Fixtures.plan(1).restoration(Fixtures.RESTORATION_INPUT, NO_DIGEST, 41)
-                    .build()), "restoration without its APK");
-            check(problems, refusedValue(() -> Fixtures.plan(1).restoration(Fixtures.BUNDLE_INPUT, BUNDLE_APK, 41).build()),
+            check(problems, refusedValue(() -> Fixtures.plan(1).restoration(Fixtures.RESTORATION_INPUT, 40).build()),
+                    "restoration not above the bundle");
+            check(problems, refusedValue(() -> Fixtures.plan(1).restoration(NO_DIGEST, 41).build()),
+                    "a restoration versionCode without its input");
+            check(problems, refusedValue(() -> Fixtures.plan(1).restoration(Fixtures.BUNDLE_INPUT, 41).build()),
                     "restoration equal to the bundle");
-            check(problems, refusedValue(() -> Fixtures.plan(1).restoration(NO_DIGEST, NO_DIGEST, 0).signing(2)
+            check(problems, refusedValue(() -> Fixtures.plan(1).restoration(NO_DIGEST, 0).signing(2)
                     .build()), "two transactions without a restoration");
             check(problems, refusedValue(() -> Fixtures.plan(1).signing(3).build()), "three transactions");
-            check(problems, refusedValue(() -> Fixtures.plan(1).restoration(NO_DIGEST, NO_DIGEST, 0)
+            check(problems, refusedValue(() -> Fixtures.plan(1).restoration(NO_DIGEST, 0)
                     .healthResponse(HealthResponse.RESTORE_AUTOMATICALLY).build()), "restore without a restoration");
             check(problems, refusedValue(() -> Fixtures.plan(1).notice(-1, -1).build()), "negative notice delay");
             check(problems, refusedValue(() -> Fixtures.plan(1).notice(5, 6).build()), "emergency above the delay");
@@ -903,6 +904,62 @@ public final class DeploymentRecordsTest {
             check(problems, refusedValue(() -> Fixtures.fact(1, NO_ID, Classification.SIGN_COMPLETED, 0)
                     .subject(id(4)).at(-1, 5, TIME).build()), "host fact without a boot but with time");
         });
+        // A BUNDLE fact's facts: the attempt at +59, the plan at +75, the publication at +91, the
+        // bundle APK at +123 and the restoration APK at +155 from the observation's base.
+        cases.run("decoder refuses / a bundle fact names its attempt and its plan", problems -> {
+            byte[] bundle = goldens().get("OBS_BUNDLE");
+            int at = observationBase(obsBundle()) + 59;
+            check(problems, refused(DeploymentRecords::decodeObservation, set(bundle, at, new int[16])),
+                    "zero attempt");
+            check(problems, refused(DeploymentRecords::decodeObservation, set(bundle, at + 16, new int[16])),
+                    "zero plan");
+            for (Classification c : List.of(Classification.BUNDLE_PUBLISHED, Classification.BUNDLE_ABSENT,
+                    Classification.BUNDLE_MISMATCH)) {
+                check(problems, refusedValue(() -> Fixtures.fact(1, NO_ID, c, 0).subject(NO_ID).build()),
+                        c + " without its attempt");
+                check(problems, refusedValue(() -> Fixtures.fact(1, NO_ID, c, 0).plan(NO_ID).build()),
+                        c + " without its plan");
+                Observation valid = Fixtures.fact(1, NO_ID, c, 0).build();
+                check(problems, DeploymentRecords.decodeObservation(DeploymentRecords.encodeObservation(valid))
+                        .equals(valid), c + " round trip");
+            }
+            check(problems, refusedValue(() -> Fixtures.fact(1, NO_ID, Classification.SIGN_COMPLETED, 0)
+                    .subject(id(4)).plan(id(0x101)).build()), "a plan on a signer fact");
+        });
+        cases.run("decoder refuses / bundle fact digests are set exactly when it read the publication", problems -> {
+            byte[] bundle = goldens().get("OBS_BUNDLE");
+            int base = observationBase(obsBundle());
+            int at = base + 59;
+            check(problems, refused(DeploymentRecords::decodeObservation, set(bundle, at + 32, new int[32])),
+                    "published without the publication's digest");
+            check(problems, refused(DeploymentRecords::decodeObservation, set(bundle, at + 64, new int[32])),
+                    "published without the bundle APK");
+            Observation one = DeploymentRecords.decodeObservation(set(bundle, at + 96, new int[32]));
+            check(problems, one.restorationApk.equals(NO_DIGEST) && one.bundleApk.equals(digest(0xa1)),
+                    "a publication of one bundle");
+            int[] same = new int[32];
+            Arrays.fill(same, 0xa1);
+            check(problems, refused(DeploymentRecords::decodeObservation, set(bundle, at + 96, same)),
+                    "one APK in both roles");
+            for (int code : new int[] {2, 3}) {
+                check(problems, refused(DeploymentRecords::decodeObservation, set(bundle, base + 58, code)),
+                        "classification " + code + " with digests");
+                byte[] none = set(set(bundle, base + 58, code), at + 32, new int[96]);
+                check(problems, !refused(DeploymentRecords::decodeObservation, none), "classification " + code);
+                for (int field = 0; field < 3; field++) {
+                    int[] value = new int[32];
+                    Arrays.fill(value, 0x5a);
+                    check(problems, refused(DeploymentRecords::decodeObservation, set(none, at + 32 + 32 * field,
+                            value)), "classification " + code + " with digest " + field);
+                }
+            }
+            check(problems, refusedValue(() -> Fixtures.fact(1, NO_ID, Classification.BUNDLE_ABSENT, 0)
+                    .apks(digest(0xa1), NO_DIGEST).build()), "absent with an APK");
+            check(problems, refusedValue(() -> Fixtures.fact(1, NO_ID, Classification.BUNDLE_PUBLISHED, 0)
+                    .apks(NO_DIGEST, digest(0xa2)).build()), "published without its bundle APK");
+            check(problems, refusedValue(() -> Fixtures.fact(1, id(9), Classification.FACTORY_PRESENT, 0)
+                    .apks(digest(0xa1), NO_DIGEST).build()), "APKs on another kind");
+        });
         cases.run("decoder refuses / selection relations", problems -> {
             check(problems, refusedValue(() -> new Selection(INSTALLATION, COMPONENT, 0, ChoiceKind.FACTORY, id(5),
                     UpdateResponsibility.REBUILD_WINDOW, Fixtures.WINDOW, Realization.UNCHECKED, NO_ID, NO_ID, NO_ID, TIME)),
@@ -972,7 +1029,7 @@ public final class DeploymentRecordsTest {
                     "two transactions in one ledger");
             check(problems, DeploymentRecords.encodePlan(one).length == DeploymentRecords.encodePlan(
                     one.toBuilder().signing(2).build()).length, "the layout does not depend on the count");
-            check(problems, refusedValue(() -> Fixtures.plan(1).restoration(NO_DIGEST, NO_DIGEST, 0).signing(2)
+            check(problems, refusedValue(() -> Fixtures.plan(1).restoration(NO_DIGEST, 0).signing(2)
                     .build()), "two without a restoration");
         });
         cases.run("decision 2 / both commit modes fit the layout", problems -> {
