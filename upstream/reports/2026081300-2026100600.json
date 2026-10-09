@@ -185,9 +185,9 @@
       "lab_only": false,
       "method": "/usr/bin/patch --batch --forward --fuzz=0 --no-backup-if-mismatch -p1",
       "profile": "patches/grapheneos-2026081300/native-principal-pins.json",
-      "profile_sha256": "5e7b286600b2a64ca561331154c91cf03db19096a66c107b50f38a39bed683dc",
+      "profile_sha256": "cab77211527394106b629b97ff1be35b5a7cba722a7d1b812e6146e187e8e308",
       "patch": "patches/grapheneos-2026081300/native-principal-pins.patch",
-      "patch_sha256": "4534a490e767824182fdf8e7ca035eaad9a6245bf7100006ddfd0fd7012ecf43",
+      "patch_sha256": "609b6222f8c02673e52396cb590b1f46f82b225e975ea9fb1ff1afbb00c7997d",
       "applies": true,
       "class": "moved",
       "files": [
@@ -206,8 +206,8 @@
           "base_sha256": "bff2de579d206a39be81ef0b798df8f6e845d2f28efbbcd63554ccffbddae5a1",
           "target_sha256": "bff2de579d206a39be81ef0b798df8f6e845d2f28efbbcd63554ccffbddae5a1",
           "offsets": [],
-          "pinned_candidate_sha256": "8b995677f53b92656e2e50f8860ca6ab24139f1eb9e41c248ef98a7e76317709",
-          "candidate_sha256": "8b995677f53b92656e2e50f8860ca6ab24139f1eb9e41c248ef98a7e76317709"
+          "pinned_candidate_sha256": "9da59af43ceeaf705a1d56cf2f895f2e5420b4828bd202af27863480e10be36a",
+          "candidate_sha256": "9da59af43ceeaf705a1d56cf2f895f2e5420b4828bd202af27863480e10be36a"
         },
         {
           "path": "services/core/java/com/android/server/pm/PackageManagerService.java",
@@ -312,7 +312,10 @@
         {"name": "fragment restore-history", "path": "services/core/java/com/android/server/pm/Settings.java", "result": "pass"},
         {"name": "fragment stored-history", "path": "services/core/java/com/android/server/pm/Settings.java", "result": "pass"},
         {"name": "fragment scan", "path": "services/core/java/com/android/server/pm/Settings.java", "result": "pass"},
-        {"name": "fragment recovery-seeding", "path": "services/core/java/com/android/server/pm/Settings.java", "result": "pass"}
+        {"name": "fragment recovery-seeding", "path": "services/core/java/com/android/server/pm/Settings.java", "result": "pass"},
+        {"name": "fragment boot-facts", "path": "services/core/java/com/android/server/pm/Settings.java", "result": "pass"},
+        {"name": "fragment retired-boot", "path": "services/core/java/com/android/server/pm/Settings.java", "result": "pass"},
+        {"name": "fragment deferral", "path": "services/core/java/com/android/server/pm/Settings.java", "result": "pass"}
       ],
       "added": [
         {"path": "services/core/java/com/android/server/pm/NativePrincipalPins.java", "upstream": "absent"},
@@ -658,11 +661,11 @@
   ],
   "generated": {
     "tool": "scripts/proof/grapheneos_carry.py",
-    "tool_sha256": "c4c749761c1664f52084e2a196037b2de3b3988694c2226feb0c8c5ce95f8eb3",
-    "at": "2026-10-09T14:08:34Z"
+    "tool_sha256": "88926c90154252066f49e26bd3ba62d499df6664a2118fb091242aa60d4c743d",
+    "at": "2026-10-09T15:51:02Z"
   },
   "seal": {
     "algorithm": "sha256 over canonical JSON of every other field",
-    "sha256": "919d1b978e2c017f5a47778b8c3297f78793331a7275c143a66d9574d71f2d7f"
+    "sha256": "e340ef43ad0f31f2f94ae1fb34ec538a9a8e67727e47250757beb04abc16a99a"
   }
 }
