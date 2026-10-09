@@ -34,118 +34,124 @@ and all 18 evidence areas through 58 grouped decisions, with selected source che
 host reproduction. It is not whole platform or phone clearance.
 
 The resulting [integrated platform model](2026-09-25-integrated-platform-model.md) now joins native
-identity, work, UID policy, API effects, managed environment leases, signing, deployment and recovery
-in one proposed ownership and lifecycle model. It contains recommended implementation hypotheses,
-credible alternatives, event/disruption matrices and complete journeys that should falsify or
-support the design. It is not a new accepted architecture or a claim that the joins work yet.
-Accepted policy remains unchanged. The [terminal parser logging correction](2026-09-25-terminal-diagnostics-privacy.md)
-now has a matching failing control, 156 passing host parser/adapter checks and a successful
-`AndrixTerminal` Android module build with artifact verification. Device logging and broader
-runtime privacy remain separately unqualified. The [native identity record and slot storage component](2026-09-25-native-identity-store.md)
-now has actual Java codec/filesystem checks and a successful Android `services.core` module
-build. The [PMS consumer integration](2026-09-26-native-store-pms-consumer.md) now has 24 focused
-host checks, including actual slot transactions beneath the manager, negative recovery state and
-code/data cleanup fences. Its actual Android `services.core` build passed at `e8dc35c`. The
-[bounded boot recovery vehicle](2026-09-26-native-identity-boot-recovery.md) now has a complete
-image at `fec0da7` and same guest observations of healthy bindings, reserve fallback, canonical
-signer/serial mismatches and quarantine. Removing one PMS mapping preserved the held UID and
-original data, while a new APK received the predicted different ID. Narrow current database repair
-restored the original keys without removing the new APK. Failed trials remain separate.
-Production designation, owned restoration and native lifecycle remain gates. No factory or native
-account entry was activated. The next bounded step is
-[real PMS writer qualification](2026-09-26-native-writer-qualification.md), through a separate
-lab route that cannot grant execution or release a reservation. Its host ownership controls
-and exact source admission checks pass. The separate Android lab image built at `6caeedd`.
-Actual publication, original handle retry, cold rebinding and an I/O refusal control passed.
-A failed directory timestamp bookend and its filesystem qualification limit remain explicit.
-Interrupted creation and retirement recovery, production designation and activation remain open.
-The [next codec step](2026-09-26-native-creation-binding-codec.md) adds an unused representation for
+identity, work, UID policy, API effects, managed environment leases, signing, deployment and
+recovery in one proposed ownership and lifecycle model. It contains recommended implementation
+hypotheses, credible alternatives, event/disruption matrices and complete journeys that should
+falsify or support the design. It is not a new accepted architecture or a claim that the joins work
+yet. Accepted policy remains unchanged. The [terminal parser logging
+correction](2026-09-25-terminal-diagnostics-privacy.md) now has a matching failing control, 156
+passing host parser/adapter checks and a successful `AndrixTerminal` Android module build with
+artifact verification. Device logging and broader runtime privacy remain separately unqualified. The
+[native identity record and slot storage component](2026-09-25-native-identity-store.md) now has
+actual Java codec/filesystem checks and a successful Android `services.core` module build. The [PMS
+consumer integration](2026-09-26-native-store-pms-consumer.md) now has 24 focused host checks,
+including actual slot transactions beneath the manager, negative recovery state and code/data
+cleanup fences. Its actual Android `services.core` build passed at `e8dc35c`. The [bounded boot
+recovery vehicle](2026-09-26-native-identity-boot-recovery.md) now has a complete image at `fec0da7`
+and same guest observations of healthy bindings, reserve fallback, canonical signer/serial
+mismatches and quarantine. Removing one PMS mapping preserved the held UID and original data, while
+a new APK received the predicted different ID. Narrow current database repair restored the original
+keys without removing the new APK. Failed trials remain separate. Production designation, owned
+restoration and native lifecycle remain gates. No factory or native account entry was activated. The
+next bounded step is [real PMS writer qualification](2026-09-26-native-writer-qualification.md),
+through a separate lab route that cannot grant execution or release a reservation. Its host
+ownership controls and exact source admission checks pass. The separate Android lab image built at
+`6caeedd`. Actual publication, original handle retry, cold rebinding and an I/O refusal control
+passed. A failed directory timestamp bookend and its filesystem qualification limit remain explicit.
+Interrupted creation and retirement recovery, production designation and activation remain open. The
+[next codec step](2026-09-26-native-creation-binding-codec.md) adds an unused representation for
 complete creation bindings. Version 1 bytes and holds remain readable. A conservative store gate
 retains recognized version 2 holds but refuses binding and writes until that protocol is integrated.
 The normal Android reader image built, then preserved a header only hold despite an older preferred
 backup and withheld admission even with a matching valid body. Controlled version 1 header repair
-kept the original keys and canaries. Native execution and version 2 publication remain disabled.
-The [preparation admission correction](2026-09-27-native-preparation-admission.md) now checks the
-whole durable index and pending set before issuing another native ID. It also retains original
-issuance ownership across failures. Its source and host controls are qualified separately from
-the existing Android images. A [newer format preservation layer](2026-09-27-native-format-preservation.md)
-now refuses native store mutation when it recognizes newer record or staging frames, without
-turning them into bindings. The source and host matrix also preserve negative uniqueness evidence
-and refuse incomplete write inspection. The [presence correction](2026-09-27-native-store-presence.md)
-also prevents stat and read errors from becoming acknowledged absence or permission to overwrite
+kept the original keys and canaries. Native execution and version 2 publication remain disabled. The
+[preparation admission correction](2026-09-27-native-preparation-admission.md) now checks the whole
+durable index and pending set before issuing another native ID. It also retains original issuance
+ownership across failures. Its source and host controls are qualified separately from the existing
+Android images. A [newer format preservation layer](2026-09-27-native-format-preservation.md) now
+refuses native store mutation when it recognizes newer record or staging frames, without turning
+them into bindings. The source and host matrix also preserve negative uniqueness evidence and refuse
+incomplete write inspection. The [presence correction](2026-09-27-native-store-presence.md) also
+prevents stat and read errors from becoming acknowledged absence or permission to overwrite
 unreadable state. The `cac0ba6` Android image compiled the joined changes. Its normal DEX contains
 the reader, while R8 removes inactive native creation paths. That is not native writer runtime
-qualification or activation. The [header footprint correction](2026-09-27-native-header-footprint.md)
-now requires compatible header copies and conserves entries that only an unselected copy lists. A pure
-reservation publishes its target as the preferred backup before rewriting main and reserve, so an
-interrupted owned retry keeps every known hold. Its guarded host matrices, sensitivity controls and
-existing regressions passed. The normal `c9264e4` Android image compiled and its counter withholding
-branch was verified in final DEX. Cold Android reader controls then withheld the counter beside a
-legacy addition and accepted a protected backup beside its predecessors, retaining the hold without
-inventing a binding. Inactive write paths were removed by R8. Production writer crash durability
-remains unqualified. The [creation binding step](2026-09-27-native-creation-binding.md) now reserves
-from owned creation plans, measures exact header bytes before issuance and adds a host only version 2
-format with complete original bindings. Production stays version 1. Guarded host qualification
-passed, including a corrected negative binding check that preserves conflicting sibling evidence.
-The normal `0018a1d` Android image compiled, and final DEX confirms the literal V1 construction and
-negative evidence path. A fresh normal boot and clean reboot kept ordinary APK, UID, key and data
-controls intact, with the native store still missing. The [historical identity step](2026-09-28-native-creation-history.md)
-now joins eligible bodies and selected complete header reservations through one immutable view.
-Restoration, scanning and boot seeding share it. A restored creation stays PENDING until an
-explicit designation rebinds its original ID and signers. Guarded host qualification passed,
-including exact legacy behavior, fault, reader, origin and data owner controls. The normal
-`89491b9` Android image compiled with literal V1 construction and the shared view in final DEX.
-The separate [counter admission correction](2026-09-28-native-counter-admission.md) now refuses
-new IDs beside a higher decoded claim in the selected lineage or existing negative evidence,
-without deriving a counter or changing body eligibility. Guarded source, baseline and regression
-checks passed. The normal `78456b3` Android image compiled, with that exact negative constraint in
-final DEX. Production V2 publication and native activation remain off.
-The [optional header recovery lab preparation](2026-09-28-native-header-recovery-lab.md) now has
-host qualified guards, codec inputs and a rehearsal through the unchanged fixed subject writer.
-Its separate V2 token requires the complete CE, verity, payload, native and writer stack; normal
-admission refuses it. A separately admitted corrected lab build and static artifact checks now
-passed. Its first subject signer refusal remains failed. A fresh lab baseline and clean reboot
-preserved original APKs, mappings and observer keys. A controlled empty V1 store was later
-observed intact on its first cold read, with PMS creation readiness restored. Both later scopes
-remain failed on separate observer errors, with their completed observations retained. The next
-trial must repeat complete preconditions before any effect. That later P3 preflight stopped on
-a changed retained scratch upload hash before any mode or native request. The canonical store
-and Android anchors still matched. A separate read only diagnostic confirmed both scratch files
-as 70 zero bytes without repair, while the canonical store and Android anchors remained exact.
-The historical files remain exact change sentinels, not native inputs. After a separately retained
-observer timeout, the next vehicle ran one original selection, preparation and commit. ID 1 was
-actually prepared. Commit returned false with exact V2 `CREATING` headers and no body, confirmed
-again after captured PMS exit. No guest sync followed the native calls. A separate pure cold read
-then found the exact reservation after the unclean stop, and a fresh `system_server` restored it as
-a pinned hold for the original package. A separately admitted rebind then restored the slot mode
-before any native call, rebound ID 1 through a new fixture instance and published the predicted
-LIVE header and body. A separate pure cold bookend then found that header and body exact after
-another unclean stop, with a fresh `system_server` holding the pinned body. This completes the lab
-sequence for one guest and producer. This guest must now use only its exact V2 capable producer.
-The owner then approved [version 2 in the normal image](2026-10-02-native-store-v2-normal.md),
-with native execution, the factory, retirement and release still off. Its source, guard and host
-stage is integrated: the one boot construction passes `Format.V2`, the lab format token is retired,
-and host checks show the last version 1 image keeping holds without admitting version 2 bindings.
-The normal image is now built. Its final DEX differs from the last version 1 image only by that one
-boot operand, and R8 removes the unused creation route entirely. Its first boot, on a fresh guest,
-kept ordinary installs, keys and canaries across a clean reboot, read the store as missing
-throughout, and refused the writer route. On four disposable guests it then read staged layouts:
-an empty version 1 store, a version 2 reservation, a live version 2 layout and a serial mismatch
-control. Holds and admission matched the design, no store change was observed across cold boots,
-and the held package's update, clear and uninstall were refused. ActivityManager force stops the
-package before Package Manager refuses a clear. Switched to the last version 1 image, the version 2
-reservation and live layouts read as unsupported footprints: holds kept without pins, and the held
-package deferred with its setting, code and data kept. Switched back, the version 2 image read them
-as before and admitted the package again; the observers' keys survived both switches. This models
-reflashing, not an over the air update. The owner then accepted the
-[native account lifecycle authority](2026-10-06-native-account-lifecycle.md). Each Android user
-manages its own native accounts, and an explicit grant, normally held by the phone's owner, covers
-administration across users. Retirement deletes and releases nothing, data deletion is a separate
-step, and a UID is released only after nothing depends on it. The owner has since accepted the
-[native account lifecycle record](2026-10-08-native-lifecycle-record.md), the first stage of
-retirement and identity recovery. It stores suspension with who and why, retirement and the duties
-that remain, splits retirement from UID release and keeps release off. Its first step, the host
-source, guards and an image that reads the new records only as protective evidence, is next.
+qualification or activation. The [header footprint
+correction](2026-09-27-native-header-footprint.md) now requires compatible header copies and
+conserves entries that only an unselected copy lists. A pure reservation publishes its target as the
+preferred backup before rewriting main and reserve, so an interrupted owned retry keeps every known
+hold. Its guarded host matrices, sensitivity controls and existing regressions passed. The normal
+`c9264e4` Android image compiled and its counter withholding branch was verified in final DEX. Cold
+Android reader controls then withheld the counter beside a legacy addition and accepted a protected
+backup beside its predecessors, retaining the hold without inventing a binding. Inactive write paths
+were removed by R8. Production writer crash durability remains unqualified. The [creation binding
+step](2026-09-27-native-creation-binding.md) now reserves from owned creation plans, measures exact
+header bytes before issuance and adds a host only version 2 format with complete original bindings.
+Production stays version 1. Guarded host qualification passed, including a corrected negative
+binding check that preserves conflicting sibling evidence. The normal `0018a1d` Android image
+compiled, and final DEX confirms the literal V1 construction and negative evidence path. A fresh
+normal boot and clean reboot kept ordinary APK, UID, key and data controls intact, with the native
+store still missing. The [historical identity step](2026-09-28-native-creation-history.md) now joins
+eligible bodies and selected complete header reservations through one immutable view. Restoration,
+scanning and boot seeding share it. A restored creation stays PENDING until an explicit designation
+rebinds its original ID and signers. Guarded host qualification passed, including exact legacy
+behavior, fault, reader, origin and data owner controls. The normal `89491b9` Android image compiled
+with literal V1 construction and the shared view in final DEX. The separate [counter admission
+correction](2026-09-28-native-counter-admission.md) now refuses new IDs beside a higher decoded
+claim in the selected lineage or existing negative evidence, without deriving a counter or changing
+body eligibility. Guarded source, baseline and regression checks passed. The normal `78456b3`
+Android image compiled, with that exact negative constraint in final DEX. Production V2 publication
+and native activation remain off. The [optional header recovery lab
+preparation](2026-09-28-native-header-recovery-lab.md) now has host qualified guards, codec inputs
+and a rehearsal through the unchanged fixed subject writer. Its separate V2 token requires the
+complete CE, verity, payload, native and writer stack; normal admission refuses it. A separately
+admitted corrected lab build and static artifact checks now passed. Its first subject signer refusal
+remains failed. A fresh lab baseline and clean reboot preserved original APKs, mappings and observer
+keys. A controlled empty V1 store was later observed intact on its first cold read, with PMS
+creation readiness restored. Both later scopes remain failed on separate observer errors, with their
+completed observations retained. The next trial must repeat complete preconditions before any
+effect. That later P3 preflight stopped on a changed retained scratch upload hash before any mode or
+native request. The canonical store and Android anchors still matched. A separate read only
+diagnostic confirmed both scratch files as 70 zero bytes without repair, while the canonical store
+and Android anchors remained exact. The historical files remain exact change sentinels, not native
+inputs. After a separately retained observer timeout, the next vehicle ran one original selection,
+preparation and commit. ID 1 was actually prepared. Commit returned false with exact V2 `CREATING`
+headers and no body, confirmed again after captured PMS exit. No guest sync followed the native
+calls. A separate pure cold read then found the exact reservation after the unclean stop, and a
+fresh `system_server` restored it as a pinned hold for the original package. A separately admitted
+rebind then restored the slot mode before any native call, rebound ID 1 through a new fixture
+instance and published the predicted LIVE header and body. A separate pure cold bookend then found
+that header and body exact after another unclean stop, with a fresh `system_server` holding the
+pinned body. This completes the lab sequence for one guest and producer. This guest must now use
+only its exact V2 capable producer. The owner then approved [version 2 in the normal
+image](2026-10-02-native-store-v2-normal.md), with native execution, the factory, retirement and
+release still off. Its source, guard and host stage is integrated: the one boot construction passes
+`Format.V2`, the lab format token is retired, and host checks show the last version 1 image keeping
+holds without admitting version 2 bindings. The normal image is now built. Its final DEX differs
+from the last version 1 image only by that one boot operand, and R8 removes the unused creation
+route entirely. Its first boot, on a fresh guest, kept ordinary installs, keys and canaries across a
+clean reboot, read the store as missing throughout, and refused the writer route. On four disposable
+guests it then read staged layouts: an empty version 1 store, a version 2 reservation, a live
+version 2 layout and a serial mismatch control. Holds and admission matched the design, no store
+change was observed across cold boots, and the held package's update, clear and uninstall were
+refused. ActivityManager force stops the package before Package Manager refuses a clear. Switched to
+the last version 1 image, the version 2 reservation and live layouts read as unsupported footprints:
+holds kept without pins, and the held package deferred with its setting, code and data kept.
+Switched back, the version 2 image read them as before and admitted the package again; the
+observers' keys survived both switches. This models reflashing, not an over the air update. The
+owner then accepted the [native account lifecycle
+authority](2026-10-06-native-account-lifecycle.md). Each Android user manages its own native
+accounts, and an explicit grant, normally held by the phone's owner, covers administration across
+users. Retirement deletes and releases nothing, data deletion is a separate step, and a UID is
+released only after nothing depends on it. The owner has since accepted the [native account
+lifecycle record](2026-10-08-native-lifecycle-record.md), the first stage of retirement and identity
+recovery. It stores suspension with who and why, retirement and the duties that remain, splits
+retirement from UID release and keeps release off. Its first step is under way on the host. The
+records, their codec and persistence now store suspension, retirement with its duties, separate data
+deletion, restoration and a release engine that no production code can reach. Android's package
+settings record the store's boot facts once and defer suspended, retiring and retired accounts at
+boot, which changes behaviour only for those accounts. Production still uses the earlier store
+format. The image that reads the new records only as protective evidence comes after the remaining
+host packages.
 
 The [installer durability assessment](2026-09-27-package-installer-durability.md) retains an
 unclean stop failure and a separate Android file comparison. The checked writing descriptor sync
@@ -279,10 +285,13 @@ targets, one of them only the lab writer's target. These are source facts about 
 
 Gate 3 now has an accepted plan for the
 [first durable component transaction](2026-10-09-component-transaction.md), starting with
-SystemUI. Its host steps can start: the records and ticket state machine, the artifact store and
-bundle builder, the session observer and the choice of test image. Emulator trials wait for the
-emulator. The owner decided seven of the plan's eight decisions. The rollback target waits for
-qualified candidate floor images, before the device coordinator.
+SystemUI. Its records, ticket state machine, reconciler and host store are host qualified, and so
+is the artifact store, whose publication record makes a variant and its restoration visible
+together or not at all. Building the store settled how a plan names its bundles and when an
+interrupted publication may be repeated. The host signer and bundle builder are next, then the
+session observer and the choice of test image. Emulator trials wait for the emulator. The owner
+decided seven of the plan's eight decisions. The rollback target waits for qualified candidate
+floor images, before the device coordinator.
 
 ## Product checkpoint
 
@@ -290,7 +299,9 @@ There is no supported Andrix release or buildable Pixel deployment product. Curr
 are bounded emulator, host and artifact qualifications, not general hardware or phone claims.
 
 The accepted [workshop phone plan](2026-10-09-caiman-workshop-phone.md) sets the stages, safety
-rules and owner decisions for bringing Andrix to the owner's Pixel 9 Pro. No Andrix image has
+rules and owner decisions for bringing Andrix to the owner's Pixel 9 Pro. Host checkers for its
+version rule, session records, signed release tags and install kits are written and tested on the
+host only, and a desk study of the build design items has corrected the plan. No Andrix image has
 been built for it, and nothing has touched the phone.
 
 ### Native development and work
