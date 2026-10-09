@@ -16,6 +16,7 @@ import com.android.server.pm.NativeIdentityRecords.Retirement;
 import com.android.server.pm.NativeIdentityRecords.Slot;
 import com.android.server.pm.NativeIdentityRecords.Suspension;
 import com.android.server.pm.NativeIdentityRecords.SuspensionReason;
+import com.android.server.pm.NativeIdentityRecords.UserEntry;
 import com.android.server.pm.NativeIdentityStore.Format;
 import com.android.server.pm.NativeIdentityStore.History;
 import java.nio.file.Files;
@@ -34,10 +35,12 @@ import java.util.Set;
  * never of a recovery hold, writing version 1 again after the last entry; markRetiring with a
  * retirement block that keeps every suspension entry, and a legacy marker's continuation;
  * markRetired with one receipt per retirement kind; the writer rules as invalid requests;
- * publication refusing a suspended binding before the header changes; and the version 1 marker and
- * release refusing before any effect. Under Format.V1 and V2 every lifecycle transaction refuses
- * before any effect, and the version 1 marker and release still work. Host files only, not Android
- * persistence.
+ * publication refusing a suspended binding before the header changes; the version 1 marker and
+ * release refusing before any effect; the boot facts of one durable read; beginDisposition and
+ * confirmDisposition only in a boot that began with the account RETIRED; and restore, whose hold
+ * keeps the restored record from becoming active directly. Under Format.V1 and V2 every lifecycle
+ * transaction refuses before any effect, and the version 1 marker and release still work. Host
+ * files only, not Android persistence.
  */
 public final class NativeLifecycleTransactionTest {
     private static final Slot ELIGIBLE = slotA(1, Lifecycle.version1(false));
@@ -466,6 +469,251 @@ public final class NativeLifecycleTransactionTest {
         });
     }
 
+    // ------------------------------------------------------------------ boot facts and disposition
+
+    private static final int C = 10202, D = 10203, E = 10204, F = 10205, G = 10206, H = 10207;
+
+    private static Slot tombstone(int appId, String packageName, long id, long generation) {
+        return new Slot(LINEAGE, appId, packageName, generation, SIGNERS, List.of(),
+                new NativeIdentityRecords.ReleaseTicket(id, 0, SERIAL, "5".repeat(31) + id));
+    }
+
+    private static NativeIdentityRecords.HeaderEntry releasing(int appId) {
+        return new NativeIdentityRecords.HeaderEntry(appId, NativeIdentityRecords.SlotPhase.RELEASING, 0, "");
+    }
+
+    private static void bootFactCases() {
+        run("V3 / the boot facts name RETIRED accounts, ticketed tombstones and RELEASING entries without a directory",
+                problems -> {
+            Path root = store(header(7, live(A), live(B), live(C), releasing(D), releasing(E), live(F), releasing(G),
+                    releasing(H)));
+            slot(root, slotA(3, retired(retiredBlock(), USER)));
+            slot(root, slotB(2, retiring(byUserRetirement())));
+            Slot ticketed = tombstone(C, "dev.andrix.lifecyclec", 3, 4);
+            slot(root, ticketed);
+            Slot releasingTombstone = tombstone(E, "dev.andrix.lifecyclee", 5, 6);
+            slot(root, releasingTombstone);
+            // A tombstone without a ticket is version 1, and no fact.
+            slot(root, new Slot(LINEAGE, F, "dev.andrix.lifecyclef", 2, SIGNERS, List.of()));
+            // Release emptied G's directory, and D's is gone. H's copies are damage, which is no fact.
+            Files.createDirectories(root.resolve("slots/" + G));
+            raw(root, H, new byte[] {1}, new byte[] {2});
+            NativeIdentityPersistence.BootFacts facts = facts(root);
+            check(problems, facts.retired.equals(java.util.Map.of(A, RECORD_A)), "retired " + facts.retired);
+            check(problems, facts.ticketedTombstones.equals(java.util.Map.of(C, ticketed, E, releasingTombstone)),
+                    "tombstones " + facts.ticketedTombstones);
+            check(problems, facts.releasingWithoutDirectory.equals(Set.of(D, G)),
+                    "releasing " + facts.releasingWithoutDirectory);
+            check(problems, facts.retiredBoot(RECORD_A) && !facts.retiredBoot(new NativePrincipalPins.Record(ID_A,
+                    PKG_A, A, 0, SERIAL + 1)), "the retired boot rule");
+            try {
+                facts.retired.clear();
+                problems.add("the facts changed");
+            } catch (UnsupportedOperationException expected) {
+                // Immutable.
+            }
+            // The earlier formats read no version 2 slot, so they give no RETIRED account or ticket.
+            NativeIdentityPersistence.BootFacts earlier = NativeIdentityPersistence.bootFacts(load(root, V2));
+            check(problems, earlier.retired.isEmpty() && earlier.ticketedTombstones.isEmpty(), "V2 facts");
+            // A damaged RETIRED record gives no fact.
+            Path damaged = store(header(ID_A, live(A)));
+            raw(damaged, A, NativeIdentityRecords.encodeSlot(slotA(3, retired(retiredBlock()))), new byte[] {1});
+            Files.write(damaged.resolve("slots/" + A + "/record.bin-backup"), new byte[] {2});
+            check(problems, facts(damaged).retired.isEmpty(), "damage gave a fact");
+        });
+        run("V3 / disposition waits for a boot that began with the account RETIRED", problems -> {
+            Path root = layout(slotA(2, retiring(byUserRetirement())));
+            // The boot facts of the boot in which the account becomes RETIRED.
+            NativeIdentityPersistence.BootFacts same = facts(root);
+            NativeIdentityPersistence persistence = persistence(root, V3);
+            check(problems, persistence.markRetired(RECORD_A, SIGNERS, receipts()), "markRetired refused");
+            unchanged(problems, root, "the deletion step in the same boot",
+                    () -> persistence.beginDisposition(RECORD_A, SIGNERS, same));
+            // A fresh boot began with the account RETIRED.
+            NativeIdentityPersistence.BootFacts fresh = facts(root);
+            check(problems, persistence(root, V3).beginDisposition(RECORD_A, SIGNERS, fresh)
+                    && slotA(4, retired(disposing(retiredBlock()))).equals(stored(root, V3)), "wrote " + stored(root, V3));
+            // Facts from the fresh boot never change as the record does.
+            check(problems, fresh.retiredBoot(RECORD_A) && fresh.retired.size() == 1, "the facts changed");
+        });
+        run("V3 / beginDisposition moves every disposition kind to DISPOSING and confirms its retry", problems -> {
+            Path root = layout(slotA(3, retired(retiredBlock(), USER)));
+            NativeIdentityPersistence.BootFacts facts = facts(root);
+            check(problems, persistence(root, V3).beginDisposition(RECORD_A, SIGNERS, facts), "refused");
+            Slot expected = slotA(4, retired(disposing(retiredBlock()), USER));
+            check(problems, expected.equals(stored(root, V3)) && holds(root, expected, 2), "wrote " + stored(root, V3));
+            check(problems, persistence(root, V3).beginDisposition(RECORD_A, SIGNERS, facts)
+                    && expected.equals(stored(root, V3)) && holds(root, expected, 2), "the retry wrote " + stored(root, V3));
+            // A retry after some kinds were discharged still confirms that deletion began.
+            check(problems, persistence(root, V3).confirmDisposition(RECORD_A, SIGNERS,
+                    disposals(ObligationKind.HOME), facts), "the disposal was refused");
+            Slot partly = slotA(5, retired(with(disposing(retiredBlock()), disposals(ObligationKind.HOME).get(0)), USER));
+            check(problems, persistence(root, V3).beginDisposition(RECORD_A, SIGNERS, facts)
+                    && partly.equals(stored(root, V3)), "the late retry wrote " + stored(root, V3));
+        });
+        run("V3 / beginDisposition refuses outside a retired boot, beside scope bit 0 and for an orphaned kind before any effect",
+                problems -> {
+            Slot retiredA = slotA(3, retired(retiredBlock()));
+            Path root = layout(retiredA);
+            NativeIdentityPersistence persistence = persistence(root, V3);
+            // No account, A still RETIRING at the boot read, and only B RETIRED.
+            Path retiredB = store(header(ID_B, live(B)));
+            slot(retiredB, slotB(3, retired(retiredBlock())));
+            for (NativeIdentityPersistence.BootFacts facts : List.of(facts(store(header(0))),
+                    facts(layout(slotA(2, retiring(byUserRetirement())))), facts(retiredB))) {
+                unchanged(problems, root, "outside a retired boot", () -> persistence.beginDisposition(RECORD_A,
+                        SIGNERS, facts));
+            }
+            Suspension blocking = entry(ActorClass.ADMIN_GRANT, NativeIdentityRecords.SCOPE_BLOCKS_DISPOSITION, 0,
+                    SERIAL, grant(9), SuspensionReason.DATA_TRANSFER, TIME);
+            Path blocked = layout(slotA(3, retired(retiredBlock(), blocking)));
+            unchanged(problems, blocked, "beside scope bit 0", () -> persistence(blocked, V3).beginDisposition(
+                    RECORD_A, SIGNERS, facts(blocked)));
+            Path orphaned = layout(slotA(3, retired(with(retiredBlock(), obligation(ObligationKind.DATA_DE,
+                    ObligationState.ORPHANED_WITH_USER, ZERO, 0, 0)))));
+            unchanged(problems, orphaned, "an orphaned kind", () -> persistence(orphaned, V3).beginDisposition(
+                    RECORD_A, SIGNERS, facts(orphaned)));
+            unchanged(problems, root, "other signers", () -> persistence.beginDisposition(RECORD_A, OTHER_SIGNERS,
+                    facts(root)));
+        });
+        run("V3 / confirmDisposition discharges per kind and confirms its retry", problems -> {
+            Path root = layout(slotA(4, retired(disposing(retiredBlock()), GRANT)));
+            NativeIdentityPersistence.BootFacts facts = facts(root);
+            List<Obligation> keys = disposals(ObligationKind.KEYSTORE, ObligationKind.DATA_CE);
+            check(problems, persistence(root, V3).confirmDisposition(RECORD_A, SIGNERS, keys, facts), "refused");
+            Slot expected = slotA(5, retired(with(with(disposing(retiredBlock()), keys.get(0)), keys.get(1)), GRANT));
+            check(problems, expected.equals(stored(root, V3)) && holds(root, expected, 2), "wrote " + stored(root, V3));
+            check(problems, persistence(root, V3).confirmDisposition(RECORD_A, SIGNERS, keys, facts)
+                    && expected.equals(stored(root, V3)) && holds(root, expected, 2), "the retry wrote " + stored(root, V3));
+            List<Obligation> rest = disposals(ObligationKind.ANDROID_STATE, ObligationKind.DATA_DE,
+                    ObligationKind.DATA_EXTERNAL, ObligationKind.HOME, ObligationKind.MANAGED_OBJECTS);
+            check(problems, persistence(root, V3).confirmDisposition(RECORD_A, SIGNERS, rest, facts), "rest refused");
+            for (Obligation duty : stored(root, V3).users.get(0).lifecycle.retirement.obligations) {
+                check(problems, duty.state == ObligationState.DISCHARGED, "kind " + duty);
+            }
+        });
+        run("V3 / confirmDisposition refuses outside a retired boot and before deletion began before any effect",
+                problems -> {
+            Path began = layout(slotA(4, retired(disposing(retiredBlock()))));
+            unchanged(problems, began, "outside a retired boot", () -> persistence(began, V3).confirmDisposition(
+                    RECORD_A, SIGNERS, disposals(ObligationKind.HOME), facts(store(header(0)))));
+            Path outstanding = layout(slotA(3, retired(retiredBlock())));
+            unchanged(problems, outstanding, "before deletion began", () -> persistence(outstanding, V3)
+                    .confirmDisposition(RECORD_A, SIGNERS, disposals(ObligationKind.HOME), facts(outstanding)));
+            Path orphaned = layout(slotA(4, retired(with(disposing(retiredBlock()), obligation(ObligationKind.HOME,
+                    ObligationState.ORPHANED_WITH_USER, ZERO, 0, 0)))));
+            unchanged(problems, orphaned, "an orphaned kind", () -> persistence(orphaned, V3).confirmDisposition(
+                    RECORD_A, SIGNERS, disposals(ObligationKind.HOME), facts(orphaned)));
+        });
+        run("V3 / confirmDisposition refuses receipts that are not disposal receipts before any effect", problems -> {
+            Path root = layout(slotA(4, retired(disposing(retiredBlock()))));
+            NativeIdentityPersistence persistence = persistence(root, V3);
+            NativeIdentityPersistence.BootFacts facts = facts(root);
+            Obligation work = obligation(ObligationKind.WORK, ObligationState.DISCHARGED, ZERO, 0, 0);
+            Obligation still = obligation(ObligationKind.HOME, ObligationState.DISPOSING, ZERO, 0, 0);
+            Obligation orphaned = obligation(ObligationKind.HOME, ObligationState.ORPHANED_WITH_USER, ZERO, 0, 0);
+            List<Obligation> twice = new ArrayList<>(disposals(ObligationKind.HOME));
+            twice.addAll(disposals(ObligationKind.HOME));
+            for (List<Obligation> receipts : List.of(List.<Obligation>of(), List.of(work), List.of(still),
+                    List.of(orphaned), twice, List.of(disposals(ObligationKind.HOME).get(0), disposals(ObligationKind.DATA_CE).get(0)))) {
+                invalid(problems, root, "receipts " + receipts, () -> persistence.confirmDisposition(RECORD_A, SIGNERS,
+                        receipts, facts));
+            }
+        });
+    }
+
+    // ------------------------------------------------------------------ restore
+
+    private static void restoreCases() {
+        run("V3 / restore writes the last known state with a recovery hold", problems -> {
+            Slot newer = slotA(5, retired(retiredBlock(), USER));
+            Path root = store(header(ID_A, live(A)));
+            copies(root, bytes(newer), bytes(slotA(4, retiring(byUserRetirement(), USER))), torn(newer));
+            check(problems, persistence(root, V3).restore(RECORD_A, LINEAGE, SIGNERS, RECOVERY), "refused");
+            Slot expected = slotA(6, retired(retiredBlock(), USER, RECOVERY));
+            check(problems, expected.equals(stored(root, V3)) && holds(root, expected, 2), "wrote " + stored(root, V3));
+            check(problems, persistence(root, V3).restore(RECORD_A, LINEAGE, SIGNERS, RECOVERY)
+                    && expected.equals(stored(root, V3)) && holds(root, expected, 2), "the retry wrote " + stored(root, V3));
+            NativeIdentityPersistence.Restoration restoration =
+                    NativeIdentityPersistence.restoration(load(root, V3).histories());
+            check(problems, restoration.retiringIds.equals(Set.of(ID_A)), "pins " + restoration.retiringIds);
+        });
+        run("V3 / restore writes ELIGIBLE with scope bit 1 when the state cannot be established", problems -> {
+            Path root = store(header(ID_A, live(A)));
+            byte[] broken = torn(slotA(5, retired(retiredBlock())));
+            copies(root, broken, broken, null);
+            check(problems, persistence(root, V3).restore(RECORD_A, LINEAGE, SIGNERS, RECOVERY), "refused");
+            Slot expected = slotA(1, eligible(RECOVERY_UNKNOWN));
+            check(problems, expected.equals(stored(root, V3)) && holds(root, expected, 2), "wrote " + stored(root, V3));
+            History history = load(root, V3).history(A);
+            check(problems, history != null && history.state == LifecycleState.ELIGIBLE && !history.eligible()
+                    && history.suspensions.equals(List.of(RECOVERY_UNKNOWN)), "history " + history);
+        });
+        run("V3 / a restored record never becomes active directly", problems -> {
+            Path root = store(creatingA());
+            byte[] broken = torn(ELIGIBLE);
+            copies(root, broken, broken, null);
+            NativeIdentityPersistence persistence = persistence(root, V3);
+            check(problems, persistence.restore(RECORD_A, LINEAGE, SIGNERS, RECOVERY), "refused");
+            Slot restored = stored(root, V3);
+            History history = load(root, V3).history(A);
+            check(problems, history != null && !history.eligible(), "history " + history);
+            NativeIdentityPersistence.Restoration restoration =
+                    NativeIdentityPersistence.restoration(load(root, V3).histories());
+            check(problems, restoration.records.size() == 1 && restoration.retiringIds.isEmpty(),
+                    "pins " + restoration.records);
+            check(problems, NativeIdentityPersistence.scanOwner(history, PKG_A, A, false, PKG_A, false, SERIAL) == null,
+                    "the scan admitted it");
+            unchanged(problems, root, "publication", () -> persistence.publish(RECORD_A, SIGNERS));
+            invalid(problems, root, "a lift of the hold", () -> persistence.lift(RECORD_A, SIGNERS, RECOVERY_UNKNOWN));
+            unchanged(problems, root, "the store's lift", () -> open(root, V3).liftSuspension(restored, ID_A,
+                    RECOVERY_UNKNOWN));
+            check(problems, creatingA().equals(load(root, V3).header.value), "the header changed");
+        });
+        run("V3 / restore refuses requests no writer writes before any effect", problems -> {
+            Path root = store(header(ID_A, live(A)));
+            byte[] broken = torn(ELIGIBLE);
+            copies(root, broken, broken, null);
+            NativeIdentityPersistence persistence = persistence(root, V3);
+            Suspension bit0 = entry(ActorClass.RECOVERY_HOLD, NativeIdentityRecords.SCOPE_BLOCKS_DISPOSITION, 0, SERIAL,
+                    ZERO, SuspensionReason.RECOVERY_REVIEW, TIME);
+            Suspension otherReason = entry(ActorClass.RECOVERY_HOLD, 0, 0, SERIAL, ZERO, SuspensionReason.DATA_TRANSFER,
+                    TIME);
+            Suspension unregistered = new Suspension(ActorClass.RECOVERY_HOLD, 0, 0, SERIAL, ZERO, 999, TIME, null);
+            for (Suspension hold : List.of(RECOVERY_UNKNOWN, bit0, otherReason, unregistered, USER, GRANT)) {
+                invalid(problems, root, "restore with " + hold, () -> persistence.restore(RECORD_A, LINEAGE, SIGNERS, hold));
+            }
+            invalid(problems, root, "a malformed lineage", () -> persistence.restore(RECORD_A, "x", SIGNERS, RECOVERY));
+        });
+        run("V3 / restore refuses another claim, lineage or counter and a missing body before any effect", problems -> {
+            byte[] broken = torn(ELIGIBLE);
+            Path claimed = store(header(ID_B, live(A), live(B)));
+            copies(claimed, broken, broken, null);
+            slot(claimed, new Slot(LINEAGE, B, PKG_A, 1, SIGNERS, List.of(new UserEntry(ID_B, 0, SERIAL, false))));
+            unchanged(problems, claimed, "a claimed package", () -> persistence(claimed, V3).restore(RECORD_A, LINEAGE,
+                    SIGNERS, RECOVERY));
+            Path lineage = store(header(ID_A, live(A)));
+            copies(lineage, broken, broken, null);
+            unchanged(problems, lineage, "another lineage", () -> persistence(lineage, V3).restore(RECORD_A,
+                    "d".repeat(32), SIGNERS, RECOVERY));
+            Path counter = store(header(0, live(A)));
+            copies(counter, broken, broken, null);
+            unchanged(problems, counter, "an unissued ID", () -> persistence(counter, V3).restore(RECORD_A, LINEAGE,
+                    SIGNERS, RECOVERY));
+            Path missing = store(header(ID_A, live(A)));
+            unchanged(problems, missing, "a missing body", () -> persistence(missing, V3).restore(RECORD_A, LINEAGE,
+                    SIGNERS, RECOVERY));
+            Path creating = store(creatingA());
+            copies(creating, broken, broken, null);
+            unchanged(problems, creating, "other signers than the creation's", () -> persistence(creating, V3)
+                    .restore(RECORD_A, LINEAGE, OTHER_SIGNERS, RECOVERY));
+            Path releasing = store(header(ID_A, releasing(A)));
+            copies(releasing, broken, broken, null);
+            unchanged(problems, releasing, "a RELEASING entry", () -> persistence(releasing, V3).restore(RECORD_A,
+                    LINEAGE, SIGNERS, RECOVERY));
+        });
+    }
+
     // ------------------------------------------------------------------ earlier formats
 
     private static void earlierCases() {
@@ -487,6 +735,17 @@ public final class NativeLifecycleTransactionTest {
                 unchanged(problems, legacy, "a lift beside the marker", () -> marked.lift(RECORD_A, SIGNERS, USER));
                 unchanged(problems, legacy, "markRetired of the marker", () -> marked.markRetired(RECORD_A, SIGNERS,
                         receipts()));
+                // Boot facts that name the account RETIRED, as a lifecycle format boot would.
+                NativeIdentityPersistence.BootFacts facts = facts(layout(slotA(3, retired(retiredBlock()))));
+                unchanged(problems, root, "beginDisposition", () -> persistence.beginDisposition(RECORD_A, SIGNERS, facts));
+                unchanged(problems, root, "confirmDisposition", () -> persistence.confirmDisposition(RECORD_A, SIGNERS,
+                        disposals(ObligationKind.HOME), facts));
+                unchanged(problems, root, "restore of an intact record", () -> persistence.restore(RECORD_A, LINEAGE,
+                        SIGNERS, RECOVERY));
+                Path damaged = store(header(ID_A, live(A)));
+                copies(damaged, torn(ELIGIBLE), torn(ELIGIBLE), null);
+                unchanged(problems, damaged, "restore of a damaged record", () -> persistence(damaged, format).restore(
+                        RECORD_A, LINEAGE, SIGNERS, RECOVERY));
             });
             run(format + " / the version 1 marker and release still work", problems -> {
                 Path root = layout(ELIGIBLE);
@@ -513,6 +772,8 @@ public final class NativeLifecycleTransactionTest {
         retiredCases();
         publicationCases();
         bindingCases();
+        bootFactCases();
+        restoreCases();
         earlierCases();
         finish(Os.allClosed());
         System.out.println("Lifecycle transactions kept the record's rules and refusals; Android unqualified");

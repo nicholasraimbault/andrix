@@ -1,16 +1,16 @@
 {
-  "status": "PREDICTED before any guarded execution of the P2a round 2 sources. Nothing here is an executed result.",
+  "status": "PREDICTED before any guarded execution of the P2b checkpoint 1 sources. Nothing here is an executed result.",
   "plan": "plans/2026-10-08-native-lifecycle-record.md",
-  "package": "B1 P1: the slot version 2 codec, the stable prefix reader and the readers in every format; B1 P2a: the lifecycle store transitions, the suspend, lift, markRetiring and markRetired transactions, the publication refusal and the writer rules",
+  "package": "B1 P1: the slot version 2 codec, the stable prefix reader and the readers in every format; B1 P2a: the lifecycle store transitions, the suspend, lift, markRetiring and markRetired transactions, the publication refusal and the writer rules; B1 P2b checkpoint 1: the boot facts, the deletion or migration step, confirm disposal and Restore",
   "basis": "Each count is the length of the runner's case lists. Each mutant's catches are traced against the cases it breaks; a defect that another rule also refuses names only the cases that reach it.",
   "cases": {
     "codec": 47,
     "reads": 60,
     "goldens": 9,
-    "mutants": 94,
-    "store": 33,
-    "transactions": 29,
-    "faults": 48
+    "mutants": 131,
+    "store": 44,
+    "transactions": 41,
+    "faults": 80
   },
   "reads_by_label": {
     "legacy": 20,
@@ -479,6 +479,209 @@
       "repeated suspension / reserve-synced",
       "repeated suspension / backup-unlink",
       "repeated suspension / backup-unlinked"
+    ],
+    "boot-facts-name-retiring": [
+      "V3 / the boot facts name RETIRED accounts, ticketed tombstones and RELEASING entries without a directory",
+      "V3 / disposition waits for a boot that began with the account RETIRED",
+      "V3 / beginDisposition refuses outside a retired boot, beside scope bit 0 and for an orphaned kind before any effect"
+    ],
+    "boot-facts-name-unticketed-tombstones": [
+      "V3 / the boot facts name RETIRED accounts, ticketed tombstones and RELEASING entries without a directory"
+    ],
+    "boot-facts-releasing-beside-copies": [
+      "V3 / the boot facts name RETIRED accounts, ticketed tombstones and RELEASING entries without a directory"
+    ],
+    "disposition-outside-retired-boot": [
+      "V3 / disposition waits for a boot that began with the account RETIRED",
+      "V3 / beginDisposition refuses outside a retired boot, beside scope bit 0 and for an orphaned kind before any effect"
+    ],
+    "disposal-outside-retired-boot": [
+      "V3 / confirmDisposition refuses outside a retired boot and before deletion began before any effect"
+    ],
+    "disposition-kind-alone": [
+      "V3 / the deletion step moves every disposition kind to DISPOSING at once and changes nothing else",
+      "V3 / the deletion step refuses beside scope bit 0, an orphaned kind or a deletion that began before any effect",
+      "V3 / disposition waits for a boot that began with the account RETIRED",
+      "V3 / beginDisposition moves every disposition kind to DISPOSING and confirms its retry",
+      "V3 / beginDisposition refuses outside a retired boot, beside scope bit 0 and for an orphaned kind before any effect",
+      "beginDisposition / seed-synced",
+      "beginDisposition / backup-renamed",
+      "beginDisposition / backup-published",
+      "beginDisposition / write-started",
+      "beginDisposition / main-synced",
+      "beginDisposition / reserve-synced",
+      "beginDisposition / backup-unlink",
+      "beginDisposition / backup-unlinked"
+    ],
+    "disposition-beside-scope-bit-0": [
+      "V3 / the deletion step refuses beside scope bit 0, an orphaned kind or a deletion that began before any effect",
+      "V3 / beginDisposition refuses outside a retired boot, beside scope bit 0 and for an orphaned kind before any effect"
+    ],
+    "disposition-over-orphaned": [
+      "V3 / the deletion step refuses beside scope bit 0, an orphaned kind or a deletion that began before any effect",
+      "V3 / beginDisposition refuses outside a retired boot, beside scope bit 0 and for an orphaned kind before any effect"
+    ],
+    "disposition-from-any-state": [
+      "V3 / the deletion step refuses an account that is not RETIRED before any effect"
+    ],
+    "disposal-from-outstanding": [
+      "V3 / confirm disposal refuses outstanding and orphaned kinds and receipts no writer writes before any effect",
+      "V3 / confirmDisposition refuses outside a retired boot and before deletion began before any effect"
+    ],
+    "disposal-over-orphaned": [
+      "V3 / confirm disposal refuses outstanding and orphaned kinds and receipts no writer writes before any effect",
+      "V3 / confirmDisposition refuses outside a retired boot and before deletion began before any effect"
+    ],
+    "disposal-reference-bound-again": [
+      "V3 / confirm disposal binds a reference once and keeps a discharged kind"
+    ],
+    "disposal-discharged-kind-changed": [
+      "V3 / confirm disposal binds a reference once and keeps a discharged kind"
+    ],
+    "disposal-receipts-request-unchecked": [
+      "V3 / confirmDisposition refuses receipts that are not disposal receipts before any effect"
+    ],
+    "store-disposal-receipts-unchecked": [
+      "V3 / confirm disposal refuses outstanding and orphaned kinds and receipts no writer writes before any effect"
+    ],
+    "disposal-receipt-kinds-unchecked": [
+      "V3 / confirmDisposition refuses receipts that are not disposal receipts before any effect"
+    ],
+    "disposal-receipt-order-unchecked": [
+      "V3 / confirm disposal refuses outstanding and orphaned kinds and receipts no writer writes before any effect",
+      "V3 / confirmDisposition refuses receipts that are not disposal receipts before any effect"
+    ],
+    "disposition-retry-refused": [
+      "V3 / beginDisposition moves every disposition kind to DISPOSING and confirms its retry",
+      "beginDisposition / backup-unlinked"
+    ],
+    "disposal-retry-refused": [
+      "V3 / confirmDisposition discharges per kind and confirms its retry",
+      "confirmDisposition / backup-unlinked"
+    ],
+    "restored-without-hold": [
+      "V3 / restore writes the intact copy of the highest generation with a recovery hold",
+      "V3 / restore writes the last known state with a recovery hold",
+      "restore / seed-synced",
+      "restore / backup-renamed",
+      "restore / backup-published",
+      "restore / write-started",
+      "restore / main-synced",
+      "restore / reserve-synced",
+      "restore / backup-unlink",
+      "restore / backup-unlinked"
+    ],
+    "restore-from-lowest-generation": [
+      "V3 / restore writes the intact copy of the highest generation with a recovery hold",
+      "V3 / restore keeps a held recovery hold and confirms its own retry",
+      "V3 / restore writes the last known state with a recovery hold",
+      "restore / seed-synced",
+      "restore / backup-renamed",
+      "restore / backup-published",
+      "restore / write-started",
+      "restore / main-synced",
+      "restore / reserve-synced",
+      "restore / backup-unlink",
+      "restore / backup-unlinked"
+    ],
+    "restore-from-selected-copy": [
+      "V3 / restore writes the intact copy of the highest generation with a recovery hold"
+    ],
+    "unknown-state-without-scope-bit-1": [
+      "V3 / restore writes ELIGIBLE with scope bit 1 when no copy is intact",
+      "V3 / restore refuses a RELEASING or missing entry, a stale header, a footprint and a missing body before any effect",
+      "V3 / restore writes ELIGIBLE with scope bit 1 when the state cannot be established",
+      "restore without an intact copy / seed-synced",
+      "restore without an intact copy / backup-renamed",
+      "restore without an intact copy / backup-published",
+      "restore without an intact copy / write-started",
+      "restore without an intact copy / main-synced",
+      "restore without an intact copy / reserve-synced",
+      "restore without an intact copy / backup-unlink",
+      "restore without an intact copy / backup-unlinked"
+    ],
+    "known-state-with-scope-bit-1": [
+      "V3 / restore writes the intact copy of the highest generation with a recovery hold",
+      "V3 / restore writes the last known state with a recovery hold",
+      "restore / seed-synced",
+      "restore / backup-renamed",
+      "restore / backup-published",
+      "restore / write-started",
+      "restore / main-synced",
+      "restore / reserve-synced",
+      "restore / backup-unlink",
+      "restore / backup-unlinked"
+    ],
+    "restore-over-another-account": [
+      "V3 / restore refuses copies of another account, a tombstone, a tie at the highest generation and a full record before any effect"
+    ],
+    "restore-chooses-in-a-tie": [
+      "V3 / restore refuses copies of another account, a tombstone, a tie at the highest generation and a full record before any effect"
+    ],
+    "restore-past-allotment": [
+      "V3 / restore refuses copies of another account, a tombstone, a tie at the highest generation and a full record before any effect"
+    ],
+    "restore-under-releasing": [
+      "V3 / restore refuses a RELEASING or missing entry, a stale header, a footprint and a missing body before any effect",
+      "V3 / restore refuses another claim, lineage or counter and a missing body before any effect"
+    ],
+    "restore-above-counter": [
+      "V3 / restore refuses a RELEASING or missing entry, a stale header, a footprint and a missing body before any effect",
+      "V3 / restore refuses another claim, lineage or counter and a missing body before any effect"
+    ],
+    "restore-beside-a-claim": [
+      "V3 / restore refuses another claim, lineage or counter and a missing body before any effect"
+    ],
+    "recovery-hold-request-unchecked": [
+      "V3 / restore refuses requests no writer writes before any effect"
+    ],
+    "store-recovery-hold-unchecked": [
+      "V3 / restore refuses copies of another account, a tombstone, a tie at the highest generation and a full record before any effect"
+    ],
+    "recovery-hold-reason-unchecked": [
+      "V3 / restore refuses copies of another account, a tombstone, a tie at the highest generation and a full record before any effect",
+      "V3 / restore refuses requests no writer writes before any effect"
+    ],
+    "recovery-hold-scope-unchecked": [
+      "V3 / restore refuses copies of another account, a tombstone, a tie at the highest generation and a full record before any effect",
+      "V3 / restore refuses requests no writer writes before any effect"
+    ],
+    "restore-keeps-the-backup-rule": [
+      "V3 / restore writes the intact copy of the highest generation with a recovery hold",
+      "V3 / restore writes ELIGIBLE with scope bit 1 when no copy is intact",
+      "V3 / restore writes the last known state with a recovery hold",
+      "restore / seed-synced",
+      "restore / backup-renamed",
+      "restore / backup-published",
+      "restore / write-started",
+      "restore / main-synced",
+      "restore / reserve-synced",
+      "restore / backup-unlink",
+      "restore / backup-unlinked"
+    ],
+    "restore-retry-not-confirmed": [
+      "V3 / restore keeps a held recovery hold and confirms its own retry",
+      "V3 / restore writes the last known state with a recovery hold",
+      "restore / backup-renamed",
+      "restore / backup-published",
+      "restore / write-started",
+      "restore / main-synced",
+      "restore / reserve-synced",
+      "restore / backup-unlink",
+      "restore / backup-unlinked",
+      "restore without an intact copy / backup-renamed",
+      "restore without an intact copy / backup-published",
+      "restore without an intact copy / write-started",
+      "restore without an intact copy / main-synced",
+      "restore without an intact copy / reserve-synced",
+      "restore without an intact copy / backup-unlink",
+      "restore without an intact copy / backup-unlinked"
+    ],
+    "restore-under-earlier-formats": [
+      "V1 / every transition refuses before any effect",
+      "V2 / every transition refuses before any effect",
+      "V1 / every lifecycle transaction refuses before any effect",
+      "V2 / every lifecycle transaction refuses before any effect"
     ]
   },
   "round_2": {
@@ -514,12 +717,12 @@
     "not_added": "A mutant that drops the actor serial from the order is the same defect as comparing the grant first: two entries of one class always differ in their grant references, so the same cases catch it and no case can tell them apart."
   },
   "store_by_label": {
-    "new-format": 31,
+    "new-format": 42,
     "legacy": 1,
     "production": 1
   },
   "transactions_by_label": {
-    "new-format": 25,
+    "new-format": 37,
     "legacy": 2,
     "production": 2
   },
@@ -671,5 +874,42 @@
       "v3-update-keeps-version-1-rule"
     ],
     "equivalent": "The user ID half of the V3 identity rule: the generic update's user addition check also refuses a principal moved to another Android user, so only the serial half has a mutant."
+  },
+  "p2b_checkpoint_1": {
+    "changes": "NativeIdentityPersistence gains BootFacts and its pure helper bootFacts, built from one durable read: the accounts RETIRED there, the selected ticketed tombstones and the RELEASING entries whose slot reads as missing. The store gains beginSlotDisposition, dischargeSlotDisposition and restoreSlot, the recovery route's writer and the only writer of a recovery hold, with writableDispositionReceipts and writableRecoveryHold. The persistence gains beginDisposition and confirmDisposition, each only in a retired boot, and restore. Each refuses under Format.V1 and V2 before any effect. The existing V1 and V2 store and transaction cases also run the new transitions and transactions, with their names and counts unchanged.",
+    "changed_counts": {
+      "mutants": [
+        94,
+        131
+      ],
+      "store": [
+        33,
+        44
+      ],
+      "transactions": [
+        29,
+        41
+      ],
+      "faults": [
+        48,
+        80
+      ]
+    },
+    "unchanged_counts": {
+      "codec": 47,
+      "reads": 60,
+      "goldens": 9
+    },
+    "fault_kinds_added": [
+      "beginDisposition",
+      "confirmDisposition",
+      "restore",
+      "restore without an intact copy"
+    ],
+    "caught_only_through_an_exception": [
+      "disposition-from-any-state",
+      "restore-past-allotment"
+    ],
+    "equivalent_checks_without_a_mutant": "The lifecycle format checks of beginDisposition and confirmDisposition are equivalent: under Format.V1 and V2 a RETIRED record is a version 2 slot, an unsupported footprint there, so no binding exists for them to reach. The restore mutant removes all three of its format checks together, because each alone is equivalent to the others. The known inventory checks of the two disposition rules are equivalent to the decoder rule that refuses RETIRED with an unknown inventory."
   }
 }

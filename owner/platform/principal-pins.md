@@ -126,17 +126,25 @@ body restores a RETIRING pin, and only a body in the policy's Eligible state, EL
 suspension entry, owns a scan or restores as a reservation.
 
 Under Format.V3 the store changes a lifecycle only through named transitions: suspend and lift
-change suspension entries, retire writes the retirement block, and confirm retired discharges the
-retirement kinds. The state only moves forward. A written retirement block never changes, except
-that a legacy marker's unknown inventory continues once to every kind outstanding. No user leaves a
-slot until the release engine exists, and the generic update keeps every lifecycle, every user's
-identity and a tombstone's release ticket, which only the release engine writes. The writers are
-narrower than the decoder: no recovery hold or scope bit 0 is written, a reason must be in the
-registry and allowed for its actor class, an account user entry or retirement names the account's
-own user and serial, the six entries are allotted one to the account's user, one to a recovery
-hold and four to grants, no writer creates a legacy marker or a user removal, and an obligation's
-reference is bound once. The persistence transactions suspend, lift, markRetiring and markRetired
-carry these through for one exact binding. A fifth grant or a seventh actor gets an explicit full
+change suspension entries, retire writes the retirement block, confirm retired discharges the
+retirement kinds, the deletion or migration step moves every disposition kind to DISPOSING at once,
+and confirm disposal discharges a DISPOSING kind. The state only moves forward. A written retirement
+block never changes, except that a legacy marker's unknown inventory continues once to every kind
+outstanding. No user leaves a slot until the release engine exists, and the generic update keeps
+every lifecycle, every user's identity and a tombstone's release ticket, which only the release
+engine writes. The writers are narrower than the decoder: no writer sets scope bit 0, only Restore
+writes a recovery hold, a reason must be in the registry and allowed for its actor class, an
+account user entry or retirement names the account's own user and serial, the six entries are
+allotted one to the account's user, one to a recovery hold and four to grants, no writer creates a
+legacy marker, a user removal or an orphaned kind, and an obligation's reference is bound once. The
+persistence transactions suspend, lift, markRetiring, markRetired, beginDisposition and
+confirmDisposition carry these through for one exact binding. The last two run only in a retired
+boot: the boot facts, built once from the boot read, must show the account RETIRED. The deletion
+or migration step refuses beside an entry with scope bit 0. Restore, the recovery route's writer,
+writes an account's last known state, the intact copy of the highest generation, with a recovery
+hold, or ELIGIBLE with a hold of scope bit 1 when no copy is intact. It needs no valid read of the
+slot, and the hold keeps the restored account inactive, because a recovery hold has no lift path
+in this stage. A fifth grant or a seventh actor gets an explicit full
 result, and a repeated suspension by the same actor confirms its entry unchanged, with a distinct
 result when the request differs from it. Each transaction refuses under Format.V1 and Format.V2
 before any effect, and under Format.V3 the version 1 marker and release refuse. Publication refuses

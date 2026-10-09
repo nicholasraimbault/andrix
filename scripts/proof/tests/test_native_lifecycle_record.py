@@ -83,12 +83,15 @@ class LifecycleRecordSourceTests(unittest.TestCase):
     def test_case_names_and_counts(self):
         predictions = json.loads(runner.PREDICTIONS.read_text())
         self.assertIn('PREDICTED', predictions['status'])
-        self.assertEqual(predictions['cases'], {'codec': 47, 'reads': 60, 'goldens': 9, 'mutants': 94, 'store': 33,
-                                                'transactions': 29, 'faults': 48})
+        self.assertEqual(predictions['cases'], {'codec': 47, 'reads': 60, 'goldens': 9, 'mutants': 131, 'store': 44,
+                                                'transactions': 41, 'faults': 80})
         self.assertEqual((len(runner.CODEC_NAMES), len(runner.READ_NAMES), len(runner.STORE_NAMES),
-                          len(runner.TRANSACTION_NAMES), len(runner.FAULT_NAMES)), (47, 60, 33, 29, 48))
-        self.assertEqual(predictions['store_by_label'], {'new-format': 31, 'legacy': 1, 'production': 1})
-        self.assertEqual(predictions['transactions_by_label'], {'new-format': 25, 'legacy': 2, 'production': 2})
+                          len(runner.TRANSACTION_NAMES), len(runner.FAULT_NAMES)), (47, 60, 44, 41, 80))
+        self.assertEqual(predictions['store_by_label'], {'new-format': 42, 'legacy': 1, 'production': 1})
+        self.assertEqual(predictions['transactions_by_label'], {'new-format': 37, 'legacy': 2, 'production': 2})
+        # P2b's fault kinds: the two disposition transactions and Restore, with and without an intact copy.
+        self.assertEqual(runner.FAULT_KINDS[6:], ('beginDisposition', 'confirmDisposition', 'restore',
+                                                  'restore without an intact copy'))
         self.assertEqual(predictions['reads_by_label'], {'legacy': 20, 'production': 20, 'new-format': 20})
         for format_name in ('V1', 'V2', 'V3'):
             self.assertEqual(len(runner.read_names(format_name)), 20)

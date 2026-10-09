@@ -8,6 +8,7 @@ import com.android.server.pm.NativeIdentityRecords.HeaderEntry;
 import com.android.server.pm.NativeIdentityRecords.Lifecycle;
 import com.android.server.pm.NativeIdentityRecords.LifecycleState;
 import com.android.server.pm.NativeIdentityRecords.Obligation;
+import com.android.server.pm.NativeIdentityRecords.ObligationState;
 import com.android.server.pm.NativeIdentityRecords.Retirement;
 import com.android.server.pm.NativeIdentityRecords.Slot;
 import com.android.server.pm.NativeIdentityRecords.SlotPhase;
@@ -66,18 +67,21 @@ import java.util.TreeSet;
  * snapshots throw {@link IllegalArgumentException}, and so does a lifecycle request that no
  * writer of this stage writes. Both happen before any effect.
  *
- * <p>The lifecycle transactions, suspend, lift, markRetiring with a {@link Retirement} and
- * markRetired, write version 2 slots. Each refuses under a format whose slot ceiling is 1
- * before any effect, and the store's named transitions apply the lifecycle record's store
- * rules again. Under the lifecycle format the version 1 retirement marker and the final
- * release refuse before any effect: the marker would drop suspension entries and create a
- * legacy marker, and a user leaves a slot only through the release engine, which does not
- * exist yet.
+ * <p>The lifecycle transactions, suspend, lift, markRetiring with a {@link Retirement},
+ * markRetired, beginDisposition, confirmDisposition and restore, write version 2 slots. Each
+ * refuses under a format whose slot ceiling is 1 before any effect, and the store's named
+ * transitions and Restore writer apply the lifecycle record's store rules again. Disposition runs
+ * only in a retired boot, which the caller's {@link BootFacts} show. Restore is the recovery
+ * route's writer, and only it writes a recovery hold. Under the lifecycle format the version 1
+ * retirement marker and the final release refuse before any effect: the marker would drop
+ * suspension entries and create a legacy marker, and a user leaves a slot only through the
+ * release engine, which does not exist yet.
  *
  * <p>Pure static helpers shared by real Settings and its host facade interpret the store's
- * historical identities: the pins a view restores, the exact record a history names and the
- * rule that decides whether actual Package Manager state may own a scanned history. They do no
- * I/O, create no PackageSetting, mapping or UID and take nothing from a current APK.
+ * historical identities: the pins a view restores, the exact record a history names, the rule
+ * that decides whether actual Package Manager state may own a scanned history and one boot's
+ * {@link BootFacts}. They do no I/O, create no PackageSetting, mapping or UID and take nothing
+ * from a current APK.
  */
 final class NativeIdentityPersistence {
     private static final int USER_SYSTEM = 0;
@@ -186,8 +190,90 @@ final class NativeIdentityPersistence {
         }
     }
 
+    /**
+     * What one boot's durable read showed at its start, for the rules that need a boot after an
+     * earlier one: the accounts that were RETIRED, the ticketed tombstones and the RELEASING entries
+     * without a directory. Disposition and release need this evidence. The cached store view, the
+     * recovery view and the remembered histories are not evidence, because each changes after the
+     * boot read: every store read replaces the view, and histories grow as accounts appear and do
+     * not exist for tombstones. Immutable and memory only. Only {@link #bootFacts} builds it, from a
+     * read. Real Settings assigns it once, at construction, from its boot read and never again, and
+     * defers each named package. It grants nothing by itself.
+     */
+    static final class BootFacts {
+        /** Unmodifiable, by app ID: the record of each account that the boot read showed RETIRED. */
+        final Map<Integer, NativePrincipalPins.Record> retired;
+        /**
+         * Unmodifiable, by app ID: the selected tombstone that carries a release ticket, as the boot
+         * read showed it. Its ticket names the last principal, user and serial.
+         */
+        final Map<Integer, Slot> ticketedTombstones;
+        /**
+         * Unmodifiable: the app IDs of RELEASING header entries whose slot held no record copy, so
+         * the directory was gone or emptied by release, as the boot read showed them.
+         */
+        final Set<Integer> releasingWithoutDirectory;
+
+        private BootFacts(Map<Integer, NativePrincipalPins.Record> retired,
+                Map<Integer, Slot> ticketedTombstones, Set<Integer> releasingWithoutDirectory) {
+            this.retired = Collections.unmodifiableMap(new TreeMap<>(retired));
+            this.ticketedTombstones = Collections.unmodifiableMap(new TreeMap<>(ticketedTombstones));
+            this.releasingWithoutDirectory = Collections.unmodifiableSet(
+                    new TreeSet<>(releasingWithoutDirectory));
+        }
+
+        /**
+         * Whether this boot began with exactly this account RETIRED: a retired boot for it. Its
+         * package was then deferred at seeding and at the scan, and nothing under its UID started.
+         */
+        boolean retiredBoot(NativePrincipalPins.Record record) {
+            return record.equals(retired.get(record.appId));
+        }
+    }
+
     NativeIdentityPersistence(NativeIdentityStore store) {
         this.store = Objects.requireNonNull(store, "store");
+    }
+
+    /**
+     * The shared boot facts helper of real Settings and its host facade: the boot facts of this
+     * durable read. Pure: no I/O, and nothing is taken from an APK, a PackageSetting or a remembered
+     * history. An account is RETIRED only in an eligible binding's selected value, a ticketed
+     * tombstone only as a selected valid tombstone, and a RELEASING entry lacks its directory only
+     * when the selected valid header lists it and its slot reads as missing, with no copy, decoded
+     * or not. Damaged, conflicting or unsupported records give no fact. Under a format whose slot
+     * ceiling is 1, no version 2 slot is valid, so the facts hold no RETIRED account and no ticketed
+     * tombstone.
+     */
+    static BootFacts bootFacts(NativeIdentityStore.Loaded loaded) {
+        Objects.requireNonNull(loaded, "loaded");
+        Map<Integer, NativePrincipalPins.Record> retired = new TreeMap<>();
+        Map<Integer, Slot> tombstones = new TreeMap<>();
+        Set<Integer> releasing = new TreeSet<>();
+        for (Map.Entry<Integer, NativeIdentityStore.ReadResult<Slot>> held : loaded.slots.entrySet()) {
+            int appId = held.getKey();
+            NativeIdentityStore.ReadResult<Slot> read = held.getValue();
+            if (loaded.bindingUsable(appId) && read.value.users.size() == 1) {
+                UserEntry user = read.value.users.get(0);
+                if (user.lifecycle.state == LifecycleState.RETIRED) {
+                    retired.put(appId, new NativePrincipalPins.Record(user.id,
+                            read.value.packageName, appId, user.userId, user.userSerial));
+                }
+            } else if (read.status == NativeIdentityStore.Status.VALID && loaded.enumerationComplete
+                    && loaded.header.status != NativeIdentityStore.Status.UNSUPPORTED
+                    && !loaded.header.unavailable && read.value.users.isEmpty()
+                    && read.value.ticket != null) {
+                tombstones.put(appId, read.value);
+            }
+        }
+        if (loaded.enumerationComplete && loaded.header.status == NativeIdentityStore.Status.VALID) {
+            for (HeaderEntry entry : loaded.header.value.entries) {
+                NativeIdentityStore.ReadResult<Slot> read = loaded.slots.get(entry.appId);
+                if (entry.phase == SlotPhase.RELEASING && read != null
+                        && read.status == NativeIdentityStore.Status.MISSING) releasing.add(entry.appId);
+            }
+        }
+        return new BootFacts(retired, tombstones, releasing);
     }
 
     /** Read only discovery of every hold and eligible record. Creates and repairs nothing. */
@@ -691,6 +777,128 @@ final class NativeIdentityPersistence {
                     && store.confirmExistingSlot(slot);
         }
         return store.markSlotRetired(slot, record.id, copy);
+    }
+
+    /**
+     * Begin deletion or migration: the exact RETIRED binding of this user 0 record durably has
+     * every disposition kind DISPOSING at once, before anything is deleted. The caller has
+     * established that the account's own user, or the grant holder with destructive confirmation,
+     * asked for it. It is never automatic. Once it is durable, the DISPOSING kinds complete, because
+     * a partial deletion cannot be safely paused. Its retry, once every disposition kind is
+     * DISPOSING or DISCHARGED, confirms it.
+     *
+     * <p>Allowed only in a retired boot: facts, the boot facts of this boot, must show exactly this
+     * account RETIRED. Refused while any suspension entry with scope bit 0 exists, which no writer
+     * of this stage sets, and beside a kind orphaned with its Android user, which stage C owns.
+     * Needs the lifecycle format, a known inventory and only an intact binding with the expected
+     * signers. Every refusal comes before any effect.
+     *
+     * @throws IllegalArgumentException for malformed signers
+     */
+    boolean beginDisposition(NativePrincipalPins.Record record, Set<String> expectedSigners,
+            BootFacts facts) {
+        Objects.requireNonNull(record, "record");
+        Set<String> signers = signers(expectedSigners);
+        Objects.requireNonNull(facts, "facts");
+        if (!lifecycleFormat() || !facts.retiredBoot(record)) return false;
+        Slot slot = bound(store.load(), record);
+        if (slot == null || !slot.signerSha256.equals(signers)) return false;
+        Lifecycle lifecycle = slot.users.get(0).lifecycle;
+        if (lifecycle.state == LifecycleState.RETIRED && dispositionBegun(lifecycle.retirement)) {
+            return store.confirmExistingSlot(slot);
+        }
+        return store.beginSlotDisposition(slot, record.id);
+    }
+
+    /**
+     * Confirm disposal: in the exact RETIRED binding of this user 0 record, each disposition kind
+     * a receipt names durably moves from DISPOSING to DISCHARGED. The storage, key and policy owners
+     * give their receipts on observed evidence. A receipt may discharge a kind with no bound
+     * reference, and a bound reference never changes or becomes zero. Its exact retry, every
+     * receipt already as the record holds it, confirms it.
+     *
+     * <p>Allowed only in a retired boot, as for {@link #beginDisposition}. An outstanding kind
+     * refuses until deletion or migration began, and a kind orphaned with its Android user refuses:
+     * stage C defines its discharge. Needs the lifecycle format and only an intact binding with the
+     * expected signers. Every refusal comes before any effect.
+     *
+     * @throws IllegalArgumentException for receipts that are not DISCHARGED obligations of
+     *     disposition kinds in strictly ascending kind order, and for malformed signers
+     */
+    boolean confirmDisposition(NativePrincipalPins.Record record, Set<String> expectedSigners,
+            List<Obligation> receipts, BootFacts facts) {
+        Objects.requireNonNull(record, "record");
+        Set<String> signers = signers(expectedSigners);
+        List<Obligation> copy = List.copyOf(Objects.requireNonNull(receipts, "receipts"));
+        Objects.requireNonNull(facts, "facts");
+        if (!NativeIdentityStore.writableDispositionReceipts(copy)) {
+            throw new IllegalArgumentException("not receipts of disposition kinds");
+        }
+        if (!lifecycleFormat() || !facts.retiredBoot(record)) return false;
+        Slot slot = bound(store.load(), record);
+        if (slot == null || !slot.signerSha256.equals(signers)) return false;
+        Lifecycle lifecycle = slot.users.get(0).lifecycle;
+        if (lifecycle.state == LifecycleState.RETIRED
+                && lifecycle.retirement.obligations.containsAll(copy)) {
+            return store.confirmExistingSlot(slot);
+        }
+        return store.dischargeSlotDisposition(slot, record.id, copy);
+    }
+
+    /**
+     * Restore, for the independent recovery route only: durably writes the last known state of
+     * this user 0 record's account, with this recovery hold, into its existing slot. The last known
+     * state is the intact copy with the highest generation among the slot's main, reserve and
+     * backup, never an earlier one. If no copy is intact, the state cannot be established, and the
+     * account is written ELIGIBLE with the hold and scope bit 1, which tells whoever lifts the hold
+     * that the account may have been retired. The hold keeps the restored account from becoming
+     * active directly: every activation point refuses a suspended account, and a recovery hold has
+     * no lift path in this stage. A restored RETIRING or RETIRED account restores a RETIRING pin.
+     * If the account already holds a recovery hold, that hold stays as it is. The header entry
+     * stays as found.
+     *
+     * <p>The caller names the account by its record, the store lineage and its original signer
+     * set, from the recovery route's own evidence. The record's own CREATING entry must match it,
+     * and no other slot or reservation may claim its package or principal ID. Restore needs a
+     * valid header of the expected lineage that holds the app ID, and the slot directory with at
+     * least one copy, intact or not. It needs no valid read of the slot: it is the one writer for
+     * a damaged or conflicting record. A missing body, an unsupported footprint, a RELEASING entry,
+     * a copy of another account, lineage or package, a tombstone, two different intact copies of
+     * the highest generation and an account without a free place for the hold refuse before any
+     * effect. No production caller exists.
+     *
+     * @throws IllegalArgumentException for a hold no writer writes: see
+     *     {@link NativeIdentityStore#writableRecoveryHold}; and for a malformed lineage or signers
+     */
+    boolean restore(NativePrincipalPins.Record record, String expectedLineage,
+            Set<String> expectedSigners, Suspension hold) {
+        Objects.requireNonNull(record, "record");
+        checkLineage(expectedLineage);
+        Set<String> signers = signers(expectedSigners);
+        Objects.requireNonNull(hold, "hold");
+        if (!NativeIdentityStore.writableRecoveryHold(hold)) {
+            throw new IllegalArgumentException("recovery hold outside the writer rules");
+        }
+        if (!lifecycleFormat() || record.userId != USER_SYSTEM) return false;
+        NativeIdentityStore.Loaded loaded = store.load();
+        if (!loaded.enumerationComplete
+                || loaded.header.status != NativeIdentityStore.Status.VALID) return false;
+        // The store checks the header's lineage, entry and counter against the account itself.
+        if (liveElsewhere(loaded, record)) return false;
+        Slot account = new Slot(expectedLineage, record.appId, record.packageName, 1, signers,
+                List.of(new UserEntry(record.id, record.userId, record.userSerial, false)));
+        return store.restoreSlot(loaded.header.value, account, hold);
+    }
+
+    // Whether the deletion or migration step already began: no disposition kind is OUTSTANDING or
+    // orphaned with its Android user. Only that step moves a disposition kind out of OUTSTANDING.
+    private static boolean dispositionBegun(Retirement retirement) {
+        if (retirement.obligations.isEmpty()) return false;
+        for (Obligation duty : retirement.obligations) {
+            if (duty.kind.disposition() && duty.state != ObligationState.DISPOSING
+                    && duty.state != ObligationState.DISCHARGED) return false;
+        }
+        return true;
     }
 
     // Whether this store's format reads and writes version 2 slots, which carry lifecycle

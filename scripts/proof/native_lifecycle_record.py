@@ -3,8 +3,9 @@
 """Guarded host qualification of the native account lifecycle record codec, its readers and its
 first writers: the slot version 2 codec, the stable prefix reader of later slot versions and the
 reads of every store format, as B1 package P1 of plans/2026-10-08-native-lifecycle-record.md
-defines them, and the store's named lifecycle transitions with the suspend, lift, markRetiring and
-markRetired transactions of package P2a, with their fault sweeps.
+defines them, the store's named lifecycle transitions with the suspend, lift, markRetiring and
+markRetired transactions of package P2a, and the boot facts, the deletion or migration step, confirm
+disposal and Restore of package P2b, with their fault sweeps.
 
 Pure source checks run first. An independent encoder, written here from the plan's layout alone,
 gives every version 2 golden. Each must have the length and SHA-256 that the Java codec test pins,
@@ -311,6 +312,20 @@ STORE_NAMES = (
     'V3 / every transition refuses at the last generation before any effect',
     "V3 / every transition refuses beside a later slot version's footprint",
     'V3 / a header phase change completes a suspended body',
+    # P2b: the deletion or migration step, confirm disposal and Restore.
+    'V3 / the deletion step moves every disposition kind to DISPOSING at once and changes nothing else',
+    'V3 / the deletion step refuses beside scope bit 0, an orphaned kind or a deletion that began before any effect',
+    'V3 / the deletion step refuses an account that is not RETIRED before any effect',
+    'V3 / confirm disposal discharges each DISPOSING kind it names and keeps everything else',
+    'V3 / confirm disposal refuses outstanding and orphaned kinds and receipts no writer writes before any effect',
+    'V3 / confirm disposal binds a reference once and keeps a discharged kind',
+    'V3 / restore writes the intact copy of the highest generation with a recovery hold',
+    'V3 / restore writes ELIGIBLE with scope bit 1 when no copy is intact',
+    'V3 / restore refuses copies of another account, a tombstone, a tie at the highest generation and a full record'
+    ' before any effect',
+    'V3 / restore refuses a RELEASING or missing entry, a stale header, a footprint and a missing body before any'
+    ' effect',
+    'V3 / restore keeps a held recovery hold and confirms its own retry',
     *('%s / every transition refuses before any effect' % format_name for format_name in ('V1', 'V2')))
 # The lifecycle transaction test: the persistence transactions under Format.V3, then each earlier
 # format's refusals and its version 1 marker and release.
@@ -340,13 +355,28 @@ TRANSACTION_NAMES = (
     'V3 / the version 1 release refuses before any effect',
     'V3 / every lifecycle transaction needs only an intact binding',
     'V3 / a damaged, foreign or unbound record is never written',
+    # P2b: the boot facts, disposition in a retired boot, and Restore.
+    'V3 / the boot facts name RETIRED accounts, ticketed tombstones and RELEASING entries without a directory',
+    'V3 / disposition waits for a boot that began with the account RETIRED',
+    'V3 / beginDisposition moves every disposition kind to DISPOSING and confirms its retry',
+    'V3 / beginDisposition refuses outside a retired boot, beside scope bit 0 and for an orphaned kind before any'
+    ' effect',
+    'V3 / confirmDisposition discharges per kind and confirms its retry',
+    'V3 / confirmDisposition refuses outside a retired boot and before deletion began before any effect',
+    'V3 / confirmDisposition refuses receipts that are not disposal receipts before any effect',
+    'V3 / restore writes the last known state with a recovery hold',
+    'V3 / restore writes ELIGIBLE with scope bit 1 when the state cannot be established',
+    'V3 / a restored record never becomes active directly',
+    'V3 / restore refuses requests no writer writes before any effect',
+    'V3 / restore refuses another claim, lineage or counter and a missing body before any effect',
     *('%s / %s' % (format_name, case) for format_name in ('V1', 'V2')
       for case in ('every lifecycle transaction refuses before any effect',
                    'the version 1 marker and release still work')))
 # The fault sweeps: each lifecycle transaction, failed at each writer step of the strict slot writer.
 FAULT_STEPS = ('seed-synced', 'backup-renamed', 'backup-published', 'write-started', 'main-synced',
                'reserve-synced', 'backup-unlink', 'backup-unlinked')
-FAULT_KINDS = ('suspend', 'repeated suspension', 'lift', 'markRetiring', 'legacy continuation', 'markRetired')
+FAULT_KINDS = ('suspend', 'repeated suspension', 'lift', 'markRetiring', 'legacy continuation', 'markRetired',
+               'beginDisposition', 'confirmDisposition', 'restore', 'restore without an intact copy')
 FAULT_NAMES = tuple('%s / %s' % (kind, step) for kind in FAULT_KINDS for step in FAULT_STEPS)
 
 # ---------------------------------------------------------------- deliberate defects
@@ -705,6 +735,155 @@ MUTANTS = {
         '        if (lifecycle.state == LifecycleState.RETIRED) {\n'
         '            return lifecycle.retirement.obligations.containsAll(copy)\n'
         '                    && store.confirmExistingSlot(slot);\n        }\n', ''),), ('transactions', 'faults')),
+    # P2b boot facts: only an account RETIRED at the boot read, a selected ticketed tombstone and a
+    # RELEASING entry whose slot reads as missing are facts.
+    'boot-facts-name-retiring': (((PERSISTENCE,
+        '                if (user.lifecycle.state == LifecycleState.RETIRED) {\n',
+        '                if (user.lifecycle.state != LifecycleState.ELIGIBLE) {\n'),), ('transactions',)),
+    'boot-facts-name-unticketed-tombstones': (((PERSISTENCE,
+        '                    && read.value.ticket != null) {\n', '                    ) {\n'),), ('transactions',)),
+    'boot-facts-releasing-beside-copies': (((PERSISTENCE,
+        '                        && read.status == NativeIdentityStore.Status.MISSING) releasing.add(entry.appId);\n',
+        '                        && read.status != NativeIdentityStore.Status.VALID) releasing.add(entry.appId);\n'),),
+        ('transactions',)),
+    # Disposition: a retired boot, every disposition kind at once, scope bit 0, and the obligation
+    # transitions DISPOSING to DISCHARGED only, each reference bound once.
+    'disposition-outside-retired-boot': (((PERSISTENCE,
+        '        if (!lifecycleFormat() || !facts.retiredBoot(record)) return false;\n'
+        '        Slot slot = bound(store.load(), record);\n'
+        '        if (slot == null || !slot.signerSha256.equals(signers)) return false;\n'
+        '        Lifecycle lifecycle = slot.users.get(0).lifecycle;\n'
+        '        if (lifecycle.state == LifecycleState.RETIRED && dispositionBegun(',
+        '        if (!lifecycleFormat()) return false;\n'
+        '        Slot slot = bound(store.load(), record);\n'
+        '        if (slot == null || !slot.signerSha256.equals(signers)) return false;\n'
+        '        Lifecycle lifecycle = slot.users.get(0).lifecycle;\n'
+        '        if (lifecycle.state == LifecycleState.RETIRED && dispositionBegun('),), ('transactions',)),
+    'disposal-outside-retired-boot': (((PERSISTENCE,
+        '        if (!lifecycleFormat() || !facts.retiredBoot(record)) return false;\n'
+        '        Slot slot = bound(store.load(), record);\n'
+        '        if (slot == null || !slot.signerSha256.equals(signers)) return false;\n'
+        '        Lifecycle lifecycle = slot.users.get(0).lifecycle;\n'
+        '        if (lifecycle.state == LifecycleState.RETIRED\n',
+        '        if (!lifecycleFormat()) return false;\n'
+        '        Slot slot = bound(store.load(), record);\n'
+        '        if (slot == null || !slot.signerSha256.equals(signers)) return false;\n'
+        '        Lifecycle lifecycle = slot.users.get(0).lifecycle;\n'
+        '        if (lifecycle.state == LifecycleState.RETIRED\n'),), ('transactions',)),
+    # One kind moves to DISPOSING alone.
+    'disposition-kind-alone': (((STORE,
+        '            if (!duty.kind.disposition()) continue;\n'
+        '            // Every disposition kind at once, and only from OUTSTANDING.\n',
+        '            if (duty.kind != ObligationKind.ANDROID_STATE) continue;\n'
+        '            // Every disposition kind at once, and only from OUTSTANDING.\n'),), ('store', 'transactions', 'faults')),
+    'disposition-beside-scope-bit-0': (((STORE, '        if (dispositionBlocked(prior)) return null;\n', ''),),
+                                       ('store', 'transactions')),
+    'disposition-over-orphaned': (((STORE,
+        '            boolean outstanding = duty.state == ObligationState.OUTSTANDING;\n',
+        '            boolean outstanding = duty.state != ObligationState.DISCHARGED;\n'),),
+        ('store', 'transactions')),
+    'disposition-from-any-state': (((STORE,
+        '        if (prior.state != LifecycleState.RETIRED) return null;\n'
+        '        // No writer sets scope bit 0 yet', '        // No writer sets scope bit 0 yet'),), ('store',)),
+    'disposal-from-outstanding': (((STORE,
+        '            if (duty.state != ObligationState.DISPOSING) return null;\n',
+        '            if (duty.state == ObligationState.ORPHANED_WITH_USER) return null;\n'),), ('store', 'transactions')),
+    'disposal-over-orphaned': (((STORE,
+        '            if (duty.state != ObligationState.DISPOSING) return null;\n',
+        '            if (duty.state == ObligationState.OUTSTANDING) return null;\n'),), ('store', 'transactions')),
+    'disposal-reference-bound-again': (((STORE,
+        '            if (bound && !duty.reference.equals(receipt.reference)) return null;\n', ''),), ('store',)),
+    'disposal-discharged-kind-changed': (((STORE,
+        '                if (duty.equals(receipt)) continue;\n                return null;\n',
+        '                obligations.set(index, receipt);\n                continue;\n'),), ('store',)),
+    'disposal-receipts-request-unchecked': (((PERSISTENCE,
+        '        if (!NativeIdentityStore.writableDispositionReceipts(copy)) {\n'
+        '            throw new IllegalArgumentException("not receipts of disposition kinds");\n'
+        '        }\n', ''),), ('transactions',)),
+    'store-disposal-receipts-unchecked': (((STORE,
+        '        if (!writableDispositionReceipts(receipts) || prior.state != LifecycleState.RETIRED) {\n',
+        '        if (prior.state != LifecycleState.RETIRED) {\n'),), ('store',)),
+    'disposal-receipt-kinds-unchecked': (((STORE,
+        '            if (!receipt.kind.disposition() || receipt.state != ObligationState.DISCHARGED\n',
+        '            if (receipt.state != ObligationState.DISCHARGED\n'),), ('store', 'transactions')),
+    'disposal-receipt-order-unchecked': (((STORE,
+        '                    || receipt.kind.code <= last) return false;\n', '                    ) return false;\n'),),
+        ('store', 'transactions')),
+    'disposition-retry-refused': (((PERSISTENCE,
+        '        if (lifecycle.state == LifecycleState.RETIRED && dispositionBegun(lifecycle.retirement)) {\n'
+        '            return store.confirmExistingSlot(slot);\n        }\n', ''),), ('transactions', 'faults')),
+    'disposal-retry-refused': (((PERSISTENCE,
+        '                && lifecycle.retirement.obligations.containsAll(copy)) {\n'
+        '            return store.confirmExistingSlot(slot);\n        }\n'
+        '        return store.dischargeSlotDisposition(slot, record.id, copy);\n',
+        '                && copy == null) {\n'
+        '            return store.confirmExistingSlot(slot);\n        }\n'
+        '        return store.dischargeSlotDisposition(slot, record.id, copy);\n'),), ('transactions', 'faults')),
+    # Restore: the last known state is the intact copy of the highest generation, held, or ELIGIBLE
+    # held with scope bit 1 when no copy is intact; never over another account, a tie or a releasing
+    # entry, and its exact retry is a confirmation.
+    'restored-without-hold': (((STORE,
+        '        entries.add(hold);\n        entries.sort(NativeIdentityRecords::order);\n        UserEntry user =',
+        '        entries.sort(NativeIdentityRecords::order);\n        UserEntry user ='),),
+        ('store', 'transactions', 'faults')),
+    'restore-from-lowest-generation': (((STORE,
+        '            if (last == null || copy.generation > last.generation) last = copy;\n',
+        '            if (last == null || copy.generation < last.generation) last = copy;\n'),),
+        ('store', 'transactions', 'faults')),
+    'restore-from-selected-copy': (((STORE,
+        '        Slot next = restoration(read.decodedCopies, account, hold);\n',
+        '        Slot next = restoration(read.status == Status.VALID ? List.of(read.value) : read.decodedCopies,\n'
+        '                account, hold);\n'),), ('store',)),
+    'unknown-state-without-scope-bit-1': (((STORE,
+        '                    NativeIdentityRecords.SCOPE_PRIOR_UNKNOWN, hold.actorUserId, hold.actorSerial,\n',
+        '                    0, hold.actorUserId, hold.actorSerial,\n'),), ('store', 'transactions', 'faults')),
+    'known-state-with-scope-bit-1': (((STORE,
+        '        entries.add(hold);\n        entries.sort(NativeIdentityRecords::order);\n        UserEntry user =',
+        '        entries.add(new Suspension(hold.actorClass, NativeIdentityRecords.SCOPE_PRIOR_UNKNOWN,\n'
+        '                hold.actorUserId, hold.actorSerial, hold.grant, hold.reason, hold.time, hold.noteDigest));\n'
+        '        entries.sort(NativeIdentityRecords::order);\n        UserEntry user ='),),
+        ('store', 'transactions', 'faults')),
+    'restore-over-another-account': (((STORE, '            if (!sameAccount(copy, account)) return null;\n', ''),),
+                                     ('store',)),
+    'restore-chooses-in-a-tie': (((STORE,
+        '            if (copy.generation == last.generation && !copy.equals(last)) return null;\n', ''),), ('store',)),
+    'restore-past-allotment': (((STORE, '        if (!placeFree(prior, ActorClass.RECOVERY_HOLD)) return null;\n', ''),),
+                               ('store',)),
+    'restore-under-releasing': (((STORE,
+        '        if (index == null || index.phase == SlotPhase.RELEASING\n',
+        '        if (index == null\n'),), ('store', 'transactions')),
+    'restore-above-counter': (((STORE, '                || account.users.get(0).id > expected.lastId) return false;\n',
+                                '                ) return false;\n'),), ('store', 'transactions')),
+    'restore-beside-a-claim': (((PERSISTENCE, '        if (liveElsewhere(loaded, record)) return false;\n', ''),),
+                               ('transactions',)),
+    'recovery-hold-request-unchecked': (((PERSISTENCE,
+        '        if (!NativeIdentityStore.writableRecoveryHold(hold)) {\n'
+        '            throw new IllegalArgumentException("recovery hold outside the writer rules");\n'
+        '        }\n', ''),), ('transactions',)),
+    'store-recovery-hold-unchecked': (((STORE,
+        '        if (!writableRecoveryHold(hold) || account.generation != 1 || account.users.size() != 1\n',
+        '        if (account.generation != 1 || account.users.size() != 1\n'),), ('store',)),
+    'recovery-hold-reason-unchecked': (((STORE,
+        '        return reason != null && reason.actors.contains(ActorClass.RECOVERY_HOLD);\n', '        return true;\n'),),
+        ('store', 'transactions')),
+    'recovery-hold-scope-unchecked': (((STORE,
+        '        if (hold.actorClass != ActorClass.RECOVERY_HOLD || hold.scope != 0) return false;\n',
+        '        if (hold.actorClass != ActorClass.RECOVERY_HOLD) return false;\n'),), ('store', 'transactions')),
+    'restore-keeps-the-backup-rule': (((STORE,
+        '        if (preferred != Node.ABSENT && !(restore && preferred == Node.FILE)) {\n',
+        '        if (preferred != Node.ABSENT) {\n'),),
+        ('store', 'transactions', 'faults')),
+    'restore-retry-not-confirmed': (((STORE,
+        '                && recoveryHeld(read.value) && next.equals(advanced(read.value))) {\n',
+        '                && recoveryHeld(read.value) && next == null) {\n'),), ('store', 'transactions', 'faults')),
+    'restore-under-earlier-formats': (((PERSISTENCE,
+        '        if (!lifecycleFormat() || record.userId != USER_SYSTEM) return false;\n',
+        '        if (record.userId != USER_SYSTEM) return false;\n'),
+        (STORE, '        if (format.slotCeiling < LIFECYCLE_SLOT_VERSION) return false;\n'
+                '        if (writeInspectionBlocked(account.appId)) return false;\n',
+         '        if (writeInspectionBlocked(account.appId)) return false;\n'),
+        (STORE, '        if (next == null || next.version > format.slotCeiling) return false;\n',
+         '        if (next == null) return false;\n')), ('store', 'transactions')),
 }
 
 

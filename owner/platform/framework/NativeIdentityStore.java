@@ -131,17 +131,22 @@ import com.android.server.pm.NativeIdentityRecords.UserEntry;
  *
  * Under a format that writes version 2 slots, an account's lifecycle record changes only
  * through the named transitions: addSuspension and liftSuspension change suspension
- * entries, markSlotRetiring writes the retirement block, and markSlotRetired confirms
- * retired. The state only moves forward, ELIGIBLE to RETIRING to RETIRED. A written
- * retirement block never changes, except that a legacy marker's unknown inventory
- * continues once to every kind outstanding. No user leaves a slot: only the release
- * engine, which does not exist yet, will drop a user, RETIRED with every obligation
- * discharged and no suspension entry. The generic update keeps every lifecycle there.
- * A tombstone's release ticket is likewise the release engine's alone. Each transition also
- * applies the writer rules of the lifecycle record, which are narrower than what its
- * decoder accepts: see writableSuspension, placeFree, writableRetirement and
- * writableReceipts. Under the earlier formats every transition refuses at the slot
- * ceiling before its first effect, and version 1's retiring rule stays.
+ * entries, markSlotRetiring writes the retirement block, markSlotRetired confirms
+ * retired, beginSlotDisposition moves every disposition kind to DISPOSING at once and
+ * dischargeSlotDisposition confirms disposal per kind. The state only moves forward, ELIGIBLE
+ * to RETIRING to RETIRED. A written retirement block never changes, except that a legacy
+ * marker's unknown inventory continues once to every kind outstanding, and its obligations
+ * move only forward as the record's obligation transitions list them. No user leaves a slot:
+ * only the release engine, which does not exist yet, will drop a user, RETIRED with every
+ * obligation discharged and no suspension entry. The generic update keeps every lifecycle
+ * there. A tombstone's release ticket is likewise the release engine's alone. Each transition
+ * also applies the writer rules of the lifecycle record, which are narrower than what its
+ * decoder accepts: see writableSuspension, placeFree, writableRetirement, writableReceipts
+ * and writableDispositionReceipts. Restore, the recovery route's writer, is separate: it
+ * writes an account's last known state with a recovery hold over a record that needs no valid
+ * read, and it is the only writer of a recovery hold. Under the earlier formats every
+ * transition and Restore refuse before their first effect, and version 1's retiring rule
+ * stays.
  */
 final class NativeIdentityStore {
     enum Status { MISSING, VALID, DAMAGED, CONFLICT, UNSUPPORTED }
@@ -1366,8 +1371,9 @@ final class NativeIdentityStore {
 
     /**
      * The suspend transition: adds this entry to the account of principal ID id in the expected
-     * slot and changes nothing else. It is the only primitive that adds a suspension entry, and
-     * any lifecycle state may hold entries. The entry must pass {@link #writableSuspension} for
+     * slot and changes nothing else. It is the only transition that adds an entry of the account's
+     * user or of a grant, and any lifecycle state may hold entries. A recovery hold comes only
+     * from {@link #restoreSlot}, the recovery route's writer. The entry must pass {@link #writableSuspension} for
      * that account, whose record holds no entry of the same actor and has a free place for the
      * entry's actor class: see {@link #placeFree}.
      * Otherwise it refuses before any effect, and so it does beside any store footprint, when
@@ -1419,6 +1425,162 @@ final class NativeIdentityStore {
         List<Obligation> copy = List.copyOf(Objects.requireNonNull(receipts));
         UserEntry user = user(expected, id);
         return user != null && writeLifecycle(expected, user, retired(user, copy));
+    }
+
+    /**
+     * The deletion or migration step: a RETIRED account of principal ID id, with a known inventory,
+     * has every disposition kind moved from OUTSTANDING to DISPOSING at once, before anything is
+     * deleted. Each kind keeps its reference, code and time, and every retirement kind, the block's
+     * class, actor, grant and time and every suspension entry stay. It refuses while any suspension
+     * entry with scope bit 0 exists, and beside any disposition kind that is not OUTSTANDING: a kind
+     * orphaned with its Android user belongs to stage C, and a deletion that began never begins
+     * again. Every other account refuses as {@link #addSuspension} does. The retired boot rule is
+     * the caller's, because the store holds no boot facts.
+     */
+    boolean beginSlotDisposition(Slot expected, long id) {
+        Objects.requireNonNull(expected);
+        UserEntry user = user(expected, id);
+        return user != null && writeLifecycle(expected, user, disposing(user));
+    }
+
+    /**
+     * Confirms disposal: in a RETIRED account of principal ID id, each disposition kind that a
+     * receipt names moves from DISPOSING to DISCHARGED, on its owner's observed evidence. The
+     * receipts must pass {@link #writableDispositionReceipts}. A discharged kind stays exactly as it
+     * is, and a bound reference is never bound again. An OUTSTANDING kind waits for the deletion or
+     * migration step, and a kind orphaned with its Android user for stage C. Everything else stays.
+     * Every other account refuses as {@link #addSuspension} does.
+     */
+    boolean dischargeSlotDisposition(Slot expected, long id, List<Obligation> receipts) {
+        Objects.requireNonNull(expected);
+        List<Obligation> copy = List.copyOf(Objects.requireNonNull(receipts));
+        UserEntry user = user(expected, id);
+        return user != null && writeLifecycle(expected, user, dispositionDischarged(user, copy));
+    }
+
+    /**
+     * Restore, the independent recovery route's writer and the only writer of a recovery hold. It
+     * writes the last known state of one account, held, into the account's existing slot directory
+     * and changes nothing else. The header entry stays as found.
+     *
+     * <p>account names the account: it is the value publication creates for it, generation 1 and
+     * ELIGIBLE with no entry, with the lineage, app ID, package, signers and one user's principal
+     * ID, Android user and serial. hold is the recovery hold to place, with scope 0. The last
+     * known state is the intact copy with the highest generation among the slot's main, reserve
+     * and backup, never an earlier one: see {@link #restoration}. The value written is that copy
+     * at the next generation with the hold added, every other field and entry kept. If no copy is
+     * intact, the state cannot be established, and the value written is the account at ELIGIBLE,
+     * generation 1, with the hold and scope bit 1, which tells whoever lifts the hold that the
+     * account may have been retired. A staging seed is never a copy. When the selected value is
+     * already that last known state and holds a recovery hold, the restore is durable and is
+     * confirmed through checked writers instead.
+     *
+     * <p>It needs the selected valid header of the account's lineage, whose counter covers the
+     * principal ID, with a LIVE entry for the app ID or the account's own CREATING entry, the slot
+     * directory and at least one present copy. It refuses before any effect beside any store
+     * footprint, under a RELEASING entry, beside a copy of another lineage, account or package or a
+     * tombstone, beside two different intact copies of the highest generation, when the account
+     * has no free place for a recovery hold, at the last generation and under a format whose slot
+     * ceiling is 1, because a recovery hold needs version 2. Unlike every other slot writer it
+     * replaces a damaged or older preferred backup, after the last known state was chosen from
+     * every intact copy, so it also restores a record that no checked writer can write.
+     */
+    boolean restoreSlot(Header expected, Slot account, Suspension hold) {
+        Objects.requireNonNull(expected); Objects.requireNonNull(account); Objects.requireNonNull(hold);
+        if (format.slotCeiling < LIFECYCLE_SLOT_VERSION) return false;
+        if (writeInspectionBlocked(account.appId)) return false;
+        Loaded loaded = load();
+        ReadResult<Slot> read = loaded.slots.get(account.appId);
+        if (!loaded.enumerationComplete || loaded.unsupportedFootprint || loaded.unavailableFootprint
+                || loaded.header.status != Status.VALID || !loaded.header.value.equals(expected)
+                || read == null || read.status == Status.MISSING || read.unavailable
+                || !directory(slotDirectory(account.appId))) return false;
+        HeaderEntry index = headerEntry(expected, account.appId);
+        // The header stays as found, and a releasing entry never regains a user.
+        if (index == null || index.phase == SlotPhase.RELEASING
+                || (index.phase == SlotPhase.CREATING && !matchesCreation(account, expected, index))
+                || !expected.lineage.equals(account.lineage) || account.users.size() != 1
+                || account.users.get(0).id > expected.lastId) return false;
+        Slot next = restoration(read.decodedCopies, account, hold);
+        if (next == null || next.version > format.slotCeiling) return false;
+        // Its exact retry: the last known state is selected and already held.
+        if (read.status == Status.VALID && read.value.generation + 1 == next.generation
+                && recoveryHeld(read.value) && next.equals(advanced(read.value))) {
+            return confirmExistingSlot(read.value);
+        }
+        return writeStrict(slotFile(account.appId), NativeIdentityRecords.encodeSlot(next), null, true,
+                false, true);
+    }
+
+    /**
+     * The value Restore writes over these decoded copies of one slot, or null when Restore refuses.
+     * Pure. Every copy must be the account's: its lineage, app ID, package, signers and one user's
+     * principal ID, Android user and serial, so Restore never writes over another account, a
+     * foreign lineage or a tombstone. The copy with the highest generation is the last known state,
+     * and two different copies of that generation leave it unestablished, which refuses, rather
+     * than choose between them. With no copy, the state cannot be established: the account at
+     * ELIGIBLE, generation 1, held with scope bit 1. Otherwise the last known state at the next
+     * generation, its state, block and entries kept, with the hold added unless a recovery hold is
+     * already there, as writers allot it a place: see {@link #placeFree}. The hold must pass
+     * {@link #writableRecoveryHold}, and bit 1 is the writer's own, set exactly when the state
+     * cannot be established.
+     */
+    static Slot restoration(List<Slot> copies, Slot account, Suspension hold) {
+        if (!writableRecoveryHold(hold) || account.generation != 1 || account.users.size() != 1
+                || !account.users.get(0).lifecycle.equals(Lifecycle.version1(false))) return null;
+        UserEntry identity = account.users.get(0);
+        Slot last = null;
+        for (Slot copy : copies) {
+            if (!sameAccount(copy, account)) return null;
+            if (last == null || copy.generation > last.generation) last = copy;
+        }
+        if (last == null) {
+            Suspension unknown = new Suspension(ActorClass.RECOVERY_HOLD,
+                    NativeIdentityRecords.SCOPE_PRIOR_UNKNOWN, hold.actorUserId, hold.actorSerial,
+                    hold.grant, hold.reason, hold.time, hold.noteDigest);
+            return new Slot(account.lineage, account.appId, account.packageName, 1,
+                    account.signerSha256, List.of(new UserEntry(identity.id, identity.userId,
+                    identity.userSerial, new Lifecycle(LifecycleState.ELIGIBLE, List.of(unknown), null))));
+        }
+        for (Slot copy : copies) {
+            if (copy.generation == last.generation && !copy.equals(last)) return null;
+        }
+        if (last.generation == Long.MAX_VALUE) return null;
+        if (recoveryHeld(last)) return advanced(last);
+        Lifecycle prior = last.users.get(0).lifecycle;
+        if (!placeFree(prior, ActorClass.RECOVERY_HOLD)) return null;
+        List<Suspension> entries = new ArrayList<>(prior.suspensions);
+        entries.add(hold);
+        entries.sort(NativeIdentityRecords::order);
+        UserEntry user = last.users.get(0);
+        return new Slot(last.lineage, last.appId, last.packageName, last.generation + 1,
+                last.signerSha256, List.of(new UserEntry(user.id, user.userId, user.userSerial,
+                new Lifecycle(prior.state, entries, prior.retirement))));
+    }
+
+    // Whether this copy is the named account's: every identity field, whatever its generation,
+    // lifecycle or entries. A tombstone or a slot of two users never is.
+    private static boolean sameAccount(Slot copy, Slot account) {
+        if (!copy.lineage.equals(account.lineage) || copy.appId != account.appId
+                || !copy.packageName.equals(account.packageName)
+                || !copy.signerSha256.equals(account.signerSha256) || copy.users.size() != 1) return false;
+        UserEntry user = copy.users.get(0), identity = account.users.get(0);
+        return user.id == identity.id && user.userId == identity.userId
+                && user.userSerial == identity.userSerial;
+    }
+
+    // Whether the one account of this slot holds a recovery hold.
+    private static boolean recoveryHeld(Slot slot) {
+        for (Suspension entry : slot.users.get(0).lifecycle.suspensions) {
+            if (entry.actorClass == ActorClass.RECOVERY_HOLD) return true;
+        }
+        return false;
+    }
+
+    // The same value at the next generation.
+    private static Slot advanced(Slot slot) {
+        return new Slot(slot.lineage, slot.appId, slot.packageName, slot.generation + 1,
+                slot.signerSha256, slot.users, slot.ticket);
     }
 
     // One account's lifecycle becomes next in its slot's next generation, through the checked
@@ -1516,6 +1678,75 @@ final class NativeIdentityStore {
                 obligations));
     }
 
+    private static Lifecycle disposing(UserEntry user) {
+        Lifecycle prior = user.lifecycle;
+        if (prior.state != LifecycleState.RETIRED) return null;
+        // No writer sets scope bit 0 yet, but a later writer's entry blocks deletion and migration.
+        if (dispositionBlocked(prior)) return null;
+        Retirement held = prior.retirement;
+        // Disposition needs a known inventory. The decoder already refuses RETIRED without one.
+        if (held.obligations.size() != ObligationKind.values().length) return null;
+        List<Obligation> obligations = new ArrayList<>(held.obligations);
+        for (int index = 0; index < obligations.size(); ++index) {
+            Obligation duty = obligations.get(index);
+            if (!duty.kind.disposition()) continue;
+            // Every disposition kind at once, and only from OUTSTANDING.
+            boolean outstanding = duty.state == ObligationState.OUTSTANDING;
+            if (!outstanding) return null;
+            obligations.set(index, new Obligation(duty.kind, ObligationState.DISPOSING,
+                    duty.reference, duty.code, duty.time));
+        }
+        return obligationsMoved(prior, obligations);
+    }
+
+    private static Lifecycle dispositionDischarged(UserEntry user, List<Obligation> receipts) {
+        Lifecycle prior = user.lifecycle;
+        if (!writableDispositionReceipts(receipts) || prior.state != LifecycleState.RETIRED) {
+            return null;
+        }
+        Retirement held = prior.retirement;
+        if (held.obligations.size() != ObligationKind.values().length) return null;
+        List<Obligation> obligations = new ArrayList<>(held.obligations);
+        for (Obligation receipt : receipts) {
+            int index = receipt.kind.code - 1;
+            Obligation duty = obligations.get(index);
+            // A discharged kind stays exactly as it is.
+            if (duty.state == ObligationState.DISCHARGED) {
+                if (duty.equals(receipt)) continue;
+                return null;
+            }
+            // Only DISPOSING becomes DISCHARGED here. An outstanding kind waits for the deletion or
+            // migration step, and a kind orphaned with its Android user for stage C.
+            if (duty.state != ObligationState.DISPOSING) return null;
+            // A reference is bound once: an unbound one may be bound now, a bound one never
+            // changes, to zero or to another reference.
+            boolean bound = !duty.reference.equals(NativeIdentityRecords.NO_REFERENCE);
+            if (bound && !duty.reference.equals(receipt.reference)) return null;
+            obligations.set(index, receipt);
+        }
+        return obligationsMoved(prior, obligations);
+    }
+
+    // The same RETIRED lifecycle with these obligations. The block's class, actor, grant and time
+    // and every suspension entry stay.
+    private static Lifecycle obligationsMoved(Lifecycle prior, List<Obligation> obligations) {
+        Retirement block = prior.retirement;
+        return new Lifecycle(LifecycleState.RETIRED, prior.suspensions, new Retirement(block.actorClass,
+                block.actorUserId, block.actorSerial, block.grant, block.time, obligations));
+    }
+
+    /**
+     * Whether a suspension entry with scope bit 0, which blocks deletion and migration, holds this
+     * lifecycle. No writer of this stage sets the bit, and the decoder accepts it, so only a later
+     * writer's record can hold one. Pure.
+     */
+    static boolean dispositionBlocked(Lifecycle lifecycle) {
+        for (Suspension entry : lifecycle.suspensions) {
+            if ((entry.scope & NativeIdentityRecords.SCOPE_BLOCKS_DISPOSITION) != 0) return true;
+        }
+        return false;
+    }
+
     /**
      * Whether this lifecycle has a free place for an entry of this actor class, as writers allot
      * a version 2 record's six suspension entries: one to the account's user, one to a recovery
@@ -1544,9 +1775,9 @@ final class NativeIdentityStore {
 
     /**
      * The writer rules of a suspension entry for the account of this Android user and serial,
-     * narrower than what the decoder accepts. Pure. A writer of this stage writes only the
-     * account user's own entry and grant entries: recovery holds come from the recovery route,
-     * which this stage lacks. It never sets scope bit 0, which blocks deletion and migration,
+     * narrower than what the decoder accepts. Pure. The suspend transition writes only the
+     * account user's own entry and grant entries: a recovery hold comes only from Restore, under
+     * {@link #writableRecoveryHold}. It never sets scope bit 0, which blocks deletion and migration,
      * until the owner accepts a design that grants that power. Bit 1 belongs to a recovery hold
      * alone, which the entry itself requires. The reason is in the registry and allowed for the
      * entry's actor class. An account user entry's actor is the account's own user and serial.
@@ -1597,6 +1828,35 @@ final class NativeIdentityStore {
             if (receipt.kind != kind || receipt.state != ObligationState.DISCHARGED) return false;
         }
         return index == receipts.size();
+    }
+
+    /**
+     * The writer rules of the receipts that confirm disposal: one or more DISCHARGED obligations of
+     * disposition kinds, in strictly ascending kind order, each its owner's receipt on observed
+     * evidence. A receipt binds its reference, or none when it keeps zero. No retirement kind is
+     * discharged here, and no receipt orphans a kind. Pure.
+     */
+    static boolean writableDispositionReceipts(List<Obligation> receipts) {
+        if (receipts.isEmpty()) return false;
+        int last = 0;
+        for (Obligation receipt : receipts) {
+            if (!receipt.kind.disposition() || receipt.state != ObligationState.DISCHARGED
+                    || receipt.kind.code <= last) return false;
+            last = receipt.kind.code;
+        }
+        return true;
+    }
+
+    /**
+     * The writer rules of a recovery hold as the recovery route requests it. Pure. Its class is
+     * RECOVERY_HOLD, its reason is registered for recovery holds, and its scope is 0: the writer
+     * never sets bit 0, and sets bit 1 itself exactly when the last known state cannot be
+     * established. Its actor is the Android user that ran recovery, and its note is optional.
+     */
+    static boolean writableRecoveryHold(Suspension hold) {
+        if (hold.actorClass != ActorClass.RECOVERY_HOLD || hold.scope != 0) return false;
+        SuspensionReason reason = SuspensionReason.registered(hold.reason);
+        return reason != null && reason.actors.contains(ActorClass.RECOVERY_HOLD);
     }
 
     /**
@@ -1741,10 +2001,12 @@ final class NativeIdentityStore {
 
     // kept is what the preferred backup must durably hold before startWrite may
     // remove main and reserve. An existing backup must already be kept or the
-    // selected prior; anything else is refused unchanged.
-    private static void preserveChosenBase(File main, byte[] prior, byte[] kept) throws IOException {
+    // selected prior; anything else is refused unchanged. Only Restore replaces
+    // any regular backup, after it chose the last known state from every intact copy.
+    private static void preserveChosenBase(File main, byte[] prior, byte[] kept, boolean restore)
+            throws IOException {
         Node preferred = node(backup(main));
-        if (preferred != Node.ABSENT) {
+        if (preferred != Node.ABSENT && !(restore && preferred == Node.FILE)) {
             byte[] current = preferred == Node.FILE ? readBytes(backup(main)) : null;
             if (current == null || !(java.util.Arrays.equals(kept, current)
                     || (prior != null && java.util.Arrays.equals(prior, current)))) {
@@ -1778,6 +2040,11 @@ final class NativeIdentityStore {
 
     private boolean writeStrict(File main, byte[] bytes, byte[] prior, boolean protectTarget,
             boolean header) {
+        return writeStrict(main, bytes, prior, protectTarget, header, false);
+    }
+
+    private boolean writeStrict(File main, byte[] bytes, byte[] prior, boolean protectTarget,
+            boolean header, boolean restore) {
         if (!directory(main.getParentFile())) return false;
         // Every caller passed the store gate first. This is the point of effect:
         // startWrite and the seed staging can unlink or replace each of these.
@@ -1798,7 +2065,7 @@ final class NativeIdentityStore {
             // so every hold, including an unselected addition it restates,
             // stays in the backup while main and reserve are rewritten. Every
             // other write keeps its prior until the final step removes it.
-            preserveChosenBase(main, prior, prior == null || protectTarget ? bytes : prior);
+            preserveChosenBase(main, prior, prior == null || protectTarget ? bytes : prior, restore);
             FileOutputStream out = atomic.startWrite();
             out.write(bytes);
             atomic.finishWriteStrict(out);

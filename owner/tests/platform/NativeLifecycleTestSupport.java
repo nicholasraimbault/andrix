@@ -184,6 +184,81 @@ final class NativeLifecycleTestSupport {
                 obligations);
     }
 
+    /** A's confirmed retirement: every retirement kind discharged, every disposition kind outstanding. */
+    static Retirement retiredBlock() {
+        return discharged(byUserRetirement(), receipts());
+    }
+
+    /** The block after the deletion or migration step: every disposition kind DISPOSING, else unchanged. */
+    static Retirement disposing(Retirement block) {
+        List<Obligation> obligations = new ArrayList<>(block.obligations);
+        for (Obligation duty : block.obligations) {
+            if (duty.kind.disposition()) {
+                obligations.set(duty.kind.code - 1, obligation(duty.kind, ObligationState.DISPOSING, duty.reference,
+                        duty.code, duty.time));
+            }
+        }
+        return new Retirement(block.actorClass, block.actorUserId, block.actorSerial, block.grant, block.time,
+                obligations);
+    }
+
+    /**
+     * One disposal receipt for each of these disposition kinds, in kind order. Odd kinds bind a
+     * reference; even kinds discharge with none, as a receipt for nothing to do may.
+     */
+    static List<Obligation> disposals(ObligationKind... kinds) {
+        List<Obligation> list = new ArrayList<>();
+        for (ObligationKind kind : kinds) {
+            list.add(obligation(kind, ObligationState.DISCHARGED, kind.code % 2 == 1
+                    ? String.format("%02x", 0x40 + kind.code).repeat(16) : ZERO, kind.code, TIME + 50 + kind.code));
+        }
+        return list;
+    }
+
+    /** Every disposition kind, in kind order. */
+    static ObligationKind[] dispositionKinds() {
+        List<ObligationKind> kinds = new ArrayList<>();
+        for (ObligationKind kind : ObligationKind.values()) if (kind.disposition()) kinds.add(kind);
+        return kinds.toArray(new ObligationKind[0]);
+    }
+
+    /** The recovery hold that the recovery route requests: scope 0, and bit 1 is the writer's. */
+    static final Suspension RECOVERY = new Suspension(ActorClass.RECOVERY_HOLD, 0, 0, SERIAL, ZERO,
+            SuspensionReason.RECOVERY_REVIEW.code, TIME + 300, null);
+
+    /** The same hold with scope bit 1, as the writer writes it when the state cannot be established. */
+    static final Suspension RECOVERY_UNKNOWN = new Suspension(ActorClass.RECOVERY_HOLD,
+            NativeIdentityRecords.SCOPE_PRIOR_UNKNOWN, 0, SERIAL, ZERO, SuspensionReason.RECOVERY_REVIEW.code,
+            TIME + 300, null);
+
+    /** A's account as publication creates it, which names the account for Restore. */
+    static Slot accountA() {
+        return slotA(1, Lifecycle.version1(false));
+    }
+
+    /** Encoded bytes cut short: a torn copy that no reader decodes. */
+    static byte[] torn(Slot value) {
+        byte[] bytes = NativeIdentityRecords.encodeSlot(value);
+        return Arrays.copyOf(bytes, bytes.length - 9);
+    }
+
+    /** A's main, reserve and backup copies, each null when absent. */
+    static void copies(Path root, byte[] main, byte[] reserve, byte[] backup) throws Exception {
+        Path directory = Files.createDirectories(root.resolve("slots/" + A));
+        if (main != null) Files.write(directory.resolve("record.bin"), main);
+        if (reserve != null) Files.write(directory.resolve("record.bin.reservecopy"), reserve);
+        if (backup != null) Files.write(directory.resolve("record.bin-backup"), backup);
+    }
+
+    static byte[] bytes(Slot value) {
+        return NativeIdentityRecords.encodeSlot(value);
+    }
+
+    /** The boot facts of this store's durable read under Format.V3. */
+    static NativeIdentityPersistence.BootFacts facts(Path root) {
+        return NativeIdentityPersistence.bootFacts(load(root, V3));
+    }
+
     /** The block with one obligation replaced. */
     static Retirement with(Retirement block, Obligation duty) {
         List<Obligation> obligations = new ArrayList<>(block.obligations);
