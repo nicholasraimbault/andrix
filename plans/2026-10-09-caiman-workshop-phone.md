@@ -291,8 +291,11 @@ installed and waiting for a reboot. Readings from an earlier session therefore a
    sessions, its release at the session's start among them, and every release written in this
    session. Carrying them over keeps a write interrupted in one session from blocking the next. The
    comparison still uses the phone's release, the newest of them, so the carried releases allow
-   only writes that do not go back. A reading that matches none of them refuses every write,
-   because it may come from newer firmware. A partial write, such as a new bootloader beside an
+   only writes that do not go back. If the phone updated itself since the last session, the new
+   session's record also starts from that release, read in the OS at stop point 1. It must be newer
+   than every carried release, so a wrong value can only raise the reference or refuse at the
+   readings. A reading that matches none of the known releases refuses every write, because it may
+   come from newer firmware. A partial write, such as a new bootloader beside an
    older radio, still matches known releases, so the whole script can run again as rule 4
    requires. Every known release then carries firmware no newer than the image's, on this plan's
    assumption that a newer release never ships older firmware, so no component goes back.
