@@ -261,8 +261,8 @@ installed and waiting for a reboot. Readings from an earlier session therefore a
 1. **No update pending.** In the OS, no update is downloading, installing or waiting for a reboot.
    If one is, wait for it, reboot into it, and start again. On GrapheneOS the system updater shows
    its state. Andrix carries no updater, so on Andrix only a sideloaded update can be pending. The
-   session also records the phone's release channel, which must be Stable, and whether security
-   previews are enabled.
+   session also records the build number shown in Settings, the phone's release channel, which
+   must be Stable, and whether security previews are enabled.
 2. **Fixed readings.** On the bootloader screen that shows "Fastboot Mode", a fixed script runs
    only these commands: `fastboot getvar product`, `is-userspace`, `version-bootloader`,
    `version-baseband`, `current-slot`, `unlocked` and `snapshot-update-status`, then
@@ -292,10 +292,13 @@ installed and waiting for a reboot. Readings from an earlier session therefore a
    session. Carrying them over keeps a write interrupted in one session from blocking the next. The
    comparison still uses the phone's release, the newest of them, so the carried releases allow
    only writes that do not go back. If the phone updated itself since the last session, the new
-   session's record also starts from that release, read in the OS at stop point 1. It must be newer
-   than every carried release, so a wrong value can only raise the reference or refuse at the
-   readings. A reading that matches none of the known releases refuses every write, because it may
-   come from newer firmware. A partial write, such as a new bootloader beside an
+   session's record also starts from the current stable release, read from
+   `releases.grapheneos.org/caiman-stable` with the time of the fetch recorded, never typed. It
+   must be newer than every carried release, and the build number that stop point 1 records must
+   show it or its security preview. Otherwise the session waits until the phone has updated. A
+   phone on the Stable channel runs no newer release than that, so the reference can only rise.
+   A reading that matches none of the known releases refuses every write, because it may come
+   from newer firmware. A partial write, such as a new bootloader beside an
    older radio, still matches known releases, so the whole script can run again as rule 4
    requires. Every known release then carries firmware no newer than the image's, on this plan's
    assumption that a newer release never ships older firmware, so no component goes back.
@@ -313,9 +316,11 @@ installed and waiting for a reboot. Readings from an earlier session therefore a
      byte identical to the official kit of that tag.
    - **The phone's release** is the release recorded at the session's start, and it counts as the
      newer of that release and any image written in the session. The checker keeps both in its
-     own session record, written before each write runs, so neither is typed. Readings carry the
-     time they were taken, and readings older than the session's last write are refused. Fresh
-     readings come before each write.
+     own session record, written before each write runs, so neither is typed. Each record names
+     the SHA-256 of the record before it, and the owner keeps the newest record's SHA-256
+     privately, so an edited or stale record is refused. Readings carry the UTC time they were
+     taken. Readings older than the session's last write, or older than 15 minutes, are refused.
+     Fresh readings come before each write. Session and approval dates are UTC dates.
    - **The records** cover every signed caiman release tag from the phone's release through the
      image's release. The tag list comes from the signed tags of GrapheneOS's manifest repository,
      each with its verified signature, never from a page or a file passed in. Each record is bound
