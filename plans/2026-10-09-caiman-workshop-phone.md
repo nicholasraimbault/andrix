@@ -143,10 +143,13 @@ and answers these questions:
 - physical SIM or eSIM;
 - whether sandboxed Google Play is used, which changes the push notification check;
 - tethering, car Bluetooth and wireless charging, where used;
-- which messaging and authenticator apps must work.
+- which apps and services the owner depends on daily, such as messaging, authentication, VPN or
+  Wi-Fi calling;
+- how long the observation window for items that need time lasts, and how the owner stays
+  reachable while it runs.
 
 The answers stay in private records. Recommendation: confirm the list as proposed, with these
-answers. Needed before stage 7.
+answers and a window of two days. Needed before stage 7.
 
 ### 5. The flashing computer
 
@@ -158,7 +161,8 @@ GrapheneOS's guide fixes what the computer needs (rule 8). The owner's choice is
   could then reach the phone over USB.
 
 GrapheneOS's web installer in a browser with WebUSB serves as a second way back on either computer.
-It installs only the current official release, so it cannot flash Andrix.
+It installs only the current official release, so it cannot flash Andrix, and it serves a way back
+only when that release is one the session's approval names.
 
 Recommendation: a separate computer the owner controls. Needed before stage 2.
 
@@ -199,10 +203,13 @@ date. Past it, the phone returns to GrapheneOS until Andrix catches up. Needed b
 
 A failed flash leaves the phone needing another flash. Rule 9 asks how that one is approved.
 
-- **Named in advance.** Each session's approval names the build to flash and the official
-  GrapheneOS release for the way back. That release is no older than the build's base tag, so the
-  way back never writes older firmware than the build just wrote. A return within that session then
-  needs no new approval.
+- **Named in advance.** Each session's approval names the build to flash and every artifact the
+  way back may write: the official GrapheneOS release, and Google's stock image if the stock route
+  is allowed, each with its wipe effect. That release is no older than the build's base tag, so the
+  way back never writes older firmware than the build just wrote. A return within that session to
+  a named artifact needs no new approval. If the stop points or their exception require any other
+  release, the session stops in fastboot mode, where nothing is written, until the owner approves
+  that release.
 - **Approved at the time.** The phone waits for a fresh approval before the way back runs.
 
 Recommendation: named in advance, so no decision is improvised under pressure. Needed before
@@ -213,6 +220,11 @@ stage 7.
 Bricked here means the phone can neither boot an OS nor be flashed. Every session starts with the
 stop points below. The rules after them hold throughout, and each names its source. Where a source
 states a general Android rule rather than a Pixel fact, the rule says so.
+
+These rules make an unrecoverable state very unlikely, but they cannot make it impossible. No
+source read for this plan says what an interrupted firmware write does, for example. Each flashing
+session carries that remaining risk, as GrapheneOS's own installation does, and the owner approves
+each session knowing it.
 
 ### Stop points at the start of every session
 
@@ -252,7 +264,9 @@ run. It is then skipped. The phone's release then counts as the newer of the las
 recorded for it and the release of any image written in this session. While an update is pending,
 only the current stable release may be written, read from `releases.grapheneos.org/caiman-stable`
 at that moment. It counts as newer than the phone's release, because no stable update can be newer
-than it, with a security preview counted as its base release. If `snapshot-update-status` then
+than it, with a security preview counted as its base release. If that release is not one the
+session's approval names, the session waits in fastboot mode for a fresh approval before writing
+it. If `snapshot-update-status` then
 reads anything but `none`, stop point 3 does not end the session.
 Instead, only the complete GrapheneOS script or the web installer may run. Both cancel the pending
 update themselves. The web installer does so in its code. GrapheneOS's fastboot writes
@@ -384,7 +398,8 @@ page, on the merge after boot. The fastboot protocol's description of `is-usersp
    distributions", "Flashing factory images" and "Troubleshooting".
 9. **Every flash is approved and prepared.** The owner approves the specific build. A restore from
    the backup has been tested. The way back is prepared and checked. The way back flash itself is
-   approved as decision 8 sets.
+   approved as decision 8 sets. Under either answer to decision 8, a release that no approval names
+   is never written without a fresh approval.
    Source: the owner's decision of 2026-10-09.
 
 ## The way back
@@ -595,11 +610,16 @@ Run after every flash. An item passes only when the owner sees it work. Notes st
 no personal content. Andrix's own features are checked separately, and their failure alone does not
 send the phone back.
 
+Items that need time, such as reconnection after sleep, the overnight alarm and overnight drain,
+are checked over an observation window after the session. Its length is part of decision 4. During
+the window the owner keeps another way to communicate.
+
 1. **Boot and unlock**, with PIN and fingerprint. The fingerprint hardware never ran on Cuttlefish.
 2. **Calls.** Place and receive, with VoLTE registered where the carrier uses it, the earpiece, the
    microphone, and the proximity sensor turning the screen off.
 3. **Emergency calling.** Never dial an emergency number to test. Check that the emergency dialer
-   opens from the lock screen. Use a carrier or regional test procedure if one exists.
+   opens from the lock screen. Use a carrier or regional test procedure if one exists. This shows
+   that the dialer opens, not that an emergency call would connect.
 4. **SMS and MMS**, sent and received. MMS also exercises mobile data and the APN.
 5. **Mobile data**, and tethering if used.
 6. **Wireless networks.** Connect, reconnect after sleep, and get through a captive portal.
@@ -620,14 +640,17 @@ send the phone back.
 17. **The way back.** Checked before every flash, not after it.
 
 NFC payments, banking apps and apps that check device integrity are not on the list, because the
-owner accepted losing special apps. If an essential fails and cannot be fixed within the session,
-the phone goes back to GrapheneOS through the way back.
+owner accepted losing special apps. If an essential checked in the session fails and cannot be
+fixed then, the phone goes back to GrapheneOS through the way back. A failure found during the
+observation window leads to a new approved session, usually the way back to GrapheneOS.
 
 ### Before the baseline session
 
 Before stage 7:
 
 - the owner has answered decisions 1, 4, 5, 6 and 8;
+- an estimate of the update workload under decision 7 is ready, so the phone is not unlocked
+  without a way to keep it maintained;
 - a restore from the backup has been tested;
 - the GrapheneOS kit passes every check that needs no phone, and the runbook has been reviewed;
 - the gate has passed for an Andrix build that meets the version criterion against the phone's
@@ -794,7 +817,8 @@ GrapheneOS, unchanged, until stage 7.
   bootloader is unlocked, which wipes all data and the secure element. The official GrapheneOS
   release from the kit is flashed with its own script. Setup runs with the toggle that disables OEM
   unlocking unchecked, and data is restored.
-- **Qualifies:** the essentials pass on GrapheneOS and are recorded as the baseline. The unlock
+- **Qualifies:** the essentials pass on GrapheneOS, including those checked over the observation
+  window, and are recorded as the baseline. The unlock
   ability reads 1 after setup. The way back has now been exercised for real.
 - **Stays off:** Andrix images and locking.
 - **Needs:** the owner and the phone, in a separately approved session, with everything in "Before
@@ -810,7 +834,9 @@ GrapheneOS, unchanged, until stage 7.
 - **Changes:** after the stop points, Andrix's install zip is flashed with its own script, which
   wipes data and writes the workshop key into `avb_custom_key`. Setup runs with the toggle
   unchecked, and data is restored.
-- **Qualifies:** every essential passes as on the baseline, and the integrity checks hold. Andrix's
+- **Qualifies:** every essential checked in the session passes as on the baseline, the rest pass
+  over the observation window, and the integrity checks hold. Daily use on Andrix starts only after
+  the window. Andrix's
   own checks are recorded separately. On failure the phone returns to GrapheneOS from the kit in the
   same session. If the Andrix build does not boot, the stop points run without stop point 1, as
   their exception for a phone that cannot boot says.
