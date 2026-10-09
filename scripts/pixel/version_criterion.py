@@ -12,10 +12,18 @@ No typed value can approve older firmware:
 - the image's identity is read from the image, and the decision names its SHA-256;
 - the session's facts live in the checker's own session record, which takes each ALLOWed
   release before the write runs and carries the phone's release into the next session;
-- readings carry the time they were taken and must be newer than the session's last ALLOW;
+- the session records of a phone form one chain in their own directory, each naming the
+  SHA-256 of the one before it, and a new session starts only from the newest, whose SHA-256
+  the owner keeps privately;
+- a phone that updated itself starts its new record from the current stable release, read
+  from a caiman-stable file fetched at that moment, which must be newer than every carried
+  release and which the build number of stop point 1 must show;
+- one decide at a time holds the session record's lock;
+- readings carry the time they were taken, must be newer than the session's last ALLOW and
+  must be at most READINGS_MAX_AGE_MINUTES old;
 - the release tags come from the signed tags of a local GrapheneOS manifest repository,
-  each verified against the pinned allowed signers, and every record is bound to its tag's
-  signed manifest;
+  each verified against the pinned allowed signers with pinned signature programs, and every
+  record is bound to its tag's signed manifest;
 - the session's approval must name the session, its date and the image.
 
 Exit status: 0 ALLOW, 1 REFUSE, 3 WAIT for a fresh approval. See README.md.
@@ -23,6 +31,7 @@ Exit status: 0 ALLOW, 1 REFUSE, 3 WAIT for a fresh approval. See README.md.
 import argparse
 from dataclasses import dataclass
 import datetime
+import fcntl
 import hashlib
 import json
 import os
@@ -45,10 +54,26 @@ APPROVAL_SCHEMA = 'andrix.pixel.approval/2'
 TIME = re.compile(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z')
 DAY = re.compile(r'[0-9]{4}-[0-9]{2}-[0-9]{2}')
 SESSION_ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}')
+SESSION_FILE = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}\.json')
+READINGS_MAX_AGE_MINUTES = 15     # the plan's limit; --readings-max-age may only lower it
+READINGS_MAX_AGE_LIMIT = 15
+STABLE_MAX_AGE_MINUTES = 15       # a caiman-stable file older than this at the start is stale
+# git verify-tag runs the program of the signature's own format, which the clone's config
+# could point elsewhere. Command line settings win over every config file. Only ssh-keygen may
+# verify, the OpenPGP and X.509 programs always fail, a signature counts only for a principal of
+# the allowed signers, and no revocation file of the clone applies.
+VERIFY_PINS = ('-c', 'gpg.ssh.program=/usr/bin/ssh-keygen',
+               '-c', 'gpg.program=/usr/bin/false', '-c', 'gpg.openpgp.program=/usr/bin/false',
+               '-c', 'gpg.x509.program=/usr/bin/false', '-c', 'gpg.minTrustLevel=fully',
+               '-c', 'gpg.ssh.revocationFile=/dev/null')
 
 
 def utc_now():
     return datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+def parse_time(text):
+    return datetime.datetime.strptime(text, '%Y-%m-%dT%H:%M:%SZ')
 
 
 def check_time(text, what):
@@ -85,7 +110,8 @@ def signed_tags(repo, signers, low, high, bases=None):
     """Every release tag from low through high in a local GrapheneOS manifest repository.
 
     Each tag in the range must verify with git verify-tag against the allowed signers file
-    whose digest upstream/bases pins, as grapheneos_source.py verifies its tag.
+    whose digest upstream/bases pins, with the signature programs pinned as
+    grapheneos_source.py pins them, so the clone's own config cannot change the result.
     """
     import install_zip
     if caiman.sha256(Path(signers).read_bytes()) != install_zip.pinned_signers_digest(bases):
@@ -96,7 +122,8 @@ def signed_tags(repo, signers, low, high, bases=None):
     for name in sorted(name for name in names if re.fullmatch(r'[0-9]{10}', name)):
         if int(low.base) <= int(name) <= int(high.base):
             release = caiman.parse_release(name, what='manifest tag')
-            _git(repo, '-c', 'gpg.ssh.allowedSignersFile=' + str(Path(signers).resolve()),
+            _git(repo, *VERIFY_PINS,
+                 '-c', 'gpg.ssh.allowedSignersFile=' + str(Path(signers).resolve()),
                  'verify-tag', name)
             found.append(release.number)
     for release in (low, high):
@@ -190,27 +217,86 @@ def check_coverage(table, tags, first, last):
 
 # The session record
 
-def start_session(session_id, day, previous=None, first_release=None, now=None):
-    """A new session record. The phone's release carries over from the previous record."""
+def start_session(session_id, day, previous=None, first_release=None, now=None,
+                  stable=None, stable_fetched_at=None, build_number=None, names=()):
+    """A new session record. The phone's release carries over from the previous record.
+
+    If the phone updated itself since the previous session, stable is the content of
+    caiman-stable fetched at stable_fetched_at, and build_number is the build number that stop
+    point 1 records. The current stable release then starts the new record beside the carried
+    releases, see stable_start. names are the sessions already in the chain.
+    """
     if SESSION_ID.fullmatch(str(session_id)) is None:
         refuse(f'session name {session_id!r} is not a plain name')
     check_day(day, 'session date')
+    now = check_time(now or utc_now(), 'session start')
     if (previous is None) == (first_release is None):
         refuse('a session starts from the previous session record, or once from the first release')
+    if session_id in names:
+        refuse(f'the chain already holds a session named {session_id}; the new session needs its own name')
     if previous is not None:
         prior = check_session(previous)
         if prior['session'] == session_id:
             refuse('the new session needs its own name')
+        last = prior['allowed'][-1]['at'] if prior['allowed'] else prior['started_at']
+        if now <= last:
+            refuse(f'the new session would start at {now}, not after the previous session\'s '
+                   f'last entry at {last}; check the clock')
         known = known_releases(prior)
         start = newest(known)
-        carried = sorted({release.number for release in known})
+        carried = {release.number for release in known}
+        update = None
+        if (stable, stable_fetched_at, build_number) != (None, None, None):
+            update = stable_start(stable, stable_fetched_at, build_number, known, now)
+            start = caiman.parse_release(update['release'])
+            carried.add(start.number)
+        carried = sorted(carried)
         origin = caiman.sha256(caiman.dump(prior).encode())
     else:
+        if (stable, stable_fetched_at, build_number) != (None, None, None):
+            refuse('the current stable release starts a record only beside the releases carried '
+                   'from the previous session')
         start = caiman.parse_release(first_release, what='first release')
-        carried, origin = [start.number], None
-    return {'schema': SESSION_SCHEMA, 'session': session_id, 'date': day,
-            'started_at': now or utc_now(), 'start_release': start.number, 'carried': carried,
-            'previous_sha256': origin, 'allowed': []}
+        carried, origin, update = [start.number], None, None
+    return check_session({'schema': SESSION_SCHEMA, 'session': session_id, 'date': day,
+                          'started_at': now, 'start_release': start.number, 'carried': carried,
+                          'previous_sha256': origin, 'stable': update, 'allowed': []})
+
+
+def stable_start(data, fetched_at, build_number, known, now):
+    """The current stable release that starts the record of a phone that updated itself.
+
+    The release comes from caiman-stable, fetched at most STABLE_MAX_AGE_MINUTES before the
+    start, never typed. It must be newer than every carried release, and the build number that
+    stop point 1 records must show it or its security preview. A phone on the Stable channel runs
+    no newer release, so the reference can only rise. Otherwise the session waits.
+    """
+    if data is None or fetched_at is None or build_number is None:
+        refuse('a phone that updated itself needs the caiman-stable file, its fetch time and the '
+               'build number of stop point 1')
+    release = caiman.parse_stable_channel(data)
+    check_time(fetched_at, 'caiman-stable fetch time')
+    if fetched_at > now:
+        refuse(f'caiman-stable is dated {fetched_at}, after the start ({now}); check the clock')
+    if parse_time(now) - parse_time(fetched_at) > datetime.timedelta(minutes=STABLE_MAX_AGE_MINUTES):
+        refuse(f'caiman-stable was fetched at {fetched_at}, more than {STABLE_MAX_AGE_MINUTES} '
+               f'minutes before the start ({now}); it is stale, fetch it again')
+    older = sorted({number.number for number in known if not newer(release, number)})
+    if older:
+        refuse(f'the current stable release {release} is not newer than the carried releases '
+               f'{", ".join(older)}, so the phone did not update past them; start without '
+               '--updated-from-stable')
+    build = caiman.parse_release(build_number, what='build number')
+    if newer(release, build):
+        refuse(f'the build number {build} is older than the current stable release {release}: '
+               'the phone has not updated yet, so the session waits until it has, then reads '
+               'stop point 1 and caiman-stable again')
+    if not same_release(build, release):
+        refuse(f'the build number {build} names another release than the current stable release '
+               f'{release} or its security preview; fetch caiman-stable again and check the '
+               'build number and the Stable channel')
+    return {'release': release.number, 'fetched_at': fetched_at, 'build_number': build.number,
+            'sha256': caiman.sha256(data)}
 
 
 def check_session(session):
@@ -220,7 +306,14 @@ def check_session(session):
         refuse('the session record has no plain session name')
     check_day(session.get('date'), 'session date')
     check_time(session.get('started_at'), 'session start')
+    if session['date'] != session['started_at'][:10]:
+        refuse(f'the session date {session["date"]} is not the UTC date of its start '
+               f'{session["started_at"]}; the session and its approval name the day it starts, in UTC')
+    origin = session.get('previous_sha256', '')
+    if origin is not None and caiman.SHA256.fullmatch(str(origin)) is None:
+        refuse('the session record names no SHA-256 of a previous record, nor null for the first')
     start = caiman.parse_release(session.get('start_release'), what='session start release')
+    check_stable_entry(session, start)
     carried = session.get('carried')
     if not isinstance(carried, list) or not carried:
         refuse('the session record carries no known release')
@@ -245,6 +338,30 @@ def check_session(session):
     return session
 
 
+def check_stable_entry(session, start):
+    """A record that started from the current stable release names how it was read."""
+    if 'stable' not in session:
+        refuse('the session record does not say whether it started from the current stable release')
+    entry = session['stable']
+    if entry is None:
+        return
+    if not isinstance(entry, dict) or set(entry) != {'release', 'fetched_at', 'build_number', 'sha256'}:
+        refuse('the session record\'s stable entry is not release, fetched_at, build_number and sha256')
+    release = caiman.parse_release(entry['release'], what='stable release')
+    build = caiman.parse_release(entry['build_number'], what='build number')
+    check_time(entry['fetched_at'], 'caiman-stable fetch time')
+    if caiman.SHA256.fullmatch(str(entry['sha256'])) is None:
+        refuse('the session record\'s stable entry names no SHA-256 of caiman-stable')
+    if session.get('previous_sha256') is None:
+        refuse('only a session that continues a chain starts from the current stable release')
+    if release.number != start.number or not same_release(build, release):
+        refuse('the session record\'s stable entry does not match its start release and build number')
+    late = parse_time(session['started_at']) - parse_time(entry['fetched_at'])
+    if not datetime.timedelta(0) <= late <= datetime.timedelta(minutes=STABLE_MAX_AGE_MINUTES):
+        refuse('the session record\'s caiman-stable was not fetched within '
+               f'{STABLE_MAX_AGE_MINUTES} minutes before its start')
+
+
 def known_releases(session):
     numbers = [session['start_release'], *session['carried'], *(e['release'] for e in session['allowed'])]
     return [caiman.parse_release(number) for number in numbers]
@@ -256,14 +373,146 @@ def phone_release(session):
     return newest(known_releases(session))
 
 
+def leftover(path):
+    return (f'{path} is left from an interrupted decide, which never returned its decision. '
+            f'Inspect it, compare it with {Path(path).name[:-len(".new")]}, remove it by hand, '
+            'and take fresh readings')
+
+
 def write_session(path, session):
     path = Path(path)
     temporary = path.with_name(path.name + '.new')
-    with open(temporary, 'x', encoding='utf-8') as handle:
+    try:
+        handle = open(temporary, 'x', encoding='utf-8')
+    except FileExistsError:
+        refuse(leftover(temporary))
+    with handle:
         handle.write(caiman.dump(session))
         handle.flush()
         os.fsync(handle.fileno())
     os.replace(temporary, path)
+    sync_directory(path)     # the rename is durable before the decision returns
+
+
+def sync_directory(path):
+    directory = os.open(Path(path).parent, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+@dataclass(frozen=True)
+class Link:
+    """A session record in its directory's chain."""
+    path: Path
+    record: dict
+    sha256: str
+
+
+def read_chain(directory):
+    """Every session record in a directory, verified as one chain from the first session.
+
+    The directory holds only session records, each a NAME.json file in the form the checker
+    writes. Exactly one record has no previous record. Every other names the SHA-256 of a record
+    in the directory, no two name the same one, and each starts after its previous record's last
+    entry. Returns the records in chain order, so the newest is last.
+    """
+    directory = Path(directory)
+    if not directory.is_dir():
+        refuse(f'the session directory {directory} does not exist')
+    links = {}
+    for path in sorted(directory.iterdir()):
+        if path.name.endswith('.new'):
+            refuse(leftover(path))
+        if path.is_symlink() or not path.is_file() or SESSION_FILE.fullmatch(path.name) is None:
+            refuse(f'{path} is not a session record; the session directory holds only NAME.json '
+                   'session records')
+        data = path.read_bytes()
+        try:
+            record = check_session(json.loads(data))
+        except (ValueError, UnicodeDecodeError):
+            refuse(f'{path} is not JSON')
+        except Refusal as error:
+            refuse(f'{path}: {error}')
+        if data != caiman.dump(record).encode():
+            refuse(f'{path} is not in the form the checker writes')
+        digest = caiman.sha256(data)
+        if digest in links:
+            refuse(f'{path} and {links[digest].path} are the same record')
+        links[digest] = Link(path, record, digest)
+    if not links:
+        return []
+    first = [link for link in links.values() if link.record['previous_sha256'] is None]
+    if len(first) != 1:
+        refuse(f'{len(first)} records in {directory} start a chain; exactly one may')
+    child = {}
+    for link in links.values():
+        parent = link.record['previous_sha256']
+        if parent is None:
+            continue
+        if parent not in links:
+            refuse(f'{link.path} names the previous record {parent}, which no record in {directory} '
+                   'hashes to; the chain is broken')
+        if parent in child:
+            refuse(f'{child[parent].path} and {link.path} name the same previous record '
+                   f'{links[parent].path}; the chain forks')
+        child[parent] = link
+    chain, names = [first[0]], {first[0].record['session']}
+    while chain[-1].sha256 in child:
+        link, before = child[chain[-1].sha256], chain[-1].record
+        last = before['allowed'][-1]['at'] if before['allowed'] else before['started_at']
+        if link.record['started_at'] <= last:
+            refuse(f'{link.path} starts at {link.record["started_at"]}, not after the last entry '
+                   f'of its previous record {chain[-1].path}')
+        if link.record['session'] in names:
+            refuse(f'{link.path} repeats the session name {link.record["session"]}')
+        names.add(link.record['session'])
+        chain.append(link)
+    if len(chain) != len(links):
+        refuse(f'{len(links) - len(chain)} records in {directory} are not on the chain from its first record')
+    return chain
+
+
+def newest_link(chain, path, owner_sha256):
+    """The chain's newest record, which path must name and the owner's SHA-256 must match."""
+    if not chain:
+        refuse(f'{Path(path).parent} holds no session record')
+    newest_record = chain[-1]
+    if Path(path).resolve() != newest_record.path.resolve():
+        refuse(f'{path} is not the newest session record of its directory; the newest is '
+               f'{newest_record.path.name}')
+    if owner_sha256 is not None and owner_sha256 != newest_record.sha256:
+        refuse(f'{newest_record.path.name} hashes to {newest_record.sha256}, not the SHA-256 the '
+               'owner keeps; it may have been edited since the session ended')
+    return newest_record
+
+
+def lock_session(path):
+    """Opens the session record and holds an exclusive lock on it, or refuses.
+
+    The lock is held until the handle is closed. A decide that ran meanwhile replaced the file,
+    so a handle whose file is no longer at path is refused.
+    """
+    path = Path(path)
+    temporary = path.with_name(path.name + '.new')
+    if temporary.exists() or temporary.is_symlink():
+        refuse(leftover(temporary))
+    handle = open(path, 'rb')
+    try:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            refuse(f'{path} is locked by another decide or start; let it finish, then take fresh '
+                   'readings')
+        held, current = os.fstat(handle.fileno()), os.stat(path)
+        if (held.st_dev, held.st_ino) != (current.st_dev, current.st_ino):
+            refuse(f'{path} was replaced while this decide opened it; take fresh readings and '
+                   'run decide again')
+    except BaseException:
+        handle.close()
+        raise
+    return handle
 
 
 # Images, identified from the image itself
@@ -423,7 +672,7 @@ def criterion(image, reference, table):
 
 def decide(image, *, table, tags, readings, stage, os_booted, update_pending, channel, session,
            approval, session_path=None, current_stable=None, stable_fetched_at=None,
-           security_previews=None, now=None):
+           security_previews=None, now=None, readings_max_age=READINGS_MAX_AGE_MINUTES):
     """Returns the decision, ALLOW or WAIT, and records an ALLOW in the session record first."""
     if not isinstance(image, Image):
         refuse('the image identity must come from the image')
@@ -443,9 +692,17 @@ def decide(image, *, table, tags, readings, stage, os_booted, update_pending, ch
         refuse('stop point 1: an update is pending or its state is unknown; wait for it, reboot '
                'into it and start again')
     taken = check_time(readings['taken-at'].value, 'readings time')
-    now = now or utc_now()
+    now = check_time(now or utc_now(), 'decision time')
     if taken > now:
         refuse(f'the readings are dated {taken}, after now ({now}); check the clock')
+    if (isinstance(readings_max_age, bool) or not isinstance(readings_max_age, int)
+            or not 1 <= readings_max_age <= READINGS_MAX_AGE_LIMIT):
+        refuse(f'the maximum age of readings is 1 to {READINGS_MAX_AGE_LIMIT} minutes, not '
+               f'{readings_max_age!r}')
+    if parse_time(now) - parse_time(taken) > datetime.timedelta(minutes=readings_max_age):
+        unit = 'minute' if readings_max_age == 1 else 'minutes'
+        refuse(f'the readings were taken at {taken}, more than {readings_max_age} {unit} before '
+               f'now ({now}); take fresh readings')
     last = session['allowed'][-1]['at'] if session['allowed'] else None
     if taken < session['started_at'] or (last is not None and taken <= last):
         refuse(f'the readings were taken at {taken}, before the session start or its last ALLOW; '
@@ -461,7 +718,8 @@ def decide(image, *, table, tags, readings, stage, os_booted, update_pending, ch
                              'identity': image.source},
                 'session': session['session'], 'phone_release': reference.number,
                 'known_releases': sorted({release.number for release in known}),
-                'firmware_matches': matched, 'readings_taken_at': taken, 'channel': channel,
+                'firmware_matches': matched, 'readings_taken_at': taken,
+                'readings_max_age_minutes': readings_max_age, 'decided_at': now, 'channel': channel,
                 'security_previews': security_previews, 'stop_point_3': point_3,
                 'conditions': [], 'explanations': []}
     if os_booted:
@@ -542,6 +800,69 @@ def yes_no(text):
     return text == 'yes'
 
 
+def minutes_option(text):
+    if re.fullmatch(r'[0-9]{1,2}', text) is None or not 1 <= int(text) <= READINGS_MAX_AGE_LIMIT:
+        raise argparse.ArgumentTypeError(f'state whole minutes from 1 to {READINGS_MAX_AGE_LIMIT}')
+    return int(text)
+
+
+def sha256_option(text):
+    if caiman.SHA256.fullmatch(text) is None:
+        raise argparse.ArgumentTypeError('state a SHA-256 as 64 lowercase hex digits')
+    return text
+
+
+def modified_at(handle):
+    """A file's modification time, as a UTC time: the fetch time of a file saved by curl -o."""
+    seconds = int(os.fstat(handle.fileno()).st_mtime)
+    return datetime.datetime.fromtimestamp(seconds, datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+def start(args):
+    """Writes a new session record beside the chain it continues, in the same directory."""
+    out = Path(args.out)
+    directory = out.parent
+    if SESSION_FILE.fullmatch(out.name) is None:
+        refuse(f'the new record {out} is not named NAME.json')
+    lock = None
+    try:
+        if args.previous is None:
+            if args.previous_sha256 or args.updated_from_stable or args.build_number:
+                refuse('--previous-sha256, --updated-from-stable and --build-number continue a chain; '
+                       'the first session has none')
+            if read_chain(directory):
+                refuse(f'{directory} already holds session records; only the very first session '
+                       'starts from --first-release, every later one from the newest record')
+            session = start_session(args.session, args.date, first_release=args.first_release)
+        else:
+            if not args.previous_sha256:
+                refuse("a later session needs --previous-sha256, the newest record's SHA-256 as the "
+                       'owner keeps it privately')
+            if Path(args.previous).resolve().parent != directory.resolve():
+                refuse(f'the new record {out} must go beside the previous record {args.previous}')
+            lock = lock_session(args.previous)      # no decide may change it meanwhile
+            chain = read_chain(directory)
+            link = newest_link(chain, args.previous, args.previous_sha256)
+            stable = fetched_at = None
+            if args.updated_from_stable is not None:
+                with open(args.updated_from_stable, 'rb') as handle:
+                    stable = handle.read()
+                    fetched_at = modified_at(handle)
+            session = start_session(args.session, args.date, previous=link.record,
+                                    stable=stable, stable_fetched_at=fetched_at,
+                                    build_number=args.build_number,
+                                    names={entry.record['session'] for entry in chain})
+        with open(out, 'x', encoding='utf-8') as handle:
+            handle.write(caiman.dump(session))
+            handle.flush()
+            os.fsync(handle.fileno())
+        sync_directory(out)
+    finally:
+        if lock is not None:
+            lock.close()
+    return session
+
+
 def _common(sub):
     sub.add_argument('--record', action='append', required=True,
                      help='adevtool record of a tag, from adevtool_record.py; repeat per tag')
@@ -574,14 +895,23 @@ def _image(args, table, records):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     sub = parser.add_subparsers(dest='command', required=True)
-    start = sub.add_parser('start', help='write a new session record')
-    start.add_argument('--out', required=True, help='the new session record')
-    start.add_argument('--session', required=True, help='the name the approval gives the session')
-    start.add_argument('--date', required=True, help='the approval date, YYYY-MM-DD')
-    origin = start.add_mutually_exclusive_group(required=True)
-    origin.add_argument('--previous', help="the previous session's record")
+    begin = sub.add_parser('start', help='write a new session record')
+    begin.add_argument('--out', required=True, help='the new session record, NAME.json in the '
+                       'session directory, which holds only session records')
+    begin.add_argument('--session', required=True, help='the name the approval gives the session')
+    begin.add_argument('--date', required=True, help='the approval date, YYYY-MM-DD, the UTC date '
+                       'of the start')
+    origin = begin.add_mutually_exclusive_group(required=True)
+    origin.add_argument('--previous', help="the newest session record, in the same directory")
     origin.add_argument('--first-release', help='only for the very first session: the phone\'s '
                         'release as its private record shows it')
+    begin.add_argument('--previous-sha256', type=sha256_option,
+                       help="with --previous: the newest record's SHA-256 as the owner keeps it")
+    begin.add_argument('--updated-from-stable', metavar='FILE', help='with --previous, only if the '
+                       'phone updated itself since: caiman-stable, saved at this moment with curl -o; '
+                       'its modification time is the fetch time')
+    begin.add_argument('--build-number', help='with --updated-from-stable: the build number that stop '
+                       'point 1 records from Settings')
     run = sub.add_parser('decide', help='may this image be written now?')
     _common(run)
     run.add_argument('--session', required=True, help="this session's record, updated on ALLOW")
@@ -593,19 +923,22 @@ def main(argv=None):
     run.add_argument('--security-previews', type=yes_no, required=True)
     run.add_argument('--stable-fetched-at')
     run.add_argument('--approval', required=True, help="the session's approval")
+    run.add_argument('--readings-max-age', type=minutes_option, default=READINGS_MAX_AGE_MINUTES,
+                     help=f'minutes, default {READINGS_MAX_AGE_MINUTES}')
     check = sub.add_parser('desk', help="gate step 8: the way back against a build's base tag")
     _common(check)
     check.add_argument('--base-tag', required=True)
     args = parser.parse_args(argv)
+    lock = None
     try:
         if args.command == 'start':
-            previous = (json.loads(Path(args.previous).read_text(encoding='utf-8'))
-                        if args.previous else None)
-            session = start_session(args.session, args.date, previous, args.first_release)
-            with open(args.out, 'x', encoding='utf-8') as handle:
-                handle.write(caiman.dump(session))
-            sys.stdout.write(caiman.dump(session))
+            sys.stdout.write(caiman.dump(start(args)))
             return 0
+        if args.command == 'decide':
+            # The lock is held from before the record is read until after the ALLOW is written.
+            lock = lock_session(args.session)
+            newest_link(read_chain(Path(args.session).parent), args.session, None)
+            session = check_session(json.loads(lock.read()))
         records = [json.loads(Path(path).read_text(encoding='utf-8')) for path in args.record]
         table = load_table(records, repo=args.manifests)
         by_release = {caiman.parse_release(record['release']).base: record for record in records}
@@ -615,7 +948,6 @@ def main(argv=None):
             tags = signed_tags(args.manifests, args.allowed_signers, base, image.release)
             sys.stdout.write(caiman.dump(desk(image, table=table, tags=tags, base_tag=args.base_tag)))
             return 0
-        session = check_session(json.loads(Path(args.session).read_text(encoding='utf-8')))
         reference = phone_release(session)
         tags = signed_tags(args.manifests, args.allowed_signers,
                            min(known_releases(session) + [image.release], key=lambda r: int(r.base)),
@@ -629,10 +961,14 @@ def main(argv=None):
             session_path=args.session, current_stable=stable,
             stable_fetched_at=(check_time(args.stable_fetched_at, 'stable fetch time')
                                if args.stable_fetched_at else None),
-            approval=load_approval(Path(args.approval).read_bytes()))
+            approval=load_approval(Path(args.approval).read_bytes()),
+            readings_max_age=args.readings_max_age)
     except (Refusal, OSError, ValueError, KeyError) as error:
         sys.stdout.write(caiman.dump({'verdict': 'REFUSE', 'reasons': [str(error)]}))
         return EXIT['REFUSE']
+    finally:
+        if lock is not None:
+            lock.close()
     sys.stdout.write(caiman.dump(decision))
     return EXIT[decision['verdict']]
 

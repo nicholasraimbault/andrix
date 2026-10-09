@@ -6,10 +6,14 @@ manifest repository with SSH signed tags (world.py). The readings are SYNTHETIC.
 """
 import contextlib
 import copy
+import datetime
+import fcntl
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -71,19 +75,27 @@ def approval(*images, name='s1', day='2026-10-09', wipes=True, kind=None):
                                                        'wipes_data': wipes} for item in images]}))
 
 
+def later(text, minutes):
+    moment = vc.parse_time(text) + datetime.timedelta(minutes=minutes)
+    return moment.strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
 class Case(unittest.TestCase):
     def decide(self, item, start='2026100600', allowed=(), readings=None, stage=8, os_booted=True,
                pending='no', stable=None, channel='stable', approved=True, tags=None, table=None,
-               session_value=None, session_path=None):
+               session_value=None, session_path=None, now=None, **extra):
         value = session_value or session(start, allowed)
-        named = approval(item) if approved else approval(image('grapheneos', '2026081300'))
+        named = approval(item if approved else image('grapheneos', '2026081300'),
+                         name=value['session'], day=value['date'])
+        readings = readings or OCTOBER
         return vc.decide(item, table=table or STATE['table'], tags=tags or STATE['tags'],
-                         readings=readings or OCTOBER, stage=stage, os_booted=os_booted,
+                         readings=readings, stage=stage, os_booted=os_booted,
                          update_pending=pending, channel=channel, session=value, approval=named,
                          session_path=session_path,
                          current_stable=R(stable) if stable else None,
                          stable_fetched_at='2026-10-09T10:55:00Z' if stable else None,
-                         security_previews=False, now='2026-10-09T23:00:00Z')
+                         security_previews=False,
+                         now=now or later(readings['taken-at'].value, 5), **extra)
 
     def refused(self, pattern, *args, **kwargs):
         with self.assertRaisesRegex(Refusal, pattern):
@@ -141,6 +153,42 @@ class SignedTagTests(unittest.TestCase):
             with self.assertRaisesRegex(Refusal, 'no adevtool record for the signed release tags 2026100200'):
                 vc.check_coverage(table, tags, R('2026081300'), R('2026100600'))
 
+    def test_clone_config_cannot_change_the_verification(self):
+        """A clone whose own config points the signature programs at stand-ins that accept all,
+        for SSH, OpenPGP and X.509 signatures."""
+        status = ('#!/bin/sh\ncat >/dev/null\nprintf \'[GNUPG:] NEWSIG\\n[GNUPG:] GOODSIG '
+                  '0123456789ABCDEF contact\\n[GNUPG:] TRUST_ULTIMATE 0 pgp\\n\'\nexit 0\n')
+        stand_ins = {
+            'ssh': ('gpg.ssh.program', '#!/bin/sh\ncase "$2" in\nfind-principals) echo contact@grapheneos.org ;;\n'
+                    'verify) cat >/dev/null; echo \'Good "git" signature for contact@grapheneos.org with '
+                    'ED25519 key SHA256:stand-in\' ;;\nesac\nexit 0\n', {'foreign': ('2026100200',)}),
+            'openpgp': ('gpg.program', status, {'unsigned': ('2026100200',)}),
+            'x509': ('gpg.x509.program', status, {'unsigned': ('2026100200',)})}
+        armor = {'openpgp': 'PGP SIGNATURE', 'x509': 'SIGNED MESSAGE'}
+        with tempfile.TemporaryDirectory() as work:
+            for name, (key, script, kwargs) in stand_ins.items():
+                with self.subTest(name):
+                    w = world.World(Path(work) / name, tags=('2026081300', '2026100200', '2026100600'), **kwargs)
+                    if name in armor:     # an armored block that no key made
+                        commit = world.run('git', '-C', w.repo, 'rev-parse', 'refs/tags/2026100200^{commit}')
+                        body = (f'object {commit}\ntype commit\ntag 2026100200\ntagger Manifest fixture '
+                                '<fixture@example.invalid> 1791000000 +0000\n\n2026100200\n'
+                                f'-----BEGIN {armor[name]}-----\n\niQ==\n-----END {armor[name]}-----\n')
+                        forged = subprocess.run(['git', '-C', str(w.repo), 'mktag'], input=body.encode(),
+                                                env=world.ENV, check=True, stdout=subprocess.PIPE).stdout
+                        world.run('git', '-C', w.repo, 'update-ref', 'refs/tags/2026100200', forged.decode().strip())
+                    program = Path(work) / name / 'accept-all'
+                    program.write_text(script)
+                    program.chmod(0o755)
+                    world.run('git', '-C', w.repo, 'config', key, program)
+                    # the control's premise: without the pins, the clone's config accepts the tag
+                    world.run('git', '-C', w.repo, '-c', f'gpg.ssh.allowedSignersFile={w.signers}',
+                              'verify-tag', '2026100200')
+                    with self.assertRaisesRegex(Refusal, 'verify-tag'):
+                        vc.signed_tags(w.repo, w.signers, R('2026081300'), R('2026100600'), bases=w.bases)
+                    self.assertEqual(vc.signed_tags(w.repo, w.signers, R('2026081300'), R('2026081300'),
+                                                    bases=w.bases), ['2026081300'])
+
 
 class CriterionTests(Case):
     def test_newer_release_is_allowed_and_recorded(self):
@@ -197,6 +245,16 @@ class CriterionTests(Case):
         fresh = samples.parsed(taken_at='2026-10-09T11:31:00Z')
         self.assertEqual(self.decide(image('grapheneos', '2026100600'), allowed=allowed,
                                      readings=fresh)['verdict'], 'ALLOW')
+
+    def test_readings_older_than_the_maximum_age_are_refused(self):
+        kit = image('grapheneos', '2026100600')
+        self.assertEqual(self.decide(kit, now='2026-10-09T11:15:00Z')['verdict'], 'ALLOW')
+        self.refused('more than 15 minutes before now', kit, now='2026-10-09T11:15:01Z')
+        self.refused('more than 5 minutes before now', kit, now='2026-10-09T11:05:01Z', readings_max_age=5)
+        self.assertEqual(self.decide(kit, now='2026-10-09T11:10:00Z', readings_max_age=10)['verdict'], 'ALLOW')
+        for age in (0, 16, 60, True, '15', None):      # the plan's 15 minutes may only be lowered
+            with self.subTest(age=age):
+                self.refused('maximum age of readings is 1 to 15 minutes', kit, readings_max_age=age)
 
     def test_records_cover_every_signed_tag_between(self):
         tags = ['2026081300', '2026100200', '2026100600']
@@ -261,9 +319,15 @@ class SessionTests(unittest.TestCase):
                              ('start older than carried', {'start_release': '2026081300',
                                                            'carried': ['2026081300', '2026100600']}),
                              ('order', {'allowed': [dict(good['allowed'][0], at='2026-10-09T09:00:00Z')]}),
-                             ('entry', {'allowed': [{'release': '2026100600'}]})):
+                             ('entry', {'allowed': [{'release': '2026100600'}]}),
+                             ('date is not the start date', {'date': '2026-10-10'}),
+                             ('previous digest', {'previous_sha256': 'abc'})):
             with self.subTest(name), self.assertRaises(Refusal):
                 vc.check_session(dict(copy.deepcopy(good), **change))
+        without = copy.deepcopy(good)
+        without.pop('previous_sha256')
+        with self.assertRaisesRegex(Refusal, 'nor null for the first'):
+            vc.check_session(without)
 
     def test_an_edited_start_cannot_lower_the_reference(self):
         # An edited record: start 2026081300 beside a carried 2026100600, with October readings.
@@ -273,6 +337,15 @@ class SessionTests(unittest.TestCase):
             vc.check_session(edited)
         # Without check_session, the reference is still the newest known release.
         self.assertEqual(vc.phone_release(edited).number, '2026100600')
+
+    def test_session_date_is_the_utc_date_of_its_start(self):
+        with self.assertRaisesRegex(Refusal, 'not the UTC date of its start'):
+            vc.start_session('s1', '2026-10-10', first_release='2026100600', now='2026-10-09T23:59:59Z')
+
+    def test_a_session_starts_after_the_previous_one(self):
+        first = session('2026081300')
+        with self.assertRaisesRegex(Refusal, 'not after the previous session'):
+            vc.start_session('s2', '2026-10-09', previous=first, now='2026-10-09T10:00:00Z')
 
     def test_allow_is_written_before_the_decision_returns(self):
         with tempfile.TemporaryDirectory() as work:
@@ -287,6 +360,280 @@ class SessionTests(unittest.TestCase):
             self.assertEqual(Case.decide(self, image('grapheneos', '2026100600'), readings=AUGUST,
                                          session_value=waiting, session_path=path, approved=False)['verdict'], 'WAIT')
             self.assertEqual(json.loads(path.read_text())['allowed'], [])
+
+
+def stable_file(release):
+    """caiman-stable as script/generate-metadata writes it: build number, timestamp, device, channel."""
+    return f'{release} 1791000000 caiman stable\n'.encode()
+
+
+def utc_seconds(text):
+    return vc.parse_time(text).replace(tzinfo=datetime.timezone.utc).timestamp()
+
+
+class UpdatedFromStableTests(Case):
+    """Stop point 4: a phone that updated itself since the last session starts from the current
+    stable release, which caiman-stable names and the build number of stop point 1 shows."""
+
+    def previous(self):
+        return vc.start_session('s0', '2026-10-09', first_release='2026081300', now='2026-10-09T08:00:00Z')
+
+    def follow(self, release='2026100600', build=None, previous=None, data=None,
+               fetched_at='2026-10-09T09:55:00Z', updated=True):
+        if not updated:
+            return vc.start_session('s1', '2026-10-09', previous=previous or self.previous(),
+                                    now='2026-10-09T10:00:00Z')
+        return vc.start_session('s1', '2026-10-09', previous=previous or self.previous(),
+                                stable=stable_file(release) if data is None else data,
+                                stable_fetched_at=fetched_at, build_number=build or release,
+                                now='2026-10-09T10:00:00Z')
+
+    def test_stable_release_starts_the_record(self):
+        value = self.follow()
+        self.assertEqual((value['start_release'], value['carried']), ('2026100600', ['2026081300', '2026100600']))
+        self.assertEqual(value['stable'], {'release': '2026100600', 'fetched_at': '2026-10-09T09:55:00Z',
+                                           'build_number': '2026100600',
+                                           'sha256': hashlib.sha256(stable_file('2026100600')).hexdigest()})
+        self.assertEqual(vc.phone_release(value).number, '2026100600')
+        self.assertIsNone(self.follow(updated=False)['stable'])
+
+    def test_security_preview_of_the_stable_release_is_allowed(self):
+        value = self.follow(build='2026100601')
+        self.assertEqual((value['start_release'], value['stable']['build_number']), ('2026100600', '2026100601'))
+
+    def test_stable_not_newer_than_every_carried_release_is_refused(self):
+        written = self.previous()
+        written['allowed'].append({'release': '2026100600', 'sha256': 'f' * 64, 'kind': 'grapheneos',
+                                   'at': '2026-10-09T08:30:00Z'})
+        for release, previous in (('2026081300', None), ('2026081301', None), ('2026071500', None),
+                                  ('2026100600', written), ('2026090100', written)):
+            with self.subTest(release=release), \
+                    self.assertRaisesRegex(Refusal, 'not newer than the carried releases'):
+                self.follow(release, previous=previous)
+
+    def test_build_number_must_show_the_stable_release(self):
+        for build in ('2026081300', '2026081301', '2026090100'):     # the phone has not updated yet
+            with self.subTest(build=build), self.assertRaisesRegex(
+                    Refusal, f'build number {build} is older than the current stable release 2026100600: '
+                             'the phone has not updated yet, so the session waits until it has'):
+                self.follow(build=build)
+        for build in ('2026110500', '2026110501'):
+            with self.subTest(build=build), self.assertRaisesRegex(
+                    Refusal, f'build number {build} names another release than the current stable release'):
+                self.follow(build=build)
+        for build in ('2026100602', 'latest', '', None):
+            with self.subTest(build=build), self.assertRaisesRegex(Refusal, 'build number'):
+                vc.start_session('s1', '2026-10-09', previous=self.previous(), stable=stable_file('2026100600'),
+                                 stable_fetched_at='2026-10-09T09:55:00Z', build_number=build,
+                                 now='2026-10-09T10:00:00Z')
+
+    def test_malformed_or_stale_stable_file_is_refused(self):
+        for data in (b'', b'2026100600 1791000000 caiman beta\n', b'2026100600 1791000000 komodo stable\n',
+                     stable_file('2026100600') + stable_file('2026110500'), b'2026100600 caiman stable\n',
+                     b'<html>2026100600 1791000000 caiman stable</html>\n', b'2026100602 1791000000 caiman stable\n',
+                     '2026100600 1791000000 caiman stable\u00a0\n'.encode()):
+            with self.subTest(data=data), self.assertRaisesRegex(Refusal, 'caiman-stable'):
+                self.follow(data=data)
+        self.assertEqual(self.follow(fetched_at='2026-10-09T09:45:00Z')['stable']['fetched_at'], '2026-10-09T09:45:00Z')
+        for fetched_at, pattern in (('2026-10-09T09:44:59Z', 'more than 15 minutes before the start .* stale'),
+                                    ('2026-10-08T23:00:00Z', 'stale, fetch it again'),
+                                    ('2026-10-09T10:00:01Z', 'after the start'),
+                                    ('2026-10-09 09:55', 'not a UTC time'), (None, 'needs the caiman-stable file')):
+            with self.subTest(fetched_at=fetched_at), self.assertRaisesRegex(Refusal, pattern):
+                self.follow(fetched_at=fetched_at)
+        with self.assertRaisesRegex(Refusal, 'only beside the releases carried'):
+            vc.start_session('s1', '2026-10-09', first_release='2026081300', stable=stable_file('2026100600'),
+                             stable_fetched_at='2026-10-09T09:55:00Z', build_number='2026100600',
+                             now='2026-10-09T10:00:00Z')
+
+    def test_stable_entry_controls(self):
+        good = self.follow()
+        for name, change in (('missing', None), ('not a dict', '2026100600'),
+                             ('keys', {'release': '2026100600'}),
+                             ('other release', dict(good['stable'], release='2026081300')),
+                             ('other build', dict(good['stable'], build_number='2026081300')),
+                             ('digest', dict(good['stable'], sha256='abc')),
+                             ('fetched long before', dict(good['stable'], fetched_at='2026-10-09T09:00:00Z')),
+                             ('fetched after', dict(good['stable'], fetched_at='2026-10-09T10:00:01Z'))):
+            with self.subTest(name), self.assertRaises(Refusal):
+                value = copy.deepcopy(good)
+                if change is None:
+                    value.pop('stable')
+                else:
+                    value['stable'] = change
+                vc.check_session(value)
+        first = session('2026100600')
+        first['stable'] = copy.deepcopy(good['stable'])
+        with self.assertRaisesRegex(Refusal, 'only a session that continues a chain'):
+            vc.check_session(first)
+
+    def test_official_kit_of_the_stable_release_is_allowed(self):
+        kit = image('grapheneos', '2026100600')
+        # without the stable release, the October readings refuse every write
+        self.refused('none of the session\'s known releases', kit, session_value=self.follow(updated=False))
+        decision = self.decide(kit, session_value=self.follow())
+        self.assertEqual((decision['verdict'], decision['branch'], decision['phone_release']),
+                         ('ALLOW', 'same stock build', '2026100600'))
+
+    def test_wrongly_typed_build_number_only_raises_the_reference(self):
+        # The phone is still on August firmware, but the build number was typed as the stable release.
+        august = image('grapheneos', '2026081300')
+        self.assertEqual(self.decide(august, readings=AUGUST, session_value=self.follow(updated=False))['verdict'],
+                         'ALLOW')
+        self.refused('not newer than 2026100600', august, readings=AUGUST, session_value=self.follow())
+        decision = self.decide(image('grapheneos', '2026100600'), readings=AUGUST, session_value=self.follow())
+        self.assertEqual((decision['verdict'], decision['phone_release']), ('ALLOW', '2026100600'))
+
+    def test_newer_firmware_is_still_refused_at_the_readings(self):
+        # A stale file and a build number typed to match it: the November firmware still refuses.
+        for item in (image('grapheneos', '2026100600'), image('stock', '2026100600')):
+            with self.subTest(kind=item.kind):
+                self.refused('none of the session\'s known releases', item, readings=NOVEMBER,
+                             session_value=self.follow())
+
+
+class ChainTests(unittest.TestCase):
+    """The session records of one phone form one chain in their own directory."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name) / 'sessions'
+        self.dir.mkdir()
+        clock = iter(f'2026-10-09T{hour:02}:00:00Z' for hour in range(1, 24))
+        patch = mock.patch.object(vc, 'utc_now', side_effect=lambda: next(clock))
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.assertEqual(self.start('s1', '--first-release', '2026081300')[0], 0)
+        self.assertEqual(self.follow('s2', 's1')[0], 0)
+        self.assertEqual(self.follow('s3', 's2')[0], 0)
+
+    def call(self, *argv):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            status = vc.main(list(argv))
+        return status, json.loads(output.getvalue())
+
+    def start(self, name, *extra, directory=None):
+        return self.call('start', '--out', str((directory or self.dir) / f'{name}.json'), '--session', name,
+                         '--date', '2026-10-09', *extra)
+
+    def sha(self, name):
+        return hashlib.sha256((self.dir / f'{name}.json').read_bytes()).hexdigest()
+
+    def follow(self, name, previous, sha=None, *extra):
+        return self.start(name, '--previous', str(self.dir / f'{previous}.json'),
+                          '--previous-sha256', sha or self.sha(previous), *extra)
+
+    def refused(self, pattern, result):
+        status, report = result
+        self.assertEqual((status, report['verdict']), (1, 'REFUSE'))
+        self.assertRegex(report['reasons'][0], pattern)
+
+    def test_the_chain_continues_from_the_newest_record(self):
+        chain = vc.read_chain(self.dir)
+        self.assertEqual([link.record['session'] for link in chain], ['s1', 's2', 's3'])
+        self.assertEqual(chain[2].record['previous_sha256'], self.sha('s2'))
+        status, record = self.follow('s4', 's3', None, '--updated-from-stable', str(self.stable('03:55:00')),
+                                     '--build-number', '2026100601')
+        self.assertEqual((status, record['start_release'], record['carried']),
+                         (0, '2026100600', ['2026081300', '2026100600']))
+        self.assertEqual((record['stable']['fetched_at'], record['stable']['build_number']),
+                         ('2026-10-09T03:55:00Z', '2026100601'))
+
+    def stable(self, saved_at):
+        """caiman-stable saved outside the session directory, its modification time set by hand."""
+        path = Path(self.tmp.name) / f'caiman-stable-{saved_at.replace(":", "")}'
+        path.write_bytes(stable_file('2026100600'))
+        moment = utc_seconds(f'2026-10-09T{saved_at}Z')
+        os.utime(path, (moment, moment))
+        return path
+
+    def test_updated_from_stable_on_the_command_line(self):
+        clock = mock.patch.object(vc, 'utc_now', return_value='2026-10-09T04:00:00Z')    # every start at 04:00
+        clock.start()
+        self.addCleanup(clock.stop)
+        for saved_at, pattern in (('03:44:59', 'stale, fetch it again'), ('04:00:01', 'after the start')):
+            with self.subTest(saved_at=saved_at):
+                self.refused(pattern, self.follow('s4', 's3', None, '--updated-from-stable',
+                                                  str(self.stable(saved_at)), '--build-number', '2026100600'))
+        self.refused('session waits until it has', self.follow(
+            's4', 's3', None, '--updated-from-stable', str(self.stable('03:58:00')), '--build-number', '2026081300'))
+        self.refused('needs the caiman-stable file', self.follow('s4', 's3', None, '--build-number', '2026100600'))
+        self.refused('No such file', self.follow('s4', 's3', None, '--updated-from-stable',
+                                                 str(Path(self.tmp.name) / 'missing'), '--build-number', '2026100600'))
+        self.assertFalse((self.dir / 's4.json').exists())
+
+    def test_the_typed_updated_release_is_not_an_option(self):
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()) as error:
+            self.follow('s4', 's3', None, '--updated-release', '2026100600')
+        self.assertIn('unrecognized arguments: --updated-release', error.getvalue())
+        self.assertFalse((self.dir / 's4.json').exists())
+
+    def test_stale_previous_is_refused(self):
+        self.refused('not the newest session record of its directory; the newest is s3.json',
+                     self.follow('s4', 's2'))
+        self.assertFalse((self.dir / 's4.json').exists())
+
+    def test_edited_newest_record_is_refused(self):
+        kept = self.sha('s3')
+        record = json.loads((self.dir / 's3.json').read_text())
+        record['carried'] = ['2026100600']      # drops the carried August release
+        record['start_release'] = '2026100600'
+        (self.dir / 's3.json').write_text(caiman.dump(record))
+        self.assertEqual(len(vc.read_chain(self.dir)), 3)     # the chain alone cannot see it
+        self.refused('not the SHA-256 the owner keeps', self.follow('s4', 's3', kept))
+        self.refused('needs --previous-sha256', self.start('s4', '--previous', str(self.dir / 's3.json')))
+
+    def test_broken_chain_is_refused(self):
+        record = json.loads((self.dir / 's2.json').read_text())
+        record['carried'] = ['2026081300', '2026100600']
+        record['start_release'] = '2026100600'
+        (self.dir / 's2.json').write_text(caiman.dump(record))
+        self.refused('the chain is broken', self.follow('s4', 's3'))
+        (self.dir / 's2.json').unlink()
+        self.refused('the chain is broken', self.follow('s4', 's3'))
+
+    def test_fork_is_refused(self):
+        parent = json.loads((self.dir / 's2.json').read_text())
+        fork = vc.start_session('s3b', '2026-10-09', previous=parent, now='2026-10-09T20:00:00Z')
+        (self.dir / 's3b.json').write_text(caiman.dump(fork))
+        self.refused('name the same previous record .*s2.json; the chain forks', self.follow('s4', 's3'))
+        self.refused('name the same previous record', self.follow('s4', 's3b'))
+
+    def test_a_second_first_record_is_refused(self):
+        self.refused('already holds session records', self.start('s9', '--first-release', '2026100600'))
+        other = vc.start_session('s9', '2026-10-09', first_release='2026100600', now='2026-10-09T20:00:00Z')
+        (self.dir / 's9.json').write_text(caiman.dump(other))
+        self.refused('2 records .* start a chain', self.follow('s4', 's3'))
+
+    def test_directory_controls(self):
+        elsewhere = Path(self.tmp.name) / 'elsewhere'
+        elsewhere.mkdir()
+        self.refused('must go beside the previous record',
+                     self.start('s4', '--previous', str(self.dir / 's3.json'), '--previous-sha256',
+                                self.sha('s3'), directory=elsewhere))
+        self.refused('session named s2', self.follow('s2', 's3'))
+        self.refused('not named NAME.json', self.call(
+            'start', '--out', str(self.dir / 's4.txt'), '--session', 's4', '--date', '2026-10-09',
+            '--previous', str(self.dir / 's3.json'), '--previous-sha256', self.sha('s3')))
+        with open(self.dir / 's3.json', 'rb') as holder:
+            fcntl.flock(holder.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)     # a decide still runs on s3
+            self.refused('s3.json is locked by another decide', self.follow('s4', 's3'))
+        self.refused('continue a chain', self.start('t1', '--first-release', '2026081300',
+                                                    '--build-number', '2026100600', directory=elsewhere))
+        for name, content, pattern in (
+                ('notes.txt', 'x', 'not a session record'),
+                ('approval.json', '{}', 'not an andrix.pixel.session/1 document'),
+                ('broken.json', '{', 'not JSON'),
+                ('s3.json.new', '{}', r's3.json.new is left from an interrupted decide.*remove it by hand'),
+                ('respaced.json', json.dumps(json.loads((self.dir / 's3.json').read_text())),
+                 'not in the form the checker writes')):
+            with self.subTest(name):
+                (self.dir / name).write_text(content)
+                self.refused(pattern, self.follow('s4', 's3'))
+                (self.dir / name).unlink()
+        self.assertEqual(self.follow('s4', 's3')[0], 0)
 
 
 class ApprovalTests(Case):
@@ -410,9 +757,13 @@ class CommandLineTests(unittest.TestCase):
             self.paths[name].write_text(json.dumps({'schema': vc.APPROVAL_SCHEMA, 'session': 's1',
                                                     'date': '2026-10-09', 'artifacts': [
                 {'sha256': sha, 'kind': 'stock', 'wipes_data': True}]}))
-        self.paths['session'] = work / 'session.json'
+        self.sessions = work / 'sessions'      # the session directory holds only session records
+        self.sessions.mkdir()
+        self.paths['session'] = self.sessions / 's1.json'
+        clock = iter(f'2026-10-09T10:{minute:02}:00Z' for minute in range(60))
         patches = (mock.patch.object(adevtool_record, 'BASES', self.world.bases),
-                   mock.patch.object(install_zip, 'BASES', self.world.bases))
+                   mock.patch.object(install_zip, 'BASES', self.world.bases),
+                   mock.patch.object(vc, 'utc_now', side_effect=lambda: next(clock)))
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
@@ -423,23 +774,86 @@ class CommandLineTests(unittest.TestCase):
             status = vc.main(list(argv))
         return status, json.loads(output.getvalue())
 
-    def decide(self, approval, taken=None):
+    def decide(self, approval, taken=None, *extra, session=None):
         taken = taken or self.taken
         readings = Path(self.tmp.name) / f'readings-{taken}'
         readings.write_bytes(samples.synthetic(samples.AUGUST, taken_at=taken))
         return self.call('decide', '--record', str(self.paths['2026081300']), '--record',
                          str(self.paths['2026100600']), '--manifests', str(self.world.repo),
                          '--allowed-signers', str(self.world.signers), '--image', 'stock',
-                         '--zip', str(self.zip), '--session', str(self.paths['session']),
+                         '--zip', str(self.zip), '--session', str(session or self.paths['session']),
                          '--readings', str(readings), '--stage', '8', '--os-booted', 'yes',
                          '--update-pending', 'no', '--channel', 'stable', '--security-previews', 'no',
-                         '--approval', str(self.paths[approval]))
+                         '--approval', str(self.paths[approval]), *extra)
 
-    def test_session_flow(self):
+    def begin(self):
         status, started = self.call('start', '--out', str(self.paths['session']), '--session', 's1',
                                     '--date', '2026-10-09', '--first-release', '2026081300')
         self.assertEqual((status, started['start_release']), (0, '2026081300'))
         self.taken = vc.utc_now()
+
+    def refused(self, pattern, result):
+        status, report = result
+        self.assertEqual((status, report['verdict']), (1, 'REFUSE'))
+        self.assertRegex(report['reasons'][0], pattern)
+
+    def test_a_held_lock_refuses_a_second_decide(self):
+        self.begin()
+        with open(self.paths['session'], 'rb') as holder:
+            fcntl.flock(holder.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)     # another decide holds it
+            self.refused('s1.json is locked by another decide', self.decide('named'))
+        self.assertEqual(json.loads(self.paths['session'].read_text())['allowed'], [])
+        self.assertEqual(self.decide('named')[1]['verdict'], 'ALLOW')
+
+    def test_a_record_replaced_while_locking_is_refused(self):
+        self.begin()
+        path, flock = self.paths['session'], fcntl.flock
+
+        def replaced_meanwhile(descriptor, operation):
+            # another decide wrote its ALLOW between this one's open and its lock
+            (self.sessions / 'other').write_bytes(path.read_bytes())
+            os.replace(self.sessions / 'other', path)
+            return flock(descriptor, operation)
+        with mock.patch.object(vc.fcntl, 'flock', side_effect=replaced_meanwhile), \
+                self.assertRaisesRegex(Refusal, 'was replaced while this decide opened it'):
+            vc.lock_session(path)
+        vc.lock_session(path).close()
+
+    def test_a_leftover_new_file_is_refused_until_removed_by_hand(self):
+        self.begin()
+        leftover = self.sessions / 's1.json.new'
+        leftover.write_text('{}')
+        self.refused(f'{leftover} is left from an interrupted decide.*Inspect it.*remove it by hand',
+                     self.decide('named'))
+        for check in (vc.lock_session, lambda path: vc.read_chain(path.parent),
+                      lambda path: vc.write_session(path, json.loads(path.read_text()))):
+            with self.assertRaisesRegex(Refusal, f'{leftover} is left from an interrupted decide.*remove it by hand'):
+                check(self.paths['session'])
+        self.assertEqual(json.loads(self.paths['session'].read_text())['allowed'], [])
+        leftover.unlink()
+        self.assertEqual(self.decide('named')[1]['verdict'], 'ALLOW')
+
+    def test_decide_needs_the_newest_record(self):
+        self.begin()
+        digest = hashlib.sha256(self.paths['session'].read_bytes()).hexdigest()
+        status, _ = self.call('start', '--out', str(self.sessions / 's2.json'), '--session', 's2',
+                              '--date', '2026-10-09', '--previous', str(self.paths['session']),
+                              '--previous-sha256', digest)
+        self.assertEqual(status, 0)
+        self.refused('s1.json is not the newest session record of its directory', self.decide('named'))
+
+    def test_readings_max_age_option(self):
+        self.begin()
+        vc.utc_now()        # two minutes pass
+        self.refused('more than 1 minute before now', self.decide('named', None, '--readings-max-age', '1'))
+        for value in ('0', '16', '60', '15.5', 'x'):
+            with self.subTest(value=value), self.assertRaises(SystemExit), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                self.decide('named', None, '--readings-max-age', value)
+        self.assertEqual(self.decide('named', None, '--readings-max-age', '15')[1]['verdict'], 'ALLOW')
+
+    def test_session_flow(self):
+        self.begin()
         status, result = self.decide('other', taken='2099-01-01T00:00:00Z')   # from the future
         self.assertEqual((status, result['verdict']), (1, 'REFUSE'))
         status, result = self.decide('other')
