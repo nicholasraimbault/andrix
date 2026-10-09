@@ -125,7 +125,7 @@ def check_signers(signers, bases=None):
 class Archive:
     """The members of one install zip, all directly under the directory its name gives."""
 
-    def __init__(self, path, release=None):
+    def __init__(self, path, release=None, handle=None):
         self.path = Path(path)
         if release is None:   # an Andrix zip: optimize-factory-image names the directory alike
             if re.fullmatch(r'caiman-install-[A-Za-z0-9._-]+\.zip', self.path.name) is None:
@@ -134,8 +134,8 @@ class Archive:
         self.prefix = f'{caiman.DEVICE}-install-{release}/'
         if self.path.name != f'{caiman.DEVICE}-install-{release}.zip':
             refuse(f'{self.path.name} is not named {caiman.DEVICE}-install-{release}.zip')
-        try:
-            self.zip = zipfile.ZipFile(self.path)
+        try:   # an open handle reads the bytes that were hashed through it
+            self.zip = zipfile.ZipFile(self.path if handle is None else handle)
         except (zipfile.BadZipFile, OSError) as error:
             refuse(f'{self.path.name} is not a readable zip: {error}')
         self.members = {}
@@ -260,7 +260,8 @@ def patch_timestamp(level):
     return calendar.timegm((day.year, day.month, day.day, 0, 0, 0))
 
 
-def check_identity(vbmeta, release, stable, record_stock=None):
+def build_identity(vbmeta):
+    """The build number and stock build that a GrapheneOS vbmeta's fingerprints name."""
     fingerprints = {}
     for descriptor in vbmeta['descriptors']:
         if descriptor['type'] == 'property':
@@ -286,15 +287,19 @@ def check_identity(vbmeta, release, stable, record_stock=None):
     if len(numbers) != 1 or len(builds) != 1:
         refuse(f'the fingerprints inside the zip disagree: {sorted(fingerprints.values())}')
     inside = caiman.parse_release(numbers.pop(), what='build number inside the zip')
+    return inside, builds.pop(), sorted(fingerprints)
+
+
+def check_identity(vbmeta, release, stable, record_stock=None):
+    inside, stock, fingerprints = build_identity(vbmeta)
     if inside.number != release.number:
         refuse(f'the build number inside the zip is {inside}, not the expected {release}')
-    stock = builds.pop()
     if record_stock is not None and stock != record_stock:
         refuse(f'the zip is built from stock build {stock}, but adevtool records {record_stock}')
     if caiman.newer(inside, stable):
         refuse(f'caiman-stable names {stable}, which is older than the zip release {inside}')
     return {'build_number': inside.number, 'stock_build': stock, 'stable': stable.number,
-            'fingerprints': sorted(fingerprints)}
+            'fingerprints': fingerprints}
 
 
 def images_to_verify(vbmeta):
@@ -566,20 +571,11 @@ def andrix_identity(zip_path, *, avbtool, tools=None, scratch=None, bases=None):
         if caiman.sha256(pkmd) != WORKSHOP_PKMD_SHA256:
             refuse('the Andrix zip is not signed with the workshop key recorded for this phone')
         vbmeta = parse_vbmeta(archive.read('vbmeta.img'))
-        tags = [d['value'] for d in vbmeta['descriptors']
-                if d['type'] == 'property' and d['key'] == 'com.andrix.build.base_tag']
-        if len(tags) != 1:
-            refuse('the Andrix zip carries no single signed com.andrix.build.base_tag property')
-        base = caiman.parse_release(tags[0], allow_preview=False, what='Andrix base tag')
+        base = andrix_base_tag(vbmeta)
         level = patch_level(base, None, bases)
         _, detail = check_vbmeta(archive, archive.read('vbmeta.img'), pkmd, level, avbtool,
                                  scratch, tools)
-        fingerprints = [d['value'] for d in vbmeta['descriptors'] if d['type'] == 'property'
-                        and _FINGERPRINT_KEY.fullmatch(d['key'])]
-        parsed = [_ANDRIX_FINGERPRINT.fullmatch(value) for value in fingerprints]
-        if not parsed or None in parsed or {m.group(1) for m in parsed} != {caiman.DEVICE} \
-                or {m.group(4) for m in parsed} != {'release-keys'} or len({m.group(2) for m in parsed}) != 1:
-            refuse(f'the Andrix fingerprints {fingerprints} are not one caiman release-keys build')
+        stock = andrix_stock_build(vbmeta)
         info = caiman.parse_android_info(archive.read('android-info.txt'), 'the Andrix android-info.txt')
         report = flash_script.read(archive.read('flash-all.sh'),
                                    flash_script.Expectation(info.bootloader, info.baseband))
@@ -588,8 +584,28 @@ def andrix_identity(zip_path, *, avbtool, tools=None, scratch=None, bases=None):
         firmware = _firmware(archive, info)
     finally:
         archive.zip.close()
-    return {'sha256': digest, 'base_tag': base.number, 'stock_build': parsed[0].group(2),
+    return {'sha256': digest, 'base_tag': base.number, 'stock_build': stock,
             'android_info': info, 'vbmeta': detail, 'firmware': firmware}
+
+
+def andrix_base_tag(vbmeta):
+    """The base tag that an Andrix vbmeta's single com.andrix.build.base_tag property names."""
+    tags = [d['value'] for d in vbmeta['descriptors']
+            if d['type'] == 'property' and d['key'] == 'com.andrix.build.base_tag']
+    if len(tags) != 1:
+        refuse('the Andrix zip carries no single signed com.andrix.build.base_tag property')
+    return caiman.parse_release(tags[0], allow_preview=False, what='Andrix base tag')
+
+
+def andrix_stock_build(vbmeta):
+    """The one stock build that an Andrix vbmeta's caiman release-keys fingerprints name."""
+    fingerprints = [d['value'] for d in vbmeta['descriptors'] if d['type'] == 'property'
+                    and _FINGERPRINT_KEY.fullmatch(d['key'])]
+    parsed = [_ANDRIX_FINGERPRINT.fullmatch(value) for value in fingerprints]
+    if not parsed or None in parsed or {m.group(1) for m in parsed} != {caiman.DEVICE} \
+            or {m.group(4) for m in parsed} != {'release-keys'} or len({m.group(2) for m in parsed}) != 1:
+        refuse(f'the Andrix fingerprints {fingerprints} are not one caiman release-keys build')
+    return parsed[0].group(2)
 
 
 def _firmware(archive, info):

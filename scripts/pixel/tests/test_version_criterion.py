@@ -14,11 +14,13 @@ import json
 import os
 from pathlib import Path
 import re
+import struct
 import subprocess
 import sys
 import tempfile
 import unittest
 from unittest import mock
+import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -32,9 +34,9 @@ import world  # noqa: E402
 
 R = caiman.parse_release
 FIXTURES = Path(__file__).resolve().parent / 'fixtures'
-INFO = {tag: caiman.parse_android_info((FIXTURES / f'adevtool/{tag}/vendor-skels/google_devices/'
-                                        'caiman/firmware/android-info.txt').read_bytes())
-        for tag in ('2026081300', '2026100600')}
+INFO_TEXT = {tag: (FIXTURES / f'adevtool/{tag}/vendor-skels/google_devices/caiman/firmware/'
+                   'android-info.txt').read_bytes() for tag in ('2026081300', '2026100600')}
+INFO = {tag: caiman.parse_android_info(text) for tag, text in INFO_TEXT.items()}
 OCTOBER = samples.parsed()
 AUGUST = samples.parsed(samples.AUGUST)
 # a new bootloader written beside the old radio: the partial write of rule 4
@@ -102,6 +104,40 @@ def split_output(text):
 def later(text, minutes):
     moment = vc.parse_time(text) + datetime.timedelta(minutes=minutes)
     return moment.strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+def vbmeta_image(*props):
+    """An UNSIGNED vbmeta image in AVB's layout with property descriptors only. decide reads the
+    identity again from it, and only verify checks a signature."""
+    blob = b''
+    for key, value in props:
+        key, value = key.encode(), value.encode()
+        body = key + b'\0' + value + b'\0'
+        body += bytes(-(16 + len(body)) % 8)
+        blob += struct.pack('!QQQQ', 0, 16 + len(body), len(key), len(value)) + body
+    aux = blob + bytes(-len(blob) % 64)
+    header = struct.pack('!4s2L2QL2Q2Q2Q2Q2QQLL47sx80x', b'AVB0', 1, 0, 0, len(aux), 0, 0, 0, 0, 0,
+                         0, 0, 0, 0, 0, len(blob), 0, 0, 0, b'')
+    return header + aux
+
+
+def kit_zip(folder, name, stock, info, number=None, base_tag=None):
+    """A SYNTHETIC zip with only the members decide reads again: android-info.txt, from the
+    adevtool fixture of the tag info, and a vbmeta whose fingerprint names stock and number, or
+    for an Andrix zip, the base tag."""
+    fingerprint = 'com.android.build.system.fingerprint'
+    if base_tag is None:
+        props = [(fingerprint, f'google/caiman/caiman:17/{stock}/{number or name}:user/release-keys')]
+    else:
+        props = [(fingerprint, f'google/caiman/caiman:17/{stock}/andrix1:userdebug/release-keys'),
+                 ('com.andrix.build.base_tag', base_tag)]
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f'caiman-install-{name}.zip'
+    with zipfile.ZipFile(path, 'w') as archive:
+        archive.writestr(f'caiman-install-{name}/android-info.txt', INFO_TEXT[info])
+        archive.writestr(f'caiman-install-{name}/vbmeta.img', vbmeta_image(*props))
+    return path
 
 
 class Case(unittest.TestCase):
@@ -736,12 +772,11 @@ class VerifiedIdentityTests(Case):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.path = Path(self.tmp.name) / 'caiman-install-2026100600.zip'
-        self.path.write_bytes(b'synthetic install zip')
+        self.path = kit_zip(self.tmp.name, '2026100600', 'CP3A.261005.005', '2026100600')
 
-    def kept(self, kind='grapheneos', **change):
+    def kept(self, kind='grapheneos', path=None, **change):
         value = session('2026081300')
-        item = image(kind, '2026100600', sha=hashlib.sha256(self.path.read_bytes()).hexdigest())
+        item = image(kind, '2026100600', sha=hashlib.sha256((path or self.path).read_bytes()).hexdigest())
         value['verified'][item.sha256] = dict(vc.identity_entry(item, '2026-10-09T10:01:00Z'), **change)
         return value, item
 
@@ -769,6 +804,73 @@ class VerifiedIdentityTests(Case):
                     self.assertRaisesRegex(Refusal, 'disagrees with the supplied adevtool records'):
                 value, _ = self.kept(kind, **change)
                 vc.verified_image(vc.check_session(value), self.path, kind, STATE['table'])
+
+    def test_decide_reads_the_zips_own_identity_again(self):
+        # The kept identity is October's and agrees with the records. Each zip states another.
+        folder = Path(self.tmp.name)
+        andrix = kit_zip(folder / 'andrix', '2026100600-andrix1', 'CP3A.261005.005', '2026100600',
+                         base_tag='2026100600')
+        for kind, path in (('grapheneos', self.path), ('andrix', andrix)):
+            with self.subTest(kind=kind, states='the kept identity'):
+                value, item = self.kept(kind, path)
+                self.assertEqual(vc.verified_image(vc.check_session(value), path, kind, STATE['table']), item)
+        for kind, path, differ in (
+                ('grapheneos', kit_zip(folder / 'august', '2026081300', 'CP2A.260805.005', '2026081300'),
+                 'release, stock build, android-info.txt'),       # the August kit itself
+                ('grapheneos', kit_zip(folder / 'number', '2026100600', 'CP3A.261005.005', '2026100600',
+                                       number='2026100200'), 'release'),
+                ('grapheneos', kit_zip(folder / 'stock', '2026100600', 'CP3A.260905.009', '2026100600'),
+                 'stock build'),
+                ('grapheneos', kit_zip(folder / 'info', '2026100600', 'CP3A.261005.005', '2026081300'),
+                 'android-info.txt'),
+                ('andrix', kit_zip(folder / 'tag', '2026100600-andrix2', 'CP3A.261005.005', '2026100600',
+                                   base_tag='2026081300'), 'release'),
+                ('andrix', kit_zip(folder / 'astock', '2026100600-andrix3', 'CP2A.260805.005', '2026100600',
+                                   base_tag='2026100600'), 'stock build'),
+                ('andrix', kit_zip(folder / 'ainfo', '2026100600-andrix4', 'CP3A.261005.005', '2026081300',
+                                   base_tag='2026100600'), 'android-info.txt')):
+            with self.subTest(kind=kind, differ=differ, zip=path.parent.name), \
+                    self.assertRaisesRegex(Refusal, f'{path.name} itself names .* they differ in {differ}, so '
+                                           'the record no longer holds what verify read'):
+                value, _ = self.kept(kind, path)
+                vc.verified_image(vc.check_session(value), path, kind, STATE['table'])
+        # the reads go through the handle that hashed the file, and a file changed or replaced
+        # meanwhile is refused
+        value, item = self.kept()
+        august = kit_zip(folder / 'swap', '2026081300', 'CP2A.260805.005', '2026081300').read_bytes()
+        hashed = vc.handle_sha256
+
+        def replace():
+            (folder / 'swapped').write_bytes(august)
+            os.replace(folder / 'swapped', self.path)
+
+        def append():
+            with self.path.open('ab') as handle:
+                handle.write(b'more')
+        for name, change in (('replaced', replace), ('appended', append)):
+            original = self.path.read_bytes()
+
+            def hash_then_change(handle):
+                digest = hashed(handle)
+                change()
+                return digest
+            with self.subTest(name), mock.patch.object(vc, 'handle_sha256', side_effect=hash_then_change), \
+                    self.assertRaisesRegex(Refusal, 'changed or was replaced while decide read it'):
+                vc.verified_image(vc.check_session(value), self.path, 'grapheneos', STATE['table'])
+            self.path.write_bytes(original)
+        not_a_zip = folder / 'plain' / 'caiman-install-2026100600.zip'
+        not_a_zip.parent.mkdir()
+        not_a_zip.write_bytes(b'synthetic bytes, not a zip')
+        value, _ = self.kept('grapheneos', not_a_zip)
+        with self.assertRaisesRegex(Refusal, 'is not a readable zip'):
+            vc.verified_image(vc.check_session(value), not_a_zip, 'grapheneos', STATE['table'])
+        corrupt = kit_zip(folder / 'crc', '2026100600', 'CP3A.261005.005', '2026100600')
+        data = bytearray(corrupt.read_bytes())
+        data[data.index(b'AVB0') + 300] ^= 0xff       # a stored vbmeta byte, so its CRC-32 fails
+        corrupt.write_bytes(bytes(data))
+        value, _ = self.kept('grapheneos', corrupt)
+        with self.assertRaisesRegex(Refusal, 'its own identity cannot be read: BadZipFile'):
+            vc.verified_image(vc.check_session(value), corrupt, 'grapheneos', STATE['table'])
 
     def test_record_controls(self):
         value, item = self.kept()
@@ -1030,6 +1132,79 @@ class CommandLineTests(unittest.TestCase):
         self.refused('does not hash to the SHA-256 that the last start, verify or decide printed',
                      self.decide('named'))
         self.assertEqual(json.loads(self.paths['session'].read_text())['allowed'], [])
+
+    def test_an_identity_edited_with_the_sha256_computed_again_by_hand_is_refused(self):
+        # The probe: a phone on October, and a kept identity edited to claim 2026100600 for a file
+        # standing for the August kit, with the record's SHA-256 computed again by hand.
+        status, _ = self.call('start', '--out', str(self.paths['session']), '--session', 's1', '--date',
+                              '2026-10-09', '--first', '--from-stable',
+                              str(self.stable('09:55:00', '2026100600')), '--build-number', '2026100600')
+        self.assertEqual(status, 0)
+        work = Path(self.tmp.name)
+        claimed = {'kind': 'grapheneos', 'release': '2026100600', 'stock_build': 'CP3A.261005.005',
+                   'android_info': INFO['2026100600'].as_dict(),
+                   'source': 'the signed build number inside the zip', 'wipes_data': True,
+                   'at': '2026-10-09T10:01:00Z'}
+        for name, path, verdict in (
+                ('august', kit_zip(work / 'august', '2026081300', 'CP2A.260805.005', '2026081300'), 'REFUSE'),
+                ('october', kit_zip(work / 'october', '2026100600', 'CP3A.261005.005', '2026100600'), 'ALLOW')):
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            record = json.loads(self.paths['session'].read_text())
+            record['verified'][digest] = claimed
+            self.paths['session'].write_text(caiman.dump(record))
+            by_hand = hashlib.sha256(self.paths['session'].read_bytes()).hexdigest()
+            approval = work / f'approval-{name}'
+            approval.write_text(json.dumps({'schema': vc.APPROVAL_SCHEMA, 'session': 's1', 'date': '2026-10-09',
+                                            'artifacts': [{'sha256': digest, 'kind': 'grapheneos',
+                                                           'wipes_data': True}]}))
+            readings = work / f'readings-{name}'
+            readings.write_bytes(samples.synthetic(taken_at=vc.utc_now()))        # October firmware
+            status, result = self.call(
+                'decide', *self.tables(), '--image', 'grapheneos', '--zip', str(path),
+                '--session', str(self.paths['session']), '--record-sha256', by_hand,
+                '--readings', str(readings), '--stage', '8', '--os-booted', 'yes', '--update-pending', 'no',
+                '--channel', 'stable', '--security-previews', 'no', '--approval', str(approval))
+            with self.subTest(name):
+                self.assertEqual(result['verdict'], verdict, result.get('reasons'))
+                allowed = json.loads(self.paths['session'].read_text())['allowed']
+                if verdict == 'REFUSE':
+                    self.assertEqual(status, 1)
+                    self.assertRegex(result['reasons'][0], 'caiman-install-2026081300.zip itself names release '
+                                     '2026081300, stock build CP2A.260805.005 .* they differ in release, '
+                                     'stock build, android-info.txt')
+                    self.assertEqual((allowed, self.printed), ([], None))
+                else:
+                    self.assertEqual((status, [entry['sha256'] for entry in allowed]), (0, [digest]))
+
+    def test_a_refusal_after_the_record_took_its_place_prints_its_sha256(self):
+        failing = mock.patch.object(vc, 'sync_directory', side_effect=OSError(5, 'Input/output error'))
+        pattern = ('s1.json already holds the new record that this command wrote, but finishing the write '
+                   'failed: .*Input/output error.*write nothing now.*keep the SHA-256 on the last line')
+
+        def refused_with_the_new_sha256(result):
+            status, report = result
+            self.assertEqual((status, report['verdict']), (1, 'REFUSE'))
+            self.assertRegex(report['reasons'][0], pattern)
+            self.assertEqual(self.printed, hashlib.sha256(self.paths['session'].read_bytes()).hexdigest())
+            self.assertFalse((self.sessions / 's1.json.new').exists())
+        with failing:
+            refused_with_the_new_sha256(self.call(
+                'start', '--out', str(self.paths['session']), '--session', 's1', '--date', '2026-10-09',
+                '--first', '--from-stable', str(self.stable('09:55:00')), '--build-number', '2026081300'))
+            refused_with_the_new_sha256(self.verify())
+        self.assertEqual(list(json.loads(self.paths['session'].read_text())['verified']), [self.digest])
+        before = self.record_sha
+        self.taken = vc.utc_now()
+        with failing:
+            refused_with_the_new_sha256(self.decide('named'))
+        allowed = json.loads(self.paths['session'].read_text())['allowed']
+        self.assertEqual([entry['sha256'] for entry in allowed], [self.digest])
+        self.refused('does not hash to the SHA-256 that the last start, verify or decide printed',
+                     self.decide('named', sha=before))
+        self.refused('before the session start or its last ALLOW; take fresh readings', self.decide('named'))
+        self.taken = vc.utc_now()
+        status, result = self.decide('named')      # after inspection, with the printed SHA-256
+        self.assertEqual((status, result['verdict'], result['branch']), (0, 'ALLOW', 'same stock build'))
 
     def test_each_decide_needs_the_sha256_the_last_command_printed(self):
         self.begin()

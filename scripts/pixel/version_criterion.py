@@ -422,31 +422,49 @@ def leftover(path):
             'and take fresh readings')
 
 
+class RecordWritten(Refusal):
+    """A refusal after the new record took its place. It carries the record's new SHA-256,
+    computed from the bytes this command wrote, which the refusal prints on its last line."""
+
+    def __init__(self, path, error, record_sha256):
+        super().__init__(
+            f'{path} already holds the new record that this command wrote, but finishing the '
+            f'write failed: {error}. The command refuses, so write nothing now. Inspect the record '
+            'and the disk. To go on, keep the SHA-256 on the last line, as after a command that '
+            'did not refuse, and take fresh readings')
+        self.record_sha256 = record_sha256
+
+
 def write_session(path, session):
     path = Path(path)
     temporary = path.with_name(path.name + '.new')
+    text = caiman.dump(session)
     try:
         handle = open(temporary, 'x', encoding='utf-8')
     except FileExistsError:
         refuse(leftover(temporary))
     with handle:
-        handle.write(caiman.dump(session))
+        handle.write(text)
         handle.flush()
         os.fsync(handle.fileno())
     os.replace(temporary, path)
-    sync_directory(path)     # the rename is durable before the decision returns
+    try:
+        sync_directory(path)     # the rename is durable before the decision returns
+    except OSError as error:
+        raise RecordWritten(path, error, caiman.sha256(text.encode())) from error
 
 
 def publish_record(path, session):
     """Writes a new record as write_session does, but never over an existing file."""
     path = Path(path)
     temporary = path.with_name(path.name + '.new')
+    text = caiman.dump(session)
     try:
         handle = open(temporary, 'x', encoding='utf-8')
     except FileExistsError:
         refuse(leftover(temporary))
     with handle:
-        handle.write(caiman.dump(session))
+        handle.write(text)
         handle.flush()
         os.fsync(handle.fileno())
     try:
@@ -454,8 +472,11 @@ def publish_record(path, session):
     except FileExistsError:
         os.unlink(temporary)
         refuse(f'{path} already exists')
-    os.unlink(temporary)
-    sync_directory(path)
+    try:
+        os.unlink(temporary)
+        sync_directory(path)
+    except OSError as error:
+        raise RecordWritten(path, error, caiman.sha256(text.encode())) from error
 
 
 def sync_directory(path):
@@ -619,10 +640,14 @@ class Image:
 
 
 def file_sha256(path):
-    digest = hashlib.sha256()
     with open(path, 'rb') as handle:
-        for block in iter(lambda: handle.read(1 << 20), b''):
-            digest.update(block)
+        return handle_sha256(handle)
+
+
+def handle_sha256(handle):
+    digest = hashlib.sha256()
+    for block in iter(lambda: handle.read(1 << 20), b''):
+        digest.update(block)
     return digest.hexdigest()
 
 
@@ -634,19 +659,69 @@ def identity_entry(image, at):
 
 
 def verified_image(session, path, kind, table):
-    """The identity verify kept for this file's SHA-256, checked against the records."""
-    digest = file_sha256(path)
-    entry = session['verified'].get(digest)
-    if entry is None:
-        refuse(f'{Path(path).name} hashes to {digest}, and the session record holds no verified '
-               'identity under that SHA-256; run verify on this file first')
-    if entry['kind'] != kind:
-        refuse(f'{Path(path).name} was verified as {entry["kind"]}, not {kind}')
-    image = Image(kind, digest, caiman.parse_release(entry['release'], what='verified release'),
-                  entry['stock_build'], android_info(entry['android_info'], digest),
-                  entry['source'], entry['wipes_data'])
-    check_identity(image, table)
+    """The identity verify kept for this file's SHA-256, checked against the records and, for a
+    kit or zip, against the identity the zip states itself."""
+    with open(path, 'rb') as handle:
+        before = os.fstat(handle.fileno())
+        digest = handle_sha256(handle)
+        entry = session['verified'].get(digest)
+        if entry is None:
+            refuse(f'{Path(path).name} hashes to {digest}, and the session record holds no verified '
+                   'identity under that SHA-256; run verify on this file first')
+        if entry['kind'] != kind:
+            refuse(f'{Path(path).name} was verified as {entry["kind"]}, not {kind}')
+        image = Image(kind, digest, caiman.parse_release(entry['release'], what='verified release'),
+                      entry['stock_build'], android_info(entry['android_info'], digest),
+                      entry['source'], entry['wipes_data'])
+        check_identity(image, table)
+        if kind != 'stock':
+            check_own_identity(image, path, handle)
+        after, current = os.fstat(handle.fileno()), os.stat(path)
+        if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns) or \
+                (current.st_dev, current.st_ino) != (after.st_dev, after.st_ino):
+            refuse(f'{Path(path).name} changed or was replaced while decide read it; verify it again')
     return image
+
+
+def own_identity(path, kind, handle=None):
+    """What a kit or zip states about itself: the release that its vbmeta names, as the build
+    number of its fingerprints or, for an Andrix zip, its base tag property, the stock build of
+    its fingerprints and its android-info.txt. These are small reads, and nothing here verifies
+    a signature. Read through the handle that hashed the file to the SHA-256 that verify kept,
+    they are the bytes that verify checked."""
+    import install_zip
+    archive = install_zip.Archive(path, handle=handle)
+    try:
+        info = caiman.parse_android_info(archive.read('android-info.txt'),
+                                         f'the android-info.txt of {Path(path).name}')
+        vbmeta = install_zip.parse_vbmeta(archive.read('vbmeta.img'))
+    except Refusal:
+        raise
+    except Exception as error:      # an unreadable member is a refusal, never a pass
+        refuse(f'{Path(path).name}: its own identity cannot be read: {type(error).__name__}: {error}')
+    finally:
+        archive.zip.close()
+    if kind == 'andrix':
+        return install_zip.andrix_base_tag(vbmeta), install_zip.andrix_stock_build(vbmeta), info
+    release, stock, _ = install_zip.build_identity(vbmeta)
+    return release, stock, info
+
+
+def check_own_identity(image, path, handle=None):
+    """decide reads a kit's or zip's own identity again and refuses any mismatch with the
+    identity kept under its SHA-256, so an identity edited in the record is caught even when
+    the record's SHA-256 was computed again by hand."""
+    release, stock, info = own_identity(path, image.kind, handle)
+    mismatched = [name for name, own, kept in (
+        ('release', release.number, image.release.number), ('stock build', stock, image.stock_build),
+        ('android-info.txt', info, image.android_info)) if own != kept]
+    if mismatched:
+        refuse(f'{Path(path).name} itself names release {release}, stock build {stock} and '
+               f'android-info.txt {info.as_dict()}, but the session record keeps release '
+               f'{image.release}, stock build {image.stock_build} and android-info.txt '
+               f'{image.android_info.as_dict()} for {image.sha256}; they differ in '
+               f'{", ".join(mismatched)}, so the record no longer holds what verify read. Write '
+               'nothing, and inspect the record')
 
 
 def check_identity(image, table):
@@ -1146,7 +1221,9 @@ def main(argv=None):
             readings_max_age=args.readings_max_age)
         return report(decision, record_digest(session), EXIT[decision['verdict']])
     except (Refusal, OSError, ValueError, KeyError) as error:
-        return report({'verdict': 'REFUSE', 'reasons': [str(error)]}, None, EXIT['REFUSE'])
+        # a refusal after the new record took its place prints that record's SHA-256
+        return report({'verdict': 'REFUSE', 'reasons': [str(error)]},
+                      getattr(error, 'record_sha256', None), EXIT['REFUSE'])
     finally:
         if lock is not None:
             lock.close()
@@ -1154,7 +1231,8 @@ def main(argv=None):
 
 def report(value, record_sha256, status):
     """Prints the JSON report. After a start, a verify or a decide that did not refuse, the last
-    line is the record's new SHA-256, which the next verify or decide needs as --record-sha256."""
+    line is the record's new SHA-256, which the next verify or decide needs as --record-sha256.
+    So it is after a refusal that came once the new record had taken its place."""
     sys.stdout.write(caiman.dump(value))
     if record_sha256 is not None:
         sys.stdout.write(record_sha256 + '\n')

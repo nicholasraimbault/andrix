@@ -44,7 +44,8 @@ python3 -B $P/version_criterion.py start --out sessions/S2.json --session S2 --d
   --previous sessions/S1.json --previous-sha256 "$KEPT_SHA256" \
   --updated-from-stable stable/caiman-stable --build-number 2026100600 > start.out
 # start, verify and decide print the record's new SHA-256 on their last line. The next verify
-# or decide of the session needs it. A refusal prints none, and the record stays as it was.
+# or decide of the session needs it. A refusal prints none, and the record stays as it was, unless
+# the new record had already taken its place; then the refusal prints its SHA-256 too.
 keep_sha256() { tail -n 1 "$1" | grep -x '[0-9a-f]\{64\}' || printf '%s\n' "$RECORD_SHA256"; }
 RECORD_SHA256=$(keep_sha256 start.out)
 
@@ -92,6 +93,14 @@ No identity and no session fact is typed.
   records it is given. A file that changed since, or was never verified, is refused. So the
   15 minutes of the readings cover only `decide`'s fast part. The decision names the file's
   SHA-256.
+- **The zip's own identity, read again.** For a GrapheneOS kit or an Andrix zip, `decide` also
+  reads the zip's own `android-info.txt` and `vbmeta.img` again. Both are small reads, through
+  the handle that hashed the file, so they are the verified bytes, and a file changed or
+  replaced meanwhile is refused. No signature is checked again. The release that the vbmeta
+  names, as the build number of its fingerprints or as an Andrix zip's base tag property, the
+  stock build of its fingerprints and the `android-info.txt` must equal the kept identity. So an
+  identity edited in the record is refused even when the record's SHA-256 was computed again by
+  hand.
 - **An Andrix zip** must also meet four conditions:
   - Its vbmeta must verify against the workshop key whose SHA-256 `install_zip.py` records
     (`WORKSHOP_PKMD_SHA256`).
@@ -114,10 +123,19 @@ No identity and no session fact is typed.
   `start`, `verify` and `decide` that does not refuse prints the record's new SHA-256 on its
   last line. The next `verify` or `decide` of the session needs it as `--record-sha256` and
   refuses a record that no longer hashes to it, so an edit between two commands is caught. A
-  refusal prints no SHA-256 and leaves the record unchanged. After the last command of a
-  session the owner keeps the last SHA-256 privately. It equals the record's `sha256sum`. The
-  next `start` needs it as `--previous-sha256` and refuses a newest record that no longer hashes
-  to it.
+  refusal prints no SHA-256 and leaves the record unchanged, with one exception below. After the
+  last command of a session the owner keeps the last SHA-256 privately. The next `start` needs it
+  as `--previous-sha256` and refuses a newest record that no longer hashes to it. The SHA-256 is
+  only ever the one a command printed. A lost value, or one the record no longer matches, ends
+  the session for inspection. It is never taken from the file, with `sha256sum` or otherwise,
+  because a value read from the file would accept any edit of it.
+- **A refusal after the new record took its place.** If finishing the write fails once the new
+  record is in place, such as the fsync of the directory after the rename, the record already
+  holds the new ALLOW, verified identity or session. The command still refuses, so nothing is
+  written to the phone. It names the failure and prints the record's new SHA-256 on its last
+  line, computed from the bytes it wrote. The operator inspects the record and the disk, then
+  keeps that SHA-256 and goes on with fresh readings. An ALLOW whose write never ran is the state
+  that every ALLOW is in until its write runs, which the session record already accepts.
 - **The first record** starts from the current stable release, never from a typed release:
   `start --first --from-stable FILE --build-number B`, with FILE and B as below. B must be the
   stable release or its security preview, or the session waits until the phone has updated.
@@ -217,14 +235,16 @@ the checkers among them.
 7. **`decide`**, at most 15 minutes after the readings, with the last SHA-256 as
    `--record-sha256`. When the OS does not boot and an update may be pending, save a fresh
    caiman-stable with `curl --fail -o` and give it as `--stable`. Keep the SHA-256 that `decide`
-   prints, unless it refused. ALLOW: run the named image's complete script and nothing else.
+   prints. A refusal prints one only after the new record took its place, as above, and then
+   the record is inspected first. ALLOW: run the named image's complete script and nothing else.
    WAIT: stay in fastboot mode until a fresh approval names the image, then go back to step 5.
    REFUSE: write nothing, and read the reasons.
 8. **Before every further write**, repeat steps 5 to 7 with fresh readings. A partial write is
    run again the same way. A kit or zip the approval adds later is verified first, as in step
    4.
 9. **After the last command**, the owner keeps the last SHA-256 it printed privately for the
-   next session's `--previous-sha256`. It equals `sha256sum sessions/S2.json`. Nobody edits the
+   next session's `--previous-sha256`. If it is lost, or the record no longer matches it, the
+   session ends for inspection, and the value is never taken from the file. Nobody edits the
    record afterwards.
 
 ## Where adevtool records each tag's stock build
@@ -305,9 +325,11 @@ Each rule has at least one mutated input that the checker must refuse. The tests
 | The first record starts from the current stable release, never from a typed release | `start_session`, `stable_start`, `check_stable_entry` | `test_the_first_record_starts_from_the_stable_release`, `test_the_typed_first_release_is_not_an_option`, `test_stable_entry_controls` |
 | Each start, verify and decide prints the record's SHA-256, and the next verify or decide needs it | `locked_record`, `report` | `test_each_decide_needs_the_sha256_the_last_command_printed`, `test_an_identity_edited_in_the_record_is_caught_by_the_chain` |
 | Kits and zips verified once, decide takes the kept identity by SHA-256 | `verify`, `verified_image`, `check_identity`, `check_verified` | `VerifiedIdentityTests`, `test_decide_takes_the_identity_that_verify_kept`, `test_a_file_that_changed_since_verify_is_refused`, `test_an_identity_not_in_the_record_is_refused` |
+| decide reads a kit's or zip's own release, stock build and `android-info.txt` again and refuses a mismatch with the kept identity | `own_identity`, `check_own_identity` | `test_decide_reads_the_zips_own_identity_again`, `test_an_identity_edited_with_the_sha256_computed_again_by_hand_is_refused` |
 | A pending update decision reads caiman-stable's fetch time from the file | `check_fetch`, `read_stable`, `decide` | `test_a_stale_or_future_fetch_time_is_refused`, `test_pending_update_takes_the_fetch_time_from_the_stable_file` |
 | start writes atomically and never over a record | `publish_record`, `lock_directory` | `test_start_writes_atomically` |
 | One command at a time, and a leftover `.new` refused until removed by hand | `lock_session`, `write_session`, `read_chain` | `test_a_held_lock_refuses_a_second_decide`, `test_a_record_replaced_while_locking_is_refused`, `test_a_leftover_new_file_is_refused_until_removed_by_hand` |
+| A refusal after the new record took its place prints its SHA-256 | `RecordWritten`, `write_session`, `publish_record`, `main` | `test_a_refusal_after_the_record_took_its_place_prints_its_sha256` |
 | Fresh readings before each write, at most 15 minutes old | `decide` | `test_readings_older_than_the_maximum_age_are_refused`, `test_readings_max_age_option` |
 | The session date is the UTC date of its start, and the approval names it | `check_session`, `decide` | `test_session_date_is_the_utc_date_of_its_start`, `test_approval_names_the_session_kind_and_wipe` |
 | Signed tags and records bound to their signed manifests | `signed_tags`, `bind_record`, `load_table`, `check_coverage` | `SignedTagTests`, `TableTests.test_refused_tables`, `BindingTests`, `test_records_cover_every_signed_tag_between` |
