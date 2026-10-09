@@ -287,8 +287,11 @@ installed and waiting for a reboot. Readings from an earlier session therefore a
    - its release is newer than the phone's release, by GrapheneOS's release numbers;
    - it has the same stock build ID as the phone's release.
 
-   The session's known releases are the phone's release recorded at the session's start and every
-   release written in this session. A reading that matches none of them refuses every write,
+   The session's known releases are every release the phone's record carries over from earlier
+   sessions, its release at the session's start among them, and every release written in this
+   session. Carrying them over keeps a write interrupted in one session from blocking the next. The
+   comparison still uses the phone's release, the newest of them, so the carried releases allow
+   only writes that do not go back. A reading that matches none of them refuses every write,
    because it may come from newer firmware. A partial write, such as a new bootloader beside an
    older radio, still matches known releases, so the whole script can run again as rule 4
    requires. Every known release then carries firmware no newer than the image's, on this plan's
