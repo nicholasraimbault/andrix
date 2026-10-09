@@ -500,9 +500,28 @@ public final class NativePrincipalPins {
      * @throws IllegalStateException unless the handle is current, owned here and RETIRING
      */
     public synchronized void finishRetire(Pin pin) {
+        endRetiring(pin, "finishRetire");
+    }
+
+    /**
+     * Ends a RETIRING pin after its release engine's durable omission. Its handle becomes stale
+     * and its ID stays consumed. The UID stays held until release, and after it Settings keeps the
+     * app ID held until a new instance; only the pin leaves here. Package private: only the
+     * manager's gated release calls it.
+     *
+     * @throws IllegalStateException unless the handle is current, owned here and RETIRING
+     */
+    synchronized void finishRelease(Pin pin) {
+        endRetiring(pin, "finishRelease");
+    }
+
+    // The one end of a RETIRING pin, which the old retirement's finish and the release share, so a
+    // single copy of the index carries both: a failure while the copy changes leaves the published
+    // index, the pin and its phase as they were. Guarded by this object's monitor.
+    private void endRetiring(Pin pin, String operation) {
         requireCurrent(pin);
         if (pin.phase != Phase.RETIRING) {
-            throw new IllegalStateException("finishRetire needs RETIRING, not " + pin.phase);
+            throw new IllegalStateException(operation + " needs RETIRING, not " + pin.phase);
         }
         Index next = copyIndex();
         next.remove(pin);

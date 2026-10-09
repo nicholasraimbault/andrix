@@ -1058,8 +1058,9 @@ final class NativeIdentityPersistence {
 
     // Whether this store's format reads and writes version 2 slots, which carry lifecycle
     // records. Every lifecycle transaction refuses under an earlier format before any effect, and
-    // the version 1 retirement marker and release refuse under this one.
-    private boolean lifecycleFormat() {
+    // the version 1 retirement marker and release refuse under this one. The manager asks it
+    // first, so its lifecycle operations refuse before their in memory closure and pin changes.
+    boolean lifecycleFormat() {
         return store.format().slotCeiling >= VERSION_2;
     }
 

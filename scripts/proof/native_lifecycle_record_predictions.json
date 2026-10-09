@@ -1,17 +1,18 @@
 {
-  "status": "PREDICTED before any guarded execution of the P3 checkpoint 2 sources. Nothing here is an executed result.",
+  "status": "PREDICTED before any guarded execution of the final P4 sources. Nothing here is an executed result.",
   "plan": "plans/2026-10-08-native-lifecycle-record.md",
-  "package": "B1 P1: the slot version 2 codec, the stable prefix reader and the readers in every format; B1 P2a: the lifecycle store transitions, the suspend, lift, markRetiring and markRetired transactions, the publication refusal and the writer rules; B1 P2b checkpoint 1: the boot facts, the deletion or migration step, confirm disposal and Restore; B1 P2c: Restore's claim and phase fixes and the gated release engine at the persistence level, with its capability, its store primitives and the source rules that keep release unreachable.",
+  "package": "B1 P1: the slot version 2 codec, the stable prefix reader and the readers in every format; B1 P2a: the lifecycle store transitions, the suspend, lift, markRetiring and markRetired transactions, the publication refusal and the writer rules; B1 P2b checkpoint 1: the boot facts, the deletion or migration step, confirm disposal and Restore; B1 P2c: Restore's claim and phase fixes and the gated release engine at the persistence level, with its capability, its store primitives and the source rules that keep release unreachable; B1 P3: Settings seeding, boot facts, the retired boot rule and the release finish; B1 P4: the manager's lifecycle operations beside the old ones, their format refusals before any effect, the suspension closure, every activation point's suspension refusal, the gated release with the retired boot rule, and the source rules that keep every new operation without a production caller.",
   "basis": "Each count is the length of the runner's case lists. Each mutant's catches are traced against the cases it breaks; a defect that another rule also refuses names only the cases that reach it.",
   "cases": {
     "codec": 47,
     "reads": 60,
     "goldens": 9,
-    "mutants": 166,
+    "mutants": 183,
     "store": 49,
     "transactions": 57,
     "faults": 136,
-    "settings": 12
+    "settings": 12,
+    "manager": 19
   },
   "reads_by_label": {
     "legacy": 20,
@@ -807,6 +808,83 @@
     ],
     "release-finish-keeps-the-history": [
       "V3 / a durable release keeps the app ID held until a new instance"
+    ],
+    "manager-lifecycle-under-earlier-formats": [
+      "V1 / every lifecycle operation refuses before any effect",
+      "V2 / every lifecycle operation refuses before any effect"
+    ],
+    "manager-retirement-pin-before-the-format": [
+      "V1 / every lifecycle operation refuses before any effect",
+      "V2 / every lifecycle operation refuses before any effect"
+    ],
+    "manager-closure-after-the-write": [
+      "V3 / a refused or uncertain suspension write keeps the closure",
+      "V3 / preparation refuses a handle closed in memory",
+      "V3 / commit refuses a handle closed in memory",
+      "V3 / currentIdentity refuses a handle closed in memory"
+    ],
+    "manager-closure-without-deferral": [
+      "V3 / suspension closes admission in memory and then writes its entry",
+      "V3 / a lift is durable but nothing reopens in this instance",
+      "V3 / a refused or uncertain suspension write keeps the closure",
+      "V3 / preparation refuses a handle closed in memory",
+      "V3 / commit refuses a handle closed in memory",
+      "V3 / currentIdentity refuses a handle closed in memory"
+    ],
+    "manager-closure-unmarked": [
+      "V3 / suspension closes admission in memory and then writes its entry",
+      "V3 / a lift is durable but nothing reopens in this instance",
+      "V3 / preparation refuses a handle closed in memory",
+      "V3 / commit refuses a handle closed in memory",
+      "V3 / currentIdentity refuses a handle closed in memory"
+    ],
+    "prepare-admits-suspended": [
+      "V3 / preparation refuses a durably suspended account",
+      "V3 / preparation refuses a handle closed in memory"
+    ],
+    "commit-admits-suspended": [
+      "V3 / suspension closes admission in memory and then writes its entry",
+      "V3 / commit refuses a durably suspended account before any write",
+      "V3 / commit refuses a handle closed in memory"
+    ],
+    "current-identity-admits-closed": [
+      "V3 / suspension closes admission in memory and then writes its entry",
+      "V3 / a lift is durable but nothing reopens in this instance",
+      "V3 / currentIdentity refuses a handle closed in memory"
+    ],
+    "published-binding-admits-suspended": [
+      "V3 / the published binding check refuses a durably suspended account"
+    ],
+    "manager-release-ignores-the-closure": [
+      "V3 / release refuses a suspension closed in memory before any effect"
+    ],
+    "manager-release-boot-facts-from-the-cached-view": [
+      "V3 / disposition and release need an instance that began with the account RETIRED",
+      "V3 / release refuses before any effect without its gate"
+    ],
+    "manager-disposition-boot-facts-from-the-cached-view": [
+      "V3 / disposition and release need an instance that began with the account RETIRED"
+    ],
+    "manager-release-before-the-acknowledgement": [
+      "V3 / disposition and release need an instance that began with the account RETIRED",
+      "V3 / a lost reply after the omission is acknowledged in the instance and freed at the next boot"
+    ],
+    "manager-release-keeps-the-history": [
+      "V3 / the release body keeps the app ID held until a new instance",
+      "V3 / a lost reply after the omission is acknowledged in the instance and freed at the next boot"
+    ],
+    "manager-release-keeps-the-pin": [
+      "V3 / the release body keeps the app ID held until a new instance",
+      "V3 / a lost reply after the omission is acknowledged in the instance and freed at the next boot"
+    ],
+    "manager-reads-under-the-pms-lock": [
+      "V3 / suspension closes admission in memory and then writes its entry",
+      "V3 / a lift is durable but nothing reopens in this instance",
+      "V3 / retirement moves the pin and then writes its block"
+    ],
+    "manager-release-reads-under-the-pms-lock": [
+      "V3 / the release body keeps the app ID held until a new instance",
+      "V3 / a lost reply after the omission is acknowledged in the instance and freed at the next boot"
     ]
   },
   "round_2": {
@@ -1128,5 +1206,140 @@
       "finishNativeIdentityReleaseLPw in NativePrincipalManager.finishRetirementAfterQuiescence",
       "finishRetire in NativePrincipalManager.finishRetirementAfterQuiescence"
     ]
+  },
+  "manager_by_label": {
+    "legacy": 1,
+    "production": 1,
+    "new-format": 17
+  },
+  "p4_checkpoint_1": {
+    "changes": "The manager gains its lifecycle operations beside the old ones: suspend, lift, beginRetirement with a retirement block, confirmRetired, beginDisposition, confirmDisposition and releaseUid, with Handle.released. Each refuses under a format without lifecycle records before any effect, including the closure and the pin change. Suspension closes admission in memory first, through Settings' deferral and a mark on the handle, and keeps it through a refused or uncertain write. Preparation, commit, currentIdentity and the published binding check refuse a suspended account. The pins gain finishRelease. The release rule gains releaseUid and finishRelease, and only the manager's gated release calls the engine, Settings' release finish and finishRelease.",
+    "changed_counts": {
+      "mutants": [
+        166,
+        175
+      ]
+    },
+    "new_counts": {
+      "manager": 14
+    },
+    "unchanged_counts": {
+      "codec": 47,
+      "reads": 60,
+      "goldens": 9,
+      "store": 49,
+      "transactions": 57,
+      "faults": 136,
+      "settings": 12
+    },
+    "source_rule_mutants": {
+      "capability": 4,
+      "release": 12,
+      "primitives": 4,
+      "boot-facts": 3
+    },
+    "p6_release_allowances": [
+      "finishRetirement in NativePrincipalManager.finishRetirementAfterQuiescence",
+      "finishNativeIdentityReleaseLPw in NativePrincipalManager.finishRetirementAfterQuiescence",
+      "finishRetire in NativePrincipalManager.finishRetirementAfterQuiescence"
+    ],
+    "release_allowances": [
+      "release in NativePrincipalManager.releaseUid",
+      "finishNativeIdentityReleaseLPw in NativePrincipalManager.releaseUid",
+      "finishRelease in NativePrincipalManager.releaseUid"
+    ]
+  },
+  "p4_checkpoint_2": {
+    "changes": "The manager's gated release is qualified end to end: the retired boot rule for disposition and release, the release body from RETIRED through the durable omission with the app ID held until a new instance, a lost reply acknowledged by a retry in the same instance and freed at the next boot, and its refusals before any effect without a durable releasable RETIRED record, a capability, recorded boot facts or with a suspension closed in memory. A new source rule refuses any production call or method reference of the manager's other lifecycle operations, and of the persistence transactions of the same operations, outside the manager body of that operation.",
+    "changed_counts": {
+      "mutants": [
+        175,
+        181
+      ],
+      "manager": [
+        14,
+        19
+      ]
+    },
+    "unchanged_counts": {
+      "codec": 47,
+      "reads": 60,
+      "goldens": 9,
+      "store": 49,
+      "transactions": 57,
+      "faults": 136,
+      "settings": 12
+    },
+    "source_rule_mutants": {
+      "capability": 4,
+      "release": 12,
+      "primitives": 4,
+      "boot-facts": 3,
+      "lifecycle": 4
+    },
+    "p6_release_allowances": [
+      "finishRetirement in NativePrincipalManager.finishRetirementAfterQuiescence",
+      "finishNativeIdentityReleaseLPw in NativePrincipalManager.finishRetirementAfterQuiescence",
+      "finishRetire in NativePrincipalManager.finishRetirementAfterQuiescence"
+    ],
+    "release_allowances": [
+      "release in NativePrincipalManager.releaseUid",
+      "finishNativeIdentityReleaseLPw in NativePrincipalManager.releaseUid",
+      "finishRelease in NativePrincipalManager.releaseUid"
+    ],
+    "lifecycle_allowances": [
+      "suspend in NativePrincipalManager.suspend",
+      "lift in NativePrincipalManager.lift",
+      "markRetired in NativePrincipalManager.confirmRetired",
+      "beginDisposition in NativePrincipalManager.beginDisposition",
+      "confirmDisposition in NativePrincipalManager.confirmDisposition"
+    ]
+  },
+  "p4_final": {
+    "changes": "The manager suite's store copy checks the PMS facade's lock at every store load, so a read under the PMS lock fails a case as a directory sync already did; two manager mutants move a read under the lock. The lifecycle rule also covers markRetiring, allowed only in the manager's retirement body, and no longer reads an assert statement as a declaration. The pins' old finish and finishRelease share one copy of the index, so the index copy count stays 2, and the controlled fault test sweeps finishRelease at each index change as it sweeps finishRetire.",
+    "changed_counts": {
+      "mutants": [
+        181,
+        183
+      ]
+    },
+    "unchanged_counts": {
+      "codec": 47,
+      "reads": 60,
+      "goldens": 9,
+      "store": 49,
+      "transactions": 57,
+      "faults": 136,
+      "settings": 12,
+      "manager": 19
+    },
+    "source_rule_mutants": {
+      "capability": 4,
+      "release": 12,
+      "primitives": 4,
+      "boot-facts": 3,
+      "lifecycle": 6
+    },
+    "p6_release_allowances": [
+      "finishRetirement in NativePrincipalManager.finishRetirementAfterQuiescence",
+      "finishNativeIdentityReleaseLPw in NativePrincipalManager.finishRetirementAfterQuiescence",
+      "finishRetire in NativePrincipalManager.finishRetirementAfterQuiescence"
+    ],
+    "release_allowances": [
+      "release in NativePrincipalManager.releaseUid",
+      "finishNativeIdentityReleaseLPw in NativePrincipalManager.releaseUid",
+      "finishRelease in NativePrincipalManager.releaseUid"
+    ],
+    "lifecycle_allowances": [
+      "suspend in NativePrincipalManager.suspend",
+      "lift in NativePrincipalManager.lift",
+      "markRetired in NativePrincipalManager.confirmRetired",
+      "beginDisposition in NativePrincipalManager.beginDisposition",
+      "confirmDisposition in NativePrincipalManager.confirmDisposition",
+      "markRetiring in NativePrincipalManager.retire"
+    ],
+    "regressions": {
+      "test_native_preparation_faults.py": "index copies stay 2; the unsafe-index defect fails the controlled fault test"
+    }
   }
 }

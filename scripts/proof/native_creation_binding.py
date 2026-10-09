@@ -476,6 +476,14 @@ HARNESS_LABELS = (
      'the Format.V3 seeding of retiring, retired and suspended accounts, the boot facts, the retired boot rule and'
      ' the release body in Settings, through the facade and the history harness, which B1 builds but does not'
      ' ship'),
+    ('production', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleManagerTest',),
+     'the Format.V2 refusals of every lifecycle operation of the manager before any effect, its closure and pin'
+     ' change included'),
+    ('legacy', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleManagerTest',),
+     'the same refusals under Format.V1'),
+    ('new-format', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleManagerTest',),
+     'the Format.V3 lifecycle operations of the manager, its suspension closure and every activation point\'s'
+     ' suspension refusal, which B1 builds but does not ship'),
     ('production', 'scripts/proof/tests/test_native_identity_persistence.py', ('NativePrincipalRecoveryTest',),
      'the recovery view, which constructs no store'),
     ('legacy', 'scripts/proof/tests/test_native_identity_persistence.py', ('NativeIdentityPersistenceTest',),

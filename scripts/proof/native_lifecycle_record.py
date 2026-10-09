@@ -53,6 +53,7 @@ FRAMEWORK_DIR = b1.FRAMEWORK_DIR
 RECORDS = FRAMEWORK_DIR + 'NativeIdentityRecords.java'
 STORE = FRAMEWORK_DIR + 'NativeIdentityStore.java'
 PERSISTENCE = FRAMEWORK_DIR + 'NativeIdentityPersistence.java'
+MANAGER = FRAMEWORK_DIR + 'NativePrincipalManager.java'
 FACADE = b1.FACADE
 CODEC_TEST = 'NativeLifecycleCodecTest'
 READ_TEST = 'NativeLifecycleReadTest'
@@ -62,6 +63,7 @@ FAULT_TEST = 'NativeLifecycleFaultTest'
 # The Settings level rules over both host copies of the adapted Settings text, the facade and the
 # history harness: seeding, the boot facts, the retired boot rule and the release body.
 SETTINGS_TEST = 'NativeLifecycleSettingsTest'
+MANAGER_TEST = 'NativeLifecycleManagerTest'
 # The shared fixtures of the store, transaction and fault tests, and the host write fault seam.
 SUPPORT = 'NativeLifecycleTestSupport'
 FAULT_SEAM = 'NativeHeaderWriteFaults'
@@ -70,14 +72,15 @@ HARNESS = 'harness'
 # A mutant target naming a Settings fragment: the defect is in the fragment text, so it is applied to
 # the facade and to the harness, which both carry that text verbatim, and both copies run it.
 FRAGMENT = 'fragment:'
-PHASES = ('candidate', 'codec', 'reads', 'store', 'transactions', 'faults', 'settings', 'mutants')
+PHASES = ('candidate', 'codec', 'reads', 'store', 'transactions', 'faults', 'settings', 'manager', 'mutants')
 # Every step is living. The read, store and transaction tests run each store format under its own
 # label: Format.V1 is legacy, Format.V2 production and Format.V3 the new format, which B1 builds and
 # does not ship. The fault sweeps run Format.V3 only.
 STEP_LABELS = {'codec': ('production',), 'reads': ('production', 'legacy', 'new-format'),
                'store': ('production', 'legacy', 'new-format'),
                'transactions': ('production', 'legacy', 'new-format'), 'faults': ('new-format',),
-               'settings': ('production', 'new-format'), 'mutants': ('production', 'legacy', 'new-format')}
+               'settings': ('production', 'new-format'), 'manager': ('production', 'legacy', 'new-format'),
+               'mutants': ('production', 'legacy', 'new-format')}
 FORMAT_LABELS = {'V1': 'legacy', 'V2': 'production', 'V3': 'new-format'}
 
 # ---------------------------------------------------------------- the independent encoder
@@ -430,6 +433,28 @@ SETTINGS_NAMES = (
     'V3 / release needs an instance that began with the account RETIRED',
     'V3 / a durable release keeps the app ID held until a new instance',
     'V3 / the release finish refuses without a durable omission')
+# The manager's lifecycle operations: their format refusals, the suspension closure, each activation
+# point's suspension refusal and retirement.
+MANAGER_NAMES = (
+    'V1 / every lifecycle operation refuses before any effect',
+    'V2 / every lifecycle operation refuses before any effect',
+    'V3 / suspension closes admission in memory and then writes its entry',
+    'V3 / a lift is durable but nothing reopens in this instance',
+    'V3 / a refused or uncertain suspension write keeps the closure',
+    'V3 / suspension refuses an entry no writer writes before any effect',
+    'V3 / preparation refuses a durably suspended account',
+    'V3 / preparation refuses a handle closed in memory',
+    'V3 / commit refuses a durably suspended account before any write',
+    'V3 / commit refuses a handle closed in memory',
+    'V3 / currentIdentity refuses a handle closed in memory',
+    'V3 / the published binding check refuses a durably suspended account',
+    'V3 / retirement moves the pin and then writes its block',
+    'V3 / retirement refuses a block no writer writes before the pin change',
+    'V3 / disposition and release need an instance that began with the account RETIRED',
+    'V3 / the release body keeps the app ID held until a new instance',
+    'V3 / a lost reply after the omission is acknowledged in the instance and freed at the next boot',
+    'V3 / release refuses before any effect without its gate',
+    'V3 / release refuses a suspension closed in memory before any effect')
 
 # ---------------------------------------------------------------- deliberate defects
 
@@ -1087,6 +1112,87 @@ MUTANTS = {
          '        if (writeInspectionBlocked(account.appId)) return false;\n'),
         (STORE, '        if (next == null || next.version > format.slotCeiling) return false;\n',
          '        if (next == null) return false;\n')), ('store', 'transactions')),
+    # The manager: every lifecycle operation refuses under an earlier format before any effect, the
+    # suspension closes admission in memory before its write and keeps it, and every activation point
+    # refuses a suspended account.
+    'manager-lifecycle-under-earlier-formats': (((MANAGER,
+        '        if (!persistence.lifecycleFormat()) {\n'
+        '            throw new IllegalStateException("Native lifecycle records need the lifecycle format");\n'
+        '        }\n', ''),), ('manager',)),
+    'manager-retirement-pin-before-the-format': (((MANAGER,
+        '                if (retirement != null) {\n                    lifecycle(handle);\n',
+        '                if (retirement != null) {\n'),
+        (MANAGER, '                pins.beginRetire(handle.pin);\n',
+         '                pins.beginRetire(handle.pin);\n                if (retirement != null) lifecycle(handle);\n')),
+        ('manager',)),
+    'manager-closure-after-the-write': (((MANAGER,
+        '                close(handle);\n            }\n'
+        '            NativeIdentityPersistence.SuspensionResult result =\n'
+        '                    persistence.suspend(record, handle.storedSignerSha256, entry);\n',
+        '            }\n'
+        '            NativeIdentityPersistence.SuspensionResult result =\n'
+        '                    persistence.suspend(record, handle.storedSignerSha256, entry);\n'
+        '            if (result == NativeIdentityPersistence.SuspensionResult.SUSPENDED) {\n'
+        '                synchronized (pm.mLock) { close(handle); }\n'
+        '            }\n'),), ('manager',)),
+    'manager-closure-without-deferral': (((MANAGER,
+        '        pm.mSettings.deferNativePackage(record.packageName, setting == null ? null : setting.getPath());\n',
+        ''),), ('manager',)),
+    'manager-closure-unmarked': (((MANAGER, '        handle.suspended = true;\n', ''),), ('manager',)),
+    'prepare-admits-suspended': (((MANAGER, '                    requireAdmissible(selection.prepared);\n', ''),
+                                  (MANAGER, '                requireAdmissible(prepared);\n', '')), ('manager',)),
+    'commit-admits-suspended': (((MANAGER,
+        '                NativePrincipalPins pins = checked(handle);\n                requireAdmissible(handle);\n',
+        '                NativePrincipalPins pins = checked(handle);\n'),), ('manager',)),
+    'current-identity-admits-closed': (((MANAGER,
+        '            requireOpen(handle);\n            if (handle.pin.phase() != NativePrincipalPins.Phase.ACTIVE) {\n',
+        '            if (handle.pin.phase() != NativePrincipalPins.Phase.ACTIVE) {\n'),), ('manager',)),
+    'published-binding-admits-suspended': (((MANAGER,
+        '            if (user.id == handle.pin.record().id && !active(user.lifecycle)) {\n',
+        '            if (user.id == handle.pin.record().id && user.retiring) {\n'),), ('manager',)),
+    # The manager's release gate: the boot facts are this instance's, recorded once from its boot read,
+    # and never the cached view; a suspension closed in memory refuses; and only an acknowledged
+    # omission lets Settings' release finish, the pin's end and the refresh follow.
+    'manager-release-ignores-the-closure': (((MANAGER,
+        '                requireRetiring(handle);\n                requireOpen(handle);\n',
+        '                requireRetiring(handle);\n'),), ('manager',)),
+    'manager-release-boot-facts-from-the-cached-view': (((MANAGER,
+        '                facts = pm.mSettings.nativeBootFactsLPr();\n                ticket = ticket(handle);\n',
+        '                facts = NativeIdentityPersistence.bootFacts(pm.mSettings.mNativeIdentityLoaded);\n'
+        '                ticket = ticket(handle);\n'),), ('manager',)),
+    'manager-disposition-boot-facts-from-the-cached-view': (((MANAGER,
+        '                facts = pm.mSettings.nativeBootFactsLPr();\n            }\n'
+        '            boolean durable = persistence.beginDisposition(',
+        '                facts = NativeIdentityPersistence.bootFacts(pm.mSettings.mNativeIdentityLoaded);\n            }\n'
+        '            boolean durable = persistence.beginDisposition('),), ('manager',)),
+    'manager-release-before-the-acknowledgement': (((MANAGER,
+        '                if (!durable) return false;\n'
+        '                pm.mSettings.finishNativeIdentityReleaseLPw(handle.pin.record(), observed);\n'
+        '                pins.finishRelease(handle.pin);\n',
+        '                pm.mSettings.finishNativeIdentityReleaseLPw(handle.pin.record(), observed);\n'
+        '                pins.finishRelease(handle.pin);\n'),), ('manager',)),
+    'manager-release-keeps-the-history': (((MANAGER,
+        '                pm.mSettings.finishNativeIdentityReleaseLPw(handle.pin.record(), observed);\n'
+        '                pins.finishRelease(handle.pin);\n',
+        '                pins.finishRelease(handle.pin);\n'),), ('manager',)),
+    'manager-release-keeps-the-pin': (((MANAGER, '                pins.finishRelease(handle.pin);\n', ''),),
+                                      ('manager',)),
+    # The manager's store reads run with no PMS state lock held: a load moved under it fails the
+    # manager suite through the lock seam of its store copy.
+    'manager-reads-under-the-pms-lock': (((MANAGER,
+        '        NativeIdentityStore.Loaded observed = persistence.load();\n'
+        '        synchronized (pm.mLock) {\n'
+        '            pm.mSettings.observeNativeIdentityStoreLPw(observed);\n',
+        '        synchronized (pm.mLock) {\n'
+        '            NativeIdentityStore.Loaded observed = persistence.load();\n'
+        '            pm.mSettings.observeNativeIdentityStoreLPw(observed);\n'),), ('manager',)),
+    'manager-release-reads-under-the-pms-lock': (((MANAGER,
+        '                    handle.storedSignerSha256, ticket, capability, facts);\n'
+        '            NativeIdentityStore.Loaded observed = persistence.load();\n'
+        '            synchronized (pm.mLock) {\n',
+        '                    handle.storedSignerSha256, ticket, capability, facts);\n'
+        '            synchronized (pm.mLock) {\n'
+        '                NativeIdentityStore.Loaded observed = persistence.load();\n'),), ('manager',)),
 }
 
 
@@ -1095,22 +1201,24 @@ MUTANTS = {
 # The release capability. Every class lives in one Java package, so access rules cannot stop its
 # construction. No production text constructs it, references its constructor, takes its class
 # literal or names it in a string. Among every other Java text only the release engine's named
-# tests construct it.
+# tests construct it, and the manager's lifecycle test, which drives the manager's gated release.
 CAPABILITY_USES = (('construction', r'\bnew\s+(?:[\w$]+\s*\.\s*)*ReleaseCapability\s*\('),
                    ('constructor reference', r'\bReleaseCapability\s*::\s*new\b'),
                    ('class literal', r'\bReleaseCapability\s*\.\s*class\b'),
                    ('name string', r'"(?:[^"\\\n]|\\.)*ReleaseCapability(?:[^"\\\n]|\\.)*"'))
-CAPABILITY_TESTS = tuple(PLATFORM + name + '.java' for name in (SUPPORT, TRANSACTION_TEST, FAULT_TEST))
+CAPABILITY_TESTS = tuple(PLATFORM + name + '.java' for name in (SUPPORT, TRANSACTION_TEST, FAULT_TEST, MANAGER_TEST))
 # The release entry points: the persistence release and the store primitives that only release uses,
 # which remove a releasing slot, confirm a released slot, write RELEASING, write the omission and drop
 # a user. No production text calls or references one outside the release bodies of the persistence:
 # the release engine, and the version 1 release finishRetirement until P6 retires it. Settings' release
 # finish and the old release path join in P3: the manager's finishRetirementAfterQuiescence, the pins'
 # finishRetire and the persistence's finishRetirement. The manager's releaseUid and the pins'
-# finishRelease join in P4.
+# finishRelease join in P4: only the manager's gated release calls the engine, Settings' release finish
+# and the pins' finishRelease, and no production text calls releaseUid.
 RELEASE_ENTRY_POINTS = ('release', 'removeReleasingSlot', 'confirmReleasedSlot', 'markSlotReleasing',
                         'omitReleasedSlot', 'dropReleasedUser', 'finishNativeIdentityReleaseLPw',
-                        'finishRetirementAfterQuiescence', 'finishRetire', 'finishRetirement')
+                        'finishRetirementAfterQuiescence', 'finishRetire', 'finishRetirement',
+                        'releaseUid', 'finishRelease')
 RELEASE_BODIES = ('    boolean release(NativePrincipalPins.Record record, String expectedLineage,',
                   '    boolean finishRetirement(NativePrincipalPins.Record record, String expectedLineage,')
 # The store's own release powers behind the named primitives: writeAnyHeader, which makes RELEASING
@@ -1126,9 +1234,23 @@ DROP_CALLERS = ('    boolean dropReleasedUser(Slot expected, long id, ReleaseTic
 # calls or references bootFacts, so no class can admit a boot from a fresh read. Among the other Java
 # texts, only the facade through that fragment and the release engine's named tests do.
 BOOT_FACTS_FRAGMENT = 'boot-facts'
-BOOT_FACTS_TESTS = CAPABILITY_TESTS
-UNREACHABLE_RULES = ('capability', 'release', 'primitives', 'boot-facts')
-MANAGER = FRAMEWORK_DIR + 'NativePrincipalManager.java'
+BOOT_FACTS_TESTS = tuple(PLATFORM + name + '.java' for name in (SUPPORT, TRANSACTION_TEST, FAULT_TEST))
+# The manager's other lifecycle operations have no production caller: their callers come in later
+# steps, the account authority's retirement and suspension, the disposition owners and the recovery
+# route. No production text calls or references them, or the persistence transactions of the same
+# operations, outside the manager body of that operation. The old retirement's beginRetirement has no
+# production caller either.
+LIFECYCLE_ENTRY_POINTS = ('suspend', 'lift', 'beginRetirement', 'markRetiring', 'confirmRetired', 'markRetired',
+                          'beginDisposition', 'confirmDisposition')
+LIFECYCLE_ALLOWANCES = (
+    ('suspend', MANAGER, '    NativeIdentityPersistence.SuspensionResult suspend(Handle handle,'),
+    ('markRetiring', MANAGER, '    private boolean retire(Handle handle, NativeIdentityRecords.Retirement retirement) {'),
+    ('lift', MANAGER, '    boolean lift(Handle handle, NativeIdentityRecords.Suspension entry) {'),
+    ('markRetired', MANAGER,
+     '    boolean confirmRetired(Handle handle, java.util.List<NativeIdentityRecords.Obligation> receipts) {'),
+    ('beginDisposition', MANAGER, '    boolean beginDisposition(Handle handle) {'),
+    ('confirmDisposition', MANAGER, '    boolean confirmDisposition(Handle handle,'))
+UNREACHABLE_RULES = ('capability', 'release', 'primitives', 'boot-facts', 'lifecycle')
 NON_NATIVE = FRAMEWORK_DIR + 'CeStorageAccessTracker.java'
 # The old release path stays reachable until P6 retires it. Each allowance names an entry point, the
 # production text and the one body there that may call it today. P6 removes every allowance.
@@ -1136,6 +1258,12 @@ OLD_RELEASE_BODY = '    public boolean finishRetirementAfterQuiescence(Handle ha
 P6_RELEASE_ALLOWANCES = (('finishRetirement', MANAGER, OLD_RELEASE_BODY),
                          ('finishNativeIdentityReleaseLPw', MANAGER, OLD_RELEASE_BODY),
                          ('finishRetire', MANAGER, OLD_RELEASE_BODY))
+# The manager's gated release, which stays: the one body that calls the release engine, Settings'
+# release finish and the pins' finishRelease, in the plan's order. Nothing in production calls it.
+RELEASE_BODY = '    boolean releaseUid(Handle handle, NativeIdentityPersistence.ReleaseCapability capability) {'
+RELEASE_ALLOWANCES = (('release', MANAGER, RELEASE_BODY),
+                      ('finishNativeIdentityReleaseLPw', MANAGER, RELEASE_BODY),
+                      ('finishRelease', MANAGER, RELEASE_BODY))
 
 
 def other_java_texts(production):
@@ -1193,7 +1321,7 @@ def unreachable_violations(texts, others):
             problems.append('release: the release bodies of %s are not each found once' % name)
         for entry in RELEASE_ENTRY_POINTS:
             spans = list(allowed)
-            for allowed_entry, holder, body in P6_RELEASE_ALLOWANCES:
+            for allowed_entry, holder, body in P6_RELEASE_ALLOWANCES + RELEASE_ALLOWANCES:
                 if allowed_entry == entry and holder == name:
                     found_body = body_spans(code, (body,))
                     if not found_body:
@@ -1211,6 +1339,36 @@ def unreachable_violations(texts, others):
     if STORE in texts:
         problems += primitive_violations(texts[STORE])
     problems += boot_facts_violations(texts, others)
+    problems += lifecycle_violations(texts)
+    return problems
+
+
+def lifecycle_violations(texts):
+    """'lifecycle: detail' for each call or method reference of a manager lifecycle operation, or of the
+    persistence transaction it wraps, in a production text outside the manager body of that operation.
+    A declaration is no call. Comments are not code."""
+    problems = []
+    declaration = (r'\s*(?!(?:return|throw|new|else|case|yield|assert|do)\b)'
+                   r'(?:(?:public|protected|private|static|final|synchronized)\s+)*'
+                   r'[\w$.]+(?:<[^;(){}]*>)?\s+')
+    for name, raw in texts.items():
+        code = b1.strip_java_comments(raw)
+        for entry in LIFECYCLE_ENTRY_POINTS:
+            spans = []
+            for allowed_entry, holder, body in LIFECYCLE_ALLOWANCES:
+                if allowed_entry == entry and holder == name:
+                    found_body = body_spans(code, (body,))
+                    if not found_body:
+                        problems.append('lifecycle: the allowed body of %s in %s is not found once' % (entry, name))
+                    spans += found_body
+            pattern = r'(?:\.\s*|::\s*|(?<![\w$.:]))%s\b(?=\s*\()|::\s*%s\b' % (entry, entry)
+            for found in re.finditer(pattern, code):
+                line = code[code.rfind('\n', 0, found.start()) + 1:found.start()]
+                if re.fullmatch(declaration, line):
+                    continue  # Its declaration.
+                if any(start <= found.start() < end for start, end in spans):
+                    continue
+                problems.append('lifecycle: %s calls or references %s outside its manager body' % (name, entry))
     return problems
 
 
@@ -1383,6 +1541,24 @@ def unreachable_mutants():
         'drop-referenced-from-manager': (changed((MANAGER, manager,
             '    private static final Object DROP = (Object) (java.util.function.Predicate<NativeIdentityStore>)\n'
             '            store -> store.dropReleasedUser(null, 0, null);\n\n' + manager)), {'release'}),
+        'manager-release-called-from-settings': (changed((settings, None,
+            '\n        new NativePrincipalManager(null).releaseUid(null, null);\n')), {'release'}),
+        'pins-release-in-the-old-finish': (changed((MANAGER, '                pins.finishRetire(handle.pin);\n',
+            '                pins.finishRelease(handle.pin);\n')), {'release'}),
+        'suspension-called-from-settings': (changed((settings, None,
+            '\n        new NativePrincipalManager(null).suspend(null, null);\n')), {'lifecycle'}),
+        'retirement-begun-from-the-old-finish': (changed((MANAGER, '                if (handle.retired) return true;\n',
+            '                if (handle.retired) return beginRetirement(handle);\n')), {'lifecycle'}),
+        'lift-called-from-publish': (changed((PERSISTENCE, publish,
+            '        lift(record, expectedSigners, null);\n' + publish)), {'lifecycle'}),
+        'retired-marked-from-manager': (changed((MANAGER, manager,
+            '    private static final java.util.function.Function<NativeIdentityPersistence, Object> MARK =\n'
+            '            persistence -> persistence.markRetired(null, null, null);\n\n' + manager)), {'lifecycle'}),
+        'retiring-marked-from-settings': (changed((settings, None,
+            '\n        mNativeIdentityPersistence.markRetiring(null, null, null);\n')), {'lifecycle'}),
+        'suspension-asserted-in-the-old-finish': (changed((MANAGER, '                if (handle.retired) return true;\n',
+            '                assert suspend(handle, null) != null;\n'
+            '                if (handle.retired) return true;\n')), {'lifecycle'}),
     }
 
 
@@ -1457,11 +1633,12 @@ def mutant_texts():
 
 # The case names of each suite that runs deliberate defects.
 SUITE_NAMES = {'codec': CODEC_NAMES, 'reads': READ_NAMES, 'store': STORE_NAMES, 'transactions': TRANSACTION_NAMES,
-               'settings': SETTINGS_NAMES,
+               'settings': SETTINGS_NAMES, 'manager': MANAGER_NAMES,
                'faults': FAULT_NAMES}
-# The lifecycle suites of P2a: each one's test class and case names.
+# The lifecycle suites of P2a, and the manager's, which runs over the Settings facade: each one's test
+# class and case names.
 LIFECYCLE_SUITES = {'store': (STORE_TEST, STORE_NAMES), 'transactions': (TRANSACTION_TEST, TRANSACTION_NAMES),
-                    'faults': (FAULT_TEST, FAULT_NAMES)}
+                    'faults': (FAULT_TEST, FAULT_NAMES), 'manager': (MANAGER_TEST, MANAGER_NAMES)}
 
 
 def case_label(name):
@@ -1509,8 +1686,9 @@ def label_problems():
     if (labelled.get(CODEC_TEST) != {'production'} or labelled.get(READ_TEST) != every
             or labelled.get(STORE_TEST) != every or labelled.get(TRANSACTION_TEST) != every
             or labelled.get(FAULT_TEST) != {'new-format'}
-            or labelled.get(SETTINGS_TEST) != {'production', 'new-format'} or set(labelled) != {
-                CODEC_TEST, READ_TEST, STORE_TEST, TRANSACTION_TEST, FAULT_TEST, SETTINGS_TEST}):
+            or labelled.get(SETTINGS_TEST) != {'production', 'new-format'}
+            or labelled.get(MANAGER_TEST) != every or set(labelled) != {
+                CODEC_TEST, READ_TEST, STORE_TEST, TRANSACTION_TEST, FAULT_TEST, SETTINGS_TEST, MANAGER_TEST}):
         problems.append('harness labels of this runner differ: %s' % labelled)
     if {row[0] for row in b1.HARNESS_LABELS if row[0] == 'new-format'} != {'new-format'} or any(
             row[1] != 'scripts/proof/native_lifecycle_record.py' for row in b1.HARNESS_LABELS if row[0] == 'new-format'):
@@ -1531,7 +1709,7 @@ def source_checks():
         problems.append('oracle: %s' % error)
     for test, names in ((CODEC_TEST, CODEC_NAMES), (READ_TEST, READ_NAMES), (STORE_TEST, STORE_NAMES),
                         (TRANSACTION_TEST, TRANSACTION_NAMES), (FAULT_TEST, FAULT_NAMES),
-                        (SETTINGS_TEST, SETTINGS_NAMES)):
+                        (SETTINGS_TEST, SETTINGS_NAMES), (MANAGER_TEST, MANAGER_NAMES)):
         if len(set(names)) != len(names):
             problems.append('duplicate case names of ' + test)
         # A failure prints 'FAIL <name>: <problems>', read up to the first colon and space.
@@ -1546,6 +1724,10 @@ def source_checks():
     for name in SETTINGS_NAMES:
         if settings_source.count('"%s"' % name) != 1 or name.split(' / ', 1)[0] not in ('V2', 'V3'):
             problems.append('settings case not named once in its source: ' + name)
+    manager_source = (ROOT / PLATFORM / (MANAGER_TEST + '.java')).read_text()
+    for name in MANAGER_NAMES:
+        if manager_source.count('"%s"' % name) != 1 or name.split(' / ', 1)[0] not in FORMAT_LABELS:
+            problems.append('manager case not named once in its source: ' + name)
     try:
         texts = b1.production_texts()
         problems += unreachable_violations(texts, other_java_texts(texts))
@@ -1559,6 +1741,10 @@ def source_checks():
         mutant_texts()
     except ValueError as error:
         problems.append('mutant anchors: %s' % error)
+    try:
+        lifecycle_files(MANAGER_TEST)
+    except ValueError as error:
+        problems.append('the manager suite lock seam: %s' % error)
     predictions = strict(PREDICTIONS.read_text())
     if 'PREDICTED' not in predictions['status']:
         problems.append('predictions are not marked as predictions')
@@ -1572,17 +1758,17 @@ def source_checks():
             problems.append('mutant prediction inconsistent: ' + name)
     counts = predictions['cases']
     if (counts['codec'], counts['reads'], counts['goldens'], counts['mutants'], counts['store'],
-            counts['transactions'], counts['faults'], counts['settings']) != (
+            counts['transactions'], counts['faults'], counts['settings'], counts['manager']) != (
             len(CODEC_NAMES), len(READ_NAMES), len(GOLDEN_NAMES), len(MUTANTS), len(STORE_NAMES),
-            len(TRANSACTION_NAMES), len(FAULT_NAMES), len(SETTINGS_NAMES)):
+            len(TRANSACTION_NAMES), len(FAULT_NAMES), len(SETTINGS_NAMES), len(MANAGER_NAMES)):
         problems.append('predicted counts differ from the case lists')
-    by_label = {suite: {} for suite in ('store', 'transactions')}
+    by_label = {suite: {} for suite in ('store', 'transactions', 'manager')}
     for suite in by_label:
         for name in SUITE_NAMES[suite]:
             label = case_label(name)
             by_label[suite][label] = by_label[suite].get(label, 0) + 1
-    if (predictions['store_by_label'], predictions['transactions_by_label']) != (
-            by_label['store'], by_label['transactions']):
+    if (predictions['store_by_label'], predictions['transactions_by_label'], predictions['manager_by_label']) != (
+            by_label['store'], by_label['transactions'], by_label['manager']):
         problems.append('predicted counts by label differ from the case lists')
     problems += label_problems()
     return problems
@@ -1671,15 +1857,37 @@ def settings_suite(work, settings, texts=None, harness=()):
                      SETTINGS_NAMES)
 
 
+# The manager suite's lock proof. Its cases name the PMS facade's lock as the forbidden monitor of store
+# I/O. The host Os facade checks that monitor only when it opens a descriptor, which the store does for
+# its directory syncs. This seam, injected only into the store copy that the manager suite compiles,
+# checks it at every store load as well, so a read under the PMS lock fails the case too.
+LOCK_SEAM_ANCHOR = '    Loaded load() {\n'
+LOCK_SEAM = ('    Loaded load() {\n'
+             '        if (android.system.Os.forbiddenMonitor != null\n'
+             '                && Thread.holdsLock(android.system.Os.forbiddenMonitor)) {\n'
+             '            throw new AssertionError("PMS state lock held during a store load");\n'
+             '        }\n')
+
+
+def with_lock_seam(files):
+    files = dict(files)
+    store = files['framework/NativeIdentityStore.java'].decode()
+    files['framework/NativeIdentityStore.java'] = b1.replace_once(store, LOCK_SEAM_ANCHOR, LOCK_SEAM).encode()
+    return files
+
+
 def lifecycle_files(test, texts=None):
     """The current product sources, with any framework text a defect changes, the shared fixtures and
     one lifecycle test. The fault sweeps take the existing host write fault seams, injected into
-    copies of the store and strict writer sources, and the seam class."""
+    copies of the store and strict writer sources, and the seam class. The manager suite takes the
+    lock seam in its store copy."""
     framework = {Path(path).stem: value for path, value in (texts or {}).items() if path.startswith(FRAMEWORK_DIR)}
     files = b1.product_sources(framework_override=framework)
     if test == FAULT_TEST:
         files = b1.with_seams(files)
         files['tests/%s.java' % FAULT_SEAM] = (ROOT / PLATFORM / (FAULT_SEAM + '.java')).read_bytes()
+    if test == MANAGER_TEST:
+        files = with_lock_seam(files)
     for name in (SUPPORT, test):
         files['tests/%s.java' % name] = (ROOT / PLATFORM / (name + '.java')).read_bytes()
     return files
@@ -1740,7 +1948,8 @@ def qualify(work, pinned, report):
             problems.append('read suite ran without assertions')
     report['completed_phases'].append('reads')
 
-    for suite, (test, names) in LIFECYCLE_SUITES.items():
+    def lifecycle_phase(suite):
+        test, names = LIFECYCLE_SUITES[suite]
         result, record = lifecycle_suite(work / suite, suite)
         steps[suite] = result
         steps[suite]['labels'] = {name.split(' / ', 1)[0]: case_label(name) for name in names}
@@ -1752,6 +1961,9 @@ def qualify(work, pinned, report):
             if not refused['returncode'] or '-ea' not in refused['stderr']:
                 problems.append('%s suite ran without assertions' % suite)
         report['completed_phases'].append(suite)
+
+    for suite in ('store', 'transactions', 'faults'):
+        lifecycle_phase(suite)
 
     result, record = settings_suite(work / 'settings', settings)
     steps['settings'] = result
@@ -1765,6 +1977,8 @@ def qualify(work, pinned, report):
         if not refused['returncode'] or '-ea' not in refused['stderr']:
             problems.append('settings suite ran without assertions')
     report['completed_phases'].append('settings')
+
+    lifecycle_phase('manager')
 
     steps['mutants'] = {}
     expectations = predictions['mutants_caught_at_least']

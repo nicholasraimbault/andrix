@@ -13,10 +13,12 @@ import com.android.server.pm.pkg.PackageUserStateInternal;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 
 /**
  * Package Manager's internal native account identity reservation. Not a Binder
@@ -65,6 +67,13 @@ public final class NativePrincipalManager {
         // this manager owns, which keeps its original selection instead.
         private final NativeIdentityStore.Source priorSource;
         private boolean retired; // Guarded by the Package Manager mutation lock.
+        // The lifecycle record's handle state, guarded by the Package Manager mutation lock.
+        // Suspended: this instance closed the account's admission in memory, which nothing reopens
+        // before a new instance. Released: the release engine's omission is durable and the pin
+        // ended. The ticket of this handle's release, made once so every retry names it again.
+        private boolean suspended;
+        private boolean released;
+        private NativeIdentityRecords.ReleaseTicket ticket;
         private Handle(NativePrincipalManager owner, NativePrincipalPins.Pin pin, String lineage,
                 Set<String> signers, NativeIdentityStore.Source priorSource) {
             this.owner = owner;
@@ -93,7 +102,7 @@ public final class NativePrincipalManager {
     }
 
     private final PackageManagerService pm;
-    // Exact prepare/find retries share a handle. Retired handles are removed
+    // Exact prepare/find retries share a handle. Retired and released handles are removed
     // here, while any caller still holding one can reconcile its own result.
     private final IdentityHashMap<NativePrincipalPins.Pin, Handle> handles = new IdentityHashMap<>();
 
@@ -133,6 +142,7 @@ public final class NativePrincipalManager {
                 PackageSetting setting = validateSelection(selection);
                 if (selection.prepared != null) {
                     checked(selection.prepared);
+                    requireAdmissible(selection.prepared);
                     requireDesignationBinding(selection.prepared);
                     if (selection.prepared.pin.phase() == NativePrincipalPins.Phase.RETIRING) {
                         throw new IllegalStateException("Native account selection is retiring");
@@ -169,6 +179,7 @@ public final class NativePrincipalManager {
                             selection.userId, selection.userSerial);
                 }
                 Handle prepared = handle(pin);
+                requireAdmissible(prepared);
                 if (!prepared.storedSignerSha256.equals(selection.currentSignerSha256)) {
                     throw new IllegalStateException("Current signer does not match prior native binding");
                 }
@@ -194,6 +205,7 @@ public final class NativePrincipalManager {
             final NativeIdentityPersistence.CreationPlan issued;
             synchronized (pm.mLock) {
                 NativePrincipalPins pins = checked(handle);
+                requireAdmissible(handle);
                 requireDesignationBinding(handle);
                 revalidate(handle.pin.record());
                 if (handle.pin.phase() == NativePrincipalPins.Phase.RETIRING) {
@@ -259,6 +271,7 @@ public final class NativePrincipalManager {
     public NativePrincipalPins.Record currentIdentity(Handle handle) {
         synchronized (pm.mLock) {
             checked(handle);
+            requireOpen(handle);
             if (handle.pin.phase() != NativePrincipalPins.Phase.ACTIVE) {
                 throw new IllegalStateException("Native principal reservation is not active");
             }
@@ -306,11 +319,27 @@ public final class NativePrincipalManager {
      * RETIRING, and no marker is committed.
      */
     public boolean beginRetirement(Handle handle) {
+        return retire(handle, null);
+    }
+
+    // The retirement body of both paths: the version 1 marker, with no block, and the lifecycle
+    // record's retirement block, which refuses under a format without lifecycle records and for a
+    // block no writer writes before the pin change. Each publishes a pending creation first when the
+    // handle may create its own body.
+    private boolean retire(Handle handle, NativeIdentityRecords.Retirement retirement) {
         try (PackageManagerTracedLock ignored = pm.mInstallLock.acquireLock()) {
             final NativeIdentityPersistence persistence;
             final NativeIdentityPersistence.CreationPlan issued;
             final boolean mayCreateBody;
             synchronized (pm.mLock) {
+                if (retirement != null) {
+                    lifecycle(handle);
+                    NativePrincipalPins.Record record = handle.pin.record();
+                    if (!NativeIdentityStore.writableRetirement(record.userId, record.userSerial,
+                            retirement)) {
+                        throw new IllegalArgumentException("Retirement outside the writer rules");
+                    }
+                }
                 NativePrincipalPins pins = checked(handle);
                 mayCreateBody = mayCreateBody(handle);
                 if (!mayCreateBody
@@ -325,13 +354,17 @@ public final class NativePrincipalManager {
             }
             boolean present = persistence.binding(handle.pin.record()) != null;
             if (!present) present = persistBinding(handle, persistence, issued, mayCreateBody);
-            boolean durable = present && persistence.markRetiring(handle.pin.record(),
-                    handle.storedSignerSha256);
+            boolean durable = present && (retirement == null
+                    ? persistence.markRetiring(handle.pin.record(), handle.storedSignerSha256)
+                    : persistence.markRetiring(handle.pin.record(), handle.storedSignerSha256,
+                    retirement));
             NativeIdentityStore.Loaded observed = persistence.load();
             synchronized (pm.mLock) {
                 pm.mSettings.observeNativeIdentityStoreLPw(observed);
                 checked(handle);
-                if (durable) handle.retirementCommitted = true;
+                // Only the version 1 marker admits the old release, which the lifecycle record's
+                // retirement never does: its release needs the durable RETIRED record.
+                if (durable && retirement == null) handle.retirementCommitted = true;
                 return durable;
             }
         }
@@ -377,6 +410,297 @@ public final class NativePrincipalManager {
                 return true;
             }
         }
+    }
+
+    /*
+     * The lifecycle record's operations. No production caller exists: the account authority, the
+     * recovery route and the disposition owners that call them come in later steps. Each one runs
+     * under the install lock, makes its checks under the PMS lock before any effect and does its
+     * store I/O with no PMS state lock held. Under a store format without lifecycle records each
+     * one refuses first, before the in memory closure, any pin change and any write.
+     */
+
+    /**
+     * Suspend: the account's user, or the grant holder for an account in scope. The manager
+     * closes admission in memory first: it defers the package name in the recovery view for the
+     * rest of this instance, which refuses designation and data preparation, and marks the handle,
+     * so every activation point refuses it. Then the entry is written. An uncertain or refused
+     * write keeps the closure. After a restart the durable record is the truth, so the caller
+     * keeps its own durable intent and retries until the entry is confirmed, and applies pending
+     * intents before it designates anything at boot. FULL keeps that intent pending too. A
+     * repeated suspension by the same actor confirms the existing entry unchanged. Resuming needs a
+     * new instance.
+     *
+     * @throws IllegalArgumentException for an entry no writer of this stage writes, before any
+     *     effect
+     * @throws IllegalStateException under a format without lifecycle records, or for a stale
+     *     handle, before any effect
+     */
+    NativeIdentityPersistence.SuspensionResult suspend(Handle handle,
+            NativeIdentityRecords.Suspension entry) {
+        Objects.requireNonNull(entry, "entry");
+        try (PackageManagerTracedLock ignored = pm.mInstallLock.acquireLock()) {
+            final NativeIdentityPersistence persistence;
+            final NativePrincipalPins.Record record;
+            synchronized (pm.mLock) {
+                persistence = lifecycle(handle);
+                record = handle.pin.record();
+                if (!NativeIdentityStore.writableSuspension(record.userId, record.userSerial, entry)) {
+                    throw new IllegalArgumentException("Suspension entry outside the writer rules");
+                }
+                close(handle);
+            }
+            NativeIdentityPersistence.SuspensionResult result =
+                    persistence.suspend(record, handle.storedSignerSha256, entry);
+            observe(persistence, handle);
+            return result;
+        }
+    }
+
+    /**
+     * Lift: removes exactly this entry, which its own actor placed, as the record holds it. A
+     * recovery hold has no lift path in this stage. A lift takes effect when it is durable; the
+     * caller learns that from true or, after an uncertain result, from a later read. Nothing
+     * reopens here: this instance's closure stays, and eligibility returns only through a fresh
+     * designation in a new instance.
+     *
+     * @throws IllegalArgumentException for a recovery hold, or an account user entry of another
+     *     user or serial, before any effect
+     * @throws IllegalStateException under a format without lifecycle records, or for a stale
+     *     handle, before any effect
+     */
+    boolean lift(Handle handle, NativeIdentityRecords.Suspension entry) {
+        Objects.requireNonNull(entry, "entry");
+        try (PackageManagerTracedLock ignored = pm.mInstallLock.acquireLock()) {
+            final NativeIdentityPersistence persistence;
+            synchronized (pm.mLock) {
+                persistence = lifecycle(handle);
+            }
+            boolean durable = persistence.lift(handle.pin.record(), handle.storedSignerSha256, entry);
+            observe(persistence, handle);
+            return durable;
+        }
+    }
+
+    /**
+     * Retire: the account's user with their credential, or the grant holder with authentication,
+     * which the caller establishes. Closes admission in memory with an irrevocable RETIRING pin,
+     * then durably writes RETIRING with this block, its actor and every kind outstanding, BEFORE
+     * quiescence starts. Every suspension entry is kept. A pin that may create its own body
+     * publishes it first. False keeps the RETIRING pin but does not let quiescence start; retry
+     * with the same block. A restored legacy marker takes the legacy continuation block.
+     *
+     * @throws IllegalArgumentException for a block no writer of this stage writes, before any
+     *     effect
+     * @throws IllegalStateException under a format without lifecycle records, for a stale
+     *     handle, and for a restored reservation without its designation, before any effect
+     */
+    boolean beginRetirement(Handle handle, NativeIdentityRecords.Retirement retirement) {
+        return retire(handle, Objects.requireNonNull(retirement, "retirement"));
+    }
+
+    /**
+     * Confirm retired: the account authority, once every retirement kind's owner gave its
+     * receipt, one DISCHARGED receipt per retirement kind in kind order. The durable record becomes
+     * RETIRED. It releases nothing: every disposition kind, suspension entry, pin and hold stays.
+     * Disposition and release need a later instance that begins with the account RETIRED.
+     *
+     * @throws IllegalArgumentException for receipts outside the writer rules, before any effect
+     * @throws IllegalStateException under a format without lifecycle records, for a stale handle
+     *     and for a pin that is not RETIRING, before any effect
+     */
+    boolean confirmRetired(Handle handle, java.util.List<NativeIdentityRecords.Obligation> receipts) {
+        java.util.List<NativeIdentityRecords.Obligation> copy =
+                java.util.List.copyOf(Objects.requireNonNull(receipts, "receipts"));
+        try (PackageManagerTracedLock ignored = pm.mInstallLock.acquireLock()) {
+            final NativeIdentityPersistence persistence;
+            synchronized (pm.mLock) {
+                persistence = lifecycle(handle);
+                if (!NativeIdentityStore.writableReceipts(copy)) {
+                    throw new IllegalArgumentException("Not one receipt of each retirement kind");
+                }
+                requireRetiring(handle);
+            }
+            boolean durable = persistence.markRetired(handle.pin.record(), handle.storedSignerSha256,
+                    copy);
+            observe(persistence, handle);
+            return durable;
+        }
+    }
+
+    /**
+     * Begin deletion or migration: the account's own user, or across users only the grant holder
+     * with destructive confirmation, which the caller establishes. Never automatic. Allowed only in
+     * a retired boot: this Settings instance's boot facts must show the account RETIRED. Every
+     * disposition kind becomes DISPOSING at once, before anything is deleted, and then completes.
+     *
+     * @throws IllegalStateException under a format without lifecycle records, for a stale handle,
+     *     for a pin that is not RETIRING and when this instance recorded no boot facts, before any
+     *     effect
+     */
+    boolean beginDisposition(Handle handle) {
+        try (PackageManagerTracedLock ignored = pm.mInstallLock.acquireLock()) {
+            final NativeIdentityPersistence persistence;
+            final NativeIdentityPersistence.BootFacts facts;
+            synchronized (pm.mLock) {
+                persistence = lifecycle(handle);
+                requireRetiring(handle);
+                facts = pm.mSettings.nativeBootFactsLPr();
+            }
+            boolean durable = persistence.beginDisposition(handle.pin.record(),
+                    handle.storedSignerSha256, facts);
+            observe(persistence, handle);
+            return durable;
+        }
+    }
+
+    /**
+     * Confirm disposal: the storage, key and policy owners, on observed evidence, in a retired
+     * boot. Each receipt moves its disposition kind from DISPOSING to DISCHARGED.
+     *
+     * @throws IllegalArgumentException for receipts outside the writer rules, before any effect
+     * @throws IllegalStateException under a format without lifecycle records, for a stale handle,
+     *     for a pin that is not RETIRING and when this instance recorded no boot facts, before any
+     *     effect
+     */
+    boolean confirmDisposition(Handle handle,
+            java.util.List<NativeIdentityRecords.Obligation> receipts) {
+        java.util.List<NativeIdentityRecords.Obligation> copy =
+                java.util.List.copyOf(Objects.requireNonNull(receipts, "receipts"));
+        try (PackageManagerTracedLock ignored = pm.mInstallLock.acquireLock()) {
+            final NativeIdentityPersistence persistence;
+            final NativeIdentityPersistence.BootFacts facts;
+            synchronized (pm.mLock) {
+                persistence = lifecycle(handle);
+                if (!NativeIdentityStore.writableDispositionReceipts(copy)) {
+                    throw new IllegalArgumentException("Not receipts of disposition kinds");
+                }
+                requireRetiring(handle);
+                facts = pm.mSettings.nativeBootFactsLPr();
+            }
+            boolean durable = persistence.confirmDisposition(handle.pin.record(),
+                    handle.storedSignerSha256, copy, facts);
+            observe(persistence, handle);
+            return durable;
+        }
+    }
+
+    /**
+     * The gated release of this account's UID, which is off: nobody chooses it, and only the
+     * release engine's tests hold its capability. The engine starts only when the durable record
+     * is RETIRED with every obligation discharged and no suspension entry, and only in a retired
+     * boot: this Settings instance's boot facts, recorded once from its boot read, must show the
+     * account RETIRED. A suspension this instance closed in memory refuses too. After the engine's
+     * acknowledged omission, Settings forgets the history but keeps the app ID held until a new
+     * instance, the pin ends and the holds are refreshed. The handle is then stale, and a retry of
+     * it returns true.
+     *
+     * <p>False keeps the pin, the hold and every obligation: retry this same handle, which names
+     * the same ticket. The boot that wrote the tombstone does not continue it. A durable omission
+     * whose reply was lost is acknowledged by a retry in this instance; in a later boot no fact
+     * names the account, and the app ID is free there, with no hold.
+     *
+     * @throws IllegalStateException under a format without lifecycle records, for a stale handle,
+     *     for a pin that is not RETIRING, for a suspension closed in this instance and when this
+     *     instance recorded no boot facts, before any effect
+     */
+    boolean releaseUid(Handle handle, NativeIdentityPersistence.ReleaseCapability capability) {
+        Objects.requireNonNull(capability, "capability");
+        try (PackageManagerTracedLock ignored = pm.mInstallLock.acquireLock()) {
+            final NativeIdentityPersistence persistence;
+            final NativeIdentityPersistence.BootFacts facts;
+            final NativeIdentityRecords.ReleaseTicket ticket;
+            synchronized (pm.mLock) {
+                if (handle == null || handle.owner != this) {
+                    throw new IllegalArgumentException("Foreign native principal handle");
+                }
+                persistence = lifecycleStore();
+                if (handle.released) return true;
+                checked(handle);
+                requireRetiring(handle);
+                requireOpen(handle);
+                facts = pm.mSettings.nativeBootFactsLPr();
+                ticket = ticket(handle);
+            }
+            boolean durable = persistence.release(handle.pin.record(), handle.lineage,
+                    handle.storedSignerSha256, ticket, capability, facts);
+            NativeIdentityStore.Loaded observed = persistence.load();
+            synchronized (pm.mLock) {
+                pm.mSettings.observeNativeIdentityStoreLPw(observed);
+                NativePrincipalPins pins = checked(handle);
+                if (!durable) return false;
+                pm.mSettings.finishNativeIdentityReleaseLPw(handle.pin.record(), observed);
+                pins.finishRelease(handle.pin);
+                pm.mSettings.refreshNativePrincipalAppIdsLPw();
+                handle.released = true;
+                handles.remove(handle.pin);
+                return true;
+            }
+        }
+    }
+
+    // The checks every lifecycle operation makes first, under the PMS lock and before any effect:
+    // this manager's current handle, and a store format that carries lifecycle records.
+    private NativeIdentityPersistence lifecycle(Handle handle) {
+        if (handle == null || handle.owner != this) {
+            throw new IllegalArgumentException("Foreign native principal handle");
+        }
+        NativeIdentityPersistence persistence = lifecycleStore();
+        checked(handle);
+        return persistence;
+    }
+
+    // The store of this Settings instance, only under a format that carries lifecycle records.
+    private NativeIdentityPersistence lifecycleStore() {
+        NativeIdentityPersistence persistence = pm.mSettings.nativeIdentityPersistenceLPr();
+        if (!persistence.lifecycleFormat()) {
+            throw new IllegalStateException("Native lifecycle records need the lifecycle format");
+        }
+        return persistence;
+    }
+
+    private static void requireRetiring(Handle handle) {
+        if (handle.pin.phase() != NativePrincipalPins.Phase.RETIRING) {
+            throw new IllegalStateException("Native principal is not retiring");
+        }
+    }
+
+    // The in memory closure of a suspension, under the PMS lock: the package name is deferred in
+    // the recovery view through Settings' deferral for the rest of this instance, and the handle
+    // is marked. Nothing reopens it before a new instance.
+    private void close(Handle handle) {
+        NativePrincipalPins.Record record = handle.pin.record();
+        PackageSetting setting = pm.mSettings.getPackageLPr(record.packageName);
+        pm.mSettings.deferNativePackage(record.packageName, setting == null ? null : setting.getPath());
+        handle.suspended = true;
+    }
+
+    // The read after a lifecycle write, taken with no PMS state lock held, then observed under it.
+    private void observe(NativeIdentityPersistence persistence, Handle handle) {
+        NativeIdentityStore.Loaded observed = persistence.load();
+        synchronized (pm.mLock) {
+            pm.mSettings.observeNativeIdentityStoreLPw(observed);
+            checked(handle);
+        }
+    }
+
+    // The ticket of this handle's release, made once under the PMS lock: the last principal, user
+    // and serial, and a random nonzero ticket ID. Every retry in this instance names it again. The
+    // random source is made here, so nothing of it exists outside the release path.
+    private static NativeIdentityRecords.ReleaseTicket ticket(Handle handle) {
+        if (handle.ticket != null) return handle.ticket;
+        NativePrincipalPins.Record record = handle.pin.record();
+        SecureRandom random = new SecureRandom();
+        byte[] id = new byte[16];
+        StringBuilder text = new StringBuilder();
+        do {
+            random.nextBytes(id);
+            text.setLength(0);
+            for (byte value : id) text.append(String.format("%02x", value & 0xff));
+        } while (text.toString().equals(NativeIdentityRecords.NO_REFERENCE));
+        handle.ticket = new NativeIdentityRecords.ReleaseTicket(record.id, record.userId,
+                record.userSerial, text.toString());
+        return handle.ticket;
     }
 
     /**
@@ -443,11 +767,37 @@ public final class NativePrincipalManager {
                 || !slot.signerSha256.equals(handle.storedSignerSha256)) {
             throw new IllegalStateException("Prior native identity is not currently verified");
         }
+        // Only an ELIGIBLE account without a suspension entry is active. This replaces the check
+        // of the retiring flag, which covers RETIRING and RETIRED.
         for (NativeIdentityRecords.UserEntry user : slot.users) {
-            if (user.id == handle.pin.record().id && user.retiring) {
-                throw new IllegalStateException("Native identity is retiring");
+            if (user.id == handle.pin.record().id && !active(user.lifecycle)) {
+                throw new IllegalStateException("Native identity is retiring or suspended");
             }
         }
+    }
+
+    private static boolean active(NativeIdentityRecords.Lifecycle lifecycle) {
+        return lifecycle.state == NativeIdentityRecords.LifecycleState.ELIGIBLE
+                && lifecycle.suspensions.isEmpty();
+    }
+
+    // The suspension refusal of an activation point that writes or admits before it reads any
+    // published binding: preparation and commit. Read under the PMS lock, before any effect.
+    private void requireAdmissible(Handle handle) {
+        requireOpen(handle);
+        NativeIdentityRecords.Slot slot = pm.mSettings.nativePrincipalBindingLPr(handle.pin.record());
+        if (slot == null) return;
+        for (NativeIdentityRecords.UserEntry user : slot.users) {
+            if (user.id == handle.pin.record().id && !user.lifecycle.suspensions.isEmpty()) {
+                throw new IllegalStateException("Native account is suspended");
+            }
+        }
+    }
+
+    // This instance's in memory closure of a suspension, which nothing reopens before a new
+    // instance. Read under the PMS lock.
+    private static void requireOpen(Handle handle) {
+        if (handle.suspended) throw new IllegalStateException("Native account is suspended");
     }
 
     private NativePrincipalPins checked(Handle handle) {

@@ -67,6 +67,17 @@ class NativePrincipalPinsTests(unittest.TestCase):
         self.assertIn('persistence.finishRetirement(handle.pin.record(), handle.lineage', manager)
         self.assertLess(manager.index('persistence.finishRetirement('),
                         manager.index('pins.finishRetire(handle.pin)'))
+        # The gated release: the engine with this instance's boot facts, then, after its acknowledged
+        # omission, Settings' release finish with the read taken after the engine, the pin's end and
+        # the hold refresh.
+        release = manager[manager.index('boolean releaseUid(Handle handle'):]
+        release = release[:release.index('\n    }\n')]
+        order = ['facts = pm.mSettings.nativeBootFactsLPr();', 'persistence.release(handle.pin.record()',
+                 'NativeIdentityStore.Loaded observed = persistence.load();', 'if (!durable) return false;',
+                 'pm.mSettings.finishNativeIdentityReleaseLPw(handle.pin.record(), observed);',
+                 'pins.finishRelease(handle.pin);', 'pm.mSettings.refreshNativePrincipalAppIdsLPw();']
+        self.assertEqual([release.count(step) for step in order], [1] * len(order))
+        self.assertEqual(sorted(order, key=release.index), order)
         self.assertIn('requirePublishedBinding(handle)', manager)
         self.assertIn('storedSignerSha256', manager)
         self.assertNotIn('persistNativePrincipalPinsLPr', manager)

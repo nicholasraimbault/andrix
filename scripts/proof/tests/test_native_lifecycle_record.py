@@ -30,7 +30,11 @@ def scratch(test):
 
 
 def predictions_rules():
-    return json.loads(runner.PREDICTIONS.read_text())['p3_checkpoint_2']['source_rule_mutants']
+    return json.loads(runner.PREDICTIONS.read_text())['p4_final']['source_rule_mutants']
+
+
+def manager_code(texts):
+    return runner.b1.strip_java_comments(texts[runner.MANAGER])
 
 
 class LifecycleRecordSourceTests(unittest.TestCase):
@@ -87,11 +91,12 @@ class LifecycleRecordSourceTests(unittest.TestCase):
     def test_case_names_and_counts(self):
         predictions = json.loads(runner.PREDICTIONS.read_text())
         self.assertIn('PREDICTED', predictions['status'])
-        self.assertEqual(predictions['cases'], {'codec': 47, 'reads': 60, 'goldens': 9, 'mutants': 166, 'store': 49,
-                                                'transactions': 57, 'faults': 136, 'settings': 12})
+        self.assertEqual(predictions['cases'], {'codec': 47, 'reads': 60, 'goldens': 9, 'mutants': 183, 'store': 49,
+                                                'transactions': 57, 'faults': 136, 'settings': 12, 'manager': 19})
         self.assertEqual((len(runner.CODEC_NAMES), len(runner.READ_NAMES), len(runner.STORE_NAMES),
-                          len(runner.TRANSACTION_NAMES), len(runner.FAULT_NAMES), len(runner.SETTINGS_NAMES)),
-                         (47, 60, 49, 57, 136, 12))
+                          len(runner.TRANSACTION_NAMES), len(runner.FAULT_NAMES), len(runner.SETTINGS_NAMES),
+                          len(runner.MANAGER_NAMES)), (47, 60, 49, 57, 136, 12, 19))
+        self.assertEqual(predictions['manager_by_label'], {'legacy': 1, 'production': 1, 'new-format': 17})
         self.assertEqual(predictions['store_by_label'], {'new-format': 47, 'legacy': 1, 'production': 1})
         self.assertEqual(predictions['transactions_by_label'], {'new-format': 53, 'legacy': 2, 'production': 2})
         # P2b's fault kinds: the two disposition transactions and Restore, with and without an intact copy.
@@ -132,13 +137,28 @@ class LifecycleRecordSourceTests(unittest.TestCase):
         self.assertEqual(sum(rules == {'release'} for _, rules in mutants.values()), len(runner.RELEASE_ENTRY_POINTS))
         self.assertEqual(sum(rules == {'primitives'} for _, rules in mutants.values()), 4)
         self.assertEqual(sum(rules == {'boot-facts'} for _, rules in mutants.values()), 3)
+        self.assertEqual(sum(rules == {'lifecycle'} for _, rules in mutants.values()), 6)
         for name, ((production, other), rules) in mutants.items():
             self.assertEqual(runner.unreachable_rules(production, other), rules, name)
         # A release body that is not found refuses every call in it.
         moved = dict(texts)
         moved[runner.PERSISTENCE] = moved[runner.PERSISTENCE].replace(runner.RELEASE_BODIES[0], '    boolean free(', 1)
         self.assertIn('release', runner.unreachable_rules(moved, others))
-        self.assertEqual(predictions_rules(), {'capability': 4, 'release': 10, 'primitives': 4, 'boot-facts': 3})
+        self.assertEqual(predictions_rules(), {'capability': 4, 'release': 12, 'primitives': 4, 'boot-facts': 3,
+                                               'lifecycle': 6})
+        # The manager's gated release is the one body that calls the engine, Settings' release finish and
+        # the pins' finishRelease, and every other lifecycle operation calls only its own transaction.
+        self.assertEqual({entry for entry, _, _ in runner.RELEASE_ALLOWANCES},
+                         {'release', 'finishNativeIdentityReleaseLPw', 'finishRelease'})
+        self.assertEqual(len(runner.body_spans(manager_code(texts), (runner.RELEASE_BODY,))), 1)
+        self.assertEqual(len(runner.body_spans(manager_code(texts),
+                                               tuple(body for _, _, body in runner.LIFECYCLE_ALLOWANCES))), 6)
+        # An assert statement is no declaration: its call is refused like any other.
+        asserted = dict(texts)
+        asserted[runner.MANAGER] = asserted[runner.MANAGER].replace(
+            '    private static void requireRetiring(Handle handle) {\n',
+            '    private static void requireRetiring(Handle handle) {\n        assert lift(null, null);\n', 1)
+        self.assertIn('lifecycle', runner.unreachable_rules(asserted, others))
         # The old release path keeps exactly its P6 allowances, each a body that exists today.
         self.assertEqual({entry for entry, _, _ in runner.P6_RELEASE_ALLOWANCES},
                          {'finishRetirement', 'finishNativeIdentityReleaseLPw', 'finishRetire'})
@@ -159,7 +179,8 @@ class LifecycleRecordSourceTests(unittest.TestCase):
                 self.assertTrue(changed or harness)
                 for path, text in changed.items():
                     self.assertNotEqual(text, (ROOT / path).read_text())
-                self.assertTrue(set(suites) <= {'codec', 'reads', 'store', 'transactions', 'faults', 'settings'})
+                self.assertTrue(set(suites) <= {'codec', 'reads', 'store', 'transactions', 'faults', 'settings',
+                                                'manager'})
         predictions = json.loads(runner.PREDICTIONS.read_text())['mutants_caught_at_least']
         self.assertEqual(set(predictions), set(runner.MUTANTS))
         # A drifted anchor is refused.
@@ -173,9 +194,9 @@ class LifecycleRecordSourceTests(unittest.TestCase):
         self.assertEqual(runner.label_problems(), [])
         self.assertIn('new-format', runner.b1.LIVING_RUN_LABELS)
         rows = [row for row in runner.b1.HARNESS_LABELS if row[0] == 'new-format']
-        # The read test's row, the store, transaction and fault tests' row and the Settings test's row,
-        # all of this runner.
-        self.assertEqual([row[1] for row in rows], ['scripts/proof/native_lifecycle_record.py'] * 3)
+        # The read test's row, the store, transaction and fault tests' row, the Settings test's row and
+        # the manager test's row, all of this runner.
+        self.assertEqual([row[1] for row in rows], ['scripts/proof/native_lifecycle_record.py'] * 4)
         for label in (('production', 'archived-baseline'), ('rollback-reader',)):
             for step in ('reads', 'store', 'transactions', 'faults'):
                 with mock.patch.dict(runner.STEP_LABELS, {step: label}):
@@ -213,7 +234,9 @@ class LifecycleTransitionSourceTests(unittest.TestCase):
     def test_lifecycle_cases_are_named_once_and_labelled_by_format(self):
         self.assertEqual(runner.lifecycle_name_problems(), [])
         self.assertEqual(runner.PHASES, ('candidate', 'codec', 'reads', 'store', 'transactions', 'faults',
-                                         'settings', 'mutants'))
+                                         'settings', 'manager', 'mutants'))
+        self.assertEqual({runner.case_label(name) for name in runner.MANAGER_NAMES},
+                         {'legacy', 'production', 'new-format'})
         self.assertEqual({runner.FORMAT_LABELS[name.split(' / ', 1)[0]] for name in runner.SETTINGS_NAMES},
                          {'production', 'new-format'})
         self.assertEqual({runner.case_label(name) for name in runner.FAULT_NAMES}, {'new-format'})
@@ -236,6 +259,11 @@ class LifecycleTransitionSourceTests(unittest.TestCase):
                           runner.lifecycle_name_problems())
         faults = runner.lifecycle_files(runner.FAULT_TEST)
         store = runner.lifecycle_files(runner.STORE_TEST)
+        # The manager suite's store copy, and only it, checks the PMS facade's lock at every load.
+        manager = runner.lifecycle_files(runner.MANAGER_TEST)
+        self.assertIn(runner.LOCK_SEAM, manager['framework/NativeIdentityStore.java'].decode())
+        self.assertNotIn('Thread.holdsLock', store['framework/NativeIdentityStore.java'].decode())
+        self.assertNotIn('Thread.holdsLock', faults['framework/NativeIdentityStore.java'].decode())
         self.assertIn('NativeHeaderWriteFaults.at(', faults['framework/NativeIdentityStore.java'].decode())
         self.assertIn('NativeHeaderWriteFaults.at(', faults['fixtures/ResilientAtomicFile.java'].decode())
         self.assertIn('tests/NativeHeaderWriteFaults.java', faults)
@@ -258,7 +286,8 @@ class LifecycleTransitionSourceTests(unittest.TestCase):
         self.assertEqual(labelled, {runner.CODEC_TEST: {'production'}, runner.READ_TEST: every,
                                     runner.STORE_TEST: every, runner.TRANSACTION_TEST: every,
                                     runner.FAULT_TEST: {'new-format'},
-                                    runner.SETTINGS_TEST: {'production', 'new-format'}})
+                                    runner.SETTINGS_TEST: {'production', 'new-format'},
+                                    runner.MANAGER_TEST: every})
         # Every Settings fragment mutant changes the facade and the harness alike.
         for name, (edits, suites) in runner.MUTANTS.items():
             if any(target.startswith(runner.FRAGMENT) for target, _, _ in edits):

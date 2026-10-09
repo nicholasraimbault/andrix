@@ -59,12 +59,12 @@
     {
       "path": "services/core/java/com/android/server/pm/NativePrincipalPins.java",
       "source": "owner/platform/framework/NativePrincipalPins.java",
-      "sha256": "6dfdec9565b2b2295c60f2e38ecff4e57f55b7a13fa15ff9beb4b1911ed999bb"
+      "sha256": "7aa262aa74e39a624e9f95f9ed8c076eaef440eb0bbc1e3531d9821f3393aa42"
     },
     {
       "path": "services/core/java/com/android/server/pm/NativePrincipalManager.java",
       "source": "owner/platform/framework/NativePrincipalManager.java",
-      "sha256": "1fa50501728a66b676020c83fce44d5868686db37a6b5867498975ae4d57ceb4"
+      "sha256": "cfb82d4cc1713cfc36b4386bbe9fe16cda04697b5cf25f00f9f951099c36c345"
     },
     {
       "path": "services/core/java/com/android/server/pm/NativeIdentityRecords.java",
@@ -79,7 +79,7 @@
     {
       "path": "services/core/java/com/android/server/pm/NativeIdentityPersistence.java",
       "source": "owner/platform/framework/NativeIdentityPersistence.java",
-      "sha256": "44bf7cbd926c6dbaad679469c7b44d6d1d03fc65460187e1223d6f0fed839560"
+      "sha256": "8d7660380117ebfc96878a8ce9e4ff1c8cd6485487e3b27021c6f53dbf808100"
     },
     {
       "path": "services/core/java/com/android/server/pm/NativePrincipalRecovery.java",
