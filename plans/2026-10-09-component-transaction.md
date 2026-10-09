@@ -279,7 +279,11 @@ key. In the lab image that is the public AOSP development key.
   SDK 37 and always carry v2 and v3 signatures, so Android never verifies a v1 signature for them.
 - **Approved context.** It names the installation, the actor, the input digests and facts of both
   APKs, and the platform role by certificate and key digest. It also names the purpose, the
-  schemes, the SDK range and the four expected outputs.
+  schemes, the SDK range and the four expected outputs. The facts of each APK are read from its own
+  manifest before signing: package, versionCode, `sharedUserId`, the persistent flag and the SDK
+  fields. A mismatch with the plan refuses before any key operation. The bundle manifest needs no
+  field for them, because its entry digest already pins the APK's manifest bytes. The signer's
+  record is where the approval will name them, when the device signer's approval is designed.
 - **Private outputs.** Nothing is published until both bundles verify against the trusted role
   manifest of the [recovery vehicle](2026-09-22-signing-identity-recovery-proof.md). A refused or
   lost operation publishes nothing. A lost reply is resolved by its request ID, never by signing
@@ -290,7 +294,11 @@ key. In the lab image that is the public AOSP development key.
   and a request ID that has a record is never signed again. The signer keeps the record for as long
   as the ticket that made the request exists. The host signer proves that a request can no longer
   complete when it finds the record still open, or absent, because one coordinator serializes every
-  call to it. The protected device signer needs its own proof, designed with it.
+  call to it. A completed record also proves it when an output is gone, damaged or fails its
+  facts, because only signing again could heal it, and that is forbidden. A read or staging error
+  proves nothing. It gives no fact, so the ticket waits and reads again. The protected device signer
+  needs its own proof, designed with it. Its approval must bind to each operation's scheme or
+  data, because an approval that sees only an operation's position could be spent on other data.
 - **Separate grants.** Each grant is its own record. SIGN covers the transaction. STAGE covers one
   session for one bundle on one native base. ACTIVATE covers one activating reboot for that plan,
   and a reboot request that never took effect does not use it. An ACTIVATE that no reboot has used
