@@ -80,7 +80,10 @@ SEALED_NAMES = (
     'sealed / an engine that also signs v1 is refused by the operation count',
     "sealed / the six operation outputs hold the sealed outputs' entries without v1",
     'sealed / both bundles verify against the platform role over every scheme',
-    'sealed / both bundles publish together through the store')
+    'sealed / both bundles publish together through the store',
+    "sealed / each input is signed without its signing block, and every key operation's result is in the outputs",
+    "sealed / the APKs' own facts are SystemUI's and the plan's, and other facts are never signed",
+    'sealed / a refusal through apksig ends REFUSED with nothing kept')
 
 # ---------------------------------------------------------------- the independent encoder
 # Written from the layout tables of owner/deployment/README.md alone, never from the Java codec:
@@ -716,6 +719,7 @@ ARTIFACT_NAMES = (
     'store / a pair from two signing transactions fits the publication',
     "store / a restoration plan publishes the restoration that its pair's publication made visible",
     'store / a plan that signs nothing publishes only the restoration its repaired pair published',
+    'store / a plan that signs nothing and does not target the variant role publishes nothing',
     "store / every bundle carries the plan's signer certificate",
     'records / the signing transaction record keeps its goldens, strict codes, relations and prefix')
 
@@ -730,7 +734,21 @@ SIGNING_NAMES = (
     'builder / a lost acknowledgement resolves by reading the exact bytes',
     'builder / a second publication completes from the held bundles without signing again',
     'builder / a pair from two signing transactions publishes together',
-    'builder / a restoration plan publishes the already published restoration')
+    'builder / a restoration plan publishes the already published restoration',
+    'signer / an engine that swallows a refusal still ends REFUSED with nothing kept',
+    'builder / a staging error gives no fact, and a later read stages the same outputs',
+    'builder / a request without a record is recorded with the role and input of its own grant',
+    'entries / only ASCII letters fold in the names of v1 signature files',
+    'entries / a name past the end of the archive is refused as invalid',
+    "signer / an engine that returns its input, or discards its key operations' results, keeps nothing",
+    'builder / an input that carries v1 signature files is never signed',
+    'signer / a fourth key operation for one APK is refused and nothing is kept',
+    'builder / a signer of any scheme without the platform role is refused',
+    "builder / outputs whose entries are not the input's are refused",
+    "builder / input bytes that are not the plan's are never signed",
+    "builder / an input whose own facts are not the plan's is never signed",
+    'builder / an unreadable retained output gives no fact, and one that is gone reads CANNOT_COMPLETE',
+    'builder / one whole run publishes a variant and its restoration, then a repair plan the restoration')
 
 NAMES = {'codec': CODEC_NAMES, 'machine': MACHINE_NAMES, 'store': STORE_NAMES, 'transactions': TRANSACTION_NAMES,
          'artifacts': ARTIFACT_NAMES, 'signing': SIGNING_NAMES}
@@ -1088,8 +1106,8 @@ MUTANTS = {
     # bundles together, every signer with the platform role, and never a second signing.
     'signer-partial-output-kept': (((HOST_SIGNER, '            discard(open.transaction);\n', ''),), ('signing',)),
     'builder-published-before-verification': (((BUNDLE_BUILDER,
-        '            if (s == null || verify(s.apk, s.idsig, m) != null) return false;\n',
-        '            if (s == null) return false;\n'),), ('signing',)),
+        '            if (s == null || verify(s.apk, s.idsig, m) != null) return Finish.FAILED;\n',
+        '            if (s == null) return Finish.FAILED;\n'),), ('signing',)),
     'builder-bundle-published-alone': (((BUNDLE_BUILDER,
         '        List<Role> roles = new ArrayList<>(List.of(Role.VARIANT));\n'
         '        if (plan.hasRestoration()) roles.add(Role.RESTORATION);\n        Map<Role, Staged> chosen',
@@ -1104,6 +1122,52 @@ MUTANTS = {
         '        }\n', ''),
         (HOST_SIGNER, '            if (!writeNew(record(open.transaction), openBytes)) return null;\n',
          '            if (!put(record(open.transaction), openBytes)) return null;\n')), ('signing',)),
+    # A restoration plan only in the variant role, a staging error that proves nothing, and a refusal
+    # that the signer latches whatever the engine does with the callback's exception.
+    'artifact-restoration-plan-any-target': (((ARTIFACT_STORE,
+        '        if (plan.signing == 0 && plan.target != Target.VARIANT) return false;\n', ''),), ('artifacts',)),
+    'builder-staging-error-final': (((BUNDLE_BUILDER,
+        '            if (store.stage(manifest(t, r), signed.get(r).apk, signed.get(r).idsig) == null) '
+        'return Finish.UNAVAILABLE;\n',
+        '            if (store.stage(manifest(t, r), signed.get(r).apk, signed.get(r).idsig) == null) '
+        'return Finish.FAILED;\n'),), ('signing',)),
+    'signer-refusal-not-latched': (((HOST_SIGNER, '                if (refused[0] != 0) throw new Refused(refused[0]);\n',
+                                     ''),), ('signing',)),
+    'signer-keys-used-after-refusal': (((HOST_SIGNER,
+        '                    if (refused[0] != 0) throw new GeneralSecurityException(new Refused(refused[0]));\n',
+        ''),), ('signing',)),
+    # Signatures that only the transaction's operations made, the operation count, every signer,
+    # the entries, the plan's own inputs and facts, unreadable outputs, and the publication read.
+    'signer-input-not-stripped': (((HOST_SIGNER, '                byte[] unsigned = ApkEntries.withoutSigningBlock(input);\n',
+                                    '                byte[] unsigned = input.clone();\n'),), ('signing',)),
+    'signer-results-unchecked': (((HOST_SIGNER,
+        '                    if (!contains(block, result) && !contains(signed.idsig, result)) {\n',
+        '                    if (result == null) {\n'),), ('signing',)),
+    'builder-v1-input-signed': (((BUNDLE_BUILDER,
+        '                inputsMatch &= !ApkEntries.hasSignatureFiles(bytes.get(r));\n', ''),), ('signing',)),
+    'signer-operation-cap-removed': (((HOST_SIGNER,
+        '                    if (next > first + 3 || next > open.operations.size()) {\n'
+        '                        throw new GeneralSecurityException("more than three key operations for one APK");\n'
+        '                    }\n', ''),), ('signing',)),
+    'signer-operation-count-inexact': (((HOST_SIGNER,
+        '                if (index[0] != first + 3) throw new IllegalStateException("an APK signed without its three '
+        'operations");\n', ''),), ('signing',)),
+    'builder-first-signer-only': (((BUNDLE_BUILDER, '        for (String[] s : v.signers) {\n',
+                                    '        for (String[] s : v.signers.subList(0, 1)) {\n'),), ('signing',)),
+    'builder-entries-unchecked': (((BUNDLE_BUILDER,
+        '        try {\n            if (!ApkEntries.digest(apk).equals(m.inputEntries)) return "entries other than the '
+        'input\'s";\n        } catch (IllegalArgumentException notZip) {\n            return "not a ZIP archive";\n'
+        '        }\n', ''),), ('signing',)),
+    'builder-inputs-unchecked': (((BUNDLE_BUILDER,
+        '        HostSigner.Reply reply = inputsMatch ? signer.sign(open, bytes) : signer.query(entry.reference, open);\n',
+        '        HostSigner.Reply reply = signer.sign(open, bytes);\n'),), ('signing',)),
+    'builder-facts-unchecked': (((BUNDLE_BUILDER,
+        '                inputsMatch &= facts(plan, r, engine.facts(bytes.get(r))) == null;\n', ''),), ('signing',)),
+    'builder-unreadable-output-final': (((BUNDLE_BUILDER,
+        '                return Finish.UNAVAILABLE; // A read error proves nothing: a later read tries again.\n',
+        '                return Finish.FAILED;\n'),), ('signing',)),
+    'builder-publication-unread-after-signed': (((BUNDLE_BUILDER, '        if (attempt != null) {\n',
+                                                  '        if (attempt != null && signing) {\n'),), ('signing',)),
     'artifact-input-equal-output-refused': (((ARTIFACT_RECORDS,
         '            this.installation = installation;\n            this.component = component;\n'
         '            this.transaction = transaction;\n',
@@ -1146,6 +1210,18 @@ REQUIRED_DEFECTS = {
     'a ticket frozen by a missing publication read': ('missing-read-holds-silently', 'missing-read-blocks-abandon'),
     'a bundle of another signer published': ('artifact-certificate-unchecked',),
     'a signing plan publishing a bundle signed in another role': ('artifact-signing-plan-any-role',),
+    'a plan that signs nothing outside the variant role publishing': ('artifact-restoration-plan-any-target',),
+    'a staging error read as a request that can no longer complete': ('builder-staging-error-final',),
+    'a refusal that the engine swallows': ('signer-refusal-not-latched', 'signer-keys-used-after-refusal'),
+    'signatures in the outputs that the operations did not make': ('signer-input-not-stripped',
+                                                                   'signer-results-unchecked'),
+    'more or fewer than three key operations for one APK': ('signer-operation-cap-removed',
+                                                            'signer-operation-count-inexact'),
+    "inputs signed that are not the plan's": ('builder-inputs-unchecked', 'builder-v1-input-signed',
+                                              'builder-facts-unchecked'),
+    'a signer of a later scheme without the platform role': ('builder-first-signer-only',),
+    "outputs whose entries are not the input's": ('builder-entries-unchecked',),
+    'an unreadable retained output read as final': ('builder-unreadable-output-final',),
 }
 
 
@@ -1521,8 +1597,10 @@ def sealed_run(work, args):
     development platform key, and the SystemUI platform role from an independently committed role
     manifest. Returns a result, or the reason it did not run."""
     given = (args.apksig_jar, args.sealed, args.platform_keys, args.role_manifest, args.role_manifest_sha256)
-    if not all(given):
+    if not any(given):
         return {'status': 'NOT_RUN', 'reason': 'no sealed inputs given'}
+    if not all(given):
+        return {'status': 'FAIL', 'reason': 'some sealed inputs given, not all'}
     jar = args.apksig_jar.resolve()
     if sha(jar.read_bytes()) != PINNED_APKSIGNER_JAR:
         return {'status': 'FAIL', 'reason': 'not the pinned apksigner jar'}
@@ -1624,7 +1702,10 @@ def main(argv=None):
         qualify(work, report)
         if not problems:
             report['sealed'] = sealed_run(work, args)
-            if report['sealed']['status'] == 'FAIL':
+            # Any sealed input asks for the sealed phase: the run passes only when it ran and passed.
+            sealed_given = any((args.apksig_jar, args.sealed, args.platform_keys, args.role_manifest,
+                                args.role_manifest_sha256))
+            if report['sealed']['status'] == 'FAIL' or (sealed_given and report['sealed']['status'] != 'PASS'):
                 problems.append('sealed comparison')
         report['status'] = 'FAIL' if problems else 'PASS'
     except Exception as error:  # noqa: BLE001 - recorded, never swallowed

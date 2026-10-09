@@ -8,6 +8,7 @@ import dev.andrix.server.deployment.ArtifactRecords.Transaction;
 import dev.andrix.server.deployment.ArtifactRecords.TransactionState;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
@@ -33,9 +34,13 @@ import java.util.Objects;
  * operation. It names the transaction, which is the ticket's SIGN request ID, the six operation
  * IDs and the four expected outputs by role and member, with the facts each must meet. Each key
  * operation first asks the captive callback, and a refusal ends the transaction REFUSED with no
- * output kept. The outputs are retained privately and synced, then the record is replaced once
- * by COMPLETED with their digests and sizes, which is the commit point. A transaction ID that has
- * a record is never signed again: a lost reply is resolved by reading the record by that ID. A
+ * output kept, even when the engine swallows the callback's exception: the signer latches the
+ * refusal, and refuses every later key operation of the transaction without asking. The engine
+ * signs each input without its APK Signing Block, and each key operation's result must appear in
+ * the output's signing block or its sidecar, so the signatures the outputs carry are this
+ * transaction's own. The outputs are retained privately and synced, then the record is replaced
+ * once by COMPLETED with their digests and sizes, which is the commit point. A transaction ID that
+ * has a record is never signed again: a lost reply is resolved by reading the record by that ID. A
  * read that finds a transaction still OPEN, or no record at all, proves that the request can no
  * longer complete, because calls are serialized and this signer never resumes a transaction: the
  * read records CANNOT_COMPLETE, and the ticket records SIGN_FAILED.
@@ -55,6 +60,32 @@ public final class HostSigner {
          * the declared range, and every signer's certificate and key digests.
          */
         Verification verify(byte[] apk, byte[] idsig, int sdkMin, int sdkMax);
+
+        /** The facts of an APK's own binary manifest, or null when it has none that parses. */
+        Facts facts(byte[] apk);
+    }
+
+    /** What an APK's binary manifest declares. A maxSdk of 0 means none is declared. */
+    public static final class Facts {
+        public final String packageName;
+        public final long versionCode;
+        /** Empty when none is declared. */
+        public final String sharedUserId;
+        public final boolean persistent;
+        public final int minSdk;
+        public final int targetSdk;
+        public final int maxSdk;
+
+        public Facts(String packageName, long versionCode, String sharedUserId, boolean persistent, int minSdk,
+                int targetSdk, int maxSdk) {
+            this.packageName = Objects.requireNonNull(packageName, "packageName");
+            this.versionCode = versionCode;
+            this.sharedUserId = Objects.requireNonNull(sharedUserId, "sharedUserId");
+            this.persistent = persistent;
+            this.minSdk = minSdk;
+            this.targetSdk = targetSdk;
+            this.maxSdk = maxSdk;
+        }
     }
 
     /** One key operation with the signing key. */
@@ -165,21 +196,40 @@ public final class HostSigner {
         }
         List<Output> produced = new ArrayList<>();
         int[] index = {0};
+        // The first refused operation. A refusal is latched here, so an engine that swallows the
+        // callback's exception still ends the transaction REFUSED, and no key is used after it.
+        int[] refused = {0};
         try {
             for (Role role : open.roles()) {
                 byte[] input = inputs.get(role);
                 if (input == null) throw new IllegalArgumentException("no input for " + role);
+                // Signatures the input already carries prove nothing: the engine never sees them.
+                byte[] unsigned = ApkEntries.withoutSigningBlock(input);
                 int first = index[0];
-                Signed signed = engine.sign(input.clone(), (data, algorithm) -> {
+                List<byte[]> results = new ArrayList<>();
+                Signed signed = engine.sign(unsigned, (data, algorithm) -> {
                     int next = ++index[0];
+                    if (refused[0] != 0) throw new GeneralSecurityException(new Refused(refused[0]));
                     if (next > first + 3 || next > open.operations.size()) {
                         throw new GeneralSecurityException("more than three key operations for one APK");
                     }
-                    if (!approval.allow(open, next)) throw new GeneralSecurityException(new Refused(next));
+                    if (!approval.allow(open, next)) {
+                        refused[0] = next;
+                        throw new GeneralSecurityException(new Refused(next));
+                    }
                     operations++;
-                    return key.sign(data, algorithm);
+                    byte[] result = key.sign(data, algorithm);
+                    results.add(result.clone());
+                    return result;
                 });
+                if (refused[0] != 0) throw new Refused(refused[0]);
                 if (index[0] != first + 3) throw new IllegalStateException("an APK signed without its three operations");
+                byte[] block = ApkEntries.signingBlock(signed.apk);
+                for (byte[] result : results) {
+                    if (!contains(block, result) && !contains(signed.idsig, result)) {
+                        throw new IllegalStateException("a key operation's result is not in the output");
+                    }
+                }
                 retain(open.transaction, role, signed);
                 for (Output o : open.outputs) {
                     if (o.role != role) continue;
@@ -189,17 +239,11 @@ public final class HostSigner {
             }
             return finish(open, openBytes, open.with(TransactionState.COMPLETED, 0, produced));
         } catch (Exception failure) {
-            Refused refused = refusal(failure);
             discard(open.transaction);
-            Transaction end = refused != null ? open.with(TransactionState.REFUSED, refused.operation, open.outputs)
+            Transaction end = refused[0] != 0 ? open.with(TransactionState.REFUSED, refused[0], open.outputs)
                     : open.with(TransactionState.CANNOT_COMPLETE, 0, open.outputs);
             return finish(open, openBytes, end);
         }
-    }
-
-    private static Refused refusal(Throwable t) {
-        for (Throwable c = t; c != null; c = c.getCause()) if (c instanceof Refused) return (Refused) c;
-        return null;
     }
 
     private Reply finish(Transaction open, byte[] openBytes, Transaction end) {
@@ -256,13 +300,17 @@ public final class HostSigner {
 
     /**
      * The retained outputs of a COMPLETED transaction for one role, checked against the digests
-     * and sizes its record names. Null otherwise. Nothing is signed again to recover them.
+     * and sizes its record names. Null when they are gone or damaged, or the record is not
+     * COMPLETED. Nothing is signed again to recover them. Throws UncheckedIOException when a read
+     * fails, which proves nothing: a later read may find them.
      */
     public Signed retained(String transaction, Role role) {
+        if (readRaw(record(transaction)).found == Node.UNKNOWN) throw unreadable();
         Transaction t = read(transaction);
         if (t == null || t.state != TransactionState.COMPLETED || !t.roles().contains(role)) return null;
         Read apk = readRaw(outputs(transaction, role).resolve(ArtifactStore.APK_FILE));
         Read idsig = readRaw(outputs(transaction, role).resolve(ArtifactStore.IDSIG_FILE));
+        if (apk.found == Node.UNKNOWN || idsig.found == Node.UNKNOWN) throw unreadable();
         if (apk.found != Node.FILE || idsig.found != Node.FILE) return null;
         for (Output o : t.outputs) {
             if (o.role != role) continue;
@@ -270,6 +318,21 @@ public final class HostSigner {
             if (bytes.length != o.bytes || !DeploymentRecords.sha256Hex(bytes).equals(o.digest)) return null;
         }
         return new Signed(apk.bytes, idsig.bytes);
+    }
+
+    private static UncheckedIOException unreadable() {
+        return new UncheckedIOException(new IOException("a retained output cannot be read"));
+    }
+
+    // Whether the bytes hold the needle anywhere.
+    private static boolean contains(byte[] bytes, byte[] needle) {
+        if (needle.length == 0) return false;
+        outer:
+        for (int i = 0; i + needle.length <= bytes.length; i++) {
+            for (int j = 0; j < needle.length; j++) if (bytes[i + j] != needle[j]) continue outer;
+            return true;
+        }
+        return false;
     }
 
     private void retain(String transaction, Role role, Signed signed) throws IOException {

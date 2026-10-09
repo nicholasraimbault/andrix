@@ -65,10 +65,11 @@ public final class Coordinator {
         Observation publish(Ticket ticket, Plan plan, Entry entry);
 
         /**
-         * Queries open signing requests by ID, and reads the plan's publication back in a fact that
-         * names the ticket's last PUBLISH attempt, whose call has ended by then.
+         * Queries open signing requests by ID, each under the grant its entry names among the plan's
+         * grants, and reads the plan's publication back in a fact that names the ticket's last
+         * PUBLISH attempt, whose call has ended by then.
          */
-        List<Observation> query(Ticket ticket, Plan plan);
+        List<Observation> query(Ticket ticket, Plan plan, List<Authorization> grants);
     }
 
     /** Thrown when a write the protocol requires does not complete. Nothing was issued after it. */
@@ -139,7 +140,7 @@ public final class Coordinator {
         Clock clock = device.clock();
         List<Observation> seen = new ArrayList<>();
         if (clock != null) seen.addAll(device.observe(ticket, plan));
-        seen.addAll(host.query(ticket, plan));
+        seen.addAll(host.query(ticket, plan, store.authorizationsOf(plan.planId)));
         if (observations == null) observations = new ArrayList<>(store.observations().values);
         for (Observation o : seen) {
             if (repeats(o)) continue;

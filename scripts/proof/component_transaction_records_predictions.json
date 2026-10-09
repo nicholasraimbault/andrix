@@ -1,5 +1,5 @@
 {
-  "status": "PREDICTED for D1 with the layout changes of D2, and for D2's artifact store, host signer and bundle builder: one signing transaction of six key operations under the captive callback, written OPEN before the first operation and resolved by its ID, never by signing again; every output verified against the platform role before it is staged; both bundles published together or neither; and the restoration plan's publication of the published restoration. Earlier: the plan names only facts known before signing, and a bundle fact carries the APK digests its publication binds. A plan that signs nothing publishes only decision 3's restoration, and a missing or disagreeing publication read holds with the alert while a recorded cause still abandons a live session. Written before any run of the new cases' mutants. Nothing here is a guarded or mutant result.",
+  "status": "PREDICTED for D1 with the layout changes of D2, and for D2's artifact store, host signer and bundle builder: one signing transaction of six key operations under the captive callback, written OPEN before the first operation and resolved by its ID, never by signing again; every output verified against the platform role before it is staged; both bundles published together or neither; and the restoration plan's publication of the published restoration. Earlier: the plan names only facts known before signing, and a bundle fact carries the APK digests its publication binds. A plan that signs nothing publishes only decision 3's restoration, and a missing or disagreeing publication read holds with the alert while a recorded cause still abandons a live session. Hardened: a plan that signs nothing publishes only in the variant role, a staging error gives no fact, a request without a record is recorded under its own grant, the signer latches a refusal that an engine swallows, and the input entry digest folds only ASCII letters and refuses a name past the end as invalid. Then: the engine signs each input without its signing block and each key operation's result must appear in the outputs; more or fewer than three key operations for an APK keep nothing; every signer of every scheme, the entries, the plan's own input bytes and the facts of their binary manifests are checked; an unreadable retained output gives no fact; and the builder reads the publication after SIGNED, so a whole coordinator run ends PUBLISHED. Written before any run of the new cases and mutants. Nothing here is a guarded or mutant result.",
   "plan": "plans/2026-10-09-component-transaction.md",
   "package": "D1: the deployment records, their codec, the ticket state machine, reconciliation and host storage. D2: the bundle manifest, the publication record, the artifact store, the signing transaction record, the host signer and the bundle builder",
   "basis": "Each count is the length of the runner's case lists. Each golden is the independent encoder's bytes. Each mutant's catches are traced against the cases that reach the changed rule; a defect that another rule also refuses names only the cases that reach it.",
@@ -8,18 +8,18 @@
     "machine": 70,
     "store": 14,
     "transactions": 44,
-    "artifacts": 21,
-    "signing": 10,
+    "artifacts": 22,
+    "signing": 24,
     "goldens": 23,
     "artifact_goldens": 6,
-    "mutants": 94
+    "mutants": 109
   },
   "guarded_run": {
-    "cases_passed": 211,
+    "cases_passed": 226,
     "cases_failed": 0,
     "goldens_equal_to_the_encoder": 23,
     "artifact_goldens_equal_to_the_encoder": 6,
-    "mutants_caught": 94,
+    "mutants_caught": 109,
     "status": "PASS"
   },
   "goldens": {
@@ -486,6 +486,53 @@
     ],
     "missing-read-blocks-abandon": [
       "publish / a missing publication read holds with the alert, and a cancellation still abandons"
+    ],
+    "artifact-restoration-plan-any-target": [
+      "store / a plan that signs nothing and does not target the variant role publishes nothing"
+    ],
+    "builder-staging-error-final": [
+      "builder / a staging error gives no fact, and a later read stages the same outputs"
+    ],
+    "signer-refusal-not-latched": [
+      "signer / an engine that swallows a refusal still ends REFUSED with nothing kept"
+    ],
+    "signer-keys-used-after-refusal": [
+      "signer / an engine that swallows a refusal still ends REFUSED with nothing kept"
+    ],
+    "signer-input-not-stripped": [
+      "signer / an engine that returns its input, or discards its key operations' results, keeps nothing"
+    ],
+    "signer-results-unchecked": [
+      "signer / an engine that returns its input, or discards its key operations' results, keeps nothing"
+    ],
+    "builder-v1-input-signed": [
+      "builder / an input that carries v1 signature files is never signed"
+    ],
+    "signer-operation-cap-removed": [
+      "signer / a fourth key operation for one APK is refused and nothing is kept"
+    ],
+    "signer-operation-count-inexact": [
+      "signer / a fourth key operation for one APK is refused and nothing is kept"
+    ],
+    "builder-first-signer-only": [
+      "builder / a signer of any scheme without the platform role is refused"
+    ],
+    "builder-entries-unchecked": [
+      "builder / outputs whose entries are not the input's are refused"
+    ],
+    "builder-inputs-unchecked": [
+      "builder / input bytes that are not the plan's are never signed",
+      "builder / an input that carries v1 signature files is never signed",
+      "builder / an input whose own facts are not the plan's is never signed"
+    ],
+    "builder-facts-unchecked": [
+      "builder / an input whose own facts are not the plan's is never signed"
+    ],
+    "builder-unreadable-output-final": [
+      "builder / an unreadable retained output gives no fact, and one that is gone reads CANNOT_COMPLETE"
+    ],
+    "builder-publication-unread-after-signed": [
+      "builder / one whole run publishes a variant and its restoration, then a repair plan the restoration"
     ]
   }
 }

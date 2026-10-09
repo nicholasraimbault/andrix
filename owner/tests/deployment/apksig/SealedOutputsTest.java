@@ -25,6 +25,7 @@ import java.security.Signature;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.security.spec.PKCS8EncodedKeySpec;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -35,7 +36,10 @@ import java.util.Map;
  * reproduces every sealed output byte for byte, and counts the key operations that took. Decision
  * 8's transaction then signs the built variant and its built restoration with six key operations,
  * without v1, verifies both bundles against the platform role, checks that they hold the sealed
- * outputs' entries and publishes them together. Arguments:
+ * outputs' entries and publishes them together. The built inputs already carry the same key's
+ * signatures, so the engine signs them without their signing block, and each key operation's
+ * result must appear in the outputs. The APKs' own facts come from apksig's binary manifest
+ * parser, and a refusal through apksig ends the transaction REFUSED. Arguments:
  * the sealed directory holding {@code artifacts/}, the directory with {@code platform.pk8} and
  * {@code platform.x509.pem}, the role's certificate and key digests from the trusted role
  * manifest, and a fresh work directory. Host JVM only; nothing here is built or installed.
@@ -180,6 +184,114 @@ public final class SealedOutputsTest {
                     DeploymentRecords.sha256Hex(signer.retained(TRANSACTION, Role.RESTORATION).apk)),
                     "the fact's APKs");
         });
+        cases.run("sealed / each input is signed without its signing block, and every key operation's result is in "
+                + "the outputs", problems -> {
+            for (String name : List.of("A", "R")) {
+                byte[] built = name.equals("A") ? builtA : builtR;
+                byte[] unsigned = ApkEntries.withoutSigningBlock(built);
+                check(problems, ApkEntries.signingBlock(built).length > 0 && ApkEntries.signingBlock(unsigned).length == 0
+                        && ApkEntries.digest(unsigned).equals(ApkEntries.digest(built)), name + " signing block");
+                List<byte[]> results = new ArrayList<>();
+                HostSigner.Signed out = engine.sign(unsigned, (data, algorithm) -> {
+                    byte[] result = keyOperation.sign(data, algorithm);
+                    results.add(result);
+                    return result;
+                });
+                check(problems, Arrays.equals(out.apk, Files.readAllBytes(reference.resolve(name + ".apk")))
+                        && Arrays.equals(out.idsig, Files.readAllBytes(reference.resolve(name + ".apk.idsig"))),
+                        name + " differs from the reference");
+                byte[] block = ApkEntries.signingBlock(out.apk);
+                int found = 0;
+                for (byte[] r : results) if (contains(block, r) || contains(out.idsig, r)) found++;
+                check(problems, results.size() == 3 && found == 3, name + " results in the outputs: " + found);
+            }
+            // An engine that makes its three operations and returns its input keeps nothing.
+            HostSigner.Engine returning = new HostSigner.Engine() {
+                @Override
+                public HostSigner.Signed sign(byte[] input, HostSigner.Keys keys) throws Exception {
+                    return new HostSigner.Signed(input, engine.sign(input, keys).idsig);
+                }
+
+                @Override
+                public HostSigner.Verification verify(byte[] apk, byte[] idsig, int sdkMin, int sdkMax) {
+                    return engine.verify(apk, idsig, sdkMin, sdkMax);
+                }
+
+                @Override
+                public HostSigner.Facts facts(byte[] apk) { return engine.facts(apk); }
+            };
+            HostSigner lazy = new HostSigner(work.resolve("signer-returning"), Fixtures.INSTALLATION, returning,
+                    keyOperation, (t, operation) -> true);
+            lazy.initialize();
+            ArtifactStore lazyStore = new ArtifactStore(work.resolve("store-returning"), Fixtures.INSTALLATION);
+            lazyStore.initialize();
+            BundleBuilder lazyBuilder = new BundleBuilder(Fixtures.INSTALLATION, lazy, lazyStore, returning, role,
+                    ApksigEngine.MIN_SDK, 0xffff, inputs::get, () -> Fixtures.id(0x7d000 + (++n[0])), () -> Fixtures.TIME);
+            Observation reply = lazyBuilder.sign(signing, plan, sign, grant);
+            Transaction t = lazy.read(TRANSACTION);
+            check(problems, reply != null && reply.classification == Classification.SIGN_CANNOT_COMPLETE
+                    && t != null && t.state == TransactionState.CANNOT_COMPLETE && lazy.operations() == 3
+                    && lazy.retained(TRANSACTION, Role.VARIANT) == null, "an engine that returns its input");
+        });
+        cases.run("sealed / the APKs' own facts are SystemUI's and the plan's, and other facts are never signed",
+                problems -> {
+            HostSigner.Facts a = engine.facts(builtA);
+            HostSigner.Facts r = engine.facts(builtR);
+            check(problems, a != null && a.packageName.equals("com.android.systemui")
+                    && a.sharedUserId.equals("android.uid.systemui") && a.persistent && a.versionCode == 38
+                    && a.minSdk == 37 && a.targetSdk == 37 && a.maxSdk == 0, "A facts");
+            check(problems, r != null && r.packageName.equals("com.android.systemui")
+                    && r.sharedUserId.equals("android.uid.systemui") && r.persistent && r.versionCode == 39
+                    && r.minSdk == 37 && r.targetSdk == 37 && r.maxSdk == 0, "R facts");
+            check(problems, builder.facts(plan, Role.VARIANT, a) == null && builder.facts(plan, Role.RESTORATION, r) == null,
+                    "the plan's facts refused");
+            Plan other = plan.toBuilder().restoration(plan.restorationInput, 40).build();
+            HostSigner fresh = new HostSigner(work.resolve("signer-facts"), Fixtures.INSTALLATION, engine, keyOperation,
+                    (t, operation) -> true);
+            fresh.initialize();
+            ArtifactStore freshStore = new ArtifactStore(work.resolve("store-facts"), Fixtures.INSTALLATION);
+            freshStore.initialize();
+            BundleBuilder freshBuilder = new BundleBuilder(Fixtures.INSTALLATION, fresh, freshStore, engine, role,
+                    ApksigEngine.MIN_SDK, 0xffff, inputs::get, () -> Fixtures.id(0x7e000 + (++n[0])), () -> Fixtures.TIME);
+            Authorization otherGrant = Fixtures.lab(2, other, Effect.SIGN, 3, Fixtures.TIME);
+            Observation reply = freshBuilder.sign(Fixtures.ticket(2, other).state(State.SIGNING).append(sign).build(),
+                    other, sign, otherGrant);
+            check(problems, reply != null && reply.classification == Classification.SIGN_CANNOT_COMPLETE
+                    && fresh.operations() == 0, "another versionCode signed: " + fresh.operations());
+        });
+        cases.run("sealed / a refusal through apksig ends REFUSED with nothing kept", problems -> {
+            for (int refuse : new int[] {2, 5}) {
+                List<Integer> asked = new ArrayList<>();
+                HostSigner refusing = new HostSigner(work.resolve("signer-refuse-" + refuse), Fixtures.INSTALLATION,
+                        engine, keyOperation, (t, operation) -> {
+                            asked.add(operation);
+                            return operation != refuse;
+                        });
+                refusing.initialize();
+                ArtifactStore refusingStore = new ArtifactStore(work.resolve("store-refuse-" + refuse),
+                        Fixtures.INSTALLATION);
+                refusingStore.initialize();
+                BundleBuilder refusingBuilder = new BundleBuilder(Fixtures.INSTALLATION, refusing, refusingStore, engine,
+                        role, ApksigEngine.MIN_SDK, 0xffff, inputs::get, () -> Fixtures.id(0x7f000 + (++n[0])),
+                        () -> Fixtures.TIME);
+                Observation reply = refusingBuilder.sign(signing, plan, sign, grant);
+                Transaction t = refusing.read(TRANSACTION);
+                check(problems, reply != null && reply.classification == Classification.SIGN_REFUSED && t != null
+                        && t.state == TransactionState.REFUSED && t.refused == refuse
+                        && refusing.operations() == refuse - 1 && asked.size() == refuse
+                        && refusing.retained(TRANSACTION, Role.VARIANT) == null, refuse + " "
+                        + (t == null ? null : t.state) + " asked " + asked);
+            }
+        });
         cases.finish("Sealed SystemUI outputs reproduced and published");
+    }
+
+    private static boolean contains(byte[] bytes, byte[] needle) {
+        outer:
+        for (int i = 0; i + needle.length <= bytes.length; i++) {
+            for (int j = 0; j < needle.length; j++) if (bytes[i + j] != needle[j]) continue outer;
+            return true;
+        }
+        return false;
     }
 }

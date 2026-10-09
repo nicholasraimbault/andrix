@@ -26,6 +26,7 @@ import dev.andrix.server.deployment.DeploymentRecords.State;
 import dev.andrix.server.deployment.DeploymentRecords.Ticket;
 import dev.andrix.server.deployment.HostSigner.Signed;
 import dev.andrix.server.deployment.HostSigner.Verification;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -47,8 +48,18 @@ import java.util.function.LongSupplier;
  * requests, each with its transaction, which is that request's ID. A plan that signs nothing is
  * decision 3's restoration plan, and names the restoration that the repaired plan's publication
  * bound. Host only.
+ *
+ * <p>An input is signed only when it is the plan's: its entry digest is the plan's input for its
+ * role, it carries no v1 signature files, and the facts its own binary manifest declares are the
+ * plan's and the component's. For SystemUI those are the package {@code com.android.systemui},
+ * the shared user {@code android.uid.systemui}, the persistent flag, the plan's versionCode for
+ * the role, and the declared SDK range of the transaction.
  */
 public final class BundleBuilder implements Coordinator.Host {
+    /** The first component, and the facts its APK must declare besides the plan's own. */
+    static final String SYSTEMUI = "com.android.systemui";
+    static final String SYSTEMUI_SHARED_USER = "android.uid.systemui";
+
     /** The operator's signing inputs, by their entry digest. Null when an input is not at hand. */
     public interface Inputs {
         byte[] input(String inputEntries);
@@ -98,9 +109,7 @@ public final class BundleBuilder implements Coordinator.Host {
 
     @Override
     public Observation sign(Ticket ticket, Plan plan, Entry entry, Authorization grant) {
-        List<Role> roles = new ArrayList<>();
-        if (grant != null && (grant.inputs & DeploymentRecords.INPUT_VARIANT) != 0) roles.add(Role.VARIANT);
-        if (grant != null && (grant.inputs & DeploymentRecords.INPUT_RESTORATION) != 0) roles.add(Role.RESTORATION);
+        List<Role> roles = roles(grant);
         Map<Role, byte[]> bytes = new EnumMap<>(Role.class);
         Transaction open = template(plan, grant == null ? NO_ID : grant.authorizationId, roles, entry.reference, bytes);
         if (open == null) return null; // No input at hand: nothing signed and nothing recorded.
@@ -108,6 +117,8 @@ public final class BundleBuilder implements Coordinator.Host {
         for (Role r : roles) {
             try {
                 inputsMatch &= ApkEntries.digest(bytes.get(r)).equals(input(plan, r));
+                inputsMatch &= !ApkEntries.hasSignatureFiles(bytes.get(r));
+                inputsMatch &= facts(plan, r, engine.facts(bytes.get(r))) == null;
             } catch (IllegalArgumentException notZip) {
                 inputsMatch = false;
             }
@@ -119,10 +130,15 @@ public final class BundleBuilder implements Coordinator.Host {
 
     /** The OPEN record that signing this plan's inputs under the grant would write, or null. */
     Transaction open(Plan plan, Authorization grant, String transaction) {
+        return template(plan, grant.authorizationId, roles(grant), transaction, new EnumMap<>(Role.class));
+    }
+
+    // The roles a SIGN grant covers, the variant first. None without a grant.
+    private static List<Role> roles(Authorization grant) {
         List<Role> roles = new ArrayList<>();
-        if ((grant.inputs & DeploymentRecords.INPUT_VARIANT) != 0) roles.add(Role.VARIANT);
-        if ((grant.inputs & DeploymentRecords.INPUT_RESTORATION) != 0) roles.add(Role.RESTORATION);
-        return template(plan, grant.authorizationId, roles, transaction, new EnumMap<>(Role.class));
+        if (grant != null && (grant.inputs & DeploymentRecords.INPUT_VARIANT) != 0) roles.add(Role.VARIANT);
+        if (grant != null && (grant.inputs & DeploymentRecords.INPUT_RESTORATION) != 0) roles.add(Role.RESTORATION);
+        return roles;
     }
 
     // The OPEN record for a transaction: fresh operation IDs, and the expected outputs with the
@@ -149,13 +165,36 @@ public final class BundleBuilder implements Coordinator.Host {
 
     private static String input(Plan plan, Role r) { return r == Role.VARIANT ? plan.bundleInput : plan.restorationInput; }
 
+    /**
+     * Checks the facts an input's own binary manifest declares against the plan and the
+     * component. Returns null when every fact holds, else the first that fails.
+     */
+    String facts(Plan plan, Role r, HostSigner.Facts f) {
+        if (f == null) return "no binary manifest";
+        if (!plan.component.equals(SYSTEMUI)) return "no known facts for the component";
+        if (!f.packageName.equals(plan.component)) return "another package";
+        if (!f.sharedUserId.equals(SYSTEMUI_SHARED_USER)) return "another shared user";
+        if (!f.persistent) return "not persistent";
+        if (f.versionCode != (r == Role.VARIANT ? plan.bundleVersion : plan.restorationVersion)) {
+            return "another versionCode";
+        }
+        if (f.minSdk != sdkMin || f.targetSdk < f.minSdk || (f.maxSdk == 0 ? sdkMax != 0xffff : f.maxSdk != sdkMax)) {
+            return "another SDK range";
+        }
+        return null;
+    }
+
     // The signer's answer as the ticket reads it. A COMPLETED transaction counts only once every
-    // output verified and both bundles are staged privately.
+    // output verified and both bundles are staged privately. Outputs that fail their facts never
+    // heal, so the request can no longer complete. A staging failure proves nothing: it gives no
+    // fact, and a later read stages the same outputs again.
     private Observation signerFact(Plan plan, Transaction t) {
         Classification c;
         switch (t.state) {
             case COMPLETED:
-                c = staged(t) || finish(t) ? Classification.SIGN_COMPLETED : Classification.SIGN_CANNOT_COMPLETE;
+                Finish finished = staged(t) ? Finish.STAGED : finish(t);
+                if (finished == Finish.UNAVAILABLE) return null;
+                c = finished == Finish.STAGED ? Classification.SIGN_COMPLETED : Classification.SIGN_CANNOT_COMPLETE;
                 break;
             case REFUSED:
                 c = Classification.SIGN_REFUSED;
@@ -175,20 +214,30 @@ public final class BundleBuilder implements Coordinator.Host {
         return true;
     }
 
+    // What finishing a COMPLETED transaction found: both bundles staged, an output that is gone,
+    // damaged or fails its facts, or a read or staging failure.
+    private enum Finish { STAGED, FAILED, UNAVAILABLE }
+
     // Verifies every retained output of a COMPLETED transaction and stages its bundles. Nothing is
     // staged unless every output of the transaction passes.
-    private boolean finish(Transaction t) {
+    private Finish finish(Transaction t) {
         Map<Role, Signed> signed = new EnumMap<>(Role.class);
         for (Role r : t.roles()) {
-            Signed s = signer.retained(t.transaction, r);
+            Signed s;
+            try {
+                s = signer.retained(t.transaction, r);
+            } catch (UncheckedIOException unreadable) {
+                return Finish.UNAVAILABLE; // A read error proves nothing: a later read tries again.
+            }
             Manifest m = manifest(t, r);
-            if (s == null || verify(s.apk, s.idsig, m) != null) return false;
+            if (s == null || verify(s.apk, s.idsig, m) != null) return Finish.FAILED;
             signed.put(r, s);
         }
         for (Role r : t.roles()) {
-            if (store.stage(manifest(t, r), signed.get(r).apk, signed.get(r).idsig) == null) return false;
+            // The outputs passed. Only the private copy failed, which a later read writes again.
+            if (store.stage(manifest(t, r), signed.get(r).apk, signed.get(r).idsig) == null) return Finish.UNAVAILABLE;
         }
-        return true;
+        return Finish.STAGED;
     }
 
     /** The manifest of one role's bundle, from a COMPLETED transaction record. */
@@ -288,23 +337,23 @@ public final class BundleBuilder implements Coordinator.Host {
     // ------------------------------------------------------------------ reads
 
     /**
-     * Reads each SIGN request of the ticket by its ID, never signing again, and the plan's
-     * publication after the ticket's last PUBLISH attempt. A request without a record, or one left
-     * OPEN, can no longer complete, and the read records that proof.
+     * Reads each SIGN request of the ticket by its ID while signing is open, never signing again,
+     * and the plan's publication after the ticket's last PUBLISH attempt, in every later state. A
+     * request without a record, or one left OPEN, can no longer complete, and the read records that
+     * proof. A request without a record is recorded with the roles and inputs of the grant its entry
+     * names.
      */
     @Override
-    public List<Observation> query(Ticket ticket, Plan plan) {
+    public List<Observation> query(Ticket ticket, Plan plan, List<Authorization> grants) {
         List<Observation> list = new ArrayList<>();
-        if (ticket.state != State.SIGNING && ticket.state != State.SIGNED && ticket.state != State.AUTHORIZED) {
-            return list; // Signing and publication are settled; nothing is read again.
-        }
+        boolean signing = ticket.state == State.SIGNING || ticket.state == State.SIGNED
+                || ticket.state == State.AUTHORIZED;
         for (Entry e : ticket.ledger) {
-            if (e.crossing != Crossing.SIGN) continue;
-            List<Role> roles = new ArrayList<>(List.of(Role.VARIANT));
-            if (plan.hasRestoration()) roles.add(Role.RESTORATION);
-            Map<Role, byte[]> unused = new EnumMap<>(Role.class);
-            Transaction template = template(plan, e.grant, plan.signing == 2 ? roles.subList(0, 1) : roles,
-                    e.reference, unused);
+            if (!signing || e.crossing != Crossing.SIGN) continue;
+            Authorization grant = null;
+            for (Authorization a : grants) if (a.authorizationId.equals(e.grant)) grant = a;
+            Transaction template = grant == null ? null
+                    : template(plan, grant.authorizationId, roles(grant), e.reference, new EnumMap<>(Role.class));
             HostSigner.Reply reply = signer.query(e.reference, template);
             if (reply == null) continue;
             Observation fact = signerFact(plan, reply.record);

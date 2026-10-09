@@ -208,21 +208,23 @@ public final class ArtifactStore {
      * versionCode, by the plan's signer, in the transaction the publication names for it, which is
      * the bundle's own. A plan that signs names the bundles it signed, each in its signing role. A
      * plan that signs nothing is only decision 3's restoration plan: it names the plan it repairs,
-     * and publishes one bundle in its VARIANT role, which was signed as RESTORATION and which the
-     * publication of the plan it repairs binds in its RESTORATION role. Every bundle is verified
-     * again before anything is renamed or written. True
-     * only when the publication reads back with every bundle PUBLISHED. When the plan already has a
-     * publication, nothing is written: the result is whether it reads back as exactly this one.
+     * targets the variant role, and publishes one bundle in its VARIANT role, which was signed as
+     * RESTORATION and which the publication of the plan it repairs binds in its RESTORATION role.
+     * Every bundle is verified again before anything is renamed or written. True only when the
+     * publication reads back with every bundle PUBLISHED. When the plan already has a publication,
+     * nothing is written: the result is whether it reads back as exactly this one.
      */
     public boolean publish(Plan plan, Publication publication, List<Staged> staged, Verifier verifier) {
         if (!installation.equals(publication.installation) || !publication.plan.equals(plan.planId)
                 || !publication.component.equals(plan.component) || plan.target == Target.FACTORY) {
             return false;
         }
-        // Decision 3: a plan that signs nothing names the plan it repairs and publishes one bundle.
+        // Decision 3: a plan that signs nothing names the plan it repairs, targets the variant role and
+        // publishes one bundle.
         if (plan.signing == 0 && (plan.repairs.equals(DeploymentRecords.NO_ID) || plan.hasRestoration())) {
             return false;
         }
+        if (plan.signing == 0 && plan.target != Target.VARIANT) return false;
         // Decision 8: the variant and its restoration are published together or not at all.
         List<String> inputs = new ArrayList<>();
         inputs.add(plan.bundleInput);

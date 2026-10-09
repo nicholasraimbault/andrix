@@ -606,7 +606,8 @@ after.
   The publication record is what binds the produced bundles to the plan. `apks` reads back the
   APK digests it binds, for the BUNDLE fact.
 - **A plan that signs nothing.** Only decision 3's restoration plan signs nothing and publishes.
-  It must name the plan it repairs in `repairs` and have no restoration of its own. It publishes
+  It must name the plan it repairs in `repairs`, target the variant role, and have no restoration
+  of its own, so a temporary factory plan that signs nothing publishes nothing. It publishes
   exactly one bundle, in its VARIANT role. That bundle's manifest says it was signed as
   RESTORATION, and the publication of the plan it repairs must read back PUBLISHED and bind the
   same bundle ID in its RESTORATION role. The pair was therefore published together first. The
@@ -680,7 +681,17 @@ asks the captive callback.
   `outputs/<transaction>/` and synced. The record is then replaced once, by COMPLETED with their
   digests and sizes, which is the commit point.
 - **Refusal.** A refused operation ends the transaction REFUSED, names the operation, and keeps no
-  output.
+  output. The signer latches the refusal itself. An engine that swallows the callback's exception
+  and signs on still ends REFUSED, and every later key operation of the transaction is refused
+  without asking the callback or using the key.
+- **Signatures that the operations made.** The engine signs each input without its APK Signing
+  Block, so signatures that a built input already carries never reach the outputs. Each APK takes
+  exactly three key operations: a fourth is refused before the key is used, and fewer or more end
+  the transaction CANNOT_COMPLETE. Each operation's result must appear in the output's signing
+  block or its sidecar.
+- **Approval by index.** The host callback sees the transaction and the operation's index, not the
+  scheme or the data the operation signs. The protected device signer must bind each approval to
+  the scheme or to the data it signs.
 - **Lost replies.** A transaction ID that has a record is never signed again, so a lost reply is
   resolved by reading the record by that ID. A read that finds the transaction still OPEN, or no
   record at all, proves that the request can no longer complete. Calls are serialized and the
@@ -690,23 +701,39 @@ asks the captive callback.
 `BundleBuilder` is the coordinator's host.
 
 - **Signing.** It signs the plan's inputs for the SIGN grant, under the ticket's SIGN request ID
-  as the transaction ID. An input whose entry digest is not the plan's is never signed.
+  as the transaction ID. An input is never signed unless its entry digest is the plan's, it holds
+  no v1 signature files, and its own binary manifest declares the plan's and the component's
+  facts. For SystemUI those are the package `com.android.systemui`, the shared user
+  `android.uid.systemui`, the persistent flag, the plan's versionCode for its role, and a minimum
+  SDK and maximum SDK equal to the transaction's declared range. apksig's binary manifest parser
+  reads them. The manifest records none of them except the versionCode and the SDK range, so
+  recording the package, the shared user and the persistent flag would need a new manifest
+  version.
 - **Verification.** Before a bundle is staged, each output must meet its facts. v2 must verify with
   a pass below SDK 28, v3 and v4 over the declared range, 37 and up, and every signer of every
   scheme must have the certificate and key digests of the platform role. The role comes from the
   trusted role manifest of `scripts/proof/signing_recovery.py`, whose SystemUI platform role binds
   the platform slot. Only then does the ticket see SIGN_COMPLETED, so SIGNED means verified and
-  private. A COMPLETED transaction whose outputs fail is reported as CANNOT_COMPLETE.
+  private. A COMPLETED transaction whose retained outputs are gone, damaged or fail their facts is
+  reported as CANNOT_COMPLETE. A read that fails, or a staging failure after every output passed,
+  proves nothing, so it gives no fact. The ticket waits, and a later read stages the same outputs
+  again.
 - **Publication.** It names exactly the bundles of the ticket's own SIGN requests, each with its
   transaction, which is that request's ID. A plan that signs nothing is decision 3's restoration
   plan, and names the restoration that the repaired plan's publication bound. The store publishes
   both bundles together or neither, and verifies each again first.
-- **Reads.** A read returns the store's publication with the APKs it binds, for the BUNDLE fact.
+- **Reads.** A read takes each SIGN request by its ID. A request without a record is recorded as
+  CANNOT_COMPLETE with the roles and inputs of the grant its entry names, so a plan that signs twice
+  records the restoration's request with the restoration's role and input. A read also returns the
+  store's publication with the APKs it binds, for the BUNDLE fact, after the last PUBLISH attempt
+  and in every later state.
 
 `ApkEntries` gives an input's identity. It is the SHA-256 over each central directory entry's name,
 method, CRC-32, sizes and the SHA-256 of its stored data. The signing block, the v1 signature
 files, offsets, local extra fields and the comment are left out, so signing and realigning keep
-it.
+it. The v1 signature file names match with only ASCII letters folded, so a file whose name differs
+from one only by a letter outside ASCII, such as the long s or the dotless i, stays an entry. An
+archive whose entry runs past its central directory is refused as invalid.
 
 `apksig/` holds the apksig engine and builds only against the pinned apksigner jar, SHA-256
 `6b96559764325d085a6bad6be109cc3053791d63826f84dc0e74032db136a196`.
@@ -726,21 +753,25 @@ it.
 | Suite | Cases | What it shows |
 | --- | --- | --- |
 | `DeploymentRecordsTest` | 52 | 23 goldens, two layouts by hand, every strict code refused by position, informational fields free, every relation, a bundle fact's attempt and plan and its digests set exactly when it read the publication, resealed mutations of every kind refused or canonical, the stable prefix |
-| `TicketMachineTest` | 69 | the exit table equals the plan's, every cycle passes a counted edge, each loop meets its limit, and every rule in single steps, including a second publication only after a read of absence that names the attempt, a read of other bytes held with the alert, and the bundle's bytes read from its own publication |
+| `TicketMachineTest` | 70 | the exit table equals the plan's, every cycle passes a counted edge, each loop meets its limit, and every rule in single steps, including a second publication only after a read of absence that names the attempt, a read of other bytes held with the alert, and the bundle's bytes read from its own publication |
 | `DeploymentStoreTest` | 14 | write once, compare and set, a crash at each write step, presence and footprints, one open ticket, the selection's revision rules |
 | `TransactionTest` | 44 | both routes and both commit modes end to end, decisions 3, 6 and 7 over whole runs, each row of the recovery table, fault sweeps at every crossing, a coordinator lost between the selection and ticket writes, world events at every round, and the invariants of every run |
-| `ArtifactStoreTest` | 20 | 6 goldens, the signing transaction record, strict codes by position, informational times, the stable prefix, resealed mutations refused or canonical, one bundle ID for the same bytes, and publication: together or not at all, bound to the plan's inputs and signer, verified first, a stop at every step, a lost acknowledgement read back, a second publication from the held bundles, a pair from two transactions, a restoration plan publishing the published restoration, damage as MISMATCH |
-| `SigningTest` | 10 | with a fake apksig: the record written OPEN before the first operation, refusing each callback in turn publishes nothing, a lost reply resolved by the transaction ID, the proof that a request can no longer complete, every scheme and signer verified, both bundles together or neither, a lost acknowledgement, a second publication from the held bundles, a pair from two transactions, a restoration plan publishing the published restoration |
+| `ArtifactStoreTest` | 22 | 6 goldens, the signing transaction record, strict codes by position, informational times, the stable prefix, resealed mutations refused or canonical, one bundle ID for the same bytes, and publication: together or not at all, bound to the plan's inputs and signer, verified first, a stop at every step, a lost acknowledgement read back, a second publication from the held bundles, a pair from two transactions, a restoration plan publishing the published restoration and only in the variant role, damage as MISMATCH |
+| `SigningTest` | 24 | with a fake apksig: the record written OPEN before the first operation, refusing each callback in turn publishes nothing, a refusal latched although the engine swallows it, an engine that returns its input or discards its operations' results, a fourth key operation, a lost reply resolved by the transaction ID, the proof that a request can no longer complete, a request recorded under its own grant, a staging error and an unreadable output that give no fact, every scheme and every signer verified, other entries, other input bytes, v1 files and other manifest facts refused, both bundles together or neither, a lost acknowledgement, a second publication from the held bundles, a pair from two transactions, a restoration plan publishing the published restoration, one whole coordinator run to PUBLISHED and a repair plan after it, and the input entry digest's ASCII folding and refusal of a name past the end |
 
 `scripts/proof/component_transaction_records.py` checks every golden against its own encoder,
-written from the tables above, and runs 90 deliberate defects against the suites predicted to catch
+written from the tables above, and runs 109 deliberate defects against the suites predicted to catch
 them. Given the pinned apksigner jar, the sealed SystemUI build, the development platform key and a
 role manifest with its commitment, it also runs `SealedOutputsTest`. That suite reproduces the
 sealed outputs byte for byte with the tool's options, then signs, verifies and publishes the pair in
 one transaction of six operations. The runner first signs a reference without v1 with the jar's own
 command line, and the transaction's outputs must equal it byte for byte. An engine that also signs
-v1 is refused by the operation count. Every compiler and JVM it starts has a capped heap, metaspace and code cache, the serial
-collector and one client JIT compiler thread, so the run stays well inside its 2 GiB guard.
+v1 is refused by the operation count. It also checks that the inputs are signed without their
+signing block and that every key operation's result is in the outputs, reads both APKs' own facts
+with apksig's binary manifest parser, and refuses one operation through apksig. Whenever any
+sealed input is given, the run passes only if the sealed phase ran and passed. Every compiler and
+JVM it starts has a capped heap, metaspace and code cache, the serial collector and one client JIT
+compiler thread, so the run stays well inside its 2 GiB guard.
 
 ## What the owner decisions changed
 

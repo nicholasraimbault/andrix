@@ -102,11 +102,11 @@ class ComponentTransactionSourceTests(unittest.TestCase):
         predictions = json.loads(runner.PREDICTIONS.read_text())
         self.assertIn('PREDICTED', predictions['status'])
         self.assertEqual(predictions['cases'], {'codec': 52, 'machine': 70, 'store': 14, 'transactions': 44,
-                                                'artifacts': 21, 'signing': 10, 'goldens': 23, 'artifact_goldens': 6,
-                                                'mutants': 94})
+                                                'artifacts': 22, 'signing': 24, 'goldens': 23, 'artifact_goldens': 6,
+                                                'mutants': 109})
         self.assertEqual({suite: len(names) for suite, names in runner.NAMES.items()},
-                         {'codec': 52, 'machine': 70, 'store': 14, 'transactions': 44, 'artifacts': 21, 'signing': 10})
-        self.assertEqual(predictions['guarded_run']['cases_passed'], 211)
+                         {'codec': 52, 'machine': 70, 'store': 14, 'transactions': 44, 'artifacts': 22, 'signing': 24})
+        self.assertEqual(predictions['guarded_run']['cases_passed'], 226)
         for names in runner.NAMES.values():
             for name in names:
                 self.assertNotIn(': ', name)
@@ -134,13 +134,42 @@ class ComponentTransactionSourceTests(unittest.TestCase):
                 runner.mutant_texts()
 
     def test_every_required_defect_has_a_mutant(self):
-        self.assertEqual(len(runner.REQUIRED_DEFECTS), 26)
+        self.assertEqual(len(runner.REQUIRED_DEFECTS), 35)
         for defect, names in runner.REQUIRED_DEFECTS.items():
             for name in names:
                 self.assertIn(name, runner.MUTANTS, defect)
         with mock.patch.dict(runner.REQUIRED_DEFECTS, {'a replay': ('missing',)}):
             self.assertIn('no mutant for a replay',
                           runner.prediction_problems(runner.strict(runner.PREDICTIONS.read_text())))
+
+    def test_any_sealed_input_requires_a_passing_sealed_phase(self):
+        names = ('apksig_jar', 'sealed', 'platform_keys', 'role_manifest', 'role_manifest_sha256')
+        none = runner.argparse.Namespace(**{name: None for name in names})
+        some = runner.argparse.Namespace(**{name: None for name in names})
+        some.apksig_jar = Path('apksigner.jar')
+        self.assertEqual(runner.sealed_run(Path('unused'), none)['status'], 'NOT_RUN')
+        self.assertEqual(runner.sealed_run(Path('unused'), some)['status'], 'FAIL')
+
+        def qualified(work, report):
+            report['completed_phases'].extend(runner.PHASES)
+
+        with tempfile.TemporaryDirectory() as directory:
+            results = {}
+            for label, argv, sealed in (('not run', ['--apksig-jar', 'apksigner.jar'], 'NOT_RUN'),
+                                        ('failed', ['--apksig-jar', 'apksigner.jar'], 'FAIL'),
+                                        ('passed', ['--apksig-jar', 'apksigner.jar'], 'PASS'),
+                                        ('none given', [], 'NOT_RUN')):
+                base = Path(directory) / label.replace(' ', '-')
+                with mock.patch.object(tempfile, 'tempdir', tempfile.gettempdir()), \
+                        mock.patch.object(runner, 'qualify', qualified), \
+                        mock.patch.object(runner, 'resource_guard', lambda: None), \
+                        mock.patch.object(runner.shutil, 'which', lambda name: '/usr/bin/' + name), \
+                        mock.patch.object(runner, 'sealed_run', lambda work, args, status=sealed: {'status': status}), \
+                        redirect_stdout(io.StringIO()):
+                    code = runner.main(['--evidence', str(base / 'evidence.json'), '--work', str(base / 'work'), *argv])
+                results[label] = (code, json.loads((base / 'evidence.json').read_text())['status'])
+        self.assertEqual(results, {'not run': (1, 'FAIL'), 'failed': (1, 'FAIL'), 'passed': (0, 'PASS'),
+                                   'none given': (0, 'PASS')})
 
     def test_golden_and_result_checks(self):
         gold = scratch(self)

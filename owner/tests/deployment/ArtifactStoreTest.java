@@ -797,6 +797,25 @@ public final class ArtifactStoreTest {
             check(problems, s.publish(restoring, own, List.of(s.held(restorationId())), PASS)
                     && s.planPublication(restoring.planId) == Presence.PUBLISHED, "decision 3's restoration refused");
         });
+        cases.run("store / a plan that signs nothing and does not target the variant role publishes nothing",
+                problems -> {
+            Plan variant = plan(true);
+            Plan restoring = restorationPlan(variant);
+            ArtifactStore s = store(fresh(base), step -> { });
+            check(problems, s.publish(variant, publication(variant), stageBoth(s), PASS), "the pair");
+            // A temporary factory plan that names the repaired pair's restoration: not decision 3's plan.
+            Plan temporary = restoring.toBuilder().target(DeploymentRecords.Target.TEMPORARY_FACTORY).build();
+            Publication temporaryOwn = new Publication(INSTALLATION, temporary.planId, temporary.component,
+                    List.of(restorationId()), List.of(REQUEST), TIME);
+            check(problems, !s.publish(temporary, temporaryOwn, List.of(s.held(restorationId())), PASS)
+                    && s.planPublication(temporary.planId) == Presence.ABSENT,
+                    "a temporary factory plan published the restoration");
+            // The same plan in the variant role is decision 3's restoration plan.
+            Publication own = new Publication(INSTALLATION, restoring.planId, restoring.component,
+                    List.of(restorationId()), List.of(REQUEST), TIME);
+            check(problems, s.publish(restoring, own, List.of(s.held(restorationId())), PASS)
+                    && s.planPublication(restoring.planId) == Presence.PUBLISHED, "decision 3's restoration refused");
+        });
         cases.run("store / every bundle carries the plan's signer certificate", problems -> {
             Plan plan = plan(true);
             ArtifactStore s = store(fresh(base), step -> { });

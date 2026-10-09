@@ -715,7 +715,7 @@ final class AndroidFacade {
         // The signer answers by request ID. A request it never received can no longer complete:
         // the query records it as dead, which is the signer's proof.
         @Override
-        public List<Observation> query(Ticket ticket, Plan plan) {
+        public List<Observation> query(Ticket ticket, Plan plan, List<Authorization> grants) {
             List<Observation> list = new ArrayList<>();
             DeploymentRecords.State state = ticket.state;
             if (state != DeploymentRecords.State.SIGNING && state != DeploymentRecords.State.SIGNED

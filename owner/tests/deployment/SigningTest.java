@@ -20,6 +20,8 @@ import dev.andrix.server.deployment.DeploymentRecords.State;
 import dev.andrix.server.deployment.DeploymentRecords.Ticket;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -33,8 +35,9 @@ import java.util.zip.ZipOutputStream;
  * Host checks of the host signer and the bundle builder with a fake apksig: one transaction of
  * six key operations under the captive callback, its durable record, lost replies resolved by the
  * transaction ID, the proof that a request can no longer complete, verification against the
- * platform role, and publication of both bundles together through the artifact store. The real
- * apksig runs in the sealed comparison. Host JVM only.
+ * platform role, and publication of both bundles together through the artifact store. Also the
+ * input entry digest, {@link ApkEntries}. The real apksig runs in the sealed comparison. Host JVM
+ * only.
  */
 public final class SigningTest {
     private static final Cases cases = new Cases();
@@ -65,11 +68,17 @@ public final class SigningTest {
 
     static {
         try {
-            VARIANT_INPUT = zip("AndroidManifest.xml", "variant 40", "classes.dex", "variant code");
-            RESTORATION_INPUT = zip("AndroidManifest.xml", "restoration 41", "classes.dex", "known good code");
+            VARIANT_INPUT = zip("AndroidManifest.xml", manifest(Fixtures.BUNDLE_VERSION), "classes.dex", "variant code");
+            RESTORATION_INPUT = zip("AndroidManifest.xml", manifest(Fixtures.RESTORATION_VERSION), "classes.dex",
+                    "known good code");
         } catch (IOException e) {
             throw new ExceptionInInitializerError(e);
         }
+    }
+
+    // SystemUI's own facts at a versionCode, as the fake parser reads them.
+    static String manifest(long versionCode) {
+        return FakeEngine.manifest(Fixtures.COMPONENT, versionCode, BundleBuilder.SYSTEMUI_SHARED_USER, true, 37);
     }
 
     /** One host: a signer, a store and a builder over a fresh directory. */
@@ -80,6 +89,8 @@ public final class SigningTest {
         final ArtifactStore store;
         final BundleBuilder builder;
         final List<Integer> asked = new ArrayList<>();
+        /** The operator's inputs by entry digest; a case may replace them. */
+        final Map<String, byte[]> inputs = new java.util.HashMap<>();
         int refuse;
         long ids;
 
@@ -96,8 +107,8 @@ public final class SigningTest {
             signer.initialize();
             store = new ArtifactStore(root.resolve("store"), Fixtures.INSTALLATION, steps, true);
             store.initialize();
-            Map<String, byte[]> inputs = Map.of(ApkEntries.digest(VARIANT_INPUT), VARIANT_INPUT,
-                    ApkEntries.digest(RESTORATION_INPUT), RESTORATION_INPUT);
+            inputs.put(ApkEntries.digest(VARIANT_INPUT), VARIANT_INPUT);
+            inputs.put(ApkEntries.digest(RESTORATION_INPUT), RESTORATION_INPUT);
             builder = new BundleBuilder(Fixtures.INSTALLATION, signer, store, engine,
                     new BundleBuilder.RoleIdentity(FakeEngine.certificateDigest(role), FakeEngine.keyDigest(role)), 37,
                     0xffff, inputs::get, () -> id(0x3c0000 + (++ids)), () -> Fixtures.TIME);
@@ -154,6 +165,62 @@ public final class SigningTest {
         }
     }
 
+    // The coordinator with this builder as its host and the facade's shell route as its device,
+    // from an approved plan to PUBLISHED, then a repair plan that publishes the restoration.
+    static void whole(Path base, List<String> problems) throws Exception {
+        Host h = host(base);
+        DeploymentStore store = DeploymentStore.unsynced(h.root.resolve("deployment"), Fixtures.INSTALLATION);
+        store.initialize();
+        AndroidFacade android = new AndroidFacade(7, World.FACTORY);
+        android.store = store;
+        long[] n = {0};
+        Coordinator c = new Coordinator(store, android.shell(), h.builder, Fixtures.TRUST,
+                () -> String.format("%016x%016x", 0x2a5000000000000L, ++n[0]));
+        String none = DeploymentRecords.NO_ID;
+        check(problems, store.putSelection(null, new DeploymentRecords.Selection(Fixtures.INSTALLATION,
+                Fixtures.COMPONENT, 0, DeploymentRecords.ChoiceKind.FACTORY, none,
+                DeploymentRecords.UpdateResponsibility.REBUILD_WINDOW, Fixtures.WINDOW,
+                DeploymentRecords.Realization.UNCHECKED, none, none, none, Fixtures.TIME)), "selection");
+        Plan pair = plan();
+        check(problems, store.addPlan(pair) && store.addAuthorization(grant(pair, 1, 3)), "plan and SIGN grant");
+        Ticket first = Fixtures.ticket(1, pair).build();
+        check(problems, store.createTicket(first), "ticket");
+        // Without a STAGE grant the ticket stays PUBLISHED once its publication reads back.
+        Ticket end = settle(c, store, first.ticketId, 40, null);
+        check(problems, end.state == State.PUBLISHED && end.flags == 0
+                && h.store.planPublication(pair.planId) == Presence.PUBLISHED && h.signer.operations() == 6,
+                "the pair's run ended " + end.state + " flags " + end.flags);
+        // After SIGNED the builder still reads the publication back, naming the last attempt.
+        List<Observation> after = h.builder.query(end, pair, store.authorizationsOf(pair.planId));
+        check(problems, after.size() == 1 && after.get(0).classification == Classification.BUNDLE_PUBLISHED
+                && after.get(0).subject.equals(end.last(Crossing.PUBLISH).reference), "read after SIGNED " + after);
+        // One open ticket for each component: the owner cancels the pair's ticket, whose publication stays.
+        check(problems, c.cancel(first.ticketId) && settle(c, store, first.ticketId, 10, null).state == State.CANCELLED
+                && h.store.planPublication(pair.planId) == Presence.PUBLISHED, "the pair's ticket not cancelled");
+        // The repair plan signs nothing and publishes the restoration that the pair's publication bound.
+        Plan restoring = Fixtures.plan(5).repairs(pair.planId).bundle(pair.restorationInput, pair.restorationVersion)
+                .restoration(DeploymentRecords.NO_DIGEST, 0).signing(0).signer(pair.signer).build();
+        check(problems, store.addPlan(restoring)
+                && store.addAuthorization(Fixtures.lab(9, restoring, Effect.STAGE, 0, Fixtures.TIME)), "repair plan");
+        Ticket second = Fixtures.ticket(2, restoring).build();
+        check(problems, store.createTicket(second), "repair ticket");
+        Ticket repaired = settle(c, store, second.ticketId, 40, State.PUBLISHED);
+        Publication p = h.store.publication(restoring.planId);
+        check(problems, repaired.state == State.PUBLISHED && p != null && p.bundles.size() == 1
+                && p.bundles.get(0).equals(h.store.publication(pair.planId).bundles.get(1))
+                && h.signer.operations() == 6, "the repair plan's run ended " + repaired.state);
+    }
+
+    // Rounds until a round changes nothing and issues nothing, or the ticket reaches the state.
+    static Ticket settle(Coordinator c, DeploymentStore store, String id, int rounds, State stop) {
+        for (int i = 0; i < rounds; i++) {
+            Ticket before = store.ticket(id).value;
+            Reconciler.Step step = c.round(id);
+            if (step.ticket.state == stop || (step.issue == null && step.ticket.equals(before))) return step.ticket;
+        }
+        return store.ticket(id).value;
+    }
+
     public static void main(String[] args) throws Exception {
         Cases.requireAssertions(SigningTest.class);
         Path base = Path.of(args[0]);
@@ -202,7 +269,7 @@ public final class SigningTest {
         cases.run("signer / a lost signing reply resolves by the transaction ID, never by signing again", problems -> {
             Host h = host(base);
             h.builder.sign(ticket(plan, State.SIGNING, sign), plan, sign, both); // The reply is lost.
-            List<Observation> read = h.builder.query(ticket(plan, State.SIGNING, sign), plan);
+            List<Observation> read = h.builder.query(ticket(plan, State.SIGNING, sign), plan, List.of(both));
             check(problems, read.size() == 1 && read.get(0).classification == Classification.SIGN_COMPLETED
                     && read.get(0).subject.equals(TX), "read " + read);
             Observation again = h.builder.sign(ticket(plan, State.SIGNING, sign), plan, sign, both);
@@ -214,7 +281,7 @@ public final class SigningTest {
             Transaction open = g.builder.open(plan, both, TX);
             check(problems, open != null && g.signer.sign(open, inputs) != null && stagingDirs(g.root.resolve("store")) == 0,
                     "signed without staging");
-            List<Observation> late = g.builder.query(ticket(plan, State.SIGNING, sign), plan);
+            List<Observation> late = g.builder.query(ticket(plan, State.SIGNING, sign), plan, List.of(both));
             check(problems, late.size() == 1 && late.get(0).classification == Classification.SIGN_COMPLETED
                     && stagingDirs(g.root.resolve("store")) == 2 && g.signer.operations() == 6,
                     "resolved from the retained outputs " + late);
@@ -222,7 +289,7 @@ public final class SigningTest {
         cases.run("signer / a request that can no longer complete records SIGN_FAILED", problems -> {
             Host h = host(base);
             // The SIGN entry was synced, and the call never reached the signer.
-            List<Observation> read = h.builder.query(ticket(plan, State.SIGNING, sign), plan);
+            List<Observation> read = h.builder.query(ticket(plan, State.SIGNING, sign), plan, List.of(both));
             check(problems, read.size() == 1 && read.get(0).classification == Classification.SIGN_CANNOT_COMPLETE
                     && h.read(TX).state == TransactionState.CANNOT_COMPLETE, "read " + read);
             Observation late = h.builder.sign(ticket(plan, State.SIGNING, sign), plan, sign, both);
@@ -249,7 +316,7 @@ public final class SigningTest {
             Transaction left = g.read(TX);
             check(problems, stopped && left != null && left.state == TransactionState.OPEN && retainedFiles(g) == 2,
                     "left " + (left == null ? null : left.state));
-            List<Observation> proof = g.builder.query(ticket(plan, State.SIGNING, sign), plan);
+            List<Observation> proof = g.builder.query(ticket(plan, State.SIGNING, sign), plan, List.of(both));
             check(problems, proof.size() == 1 && proof.get(0).classification == Classification.SIGN_CANNOT_COMPLETE
                     && retainedFiles(g) == 0, "proof " + proof);
         });
@@ -304,7 +371,7 @@ public final class SigningTest {
             Ticket signed = ticket(plan, State.SIGNED, sign, publishEntry(1));
             h.builder.publish(signed, plan, signed.last(Crossing.PUBLISH)); // The acknowledgement is lost.
             byte[] record = Files.readAllBytes(h.root.resolve("store/publications/" + plan.planId + ".rec"));
-            List<Observation> read = h.builder.query(signed, plan);
+            List<Observation> read = h.builder.query(signed, plan, List.of(both));
             Observation bundle = read.get(read.size() - 1);
             check(problems, bundle.classification == Classification.BUNDLE_PUBLISHED
                     && bundle.subject.equals(signed.last(Crossing.PUBLISH).reference), "read " + bundle);
@@ -367,6 +434,249 @@ public final class SigningTest {
                     && fact.restorationApk.equals(DeploymentRecords.NO_DIGEST) && h.signer.operations() == 6,
                     "restoration " + fact);
         });
+        cases.run("signer / an engine that swallows a refusal still ends REFUSED with nothing kept", problems -> {
+            for (int k = 1; k <= 6; k++) {
+                Host h = host(base);
+                h.engine.swallow = true;
+                h.refuse = k;
+                Observation fact = h.builder.sign(ticket(plan, State.SIGNING, sign), plan, sign, both);
+                Transaction t = h.read(TX);
+                check(problems, fact != null && fact.classification == Classification.SIGN_REFUSED,
+                        k + " reply " + (fact == null ? null : fact.classification));
+                check(problems, t != null && t.state == TransactionState.REFUSED && t.refused == k
+                        && h.signer.operations() == k - 1, k + " record " + (t == null ? null : t.state));
+                // No key use and no question after the refusal, and no output kept.
+                check(problems, h.asked.size() == k && retainedFiles(h) == 0, k + " asked " + h.asked);
+            }
+            Host allowed = host(base);
+            allowed.engine.swallow = true;
+            Observation fact = allowed.builder.sign(ticket(plan, State.SIGNING, sign), plan, sign, both);
+            check(problems, fact != null && fact.classification == Classification.SIGN_COMPLETED
+                    && allowed.signer.operations() == 6, "every operation allowed " + fact);
+        });
+        cases.run("builder / a staging error gives no fact, and a later read stages the same outputs", problems -> {
+            Host h = host(base);
+            Transaction open = h.builder.open(plan, both, TX);
+            HostSigner.Reply reply = h.signer.sign(open, Map.of(Role.VARIANT, VARIANT_INPUT, Role.RESTORATION,
+                    RESTORATION_INPUT));
+            Transaction done = h.read(TX);
+            check(problems, reply != null && done != null && done.state == TransactionState.COMPLETED, "signed");
+            // A file where the restoration's private copy goes: staging fails with an I/O error.
+            Path blocked = h.root.resolve("store").resolve(".staging-"
+                    + ArtifactRecords.bundleId(h.builder.manifest(done, Role.RESTORATION)));
+            Files.write(blocked, new byte[] {1});
+            List<Observation> read = h.builder.query(ticket(plan, State.SIGNING, sign), plan, List.of(both));
+            check(problems, read.isEmpty() && h.read(TX).state == TransactionState.COMPLETED,
+                    "a staging error gave " + read);
+            Observation call = h.builder.sign(ticket(plan, State.SIGNING, sign), plan, sign, both);
+            check(problems, call == null && h.signer.operations() == 6, "a staging error answered " + call);
+            Files.delete(blocked);
+            List<Observation> later = h.builder.query(ticket(plan, State.SIGNING, sign), plan, List.of(both));
+            check(problems, later.size() == 1 && later.get(0).classification == Classification.SIGN_COMPLETED
+                    && stagingDirs(h.root.resolve("store")) == 2 && h.signer.operations() == 6, "later " + later);
+        });
+        cases.run("builder / a request without a record is recorded with the role and input of its own grant",
+                problems -> {
+            Host h = host(base);
+            Plan two = plan.toBuilder().signing(2).build();
+            Authorization variant = grant(two, 2, DeploymentRecords.INPUT_VARIANT);
+            Authorization restoration = grant(two, 3, DeploymentRecords.INPUT_RESTORATION);
+            Entry first = signEntry(variant, id(0x7e58));
+            Entry second = signEntry(restoration, id(0x7e59));
+            Entry unknown = signEntry(grant(two, 4, DeploymentRecords.INPUT_VARIANT), id(0x7e5a));
+            // The SIGN entries were synced, and no call reached the signer.
+            List<Observation> read = h.builder.query(ticket(two, State.SIGNING, first, second), two,
+                    List.of(variant, restoration));
+            Transaction a = h.read(id(0x7e58));
+            Transaction b = h.read(id(0x7e59));
+            check(problems, read.size() == 2 && read.get(0).classification == Classification.SIGN_CANNOT_COMPLETE
+                    && read.get(1).classification == Classification.SIGN_CANNOT_COMPLETE, "read " + read);
+            check(problems, a != null && a.state == TransactionState.CANNOT_COMPLETE
+                    && a.roles().equals(List.of(Role.VARIANT)) && a.authorization.equals(variant.authorizationId)
+                    && a.outputs.get(0).inputEntries.equals(two.bundleInput)
+                    && a.outputs.get(0).versionCode == two.bundleVersion, "the variant's request");
+            check(problems, b != null && b.state == TransactionState.CANNOT_COMPLETE
+                    && b.roles().equals(List.of(Role.RESTORATION))
+                    && b.authorization.equals(restoration.authorizationId)
+                    && b.operations.stream().allMatch(o -> o.role == Role.RESTORATION)
+                    && b.outputs.stream().allMatch(o -> o.inputEntries.equals(two.restorationInput)
+                            && o.versionCode == two.restorationVersion), "the restoration's request");
+            Observation late = h.builder.sign(ticket(two, State.SIGNING, first, second), two, second, restoration);
+            check(problems, late != null && late.classification == Classification.SIGN_CANNOT_COMPLETE
+                    && h.signer.operations() == 0, "a late call signed: " + h.signer.operations());
+            // An entry whose grant is not among the plan's is never recorded.
+            List<Observation> none = h.builder.query(ticket(two, State.SIGNING, unknown), two,
+                    List.of(variant, restoration));
+            check(problems, none.isEmpty() && h.read(id(0x7e5a)) == null, "a request without its grant " + none);
+        });
+        cases.run("entries / only ASCII letters fold in the names of v1 signature files", problems -> {
+            byte[] plain = zip("AndroidManifest.xml", "m", "classes.dex", "c");
+            byte[] lower = zip("AndroidManifest.xml", "m", "classes.dex", "c", "META-INF/cert.sf", "s",
+                    "META-INF/cert.rsa", "r", "META-INF/manifest.mf", "x");
+            check(problems, ApkEntries.digest(plain).equals(ApkEntries.digest(lower)), "ASCII case not folded");
+            // Letters outside ASCII that a locale folds to S or I: such a file stays an entry.
+            for (String name : List.of("META-INF/a.\u017ff", "META-INF/MAN\u0131FEST.MF", "META-INF/a.\u017fF")) {
+                byte[] other = zip("AndroidManifest.xml", "m", "classes.dex", "c", name, "x");
+                check(problems, !ApkEntries.digest(plain).equals(ApkEntries.digest(other)), "left out " + name);
+            }
+        });
+        cases.run("entries / a name past the end of the archive is refused as invalid", problems -> {
+            byte[] good = zip("AndroidManifest.xml", "m", "classes.dex", "c");
+            ByteBuffer eocd = ByteBuffer.wrap(good).order(ByteOrder.LITTLE_ENDIAN);
+            int central = eocd.getInt(good.length - 22 + 16);
+            // The name, extra field and comment lengths of the first entry, each in turn.
+            for (int field : new int[] {28, 30, 32}) {
+                byte[] broken = good.clone();
+                ByteBuffer.wrap(broken).order(ByteOrder.LITTLE_ENDIAN).putShort(central + field, (short) 0xffff);
+                String thrown = "nothing";
+                try {
+                    ApkEntries.digest(broken);
+                } catch (IllegalArgumentException invalid) {
+                    thrown = "invalid";
+                } catch (RuntimeException other) {
+                    thrown = other.getClass().getSimpleName();
+                }
+                check(problems, thrown.equals("invalid"), "field " + field + ": " + thrown);
+            }
+            // The builder reads such an input as not the plan's: never signed, and no exception.
+            byte[] broken = good.clone();
+            ByteBuffer.wrap(broken).order(ByteOrder.LITTLE_ENDIAN).putShort(central + 28, (short) 0xffff);
+            Host h = host(base);
+            BundleBuilder builder = new BundleBuilder(Fixtures.INSTALLATION, h.signer, h.store, h.engine,
+                    new BundleBuilder.RoleIdentity(FakeEngine.certificateDigest(ROLE), FakeEngine.keyDigest(ROLE)), 37,
+                    0xffff, entries -> broken, () -> id(0x3d0000 + (++h.ids)), () -> Fixtures.TIME);
+            Observation fact = builder.sign(ticket(plan, State.SIGNING, sign), plan, sign, both);
+            check(problems, fact != null && fact.classification == Classification.SIGN_CANNOT_COMPLETE
+                    && h.signer.operations() == 0, "a broken input " + fact);
+        });
+        cases.run("signer / an engine that returns its input, or discards its key operations' results, keeps nothing",
+                problems -> {
+            // Inputs already signed by the same key: their signatures prove nothing about the outputs.
+            byte[] signedA = new FakeEngine(ROLE).sign(VARIANT_INPUT, FakeEngine.key(ROLE)).apk;
+            byte[] signedR = new FakeEngine(ROLE).sign(RESTORATION_INPUT, FakeEngine.key(ROLE)).apk;
+            for (String mode : List.of("returns its input", "discards its results")) {
+                Host h = host(base);
+                h.inputs.put(plan.bundleInput, signedA);
+                h.inputs.put(plan.restorationInput, signedR);
+                h.engine.returnInput = mode.equals("returns its input");
+                h.engine.forge = mode.equals("discards its results");
+                Observation fact = h.builder.sign(ticket(plan, State.SIGNING, sign), plan, sign, both);
+                Transaction t = h.read(TX);
+                check(problems, fact != null && fact.classification == Classification.SIGN_CANNOT_COMPLETE
+                        && t != null && t.state == TransactionState.CANNOT_COMPLETE && retainedFiles(h) == 0
+                        && stagingDirs(h.root.resolve("store")) == 0, mode + ": " + (t == null ? null : t.state));
+            }
+            // The same inputs with an engine that signs: the outputs are made again, by the six operations.
+            Host good = host(base);
+            good.inputs.put(plan.bundleInput, signedA);
+            good.inputs.put(plan.restorationInput, signedR);
+            Observation fact = good.builder.sign(ticket(plan, State.SIGNING, sign), plan, sign, both);
+            check(problems, fact != null && fact.classification == Classification.SIGN_COMPLETED
+                    && java.util.Arrays.equals(good.signer.retained(TX, Role.VARIANT).apk, signedA)
+                    && good.signer.operations() == 6, "signed again from signed inputs " + fact);
+            check(problems, ApkEntries.signingBlock(ApkEntries.withoutSigningBlock(signedA)).length == 0
+                    && ApkEntries.digest(ApkEntries.withoutSigningBlock(signedA)).equals(plan.bundleInput)
+                    && java.util.Arrays.equals(ApkEntries.withoutSigningBlock(VARIANT_INPUT), VARIANT_INPUT),
+                    "the signing block stripped");
+        });
+        cases.run("builder / an input that carries v1 signature files is never signed", problems -> {
+            Host h = host(base);
+            byte[] withV1 = zip("AndroidManifest.xml", manifest(Fixtures.BUNDLE_VERSION), "classes.dex", "variant code",
+                    "META-INF/CERT.SF", "s", "META-INF/CERT.RSA", "r", "META-INF/MANIFEST.MF", "m");
+            h.inputs.put(plan.bundleInput, withV1);
+            check(problems, ApkEntries.digest(withV1).equals(plan.bundleInput), "the same entries");
+            Observation fact = h.builder.sign(ticket(plan, State.SIGNING, sign), plan, sign, both);
+            check(problems, fact != null && fact.classification == Classification.SIGN_CANNOT_COMPLETE
+                    && h.signer.operations() == 0 && h.read(TX).state == TransactionState.CANNOT_COMPLETE,
+                    "a v1 input signed " + h.signer.operations());
+        });
+        cases.run("signer / a fourth key operation for one APK is refused and nothing is kept", problems -> {
+            for (boolean swallow : new boolean[] {false, true}) {
+                Host h = host(base);
+                h.engine.extraOperations = 1;
+                h.engine.swallow = swallow;
+                Observation fact = h.builder.sign(ticket(plan, State.SIGNING, sign), plan, sign, both);
+                Transaction t = h.read(TX);
+                check(problems, fact != null && fact.classification == Classification.SIGN_CANNOT_COMPLETE
+                        && t != null && t.state == TransactionState.CANNOT_COMPLETE && h.signer.operations() == 3
+                        && retainedFiles(h) == 0, (swallow ? "swallowed: " : "") + (t == null ? null : t.state) + " "
+                        + h.signer.operations());
+            }
+        });
+        cases.run("builder / a signer of any scheme without the platform role is refused", problems -> {
+            for (int scheme = 0; scheme < 3; scheme++) {
+                Host h = host(base);
+                h.engine.schemeCertificates[scheme] = "other";
+                Observation fact = h.builder.sign(ticket(plan, State.SIGNING, sign), plan, sign, both);
+                check(problems, fact != null && fact.classification == Classification.SIGN_CANNOT_COMPLETE
+                        && h.read(TX).state == TransactionState.COMPLETED && stagingDirs(h.root.resolve("store")) == 0,
+                        "scheme " + scheme + " " + (fact == null ? null : fact.classification));
+            }
+        });
+        cases.run("builder / outputs whose entries are not the input's are refused", problems -> {
+            Host h = host(base);
+            h.engine.substitute = zip("AndroidManifest.xml", manifest(Fixtures.BUNDLE_VERSION), "classes.dex", "other");
+            Observation fact = h.builder.sign(ticket(plan, State.SIGNING, sign), plan, sign, both);
+            check(problems, fact != null && fact.classification == Classification.SIGN_CANNOT_COMPLETE
+                    && stagingDirs(h.root.resolve("store")) == 0, "other entries " + fact);
+        });
+        cases.run("builder / input bytes that are not the plan's are never signed", problems -> {
+            Host h = host(base);
+            h.inputs.put(plan.bundleInput, RESTORATION_INPUT);
+            Observation fact = h.builder.sign(ticket(plan, State.SIGNING, sign), plan, sign, both);
+            check(problems, fact != null && fact.classification == Classification.SIGN_CANNOT_COMPLETE
+                    && h.signer.operations() == 0 && h.read(TX).state == TransactionState.CANNOT_COMPLETE,
+                    "other bytes signed " + h.signer.operations());
+        });
+        cases.run("builder / an input whose own facts are not the plan's is never signed", problems -> {
+            List<String> bad = List.of(
+                    FakeEngine.manifest("com.android.other", Fixtures.BUNDLE_VERSION, BundleBuilder.SYSTEMUI_SHARED_USER,
+                            true, 37),
+                    FakeEngine.manifest(Fixtures.COMPONENT, Fixtures.BUNDLE_VERSION, "android.uid.system", true, 37),
+                    FakeEngine.manifest(Fixtures.COMPONENT, Fixtures.BUNDLE_VERSION, BundleBuilder.SYSTEMUI_SHARED_USER,
+                            false, 37),
+                    manifest(Fixtures.BUNDLE_VERSION + 1),
+                    FakeEngine.manifest(Fixtures.COMPONENT, Fixtures.BUNDLE_VERSION, BundleBuilder.SYSTEMUI_SHARED_USER,
+                            true, 36),
+                    "no facts");
+            for (String words : bad) {
+                Host h = host(base);
+                byte[] input = zip("AndroidManifest.xml", words, "classes.dex", "variant code");
+                Plan other = plan.toBuilder().bundle(ApkEntries.digest(input), plan.bundleVersion).build();
+                h.inputs.put(other.bundleInput, input);
+                Observation fact = h.builder.sign(ticket(other, State.SIGNING, sign), other, sign, grant(other, 1, 3));
+                check(problems, fact != null && fact.classification == Classification.SIGN_CANNOT_COMPLETE
+                        && h.signer.operations() == 0, words + " signed " + h.signer.operations());
+            }
+            Host h = host(base);
+            check(problems, h.builder.facts(plan, Role.VARIANT, h.engine.facts(VARIANT_INPUT)) == null
+                    && h.builder.facts(plan, Role.RESTORATION, h.engine.facts(RESTORATION_INPUT)) == null,
+                    "the plan's own facts refused");
+        });
+        cases.run("builder / an unreadable retained output gives no fact, and one that is gone reads CANNOT_COMPLETE",
+                problems -> {
+            Map<Role, byte[]> inputs = Map.of(Role.VARIANT, VARIANT_INPUT, Role.RESTORATION, RESTORATION_INPUT);
+            Host h = host(base);
+            check(problems, h.signer.sign(h.builder.open(plan, both, TX), inputs) != null, "signed");
+            Path output = h.root.resolve("signer/outputs").resolve(TX).resolve("variant").resolve("base.apk");
+            java.nio.file.Files.setPosixFilePermissions(output, java.nio.file.attribute.PosixFilePermissions
+                    .fromString("---------"));
+            List<Observation> read = h.builder.query(ticket(plan, State.SIGNING, sign), plan, List.of(both));
+            java.nio.file.Files.setPosixFilePermissions(output, java.nio.file.attribute.PosixFilePermissions
+                    .fromString("rw-------"));
+            check(problems, read.isEmpty(), "an unreadable output gave " + read);
+            List<Observation> later = h.builder.query(ticket(plan, State.SIGNING, sign), plan, List.of(both));
+            check(problems, later.size() == 1 && later.get(0).classification == Classification.SIGN_COMPLETED,
+                    "later " + later);
+            Host g = host(base);
+            check(problems, g.signer.sign(g.builder.open(plan, both, TX), inputs) != null, "signed");
+            Files.delete(g.root.resolve("signer/outputs").resolve(TX).resolve("variant").resolve("base.apk"));
+            List<Observation> gone = g.builder.query(ticket(plan, State.SIGNING, sign), plan, List.of(both));
+            check(problems, gone.size() == 1 && gone.get(0).classification == Classification.SIGN_CANNOT_COMPLETE,
+                    "a missing output read " + gone);
+        });
+        cases.run("builder / one whole run publishes a variant and its restoration, then a repair plan the restoration",
+                problems -> whole(base, problems));
         cases.finish("Host signer and bundle builder checks passed");
     }
 }

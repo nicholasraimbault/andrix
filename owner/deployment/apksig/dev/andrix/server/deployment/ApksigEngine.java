@@ -6,9 +6,13 @@ import com.android.apksig.ApkVerifier;
 import com.android.apksig.Constants;
 import com.android.apksig.KeyConfig;
 import com.android.apksig.SignerEngine;
+import com.android.apksig.apk.ApkUtils;
+import com.android.apksig.internal.apk.AndroidBinXmlParser;
 import com.android.apksig.internal.apk.v3.V3SchemeConstants;
 import com.android.apksig.kms.KmsSignerEngineProvider;
+import com.android.apksig.util.DataSources;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
@@ -29,7 +33,8 @@ import java.util.Objects;
  * v2, v3 and v4, so the transaction's engine signs without v1. The engine with v1 serves only the
  * byte for byte comparison with the sealed outputs. Each key operation goes through a KMS key
  * configuration whose provider calls the host signer's keys, so the signer counts, asks and may
- * refuse every operation. The private key never reaches apksig. Host only.
+ * refuse every operation. The private key never reaches apksig. An APK's own facts come from
+ * apksig's binary manifest parser. Host only.
  */
 public final class ApksigEngine implements HostSigner.Engine {
     /** The SHA-256 of the apksigner jar this engine is pinned to. */
@@ -153,6 +158,80 @@ public final class ApksigEngine implements HostSigner.Engine {
                 // Scratch only.
             }
         }
+    }
+
+    // Android's attribute resource IDs.
+    private static final int SHARED_USER_ID = 0x0101000b;
+    private static final int PERSISTENT = 0x0101000d;
+    private static final int VERSION_CODE = 0x0101021b;
+    private static final int VERSION_CODE_MAJOR = 0x01010576;
+    private static final int MIN_SDK_VERSION = 0x0101020c;
+    private static final int TARGET_SDK_VERSION = 0x01010270;
+    private static final int MAX_SDK_VERSION = 0x01010271;
+
+    /**
+     * The facts of the APK's binary manifest, read with apksig's parser: the package, versionCode,
+     * {@code sharedUserId}, the application's persistent flag and the SDK fields of
+     * {@code uses-sdk}. Null when the manifest is missing, does not parse, or gives a fact in a
+     * form other than a literal, such as a resource reference or an SDK codename.
+     */
+    @Override
+    public HostSigner.Facts facts(byte[] apk) {
+        try {
+            ByteBuffer manifest = ApkUtils.getAndroidManifest(DataSources.asDataSource(ByteBuffer.wrap(apk)));
+            AndroidBinXmlParser parser = new AndroidBinXmlParser(manifest);
+            String packageName = null;
+            String sharedUser = "";
+            long versionCode = -1;
+            long major = 0;
+            boolean persistent = false;
+            int minSdk = 1;
+            int targetSdk = -1;
+            int maxSdk = 0;
+            for (int event = parser.getEventType(); event != AndroidBinXmlParser.EVENT_END_DOCUMENT;
+                    event = parser.next()) {
+                if (event != AndroidBinXmlParser.EVENT_START_ELEMENT || !parser.getNamespace().isEmpty()) continue;
+                String element = parser.getName();
+                int depth = parser.getDepth();
+                for (int i = 0; i < parser.getAttributeCount(); i++) {
+                    int id = parser.getAttributeNameResourceId(i);
+                    int type = parser.getAttributeValueType(i);
+                    if (depth == 1 && element.equals("manifest")) {
+                        if (id == 0 && parser.getAttributeName(i).equals("package")
+                                && parser.getAttributeNamespace(i).isEmpty()) {
+                            packageName = literal(parser, i, type);
+                        } else if (id == SHARED_USER_ID) {
+                            sharedUser = literal(parser, i, type);
+                        } else if (id == VERSION_CODE) {
+                            versionCode = number(parser, i, type) & 0xffffffffL;
+                        } else if (id == VERSION_CODE_MAJOR) {
+                            major = number(parser, i, type) & 0xffffffffL;
+                        }
+                    } else if (depth == 2 && element.equals("uses-sdk")) {
+                        if (id == MIN_SDK_VERSION) minSdk = number(parser, i, type);
+                        if (id == TARGET_SDK_VERSION) targetSdk = number(parser, i, type);
+                        if (id == MAX_SDK_VERSION) maxSdk = number(parser, i, type);
+                    } else if (depth == 2 && element.equals("application") && id == PERSISTENT) {
+                        if (type != AndroidBinXmlParser.VALUE_TYPE_BOOLEAN) return null;
+                        persistent = parser.getAttributeBooleanValue(i);
+                    }
+                }
+            }
+            if (packageName == null || sharedUser == null || versionCode < 0) return null;
+            return new HostSigner.Facts(packageName, (major << 32) | versionCode, sharedUser, persistent, minSdk,
+                    targetSdk < 0 ? minSdk : targetSdk, maxSdk);
+        } catch (Exception unparsed) {
+            return null;
+        }
+    }
+
+    private static String literal(AndroidBinXmlParser parser, int i, int type) throws Exception {
+        return type == AndroidBinXmlParser.VALUE_TYPE_STRING ? parser.getAttributeStringValue(i) : null;
+    }
+
+    private static int number(AndroidBinXmlParser parser, int i, int type) throws Exception {
+        if (type != AndroidBinXmlParser.VALUE_TYPE_INT) throw new IllegalArgumentException("not a literal number");
+        return parser.getAttributeIntValue(i);
     }
 
     /** A certificate's SHA-256 and its public key's SHA-256. */
