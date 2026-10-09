@@ -24,6 +24,21 @@ class SigningRecoveryTests(unittest.TestCase):
                 'uses': [{'purpose': 'apk', 'component': 'platform', 'slot': 'platform',
                           'identity': {'encoding': 'x509-der', 'sha256': sr.digest(cert)}}]}
 
+    def test_the_systemui_platform_role_binds_the_platform_slot(self):
+        manifest = self.manifest()
+        manifest['uses'].append(dict(copy.deepcopy(manifest['uses'][0]), component=sr.SYSTEMUI_COMPONENT))
+        commitment = sr.validate_manifest(manifest)
+        self.assertEqual(sr.apk_role(manifest, sr.SYSTEMUI_COMPONENT, commitment),
+                         (sr.digest(b'certificate fixture'), sr.digest(b'spki fixture')))
+        with self.assertRaises(sr.RecoveryError):
+            sr.apk_role(manifest, sr.SYSTEMUI_COMPONENT, '0' * 64)
+        with self.assertRaises(sr.RecoveryError):
+            sr.apk_role(self.manifest(), sr.SYSTEMUI_COMPONENT, sr.validate_manifest(self.manifest()))
+        wrong = copy.deepcopy(manifest)
+        wrong['uses'][1]['identity']['sha256'] = sr.digest(b'another certificate')
+        with self.assertRaises(sr.RecoveryError):
+            sr.validate_manifest(wrong)
+
     def test_commitment_binds_public_identities_roles_and_installation(self):
         original = self.manifest(); value = sr.validate_manifest(original)
         for field, replacement in [('generation', 2), ('installation', '69ea1c46-f5fa-4bd7-a3ab-d15c20d0493f')]:

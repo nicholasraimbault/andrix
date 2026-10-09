@@ -27,6 +27,7 @@ import java.util.Objects;
 public final class ArtifactRecords {
     public static final int MANIFEST = 6;
     public static final int PUBLICATION = 7;
+    public static final int TRANSACTION = 8;
     public static final int VERSION = 1;
     /** No artifact record is larger. */
     public static final int MAX_BYTES = 4096;
@@ -55,6 +56,227 @@ public final class ArtifactRecords {
         }
     }
 
+    /** One key operation's signature scheme: three for each APK. */
+    public enum Scheme {
+        V2(1), V3(2), V4(3);
+
+        final int code;
+
+        Scheme(int code) { this.code = code; }
+
+        static Scheme of(int code) {
+            for (Scheme s : values()) if (s.code == code) return s;
+            throw DeploymentRecords.invalid("unknown scheme");
+        }
+    }
+
+    /** One output of a signing transaction: the signed APK or its v4 sidecar. */
+    public enum Member {
+        APK(1), IDSIG(2);
+
+        final int code;
+
+        Member(int code) { this.code = code; }
+
+        static Member of(int code) {
+            for (Member m : values()) if (m.code == code) return m;
+            throw DeploymentRecords.invalid("unknown member");
+        }
+    }
+
+    /** Where a signing transaction stands. Only OPEN changes, and only once. */
+    public enum TransactionState {
+        OPEN(1), COMPLETED(2), REFUSED(3), CANNOT_COMPLETE(4);
+
+        final int code;
+
+        TransactionState(int code) { this.code = code; }
+
+        static TransactionState of(int code) {
+            for (TransactionState t : values()) if (t.code == code) return t;
+            throw DeploymentRecords.invalid("unknown transaction state");
+        }
+    }
+
+    /** The facts an output must meet, as bits. */
+    public static final int FACT_ENTRIES = 1;
+    public static final int FACT_V2 = 2;
+    public static final int FACT_V3 = 4;
+    public static final int FACT_V4 = 8;
+    public static final int FACT_ROLE = 16;
+    /** A signed APK: its entries are the input's, v2 verifies below SDK 28, v3 over the range, every signer has the role. */
+    public static final int APK_FACTS = FACT_ENTRIES | FACT_V2 | FACT_V3 | FACT_ROLE;
+    /** A v4 sidecar: v4 verifies over its APK and the range, and its signer has the role. */
+    public static final int IDSIG_FACTS = FACT_V4 | FACT_ROLE;
+
+    /** One key operation of a signing transaction. */
+    public static final class Operation {
+        public final String id;
+        public final Role role;
+        public final Scheme scheme;
+
+        public Operation(String id, Role role, Scheme scheme) {
+            DeploymentRecords.checkId(id, "operation", false);
+            this.id = id;
+            this.role = Objects.requireNonNull(role, "role");
+            this.scheme = Objects.requireNonNull(scheme, "scheme");
+        }
+    }
+
+    /**
+     * One expected output, named by role and member, with the facts it must meet: its input's
+     * digest and entry digest and its versionCode. The digest and size are set exactly once the
+     * transaction COMPLETED.
+     */
+    public static final class Output {
+        public final Role role;
+        public final Member member;
+        public final int facts;
+        public final String input;
+        public final String inputEntries;
+        public final long versionCode;
+        public final String digest;
+        public final long bytes;
+
+        public Output(Role role, Member member, int facts, String input, String inputEntries, long versionCode,
+                String digest, long bytes) {
+            this.role = Objects.requireNonNull(role, "role");
+            this.member = Objects.requireNonNull(member, "member");
+            if (facts != (member == Member.APK ? APK_FACTS : IDSIG_FACTS)) {
+                throw DeploymentRecords.invalid("facts other than the member's");
+            }
+            DeploymentRecords.checkDigest(input, "input", false);
+            DeploymentRecords.checkDigest(inputEntries, "input entries", false);
+            DeploymentRecords.checkDigest(digest, "output", true);
+            if (versionCode <= 0) throw DeploymentRecords.invalid("versionCode not positive");
+            if (digest.equals(DeploymentRecords.NO_DIGEST) != (bytes == 0) || bytes < 0) {
+                throw DeploymentRecords.invalid("an output digest exactly with its size");
+            }
+            this.facts = facts;
+            this.input = input;
+            this.inputEntries = inputEntries;
+            this.versionCode = versionCode;
+            this.digest = digest;
+            this.bytes = bytes;
+        }
+
+        /** The same output with its produced digest and size. */
+        public Output produced(String outputDigest, long size) {
+            return new Output(role, member, facts, input, inputEntries, versionCode, outputDigest, size);
+        }
+    }
+
+    /**
+     * The host signer's durable record of one signing transaction: the approved context, the
+     * operations' own IDs, three for each APK, and the expected outputs, two for each APK. It is
+     * written OPEN before the first key operation and replaced once by its outcome. Its ID is the
+     * ticket's SIGN request ID, so a lost reply is resolved by that ID, never by signing again.
+     */
+    public static final class Transaction {
+        public final String installation;
+        public final String transaction;
+        public final String component;
+        public final String plan;
+        public final String authorization;
+        public final String certificate;
+        public final String key;
+        public final int sdkMin;
+        public final int sdkMax;
+        public final TransactionState state;
+        /** The refused operation, 1 to the operation count, exactly for REFUSED. Else 0. */
+        public final int refused;
+        public final List<Operation> operations;
+        public final List<Output> outputs;
+
+        public Transaction(String installation, String transaction, String component, String plan,
+                String authorization, String certificate, String key, int sdkMin, int sdkMax,
+                TransactionState state, int refused, List<Operation> operations, List<Output> outputs) {
+            DeploymentRecords.checkId(installation, "installation", false);
+            DeploymentRecords.checkId(transaction, "transaction", false);
+            DeploymentRecords.checkPackage(component);
+            DeploymentRecords.checkId(plan, "plan", false);
+            DeploymentRecords.checkId(authorization, "authorization", false);
+            DeploymentRecords.checkDigest(certificate, "certificate", false);
+            DeploymentRecords.checkDigest(key, "key", false);
+            if (sdkMin < 1 || sdkMax < sdkMin || sdkMax > 0xffff) throw DeploymentRecords.invalid("SDK range");
+            this.state = Objects.requireNonNull(state, "state");
+            List<Operation> ops = List.copyOf(operations);
+            List<Output> outs = List.copyOf(outputs);
+            if (ops.size() != 3 && ops.size() != 6) throw DeploymentRecords.invalid("three operations for each APK");
+            if (outs.size() != ops.size() / 3 * 2) throw DeploymentRecords.invalid("two outputs for each APK");
+            List<Role> roles = new ArrayList<>();
+            for (int i = 0; i < ops.size(); i += 3) {
+                Role role = ops.get(i).role;
+                if (!roles.isEmpty() && role.code <= roles.get(roles.size() - 1).code) {
+                    throw DeploymentRecords.invalid("roles out of order");
+                }
+                roles.add(role);
+                for (int j = 0; j < 3; j++) {
+                    Operation op = ops.get(i + j);
+                    if (op.role != role || op.scheme != Scheme.values()[j]) {
+                        throw DeploymentRecords.invalid("operations out of order");
+                    }
+                }
+            }
+            java.util.Set<String> ids = new java.util.HashSet<>();
+            for (Operation op : ops) {
+                if (!ids.add(op.id) || op.id.equals(transaction)) throw DeploymentRecords.invalid("an operation ID twice");
+            }
+            boolean completed = state == TransactionState.COMPLETED;
+            for (int i = 0; i < outs.size(); i++) {
+                Output out = outs.get(i);
+                if (out.role != roles.get(i / 2) || out.member != Member.values()[i % 2]) {
+                    throw DeploymentRecords.invalid("outputs out of order");
+                }
+                if (completed == out.digest.equals(DeploymentRecords.NO_DIGEST)) {
+                    throw DeploymentRecords.invalid("output digests exactly when COMPLETED");
+                }
+                if (i % 2 == 1 && (!out.input.equals(outs.get(i - 1).input)
+                        || !out.inputEntries.equals(outs.get(i - 1).inputEntries)
+                        || out.versionCode != outs.get(i - 1).versionCode)) {
+                    throw DeploymentRecords.invalid("an APK's two outputs name different inputs");
+                }
+            }
+            if ((state == TransactionState.REFUSED) == (refused == 0) || refused < 0 || refused > ops.size()) {
+                throw DeploymentRecords.invalid("a refused operation exactly for REFUSED");
+            }
+            this.installation = installation;
+            this.transaction = transaction;
+            this.component = component;
+            this.plan = plan;
+            this.authorization = authorization;
+            this.certificate = certificate;
+            this.key = key;
+            this.sdkMin = sdkMin;
+            this.sdkMax = sdkMax;
+            this.refused = refused;
+            this.operations = ops;
+            this.outputs = outs;
+        }
+
+        /** The same transaction in another state, with its refused operation and outputs. */
+        public Transaction with(TransactionState next, int refusedOperation, List<Output> nextOutputs) {
+            return new Transaction(installation, transaction, component, plan, authorization, certificate, key,
+                    sdkMin, sdkMax, next, refusedOperation, operations, nextOutputs);
+        }
+
+        /** The roles it signs, in order. */
+        public List<Role> roles() {
+            List<Role> roles = new ArrayList<>();
+            for (int i = 0; i < operations.size(); i += 3) roles.add(operations.get(i).role);
+            return roles;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof Transaction
+                    && Arrays.equals(encodeTransaction(this), encodeTransaction((Transaction) other));
+        }
+
+        @Override
+        public int hashCode() { return Arrays.hashCode(encodeTransaction(this)); }
+    }
+
     /** The v4 check of the sidecar against base.apk. Version 1 knows only a passed check. */
     public enum V4Check {
         VERIFIED(1);
@@ -78,7 +300,7 @@ public final class ArtifactRecords {
         public final String transaction;
         /** The SHA-256 of the exact input APK bytes. */
         public final String input;
-        /** The input's identity: the SHA-256 over its ZIP entries outside the signing block. */
+        /** The input's identity: the SHA-256 over its ZIP entries outside its signatures (ApkEntries). */
         public final String inputEntries;
         public final long versionCode;
         public final String apk;
@@ -189,7 +411,7 @@ public final class ArtifactRecords {
         public final String installation;
         /** The manifest's component, or the publication's. */
         public final String component;
-        /** The manifest's signing transaction, or the publication's plan. */
+        /** The manifest's signing transaction, the publication's plan, or the transaction's own ID. */
         public final String id;
 
         Prefix(int type, int version, String installation, String component, String id) {
@@ -243,6 +465,75 @@ public final class ArtifactRecords {
         return out.seal();
     }
 
+    public static byte[] encodeTransaction(Transaction t) {
+        Out out = new Out(TRANSACTION);
+        out.id(t.installation);
+        out.id(t.transaction);
+        out.text(t.component);
+        out.id(t.plan);
+        out.id(t.authorization);
+        out.raw(t.certificate);
+        out.raw(t.key);
+        out.u16(t.sdkMin);
+        out.u16(t.sdkMax);
+        out.u8(t.state.code);
+        out.u8(t.refused);
+        out.u8(t.operations.size());
+        for (Operation op : t.operations) {
+            out.id(op.id);
+            out.u8(op.role.code);
+            out.u8(op.scheme.code);
+        }
+        out.u8(t.outputs.size());
+        for (Output o : t.outputs) {
+            out.u8(o.role.code);
+            out.u8(o.member.code);
+            out.u8(o.facts);
+            out.raw(o.input);
+            out.raw(o.inputEntries);
+            out.i64(o.versionCode);
+            out.raw(o.digest);
+            out.i64(o.bytes);
+        }
+        return out.seal();
+    }
+
+    public static Transaction decodeTransaction(byte[] record) {
+        In in = new In(record, TRANSACTION, false);
+        String installation = in.hex(16);
+        String transaction = in.hex(16);
+        String component = in.text();
+        String plan = in.hex(16);
+        String authorization = in.hex(16);
+        String certificate = in.hex(32);
+        String key = in.hex(32);
+        int sdkMin = in.u16();
+        int sdkMax = in.u16();
+        TransactionState state = TransactionState.of(in.u8());
+        int refused = in.u8();
+        int count = in.u8();
+        if (count != 3 && count != 6) throw DeploymentRecords.invalid("three operations for each APK");
+        List<Operation> ops = new ArrayList<>();
+        for (int i = 0; i < count; i++) ops.add(new Operation(in.hex(16), Role.of(in.u8()), Scheme.of(in.u8())));
+        int outputs = in.u8();
+        if (outputs != count / 3 * 2) throw DeploymentRecords.invalid("two outputs for each APK");
+        List<Output> outs = new ArrayList<>();
+        for (int i = 0; i < outputs; i++) {
+            Role role = Role.of(in.u8());
+            Member member = Member.of(in.u8());
+            int facts = in.u8();
+            String input = in.hex(32);
+            String entries = in.hex(32);
+            long version = in.i64();
+            String digest = in.hex(32);
+            long bytes = in.i64();
+            outs.add(new Output(role, member, facts, input, entries, version, digest, bytes));
+        }
+        in.finish();
+        return new Transaction(installation, transaction, component, plan, authorization, certificate, key, sdkMin,
+                sdkMax, state, refused, ops, outs);
+    }
+
     public static Manifest decodeManifest(byte[] record) {
         In in = new In(record, MANIFEST, false);
         String installation = in.hex(16);
@@ -288,8 +579,8 @@ public final class ArtifactRecords {
 
     /**
      * The stable prefix of an intact frame of a later version: the installation, then the
-     * component and signing transaction of a manifest, or the plan and component of a
-     * publication. It reads nothing after the prefix.
+     * component and signing transaction of a manifest, the plan and component of a publication,
+     * or the transaction and component of a signing transaction. It reads nothing after the prefix.
      */
     public static Prefix decodePrefix(byte[] record) {
         In in = new In(record, 0, true);
@@ -306,6 +597,7 @@ public final class ArtifactRecords {
         String plan = in.hex(16);
         DeploymentRecords.checkId(plan, "plan", false);
         String component = in.text();
+        // A publication's plan, or a signing transaction's own ID.
         return new Prefix(in.type, in.version, installation, component, plan);
     }
 
@@ -386,7 +678,9 @@ public final class ArtifactRecords {
             }
             type = (int) le(4, 2);
             version = (int) le(6, 2);
-            if (type != MANIFEST && type != PUBLICATION) throw DeploymentRecords.invalid("not an artifact record type");
+            if (type != MANIFEST && type != PUBLICATION && type != TRANSACTION) {
+                throw DeploymentRecords.invalid("not an artifact record type");
+            }
             if (expectedType != 0 && type != expectedType) throw DeploymentRecords.invalid("another record type");
             if (!anyVersion && version != VERSION) throw DeploymentRecords.invalid("unknown version");
         }

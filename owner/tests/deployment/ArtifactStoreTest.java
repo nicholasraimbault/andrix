@@ -6,8 +6,14 @@ import static dev.andrix.server.deployment.Fixtures.INSTALLATION;
 import static dev.andrix.server.deployment.Fixtures.TIME;
 
 import dev.andrix.server.deployment.ArtifactRecords.Manifest;
+import dev.andrix.server.deployment.ArtifactRecords.Member;
+import dev.andrix.server.deployment.ArtifactRecords.Operation;
+import dev.andrix.server.deployment.ArtifactRecords.Output;
 import dev.andrix.server.deployment.ArtifactRecords.Publication;
 import dev.andrix.server.deployment.ArtifactRecords.Role;
+import dev.andrix.server.deployment.ArtifactRecords.Scheme;
+import dev.andrix.server.deployment.ArtifactRecords.Transaction;
+import dev.andrix.server.deployment.ArtifactRecords.TransactionState;
 import dev.andrix.server.deployment.ArtifactRecords.V4Check;
 import dev.andrix.server.deployment.ArtifactStore.Presence;
 import dev.andrix.server.deployment.ArtifactStore.Staged;
@@ -38,6 +44,10 @@ public final class ArtifactStoreTest {
     private static final String GOLDEN_PUBLICATION_PAIR_SHA256 = "1436d9786033a39b5d486a771be40c6d2d9c85bd736ee1526898de3f2087282f";
     private static final int GOLDEN_PUBLICATION_ONE_BYTES = 156;
     private static final String GOLDEN_PUBLICATION_ONE_SHA256 = "cb1811d26a22c4849d4d45ad360a9e66ad1f5ed0259a5bace9bd76c081e31524";
+    private static final int GOLDEN_TRANSACTION_OPEN_BYTES = 770;
+    private static final String GOLDEN_TRANSACTION_OPEN_SHA256 = "b6418e2fc715b7d8f2753845ac5ac7ec87f026d4f95227c1a32885cc80b173c4";
+    private static final int GOLDEN_TRANSACTION_COMPLETED_BYTES = 770;
+    private static final String GOLDEN_TRANSACTION_COMPLETED_SHA256 = "6d33ee095a3a930ff7d123448e6409d6522b7844da0f34fe381139cd0353c485";
 
     private static final Cases cases = new Cases();
     private static final String REQUEST = Fixtures.id(0x5e);
@@ -108,6 +118,38 @@ public final class ArtifactStoreTest {
         return new Publication(INSTALLATION, plan.planId, plan.component, ids, transactions, TIME + 9);
     }
 
+    // The host signer's record of the pair's transaction, before its first key operation.
+    static Transaction transactionOpen() {
+        List<Operation> operations = new ArrayList<>();
+        int n = 0;
+        for (Role r : List.of(Role.VARIANT, Role.RESTORATION)) {
+            for (Scheme scheme : Scheme.values()) operations.add(new Operation(Fixtures.id(0x6f1 + n++), r, scheme));
+        }
+        List<Output> outputs = new ArrayList<>();
+        for (Role r : List.of(Role.VARIANT, Role.RESTORATION)) {
+            int k = r == Role.VARIANT ? 1 : 2;
+            long version = r == Role.VARIANT ? Fixtures.BUNDLE_VERSION : Fixtures.RESTORATION_VERSION;
+            outputs.add(new Output(r, Member.APK, ArtifactRecords.APK_FACTS, Fixtures.digest(0x30 + k),
+                    Fixtures.digest(0x40 + k), version, DeploymentRecords.NO_DIGEST, 0));
+            outputs.add(new Output(r, Member.IDSIG, ArtifactRecords.IDSIG_FACTS, Fixtures.digest(0x30 + k),
+                    Fixtures.digest(0x40 + k), version, DeploymentRecords.NO_DIGEST, 0));
+        }
+        return new Transaction(INSTALLATION, REQUEST, Fixtures.COMPONENT, Fixtures.id(0x101), Fixtures.id(0x201), CERT,
+                KEY, 37, 0xffff, TransactionState.OPEN, 0, operations, outputs);
+    }
+
+    // The same transaction once its four outputs are retained: the members of both bundles.
+    static Transaction transactionCompleted() {
+        Transaction open = transactionOpen();
+        List<Output> produced = new ArrayList<>();
+        for (Output o : open.outputs) {
+            int k = o.role == Role.VARIANT ? 1 : 2;
+            byte[] bytes = o.member == Member.APK ? apk(k) : idsig(k);
+            produced.add(o.produced(DeploymentRecords.sha256Hex(bytes), bytes.length));
+        }
+        return open.with(TransactionState.COMPLETED, 0, produced);
+    }
+
     // ------------------------------------------------------------------ records
 
     private static void golden(Path dir, List<String> problems, String name, byte[] bytes, int length, String sha)
@@ -132,6 +174,49 @@ public final class ArtifactStoreTest {
             }
             Publication p = publication(plan(true));
             check(problems, ArtifactRecords.decodePublication(ArtifactRecords.encodePublication(p)).equals(p), "pair");
+        });
+        // The signing transaction: state at 166, refused at 167 and the operation count at 168.
+        cases.run("records / the signing transaction record keeps its goldens, strict codes, relations and prefix",
+                problems -> {
+            byte[] open = ArtifactRecords.encodeTransaction(transactionOpen());
+            byte[] done = ArtifactRecords.encodeTransaction(transactionCompleted());
+            golden(dir, problems, "TRANSACTION_OPEN", open, GOLDEN_TRANSACTION_OPEN_BYTES, GOLDEN_TRANSACTION_OPEN_SHA256);
+            golden(dir, problems, "TRANSACTION_COMPLETED", done, GOLDEN_TRANSACTION_COMPLETED_BYTES,
+                    GOLDEN_TRANSACTION_COMPLETED_SHA256);
+            check(problems, ArtifactRecords.decodeTransaction(open).equals(transactionOpen())
+                    && ArtifactRecords.decodeTransaction(done).equals(transactionCompleted()), "round trip");
+            for (int[] change : new int[][] {{166, 0}, {166, 5}, {166, 2}, {167, 1}, {168, 4}, {168, 9}, {169 + 16 + 1, 4},
+                {169 + 16, 3}}) {
+                byte[] bad = resealed(open, change[0], change[1]);
+                check(problems, refusedTransaction(bad), "byte " + change[0] + " = " + change[1] + " accepted");
+            }
+            Transaction t = transactionOpen();
+            List<Operation> twice = new ArrayList<>(t.operations);
+            twice.set(1, twice.get(0));
+            check(problems, refusedValue(() -> new Transaction(INSTALLATION, REQUEST, Fixtures.COMPONENT, t.plan,
+                    t.authorization, CERT, KEY, 37, 0xffff, TransactionState.OPEN, 0, twice, t.outputs)),
+                    "an operation twice");
+            check(problems, refusedValue(() -> t.with(TransactionState.COMPLETED, 0, t.outputs)),
+                    "COMPLETED without outputs");
+            check(problems, refusedValue(() -> transactionCompleted().with(TransactionState.OPEN, 0,
+                    transactionCompleted().outputs)), "OPEN with outputs");
+            check(problems, refusedValue(() -> t.with(TransactionState.REFUSED, 0, t.outputs)), "REFUSED without its operation");
+            check(problems, refusedValue(() -> t.with(TransactionState.REFUSED, 7, t.outputs)), "a refused operation beyond six");
+            check(problems, refusedValue(() -> new Output(Role.VARIANT, Member.APK, ArtifactRecords.IDSIG_FACTS,
+                    Fixtures.digest(1), Fixtures.digest(2), 40, DeploymentRecords.NO_DIGEST, 0)), "another member's facts");
+            List<Output> swapped = new ArrayList<>(t.outputs);
+            swapped.set(0, t.outputs.get(1));
+            swapped.set(1, t.outputs.get(0));
+            check(problems, refusedValue(() -> new Transaction(INSTALLATION, REQUEST, Fixtures.COMPONENT, t.plan,
+                    t.authorization, CERT, KEY, 37, 0xffff, TransactionState.OPEN, 0, t.operations, swapped)),
+                    "outputs out of order");
+            check(problems, refusedValue(() -> new Transaction(INSTALLATION, REQUEST, Fixtures.COMPONENT, t.plan,
+                    t.authorization, CERT, KEY, 37, 0xffff, TransactionState.OPEN, 0, t.operations.subList(0, 5),
+                    t.outputs)), "five operations");
+            byte[] later = resealed(open, 6, 2);
+            ArtifactRecords.Prefix prefix = ArtifactRecords.decodePrefix(later);
+            check(problems, refusedTransaction(later) && prefix.type == ArtifactRecords.TRANSACTION
+                    && prefix.id.equals(REQUEST) && prefix.component.equals(Fixtures.COMPONENT), "prefix");
         });
         cases.run("records / strict codes, relations and trailing bytes are refused", problems -> {
             byte[] m = ArtifactRecords.encodeManifest(variant());
@@ -250,6 +335,24 @@ public final class ArtifactStoreTest {
     private static boolean refusedManifest(byte[] record) {
         try {
             ArtifactRecords.decodeManifest(record);
+            return false;
+        } catch (IllegalArgumentException expected) {
+            return true;
+        }
+    }
+
+    private static boolean refusedTransaction(byte[] record) {
+        try {
+            ArtifactRecords.decodeTransaction(record);
+            return false;
+        } catch (IllegalArgumentException expected) {
+            return true;
+        }
+    }
+
+    private static boolean refusedValue(Runnable build) {
+        try {
+            build.run();
             return false;
         } catch (IllegalArgumentException expected) {
             return true;

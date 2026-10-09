@@ -37,10 +37,10 @@ MAIN_DIR = 'owner/deployment/java/dev/andrix/server/deployment/'
 TEST_DIR = 'owner/tests/deployment/'
 PACKAGE = 'dev.andrix.server.deployment'
 MAIN = ('DeploymentRecords', 'TicketMachine', 'Reconciler', 'DeploymentStore', 'Coordinator', 'ArtifactRecords',
-        'ArtifactStore')
-SUPPORT = ('Cases', 'Fixtures', 'AndroidFacade')
+        'ArtifactStore', 'ApkEntries', 'HostSigner', 'BundleBuilder')
+SUPPORT = ('Cases', 'Fixtures', 'AndroidFacade', 'FakeEngine')
 SUITES = {'codec': 'DeploymentRecordsTest', 'machine': 'TicketMachineTest', 'store': 'DeploymentStoreTest',
-          'transactions': 'TransactionTest', 'artifacts': 'ArtifactStoreTest'}
+          'transactions': 'TransactionTest', 'artifacts': 'ArtifactStoreTest', 'signing': 'SigningTest'}
 RECORDS = MAIN_DIR + 'DeploymentRecords.java'
 MACHINE = MAIN_DIR + 'TicketMachine.java'
 RECONCILER = MAIN_DIR + 'Reconciler.java'
@@ -48,7 +48,9 @@ STORE = MAIN_DIR + 'DeploymentStore.java'
 COORDINATOR = MAIN_DIR + 'Coordinator.java'
 ARTIFACT_RECORDS = MAIN_DIR + 'ArtifactRecords.java'
 ARTIFACT_STORE = MAIN_DIR + 'ArtifactStore.java'
-PHASES = ('build', 'codec', 'machine', 'store', 'transactions', 'artifacts', 'mutants')
+HOST_SIGNER = MAIN_DIR + 'HostSigner.java'
+BUNDLE_BUILDER = MAIN_DIR + 'BundleBuilder.java'
+PHASES = ('build', 'codec', 'machine', 'store', 'transactions', 'artifacts', 'signing', 'mutants')
 GIB = 1 << 30
 # Every JVM stays well inside the 2 GiB guard: a capped heap, metaspace and code cache, the serial
 # collector, and one client JIT compiler thread instead of parallel compiles. One JVM runs at a time.
@@ -56,6 +58,22 @@ JVM_LIMITS = ('-XX:+UseSerialGC', '-XX:TieredStopAtLevel=1', '-XX:CICompilerCoun
               '-XX:ReservedCodeCacheSize=48m')
 JAVAC_HEAP = '-Xmx384m'
 JAVA_HEAP = '-Xmx256m'
+# The sealed comparison holds two 43 MB APKs and their signed copies at once.
+SEALED_HEAP = '-Xmx768m'
+# The apksigner jar that reproduced the sealed SystemUI outputs. The tree's apksig sources compile to
+# 257 of its 274 apksig classes byte for byte, so the jar itself is pinned.
+PINNED_APKSIGNER_JAR = '6b96559764325d085a6bad6be109cc3053791d63826f84dc0e74032db136a196'
+APKSIG_SOURCES = ('owner/deployment/apksig/dev/andrix/server/deployment/ApksigEngine.java',
+                  'owner/tests/deployment/apksig/SealedOutputsTest.java')
+APKSIG_SERVICE = 'owner/deployment/apksig/META-INF/services/com.android.apksig.kms.KmsSignerEngineProvider'
+SEALED_NAMES = (
+    "sealed / the pinned apksig with the tool's options reproduces every sealed output byte for byte",
+    'sealed / six key operations sign the variant and its restoration in one transaction',
+    "sealed / the transaction's outputs equal the tool's reference without v1 byte for byte",
+    'sealed / an engine that also signs v1 is refused by the operation count',
+    "sealed / the six operation outputs hold the sealed outputs' entries without v1",
+    'sealed / both bundles verify against the platform role over every scheme',
+    'sealed / both bundles publish together through the store')
 
 # ---------------------------------------------------------------- the independent encoder
 # Written from the layout tables of owner/deployment/README.md alone, never from the Java codec:
@@ -63,7 +81,7 @@ JAVA_HEAP = '-Xmx256m'
 
 MAGIC = 0x52445841
 TYPES = {'plan': 1, 'authorization': 2, 'ticket': 3, 'observation': 4, 'selection': 5, 'manifest': 6,
-         'publication': 7}
+         'publication': 7, 'transaction': 8}
 CLASSES = {'STAGED_SYSTEM_APK': 1, 'STAGED_APEX': 2, 'NONSTAGED_APK': 3}
 TARGETS = {'VARIANT': 1, 'FACTORY': 2, 'TEMPORARY_FACTORY': 3}
 COMMIT_MODES = {'LATE': 1, 'EARLY': 2}
@@ -98,6 +116,10 @@ CHOICES = {'FACTORY': 1, 'PLAN': 2}
 RESPONSIBILITIES = {'REBUILD_WINDOW': 1, 'KEEP_STALE': 2}
 REALIZATIONS = {'UNCHECKED': 1, 'CURRENT': 2, 'STALE_BASE': 3, 'DISPLACED': 4, 'DIVERGED': 5, 'TEMPORARY_FACTORY': 6}
 ROLES = {'VARIANT': 1, 'RESTORATION': 2}
+SIGNING_SCHEMES = {'V2': 1, 'V3': 2, 'V4': 3}
+MEMBERS = {'APK': 1, 'IDSIG': 2}
+TRANSACTION_STATES = {'OPEN': 1, 'COMPLETED': 2, 'REFUSED': 3, 'CANNOT_COMPLETE': 4}
+OUTPUT_FACTS = {'APK': 1 | 2 | 4 | 16, 'IDSIG': 8 | 16}  # entries, v2, v3 and the role; v4 and the role
 V4_CHECKS = {'VERIFIED': 1}
 SCHEMES = 1 | 2 | 4  # v2, v3 and v4
 NO_USER, NO_SERIAL = -10000, -1
@@ -226,6 +248,23 @@ def publication(p):
         body += raw(bundle, 32) + struct.pack('<B', ROLES['VARIANT' if index == 0 else 'RESTORATION'])
         body += raw(p['transactions'][index], 16)
     return record('publication', body + struct.pack('<q', p['published']))
+
+
+def transaction(t):
+    """The host signer's signing transaction, type 8: the approved context, the operations and the
+    expected outputs, from the README's table."""
+    body = raw(t['installation'], 16) + raw(t['transaction'], 16) + text(t['component']) + raw(t['plan'], 16)
+    body += raw(t['authorization'], 16) + raw(t['certificate'], 32) + raw(t['key'], 32)
+    body += struct.pack('<HHBBB', t['sdkMin'], t['sdkMax'], TRANSACTION_STATES[t['state']], t['refused'],
+                        len(t['operations']))
+    for operation, role, scheme in t['operations']:
+        body += raw(operation, 16) + struct.pack('<BB', ROLES[role], SIGNING_SCHEMES[scheme])
+    body += struct.pack('<B', len(t['outputs']))
+    for role, member, input_digest, entries, version, output, size in t['outputs']:
+        body += struct.pack('<BBB', ROLES[role], MEMBERS[member], OUTPUT_FACTS[member])
+        body += raw(input_digest, 32) + raw(entries, 32) + struct.pack('<q', version) + raw(output, 32)
+        body += struct.pack('<q', size)
+    return record('transaction', body)
 
 
 # ---------------------------------------------------------------- the golden values
@@ -430,11 +469,25 @@ def artifact_goldens():
     pair = {'installation': INSTALLATION, 'plan': ident(0x101), 'component': COMPONENT,
             'bundles': [sha(variant), sha(restoration)], 'transactions': [ident(0x5e), ident(0x5e)],
             'published': TIME + 9}
+    operations = [(ident(0x6f1 + 3 * r + k), role, scheme) for r, role in enumerate(('VARIANT', 'RESTORATION'))
+                  for k, scheme in enumerate(('V2', 'V3', 'V4'))]
+    outputs, produced = [], []
+    for n, role, version in ((1, 'VARIANT', 40), (2, 'RESTORATION', 41)):
+        apk, idsig = artifact_member(n)
+        for member, data in (('APK', apk), ('IDSIG', idsig)):
+            outputs.append((role, member, digest(0x30 + n), digest(0x40 + n), version, ZERO_DIGEST, 0))
+            produced.append((role, member, digest(0x30 + n), digest(0x40 + n), version, sha(data), len(data)))
+    signing = {'installation': INSTALLATION, 'transaction': ident(0x5e), 'component': COMPONENT, 'plan': ident(0x101),
+               'authorization': ident(0x201), 'certificate': digest(0xc1), 'key': digest(0xc2), 'sdkMin': 37,
+               'sdkMax': 0xffff, 'state': 'OPEN', 'refused': 0, 'operations': operations, 'outputs': outputs}
     return {'MANIFEST_VARIANT': variant, 'MANIFEST_RESTORATION': restoration, 'PUBLICATION_PAIR': publication(pair),
-            'PUBLICATION_ONE': publication(dict(pair, bundles=[sha(variant)], transactions=[ident(0x5e)]))}
+            'PUBLICATION_ONE': publication(dict(pair, bundles=[sha(variant)], transactions=[ident(0x5e)])),
+            'TRANSACTION_OPEN': transaction(signing),
+            'TRANSACTION_COMPLETED': transaction(dict(signing, state='COMPLETED', outputs=produced))}
 
 
-ARTIFACT_GOLDEN_NAMES = ('MANIFEST_VARIANT', 'MANIFEST_RESTORATION', 'PUBLICATION_PAIR', 'PUBLICATION_ONE')
+ARTIFACT_GOLDEN_NAMES = ('MANIFEST_VARIANT', 'MANIFEST_RESTORATION', 'PUBLICATION_PAIR', 'PUBLICATION_ONE',
+                         'TRANSACTION_OPEN', 'TRANSACTION_COMPLETED')
 
 GOLDEN_NAMES = ('PLAN_LATE_ONE', 'PLAN_EARLY_TWO', 'PLAN_FACTORY', 'PLAN_TEMPORARY', 'AUTH_SIGN', 'AUTH_ACTIVATE_LAB',
                 'AUTH_EMERGENCY',
@@ -452,7 +505,7 @@ README_FACTS = (
     '| 11 BUNDLE | component | id attempt, id plan, d32 publication, d32 bundleApk, d32 restorationApk '
     '| 1 PUBLISHED, 2 ABSENT, 3 MISMATCH |',
     'i32   user                  >= 0, or -10000 (USER_NULL) for no user          prefix',
-    'They use the frame above with types 6 and 7, version 1, and at most 4,096 bytes.',
+    'They use the frame above with types 6, 7 and 8, version 1, and at most 4,096 bytes.',
     'u8    schemes               bit 0 v2, 1 v3, 2 v4: exactly 7                         strict',
     'then for each: d32 bundle, nonzero, u8 role, VARIANT first, then RESTORATION, '
     'and id transaction, the bundle\'s own signing transaction, nonzero',
@@ -654,10 +707,24 @@ ARTIFACT_NAMES = (
     'store / a pair from two signing transactions fits the publication',
     "store / a restoration plan publishes the restoration that its pair's publication made visible",
     'store / a plan that signs nothing publishes only the restoration its repaired pair published',
-    "store / every bundle carries the plan's signer certificate")
+    "store / every bundle carries the plan's signer certificate",
+    'records / the signing transaction record keeps its goldens, strict codes, relations and prefix')
+
+SIGNING_NAMES = (
+    'signer / the record is written OPEN before the first key operation and names six operations and '
+    'four outputs',
+    'signer / refusing each signing callback in turn publishes nothing',
+    'signer / a lost signing reply resolves by the transaction ID, never by signing again',
+    'signer / a request that can no longer complete records SIGN_FAILED',
+    'builder / every scheme verifies and every signer has the platform role',
+    'builder / both bundles publish together through the store, or neither',
+    'builder / a lost acknowledgement resolves by reading the exact bytes',
+    'builder / a second publication completes from the held bundles without signing again',
+    'builder / a pair from two signing transactions publishes together',
+    'builder / a restoration plan publishes the already published restoration')
 
 NAMES = {'codec': CODEC_NAMES, 'machine': MACHINE_NAMES, 'store': STORE_NAMES, 'transactions': TRANSACTION_NAMES,
-         'artifacts': ARTIFACT_NAMES}
+         'artifacts': ARTIFACT_NAMES, 'signing': SIGNING_NAMES}
 
 # The loop built names: a pattern for the names and the source fragments that build them.
 GENERATED = {
@@ -1008,6 +1075,26 @@ MUTANTS = {
     'missing-read-blocks-abandon': (((RECONCILER,
         '            if (b.cause() != Cause.NONE && !judgesBytes(t.state)) {\n',
         '            if (b.cause() == null) {\n'),), ('machine',)),
+    # The host signer and the bundle builder: no partial output, verification before staging, both
+    # bundles together, every signer with the platform role, and never a second signing.
+    'signer-partial-output-kept': (((HOST_SIGNER, '            discard(open.transaction);\n', ''),), ('signing',)),
+    'builder-published-before-verification': (((BUNDLE_BUILDER,
+        '            if (s == null || verify(s.apk, s.idsig, m) != null) return false;\n',
+        '            if (s == null) return false;\n'),), ('signing',)),
+    'builder-bundle-published-alone': (((BUNDLE_BUILDER,
+        '        List<Role> roles = new ArrayList<>(List.of(Role.VARIANT));\n'
+        '        if (plan.hasRestoration()) roles.add(Role.RESTORATION);\n        Map<Role, Staged> chosen',
+        '        List<Role> roles = new ArrayList<>(List.of(Role.VARIANT));\n        Map<Role, Staged> chosen'),),
+        ('signing',)),
+    'builder-wrong-role': (((BUNDLE_BUILDER,
+        '            if (!s[0].equals(role.certificate) || !s[1].equals(role.key)) return "a signer without the platform '
+        'role";\n', ''),), ('signing',)),
+    'signer-resigns-after-lost-reply': (((HOST_SIGNER,
+        '        if (existing != null || node(record(open.transaction)) != Node.ABSENT) {\n'
+        '            return existing == null ? null : new Reply(existing); // Resolved by its ID, never signed again.\n'
+        '        }\n', ''),
+        (HOST_SIGNER, '            if (!writeNew(record(open.transaction), openBytes)) return null;\n',
+         '            if (!put(record(open.transaction), openBytes)) return null;\n')), ('signing',)),
     'artifact-input-equal-output-refused': (((ARTIFACT_RECORDS,
         '            this.installation = installation;\n            this.component = component;\n'
         '            this.transaction = transaction;\n',
@@ -1026,9 +1113,13 @@ REQUIRED_DEFECTS = {
     'a stale base reported as healthy': ('stale-base-reported-healthy',),
     'an expired ACTIVATE used': ('expired-activate-used',),
     'a DIVERGED close with a live session': ('diverged-close-with-live-session',),
-    'a partial publication': ('artifact-partial-publication', 'artifact-unnamed-bundle-visible'),
-    'publication before verification': ('artifact-published-before-verification',),
-    'a bundle published alone': ('artifact-bundle-published-alone',),
+    'a partial publication': ('artifact-partial-publication', 'artifact-unnamed-bundle-visible',
+                              'signer-partial-output-kept'),
+    'publication before verification': ('artifact-published-before-verification',
+                                        'builder-published-before-verification'),
+    'a bundle published alone': ('artifact-bundle-published-alone', 'builder-bundle-published-alone'),
+    'a signer without the platform role': ('builder-wrong-role',),
+    'a second signing after a lost reply': ('signer-resigns-after-lost-reply',),
     'a lost acknowledgement not resolved by reading': ('artifact-lost-acknowledgement-republished',
                                                        'artifact-read-back-trusts-the-name'),
     'a second publication without a proof of no effect': ('publish-again-without-proof',
@@ -1358,7 +1449,7 @@ def qualify(work, report):
         problems.append('build')
         return
     report['completed_phases'].append('build')
-    for suite in ('codec', 'machine', 'store', 'transactions', 'artifacts'):
+    for suite in ('codec', 'machine', 'store', 'transactions', 'artifacts', 'signing'):
         result, run = run_suite(base, suite)
         steps[suite] = result
         if red_names(result, NAMES[suite]) != set() or 'unqualified' not in run['stdout']:
@@ -1409,6 +1500,68 @@ def mutant_runs(work, records, problems, names=None):
         shutil.rmtree(directory)
 
 
+def sealed_run(work, args):
+    """The optional comparison with the frozen SystemUI outputs: the pinned apksigner jar, the public
+    development platform key, and the SystemUI platform role from an independently committed role
+    manifest. Returns a result, or the reason it did not run."""
+    given = (args.apksig_jar, args.sealed, args.platform_keys, args.role_manifest, args.role_manifest_sha256)
+    if not all(given):
+        return {'status': 'NOT_RUN', 'reason': 'no sealed inputs given'}
+    jar = args.apksig_jar.resolve()
+    if sha(jar.read_bytes()) != PINNED_APKSIGNER_JAR:
+        return {'status': 'FAIL', 'reason': 'not the pinned apksigner jar'}
+    sys.path.insert(0, str(ROOT / 'scripts/proof'))
+    import signing_recovery  # noqa: E402 - the trusted role manifest's own validation
+    manifest = strict(args.role_manifest.read_text())
+    certificate, key = signing_recovery.apk_role(manifest, signing_recovery.SYSTEMUI_COMPONENT,
+                                                 args.role_manifest_sha256)
+    base = work / 'base' / 'classes'
+    classes = work / 'sealed' / 'classes'
+    classes.mkdir(parents=True)
+    compiled = subprocess.run(['javac', '-J' + JAVAC_HEAP, *('-J' + option for option in JVM_LIMITS), '--release',
+                               '17', '-Xlint:all', '-Werror', '-implicit:none', '-proc:none',
+                               '-cp', '%s:%s' % (base, jar), '-d', str(classes),
+                               *(str(ROOT / name) for name in APKSIG_SOURCES)],
+                              capture_output=True, text=True, timeout=600, env=tool_environment())
+    if compiled.returncode:
+        return {'status': 'FAIL', 'reason': 'build', 'output': (compiled.stdout + compiled.stderr)[-4000:]}
+    service = classes / 'META-INF/services' / Path(APKSIG_SERVICE).name
+    service.parent.mkdir(parents=True)
+    service.write_bytes((ROOT / APKSIG_SERVICE).read_bytes())
+    out = work / 'sealed' / 'out'
+    out.mkdir()
+    # The reference without v1: the pinned jar's own command line with the development key.
+    reference = work / 'sealed' / 'reference'
+    reference.mkdir()
+    digests = {}
+    for name in ('A', 'R'):
+        signed = subprocess.run(['java', SEALED_HEAP, *JVM_LIMITS, '-jar', str(jar), 'sign',
+                                 '--key', str(args.platform_keys.resolve() / 'platform.pk8'),
+                                 '--cert', str(args.platform_keys.resolve() / 'platform.x509.pem'),
+                                 '--v1-signing-enabled', 'false', '--v4-signing-enabled', 'true',
+                                 '--min-sdk-version', '37', '--out', str(reference / (name + '.apk')),
+                                 str(args.sealed.resolve() / 'artifacts' / ('built-%s.apk' % name))],
+                                capture_output=True, text=True, timeout=600, env=tool_environment())
+        if signed.returncode:
+            return {'status': 'FAIL', 'reason': 'reference ' + name, 'output': signed.stderr[-4000:]}
+        for member in (name + '.apk', name + '.apk.idsig'):
+            digests[member] = sha((reference / member).read_bytes())
+    state = work / 'sealed' / 'jvm-tmp'
+    state.mkdir()
+    result = subprocess.run(['java', SEALED_HEAP, *JVM_LIMITS, '-ea', '-Djava.io.tmpdir=' + str(state),
+                             '-cp', '%s:%s:%s' % (classes, base, jar), PACKAGE + '.SealedOutputsTest',
+                             str(args.sealed.resolve()), str(args.platform_keys.resolve()), certificate, key, str(out),
+                             str(reference)],
+                            capture_output=True, text=True, timeout=1800, env=tool_environment())
+    run = {'returncode': result.returncode, 'stdout': result.stdout[-20000:], 'stderr': result.stderr[-4000:],
+           'passed': passed_checks(result.stdout), 'failed': failed_checks(result.stdout)}
+    outcome_ = outcome(run, SEALED_NAMES)
+    outcome_['status'] = 'PASS' if red_names(outcome_, SEALED_NAMES) == set() else 'FAIL'
+    outcome_['role'] = {'certificate': certificate, 'key': key}
+    outcome_['reference_without_v1'] = digests
+    return outcome_
+
+
 def fresh_outside(path, what):
     resolved = path.resolve()
     if resolved.exists() or ROOT in resolved.parents or resolved == ROOT:
@@ -1421,6 +1574,11 @@ def main(argv=None):
     parser.add_argument('--evidence', type=Path, help='fresh JSON path outside the repository')
     parser.add_argument('--work', type=Path, help='fresh scratch directory outside the repository')
     parser.add_argument('--source-checks-only', action='store_true')
+    parser.add_argument('--apksig-jar', type=Path, help='the pinned apksigner jar, for the sealed comparison')
+    parser.add_argument('--sealed', type=Path, help='the sealed SystemUI build directory holding artifacts/')
+    parser.add_argument('--platform-keys', type=Path, help='the directory with the public development platform key')
+    parser.add_argument('--role-manifest', type=Path, help='the trusted role manifest, JSON')
+    parser.add_argument('--role-manifest-sha256', help="the role manifest's independent commitment")
     args = parser.parse_args(argv)
     report = {'runtime_qualified': False, 'android_qualified': False, 'activation': False}
     problems = source_checks()
@@ -1448,6 +1606,10 @@ def main(argv=None):
     report.update(problems=problems, steps={}, completed_phases=[])
     try:
         qualify(work, report)
+        if not problems:
+            report['sealed'] = sealed_run(work, args)
+            if report['sealed']['status'] == 'FAIL':
+                problems.append('sealed comparison')
         report['status'] = 'FAIL' if problems else 'PASS'
     except Exception as error:  # noqa: BLE001 - recorded, never swallowed
         report['exception'] = '%s: %s' % (type(error).__name__, error)

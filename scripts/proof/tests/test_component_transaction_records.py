@@ -59,7 +59,7 @@ class ComponentTransactionSourceTests(unittest.TestCase):
         self.assertEqual(tuple(pins), runner.ARTIFACT_GOLDEN_NAMES)
         for name, data in gold.items():
             self.assertEqual(pins[name], (len(data), runner.sha(data)), name)
-            kind = {'MANIFEST': 6, 'PUBLICATION': 7}[name.split('_')[0]]
+            kind = {'MANIFEST': 6, 'PUBLICATION': 7, 'TRANSACTION': 8}[name.split('_')[0]]
             self.assertEqual(data[:4], b'AXDR', name)
             self.assertEqual(struct.unpack('<HHI', data[4:12]), (kind, 1, len(data)), name)
         # The pair names both manifests by their digests, the variant first, each with its own
@@ -75,7 +75,7 @@ class ComponentTransactionSourceTests(unittest.TestCase):
         # The encoder is written here from the README's layout; no part of it reads the Java codec.
         for function in (runner.record, runner.text, runner.ref, runner.plan, runner.authorization, runner.ticket,
                          runner.observation, runner.selection, runner.goldens, runner.manifest, runner.publication,
-                         runner.artifact_manifest, runner.artifact_goldens):
+                         runner.artifact_manifest, runner.artifact_goldens, runner.transaction):
             source = inspect.getsource(function)
             self.assertNotIn('DeploymentRecords', source, function.__name__)
             self.assertNotIn('ArtifactRecords', source, function.__name__)
@@ -102,10 +102,11 @@ class ComponentTransactionSourceTests(unittest.TestCase):
         predictions = json.loads(runner.PREDICTIONS.read_text())
         self.assertIn('PREDICTED', predictions['status'])
         self.assertEqual(predictions['cases'], {'codec': 52, 'machine': 70, 'store': 14, 'transactions': 44,
-                                                'artifacts': 20, 'goldens': 23, 'artifact_goldens': 4, 'mutants': 89})
+                                                'artifacts': 21, 'signing': 10, 'goldens': 23, 'artifact_goldens': 6,
+                                                'mutants': 94})
         self.assertEqual({suite: len(names) for suite, names in runner.NAMES.items()},
-                         {'codec': 52, 'machine': 70, 'store': 14, 'transactions': 44, 'artifacts': 20})
-        self.assertEqual(predictions['guarded_run']['cases_passed'], 200)
+                         {'codec': 52, 'machine': 70, 'store': 14, 'transactions': 44, 'artifacts': 21, 'signing': 10})
+        self.assertEqual(predictions['guarded_run']['cases_passed'], 211)
         for names in runner.NAMES.values():
             for name in names:
                 self.assertNotIn(': ', name)
@@ -133,7 +134,7 @@ class ComponentTransactionSourceTests(unittest.TestCase):
                 runner.mutant_texts()
 
     def test_every_required_defect_has_a_mutant(self):
-        self.assertEqual(len(runner.REQUIRED_DEFECTS), 24)
+        self.assertEqual(len(runner.REQUIRED_DEFECTS), 26)
         for defect, names in runner.REQUIRED_DEFECTS.items():
             for name in names:
                 self.assertIn(name, runner.MUTANTS, defect)

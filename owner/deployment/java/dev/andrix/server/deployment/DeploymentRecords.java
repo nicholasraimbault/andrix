@@ -460,7 +460,7 @@ public final class DeploymentRecords {
         /** The plan this one repairs or replaces, or NO_ID. */
         public final String repairs;
         /**
-         * The variant's signing input: the SHA-256 over its ZIP entries outside the signing block.
+         * The variant's signing input: the SHA-256 over its ZIP entries outside its signatures.
          * The signed APK's digest is signed output, which the plan cannot know: the bundle that
          * the plan's publication binds carries it, and a BUNDLE fact reports it.
          */

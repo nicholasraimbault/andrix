@@ -1,24 +1,25 @@
 {
-  "status": "PREDICTED for D1 with the layout changes of D2, and for the artifact store of D2: the plan names only facts known before signing, its signing inputs, versionCodes and signer, and a bundle fact names the plan and carries the APK digests that the plan's publication binds, which every comparison with the active bytes reads. A read of other bytes holds with the request limit alert. A plan that signs nothing publishes bundles that another publication made visible, and every bundle carries the plan's signer. Earlier: the publication names each bundle's signing transaction, the manifest holds no time and takes the input's identity from its entries outside the signing block, and a second publication follows a read of absence naming the PUBLISH attempt. A plan that signs nothing publishes only decision 3's restoration, and a missing or disagreeing publication read holds with the alert while a recorded cause still abandons a live session. Written before any run of these sources, guarded, unguarded or mutant. Runs of earlier sources preceded it. Nothing here is a guarded or mutant result.",
+  "status": "PREDICTED for D1 with the layout changes of D2, and for D2's artifact store, host signer and bundle builder: one signing transaction of six key operations under the captive callback, written OPEN before the first operation and resolved by its ID, never by signing again; every output verified against the platform role before it is staged; both bundles published together or neither; and the restoration plan's publication of the published restoration. Earlier: the plan names only facts known before signing, and a bundle fact carries the APK digests its publication binds. A plan that signs nothing publishes only decision 3's restoration, and a missing or disagreeing publication read holds with the alert while a recorded cause still abandons a live session. Written before any run of the new cases' mutants. Nothing here is a guarded or mutant result.",
   "plan": "plans/2026-10-09-component-transaction.md",
-  "package": "D1: the deployment records, their codec, the ticket state machine, reconciliation and host storage. D2: the bundle manifest, the publication record, the artifact store, the second publication and the restoration plan's publication",
+  "package": "D1: the deployment records, their codec, the ticket state machine, reconciliation and host storage. D2: the bundle manifest, the publication record, the artifact store, the signing transaction record, the host signer and the bundle builder",
   "basis": "Each count is the length of the runner's case lists. Each golden is the independent encoder's bytes. Each mutant's catches are traced against the cases that reach the changed rule; a defect that another rule also refuses names only the cases that reach it.",
   "cases": {
     "codec": 52,
     "machine": 70,
     "store": 14,
     "transactions": 44,
-    "artifacts": 20,
+    "artifacts": 21,
+    "signing": 10,
     "goldens": 23,
-    "artifact_goldens": 4,
-    "mutants": 89
+    "artifact_goldens": 6,
+    "mutants": 94
   },
   "guarded_run": {
-    "cases_passed": 200,
+    "cases_passed": 211,
     "cases_failed": 0,
     "goldens_equal_to_the_encoder": 23,
-    "artifact_goldens_equal_to_the_encoder": 4,
-    "mutants_caught": 89,
+    "artifact_goldens_equal_to_the_encoder": 6,
+    "mutants_caught": 94,
     "status": "PASS"
   },
   "goldens": {
@@ -131,6 +132,14 @@
     "PUBLICATION_ONE": {
       "bytes": 156,
       "sha256": "cb1811d26a22c4849d4d45ad360a9e66ad1f5ed0259a5bace9bd76c081e31524"
+    },
+    "TRANSACTION_OPEN": {
+      "bytes": 770,
+      "sha256": "b6418e2fc715b7d8f2753845ac5ac7ec87f026d4f95227c1a32885cc80b173c4"
+    },
+    "TRANSACTION_COMPLETED": {
+      "bytes": 770,
+      "sha256": "6d33ee095a3a930ff7d123448e6409d6522b7844da0f34fe381139cd0353c485"
     }
   },
   "mutants_caught_at_least": {
@@ -444,6 +453,22 @@
     ],
     "artifact-signing-plan-any-role": [
       "store / a restoration plan publishes the restoration that its pair's publication made visible"
+    ],
+    "signer-partial-output-kept": [
+      "signer / refusing each signing callback in turn publishes nothing"
+    ],
+    "builder-published-before-verification": [
+      "builder / every scheme verifies and every signer has the platform role"
+    ],
+    "builder-bundle-published-alone": [
+      "builder / both bundles publish together through the store, or neither",
+      "builder / a pair from two signing transactions publishes together"
+    ],
+    "builder-wrong-role": [
+      "builder / every scheme verifies and every signer has the platform role"
+    ],
+    "signer-resigns-after-lost-reply": [
+      "signer / a lost signing reply resolves by the transaction ID, never by signing again"
     ],
     "artifact-restoration-repairs-unbound": [
       "store / a plan that signs nothing publishes only the restoration its repaired pair published",

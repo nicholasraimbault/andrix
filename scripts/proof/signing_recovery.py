@@ -224,6 +224,22 @@ def key_description(slot, private_key, tools, certificates=(), avb=False):
             'avb_public_key': _encode(tools.avb_public_key(spki)) if avb else None}
 
 
+# The SystemUI platform role: SystemUI is signed with the platform key, so its APK use names the
+# platform slot. The component transaction's builder checks every signer of both bundles against it.
+SYSTEMUI_COMPONENT = 'com.android.systemui'
+
+
+def apk_role(manifest, component, expected_manifest_sha256):
+    """The certificate and public key digests that an independently committed manifest binds to
+    one component's APK signing role, as (x509-der SHA-256, SPKI DER SHA-256)."""
+    _fail(validate_manifest(manifest) == expected_manifest_sha256, 'Unexpected installation identity or role set')
+    for use in manifest['uses']:
+        if use['purpose'] == 'apk' and use['component'] == component:
+            key = next(k for k in manifest['keys'] if k['slot'] == use['slot'])
+            return use['identity']['sha256'], digest(_decode(key['spki']))
+    raise RecoveryError('No APK signing role for the component')
+
+
 def _validate_material(manifest, private_keys, tools):
     validate_manifest(manifest)
     _fail(isinstance(private_keys, dict) and set(private_keys) == {k['slot'] for k in manifest['keys']},
