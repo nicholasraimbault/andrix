@@ -598,18 +598,24 @@ These are the stop points, in an approved session. GrapheneOS's web installer re
 These must be designed for caiman, not copied from the Cuttlefish product.
 
 1. **Product and board composition.** `PRODUCT_DEVICE` stays `caiman`, because the generated module
-   registers its firmware only for that device and GrapheneOS's release scripts are keyed to it.
-   The generated board file is marked "do not edit". Andrix needs a reviewed way to add its policy
-   directories, M4 definitions and `config.fs` without editing generated files. The Cuttlefish
-   board keys these on the Cuttlefish product name, so none of them reach a caiman build today.
-   Every lab vehicle must keep refusing any product other than its Cuttlefish one.
+   registers its firmware only for that device. GrapheneOS's release scripts take the device as an
+   argument but name their files after the product (`script/finalize.sh` and
+   `script/generate-release.sh`), and the build ID is looked up by product name
+   (`build/make/core/version_util.mk:43`). An Andrix product name therefore needs its own handling
+   in the build and release steps, not only in signing. The generated board file is marked "do not
+   edit". Andrix needs a reviewed way to add its policy directories, M4 definitions and `config.fs`
+   without editing generated files. The Cuttlefish board keys these on the Cuttlefish product name,
+   so none of them reach a caiman build today. The lab vehicles' refusals of every other product
+   live in the Cuttlefish product makefile, which a caiman build never reads. They must move to a
+   file every Andrix product reads, so that a caiman build refuses every lab setting.
 2. **The neverallow check.** adevtool sets `SELINUX_IGNORE_NEVERALLOWS := true` for every device
    with extracted vendor policy, and its 2026100600 revision still does. It also drops the
-   `neverallow` statements from that policy. Under the flag, `secilc` runs with `-N` at both policy
-   stages, and the neverallow test module only writes its timestamp. So a caiman build checks none
-   of Andrix's rules. There are 22 in `owner/sepolicy` and 2 in `owner/platform/sepolicy`. The
-   `owner-session-policy` patch adds 4 more to `system/sepolicy` and narrows some AOSP rules for the
-   owner domain. The replacement is a separate check after the build.
+   `neverallow` statements from that policy, but keeps `neverallowx` statements. Under the flag,
+   `secilc` runs with `-N` at both policy stages, and the neverallow test module only writes its
+   timestamp. So a caiman build checks none of Andrix's rules. There are 22 in `owner/sepolicy` and
+   2 in `owner/platform/sepolicy`. The `owner-session-policy` patch adds 4 more to `system/sepolicy`
+   and narrows some AOSP rules for the owner domain. The replacement is a separate check after the
+   build.
    - It checks the policy the phone loads, which is the vendor partition's precompiled policy. Init
      uses that policy only when its hash files match the system, system_ext and product policies,
      so the check confirms they match.
@@ -617,19 +623,24 @@ These must be designed for caiman, not copied from the Cuttlefish product.
      policy is really present.
    - `sepolicy-analyze` runs in neverallow mode with Andrix's rules in their expanded form, using
      `-w`. Any warning fails the check, because names it cannot resolve are otherwise ignored
-     silently.
+     silently. Its neverallow mode reads only `neverallow` statements and skips `neverallowxperm`
+     ones (`system/sepolicy/tools/sepolicy-analyze/neverallow.c`). A `secilc` compilation without
+     `-N` therefore also checks the extended permission rules.
    - Each Andrix rule has its own mutant policy that violates it, and every mutant must fail.
    - The AOSP rules, as patched in the Andrix tree, run against the same policy. A violation that
      GrapheneOS's own release policy also shows is reported as coming from the vendor policy. Any
-     other violation fails the gate. This also covers the AOSP rules the patch narrows.
+     other violation fails the gate. This also covers the AOSP rules the patch narrows. GrapheneOS's
+     own test accepts warnings for these rules, so the comparison needs a recorded warning baseline.
 
    None of this is built or tested yet.
 3. **Device services overlay.** Andrix's overlay replaces `config_deviceSpecificSystemServices` with
    one service, `OwnerLifecycleService`. It adapts owner sessions to Android's user and storage
    lifecycle, and it is not a native account lifecycle writer. The overlay's own comment warns that
-   other device cohorts must keep their existing services. At the pinned tag no generated caiman
-   source overlay sets the array. Prebuilt overlays and the newer tag are unchecked. Merge with
-   caiman's effective array, or register the service another way.
+   other device cohorts must keep their existing services. At both tags no generated caiman
+   source overlay sets the array, and adevtool's record of what it generates for caiman at
+   2026100600 shows no prebuilt overlay that sets it either. The array is then empty, as on
+   Cuttlefish. A build check must still refuse any second overlay that sets it, because the real
+   overlays exist only after the first build.
 4. **Owner resource controls.** `andrixd` relies on `memory.max`, `memory.swap.max` and
    `memory.oom.group` in a cgroup2 directory for the owner UID. At the pinned tag the generated
    caiman product installs a vendor `task_profiles.json` and no vendor `cgroups.json`. Whether
@@ -996,7 +1007,11 @@ Most severe first.
   images.
 - The facts come from the pinned tree at 2026081300 and from single public files. Those files are
   at the 2026100600 revisions of adevtool, the release scripts, the build scripts, adb, fastboot
-  and bionic. The second tree itself was not inspected.
+  and bionic. A later desk study of the design items read the second tree at 2026100600. It traced
+  from source which processes get the boot state override: by its reading, every app outside the
+  system image that starts from the main zygote, and the programs it starts. It found the rollback
+  index set from the security patch timestamp in `BoardConfigMainlineCommon.mk:38`. Both still
+  need a build or a phone session to confirm.
 - Unverified:
   - what an interrupted firmware write does;
   - whether the Pixel binds data keys to the verified boot key while unlocked;
