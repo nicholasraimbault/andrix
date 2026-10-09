@@ -1,0 +1,16 @@
+Use consistent mmap/unmap sizes in MemoryIntArray
+
+Ensure mmap/munmap pairings for MemoryIntArray always use the same size
+argument, rather than re-querying the ashmem size region before unmap.
+This prevents any kind of changes to the underlying fd from bleeding
+into the size argument used in the munmap call.
+
+A longer term fix will migrate this class to be implemented purely in
+terms of SharedMemory and existing Java primitives.
+
+Bug: 498720726
+Test: atest FrameworksUtilTests:android.util.MemoryIntArrayTest
+Flag: EXEMPT CVE_FIX
+Cherrypick-From: https://googleplex-android-review.googlesource.com/q/commit:daf86f667f9d8922af019155f8a672cca88c6f71
+Merged-In: Id6ff65e9fdbb2d98974f9b78c73f005c6dbf9867
+Change-Id: Id6ff65e9fdbb2d98974f9b78c73f005c6dbf9867

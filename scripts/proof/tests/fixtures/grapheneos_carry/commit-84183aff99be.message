@@ -1,0 +1,18 @@
+Fix potential OOM in PduParser by using stream skip
+
+CVE-Info: CVE-2026-55265 | Severity: Critical | Type: DoS
+
+Avoid allocating a large byte array when skipping values in PduParser.java. Instead of creating a byte array of the given length and reading into it, use InputStream.skip() which is safe and does not allocate memory. This prevents OutOfMemoryErrors when parsing malformed MMS PDUs with huge value lengths.
+
+Additionally, refactored repeated bounds check logic into a helper method `isInvalidLength`.
+
+Added PduParserTest to verify parsing bounds check with huge header lengths.
+
+Bug: 517377150
+Flag: EXEMPT BUGFIX
+Test: atest MmsTest PduParserTest WapPushOverSmsTest
+
+CONV=9f66c987-4e37-4f71-bbaf-df4cf7f39fd8
+TAG=agy
+
+Change-Id: I46f37df0bd5aa6d75d5043d34b5e831b64b53f57

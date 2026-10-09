@@ -1,0 +1,8 @@
+CVE-2025-22442: set profile user restrictions earlier
+
+Bug: 382064697
+Flag: EXEMPT BUGFIX
+Cherrypick-From: https://googleplex-android-review.googlesource.com/q/commit:994366d40c9519f00a9a67c554f7b459ebf587ee
+Cherrypick-From: https://googleplex-android-review.googlesource.com/q/commit:0821e223d2d989c7c3b3820faa063e982aed6dc7
+Merged-In: I9019c05f61455feb1ce03d0dd8818a6f13c7af97
+Change-Id: I9019c05f61455feb1ce03d0dd8818a6f13c7af97

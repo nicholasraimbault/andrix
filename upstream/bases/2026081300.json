@@ -1,0 +1,69 @@
+{
+  "schema": "andrix.upstream.base/1",
+  "release": "2026081300",
+  "manifest": {
+    "repository": "https://github.com/GrapheneOS/platform_manifest",
+    "tag": "refs/tags/2026081300",
+    "tag_object": "5189230024ffe0048e0c351d5101c6b3f8b43eac",
+    "commit": "84536744f0c06cccbcfa2110e9c937671ddc3278",
+    "path": "default.xml",
+    "blob": "73eaff2191042fda56e7ff3d267fa35d39d07cac",
+    "sha256": "c50f0096f538e604aa008e8ab4e3f1a3739f142c60c878a32f402c11eb406572",
+    "signer": "contact@grapheneos.org",
+    "allowed_signers_sha256": "344f59c6f058699e63fea68e35953b341c14e3bf1fbc1256f6baa84aa2aca1d0"
+  },
+  "aosp_default_revision": "refs/tags/android-17.0.0_r1",
+  "projects": {
+    "count": 1108,
+    "table_sha256": "a8bd61bc31e73f105760158b046e3abe5382298a58c690fb9c0f68310ca6b5fe",
+    "table_form": "canonical JSON list of path, name, remote, revision, groups and copyfile/linkfile rows, sorted by path"
+  },
+  "security_patch_level": {
+    "value": "2026-08-05",
+    "release": "cur",
+    "variant": "userdebug",
+    "resolution": ["cur inherits aosp_current", "aosp_current aliases cp2a", "cp2a sets it"],
+    "project": "build/release",
+    "revision": "fb0e00657d596e48fc45ed86c9eb6a7c4071d72c",
+    "path": "flag_values/cp2a/RELEASE_PLATFORM_SECURITY_PATCH.textproto",
+    "blob": "9db302cfe52dd4dff9056b4ce986511ba47a7caa"
+  },
+  "kernel_prebuilts": {
+    "kernel/prebuilts/6.1/arm64": "bfb3baed33d4497416d6f77fc015d71f726b838d",
+    "kernel/prebuilts/6.1/x86_64": "f1a9310e363d905f5587fa58925a1059af58cc01",
+    "kernel/prebuilts/6.12/arm64": "318576752b27af3d328e6deb5e6aa29b08f762c9",
+    "kernel/prebuilts/6.12/x86_64": "cb8e8ee3babf4a27b742f59dcb92f59cf186299c",
+    "kernel/prebuilts/6.18/arm64": "6b2d4fe8c0c7ffe9e72f64dbc9811d6a8d4d2907",
+    "kernel/prebuilts/6.18/x86_64": "23cf6401297ea7e14f6b2365067f585f9143e51f",
+    "kernel/prebuilts/6.6/arm64": "350899556b7cae26d5981c7055759428aef7598d",
+    "kernel/prebuilts/6.6/x86_64": "b87e9b115da5dd1ed94b423657279c766057d5b3",
+    "kernel/prebuilts/common-modules/trusty/6.12/arm64": "36b655a113a38fe26146dac298262ea28878f9a2",
+    "kernel/prebuilts/common-modules/trusty/6.6/arm64": "3f7053bdf0a7147e001e69a1d61d9ce679404289",
+    "kernel/prebuilts/common-modules/virtual-device/6.1/arm64": "5c2c81e8c957851c06c5e8696105c796d885bed0",
+    "kernel/prebuilts/common-modules/virtual-device/6.1/x86-64": "c0d95b0f0520cdb63653802d6a4cfd51717c09d7",
+    "kernel/prebuilts/common-modules/virtual-device/6.12/arm64": "e6673fcbd05e63e6fcc2c2d2cf33246108b73b0c",
+    "kernel/prebuilts/common-modules/virtual-device/6.12/x86-64": "4463c45163d93baf9479744641a03961f58c1467",
+    "kernel/prebuilts/common-modules/virtual-device/6.18/arm64": "659b5e0fdcbb92fe1dd4a930fc861e744bd3f157",
+    "kernel/prebuilts/common-modules/virtual-device/6.18/x86-64": "8dcdc633a80d0a37f549fdf8fd1c48f2317f76fa",
+    "kernel/prebuilts/common-modules/virtual-device/6.6/arm64": "3aa5ec86b45a7eda3c85cd7e97ef2845d1b95b7f",
+    "kernel/prebuilts/common-modules/virtual-device/6.6/x86-64": "bd4fabf3d97e12cedebb1beafddc5116e3da5fde",
+    "kernel/prebuilts/common-modules/virtual-device/mainline/arm64": "c1b6f17450d64bb1c368b48aae97055563e5043e",
+    "kernel/prebuilts/common-modules/virtual-device/mainline/x86-64": "8686f19c255c36095c0dcf087901a5a8f7a00750",
+    "kernel/prebuilts/mainline/arm64": "49cdfc22db6be7a55ae951e522d5ecadf6293a90",
+    "kernel/prebuilts/mainline/x86_64": "51a4241eb8c63ce034bfcd798d8dff8eaa8325d0"
+  },
+  "patched_projects": {
+    "frameworks/base": {
+      "name": "platform_frameworks_base",
+      "remote": "grapheneos",
+      "url": "https://github.com/GrapheneOS/platform_frameworks_base",
+      "revision": "aab06a8bd44c4c2b58eeec780fde83baa9d43a40"
+    },
+    "system/sepolicy": {
+      "name": "platform_system_sepolicy",
+      "remote": "grapheneos",
+      "url": "https://github.com/GrapheneOS/platform_system_sepolicy",
+      "revision": "87a06ed71fd67cff9f77feaa9ae3504edb5d0972"
+    }
+  }
+}

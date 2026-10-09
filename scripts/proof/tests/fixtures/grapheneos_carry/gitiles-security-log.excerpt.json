@@ -1,0 +1,116 @@
+)]}'
+{
+  "log": [
+    {
+      "commit": "48fe68e00b946ec46b6ecd334e6daf31f5bd65f1",
+      "tree": "e9101e3fbb73090b3fd68c330c41bf4c676bb048",
+      "parents": [
+        "466d7e36805abcd7ab245d059deb590fae4ab52f",
+        "05fef2f15699db8e2fef050748ba8b76ef6dec3b"
+      ],
+      "message": "Merge cherrypicks of ['googleplex-android-review.googlesource.com/40550193'] into security-aosp-26Q2-release.\n\nChange-Id: Ieb2c1aba873d73c8db2a6a1a3b19b36c1fa6a604\n",
+      "tree_diff": []
+    },
+    {
+      "commit": "05fef2f15699db8e2fef050748ba8b76ef6dec3b",
+      "tree": "e9101e3fbb73090b3fd68c330c41bf4c676bb048",
+      "parents": [
+        "466d7e36805abcd7ab245d059deb590fae4ab52f"
+      ],
+      "message": "Fix security vulnerabilities in PduParser.java\n\n- Fix ArrayIndexOutOfBoundsException in parseContentType by adding bounds check for PduContentTypes.contentTypes index.\n- Fix NullPointerExceptions in parseContentTypeParams by adding null checks for map and charsetStr.\n\nBug: 513582756\nTest: TelephonyCommonTests (PduParserTest)\nFlag: EXEMPT BUGFIX\n(cherry picked from commit cbb0d81bf0866a8249eca7c7ec53f7c179f8b171)\nCherrypick-From: https://googleplex-android-review.googlesource.com/q/commit:937e32d05a639e88fb42b824af2b7d678bcf2b30\nMerged-In: I4fab1579d22c4a1dcf2d75d4f4aab0a352df1bd9\nChange-Id: I4fab1579d22c4a1dcf2d75d4f4aab0a352df1bd9\n",
+      "tree_diff": [
+        {
+          "type": "modify",
+          "old_id": "e805089306dcc0a950f6602b958ac9c51f18f640",
+          "old_mode": 33188,
+          "old_path": "telephony/common/com/google/android/mms/pdu/PduParser.java",
+          "new_id": "d2f23026e5d8352f462b3c17f1dacb023a74ada3",
+          "new_mode": 33188,
+          "new_path": "telephony/common/com/google/android/mms/pdu/PduParser.java"
+        },
+        {
+          "type": "add",
+          "old_id": "0000000000000000000000000000000000000000",
+          "old_mode": 0,
+          "old_path": "/dev/null",
+          "new_id": "387e0b7f2b8b46b5bfd9e95ca61a267c273c2674",
+          "new_mode": 33188,
+          "new_path": "tests/TelephonyCommonTests/src/com/google/android/mms/pdu/PduParserTest.java"
+        }
+      ]
+    },
+    {
+      "commit": "79dd06a8c17c5e5b8a5a22b4f8819a5c8c263011",
+      "tree": "22c1fd6b70449f64a30950c93f049ad43dff546f",
+      "parents": [
+        "4c5500a0d604fe9f98dfd1dc41f49d9493bc9f0d"
+      ],
+      "message": "CVE-2025-22442: set profile user restrictions earlier\n\nBug: 382064697\nFlag: EXEMPT BUGFIX\nCherrypick-From: https://googleplex-android-review.googlesource.com/q/commit:994366d40c9519f00a9a67c554f7b459ebf587ee\nCherrypick-From: https://googleplex-android-review.googlesource.com/q/commit:0821e223d2d989c7c3b3820faa063e982aed6dc7\nMerged-In: I9019c05f61455feb1ce03d0dd8818a6f13c7af97\nChange-Id: I9019c05f61455feb1ce03d0dd8818a6f13c7af97\n",
+      "tree_diff": [
+        {
+          "type": "modify",
+          "old_id": "c35bd5668f577148824e8199ac53078c3ef00973",
+          "old_mode": 33188,
+          "old_path": "services/core/java/com/android/server/pm/HsumBootUserInitializer.java",
+          "new_id": "0cea2f42edf557a0c935c4a90e6ec9deb27d900b",
+          "new_mode": 33188,
+          "new_path": "services/core/java/com/android/server/pm/HsumBootUserInitializer.java"
+        },
+        {
+          "type": "modify",
+          "old_id": "3f4f67301e4219f5bed6a7accb91dfb4c1b00d92",
+          "old_mode": 33188,
+          "old_path": "services/core/java/com/android/server/pm/PackageManagerShellCommand.java",
+          "new_id": "26712b75db889d1f09674004c6a50100482fede6",
+          "new_mode": 33188,
+          "new_path": "services/core/java/com/android/server/pm/PackageManagerShellCommand.java"
+        },
+        {
+          "type": "modify",
+          "old_id": "cfef79f67983d0c4bd25a93fef890760496ab9da",
+          "old_mode": 33188,
+          "old_path": "services/core/java/com/android/server/pm/UserManagerInternal.java",
+          "new_id": "4bf3e16601f906401f2f0f57a8118934d80444c1",
+          "new_mode": 33188,
+          "new_path": "services/core/java/com/android/server/pm/UserManagerInternal.java"
+        },
+        {
+          "type": "modify",
+          "old_id": "af54d5e2c3a143d8fe21d75c204de4ffcc5e1616",
+          "old_mode": 33188,
+          "old_path": "services/core/java/com/android/server/pm/UserManagerService.java",
+          "new_id": "cbaab6f19e521b893740b6a2c5ce76f49d8e4396",
+          "new_mode": 33188,
+          "new_path": "services/core/java/com/android/server/pm/UserManagerService.java"
+        },
+        {
+          "type": "modify",
+          "old_id": "4d3a96a8174ec4fcf15fce8540bf3a679be41355",
+          "old_mode": 33188,
+          "old_path": "services/devicepolicy/java/com/android/server/devicepolicy/DevicePolicyManagerService.java",
+          "new_id": "84ea328272735625761a5a65ddf957e5bacd3260",
+          "new_mode": 33188,
+          "new_path": "services/devicepolicy/java/com/android/server/devicepolicy/DevicePolicyManagerService.java"
+        },
+        {
+          "type": "modify",
+          "old_id": "668fbe8c7bed8b0c5cdc238b82c73417e4599559",
+          "old_mode": 33188,
+          "old_path": "services/tests/mockingservicestests/src/com/android/server/pm/HsumBootUserInitializerInitMethodTest.java",
+          "new_id": "a8818986e73d6753fd3d66262f3428a63c6fc6de",
+          "new_mode": 33188,
+          "new_path": "services/tests/mockingservicestests/src/com/android/server/pm/HsumBootUserInitializerInitMethodTest.java"
+        },
+        {
+          "type": "modify",
+          "old_id": "da71cea05ae8855b74baceae83d380c7bb6f4138",
+          "old_mode": 33188,
+          "old_path": "services/tests/mockingservicestests/src/com/android/server/pm/UserManagerServiceMockedTest.java",
+          "new_id": "122ae6b1e03b13369817826da07a01a2989932b3",
+          "new_mode": 33188,
+          "new_path": "services/tests/mockingservicestests/src/com/android/server/pm/UserManagerServiceMockedTest.java"
+        }
+      ]
+    }
+  ]
+}

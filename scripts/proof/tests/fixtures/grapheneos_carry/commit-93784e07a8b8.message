@@ -1,0 +1,12 @@
+Fix security vulnerabilities in PduParser.java
+
+CVE-Info: CVE-2026-58865 | Severity: Critical | Type: DoS
+
+- Fix ArrayIndexOutOfBoundsException in parseContentType by adding bounds check for PduContentTypes.contentTypes index.
+- Fix NullPointerExceptions in parseContentTypeParams by adding null checks for map and charsetStr.
+
+Bug: 513582756
+Test: TelephonyCommonTests (PduParserTest)
+Flag: EXEMPT BUGFIX
+Change-Id: I4fab1579d22c4a1dcf2d75d4f4aab0a352df1bd9
+(cherry picked from commit cbb0d81bf0866a8249eca7c7ec53f7c179f8b171)
