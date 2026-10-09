@@ -1,0 +1,326 @@
+{
+  "status": "PREDICTED for D1, after an independent review of the first candidate: its three blocking findings and nine of its smaller issues fixed. Written before any run of these sources, guarded, unguarded or mutant. Runs of earlier sources preceded it. Nothing here is a guarded or mutant result.",
+  "plan": "plans/2026-10-09-component-transaction.md",
+  "package": "D1: the deployment records, their codec, the ticket state machine, reconciliation and host storage",
+  "basis": "Each count is the length of the runner's case lists. Each golden is the independent encoder's bytes. Each mutant's catches are traced against the cases that reach the changed rule; a defect that another rule also refuses names only the cases that reach it.",
+  "cases": {
+    "codec": 49,
+    "machine": 65,
+    "store": 14,
+    "transactions": 44,
+    "goldens": 22,
+    "mutants": 54
+  },
+  "guarded_run": {
+    "cases_passed": 172,
+    "cases_failed": 0,
+    "goldens_equal_to_the_encoder": 22,
+    "mutants_caught": 54,
+    "status": "PASS"
+  },
+  "goldens": {
+    "PLAN_LATE_ONE": {
+      "bytes": 603,
+      "sha256": "23beb3ce9dd66c9f50c57395206830e616c28dbf06602abdbc1dbc8a648d21e8"
+    },
+    "PLAN_EARLY_TWO": {
+      "bytes": 603,
+      "sha256": "450dac1637ba0017fdc05ba372145e14796a4f2a84aae04fe360fe5f34070e21"
+    },
+    "PLAN_FACTORY": {
+      "bytes": 603,
+      "sha256": "304b7055a474d7392cf673c001f5a7120e3357631bda3d995710644e2297b465"
+    },
+    "PLAN_TEMPORARY": {
+      "bytes": 603,
+      "sha256": "21bb74dbd5269b9eacdc6e613f9085867ca59e0dccc7b83ec1534767c9cf8e76"
+    },
+    "AUTH_SIGN": {
+      "bytes": 170,
+      "sha256": "8a1faf2a9901ce724ea0350aaab3c49187aa7adee35ed58de6576574bfd0f46b"
+    },
+    "AUTH_ACTIVATE_LAB": {
+      "bytes": 170,
+      "sha256": "b45311311d3c5e5a3754bc0379f2c41babebeb33930bb2c24beb0328775ba447"
+    },
+    "AUTH_EMERGENCY": {
+      "bytes": 170,
+      "sha256": "3b09bfc57aaa722467c7fd876429501fb22112e856a5bf5960da7efcbed69dbc"
+    },
+    "TICKET_PLANNED": {
+      "bytes": 235,
+      "sha256": "52d4647c577d9189cc918b8d91d7158e3d08e666d9e66457bc6520a8ba117bdb"
+    },
+    "TICKET_UNRESOLVED": {
+      "bytes": 454,
+      "sha256": "a836d8fcbadbc259269d7fd4e77c591ffd4d52de9a99682d7574adbebcecc26d"
+    },
+    "TICKET_WINDOW": {
+      "bytes": 732,
+      "sha256": "cb297578e536a48a96a223082ecee3bd06fb361d87a7b78e2ae99189dcabc278"
+    },
+    "TICKET_SUPERSEDED": {
+      "bytes": 712,
+      "sha256": "aa0668858c6c29ce5c52a313f16befdc9f937e65fdb274ed5b9ec4f0f4691482"
+    },
+    "TICKET_MAXIMUM": {
+      "bytes": 5864,
+      "sha256": "d1a32eee83c63db96befba9a385e9e0166e0112d2d2360db9ac844aa821977e8"
+    },
+    "OBS_BOOT": {
+      "bytes": 237,
+      "sha256": "f711d0057e31c19b4b6d4133142a209fb0a5e52ed8fae4c6ae9e5c0532c1f9e9"
+    },
+    "OBS_ACTIVE": {
+      "bytes": 260,
+      "sha256": "3e4a7665a1ef607ca5bc1c7e091877457b20f3749370274f5f0c2c59c5ced40e"
+    },
+    "OBS_LISTING": {
+      "bytes": 187,
+      "sha256": "d57cabd34835bf211eda7f545b3aa349fea4a012afff7b56d0e14e64e3db67d5"
+    },
+    "OBS_SESSION_SHELL": {
+      "bytes": 253,
+      "sha256": "bee9dd58e1135bc6a3856118add9a05743a8dd5f7c230fcdf321578e1247e17e"
+    },
+    "OBS_REPLY_DEVICE": {
+      "bytes": 239,
+      "sha256": "99df7fa7b6d60fabf7ce9f9058e47ad7528687185da767041520e0f78848c1b3"
+    },
+    "OBS_HEALTH": {
+      "bytes": 187,
+      "sha256": "fd7aa73d6982b0810a061f4b55f456b65363bc724cc92d5c0f60691fc2373048"
+    },
+    "OBS_SIGNER": {
+      "bytes": 201,
+      "sha256": "7b6e0563786f4ee0de90009a1c93ab80c625b08ba887c99bcd29a254f7d4e857"
+    },
+    "SELECTION_FACTORY": {
+      "bytes": 173,
+      "sha256": "4995f27093bbd21aad786b99f73a32db49f0a3f145ea2cbb22aeb5f06f96c13a"
+    },
+    "SELECTION_STALE": {
+      "bytes": 173,
+      "sha256": "9871db79666bb108589c57ecf0a262b4f557ae3e007a35468e1af0fc975aff4a"
+    },
+    "SELECTION_TEMPORARY": {
+      "bytes": 173,
+      "sha256": "b4449fa53d49dcb053bd5561cd3f2072542f9888ee45fa1d3c6a3a8936b80ff4"
+    }
+  },
+  "mutants_caught_at_least": {
+    "replay-lost-sign-reply": [
+      "unresolved / every intent state waits without evidence and never replays",
+      "signing / one transaction by default and the two that the records still allow"
+    ],
+    "replay-abandon-same-instance": [
+      "unresolved / an abandon is repeated only after a later framework instance shows the session live"
+    ],
+    "early-applied-before-checkpoint": [
+      "checkpoint / APPLIED only once the checkpoint is observed committed",
+      "flow / shell route, late commit, one signing transaction",
+      "flow / device route, early commit, two signing transactions",
+      "invariants / every run kept every invariant"
+    ],
+    "early-close-before-checkpoint": [
+      "checkpoint / no crossing and no close before the commit"
+    ],
+    "second-create-bound": [
+      "decoder refuses / ledger bounds, order and references",
+      "size / the largest ticket fits MAX_BYTES"
+    ],
+    "second-commit-replayed": [
+      "decoder refuses / ledger bounds, order and references",
+      "size / the largest ticket fits MAX_BYTES",
+      "unresolved / every intent state waits without evidence and never replays"
+    ],
+    "ready-again-waits-under-late-commit": [
+      "ready again / late commit reboots at once under an unexpired unused ACTIVATE",
+      "ready again / notice and its delay come first",
+      "ready again / other running users get notice and a declared delay",
+      "ready again / late commit abandons without one",
+      "recovery / unclean stop after READY, applied, ready again or abandoned",
+      "recovery / a session made ready again waits for the checkpoint and activates nothing on a crash"
+    ],
+    "boot-during-commit-ignored": [
+      "boot / a boot during COMMIT_INTENT is BOOT_OBSERVED",
+      "recovery / framework restart during commit"
+    ],
+    "android-deletion-resets-choice": [
+      "cohort / an Android deletion keeps the choice",
+      "cohort / CURRENT, STALE_BASE, DISPLACED and DIVERGED",
+      "recovery / image change deletes the variant and DISPLACED keeps the choice",
+      "invariants / every run kept every invariant"
+    ],
+    "stale-base-reported-healthy": [
+      "health / a stale base is never healthy",
+      "recovery / image change keeps the variant as STALE_BASE, never healthy"
+    ],
+    "expired-activate-used": [
+      "ready again / an expired ACTIVATE is never used",
+      "late commit / ACTIVATE is required before SESSION_INTENT",
+      "recovery / unclean stop after READY, applied, ready again or abandoned"
+    ],
+    "diverged-close-with-live-session": [
+      "diverged / other bytes close a live session only after abandoning it",
+      "recovery / another installer or a downgrade through root",
+      "invariants / every run kept every invariant"
+    ],
+    "unknown-commit-mode-accepted": [
+      "decoder refuses / unknown strict codes in every kind"
+    ],
+    "observation-trailing-bytes": [
+      "frame / magic, type, version, length and checksum are verified first"
+    ],
+    "prefix-reads-version-1": [
+      "prefix / version 1 and damaged frames give no prefix"
+    ],
+    "no-user-any-serial": [
+      "decoder refuses / observation scope",
+      "prefix / each frozen rule refuses"
+    ],
+    "unresolved-outside-intent": [
+      "decoder refuses / ticket relations"
+    ],
+    "grant-scope-unchecked": [
+      "decoder refuses / authorization relations"
+    ],
+    "two-signings-without-restoration": [
+      "decoder refuses / plan relations",
+      "decision 8 / one or two signing transactions fit the layout"
+    ],
+    "ledger-order-unchecked": [
+      "decoder refuses / ledger bounds, order and references"
+    ],
+    "informational-time-refused": [
+      "decoder accepts / informational fields take any value"
+    ],
+    "boot-edge-without-boot": [
+      "check / refuses steps outside the table"
+    ],
+    "late-commit-without-activate": [
+      "late commit / ACTIVATE is required before SESSION_INTENT"
+    ],
+    "cancel-cuts-intent-short": [
+      "cancel / deferred until the intent resolves"
+    ],
+    "crossing-in-checkpointed-boot": [
+      "checkpoint / no crossing and no close before the commit",
+      "checkpoint / APPLIED only once the checkpoint is observed committed",
+      "recovery / a session made ready again waits for the checkpoint and activates nothing on a crash",
+      "invariants / every run kept every invariant"
+    ],
+    "boot-limit-not-alerted": [
+      "loops / the health window ends UNHEALTHY at the boot limit",
+      "loops / the provisional loop holds with the boot limit alert",
+      "loops / the boot limit alert on every path repeating across boots",
+      "recovery / crash during the health window"
+    ],
+    "reboot-loop-unbounded": [
+      "loops / the reboot request loop abandons at the request limit",
+      "recovery / reboot request lost up to the request limit"
+    ],
+    "abandon-loop-unheld": [
+      "loops / the abandon loop holds with the request limit alert"
+    ],
+    "one-open-ticket-unchecked": [
+      "store / one open ticket per component and attempts in order",
+      "repair / a linked repair plan supersedes the window and restores"
+    ],
+    "cancelled-plan-moves-choice": [
+      "selection / a void or cancelled plan never moves the choice",
+      "void / after commit a session not yet activated is abandoned and one activating is observed",
+      "selection / a move lost between two writes is made at APPLIED or in the health window"
+    ],
+    "reused-session-id-binds": [
+      "unresolved / a reused session ID is not the exact reference"
+    ],
+    "same-instance-absence-proves": [
+      "unresolved / a listing in the same framework instance proves nothing"
+    ],
+    "temporary-factory-moves-choice": [
+      "selection / a temporary factory plan never moves the choice",
+      "decision 6 / a temporary factory copy keeps the choice until the rebuild lands"
+    ],
+    "temporary-state-resets-choice": [
+      "cohort / an owner approved temporary factory state keeps the choice",
+      "decision 6 / a temporary factory copy keeps the choice until the rebuild lands"
+    ],
+    "automatic-restoration-unlisted": [
+      "restoration / automatic restoration runs only when the approval listed it"
+    ],
+    "inconclusive-counted-unhealthy": [
+      "health / an unavailable observation is inconclusive, never unhealthy",
+      "restoration / automatic restoration runs only when the approval listed it",
+      "decision 3 / automatic restoration takes over only on an observed failure"
+    ],
+    "notice-ignores-other-users": [
+      "ready again / other running users get notice and a declared delay",
+      "decision 7 / other running users get notice and a declared delay before the reboot"
+    ],
+    "emergency-notice-without-policy": [
+      "notice / a restoration shortens notice only under an emergency policy"
+    ],
+    "selection-write-skipped": [
+      "flow / shell route, late commit, one signing transaction",
+      "flow / shell route, late commit, two signing transactions",
+      "flow / shell route, early commit, one signing transaction",
+      "flow / shell route, early commit, two signing transactions",
+      "flow / device route, late commit, one signing transaction",
+      "flow / device route, late commit, two signing transactions",
+      "flow / device route, early commit, one signing transaction",
+      "flow / device route, early commit, two signing transactions",
+      "recovery / coordinator lost between the selection and ticket writes keeps the choice"
+    ],
+    "choice-move-not-recomputed": [
+      "selection / a move lost between two writes is made at APPLIED or in the health window"
+    ],
+    "own-move-voids-plan": [
+      "selection / a move lost between two writes is made at APPLIED or in the health window"
+    ],
+    "boot-limit-skips-restoration": [
+      "restoration / at the boot limit the restoration listed in the approval takes over",
+      "decision 3 / automatic restoration takes over at the boot limit"
+    ],
+    "emergency-notice-any-repair": [
+      "notice / a rebuilt variant, an unlisted repair or a temporary factory plan never shortens notice"
+    ],
+    "request-limit-counts-reboots": [
+      "ready again / the request limit counts lost requests, not reboots that took effect"
+    ],
+    "applied-session-waits-on-other-bytes": [
+      "boot / an applied session with other or prior bytes active is DIVERGED"
+    ],
+    "record-lost-applies-before-commit": [
+      "record lost / before any commit the bundle's bytes are never applied"
+    ],
+    "diverged-without-commit-accepted": [
+      "check / ABANDON_INTENT to BOOT_OBSERVED and every DIVERGED exit need a COMMIT in the ledger"
+    ],
+    "create-replayed": [
+      "decoder refuses / ledger bounds, order and references",
+      "size / the largest ticket fits MAX_BYTES",
+      "unresolved / every intent state waits without evidence and never replays",
+      "recovery / create reply lost on the shell route stays unresolved until a listing shows none"
+    ],
+    "signing-skipped-after-create": [
+      "signing / a later attempt skips signing only when the bundles read back published"
+    ],
+    "repeats-any-earlier-fact": [
+      "recovery / chosen bytes that return after other bytes are CURRENT again"
+    ],
+    "repair-link-cleared-on-change": [
+      "cohort / an open repair plan is linked and the link outlives a status change"
+    ],
+    "repair-link-never-set": [
+      "cohort / an open repair plan is linked and the link outlives a status change"
+    ],
+    "temporary-factory-emergency-delay": [
+      "decoder refuses / plan relations",
+      "notice / a rebuilt variant, an unlisted repair or a temporary factory plan never shortens notice"
+    ],
+    "store-update-unchecked": [
+      "store / ticket updates must be legal steps from the exact stored bytes"
+    ]
+  }
+}
