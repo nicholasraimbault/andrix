@@ -490,6 +490,7 @@
     {"project": "frameworks/base", "path": "services/core/java/com/android/server/pm/UserManagerService.java", "list": "paths", "class": "changed", "base_object": "c95eade3289014d3cca5e1560801159a9d69342b", "target_object": "796477e1defdf2086280aecf3632efcd50a22788", "api_added": ["UserInfo createUserInternalUnchecked( String name, String userType, int flags, int parentId, boolean preCreate, String[] disallowedPackages, Object token, String[] devicePolicyUserRestrictions) throws UserManager.CheckedUserOperationException", "private UserInfo createUserInternalUncheckedNoTracing( String name, String userType, int flags, int parentId, boolean preCreate, String[] disallowedPackages, TimingsTraceAndSlog t, Object token, String[] devicePolicyUserRestrictions) throws UserManager.CheckedUserOperationException", "public UserInfo createProfileForUserEvenWhenDisallowed( String name, String userType, int flags, int parentId, String[] disallowedPackages, Object token, String[] devicePolicyUserRestrictions) throws UserManager.CheckedUserOperationException"], "api_removed": ["UserInfo createUserInternalUnchecked( String name, String userType, int flags, int parentId, boolean preCreate, String[] disallowedPackages, Object token) throws UserManager.CheckedUserOperationException", "private UserInfo createUserInternalUncheckedNoTracing( String name, String userType, int flags, int parentId, boolean preCreate, String[] disallowedPackages, TimingsTraceAndSlog t, Object token) throws UserManager.CheckedUserOperationException"], "upstream_commits": [{"commit": "38400ae03366", "subject": "CVE-2025-22442: set profile user restrictions earlier", "change_id": "I9019c05f61455feb1ce03d0dd8818a6f13c7af97", "cves": ["CVE-2025-22442"]}]},
     {"project": "frameworks/base", "path": "services/core/java/com/android/server/pm/PackageSetting.java", "list": "paths", "class": "identical", "base_object": "e18f9762676b3f8415c32c613fd5af74d5f3aa1b", "target_object": "e18f9762676b3f8415c32c613fd5af74d5f3aa1b"},
     {"project": "frameworks/base", "path": "services/core/java/com/android/server/pm/SettingBase.java", "list": "paths", "class": "identical", "base_object": "9054c85d14bc481c30d710d46728465213ddf6f5", "target_object": "9054c85d14bc481c30d710d46728465213ddf6f5"},
+    {"project": "frameworks/base", "path": "services/core/java/com/android/server/pm/SharedUserSetting.java", "list": "paths", "class": "identical", "base_object": "abb0f39d967c1db279f561e345fa298a491d99ca", "target_object": "abb0f39d967c1db279f561e345fa298a491d99ca"},
     {"project": "frameworks/base", "path": "services/core/java/com/android/server/pm/PackageManagerTracedLock.java", "list": "paths", "class": "identical", "base_object": "d9604b3c396bdc90e4a06557d1cca3213b550fcb", "target_object": "d9604b3c396bdc90e4a06557d1cca3213b550fcb"},
     {"project": "frameworks/base", "path": "services/core/java/com/android/server/pm/pkg/PackageStateInternal.java", "list": "paths", "class": "identical", "base_object": "e3e0b36230ae0af3d1671a187261eca1885700d7", "target_object": "e3e0b36230ae0af3d1671a187261eca1885700d7"},
     {"project": "frameworks/base", "path": "services/core/java/com/android/server/pm/pkg/PackageUserStateInternal.java", "list": "paths", "class": "identical", "base_object": "7ae5748eae3ef806398fa12abf9ed73590d8c291", "target_object": "7ae5748eae3ef806398fa12abf9ed73590d8c291"},
@@ -662,10 +663,10 @@
   "generated": {
     "tool": "scripts/proof/grapheneos_carry.py",
     "tool_sha256": "88926c90154252066f49e26bd3ba62d499df6664a2118fb091242aa60d4c743d",
-    "at": "2026-10-09T15:51:02Z"
+    "at": "2026-10-09T15:53:55Z"
   },
   "seal": {
     "algorithm": "sha256 over canonical JSON of every other field",
-    "sha256": "e340ef43ad0f31f2f94ae1fb34ec538a9a8e67727e47250757beb04abc16a99a"
+    "sha256": "cb15dd252cffdb7723acad1a500b1fe4163c26de007ebd84b3aa33588fcc0c4f"
   }
 }

@@ -23,6 +23,7 @@
     {"project": "frameworks/base", "path": "services/core/java/com/android/server/pm/UserManagerService.java", "reason": "implements UserManagerInternal"},
     {"project": "frameworks/base", "path": "services/core/java/com/android/server/pm/PackageSetting.java", "reason": "native principal host stub"},
     {"project": "frameworks/base", "path": "services/core/java/com/android/server/pm/SettingBase.java", "reason": "native principal host stub"},
+    {"project": "frameworks/base", "path": "services/core/java/com/android/server/pm/SharedUserSetting.java", "reason": "native principal host stub"},
     {"project": "frameworks/base", "path": "services/core/java/com/android/server/pm/PackageManagerTracedLock.java", "reason": "native principal host stub"},
     {"project": "frameworks/base", "path": "services/core/java/com/android/server/pm/pkg/PackageStateInternal.java", "reason": "native principal host stub"},
     {"project": "frameworks/base", "path": "services/core/java/com/android/server/pm/pkg/PackageUserStateInternal.java", "reason": "Imported by NativePrincipalManager. Host stub"},
