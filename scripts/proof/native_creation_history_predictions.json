@@ -210,5 +210,41 @@
     "renamed_check": {"history / the production V1 format reads no reservation":
                       "history / the version 1 rollback reader reads no reservation"},
     "unchanged_expectations": "Every earlier B2 outcome stays: the renamed check keeps its body, the shared support keeps its facades Format.V1 through the B1 adapter, and the 78456b3 harness texts equal the current ones."
+  },
+  "living_parity": {
+    "status": "PREDICTED. A living guard: a package that changes boot outcomes on the current sources predicts each difference here before any run.",
+    "against": "the archived 24bfb6a parity side, over the layouts of the pinned 24bfb6a parity driver",
+    "keys": "relation/<layout> for a twin relation, <format>/<layout>/<kind>/<detail> for an outcome line",
+    "driver": "The living side compiles the pinned 24bfb6a NativeHistoryParity too, so both sides run one driver. The source checks hold the working-tree driver to its bytes; a package that edits the driver moves the living parity to the edited driver and predicts each difference here.",
+    "predicted_differences": []
+  },
+  "p0_archive": {
+    "status": "PREDICTED before any guarded execution of the archived legs. Nothing here is an executed result. The sources equal 24bfb6a, so each archived leg is predicted to repeat the count of the leg it archives.",
+    "plan": "plans/2026-10-08-native-lifecycle-record.md",
+    "revision": "24bfb6ad3c5c9630faca141a93d3531851e280b8",
+    "rule": "Every archived leg reads only pinned Git objects through the manifest of native_creation_binding.py and candidates built from pinned patches, assembled with the working tree closed. The pinned canonical copies are read before the tree closes, against the pinned profile's upstream hashes, so they may lie in the repository. Each leg runs only archive code: the 24bfb6a helpers it copies, which tests compare with their Git objects, and the archive's own assemblies, phases and checks. It is checked against frozen expectations and the pinned 24bfb6a predictions. So living code and the current sources do not change its inputs or results; only an edit of the archive itself does.",
+    "candidates": {
+      "changed_24bf_against_0018": ["services/core/java/com/android/server/pm/Settings.java"],
+      "rollback_changed_7845_against_24bf": ["services/core/java/com/android/server/pm/Settings.java"],
+      "settings_7845_differs_from_24bf_by_bytes": 1
+    },
+    "probe": "The 0018a1d and 24bfb6a sides both pass with the same lines: ten case lines and the final line.",
+    "living_probe": "The probe on the current sources passes by its own assertions, and its file keeps the reviewed bytes until its cases are ported.",
+    "parity": {"mismatches": 0, "twinned_layouts": 7},
+    "living_parity": {"against": "the archived 24bfb6a side", "differences": 0,
+                      "driver": "the pinned 24bfb6a driver, which the working-tree driver equals byte for byte"},
+    "archived_layouts": 45,
+    "archived_copy_layouts": 45,
+    "archived_rollback_controls": ["history-rebound", "history-reserved"],
+    "archived_readers": {"24bf-v1": 45, "0018": 45, "c926": 45, "7845": 45},
+    "archived_rollback": {
+      "24bf-v1": {"NativeRollbackReaderCheck": 48, "NativeRollbackSeedingCheck": 48},
+      "7845": {"NativeRollbackReaderCheck": 48, "NativeRollbackSeedingCheck": 48}
+    },
+    "living_readers": {"b2-v1": 45},
+    "living_rollback": {"b2-v1": {"NativeRollbackReaderCheck": 48, "NativeRollbackSeedingCheck": 48}},
+    "relabelled": {"b2-v1": "legacy"},
+    "labels": "The Format.V1 reads of version 2 layouts in b2 focused and its mutants are legacy. The archived 24bfb6a parity side's Format.V1 runs are rollback-reader, like the 24bf-v1 reader; its version 2 runs and the 0018a1d side are archived-baseline.",
+    "unchanged_living": "b2 focused passes 87 and b2 faults 40; the current emitter writes 45 layouts, each with a version 2 copy; 40 B2 mutants are caught."
   }
 }

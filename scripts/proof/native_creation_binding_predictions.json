@@ -412,5 +412,28 @@
     "rollback_control_basis": "Under Format.V2 the published body is BODY history and the bound reservation without a body is RESERVATION history. Both restore a PENDING pin, and the facade's scan admits the mapped package with its recorded signer and serial.",
     "store_class_differences_from_7845": [],
     "unchanged_expectations": "Every earlier B0, B1 and reader expectation stays: the shared support routes the reopened and live facades through the B1 adapter, which keeps them Format.V1, and the manager and writer suites construct Format.V1 explicitly."
+  },
+  "p0_archive": {
+    "status": "PREDICTED before any guarded execution of the archived legs. Nothing here is an executed result. The sources equal 24bfb6a, so each archived leg is predicted to repeat the count of the leg it archives.",
+    "plan": "plans/2026-10-08-native-lifecycle-record.md",
+    "revision": "24bfb6ad3c5c9630faca141a93d3531851e280b8",
+    "rule": "Every archived leg reads only pinned Git objects through the manifest of native_creation_binding.py, assembled with the working tree closed. It runs only archive code: the 24bfb6a helpers it copies, which tests compare with their Git objects, and the archive's own loader, assemblies, phases and checks. It compiles and runs its JVMs in its own work directory without an inherited class path, and is checked against frozen expectations and the pinned 24bfb6a predictions. The source checks refuse any archive function or archive data that uses a living name. So living code and the current sources do not change its inputs or results; only an edit of the archive itself does.",
+    "store_class_differences_24bf_7845": [],
+    "b0": {
+      "cases": {"focused": 53, "faults": 27},
+      "c926": {"focused_failures": 0, "fault_failures": 0},
+      "d104": {"focused_failures": 41, "fault_failures": 18},
+      "24bf": {"focused_failures": 0, "fault_failures": 0}
+    },
+    "archived_layouts": 47,
+    "archived_copy_layouts": 43,
+    "archived_rollback_controls": ["final-published", "final-reserved"],
+    "archived_readers": {"24bf-v1": 47, "c926": 47, "7845": 47},
+    "archived_rollback": {"24bf-v1": 50, "7845": 50},
+    "living_readers": {"b1-v1": 47},
+    "living_rollback": {"b1-v1": 50},
+    "relabelled": {"b1-v1": "legacy"},
+    "labels": "Living runs carry production or legacy, archived runs rollback-reader or archived-baseline. Every Format.V1 read by the current sources is legacy: the version gate and future format tests, the last manager case, the b1-v1 reader and its rollback check, and the V1 reader cases of b1 focused and its mutants. In this runner rollback-reader labels only the pinned 24bf-v1 and 7845 readers and their rollback checks; the history and counter admission runners also give it to the Format.V1 runs of the archived 24bfb6a parity side.",
+    "unchanged_living": "b0 b1-v1 passes 53 and 27; b1 focused passes 80 and b1 faults 53; presence v2 passes 93; the current emitter writes 47 layouts, 43 with a version 2 copy; 21 B1 mutants are caught and 20 guard mutants trip exactly their rules."
   }
 }

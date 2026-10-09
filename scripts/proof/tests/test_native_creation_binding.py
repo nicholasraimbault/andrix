@@ -2,17 +2,110 @@
 """Complete creation bindings and exact byte admission: pure source guards here, and the guarded
 JVM matrix, which is NOT RUN without the required resource bounds. Not Android runtime proof."""
 from pathlib import Path
+import ast
+import inspect
 import json
+import os
+import re
 import resource
 import shutil
+import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / 'scripts/proof'))
 import native_creation_binding as runner  # noqa: E402
+
+
+def historical_constants(revision, path, names, namespace=None):
+    """Module level constants of a runner as its Git object at one revision states them: each named
+    assignment, evaluated in file order with the given namespace and the names before it, and no
+    builtins but tuple and sorted."""
+    values = {}
+    for node in ast.parse(runner.git_bytes(revision, path).decode()).body:
+        if (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)
+                and node.targets[0].id in names):
+            code = compile(ast.Expression(node.value), path, 'eval')
+            scope = {'__builtins__': {'tuple': tuple, 'sorted': sorted}, **(namespace or {}), **values}
+            values[node.targets[0].id] = eval(code, scope)  # noqa: S307
+    return values
+
+
+def historical_function(revision, path, name):
+    """The source of one top level function as a runner's Git object at one revision states it."""
+    text = runner.git_bytes(revision, path).decode()
+    for node in ast.parse(text).body:
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            return ast.get_source_segment(text, node)
+    raise AssertionError('no function %s in %s' % (name, path))
+
+
+def normalized_function(source, renames=None):
+    """One function's syntax tree as text, decorators dropped and names mapped: two functions that
+    differ only in layout, comments and the mapped names compare equal."""
+    node = ast.parse(textwrap.dedent(source)).body[0]
+    node.decorator_list = []
+    for child in ast.walk(node):
+        if isinstance(child, ast.Name):
+            child.id = (renames or {}).get(child.id, child.id)
+        elif isinstance(child, ast.Attribute):
+            child.attr = (renames or {}).get(child.attr, child.attr)
+        elif isinstance(child, ast.FunctionDef):
+            child.name = (renames or {}).get(child.name, child.name)
+    return ast.dump(node)
+
+
+def pin_data(value):
+    """Whether a value is pinned revision data: a revision key, a full revision, a SHA-256 digest, or
+    a mapping of such data."""
+    if isinstance(value, str):
+        return re.fullmatch(r'[0-9a-z]{4}|[0-9a-f]{40}|[0-9a-f]{64}', value) is not None
+    if isinstance(value, dict):
+        return all(isinstance(key, str) and pin_data(item) for key, item in value.items())
+    return False
+
+
+def fake_tools(layouts):
+    """A stand in for the compiler and JVM, with Git itself: javac succeeds, a layout emitter writes
+    the given layouts, each of version 2 copies, and every other JVM prints one passing check. Their
+    effects are the same whichever code starts them."""
+    real = subprocess.run
+
+    def run(args, **kwargs):
+        if args[0] not in ('javac', 'java'):
+            return real(args, **kwargs)
+        if args[0] == 'java':
+            main = next(index for index, arg in enumerate(args) if arg.startswith('com.android.server.pm.'))
+            if args[main].endswith('Layouts'):
+                for name in layouts:
+                    (Path(args[main + 1]) / name).mkdir(parents=True)
+                    (Path(args[main + 1]) / name / 'kind').write_text('copy\n')
+        return subprocess.CompletedProcess(args, 0, 'PASS a\n', '')
+    return run
+
+
+def living_code_broken(test, module, names):
+    """Patch every named living function of a module to fail the test when it runs."""
+    for name in names:
+        patcher = mock.patch.object(module, name, side_effect=AssertionError('living %s ran' % name))
+        patcher.start()
+        test.addCleanup(patcher.stop)
+
+
+def frozen_matches(test, module, frozen, path, original, renames=None, replacements=()):
+    """Assert that one frozen function of a runner is its 24bfb6a original, but for the mapped names
+    and the marked replacements applied to the original."""
+    source = historical_function(runner.REVISIONS[runner.ARCHIVE], path, original)
+    for old, new in replacements:
+        test.assertEqual(source.count(old), 1, (frozen, old))
+        source = source.replace(old, new)
+    mapping = {frozen: original, **(renames or {})}
+    test.assertEqual(normalized_function(inspect.getsource(getattr(module, frozen)), mapping),
+                     normalized_function(source), frozen)
 
 
 class CreationBindingSourceTests(unittest.TestCase):
@@ -131,12 +224,23 @@ class CreationBindingSourceTests(unittest.TestCase):
         self.assertIsNone(runner.boot_literal(runner.guard_mutants()['construction-outside-boot'][0]))
 
     def test_r0_forward_is_the_one_literal_change(self):
-        old = runner.git_bytes(runner.REVISIONS['7845'], runner.NATIVE_PATCH).decode()
-        self.assertEqual(runner.r0_forward(old), runner.integration.PATCH.read_text())
-        self.assertIsNone(runner.r0_forward(runner.integration.PATCH.read_text()))
-        self.assertIsNone(runner.r0_forward(old + old))
-        facade = runner.git_bytes(runner.REVISIONS['7845'], runner.FACADE).decode()
-        self.assertEqual(runner.facade_default(runner.r0_forward(facade)), runner.PRODUCTION)
+        # Archived: the frozen R0 forward change is the whole difference of the pinned 78456b3 and
+        # 24bfb6a patches, and, comments aside, of their host facades.
+        old = runner.git_bytes(runner.REVISIONS['7845'], runner.ARCHIVED_PATCH).decode()
+        archived = runner.pinned_bytes(runner.ARCHIVE, runner.ARCHIVED_PATCH).decode()
+        self.assertEqual(runner.archived_r0_forward(old), archived)
+        self.assertIsNone(runner.archived_r0_forward(archived))
+        self.assertIsNone(runner.archived_r0_forward(old + old))
+        code = lambda text: ' '.join(runner.archived_strip_java_comments(text).split())  # noqa: E731
+        facade = runner.pinned_bytes('7845', runner.ARCHIVED_FACADE).decode()
+        self.assertEqual(code(runner.archived_r0_forward(facade)),
+                         code(runner.pinned_bytes(runner.ARCHIVE, runner.ARCHIVED_FACADE).decode()))
+        # Living: the same rule over the current literals, and the current facade's default.
+        boot = 'store(' + runner.RETIRED + ');\n'
+        self.assertEqual(runner.r0_forward(boot), 'store(' + runner.PRODUCTION + ');\n')
+        self.assertIsNone(runner.r0_forward(boot + boot))
+        self.assertIsNone(runner.r0_forward(runner.r0_forward(boot)))
+        self.assertEqual(runner.facade_default((ROOT / runner.FACADE).read_text()), runner.PRODUCTION)
 
     def test_rollback_copy_count_and_controls_are_predicted(self):
         predictions = json.loads(runner.PREDICTIONS.read_text())['r0_format_guard']
@@ -160,33 +264,82 @@ class CreationBindingSourceTests(unittest.TestCase):
             (layouts / name / 'kind').write_text(kind)
         self.assertEqual(runner.copy_layouts(layouts), 2)
 
-    def test_rollback_reader_and_labels(self):
+    def test_readers_and_labels(self):
         self.assertEqual(runner.label_problems(), [])
         self.assertEqual(runner.REVISIONS['7845'], '78456b352267dba916778b90d7c926c4e67ef888')
+        self.assertEqual(runner.REVISIONS[runner.ARCHIVE], '24bfb6ad3c5c9630faca141a93d3531851e280b8')
         for name, digest in runner.BASELINE_SHA256['7845'].items():
-            path = runner.FACADE if name == 'Settings' else runner.FRAMEWORK_DIR + name + '.java'
+            path = runner.ARCHIVED_FACADE if name == 'Settings' else runner.ARCHIVED_FRAMEWORK_DIR + name + '.java'
             self.assertEqual(runner.sha(runner.git_bytes(runner.REVISIONS['7845'], path)), digest, name)
-        self.assertIn(('7845', '7845', 'b1'), runner.READERS)
-        self.assertEqual(set(runner.ROLLBACK_READERS), {'b1-v1', '7845'})
-        self.assertEqual({runner.READER_LABELS[target] for target in runner.ROLLBACK_READERS}, {'rollback-reader'})
-        self.assertEqual(runner.READER_LABELS['c926'], 'archived-baseline')
+        # The current sources under Format.V1 read the current layouts as a legacy guard. The models of
+        # the 78456b3 rollback reader read the archived layouts from pinned objects.
+        self.assertEqual(runner.READERS, (('b1-v1', None, 'b1'),))
+        self.assertEqual(runner.LEGACY_ROLLBACK, ('b1-v1',))
+        self.assertEqual(runner.ARCHIVED_READERS, (('24bf-v1', runner.ARCHIVE, 'b1'), ('c926', 'c926', 'baseline'),
+                                                   ('7845', '7845', 'b1')))
+        self.assertEqual(set(runner.ARCHIVED_ROLLBACK_READERS), {'24bf-v1', '7845'})
+        self.assertEqual({runner.READER_LABELS[target] for target in runner.ARCHIVED_ROLLBACK_READERS},
+                         {'rollback-reader'})
+        self.assertEqual((runner.READER_LABELS['b1-v1'], runner.READER_LABELS['c926']), ('legacy', 'archived-baseline'))
         labels = {}
         for label, _, classes, _ in runner.HARNESS_LABELS:
             for name in classes:
                 labels.setdefault(name, set()).add(label)
         self.assertEqual(labels['NativeWriterLabRehearsal'], {'production'})
-        # The rollback checks read under Format.V1, and their discrimination controls under Format.V2.
-        self.assertEqual(labels['NativeRollbackReaderCheck'], {'rollback-reader', 'production'})
-        self.assertEqual(labels['NativeRollbackSeedingCheck'], {'rollback-reader', 'production'})
-        self.assertEqual(runner.step_labels('rollback'), ('rollback-reader', 'production'))
+        # The rollback checks read under Format.V1, and their discrimination controls under Format.V2,
+        # each on the current sources and on archived objects.
+        everything = {'rollback-reader', 'production', 'legacy', 'archived-baseline'}
+        self.assertEqual(labels['NativeRollbackReaderCheck'], everything)
+        self.assertEqual(labels['NativeRollbackSeedingCheck'], everything)
+        # Every Format.V1 read by the current sources is legacy: no living class is rollback-reader.
+        for name in ('NativeIdentityVersionGateTest', 'NativeIdentityFutureFormatTest'):
+            self.assertEqual(labels[name], {'legacy'}, name)
+        self.assertEqual(labels['NativePrincipalManagerTest'], {'legacy'})
+        self.assertEqual(labels['NativeCreationBindingTest'], {'production', 'legacy'})
+        self.assertEqual(labels['NativeCreationHistoryTest'], {'production', 'legacy'})
+        for label, _, classes, _ in runner.HARNESS_LABELS:
+            if label == 'rollback-reader':
+                for name in classes:
+                    self.assertIsNotNone(runner.harness_class(name, archived=True), name)
+        self.assertEqual(runner.step_labels('b1 focused'), ('production', 'legacy'))
+        self.assertEqual(runner.step_labels('mutants'), ('production', 'legacy'))
+        self.assertEqual(runner.step_labels('rollback'), ('legacy', 'production'))
+        self.assertEqual(runner.step_labels('archived rollback'), ('rollback-reader', 'archived-baseline'))
+        self.assertEqual(runner.step_labels('readers'), ('production', 'legacy'))
+        self.assertEqual(runner.step_labels('archived readers'), ('archived-baseline', 'rollback-reader'))
         for name in ('NativePrincipalWriterFixtureTest', 'NativePrincipalManagerTest', 'NativeIdentityStoreTest'):
             self.assertIn('legacy', labels[name], name)
         self.assertEqual(runner.step_labels('b0 c926 focused'), ('archived-baseline',))
+        self.assertEqual(runner.step_labels('b0 24bf faults'), ('archived-baseline',))
         self.assertEqual(runner.step_labels('b0 b1-v1 faults'), ('legacy',))
         self.assertEqual(runner.step_labels('b1 faults'), ('production',))
+        # Every step a guarded run records carries labels of its kind: archived or living.
+        steps = ['store classes', 'b1 focused', 'b1 faults', 'presence v2', 'readers', 'rollback',
+                 'archived readers', 'archived rollback', 'mutants',
+                 *('b0 %s %s' % (leg, kind) for leg in ('c926', 'd104', '24bf', 'b1-v1')
+                   for kind in ('focused', 'faults'))]
+        for step in steps:
+            archived = step.rsplit(' ', 1)[0] in runner.ARCHIVED_STEP_NAMES or step in runner.ARCHIVED_STEP_NAMES
+            allowed = runner.ARCHIVED_RUN_LABELS if archived else runner.LIVING_RUN_LABELS
+            self.assertTrue(set(runner.step_labels(step)) <= set(allowed), step)
         with mock.patch.object(runner, 'HARNESS_LABELS', runner.HARNESS_LABELS + (
                 ('retired', 'scripts/proof/native_creation_binding.py', ('Absent',), 'x'),)):
             self.assertTrue(runner.label_problems())
+        # The reader rules: each break is refused.
+        for change in ({'READER_LABELS': dict(runner.READER_LABELS, **{'b1-v1': 'rollback-reader'})},
+                       {'READER_LABELS': {k: v for k, v in runner.READER_LABELS.items() if k != '24bf-v1'}},
+                       {'READER_LABELS': dict(runner.READER_LABELS, **{'7845': 'archived-baseline'})},
+                       {'ARCHIVED_READERS': (('24bf-v1', None, 'b1'),) + runner.ARCHIVED_READERS[1:]},
+                       {'READERS': (('b1-v1', 'c926', 'b1'),)},
+                       {'ARCHIVED_ROLLBACK_READERS': runner.ARCHIVED_ROLLBACK_READERS + ('b1-v1',)},
+                       {'LEGACY_ROLLBACK': ('7845',)},
+                       {'STEP_LABELS': dict(runner.STEP_LABELS, **{'b1 focused': ('production', 'rollback-reader')})},
+                       {'STEP_LABELS': dict(runner.STEP_LABELS, **{'archived readers': ('production',)})},
+                       {'HARNESS_LABELS': runner.HARNESS_LABELS + (
+                           ('rollback-reader', 'scripts/proof/native_creation_binding.py',
+                            ('NativeIdentityRecordsTest',), 'x'),)}):
+            with self.subTest(change=sorted(change)), mock.patch.multiple(runner, **change):
+                self.assertTrue(runner.label_problems())
 
     def test_v1_constructions_in_legacy_and_rollback_tests_are_explicit(self):
         # The host facade's default is the production format, so no test relies on it for V1.
@@ -223,12 +376,13 @@ class CreationBindingSourceTests(unittest.TestCase):
         names = set(runner.FOCUSED_NAMES) | set(runner.FAULT_NAMES)
         for name, expected in predictions['b1_mutants_caught_at_least'].items():
             self.assertTrue(expected and set(expected) <= names, name)
-        d104 = predictions['b0_adapted_suite']['d104e15']
+        d104 = runner.archived_predictions('binding')['b0_adapted_suite']['d104e15']
         self.assertEqual((len(d104['focused_failures']), len(d104['fault_failures'])), (41, 18))
+        # The d104e15 legs are archived: their pinned predictions name the frozen 24bfb6a cases.
         self.assertEqual(set(d104['focused_failures']) | set(d104['focused_controls']),
-                         set(runner.b0.FOCUSED_NAMES))
+                         set(runner.ARCHIVED_B0_FOCUSED_NAMES))
         self.assertEqual(set(d104['fault_failures']) | set(d104['fault_controls']),
-                         set(runner.b0.FAULT_NAMES))
+                         set(runner.ARCHIVED_B0_FAULT_NAMES))
         self.assertEqual((len(runner.FOCUSED_NAMES), len(runner.FAULT_NAMES), len(runner.LAYOUT_NAMES)),
                          (80, 53, 47))
 
@@ -240,14 +394,20 @@ class CreationBindingSourceTests(unittest.TestCase):
             (root / 'com/android/server/pm').mkdir(parents=True)
             (root / 'com/android/server/pm/NativeIdentityStore.class').write_bytes(b'same')
             (root / 'com/android/server/pm/NativeIdentityStore$Format.class').write_bytes(b'enum')
-        self.assertEqual(runner.class_differences(first, second), [])
+        self.assertEqual(runner.archived_class_differences(first, second), [])
         (second / 'com/android/server/pm/NativeIdentityStore$Format.class').write_bytes(b'swapped')
         (second / 'com/android/server/pm/Extra.class').write_bytes(b'x')
-        self.assertEqual(runner.class_differences(first, second),
+        self.assertEqual(runner.archived_class_differences(first, second),
                          ['com/android/server/pm/Extra.class', 'com/android/server/pm/NativeIdentityStore$Format.class'])
-        predictions = json.loads(runner.PREDICTIONS.read_text())['r0_format_guard']
-        self.assertEqual(predictions['store_class_differences_from_7845'], [])
-        self.assertEqual(runner.step_labels('store classes'), ('production', 'archived-baseline'))
+        predictions = json.loads(runner.PREDICTIONS.read_text())
+        self.assertEqual(predictions['r0_format_guard']['store_class_differences_from_7845'], [])
+        self.assertEqual(predictions['p0_archive']['store_class_differences_24bf_7845'], [])
+        # Archived: the pinned 24bfb6a and 78456b3 helpers beside the same pinned 24bfb6a sources.
+        self.assertEqual(runner.step_labels('store classes'), ('archived-baseline',))
+        current, archived = runner.archived_store_sources(runner.ARCHIVE), runner.archived_store_sources('7845')
+        self.assertEqual(set(current), set(archived))
+        self.assertEqual([name for name in current if current[name] != archived[name]],
+                         ['framework/NativeIdentityStore.java'])
 
     def test_compile_failure_keeps_diagnostics_and_is_not_red(self):
         build = {'returncode': 1, 'stdout': '', 'stderr': 'missing symbol', 'inputs': {}}
@@ -303,6 +463,306 @@ class CreationBindingSourceTests(unittest.TestCase):
         with mock.patch.object(resource, 'getrlimit', return_value=(0, 1)):
             root, membership = tree(exact)
             self.assertIn('core dumps', runner.resource_guard(root, membership))
+
+
+class ArchiveTests(unittest.TestCase):
+    """The 24bfb6a archive: one loader of pinned Git objects, the closed working tree, archive code
+    that uses no living name, its copies of 24bfb6a code and the frozen expectations of every
+    archived leg."""
+
+    def test_every_pin_equals_its_git_object(self):
+        # The history and counter admission runners register 0018 and 8949 when one process imports them.
+        self.assertTrue({'c926', 'd104', '7845', runner.ARCHIVE} <= set(runner.REVISIONS)
+                        <= {'c926', 'd104', '7845', runner.ARCHIVE, '0018', '8949'})
+        for revision in sorted(runner.REVISIONS):
+            for path, digest in sorted(runner.manifest(revision).items()):
+                with self.subTest(revision=revision, path=path):
+                    self.assertEqual(runner.sha(runner.git_bytes(runner.REVISIONS[revision], path)), digest)
+            for directory in runner.ARCHIVED_STUB_DIRECTORIES:
+                prefix = runner.ARCHIVED_PLATFORM + directory + '/'
+                tree = runner.git_paths(runner.REVISIONS[revision], prefix)
+                self.assertEqual(runner.pinned_paths(revision, prefix),
+                                 [path for path in tree if not path.endswith('/Xml.java')])
+        # The older products are 24bfb6a's fixtures and stubs but for their own framework sources and
+        # facade and the recorded stub differences: nothing else differs.
+        for revision in ('c926', 'd104', '7845'):
+            pins, archive = runner.manifest(revision), runner.manifest(runner.ARCHIVE)
+            differing = {path for path in pins if pins[path] != archive.get(path)}
+            recorded = {runner.ARCHIVED_FACADE, *runner.PRODUCT_DIFFERENCES.get(revision, {}),
+                        *runner.BASELINE_INPUTS_SHA256.get(revision, {}),
+                        *(runner.ARCHIVED_FRAMEWORK_DIR + name + '.java' for name in runner.ARCHIVED_FRAMEWORK)}
+            self.assertTrue(differing <= recorded, sorted(differing - recorded))
+            self.assertTrue(set(runner.PRODUCT_DIFFERENCES.get(revision, {})) <= differing, revision)
+        self.assertEqual(runner.archive_problems(), [])
+
+    def test_pinned_reads_refuse_unpinned_drifted_and_unregistered_objects(self):
+        with self.assertRaisesRegex(ValueError, 'unpinned archived input'):
+            runner.pinned_bytes(runner.ARCHIVE, 'AGENTS.md')
+        with self.assertRaisesRegex(ValueError, 'unregistered archive revision'):
+            runner.manifest('0018-absent')
+        path = runner.ARCHIVED_PLATFORM + 'NativeRollbackReaderCheck.java'
+        real, real_paths = runner.git_bytes, runner.git_paths
+        drifted = lambda revision, name: real(revision, name) + (b'\n' if name == path else b'')  # noqa: E731
+        with mock.patch.object(runner, 'git_bytes', side_effect=drifted):
+            with self.assertRaisesRegex(ValueError, 'archived input drift'):
+                runner.pinned_bytes(runner.ARCHIVE, path)
+        stubs = runner.ARCHIVED_PLATFORM + 'native_principal_stubs/'
+        extra = lambda revision, directory: real_paths(revision, directory) + [directory + 'Extra.java']  # noqa: E731
+        with mock.patch.object(runner, 'git_paths', side_effect=extra):
+            with self.assertRaisesRegex(ValueError, 'archived tree drift'):
+                runner.pinned_paths(runner.ARCHIVE, stubs)
+        # The loader reads Git objects, never the working tree: a changed working copy changes nothing.
+        with mock.patch.object(Path, 'read_bytes', side_effect=AssertionError('working tree read')):
+            self.assertEqual(runner.sha(runner.pinned_bytes(runner.ARCHIVE, path)), runner.ARCHIVE_SHA256[path])
+
+    def test_archived_assembly_reads_no_worktree_file(self):
+        target = ROOT / 'AGENTS.md'
+        reads = {'read_bytes': target.read_bytes, 'read_text': target.read_text,
+                 'open': lambda: open(target).close(),
+                 'os.open': lambda: os.close(os.open(target, os.O_RDONLY)),
+                 'iterdir': lambda: list(ROOT.iterdir()), 'listdir': lambda: os.listdir(ROOT),
+                 'glob': lambda: list((ROOT / runner.FRAMEWORK_DIR).glob('*.java')),
+                 'rglob': lambda: list((ROOT / runner.PLATFORM).rglob('*.inc')),
+                 'relative': lambda: Path(os.path.relpath(target)).read_bytes()}
+        for name, read in reads.items():
+            with self.subTest(read=name), runner.worktree_closed():
+                with self.assertRaises(runner.WorktreeRead):
+                    read()
+        # No handler of missing files can take the refusal for one, and it ends with the assembly.
+        self.assertFalse(issubclass(runner.WorktreeRead, OSError))
+        self.assertTrue(target.read_bytes())
+        outside = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, outside)
+        (outside / 'file').write_bytes(b'x')
+        with runner.worktree_closed():
+            self.assertEqual((outside / 'file').read_bytes(), b'x')
+        # Every archived leg assembles with the tree closed. Each input is a pinned object, or the
+        # archived seams injected into a pinned store or strict writer.
+        legs = runner.archived_inputs()
+        self.assertEqual(len(legs), 18)
+        pinned = {digest for revision in runner.REVISIONS for digest in runner.manifest(revision).values()}
+        injected = set()
+        for revision in ('c926', 'd104', runner.ARCHIVE):
+            for name, seams in (('framework/NativeIdentityStore.java', runner.ARCHIVED_STORE_SEAMS),
+                                ('fixtures/ResilientAtomicFile.java', runner.ARCHIVED_WRITER_SEAMS)):
+                source = runner.archived_product_sources(revision)[name].decode()
+                injected.add(runner.sha(runner.archived_inject(source, seams).encode()))
+        for leg, files in sorted(legs.items()):
+            for name, data in sorted(files.items()):
+                with self.subTest(leg=leg, name=name):
+                    self.assertIn(runner.sha(data), pinned | injected)
+        # A leak in an archived assembly raises: here the loader reads the working tree instead.
+        with mock.patch.object(runner, 'pinned_bytes', lambda revision, path: (ROOT / path).read_bytes()):
+            with self.assertRaises(runner.WorktreeRead):
+                runner.archived_inputs()
+        # Living assemblies read the current sources, as they must.
+        living = runner.test_sources(['NativeCreationBindingLayouts'])
+        self.assertEqual(living['tests/NativeCreationBindingLayouts.java'],
+                         (ROOT / runner.PLATFORM / 'NativeCreationBindingLayouts.java').read_bytes())
+
+    def test_archived_seams_enter_every_pinned_store_and_writer_once(self):
+        for revision in ('c926', 'd104', runner.ARCHIVE):
+            files = runner.archived_with_seams(runner.archived_product_sources(revision))
+            for name, seams in (('framework/NativeIdentityStore.java', runner.ARCHIVED_STORE_SEAMS),
+                                ('fixtures/ResilientAtomicFile.java', runner.ARCHIVED_WRITER_SEAMS)):
+                text = files[name].decode()
+                self.assertEqual(text.count('NativeHeaderWriteFaults.at('), len(seams), (revision, name))
+                for _, _, _, step, _ in seams:
+                    self.assertEqual(text.count('NativeHeaderWriteFaults.at("%s", ' % step), 1, (revision, step))
+
+    def test_frozen_expectations_are_the_24bfb6a_constants(self):
+        revision = runner.REVISIONS[runner.ARCHIVE]
+        b0 = historical_constants(revision, 'scripts/proof/tests/test_native_header_footprint.py', (
+            'FOCUSED', 'FAULTS', 'STEPS', 'FOCUSED_NAMES', 'FAULT_NAMES', 'STORE_SEAMS', 'WRITER_SEAMS'))
+        self.assertEqual(runner.ARCHIVED_STEPS, b0['STEPS'])
+        self.assertEqual(runner.ARCHIVED_B0_FOCUSED_NAMES, b0['FOCUSED_NAMES'])
+        self.assertEqual(runner.ARCHIVED_B0_FAULT_NAMES, b0['FAULT_NAMES'])
+        self.assertEqual((runner.ARCHIVED_STORE_SEAMS, runner.ARCHIVED_WRITER_SEAMS),
+                         (b0['STORE_SEAMS'], b0['WRITER_SEAMS']))
+        self.assertEqual((runner.ARCHIVED_B0_TESTS['focused'][1], runner.ARCHIVED_B0_TESTS['faults'][1]),
+                         (b0['FOCUSED'], b0['FAULTS']))
+        b1 = historical_constants(revision, 'scripts/proof/native_creation_binding.py', (
+            'PLATFORM', 'FRAMEWORK_DIR', 'FRAMEWORK', 'STUB_DIRECTORIES', 'ORIGINAL_B0_SHA256',
+            'ROLLBACK_COPY_LAYOUTS', 'ROLLBACK_CONTROLS', 'LAYOUT_NAMES', 'FACADE', 'CONSTRUCTION',
+            'PRODUCTION', 'RETIRED', 'NATIVE_PATCH', 'STORE'), {'STEPS': b0['STEPS']})
+        self.assertEqual((runner.ARCHIVED_PLATFORM, runner.ARCHIVED_FRAMEWORK_DIR, runner.ARCHIVED_STUB_DIRECTORIES),
+                         (b1['PLATFORM'], b1['FRAMEWORK_DIR'], b1['STUB_DIRECTORIES']))
+        self.assertEqual((runner.ARCHIVED_FACADE, runner.ARCHIVED_STORE, runner.ARCHIVED_PATCH),
+                         (b1['FACADE'], b1['STORE'], b1['NATIVE_PATCH']))
+        self.assertEqual((runner.ARCHIVED_CONSTRUCTION, runner.ARCHIVED_PRODUCTION, runner.ARCHIVED_RETIRED),
+                         (b1['CONSTRUCTION'], b1['PRODUCTION'], b1['RETIRED']))
+        self.assertEqual(runner.ARCHIVED_FRAMEWORK, b1['FRAMEWORK'])
+        self.assertEqual(runner.ORIGINAL_B0_SHA256, b1['ORIGINAL_B0_SHA256'])
+        self.assertEqual(runner.ARCHIVED_LAYOUT_NAMES, b1['LAYOUT_NAMES'])
+        self.assertEqual((runner.ARCHIVED_COPY_LAYOUTS, runner.ARCHIVED_ROLLBACK_CONTROLS),
+                         (b1['ROLLBACK_COPY_LAYOUTS'], b1['ROLLBACK_CONTROLS']))
+        # The pinned 24bfb6a profile lists exactly these helpers and fragments, and the Settings output.
+        profile = json.loads(runner.pinned_bytes(runner.ARCHIVE, runner.ARCHIVED_PROFILE))
+        self.assertEqual({row['name']: row['source'] for row in profile['fragments']}, runner.ARCHIVED_FRAGMENTS)
+        self.assertEqual([row['source'] for row in profile['added']],
+                         [runner.ARCHIVED_FRAMEWORK_DIR + name + '.java' for name in runner.ARCHIVED_FRAMEWORK])
+        self.assertIn(runner.ARCHIVED_SETTINGS, [row['path'] for row in profile['files']])
+        # The living P0 record repeats the counts the archived expectations hold.
+        predictions = json.loads(runner.PREDICTIONS.read_text())
+        predicted = predictions['p0_archive']
+        self.assertIn('PREDICTED', predicted['status'])
+        self.assertEqual(predicted['revision'], revision)
+        self.assertEqual(predicted['b0']['cases'], {'focused': 53, 'faults': 27})
+        d104 = runner.archived_predictions('binding')['b0_adapted_suite']['d104e15']
+        self.assertEqual(predicted['b0']['d104'], {'focused_failures': len(d104['focused_failures']),
+                                                   'fault_failures': len(d104['fault_failures'])})
+        self.assertEqual((predicted['archived_layouts'], predicted['archived_copy_layouts']), (47, 43))
+        self.assertEqual(predicted['archived_readers'],
+                         {target: len(runner.ARCHIVED_LAYOUT_NAMES) for target, _, _ in runner.ARCHIVED_READERS})
+        rollback = len(runner.ARCHIVED_LAYOUT_NAMES) + len(runner.ARCHIVED_ROLLBACK_CONTROLS) + 1
+        self.assertEqual(predicted['archived_rollback'],
+                         {target: rollback for target in runner.ARCHIVED_ROLLBACK_READERS})
+        self.assertEqual(predicted['living_readers'],
+                         {target: len(runner.LAYOUT_NAMES) for target, _, _ in runner.READERS})
+        living = len(runner.LAYOUT_NAMES) + len(runner.ROLLBACK_CONTROLS) + 1
+        self.assertEqual(predicted['living_rollback'], {target: living for target in runner.LEGACY_ROLLBACK})
+        self.assertEqual(predicted['relabelled'],
+                         {target: runner.READER_LABELS[target] for target, _, _ in runner.READERS})
+        # A frozen list that the pinned predictions no longer state is refused.
+        for name, kind in (('ARCHIVED_LAYOUT_NAMES', 'layout'), ('ARCHIVED_B0_FAULT_NAMES', 'B0')):
+            with mock.patch.object(runner, name, getattr(runner, name)[1:]):
+                self.assertEqual(runner.archive_problems(),
+                                 ['archived %s expectations differ from the pinned predictions' % kind])
+
+    def test_frozen_code_is_the_24bfb6a_code(self):
+        binding, b0 = 'scripts/proof/native_creation_binding.py', 'scripts/proof/tests/test_native_header_footprint.py'
+        for frozen, original in (('archived_replace_once', 'replace_once'),
+                                 ('archived_strip_java_comments', 'strip_java_comments'),
+                                 ('archived_outcome', 'outcome'), ('archived_class_differences', 'class_differences'),
+                                 ('archived_copy_layouts', 'copy_layouts'),
+                                 ('archived_rollback_names', 'rollback_names')):
+            frozen_matches(self, runner, frozen, binding, original)
+        frozen_matches(self, runner, 'archived_r0_forward', binding, 'r0_forward',
+                       {'ARCHIVED_RETIRED': 'RETIRED', 'ARCHIVED_PRODUCTION': 'PRODUCTION'})
+        frozen_matches(self, runner, 'archived_suite', binding, 'suite',
+                       {'archived_build': 'build', 'archived_execute': 'execute'})
+        frozen_matches(self, runner, 'archived_with_seams', binding, 'with_seams', replacements=(
+            ('b0.inject(\n        files[\'framework', 'archived_inject(\n        files[\'framework'),
+            ('b0.inject(\n        files[\'fixtures', 'archived_inject(\n        files[\'fixtures'),
+            ('b0.STORE_SEAMS', 'ARCHIVED_STORE_SEAMS'), ('b0.WRITER_SEAMS', 'ARCHIVED_WRITER_SEAMS')))
+        # The tools start as finding the hardened start: in their work directory, without an
+        # inherited class path, and with neither implicit sources nor annotation processing.
+        frozen_matches(self, runner, 'archived_build', binding, 'build', replacements=(
+            ("'-Werror',", "'-Werror', '-implicit:none', '-proc:none',"),
+            ('timeout=300)', 'timeout=300, cwd=work, env=archived_tool_environment())')))
+        frozen_matches(self, runner, 'archived_execute', binding, 'execute', replacements=(
+            ('timeout=timeout)', 'timeout=timeout, cwd=work, env=archived_tool_environment())'),
+            ('b0.passed_checks(', 'archived_passed_checks('), ('b0.failed_checks(', 'archived_failed_checks(')))
+        for frozen, original in (('archived_passed_checks', 'passed_checks'),
+                                 ('archived_failed_checks', 'failed_checks')):
+            frozen_matches(self, runner, frozen, b0, original)
+        frozen_matches(self, runner, 'archived_inject', b0, 'inject', {'archived_replace_once': 'replace_once'})
+        # A changed copy no longer matches.
+        with self.assertRaises(AssertionError):
+            frozen_matches(self, runner, 'archived_outcome', binding, 'suite')
+
+    def test_archive_uses_no_living_name(self):
+        self.assertEqual(runner.boundary_problems(), [])
+        text = Path(runner.__file__).read_text()
+        foreign = {'b0': None, 'integration': None}
+        for name, old, new, problem in (
+                ('living function', 'timeout=300, cwd=work, env=archived_tool_environment()',
+                 'timeout=300, cwd=work, env=tool_environment()',
+                 'archive function archived_build uses living tool_environment'),
+                ('living constant', "    for name in ARCHIVED_FRAMEWORK:\n        files['framework/%s.java'",
+                 "    for name in FRAMEWORK:\n        files['framework/%s.java'",
+                 'archive function archived_product_sources uses living FRAMEWORK'),
+                ('living module', "    return re.findall(r'^PASS (.+)$', stdout, re.M)",
+                 '    return b0.passed_checks(stdout)',
+                 'archive function archived_passed_checks uses b0.passed_checks'),
+                # Module level archive data, built from living names or from a module that is no archive.
+                ('archive data', "ARCHIVED_FIXTURES = tuple(ARCHIVED_PLATFORM + name + '.java.inc'",
+                 "ARCHIVED_FIXTURES = tuple(PLATFORM + name + '.java.inc'",
+                 'archive data ARCHIVED_FIXTURES uses living PLATFORM'),
+                ('shared data', "    for revision in ('c926', 'd104')}\n",
+                 "    for revision in ('c926', 'd104')}\nPRODUCT_DIFFERENCES.update(BASELINE_FRAMEWORK=FRAMEWORK)\n",
+                 'archive data PRODUCT_DIFFERENCES.update uses living FRAMEWORK'),
+                ('archive data of another module', "ARCHIVED_STEPS = ('seed-synced', ",
+                 "ARCHIVED_STEPS = b0.STEPS or ('seed-synced', ",
+                 'archive data ARCHIVED_STEPS uses b0.STEPS')):
+            with self.subTest(name=name):
+                self.assertEqual(text.count(old), 1, name)
+                mutated = text.replace(old, new, 1)
+                self.assertEqual(runner.archive_boundary(mutated, runner.ARCHIVE_SHARED, foreign), [problem])
+
+    def test_archive_shares_only_its_loader_and_pins(self):
+        # Every name the archive uses without the archived prefix is the Git reader, the loader, its
+        # closed tree guard and the archive's own check, or pinned revision data; nothing that looks
+        # living is archive code or data.
+        loader = {'ROOT', 'CLOSED_ROOT', 'READ_EVENTS', '_CLOSED', 'WorktreeRead', 'sha', 'git_bytes', 'git_paths',
+                  'manifest', 'pinned_bytes', 'pinned_paths', 'worktree_closed', 'outside_repository',
+                  '_refuse_worktree_reads', 'archive_problems'}
+        for name in sorted(set(runner.ARCHIVE_SHARED) - loader):
+            self.assertTrue(pin_data(getattr(runner, name)), name)
+        for name in ('ARCHIVED_ROLLBACK_READERS', 'ARCHIVED_PIN_GROUPS', 'ARCHIVED_STEPS'):
+            self.assertFalse(pin_data(getattr(runner, name)), name)
+
+    def test_archived_runs_call_no_living_code(self):
+        def archived_run(work):
+            with mock.patch.object(runner.subprocess, 'run', fake_tools(layouts)):
+                steps, problems = runner.archived_qualify(work)
+            return json.loads(json.dumps([steps, problems], default=str).replace(str(work), 'WORK'))
+        layouts = runner.ARCHIVED_LAYOUT_NAMES
+        work = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, work)
+        expected = archived_run(work / 'first')
+        self.assertTrue({'store classes', 'b0 c926 focused', 'b0 24bf faults', 'archived readers',
+                         'archived rollback'} <= set(expected[0]))
+        # Every living function and constant a later package may change, and the B0 runner's code:
+        # the archived steps run without them and record the same.
+        living_code_broken(self, runner, ('build', 'execute', 'suite', 'outcome', 'with_seams', 'product_sources',
+                                          'store_sources', 'test_sources', 'b0_suite', 'b1_suite', 'r0_forward',
+                                          'copy_layouts', 'rollback_names', 'replace_once', 'strip_java_comments',
+                                          'tool_environment'))
+        living_code_broken(self, runner.b0, ('passed_checks', 'failed_checks', 'inject'))
+        with mock.patch.multiple(runner, PRODUCTION='x', RETIRED='y', CONSTRUCTION='z', FRAMEWORK=(), PLATFORM='x/',
+                                 FRAMEWORK_DIR='x/', LAYOUT_NAMES=(), ROLLBACK_CONTROLS=(), ROLLBACK_COPY_LAYOUTS=0,
+                                 PREDICTIONS=work / 'absent.json', STEPS=()), \
+                mock.patch.multiple(runner.b0, STORE_SEAMS=(), WRITER_SEAMS=(), FOCUSED_NAMES=(), FAULT_NAMES=(),
+                                    STEPS=()):
+            self.assertEqual(archived_run(work / 'second'), expected)
+
+    def test_tools_start_in_their_work_directory_without_an_inherited_class_path(self):
+        work = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, work)
+        calls = []
+
+        def run(args, **kwargs):
+            calls.append((args, kwargs))
+            return mock.Mock(returncode=0, stdout='PASS a\n', stderr='')
+        with mock.patch.dict(os.environ, {'CLASSPATH': '/elsewhere'}), mock.patch.object(runner.subprocess, 'run', run):
+            for build, execute in ((runner.build, runner.execute), (runner.archived_build, runner.archived_execute)):
+                build(work / build.__name__, {'tests/A.java': b'class A {}'})
+                execute(work / build.__name__, 'A', [])
+        self.assertEqual(len(calls), 4)
+        for args, kwargs in calls:
+            self.assertEqual(kwargs['cwd'].parent, work)
+            self.assertNotIn('CLASSPATH', kwargs['env'])
+            self.assertEqual(kwargs['env']['PATH'], os.environ['PATH'])
+        for args, _ in (calls[0], calls[2]):
+            self.assertEqual(args[0], 'javac')
+            self.assertIn('-implicit:none', args)
+            self.assertIn('-proc:none', args)
+        for args, _ in (calls[1], calls[3]):
+            self.assertEqual((args[0], args[args.index('-cp') + 1].rsplit('/', 1)[1]), ('java', 'classes'))
+
+    def test_labelled_classes_resolve_where_their_runs_come_from(self):
+        empty = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, empty)
+        # An archived row resolves its classes in the archive alone, a living row in the working tree alone.
+        pinned = '%s:%sUnsupportedCounterProbe.java' % (runner.REVISIONS[runner.ARCHIVE], runner.ARCHIVED_PLATFORM)
+        self.assertEqual(runner.harness_class('UnsupportedCounterProbe', archived=True), pinned)
+        self.assertIsNone(runner.harness_class('NativeIdentityRecordsTest', archived=True))
+        self.assertIsNotNone(runner.harness_class('NativeIdentityRecordsTest'))
+        with mock.patch.object(runner, 'ROOT', empty):
+            # A class deleted from the working tree fails its living rows, though the archive keeps it.
+            self.assertIsNone(runner.harness_class('UnsupportedCounterProbe'))
+            self.assertIsNotNone(runner.harness_class('UnsupportedCounterProbe', archived=True))
 
 
 class CreationBindingJvmTests(unittest.TestCase):

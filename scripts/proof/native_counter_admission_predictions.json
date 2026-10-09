@@ -308,5 +308,22 @@
   "selected_counter_not_observed_max_or_predecessor_min": true,
   "lost_body_origin_retirement_refuses_while_blocked": true,
   "normalized_value_only_mutant_removed_as_redundant_with_rule_dropped": true
+ },
+ "p0_archive": {
+  "status": "PREDICTED before any guarded execution of the archived sides. Nothing here is an executed result. The sources equal 24bfb6a, so each archived side is predicted to repeat the result of the side it archives.",
+  "plan": "plans/2026-10-08-native-lifecycle-record.md",
+  "revision": "24bfb6ad3c5c9630faca141a93d3531851e280b8",
+  "rule": "The surface, the candidate checks and the three sides of the focused suite, probes and parity read only pinned Git objects through the manifest of native_creation_binding.py and candidates built from pinned patches, assembled with the working tree closed. They run only archive code: the 24bfb6a helpers they copy, which tests compare with their Git objects, and the archive's own surface, assemblies and phases. They take their expected failures, observation labels and probe lines from the pinned 24bfb6a predictions, so living code and the current sources do not change their inputs or results; only an edit of the archive itself does. The corrected side is the pinned 24bfb6a sources. The 35 focused cases and 15 mutants stay living on the current sources.",
+  "focused_cases": 35,
+  "corrected": {
+   "revision": "24bfb6ad3c5c9630faca141a93d3531851e280b8",
+   "focused_failures": [],
+   "exit_status": 0
+  },
+  "sides": {"0018": {"failures": 25}, "8949": {"failures": 25}, "24bf": {"failures": 0}},
+  "observations": {"blocked": 25, "unchanged": 11},
+  "probes": {"0018": "RED", "8949": "RED", "24bf": "REFUSED"},
+  "parity": "The pinned 24bfb6a side prints byte identical outcomes to 89491b9. Its Format.V1 runs are rollback-reader; its version 2 runs and the 89491b9 side are archived-baseline.",
+  "living": "The current sources pass all 35 focused cases with exit status 0, and every one of the 15 mutants is caught."
  }
 }
