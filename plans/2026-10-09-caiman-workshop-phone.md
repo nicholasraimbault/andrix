@@ -55,8 +55,10 @@ that shape this plan:
    unlocked for the length of this plan, after an independent review recommended bounded trials
    instead. The owner accepts that fixing a problem may take time. The owner also accepts the
    remaining risk that "Never brick it" describes.
-4. **The flashing computer (decision 5).** On 2026-10-09 the owner chose their own laptop, separate
-   from the build machine.
+4. **The flashing computer (decision 5).** On 2026-10-09 the owner first chose their own laptop,
+   then the same day chose the build machine instead, because the flow is simpler there. The owner
+   authorised the download of Google's platform tools. A USB rule that lets only the project's
+   account open the phone comes later, before the phone is first connected.
 
 The vendor files decision did not cover who downloads Google's images. Google's download page asks whoever
 downloads to accept its terms. So this plan proposes that the owner downloads them, or authorises
@@ -163,7 +165,18 @@ answers and a window of two days. Needed before stage 7.
 
 ### 5. The flashing computer
 
-Decided on 2026-10-09: the owner's laptop, as "Owner decisions already made" records.
+Decided on 2026-10-09: the build machine, as "Owner decisions already made" records. The owner
+chose it knowing that processes there could reach the phone while it is connected, which is why the
+recommendation below preferred a separate computer. These conditions keep that exposure small:
+
+- The machine runs on bare metal, and the phone connects directly to a rear port with a good cable.
+- A USB rule installed by the owner as root lets only the project's account open the phone. The
+  phone is connected only during sessions.
+- The readings, the plan's checkers and each complete script run from the project's account.
+  Nothing is written before the owner approves it in that session.
+- The build lock is held for the whole session, so no build or emulator runs during a write.
+- Each write runs as its own background service, so nothing else in the session can interrupt it.
+- The owner's laptop keeps GrapheneOS's web installer as a second way back.
 
 GrapheneOS's guide fixes what the computer needs (rule 8). The owner's choice is which computer.
 
@@ -461,8 +474,8 @@ never republished.
 - Google's factory image matches the SHA-256 that adevtool's build index records for that stock
   build. Google's page served today shows no table of checksums.
 - On the flashing computer, `fastboot --version` reports 35.0.1 or later, and the platform tools
-  zip matched GrapheneOS's published SHA-256. The udev rules are installed, fwupd can be stopped
-  and the web installer loads.
+  zip matched GrapheneOS's published SHA-256. The USB rule is installed, fwupd is absent or
+  stopped, and the web installer loads on the owner's laptop.
 - The runbook is written with its stop points, and it is readable away from the flashing computer.
 
 ### Checks that need the phone
@@ -769,17 +782,14 @@ GrapheneOS, unchanged, until stage 7.
 
 ### Stage 2. Way back preparation
 
-- **Changes:** the flashing computer, under decision 5. It gets platform tools r35.0.2 checked by
-  SHA-256 and, on Linux, udev rules. The runbook is written, with the stop points and the fixed
-  reading script. The allowed signers file already pinned in the upstream records is the trust
-  anchor for the kits. Builds and kits reach the flashing computer as a session folder whose
-  checksums are verified there before use. The way back kit stays on it, so no session depends on
-  the build machine or the network. The owner runs every command there, and the stop point
-  readings are checked with the plan's checkers before anything is written.
-- **Qualifies:** `fastboot --version` reports 35.0.1 or later, the web installer loads in a WebUSB
-  browser, and the runbook is reviewed.
+- **Changes:** the build machine, under decision 5. It gets platform tools r35.0.2 checked by
+  SHA-256, and the USB rule that the owner installs as root. The runbook is written, with the stop
+  points, the fixed reading script and decision 5's conditions. The allowed signers file already
+  pinned in the upstream records is the trust anchor for the kits.
+- **Qualifies:** `fastboot --version` reports 35.0.1 or later, the USB rule is installed, the web
+  installer loads in a WebUSB browser on the owner's laptop, and the runbook is reviewed.
 - **Stays off:** the phone.
-- **Needs:** the owner, for decision 5 and the computer. No build slot, emulator or phone.
+- **Needs:** the owner, for the USB rule and the laptop check. No build slot, emulator or phone.
 
 ### Stage 3. Session 1, an optional rehearsal
 
@@ -907,11 +917,13 @@ Most severe first.
 9. **Gaps in hardware evidence.** No snapshots, logs that hold personal data, and emergency calling
    that cannot be dialed. Design item 7 and decision 6.
 10. **Contention on the build machine** that slows the native account work. Build stages wait for
-    the slot.
-11. **Rights in Google's files.** The owner's decision follows the practice of GrapheneOS and
+    the slot, and phone sessions hold the build lock while they run.
+11. **Exposure of the connected phone to the build machine.** While the phone is connected in
+    fastboot mode, processes of the project's account could write to it. Decision 5's conditions.
+12. **Rights in Google's files.** The owner's decision follows the practice of GrapheneOS and
     LineageOS, and publication waits for a release step with the owner.
-12. **Unreviewed network traffic from Pixel components.** Design item 8.
-13. **An early stop if OEM unlocking cannot be enabled.** Low. The internet check that GrapheneOS's
+13. **Unreviewed network traffic from Pixel components.** Design item 8.
+14. **An early stop if OEM unlocking cannot be enabled.** Low. The internet check that GrapheneOS's
     guide describes belongs to the stock OS, and GrapheneOS ignores the carrier ID.
 
 ## Limits
