@@ -185,7 +185,7 @@
       "lab_only": false,
       "method": "/usr/bin/patch --batch --forward --fuzz=0 --no-backup-if-mismatch -p1",
       "profile": "patches/grapheneos-2026081300/native-principal-pins.json",
-      "profile_sha256": "81184df3faeb1860aa5bc65902cabe94d9ba92cc7aa22745ab990b3f0e9680e5",
+      "profile_sha256": "8413d5303c7702e23a3bff0faf6e763de9001e996adbb18a03ca037363646916",
       "patch": "patches/grapheneos-2026081300/native-principal-pins.patch",
       "patch_sha256": "6f5ab48de7c60438b203be173fea8c6591b5a8fed97c69c1886befc36ca314a4",
       "applies": true,
@@ -665,10 +665,10 @@
   "generated": {
     "tool": "scripts/proof/grapheneos_carry.py",
     "tool_sha256": "88926c90154252066f49e26bd3ba62d499df6664a2118fb091242aa60d4c743d",
-    "at": "2026-10-09T17:44:43Z"
+    "at": "2026-10-09T21:07:18Z"
   },
   "seal": {
     "algorithm": "sha256 over canonical JSON of every other field",
-    "sha256": "53451f468f076381b754cbf093b57261f20060583052e9f603dc03304ed04bc9"
+    "sha256": "dc3a8e5ec9abb2e5c5e079ee1dd0e0cba16a36434e68e18c13db25514092ed4d"
   }
 }
