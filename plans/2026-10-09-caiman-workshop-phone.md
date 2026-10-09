@@ -173,7 +173,9 @@ recommendation below preferred a separate computer. These conditions keep that e
 - A USB rule installed by the owner as root lets only the project's account open the phone. The
   phone is connected only during sessions.
 - The readings, the plan's checkers and each complete script run from the project's account.
-  Nothing is written before the owner approves it in that session.
+  Nothing is written before the owner approves it in that session. The sealed platform tools'
+  directory comes first in `PATH` for every script, because the official script finds `fastboot`
+  through `PATH`.
 - The build lock is held for the whole session, so no build or emulator runs during a write.
 - Each write runs as its own background service, so nothing else in the session can interrupt it.
 - The owner's laptop keeps GrapheneOS's web installer as a second way back.
@@ -258,14 +260,19 @@ installed and waiting for a reboot. Readings from an earlier session therefore a
 
 1. **No update pending.** In the OS, no update is downloading, installing or waiting for a reboot.
    If one is, wait for it, reboot into it, and start again. On GrapheneOS the system updater shows
-   its state. Andrix carries no updater, so on Andrix only a sideloaded update can be pending.
+   its state. Andrix carries no updater, so on Andrix only a sideloaded update can be pending. The
+   session also records the phone's release channel, which must be Stable, and whether security
+   previews are enabled.
 2. **Fixed readings.** On the bootloader screen that shows "Fastboot Mode", a fixed script runs
    only these commands: `fastboot getvar product`, `is-userspace`, `version-bootloader`,
    `version-baseband`, `current-slot`, `unlocked` and `snapshot-update-status`, then
-   `fastboot flashing get_unlock_ability`. A variable the bootloader does not know makes that one
-   reading fail. The script records it as unanswered and goes on.
+   `fastboot flashing get_unlock_ability`. It runs the sealed platform tools' `fastboot`, named by
+   its path, and first records that fastboot's version, which contacts no phone. A variable the
+   bootloader does not know makes that one reading fail. The script records it as unanswered and
+   goes on. Any other failure is not an answer, and the readings are refused.
 3. **Continue only if** the product is caiman, `is-userspace` does not read `yes`, and
-   `snapshot-update-status` reads `none`. A merge can keep that status at `merging` for a while
+   `snapshot-update-status` reads `none`. Recovery's own fastboot always answers `is-userspace`
+   with `yes`, so an unanswered `is-userspace` means the bootloader. A merge can keep that status at `merging` for a while
    after an update boots, so the readings may need repeating later. From stage 7 on, the unlock
    ability must also read 1, and from stage 8 on `unlocked` must read `yes`. If it does not read
    `yes`, the session stops, and only a new approved session that repeats stage 7 may unlock again.
@@ -284,14 +291,36 @@ installed and waiting for a reboot. Readings from an earlier session therefore a
    carrier variants beside their base builds. A stock image that no GrapheneOS release is built
    from, such as a carrier variant, is refused. This one criterion applies everywhere in this plan.
 
+   Its inputs are fixed so that no typed value can approve older firmware:
+   - **The image's identity** is read from the image itself, never typed: the signed build number
+     of a GrapheneOS zip, the signed `vbmeta` of an Andrix zip, and the stock build inside Google's
+     image. The decision names the image's SHA-256, and only that file is written.
+   - **The phone's release** is the release recorded at the session's start, and it counts as the
+     newer of that release and any image written in the session. The readings must equal the
+     versions recorded for that release. Fresh readings come before each write.
+   - **The records** cover every signed caiman release tag from the phone's release through the
+     image's release. Each is bound to the adevtool revision that its tag's manifest pins. If any
+     is missing, the image is refused.
+   - **Release numbers** end in 00 for a release and 01 for its security preview. Any other ending
+     is refused until a rule covers it. GrapheneOS states that a security preview uses the same
+     sources as its regular release, which implies the same firmware. The comparison of versions
+     still runs wherever stock builds are equal.
+   - **The approval.** The session's approval must name the image. An image that meets the
+     criterion but is not named waits in fastboot mode for a fresh approval. Nothing is written in
+     stage 3, and no Andrix image is written before stage 8.
+
 **When the OS does not boot.** After a failed flash the OS may not boot, so stop point 1 cannot
 run. It is then skipped. The phone's release then counts as the newer of the last release
 recorded for it and the release of any image written in this session. While an update is pending,
-only the current stable release may be written, read from `releases.grapheneos.org/caiman-stable`
-at that moment. It counts as newer than the phone's release, because no stable update can be newer
-than it, with a security preview counted as its base release. If that release is not one the
-session's approval names, the session waits in fastboot mode for a fresh approval before writing
-it. If `snapshot-update-status` then
+only the current stable official GrapheneOS release, or its security preview, may be written,
+through its complete script or the web installer. That release is read from
+`releases.grapheneos.org/caiman-stable` at that moment, with the time of the fetch recorded. It
+counts as newer than the phone's release, because the phone stays on the Stable channel and no
+stable update can be newer than it, with a security preview counted as its base release. If the
+phone's release counts as newer than the current stable release, nothing is written, and the
+session stops in fastboot mode. When it is unknown whether an update is pending, it counts as
+pending. If that release is not one the session's approval names, the session waits in fastboot
+mode for a fresh approval before writing it. If `snapshot-update-status` then
 reads anything but `none`, stop point 3 does not end the session.
 Instead, only the complete GrapheneOS script or the web installer may run. Both cancel the pending
 update themselves. The web installer does so in its code. GrapheneOS's fastboot writes
@@ -331,8 +360,9 @@ page, on the merge after boot. The fastboot protocol's description of `is-usersp
    - the relock that Google's factory image page asks for after a stock flash;
    - any lock option in Google's flash tool, if it offers one, which was not confirmed.
 
-   Erasing `avb_custom_key`, which the web installer offers as "Remove non-stock key", happens only
-   as the first step of the return to stock. Locking belongs to the separate locked mode plan.
+   Outside a complete script's own lines, erasing `avb_custom_key`, which the web installer offers
+   as "Remove non-stock key", happens only as the first step of the return to stock. The official
+   script erases it and then writes the release's key. Locking belongs to the separate locked mode plan.
    Sources: [Android, device state](https://source.android.com/docs/security/features/verifiedboot/device-state).
    [Android, boot flow](https://source.android.com/docs/security/features/verifiedboot/boot-flow).
    The [AVB README](https://android.googlesource.com/platform/external/avb/+/refs/tags/android-17.0.0_r1/README.md),
@@ -385,17 +415,20 @@ page, on the merge after boot. The fastboot protocol's description of `is-usersp
    `device/common/generate-factory-images-common.sh`, its `fastboot.cpp`, and the
    [GrapheneOS usage guide](https://grapheneos.org/usage), "Sideloading".
 5. **Right device, official script, official order.** The script refuses any product other than
-   caiman, warning "This would likely brick your device", and it refuses fastboot older than
-   35.0.1. GrapheneOS's guide covers custom builds as well as official ones, and asks for its steps
+   caiman. The legacy form of the script warns "This would likely brick your device". The form
+   that `fastboot optimize-factory-image` writes says "Error: this factory image is for caiman",
+   and it also checks `slot-count`, `max-download-size` and `current-slot`. The script refuses
+   fastboot older than 35.0.1. GrapheneOS's guide covers custom builds as well as official ones, and asks for its steps
    "without skipping, reordering or adding any steps". This plan departs from it in two ways only.
    The bootloader stays unlocked, and the setup toggle that disables OEM unlocking is unchecked. The
    readings this plan adds write nothing. Andrix's script runs only after it has been compared line
    by line with the official script for the same release.
    Sources: `generate-factory-images-common.sh`. The GrapheneOS CLI install guide.
 6. **Write only what the official script writes.** For caiman the script writes the bootloader to
-   both slots, then the radio and `avb_custom_key`. It runs `oem uart disable` and erases `fips`,
-   `dpm_a` and `dpm_b`. It writes the OS images through its own `fastboot update`, with `-w` when a
-   wipe is intended. Nothing else is flashed, erased or formatted. Some partitions hold data
+   both slots, then the radio. It erases `avb_custom_key` and writes the release's key. It runs
+   `oem uart disable` and erases `fips`, `dpm_a` and `dpm_b`. It writes the OS images, through
+   `fastboot update` in the legacy form or image by image in the other form. Both forms always wipe
+   data: the legacy form with `-w`, and the other form by erasing `userdata` and `metadata`. Nothing else is flashed, erased or formatted. Some partitions hold data
    written in the factory. GrapheneOS names one example, the carrier ID on `persist`.
    Sources: GrapheneOS's `script/generate-release.sh`, which selects those steps for caiman, and
    `generate-factory-images-common.sh`. The GrapheneOS CLI install guide, "Prerequisites".
@@ -456,7 +489,8 @@ never republished.
   The `allowed_signers` file must hash to the digest already pinned in `upstream/bases/`, which
   equals the file GrapheneOS serves today.
 - **Release identity.** A validly signed older zip would also pass that check. So the build number
-  inside the zip, not only its file name, must name the expected release, and
+  in the fingerprint properties of the zip's signed `vbmeta`, not only its file name, must name the
+  expected release, and
   `releases.grapheneos.org/caiman-stable` must name that release or a newer one.
 - The zip's `avb_pkmd.bin` hashes to the value GrapheneOS publishes for the Pixel 9 Pro,
   `f729cab861da1b83fdfab402fc9480758f2ae78ee0b61c1f2137dd1ab7076e86`. Android derives the boot
@@ -469,8 +503,13 @@ never republished.
   2026100600, adevtool records `ripcurrentpro-17.0-15819938` and
   `g5400c-260604-260807-B-16035863`, from stock build CP3A.261005.005. The comparison with the
   phone happens at the session's stop points.
-- `avbtool verify_image` passes on its `vbmeta`. The public key embedded there is byte identical to
-  its `avb_pkmd.bin`, and the rollback index is the release's patch timestamp.
+- The dynamic partition images are rebuilt from the zip's super splits. `simg2img` merges every
+  split into one image, because `lpunpack` refuses sparse input, and `lpunpack` extracts the
+  partitions, whose `_b` copies must be empty. Both tools are built from the pinned tree and pinned
+  by SHA-256. The release identity check above and gate step 3 depend on these images.
+- `avbtool verify_image` passes on its `vbmeta`, with those images beside it. The public key
+  embedded there is byte identical to its `avb_pkmd.bin`, and the rollback index is the release's
+  patch timestamp.
 - Google's factory image matches the SHA-256 that adevtool's build index records for that stock
   build. Google's page served today shows no table of checksums.
 - On the flashing computer, `fastboot --version` reports 35.0.1 or later, and the platform tools
@@ -736,7 +775,7 @@ Before stage 7:
 ## Backup and data
 
 Unlocking wipes all data and the secure element. Every flash through an install zip's script also
-wipes, through `-w`. Keys bound to the secure element cannot be exported, so anything that depends
+wipes, as rule 6 describes. Keys bound to the secure element cannot be exported, so anything that depends
 on them, such as some passkeys, must be enrolled again.
 
 1. **Inventory.** The owner lists what must survive. That covers photos and files, contacts,
@@ -948,9 +987,14 @@ Most severe first.
   - factory reset protection on a return to stock;
   - whether a wipe keeps eSIM profiles;
   - the exact flash script that `fastboot optimize-factory-image` writes into the install zip,
-    including whether it cancels a pending update;
+    including its image list, its wipe lines and whether it cancels a pending update, and where
+    the build number sits inside a real install zip;
   - that GrapheneOS never ships older firmware in a newer release, which the version criterion
     assumes and GrapheneOS's own updates depend on;
+  - that a security preview carries the same firmware as its regular release, which GrapheneOS's
+    statement that previews use the same sources implies;
+  - where the build sets the rollback index. The patch level comes from the base records in
+    `upstream/bases/`;
   - how long a first caiman build takes.
 - The accepted [lifecycle record](2026-10-08-native-lifecycle-record.md) keeps native account
   lifecycle writers out of production until two conditions hold. The rollback floor must read
