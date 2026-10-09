@@ -17,10 +17,14 @@
                 names.add(pkg.getPackageName());
                 mNativeRecoveryView = withNativeCodePath(mNativeRecoveryView, pkg.getPath());
                 // The same history view as restoration: this mapped package's own body, or its
-                // complete header reservation, stays recoverable. Anything else is deferred.
+                // complete header reservation, stays recoverable only in the policy's Eligible
+                // state, as the scan requires. Anything else is deferred: a retiring or retired
+                // account, a suspended one, and every other mapping.
                 NativeIdentityStore.History history = mNativeIdentityLoaded.history(appId);
                 if (history == null || pkg.hasSharedUser()
-                        || !history.packageName.equals(pkg.getPackageName())) {
+                        || !history.packageName.equals(pkg.getPackageName())
+                        || history.retiring
+                        || !history.suspensions.isEmpty()) {
                     mNativeRecoveryView = deferNativeName(mNativeRecoveryView, pkg.getPackageName(), pkg.getPath());
                 }
             } else {

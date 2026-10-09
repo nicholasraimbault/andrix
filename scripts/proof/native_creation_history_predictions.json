@@ -216,7 +216,21 @@
     "against": "the archived 24bfb6a parity side, over the layouts of the pinned 24bfb6a parity driver",
     "keys": "relation/<layout> for a twin relation, <format>/<layout>/<kind>/<detail> for an outcome line",
     "driver": "The living side compiles the pinned 24bfb6a NativeHistoryParity too, so both sides run one driver. The source checks hold the working-tree driver to its bytes; a package that edits the driver moves the living parity to the edited driver and predicts each difference here.",
-    "predicted_differences": []
+    "predicted_differences": [
+      "V1/body-retiring~cleared/seed/10002/same/incomplete",
+      "V1/body-retiring~cleared/seed/10002/same/matching",
+      "V1/body-retiring~cleared/seed/10002/same/none",
+      "V1/body-retiring~cleared/seed/10002/same/unowned-name",
+      "V2/body-retiring/seed/10002/same/incomplete",
+      "V2/body-retiring/seed/10002/same/matching",
+      "V2/body-retiring/seed/10002/same/none",
+      "V2/body-retiring/seed/10002/same/unowned-name",
+      "V2/body-retiring~cleared/seed/10002/same/incomplete",
+      "V2/body-retiring~cleared/seed/10002/same/matching",
+      "V2/body-retiring~cleared/seed/10002/same/none",
+      "V2/body-retiring~cleared/seed/10002/same/unowned-name"
+    ],
+    "p3": "Seeding defers a mapped history that is retiring, retired or suspended. Of the archived layouts only body-retiring holds such a history, a version 1 retiring body of A (10002). Its own mapping, same, kept the package recoverable under the data owner observations none, matching, unowned-name and incomplete, and now defers it. foreign and unreadable already deferred it, and every other mapping already deferred the name. Under Format.V1 the uncleared layout has a version 2 header, so no body history exists and nothing changes there. The scan already refused the retiring history, so no scan line changes. The boot facts hold no RETIRED account or ticketed tombstone under either format, and the RELEASING entries without a directory name only packages that seeding already deferred. So 12 seed lines differ, in 3 format and layout pairs, and every other line, relation and count stays."
   },
   "p0_archive": {
     "status": "PREDICTED before any guarded execution of the archived legs. Nothing here is an executed result. The sources equal 24bfb6a, so each archived leg is predicted to repeat the count of the leg it archives.",

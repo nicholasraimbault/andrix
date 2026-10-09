@@ -109,7 +109,7 @@
  import android.os.FileUtils;
  import android.os.Handler;
  import android.os.Message;
-@@ -563,6 +564,394 @@
+@@ -563,6 +564,435 @@
      final WatchedArrayMap<String, SharedUserSetting> mSharedUsers = new WatchedArrayMap<>();
      @Watched(manual = true)
      private final AppIdSettingMap mAppIds;
@@ -121,6 +121,8 @@
 +    private java.util.Map<String, Integer> mNativeDeOwnersAtBoot = java.util.Map.of();
 +    private boolean mNativeDeEnumerationComplete = true;
 +    private NativeIdentityStore.Loaded mNativeIdentityLoaded;
++    // What this instance's boot read showed, recorded once at construction and never changed.
++    private NativeIdentityPersistence.BootFacts mNativeBootFacts;
 +    // Original histories of this instance's exact core pins, never current eligibility.
 +    private final java.util.Map<Long, NativeIdentityStore.History> mNativeRememberedBindings =
 +            new java.util.HashMap<>();
@@ -212,6 +214,41 @@
 +        mNativePrincipalPins = restored;
 +        observeNativeIdentityStoreLPw(loaded);
 +        seedNativeRecoveryLPw();
++        recordNativeBootFactsLPw(loaded);
++    }
++
++    // The boot facts, from the same boot read that restoration and seeding took before any scan
++    // or write. Never the cached view, which every store read replaces, nor the remembered
++    // histories. Each named package is deferred for the rest of this instance, so nothing under
++    // its UID starts. They are recorded once.
++    private void recordNativeBootFactsLPw(NativeIdentityStore.Loaded loaded) {
++        if (mNativeBootFacts != null) throw new IllegalStateException("Native boot facts recorded twice");
++        NativeIdentityPersistence.BootFacts facts = NativeIdentityPersistence.bootFacts(loaded);
++        java.util.Set<String> names = new java.util.TreeSet<>();
++        for (NativePrincipalPins.Record record : facts.retired.values()) names.add(record.packageName);
++        for (NativeIdentityRecords.Slot tombstone : facts.ticketedTombstones.values()) {
++            names.add(tombstone.packageName);
++        }
++        for (int appId : facts.releasingWithoutDirectory) {
++            SettingBase mapping = mAppIds.getSetting(appId);
++            if (mapping instanceof PackageSetting) names.add(((PackageSetting) mapping).getPackageName());
++        }
++        for (String name : names) {
++            PackageSetting pkg = getPackageLPr(name);
++            mNativeRecoveryView = deferNativeName(mNativeRecoveryView, name, pkg == null ? null : pkg.getPath());
++        }
++        mNativeBootFacts = facts;
++    }
++
++    // This instance's boot facts: the evidence of a retired boot and of continuing a release.
++    NativeIdentityPersistence.BootFacts nativeBootFactsLPr() {
++        if (mNativeBootFacts == null) throw new IllegalStateException("Native boot facts are not recorded");
++        return mNativeBootFacts;
++    }
++
++    /** Whether this instance began with exactly this account RETIRED: a retired boot for it. */
++    boolean nativeRetiredBootLPr(NativePrincipalPins.Record record) {
++        return nativeBootFactsLPr().retiredBoot(record);
 +    }
 +
 +    boolean nativeScanSubjectAllowedLPr(PackageSetting candidate) {
@@ -461,10 +498,14 @@
 +                names.add(pkg.getPackageName());
 +                mNativeRecoveryView = withNativeCodePath(mNativeRecoveryView, pkg.getPath());
 +                // The same history view as restoration: this mapped package's own body, or its
-+                // complete header reservation, stays recoverable. Anything else is deferred.
++                // complete header reservation, stays recoverable only in the policy's Eligible
++                // state, as the scan requires. Anything else is deferred: a retiring or retired
++                // account, a suspended one, and every other mapping.
 +                NativeIdentityStore.History history = mNativeIdentityLoaded.history(appId);
 +                if (history == null || pkg.hasSharedUser()
-+                        || !history.packageName.equals(pkg.getPackageName())) {
++                        || !history.packageName.equals(pkg.getPackageName())
++                        || history.retiring
++                        || !history.suspensions.isEmpty()) {
 +                    mNativeRecoveryView = deferNativeName(mNativeRecoveryView, pkg.getPackageName(), pkg.getPath());
 +                }
 +            } else {
@@ -504,7 +545,7 @@
  
      @Watched(manual = true)
      private final PccIdSettingMap mPccIds;
-@@ -828,6 +1217,7 @@
+@@ -828,6 +1258,7 @@
  
          mSharedUsers.snapshot(r.mSharedUsers);
          mAppIds = r.mAppIds.snapshot();
@@ -512,7 +553,7 @@
          mPccIds = r.mPccIds.snapshot();
  
          mRenamedPackages.snapshot(r.mRenamedPackages);
-@@ -1396,14 +1786,32 @@
+@@ -1396,14 +1827,32 @@
      boolean registerAppIdLPw(PackageSetting p, boolean forceNew) throws PackageManagerException {
          final boolean createdNew;
          if (p.getAppId() == 0 || forceNew) {

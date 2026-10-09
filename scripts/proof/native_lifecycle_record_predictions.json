@@ -1,5 +1,5 @@
 {
-  "status": "PREDICTED before any guarded execution of the P2c sources. Nothing here is an executed result.",
+  "status": "PREDICTED before any guarded execution of the P3 sources. Nothing here is an executed result.",
   "plan": "plans/2026-10-08-native-lifecycle-record.md",
   "package": "B1 P1: the slot version 2 codec, the stable prefix reader and the readers in every format; B1 P2a: the lifecycle store transitions, the suspend, lift, markRetiring and markRetired transactions, the publication refusal and the writer rules; B1 P2b checkpoint 1: the boot facts, the deletion or migration step, confirm disposal and Restore; B1 P2c: Restore's claim and phase fixes and the gated release engine at the persistence level, with its capability, its store primitives and the source rules that keep release unreachable.",
   "basis": "Each count is the length of the runner's case lists. Each mutant's catches are traced against the cases it breaks; a defect that another rule also refuses names only the cases that reach it.",
@@ -1052,5 +1052,23 @@
     },
     "equivalent_checks_without_a_mutant": "The persistence's lifecycle format check of release is equivalent to the store's: under Format.V1 and V2 a RETIRED record and a ticketed tombstone are version 2 slots, unsupported footprints there, so no binding or tombstone exists for it to reach; the mutant release-primitives-under-earlier-formats removes the store primitives' own checks, which a version 1 tombstone reaches. The drop primitive's header phase check is equivalent to the existing refusal of a user drop beside any CREATING header copy. Restore's check of the selected entry's RELEASING phase is covered by its loop over every decoded header copy, which includes the selected one, so no mutant removes it alone. At the start, release's counter and sibling checks are equivalent to the binding's own: a binding above the counter or beside a live sibling is a conflict, never usable; their mutants are caught by continuation cases.",
     "part_4_living_counts": "Unchanged in the binding, history, counter and lab runners and in the lifecycle reads and codec: no case or layout of theirs holds a release ticket, so no load of theirs reads one."
+  },
+  "p3": {
+    "changes": "Settings records the boot facts once, from its boot read, after seeding, and defers the package of each RETIRED account, ticketed tombstone and mapped RELEASING entry without a directory. Seeding defers a mapped history that is retiring, retired or suspended. The host facade carries every Settings fragment and restores, observes, seeds and records the boot facts in that order. A source rule refuses bootFacts outside the boot facts fragment, and the primitives rule refuses a method reference of either store writer.",
+    "unchanged_counts": {
+      "codec": 47,
+      "reads": 60,
+      "goldens": 9,
+      "store": 49,
+      "transactions": 57,
+      "faults": 136,
+      "mutants": 159
+    },
+    "source_rule_mutants": {
+      "capability": 4,
+      "release": 6,
+      "primitives": 4,
+      "boot-facts": 3
+    }
   }
 }

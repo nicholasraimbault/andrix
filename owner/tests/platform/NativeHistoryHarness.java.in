@@ -12,12 +12,12 @@ import java.util.TreeSet;
 /**
  * One revision's exact adapted Settings history text around small host facades: its whole boot
  * restoration method, the observation, remembering and hold refresh it calls, its restore inputs,
- * app ID hold and identity predicates, path safety, scan rule and boot recovery seeding. The
- * runner fills each placeholder with that revision's own text, cut from the candidate Settings
- * that its pinned patch builds from the pinned framework, or with the unchanged profile fragment
- * where both revisions share it. The nested facades shadow the host stubs only inside this class.
- * The body input adapter is the only host code a placeholder receives. Not a running Android PMS,
- * and no authority.
+ * app ID hold and identity predicates, path safety, scan rule, boot recovery seeding, boot facts,
+ * retired boot queries and release finish. The runner fills each placeholder with that revision's
+ * own text, cut from the candidate Settings that its pinned patch builds from the pinned framework,
+ * or with the unchanged profile fragment where both revisions share it. The nested facades shadow
+ * the host stubs only inside this class. The body input adapter is the only host code a
+ * placeholder receives. Not a running Android PMS, and no authority.
  */
 final class NativeHistoryHarness {
     static class SettingBase { }
@@ -79,6 +79,7 @@ final class NativeHistoryHarness {
     boolean mNativeDeEnumerationComplete = true;
     final Set<Integer> mNativeStoreAppIds = new TreeSet<>();
 @REMEMBERED_FIELD@
+    NativeIdentityPersistence.BootFacts mNativeBootFacts;
     final AppIds mAppIds = new AppIds();
     final Map<String, PackageSetting> packages = new HashMap<>();
     int changes;
@@ -106,6 +107,9 @@ final class NativeHistoryHarness {
 @OBSERVE@
 @REFRESH@
 @STORED@
+@BOOT_FACTS@
+@RETIRED_BOOT@
+@RELEASE_FINISH@
 
     /** This revision's exact restore inputs. */
     static Inputs restoreInputs(NativeIdentityStore.Loaded loaded) {

@@ -1068,7 +1068,13 @@ ANY_HEADER_CALLERS = ('    boolean writeHeader(Header expected, Header next) {',
                       '    boolean markSlotReleasing(Header expected, int appId) {',
                       '    boolean omitReleasedSlot(Header expected, int appId) {')
 DROP_CALLERS = ('    boolean dropReleasedUser(Slot expected, long id, ReleaseTicket ticket) {',)
-UNREACHABLE_RULES = ('capability', 'release', 'primitives')
+# The boot facts are the evidence of a retired boot. Only Settings' boot facts fragment builds them,
+# from the boot read, and the host facade carries that fragment verbatim. No other production text
+# calls or references bootFacts, so no class can admit a boot from a fresh read. Among the other Java
+# texts, only the facade through that fragment and the release engine's named tests do.
+BOOT_FACTS_FRAGMENT = 'boot-facts'
+BOOT_FACTS_TESTS = CAPABILITY_TESTS
+UNREACHABLE_RULES = ('capability', 'release', 'primitives', 'boot-facts')
 MANAGER = FRAMEWORK_DIR + 'NativePrincipalManager.java'
 NON_NATIVE = FRAMEWORK_DIR + 'CeStorageAccessTracker.java'
 
@@ -1137,6 +1143,37 @@ def unreachable_violations(texts, others):
                 problems.append('release: %s calls or references %s outside the release bodies' % (name, entry))
     if STORE in texts:
         problems += primitive_violations(texts[STORE])
+    problems += boot_facts_violations(texts, others)
+    return problems
+
+
+def boot_facts_violations(texts, others):
+    """'boot-facts: detail' for each call or method reference of bootFacts outside Settings' boot facts
+    fragment: in a production text anywhere but that fragment in the Settings section, and in another
+    Java text anywhere but that fragment in the host facade and the release engine's named tests. The
+    Settings section and the facade each hold the fragment once. A declaration is no call. Comments
+    are not code."""
+    fragment = b1.strip_java_comments(integration.FRAGMENTS[BOOT_FACTS_FRAGMENT][1].read_text())
+    problems = []
+    for group, holders in ((texts, (b1.SETTINGS_SECTION,)), (others, (FACADE,))):
+        for name in holders:
+            if b1.strip_java_comments(group.get(name, '')).count(fragment) != 1:
+                problems.append('boot-facts: %s does not hold the boot facts fragment once' % name)
+        for name, raw in group.items():
+            if group is others and name in BOOT_FACTS_TESTS:
+                continue
+            code = b1.strip_java_comments(raw)
+            allowed = []
+            if name in holders and code.count(fragment) == 1:
+                start = code.index(fragment)
+                allowed.append((start, start + len(fragment)))
+            for found in re.finditer(r'(?:\.\s*|::\s*|(?<![\w$.:]))bootFacts\b(?=\s*\()|::\s*bootFacts\b', code):
+                line = code[code.rfind('\n', 0, found.start()) + 1:found.start()]
+                if name == PERSISTENCE and re.fullmatch(r'\s*static\s+BootFacts\s+', line):
+                    continue  # Its declaration.
+                if any(start <= found.start() < end for start, end in allowed):
+                    continue
+                problems.append('boot-facts: %s calls or references bootFacts outside the boot facts fragment' % name)
     return problems
 
 
@@ -1162,7 +1199,8 @@ def call_arguments(code, offset):
 def primitive_violations(store):
     """'primitives: detail' for each call of the store's own release powers outside the bodies that
     may make it: writeAnyHeader outside the generic and the two named header writes, and a drop flag
-    other than the literal false outside dropReleasedUser."""
+    other than the literal false outside dropReleasedUser. A method reference of either writer is
+    refused anywhere in the store, because no body that may use them takes one."""
     code = b1.strip_java_comments(store)
     problems = []
     any_header, drop = body_spans(code, ANY_HEADER_CALLERS), body_spans(code, DROP_CALLERS)
@@ -1182,6 +1220,8 @@ def primitive_violations(store):
         if (len(arguments) != 4 or arguments[3] != 'false') and not any(
                 start <= found.start() < end for start, end in drop):
             problems.append('primitives: writeExistingSlot passes the drop flag outside dropReleasedUser')
+    for found in re.finditer(r'::\s*(writeAnyHeader|writeExistingSlot)\b', code):
+        problems.append('primitives: %s is referenced as a method' % found.group(1))
     return problems
 
 
@@ -1192,8 +1232,10 @@ def unreachable_rules(texts, others):
 def unreachable_mutants():
     """Release reachability defects, each with the exact set of rules it must trip: the capability in
     the Settings section, in a framework file outside the native sources and in a test that is not
-    allowed, a call or reference of each release entry point, and each of the store's own release
-    powers used outside the bodies that may."""
+    allowed, a call or reference of each release entry point, each of the store's own release powers
+    used outside the bodies that may or referenced as a method, and boot facts built outside Settings'
+    boot facts fragment: from a fresh read in the manager, again in the Settings section and in a
+    test that is not allowed."""
     texts = b1.production_texts()
     others = other_java_texts(texts)
     settings = b1.SETTINGS_SECTION
@@ -1228,6 +1270,16 @@ def unreachable_mutants():
         'capability-class-in-manager': (changed((MANAGER, manager,
             '    private static final Class<?> RELEASE = NativeIdentityPersistence.ReleaseCapability.class;\n\n'
             + manager)), {'capability'}),
+        'boot-facts-from-a-fresh-read-in-manager': (changed((MANAGER, manager,
+            '    private static boolean freshBoot(NativeIdentityPersistence persistence) {\n'
+            '        return NativeIdentityPersistence.bootFacts(persistence.load()).retired.isEmpty();\n    }\n\n'
+            + manager)), {'boot-facts'}),
+        'boot-facts-again-in-settings': (changed((settings, None,
+            '\n        NativeIdentityPersistence.BootFacts again =\n'
+            '                NativeIdentityPersistence.bootFacts(mNativeIdentityLoaded);\n')), {'boot-facts'}),
+        'boot-facts-referenced-in-another-test': (changed((store_test, store_main, store_main
+            + '        java.util.function.Function<NativeIdentityStore.Loaded, NativeIdentityPersistence.BootFacts> facts =\n'
+            '                NativeIdentityPersistence::bootFacts;\n')), {'boot-facts'}),
         'release-called-from-manager': (changed((MANAGER, manager,
             '    boolean releaseNow(NativeIdentityPersistence persistence) {\n'
             '        return persistence.release(null, null, null, null, null, null);\n    }\n\n' + manager)),
@@ -1245,6 +1297,12 @@ def unreachable_mutants():
             '        writeAnyHeader(expected, expected);\n' + released)), {'primitives'}),
         'drop-flag-in-the-generic-update': (changed((STORE, generic,
             '        return writeExistingSlot(expected, next, false, true);\n')), {'primitives'}),
+        'any-header-write-referenced': (changed((STORE, confirm,
+            '    private final java.util.function.BiPredicate<Header, Header> anyHeader = this::writeAnyHeader;\n\n'
+            + confirm)), {'primitives'}),
+        'slot-writer-referenced': (changed((STORE, confirm,
+            '    private interface SlotWriter { boolean write(Slot expected, Slot next, boolean restore, boolean drop); }\n'
+            '    private final SlotWriter slotWriter = this :: writeExistingSlot;\n\n' + confirm)), {'primitives'}),
         'drop-referenced-from-manager': (changed((MANAGER, manager,
             '    private static final Object DROP = (Object) (java.util.function.Predicate<NativeIdentityStore>)\n'
             '            store -> store.dropReleasedUser(null, 0, null);\n\n' + manager)), {'release'}),

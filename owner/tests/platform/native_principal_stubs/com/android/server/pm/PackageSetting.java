@@ -10,6 +10,7 @@ final class PackageSetting extends SettingBase {
  private final String name; int appId; boolean shared,system,updated,apex,external;
  String volume; boolean parsed=true; final Pkg pkg=new Pkg(); final PackageUserStateInternal state=new PackageUserStateInternal();
  PackageSetting(String n){name=n;} String getPackageName(){return name;}
+ java.io.File path; java.io.File getPath(){return path!=null?path:new java.io.File("/data/app/~~host/"+name+"-1");}
  Pkg getPkg(){return parsed?pkg:null;} boolean hasSharedUser(){return shared;} int getAppId(){return appId;}
  boolean isSystem(){return system;} boolean isUpdatedSystemApp(){return updated;} boolean isApex(){return apex;}
  boolean isExternalStorage(){return external;} String getVolumeUuid(){return volume;}

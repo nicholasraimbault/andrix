@@ -929,17 +929,24 @@ public final class NativeCreationHistoryTest {
             check(problems, pm.mSettings.nativeScanSubjectAllowedLPr(candidate), "the control");
             pm.mSettings.mNativeRecoveryView = pm.mSettings.mNativeRecoveryView.defer(PKG_R, null);
             check(problems, !pm.mSettings.nativeScanSubjectAllowedLPr(candidate), "a deferred name");
-            // Without seeding, so the mapping rule alone refuses these.
+            // Seeding defers the name. With that deferral cleared, the mapping rule alone refuses.
             PackageManagerService foreignMapping = reopenOf(reserved(), V2, Map.of(PKG_X, R));
-            check(problems, !foreignMapping.mSettings.nativePrincipalDesignationDeferredLPr(PKG_R)
-                    && !foreignMapping.mSettings.nativeScanSubjectAllowedLPr(candidate),
+            check(problems, foreignMapping.mSettings.nativePrincipalDesignationDeferredLPr(PKG_R),
+                    "another mapped package was not deferred at seeding");
+            foreignMapping.mSettings.mNativeRecoveryView = NativePrincipalRecovery.empty();
+            check(problems, !foreignMapping.mSettings.nativeScanSubjectAllowedLPr(candidate),
                     "another mapped package");
             PackageManagerService noMapping = reopenOf(reserved(), V2, Map.of());
-            check(problems, !noMapping.mSettings.nativePrincipalDesignationDeferredLPr(PKG_R)
-                    && !noMapping.mSettings.nativeScanSubjectAllowedLPr(candidate), "no mapping");
+            check(problems, noMapping.mSettings.nativePrincipalDesignationDeferredLPr(PKG_R),
+                    "no mapping was not deferred at seeding");
+            noMapping.mSettings.mNativeRecoveryView = NativePrincipalRecovery.empty();
+            check(problems, !noMapping.mSettings.nativeScanSubjectAllowedLPr(candidate), "no mapping");
             Path retiring = pairLayout(v2(1, live(A)));
             slot(retiring, A, bound(A, PKG_A, 1, true, 2));
             PackageManagerService retiringPm = boot(retiring, V2, Map.of(PKG_A, A));
+            check(problems, retiringPm.mSettings.nativePrincipalDesignationDeferredLPr(PKG_A),
+                    "a retiring history was not deferred at seeding");
+            retiringPm.mSettings.mNativeRecoveryView = NativePrincipalRecovery.empty();
             check(problems, !retiringPm.mSettings.nativeScanSubjectAllowedLPr(
                     retiringPm.mSettings.packages.get(PKG_A)), "a retiring history");
         });

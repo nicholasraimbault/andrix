@@ -31,7 +31,8 @@ FRAGMENTS = {name: (PREFIX + source + '.java', ROOT / 'owner/tests/platform/nati
                  ('system-delete', 'InstallPackageHelper'), ('path-safety', 'Settings'),
                  ('restore-capacity', 'Settings'), ('admission', 'Settings'),
                  ('restore-history', 'Settings'), ('stored-history', 'Settings'),
-                 ('scan', 'Settings'), ('recovery-seeding', 'Settings'))}
+                 ('scan', 'Settings'), ('recovery-seeding', 'Settings'), ('boot-facts', 'Settings'),
+                 ('retired-boot', 'Settings'), ('deferral', 'Settings'))}
 PROFILE = ROOT / 'patches/grapheneos-2026081300/native-principal-pins.json'
 PATCH = ROOT / 'patches/grapheneos-2026081300/native-principal-pins.patch'
 SETTINGS = PREFIX + 'Settings.java'

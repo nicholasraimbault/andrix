@@ -2,7 +2,7 @@
   "version": 1,
   "project": "frameworks/base",
   "head": "aab06a8bd44c4c2b58eeec780fde83baa9d43a40",
-  "patch_sha256": "4534a490e767824182fdf8e7ca035eaad9a6245bf7100006ddfd0fd7012ecf43",
+  "patch_sha256": "609b6222f8c02673e52396cb590b1f46f82b225e975ea9fb1ff1afbb00c7997d",
   "files": [
     {
       "path": "services/core/java/com/android/server/pm/AppIdSettingMap.java",
@@ -12,7 +12,7 @@
     {
       "path": "services/core/java/com/android/server/pm/Settings.java",
       "upstream_sha256": "bff2de579d206a39be81ef0b798df8f6e845d2f28efbbcd63554ccffbddae5a1",
-      "candidate_sha256": "8b995677f53b92656e2e50f8860ca6ab24139f1eb9e41c248ef98a7e76317709"
+      "candidate_sha256": "9da59af43ceeaf705a1d56cf2f895f2e5420b4828bd202af27863480e10be36a"
     },
     {
       "path": "services/core/java/com/android/server/pm/PackageManagerService.java",
@@ -177,7 +177,25 @@
       "name": "recovery-seeding",
       "path": "services/core/java/com/android/server/pm/Settings.java",
       "source": "owner/tests/platform/native_recovery_fragments/recovery-seeding.java.inc",
-      "sha256": "ecbe75a94f02054353c0f50e8d5f13f0a581f1f7509f1fcf9d64d7f303fd9d40"
+      "sha256": "604059a49fa26c8947803f40dd1f1c032b24d5875c7b84f299e79149c0a41727"
+    },
+    {
+      "name": "boot-facts",
+      "path": "services/core/java/com/android/server/pm/Settings.java",
+      "source": "owner/tests/platform/native_recovery_fragments/boot-facts.java.inc",
+      "sha256": "feef1495ce2b94302a140fc6df252a6d7f1fbb910bc8452cbbf67778c4ade6c7"
+    },
+    {
+      "name": "retired-boot",
+      "path": "services/core/java/com/android/server/pm/Settings.java",
+      "source": "owner/tests/platform/native_recovery_fragments/retired-boot.java.inc",
+      "sha256": "02a35b1005f071c15a78e1f16e00f16958ed9922bd1f3d8c900a145893d10178"
+    },
+    {
+      "name": "deferral",
+      "path": "services/core/java/com/android/server/pm/Settings.java",
+      "source": "owner/tests/platform/native_recovery_fragments/deferral.java.inc",
+      "sha256": "ac1e3b8e4ef98fb593224673824d0942f7bb38d3b9986f0cb7d59eef0909a8dd"
     }
   ]
 }

@@ -4,6 +4,7 @@ package com.android.server.pm;
 
 import android.os.UserHandle;
 
+import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -11,9 +12,9 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.TreeSet;
 
-// Restoration, stored histories, the identity predicate and the scan rule are the exact
-// fragments of the adapted framework Settings. Boot recovery seeding is not run here; the
-// separate history harness runs its exact fragment.
+// Restoration, stored histories, the identity predicate, the scan rule, path safety, boot
+// recovery seeding, the boot facts, the retired boot queries and the deferral are the exact
+// fragments of the adapted framework Settings. Its restore runs them in the adapted boot order.
 final class Settings {
     static final String LINEAGE = "0123456789abcdef0123456789abcdef";
     NativePrincipalPins pins = new NativePrincipalPins(64);
@@ -25,6 +26,12 @@ final class Settings {
     final HashSet<String> mutating = new HashSet<>();
     final HashSet<String> deferred = new HashSet<>();
     final Set<Integer> storeHolds = new TreeSet<>();
+    // The adapted framework's names of the held app IDs, the boot data owners and the lock.
+    final Set<Integer> mNativeStoreAppIds = storeHolds;
+    java.util.Map<String, Integer> mNativeDeOwnersAtBoot = java.util.Map.of();
+    boolean mNativeDeEnumerationComplete = true;
+    final Object mLock = new Object();
+    NativeIdentityPersistence.BootFacts mNativeBootFacts;
     final HashMap<Long, NativeIdentityStore.History> mNativeRememberedBindings = new HashMap<>();
     final Path root;
     final NativeIdentityStore store;
@@ -46,6 +53,8 @@ final class Settings {
             persistence = new NativeIdentityPersistence(store);
             mNativeIdentityLoaded = persistence.load();
             applied = initialize;
+            // A new store's boot read: no fact, through the exact boot facts fragment.
+            if (initialize) recordNativeBootFactsLPw(mNativeIdentityLoaded);
         } catch (java.io.IOException error) { throw new AssertionError(error); }
     }
 
@@ -76,7 +85,46 @@ final class Settings {
         }
         pins = restored;
         applied = true;
+        // The adapted boot order: restore, observe, seed, then the boot facts.
         observeNativeIdentityStoreLPw(loaded);
+        seedNativeRecoveryLPw();
+        recordNativeBootFactsLPw(loaded);
+    }
+
+    // The exact boot facts fragment of the adapted framework Settings.
+    // The boot facts, from the same boot read that restoration and seeding took before any scan
+    // or write. Never the cached view, which every store read replaces, nor the remembered
+    // histories. Each named package is deferred for the rest of this instance, so nothing under
+    // its UID starts. They are recorded once.
+    private void recordNativeBootFactsLPw(NativeIdentityStore.Loaded loaded) {
+        if (mNativeBootFacts != null) throw new IllegalStateException("Native boot facts recorded twice");
+        NativeIdentityPersistence.BootFacts facts = NativeIdentityPersistence.bootFacts(loaded);
+        java.util.Set<String> names = new java.util.TreeSet<>();
+        for (NativePrincipalPins.Record record : facts.retired.values()) names.add(record.packageName);
+        for (NativeIdentityRecords.Slot tombstone : facts.ticketedTombstones.values()) {
+            names.add(tombstone.packageName);
+        }
+        for (int appId : facts.releasingWithoutDirectory) {
+            SettingBase mapping = mAppIds.getSetting(appId);
+            if (mapping instanceof PackageSetting) names.add(((PackageSetting) mapping).getPackageName());
+        }
+        for (String name : names) {
+            PackageSetting pkg = getPackageLPr(name);
+            mNativeRecoveryView = deferNativeName(mNativeRecoveryView, name, pkg == null ? null : pkg.getPath());
+        }
+        mNativeBootFacts = facts;
+    }
+
+    // The exact retired boot queries fragment of the adapted framework Settings.
+    // This instance's boot facts: the evidence of a retired boot and of continuing a release.
+    NativeIdentityPersistence.BootFacts nativeBootFactsLPr() {
+        if (mNativeBootFacts == null) throw new IllegalStateException("Native boot facts are not recorded");
+        return mNativeBootFacts;
+    }
+
+    /** Whether this instance began with exactly this account RETIRED: a retired boot for it. */
+    boolean nativeRetiredBootLPr(NativePrincipalPins.Record record) {
+        return nativeBootFactsLPr().retiredBoot(record);
     }
 
     NativePrincipalPins nativePrincipalPinsLPr() { return pins; }
@@ -226,6 +274,92 @@ final class Settings {
         mNativeRememberedBindings.remove(record.id);
         observeNativeIdentityStoreLPw(observed);
     }
+
+    // The exact deferral fragment of the adapted framework Settings.
+    void deferNativePackage(String packageName, File codePath) {
+        synchronized (mLock) {
+            if (codePath != null && !codePath.isAbsolute()) {
+                mNativeRecoveryView = mNativeRecoveryView.defer(packageName, null).withUnidentifiedCode();
+            } else mNativeRecoveryView = mNativeRecoveryView.defer(packageName, codePath);
+        }
+    }
+
+    // The exact path safety fragment of the adapted framework Settings.
+    private static NativePrincipalRecovery withNativeCodePath(NativePrincipalRecovery view, File codePath) {
+        return codePath != null && codePath.isAbsolute() ? view.retainCode(codePath)
+                : view.withUnidentifiedCode();
+    }
+
+    private static NativePrincipalRecovery deferNativeName(NativePrincipalRecovery view, String name, File codePath) {
+        return codePath == null || codePath.isAbsolute() ? view.defer(name, codePath)
+                : view.defer(name, null).withUnidentifiedCode();
+    }
+
+    // The exact recovery seeding fragment of the adapted framework Settings.
+    private void seedNativeRecoveryLPw() {
+        java.util.Set<String> names = new java.util.TreeSet<>();
+        for (NativeIdentityStore.ReadResult<NativeIdentityRecords.Slot> copies
+                : mNativeIdentityLoaded.slots.values()) {
+            for (NativeIdentityRecords.Slot slot : copies.decodedCopies) names.add(slot.packageName);
+            for (NativeIdentityRecords.SlotPrefix prefix : copies.prefixes) names.add(prefix.packageName);
+        }
+        for (NativeIdentityRecords.Header header : mNativeIdentityLoaded.header.decodedCopies) {
+            for (NativeIdentityRecords.HeaderEntry entry : header.entries) {
+                if (!entry.creationPackage.isEmpty()) names.add(entry.creationPackage);
+            }
+        }
+        for (int appId : mNativeStoreAppIds) {
+            SettingBase mapping = mAppIds.getSetting(appId);
+            if (mapping instanceof PackageSetting) {
+                PackageSetting pkg = (PackageSetting) mapping;
+                names.add(pkg.getPackageName());
+                mNativeRecoveryView = withNativeCodePath(mNativeRecoveryView, pkg.getPath());
+                // The same history view as restoration: this mapped package's own body, or its
+                // complete header reservation, stays recoverable only in the policy's Eligible
+                // state, as the scan requires. Anything else is deferred: a retiring or retired
+                // account, a suspended one, and every other mapping.
+                NativeIdentityStore.History history = mNativeIdentityLoaded.history(appId);
+                if (history == null || pkg.hasSharedUser()
+                        || !history.packageName.equals(pkg.getPackageName())
+                        || history.retiring
+                        || !history.suspensions.isEmpty()) {
+                    mNativeRecoveryView = deferNativeName(mNativeRecoveryView, pkg.getPackageName(), pkg.getPath());
+                }
+            } else {
+                mNativeRecoveryView = mNativeRecoveryView.withUnidentifiedCode();
+                if (mapping instanceof SharedUserSetting) {
+                    for (com.android.server.pm.pkg.PackageStateInternal pkg
+                            : ((SharedUserSetting) mapping).getPackageStates()) {
+                        names.add(pkg.getPackageName());
+                        mNativeRecoveryView = deferNativeName(mNativeRecoveryView, pkg.getPackageName(), pkg.getPath());
+                    }
+                }
+            }
+        }
+        names.addAll(mNativeDeOwnersAtBoot.keySet());
+        mNativeRecoveryView = mNativeRecoveryView.protectNames(names);
+        if (!mNativeDeEnumerationComplete) mNativeRecoveryView = mNativeRecoveryView.withUnidentifiedCode();
+        for (java.util.Map.Entry<String, Integer> footprint : mNativeDeOwnersAtBoot.entrySet()) {
+            PackageSetting pkg = getPackageLPr(footprint.getKey());
+            if (pkg == null || footprint.getValue() < 0
+                    || UserHandle.getUid(UserHandle.USER_SYSTEM, pkg.getAppId()) != footprint.getValue()) {
+                mNativeRecoveryView = deferNativeName(mNativeRecoveryView, footprint.getKey(),
+                        pkg == null ? null : pkg.getPath());
+            }
+        }
+        for (String name : names) {
+            PackageSetting pkg = getPackageLPr(name);
+            if (pkg != null) mNativeRecoveryView = withNativeCodePath(mNativeRecoveryView, pkg.getPath());
+        }
+        for (NativeIdentityStore.History history : mNativeIdentityLoaded.histories().values()) {
+            PackageSetting pkg = getPackageLPr(history.packageName);
+            if (pkg == null || pkg.getAppId() != history.appId || pkg.hasSharedUser()) {
+                mNativeRecoveryView = deferNativeName(mNativeRecoveryView, history.packageName,
+                        pkg == null ? null : pkg.getPath()).withUnidentifiedCode();
+            }
+        }
+    }
+
     PackageSetting add(String name, int uid) {
         PackageSetting setting = new PackageSetting(name);
         setting.appId = uid;

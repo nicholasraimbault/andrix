@@ -35,6 +35,14 @@ def synthetic_settings(fragments=None, side=None):
     if fragments is None:
         fragments = {name: path.read_text() for name, (_, path) in runner.integration.FRAGMENTS.items()}
     refresh = '    void refreshNativePrincipalAppIdsLPw() {\n' + ('        // candidate %s\n' % side if side else '')
+    # The lifecycle texts of a current candidate: the boot facts and the retired boot queries after
+    # the boot method, which records the boot facts last, and the release finish after observation.
+    lifecycle = 'boot-facts' in fragments
+    boot = '        recordNativeBootFactsLPw(loaded);\n' if lifecycle else ''
+    queries = fragments['boot-facts'] + '\n' + fragments['retired-boot'] + '\n' if lifecycle else ''
+    release = ('    void finishNativeIdentityReleaseLPw(NativePrincipalPins.Record record,'
+               ' NativeIdentityStore.Loaded loaded) {\n        observeNativeIdentityStoreLPw(loaded);\n    }\n\n'
+               if lifecycle else '')
     return ('final class Settings {\n'
             '    private final java.util.Map<Long, NativeIdentityStore.History> mNativeRememberedBindings =\n'
             '            new java.util.HashMap<>();\n\n'
@@ -42,7 +50,7 @@ def synthetic_settings(fragments=None, side=None):
             + fragments['restore-history'] + fragments['restore-capacity']
             + '        mNativePrincipalPins = restored;\n'
             '        observeNativeIdentityStoreLPw(loaded);\n'
-            '        seedNativeRecoveryLPw();\n    }\n\n'
+            '        seedNativeRecoveryLPw();\n' + boot + '    }\n\n' + queries
             + fragments['scan'] + '\n    boolean nativePrincipalCreationReadyLPr() {\n        return true;\n    }\n\n'
             '    NativeIdentityRecords.Slot nativePrincipalBindingLPr(NativePrincipalPins.Record record) {\n'
             '        if (!mNativeIdentityLoaded.bindingUsable(record.appId)) return null;\n'
@@ -58,7 +66,7 @@ def synthetic_settings(fragments=None, side=None):
             '        mNativeStoreAppIds.addAll(loaded.occupiedAppIds);\n'
             '        rememberNativeHistoriesLPw(loaded);\n'
             '        refreshNativePrincipalAppIdsLPw();\n    }\n\n'
-            + refresh +
+            + release + refresh +
             '        java.util.Set<Integer> held = new java.util.TreeSet<>(mNativeStoreAppIds);\n'
             '        held.addAll(nativePrincipalPinsLPr().reservedAppIds());\n'
             '        mAppIds.setNativePrincipalAppIds(held);\n'
@@ -210,7 +218,13 @@ class CreationHistorySourceTests(unittest.TestCase):
                          (['V2/reservation/restore/-'], [], []))
         self.assertEqual(runner.predicted_parity(good, good, ['V2/extra/body/-']), ([], [], ['V2/extra/body/-']))
         predicted = json.loads(runner.PREDICTIONS.read_text())['living_parity']
-        self.assertEqual(predicted['predicted_differences'], [])
+        # The seeding deferral of a mapped retiring history: only the archived body-retiring layout
+        # holds one, which under Format.V1 reads no body beside its version 2 header.
+        self.assertEqual(predicted['predicted_differences'], sorted(
+            '%s/%s/seed/10002/same/%s' % (fmt, layout, owner)
+            for fmt, layout in (('V2', 'body-retiring'), ('V1', 'body-retiring~cleared'),
+                                ('V2', 'body-retiring~cleared'))
+            for owner in ('none', 'matching', 'unowned-name', 'incomplete')))
 
     def test_living_parity_runs_the_current_sources_with_the_pinned_driver(self):
         settings = synthetic_settings(side='b2')

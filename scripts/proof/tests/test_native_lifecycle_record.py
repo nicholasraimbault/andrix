@@ -30,7 +30,7 @@ def scratch(test):
 
 
 def predictions_rules():
-    return json.loads(runner.PREDICTIONS.read_text())['p2c']['source_rule_mutants']
+    return json.loads(runner.PREDICTIONS.read_text())['p3']['source_rule_mutants']
 
 
 class LifecycleRecordSourceTests(unittest.TestCase):
@@ -129,14 +129,21 @@ class LifecycleRecordSourceTests(unittest.TestCase):
         mutants = runner.unreachable_mutants()
         self.assertEqual(sum(rules == {'capability'} for _, rules in mutants.values()), 4)
         self.assertEqual(sum(rules == {'release'} for _, rules in mutants.values()), len(runner.RELEASE_ENTRY_POINTS))
-        self.assertEqual(sum(rules == {'primitives'} for _, rules in mutants.values()), 2)
+        self.assertEqual(sum(rules == {'primitives'} for _, rules in mutants.values()), 4)
+        self.assertEqual(sum(rules == {'boot-facts'} for _, rules in mutants.values()), 3)
         for name, ((production, other), rules) in mutants.items():
             self.assertEqual(runner.unreachable_rules(production, other), rules, name)
         # A release body that is not found refuses every call in it.
         moved = dict(texts)
         moved[runner.PERSISTENCE] = moved[runner.PERSISTENCE].replace(runner.RELEASE_BODIES[0], '    boolean free(', 1)
         self.assertIn('release', runner.unreachable_rules(moved, others))
-        self.assertEqual(predictions_rules(), {'capability': 4, 'release': 6, 'primitives': 2})
+        self.assertEqual(predictions_rules(), {'capability': 4, 'release': 6, 'primitives': 4, 'boot-facts': 3})
+        # Only Settings' boot facts fragment, carried verbatim by the facade, builds boot facts.
+        fragment = runner.integration.FRAGMENTS[runner.BOOT_FACTS_FRAGMENT][1].read_text()
+        self.assertEqual(fragment.count('NativeIdentityPersistence.bootFacts(loaded)'), 1)
+        self.assertEqual(others[runner.FACADE].count(fragment), 1)
+        for name in runner.BOOT_FACTS_TESTS:
+            self.assertIn('bootFacts(', others[name])
 
     def test_mutants_anchor_once_change_their_text_and_are_predicted(self):
         texts = runner.mutant_texts()

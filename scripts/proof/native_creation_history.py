@@ -38,6 +38,8 @@ FRAMEWORK_DIR = b1.FRAMEWORK_DIR
 SETTINGS = integration.PREFIX + 'Settings.java'
 PREDICTIONS = ROOT / 'scripts/proof/native_creation_history_predictions.json'
 TEMPLATE = ROOT / PLATFORM / 'NativeHistoryHarness.java.in'
+# Host stubs that only the history harness needs. None remain: the package state stub moved to the
+# shared host stubs when the facade began to run the exact seeding fragment.
 HISTORY_STUBS = ROOT / PLATFORM / 'native_history_stubs'
 BODY_INPUTS = {'0018': ROOT / PLATFORM / 'native_history_api/baseline/body-inputs.java.inc',
                'b2': ROOT / PLATFORM / 'native_history_api/b2/body-inputs.java.inc'}
@@ -442,6 +444,15 @@ def method(text, start):
 
 
 APPLY_START = '    void applyNativeIdentityStoreLPw(NativeIdentityStore.Loaded loaded) {\n'
+BOOT_FACTS_START = '    private void recordNativeBootFactsLPw(NativeIdentityStore.Loaded loaded) {\n'
+QUERIES_START = '    NativeIdentityPersistence.BootFacts nativeBootFactsLPr() {\n'
+RELEASE_FINISH_START = ('    void finishNativeIdentityReleaseLPw(NativePrincipalPins.Record record,'
+                        ' NativeIdentityStore.Loaded loaded) {\n')
+# The adapted boot order the host facade's restore keeps: restore, observe, seed, then the boot
+# facts.
+BOOT_ORDER = ('NativeIdentityPersistence.restoration(loaded.histories());',
+              'observeNativeIdentityStoreLPw(loaded);', 'seedNativeRecoveryLPw();',
+              'recordNativeBootFactsLPw(loaded);')
 BINDING_START = '    NativeIdentityRecords.Slot nativePrincipalBindingLPr(NativePrincipalPins.Record record) {\n'
 REMEMBERED_FIELD = re.compile(r'    private final java\.util\.Map<Long, [A-Za-z.]+> mNativeRememberedBindings =\n'
                               r'            new java\.util\.HashMap<>\(\);\n')
@@ -450,9 +461,10 @@ REMEMBERED_FIELD = re.compile(r'    private final java\.util\.Map<Long, [A-Za-z.
 def settings_texts(settings):
     """Every history text the harness takes from one candidate Settings, by placeholder: its whole
     boot restoration method and restore inputs, the observation, remembered binding field and
-    remembering it calls, the hold refresh, the app ID hold, scan rule and recovery seeding, all
-    cut from it, and the shared identity and path safety fragments that it must contain exactly
-    once. The restore capacity fragment must occur once, inside the restoration method."""
+    remembering it calls, the hold refresh, the app ID hold, scan rule, recovery seeding, boot
+    facts, retired boot queries and release finish, all cut from it, and the shared identity and
+    path safety fragments that it must contain exactly once. The restore capacity fragment must
+    occur once, inside the restoration method."""
     fragments = {name: path.read_text() for name, (_, path) in integration.FRAGMENTS.items()}
     for name in ('restore-capacity', 'identity', 'path-safety'):
         if settings.count(fragments[name]) != 1:
@@ -480,6 +492,10 @@ def settings_texts(settings):
                     '\n    boolean nativePrincipalCreationReadyLPr() {\n'),
         'SEEDING': cut(settings, '    private void seedNativeRecoveryLPw() {\n',
                        '\n    @Watched(manual = true)\n    private final PccIdSettingMap mPccIds;\n'),
+        'BOOT_FACTS': method(settings, BOOT_FACTS_START),
+        'RETIRED_BOOT': cut(settings, QUERIES_START,
+                            '\n    boolean nativeScanSubjectAllowedLPr(PackageSetting candidate) {\n'),
+        'RELEASE_FINISH': method(settings, RELEASE_FINISH_START),
     }
 
 
@@ -493,6 +509,11 @@ def b2_text_checks(settings):
             problems.append('candidate %s differs from fragment %s' % (tag, name))
     if settings.count(fragments['stored-history']) != 1 or fragments['stored-history'] not in texts['STORED']:
         problems.append('candidate lacks the stored history fragment where the harness cuts it')
+    for tag, name in (('BOOT_FACTS', 'boot-facts'), ('RETIRED_BOOT', 'retired-boot')):
+        if settings.count(fragments[name]) != 1 or not fragments[name].endswith(texts[tag]):
+            problems.append('candidate %s is not the end of fragment %s' % (tag, name))
+    if texts['APPLY'].count('recordNativeBootFactsLPw(loaded);') != 1:
+        problems.append('candidate boot restoration does not record the boot facts once')
     if 'rememberNativeHistoriesLPw(loaded);' not in texts['OBSERVE'] or 'bindingUsable' in texts['OBSERVE']:
         problems.append('candidate observation does not remember through the history view')
     if 'NativeIdentityStore.History' not in texts['REMEMBERED_FIELD']:
@@ -579,9 +600,24 @@ def surface_violations():
         problems.append('Settings still reads bindingUsable outside the published binding')
     if 'Handle created = new Handle(this, pin, prior.lineage, prior.signerSha256, prior.source);' not in manager:
         problems.append('restored handle is not built from the stored history')
-    for name in ('admission', 'restore-capacity', 'restore-history', 'stored-history', 'identity', 'scan'):
-        if facade.encode().count(integration.FRAGMENTS[name][1].read_bytes()) != 1:
+    # The facade carries every Settings fragment verbatim, and restores in the adapted boot order.
+    for name, (target, fragment) in integration.FRAGMENTS.items():
+        if target == integration.SETTINGS and facade.encode().count(fragment.read_bytes()) != 1:
             problems.append('host facade differs from fragment ' + name)
+    problems += boot_order_problems(patch + '\n', facade)
+    return problems
+
+
+def boot_order_problems(patch, facade):
+    """The host facade's restore runs restore, observe, seed and the boot facts in the order of the
+    adapted boot restoration method, each once."""
+    problems = []
+    for name, text, start in (('adapted boot restoration', patch, APPLY_START),
+                              ('host facade restore', facade, '    void restoreAfterPackageSettings() {\n')):
+        body = method(text, start)
+        positions = [body.find(step) if body.count(step) == 1 else -1 for step in BOOT_ORDER]
+        if -1 in positions or positions != sorted(positions):
+            problems.append('%s does not restore, observe, seed and record the boot facts in order' % name)
     return problems
 
 
