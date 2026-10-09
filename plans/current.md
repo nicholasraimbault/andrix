@@ -288,10 +288,14 @@ Gate 3 now has an accepted plan for the
 SystemUI. Its records, ticket state machine, reconciler and host store are host qualified, and so
 is the artifact store, whose publication record makes a variant and its restoration visible
 together or not at all. Building the store settled how a plan names its bundles and when an
-interrupted publication may be repeated. The host signer and bundle builder are next, then the
-session observer and the choice of test image. Emulator trials wait for the emulator. The owner
-decided seven of the plan's eight decisions. The rollback target waits for qualified candidate
-floor images, before the device coordinator.
+interrupted publication may be repeated. The host signer and bundle builder sign a variant and its
+restoration in one six operation transaction and reproduce the earlier signed outputs byte for
+byte. A read only shell observer turns the emulator's session listings into records, with forms
+derived from source still to be confirmed on a guest. The test image is chosen: the normal image
+built at `24bfb6a`, whose factory SystemUI equals the `985c9a4` baseline byte for byte, so the
+frozen variants need no rebuild. Emulator trials wait for the emulator. The owner decided seven of
+the plan's eight decisions. The rollback target waits for qualified candidate floor images, before
+the device coordinator.
 
 ## Product checkpoint
 
