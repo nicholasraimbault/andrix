@@ -701,6 +701,46 @@ public final class TicketMachineTest {
             check(problems, splitHeld.issue == null && splitHeld.ticket.flag(FLAG_REQUEST_LIMIT)
                     && splitHeld.ticket.cause == Cause.NONE, "disagreeing reads " + splitHeld);
         });
+        cases.run("publish / a later read of other bytes, or of none after a published read, holds with the alert",
+                problems -> {
+            // The bed's earlier read bound the bundle. Without a later read the ticket moves on.
+            Bed moving = Bed.late().grants().at(State.READY, TO_COMMIT);
+            moving.moveTo(B1, 1, 20_000).committed(FACTORY_APK).listing(1).session(Classification.SESSION_READY,
+                    SHELL_REF);
+            Step moved = moving.step();
+            check(problems, moved.issue != null && !moved.ticket.flag(FLAG_REQUEST_LIMIT), "the bed held " + moved);
+            // A later read naming other bytes holds the ticket, and a cancellation still abandons.
+            Bed bed = Bed.late().grants().at(State.READY, TO_COMMIT);
+            bed.host(Classification.BUNDLE_MISMATCH, Fixtures.PUBLISH_ATTEMPT);
+            bed.moveTo(B1, 1, 20_000).committed(FACTORY_APK).listing(1).session(Classification.SESSION_READY,
+                    SHELL_REF);
+            Step held = bed.step();
+            check(problems, held.issue == null && held.ticket.state == State.READY
+                    && held.ticket.flag(FLAG_REQUEST_LIMIT), "a later read of other bytes was ignored " + held);
+            bed.ticket = bed.ticket.toBuilder().cause(Cause.CANCELLED).build();
+            Step cancelled = bed.step();
+            check(problems, cancelled.issue != null && cancelled.issue.crossing == Crossing.ABANDON
+                    && cancelled.ticket.state == State.ABANDON_INTENT, "a cancellation could not abandon " + cancelled);
+            // An attempt that read the publication published and also absent has lost it.
+            Bed gone = Bed.late().grants().at(State.READY, TO_COMMIT);
+            gone.host(Classification.BUNDLE_PUBLISHED, Fixtures.PUBLISH_ATTEMPT);
+            gone.host(Classification.BUNDLE_ABSENT, Fixtures.PUBLISH_ATTEMPT);
+            gone.moveTo(B1, 1, 20_000).committed(FACTORY_APK).listing(1).session(Classification.SESSION_READY,
+                    SHELL_REF);
+            Step goneHeld = gone.step();
+            check(problems, goneHeld.issue == null && goneHeld.ticket.state == State.READY
+                    && goneHeld.ticket.flag(FLAG_REQUEST_LIMIT), "a lost publication was ignored " + goneHeld);
+            // An absent read of an attempt that never read it published only shows that attempt had no
+            // effect, as before a second publication.
+            Bed retried = Bed.late().grants().at(State.READY, TO_COMMIT);
+            retried.host(Classification.BUNDLE_ABSENT, id(0x9b2));
+            retried.host(Classification.BUNDLE_PUBLISHED, Fixtures.PUBLISH_ATTEMPT);
+            retried.moveTo(B1, 1, 20_000).committed(FACTORY_APK).listing(1).session(Classification.SESSION_READY,
+                    SHELL_REF);
+            Step on = retried.step();
+            check(problems, on.issue != null && !on.ticket.flag(FLAG_REQUEST_LIMIT),
+                    "an attempt without effect held the ticket " + on);
+        });
         cases.run("applied / a changed UID or context is not applied", problems -> {
             Bed bed = Bed.late().grants().at(State.APPLIED_PROVISIONAL, TO_REBOOT);
             bed.add(bed.f(Classification.BOOT_COMPLETED));

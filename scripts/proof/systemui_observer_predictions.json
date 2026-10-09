@@ -1,6 +1,6 @@
 {
-  "status": "PREDICTED for D3's read only shell observer, written before its guarded run and before the runs of the new cases and defects: both Python suites pass every case; the Java codec decodes each observation the observer gives from the fixtures, twenty five records of the BOOT, CHECKPOINT, FACTORY, ACTIVE, LISTING and SESSION kinds, encodes each to the same bytes and reads the same fields; and each defect below fails at least the cases listed. Nothing here is a guarded result. One correction followed the first run of the new observer cases: it found 27 cases where 26 were predicted, because a positive control for records of other packages was added, and the new removal cases sit in their own class. The counts and names here are corrected; every other figure is as first predicted.",
-  "cases": {"readbacks": 25, "observer": 27},
+  "status": "PREDICTED for D3's read only shell observer, written before its guarded run and before the runs of the new cases and defects: both Python suites pass every case; the Java codec decodes each observation the observer gives from the fixtures, twenty five records of the BOOT, CHECKPOINT, FACTORY, ACTIVE, LISTING and SESSION kinds, encodes each to the same bytes and reads the same fields; and each defect below fails at least the cases listed. Nothing here is a guarded result. One correction followed the first run of the new observer cases: it found 27 cases where 26 were predicted, because a positive control for records of other packages was added, and the new removal cases sit in their own class. The counts and names here are corrected; every other figure is as first predicted. Later, written before the observer phase and the runs of the new defects: the readbacks suite gains one case, a SystemUI record whose installer prints a prefix naming another package, live alone, live as a child and removed, which must refuse the dump; the source rule now collects every import at any depth of the observer and of its parser module, and allows a module's name only as the value of a listed attribute; and four defects guard these.",
+  "cases": {"readbacks": 26, "observer": 27},
   "decoded": 25,
   "mutants_caught_at_least": {
     "unknown-form-accepted": ["InstallsTests.test_controls_fail"],
@@ -22,6 +22,10 @@
     "committed-refused": ["RemovalTests.test_a_committed_removed_session_needs_its_terminal_flag"],
     "abandon-without-message": ["RemovalTests.test_an_abandon_needs_its_message"],
     "destroyed-after-terminal-flags": ["RemovalTests.test_a_destroyed_session_reads_abandoned"],
-    "unknown-package-ignored": ["RemovalTests.test_a_staged_session_of_no_known_package_gives_no_fact"]
+    "unknown-package-ignored": ["RemovalTests.test_a_staged_session_of_no_known_package_gives_no_fact"],
+    "installer-prefix-trusted": ["InstallsTests.test_an_installer_that_prints_a_prefix_is_refused"],
+    "import-inside-function": ["AllowlistTests.test_source_rule"],
+    "module-bound-to-another-name": ["AllowlistTests.test_source_rule"],
+    "parser-imports-subprocess": ["AllowlistTests.test_source_rule"]
   }
 }

@@ -57,7 +57,9 @@ public final class HostSigner {
 
         /**
          * Verifies one signed APK and its v4 sidecar: v2 with a pass below SDK 28, v3 and v4 over
-         * the declared range, and every signer's certificate and key digests.
+         * the declared range, and every signer's certificate and key digests. Throws
+         * UncheckedIOException when the engine cannot write or read back its own files. Such a
+         * failure proves nothing about the APK, so it never reads as a check that fails.
          */
         Verification verify(byte[] apk, byte[] idsig, int sdkMin, int sdkMax);
 

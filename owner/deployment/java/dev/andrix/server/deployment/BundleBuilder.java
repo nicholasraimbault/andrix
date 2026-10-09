@@ -186,8 +186,8 @@ public final class BundleBuilder implements Coordinator.Host {
 
     // The signer's answer as the ticket reads it. A COMPLETED transaction counts only once every
     // output verified and both bundles are staged privately. Outputs that fail their facts never
-    // heal, so the request can no longer complete. A staging failure proves nothing: it gives no
-    // fact, and a later read stages the same outputs again.
+    // heal, so the request can no longer complete. A read, verifier or staging I/O failure proves
+    // nothing: it gives no fact, and a later read verifies and stages the same outputs again.
     private Observation signerFact(Plan plan, Transaction t) {
         Classification c;
         switch (t.state) {
@@ -215,7 +215,7 @@ public final class BundleBuilder implements Coordinator.Host {
     }
 
     // What finishing a COMPLETED transaction found: both bundles staged, an output that is gone,
-    // damaged or fails its facts, or a read or staging failure.
+    // damaged or fails its facts, or a read, verifier or staging I/O failure.
     private enum Finish { STAGED, FAILED, UNAVAILABLE }
 
     // Verifies every retained output of a COMPLETED transaction and stages its bundles. Nothing is
@@ -230,7 +230,11 @@ public final class BundleBuilder implements Coordinator.Host {
                 return Finish.UNAVAILABLE; // A read error proves nothing: a later read tries again.
             }
             Manifest m = manifest(t, r);
-            if (s == null || verify(s.apk, s.idsig, m) != null) return Finish.FAILED;
+            try {
+                if (s == null || verify(s.apk, s.idsig, m) != null) return Finish.FAILED;
+            } catch (UncheckedIOException unverified) {
+                return Finish.UNAVAILABLE; // Only a check that fails is final, never the verifier's I/O error.
+            }
             signed.put(r, s);
         }
         for (Role r : t.roles()) {
@@ -256,7 +260,8 @@ public final class BundleBuilder implements Coordinator.Host {
 
     /**
      * Checks one signed APK and its sidecar against the facts its manifest names. Returns null when
-     * every fact holds, else the first that fails.
+     * every fact holds, else the first that fails. Throws UncheckedIOException when the engine's
+     * own I/O fails, which proves nothing about the APK.
      */
     String verify(byte[] apk, byte[] idsig, Manifest m) {
         if (!m.certificate.equals(role.certificate) || !m.key.equals(role.key)) return "not the platform role";

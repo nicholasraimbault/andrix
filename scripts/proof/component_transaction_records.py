@@ -606,6 +606,7 @@ MACHINE_NAMES = (
     'checkpoint / APPLIED only once the checkpoint is observed committed',
     "applied / the bundle's bytes are the APK that its publication bound",
     'publish / a missing publication read holds with the alert, and a cancellation still abandons',
+    'publish / a later read of other bytes, or of none after a published read, holds with the alert',
     'applied / a changed UID or context is not applied',
     'boot / a boot during COMMIT_INTENT is BOOT_OBSERVED',
     'boot / outcomes after the activation boot',
@@ -737,6 +738,7 @@ SIGNING_NAMES = (
     'builder / a restoration plan publishes the already published restoration',
     'signer / an engine that swallows a refusal still ends REFUSED with nothing kept',
     'builder / a staging error gives no fact, and a later read stages the same outputs',
+    'builder / an I/O error of the verifier gives no fact, and a later read verifies the same outputs',
     'builder / a request without a record is recorded with the role and input of its own grant',
     'entries / only ASCII letters fold in the names of v1 signature files',
     'entries / a name past the end of the archive is refused as invalid',
@@ -748,7 +750,8 @@ SIGNING_NAMES = (
     "builder / input bytes that are not the plan's are never signed",
     "builder / an input whose own facts are not the plan's is never signed",
     'builder / an unreadable retained output gives no fact, and one that is gone reads CANNOT_COMPLETE',
-    'builder / one whole run publishes a variant and its restoration, then a repair plan the restoration')
+    'builder / one whole run publishes a variant and its restoration, then a repair plan the restoration',
+    'builder / a later read of the publication, damaged or gone, holds the ticket with the alert')
 
 NAMES = {'codec': CODEC_NAMES, 'machine': MACHINE_NAMES, 'store': STORE_NAMES, 'transactions': TRANSACTION_NAMES,
          'artifacts': ARTIFACT_NAMES, 'signing': SIGNING_NAMES}
@@ -1066,8 +1069,8 @@ MUTANTS = {
     'mismatch-waits-silently': (((RECONCILER, _MISMATCH_HOLD, '        if (mismatch(c)) return null;\n'),),
                                 ('machine',)),
     'apk-from-another-plan': (((RECONCILER,
-        '                if (o.classification != Classification.BUNDLE_PUBLISHED || !o.plan.equals(plan)) continue;\n',
-        '                if (o.classification != Classification.BUNDLE_PUBLISHED) continue;\n'),), ('machine',)),
+        '                if (o.kind != ObservationKind.BUNDLE || !o.plan.equals(plan)) continue;\n',
+        '                if (o.kind != ObservationKind.BUNDLE) continue;\n'),), ('machine',)),
     'disagreeing-reads-bind': (((RECONCILER,
         '                if (found != null && (!found.digest.equals(o.digest) || !found.bundleApk.equals(o.bundleApk)\n',
         '                if (found == o && (!found.digest.equals(o.digest) || !found.bundleApk.equals(o.bundleApk)\n'),),
@@ -1106,8 +1109,8 @@ MUTANTS = {
     # bundles together, every signer with the platform role, and never a second signing.
     'signer-partial-output-kept': (((HOST_SIGNER, '            discard(open.transaction);\n', ''),), ('signing',)),
     'builder-published-before-verification': (((BUNDLE_BUILDER,
-        '            if (s == null || verify(s.apk, s.idsig, m) != null) return Finish.FAILED;\n',
-        '            if (s == null) return Finish.FAILED;\n'),), ('signing',)),
+        '                if (s == null || verify(s.apk, s.idsig, m) != null) return Finish.FAILED;\n',
+        '                if (s == null) return Finish.FAILED;\n'),), ('signing',)),
     'builder-bundle-published-alone': (((BUNDLE_BUILDER,
         '        List<Role> roles = new ArrayList<>(List.of(Role.VARIANT));\n'
         '        if (plan.hasRestoration()) roles.add(Role.RESTORATION);\n        Map<Role, Staged> chosen',
@@ -1168,6 +1171,17 @@ MUTANTS = {
         '                return Finish.FAILED;\n'),), ('signing',)),
     'builder-publication-unread-after-signed': (((BUNDLE_BUILDER, '        if (attempt != null) {\n',
                                                   '        if (attempt != null && signing) {\n'),), ('signing',)),
+    # After PUBLISHED, a read of the plan's publication that names other bytes, or finds it absent
+    # for an attempt that read it published, holds the ticket; and a verifier's I/O error is no fact.
+    'later-mismatch-read-ignored': (((RECONCILER,
+        '                if (o.classification == Classification.BUNDLE_MISMATCH) return null;\n',
+        '                if (o.classification == Classification.BUNDLE_MISMATCH) continue;\n'),), ('machine',)),
+    'later-absent-read-ignored': (((RECONCILER, '                if (read.contains(attempt)) return null;\n',
+                                    '                if (read.contains(attempt)) continue;\n'),), ('machine',)),
+    'builder-verifier-io-error-final': (((BUNDLE_BUILDER,
+        "                return Finish.UNAVAILABLE; // Only a check that fails is final, never the verifier's I/O "
+        "error.\n",
+        '                return Finish.FAILED;\n'),), ('signing',)),
     'artifact-input-equal-output-refused': (((ARTIFACT_RECORDS,
         '            this.installation = installation;\n            this.component = component;\n'
         '            this.transaction = transaction;\n',
@@ -1222,6 +1236,9 @@ REQUIRED_DEFECTS = {
     'a signer of a later scheme without the platform role': ('builder-first-signer-only',),
     "outputs whose entries are not the input's": ('builder-entries-unchecked',),
     'an unreadable retained output read as final': ('builder-unreadable-output-final',),
+    'a later read of the publication that is missing or names other bytes ignored': ('later-mismatch-read-ignored',
+                                                                                    'later-absent-read-ignored'),
+    "an I/O error of the verifier read as a request that can no longer complete": ('builder-verifier-io-error-final',),
 }
 
 

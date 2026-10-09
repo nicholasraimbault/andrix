@@ -431,22 +431,27 @@ class AllowlistTests(unittest.TestCase):
         self.assertIsInstance(guard, ast.If)
         self.assertEqual(ast.unparse(guard.test), 'not allowed(command)')
         self.assertIsInstance(guard.body[0], ast.Raise)
-        imported = {alias.name for n in ast.walk(tree) if isinstance(n, (ast.Import, ast.ImportFrom))
-                    for alias in n.names} | {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
-        self.assertFalse(imported & {'os', 'subprocess', 'socket', 'shutil', 'pty'}, imported)
-        # Nothing reaches a process through another module: each imported name is used only for the
-        # attributes listed here, and nothing looks names up dynamically.
-        bound = {(alias.asname or alias.name) for n in tree.body if isinstance(n, (ast.Import, ast.ImportFrom))
-                 for alias in n.names}
-        self.assertEqual(bound, {'dataclass', 'hashlib', 're', 'secrets', 'time', 'encoder', 'readback'})
-        parsers = {n.name for n in ast.parse(Path(s.__file__).read_text()).body
-                   if isinstance(n, (ast.FunctionDef, ast.ClassDef))}
+        # Every import at any depth, of the observer and of its parser module, as what it imports and
+        # the name it binds: exactly these.
+        parser = ast.parse(Path(s.__file__).read_text())
+        self.assertEqual(imports(tree), sorted([('dataclasses.dataclass', 'dataclass'), ('hashlib', 'hashlib'),
+                                                ('re', 're'), ('secrets', 'secrets'), ('time', 'time'),
+                                                ('scripts.proof.component_transaction_records', 'encoder'),
+                                                ('scripts.proof.systemui_sessions', 'readback')]))
+        self.assertEqual(imports(parser), [('dataclasses.dataclass', 'dataclass'), ('re', 're')])
+        # Nothing reaches a process through another module: each imported module's name appears only
+        # where one of the attributes listed here is used, never as a value of its own, and nothing
+        # looks names up dynamically.
+        parsers = {n.name for n in parser.body if isinstance(n, (ast.FunctionDef, ast.ClassDef))}
         reach = {'hashlib': {'sha256'}, 're': {'compile'}, 'secrets': {'token_hex'}, 'time': {'time_ns'},
                  'encoder': {'observation', 'NO_USER', 'NO_SERIAL', 'ZERO_ID'},
                  'readback': parsers | {'PACKAGE', 'FACTORY_PATH', 'DATA_PATH', 'Cohort'}}
+        values = attribute_values(tree)
         for node in ast.walk(tree):
             if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id in reach:
                 self.assertIn(node.attr, reach[node.value.id], ast.unparse(node))
+            if isinstance(node, ast.Name) and node.id in reach:
+                self.assertIn(id(node), values, 'a module as a value: ' + node.id)
             if isinstance(node, ast.Name):
                 self.assertNotIn(node.id, {'getattr', '__import__', 'eval', 'exec', 'globals', 'vars', 'open',
                                            'compile', '__builtins__', 'importlib', 'sys'}, ast.unparse(node))
@@ -454,9 +459,28 @@ class AllowlistTests(unittest.TestCase):
                 self.assertFalse(node.attr.startswith('__') or node.attr in {'subprocess', 'system', 'popen', 'Popen',
                                                                            'spawn', 'fork', 'execv'},
                                  ast.unparse(node))
-        parser_imports = {alias.name for n in ast.parse(Path(s.__file__).read_text()).body
-                          if isinstance(n, (ast.Import, ast.ImportFrom)) for alias in n.names}
-        self.assertEqual(parser_imports, {'dataclass', 're'})
+        # The parser module's re is likewise only ever the value of an attribute.
+        parser_values = attribute_values(parser)
+        for node in ast.walk(parser):
+            if isinstance(node, ast.Name) and node.id == 're':
+                self.assertIn(id(node), parser_values, 'a module as a value in the parser: re')
+
+
+def imports(tree):
+    """Every import of a module at any depth, as (what it imports, the name it binds), sorted."""
+    found = []
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Import):
+            found += [(alias.name, alias.asname or alias.name) for alias in n.names]
+        elif isinstance(n, ast.ImportFrom):
+            found += [('.' * n.level + (n.module or '') + '.' + alias.name, alias.asname or alias.name)
+                      for alias in n.names]
+    return sorted(found)
+
+
+def attribute_values(tree):
+    """The IDs of the Name nodes that are the value of an attribute."""
+    return {id(n.value) for n in ast.walk(tree) if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)}
 
 
 class EncodingTests(unittest.TestCase):

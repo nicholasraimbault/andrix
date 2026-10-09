@@ -12,6 +12,7 @@ import com.android.apksig.internal.apk.v3.V3SchemeConstants;
 import com.android.apksig.kms.KmsSignerEngineProvider;
 import com.android.apksig.util.DataSources;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -21,6 +22,7 @@ import java.security.cert.CertificateEncodingException;
 import java.security.cert.X509Certificate;
 import java.security.spec.AlgorithmParameterSpec;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
@@ -128,28 +130,40 @@ public final class ApksigEngine implements HostSigner.Engine {
         Path a = work.resolve("verify.apk");
         Path v = work.resolve("verify.apk.idsig");
         try {
-            Files.write(a, apk);
-            Files.write(v, idsig);
-            // v2 with a pass below SDK 28, where apksig does not skip it for v3.
-            ApkVerifier.Result low = new ApkVerifier.Builder(a.toFile()).setMinCheckedPlatformVersion(24)
-                    .setMaxCheckedPlatformVersion(27).build().verify();
-            // v3 and v4 over the declared range.
-            ApkVerifier.Result range = new ApkVerifier.Builder(a.toFile()).setMinCheckedPlatformVersion(sdkMin)
-                    .setMaxCheckedPlatformVersion(sdkMax == 0xffff ? Integer.MAX_VALUE : sdkMax)
-                    .setV4SignatureFile(v.toFile()).build().verify();
-            List<String[]> signers = new ArrayList<>();
-            for (ApkVerifier.Result.V2SchemeSignerInfo s : low.getV2SchemeSigners()) signers.add(identity(s.getCertificate()));
-            for (ApkVerifier.Result.V3SchemeSignerInfo s : range.getV3SchemeSigners()) {
-                signers.add(identity(s.getCertificate()));
+            // The verifier reads its scratch copies. An error writing them or reading them back is
+            // an I/O failure, which proves nothing about the APK. Only the engine's own I/O counts
+            // as one: an exception from inside apksig cannot show whether a file or the disk failed,
+            // so it is a check that fails.
+            try {
+                scratch(a, apk);
+                scratch(v, idsig);
+            } catch (IOException unwritten) {
+                throw new UncheckedIOException(unwritten);
             }
-            for (ApkVerifier.Result.V4SchemeSignerInfo s : range.getV4SchemeSigners()) {
-                signers.add(identity(s.getCertificate()));
+            try {
+                // v2 with a pass below SDK 28, where apksig does not skip it for v3.
+                ApkVerifier.Result low = new ApkVerifier.Builder(a.toFile()).setMinCheckedPlatformVersion(24)
+                        .setMaxCheckedPlatformVersion(27).build().verify();
+                // v3 and v4 over the declared range.
+                ApkVerifier.Result range = new ApkVerifier.Builder(a.toFile()).setMinCheckedPlatformVersion(sdkMin)
+                        .setMaxCheckedPlatformVersion(sdkMax == 0xffff ? Integer.MAX_VALUE : sdkMax)
+                        .setV4SignatureFile(v.toFile()).build().verify();
+                List<String[]> signers = new ArrayList<>();
+                for (ApkVerifier.Result.V2SchemeSignerInfo s : low.getV2SchemeSigners()) {
+                    signers.add(identity(s.getCertificate()));
+                }
+                for (ApkVerifier.Result.V3SchemeSignerInfo s : range.getV3SchemeSigners()) {
+                    signers.add(identity(s.getCertificate()));
+                }
+                for (ApkVerifier.Result.V4SchemeSignerInfo s : range.getV4SchemeSigners()) {
+                    signers.add(identity(s.getCertificate()));
+                }
+                return new HostSigner.Verification(low.isVerified() && low.isVerifiedUsingV2Scheme(),
+                        range.isVerified() && range.isVerifiedUsingV3Scheme(),
+                        range.isVerified() && range.isVerifiedUsingV4Scheme(), signers);
+            } catch (Exception e) {
+                return new HostSigner.Verification(false, false, false, List.of());
             }
-            return new HostSigner.Verification(low.isVerified() && low.isVerifiedUsingV2Scheme(),
-                    range.isVerified() && range.isVerifiedUsingV3Scheme(),
-                    range.isVerified() && range.isVerifiedUsingV4Scheme(), signers);
-        } catch (Exception e) {
-            return new HostSigner.Verification(false, false, false, List.of());
         } finally {
             try {
                 Files.deleteIfExists(a);
@@ -157,6 +171,14 @@ public final class ApksigEngine implements HostSigner.Engine {
             } catch (IOException ignored) {
                 // Scratch only.
             }
+        }
+    }
+
+    // Writes one scratch file and reads it back, so that the verifier reads exactly these bytes.
+    private static void scratch(Path path, byte[] bytes) throws IOException {
+        Files.write(path, bytes);
+        if (!Arrays.equals(Files.readAllBytes(path), bytes)) {
+            throw new IOException("a scratch copy reads back other bytes");
         }
     }
 

@@ -68,6 +68,21 @@ MUTANTS = {
     'unknown-package-ignored': (OBSERVER, "        if session.package is None and session.staged:\n"
                                           "            raise ValueError('A staged session of no known package')\n",
                                 '', ('observer',)),
+    # An installer of free text that prints a prefix of its own, and the three ways around the
+    # source rule: an import inside a function, a module bound to another name, and an import
+    # inside a parser function.
+    'installer-prefix-trusted': (SESSIONS, "    for key, count in _PREFIX_COUNTS.items():\n"
+                                           "        if sum(token.startswith(key + '=') for token in tokens) != count:\n"
+                                           "            return None\n", '', ('readbacks', 'observer')),
+    'import-inside-function': (OBSERVER, 'def boot_hex(uuid):',
+                               'def _later():\n    import multiprocessing\n    return multiprocessing.cpu_count()\n\n\n'
+                               'def boot_hex(uuid):', ('observer',)),
+    'module-bound-to-another-name': (OBSERVER, 'def boot_hex(uuid):',
+                                     '_tools = encoder\n\n\ndef _around(command):\n'
+                                     '    return _tools.shutil.which(command)\n\n\ndef boot_hex(uuid):', ('observer',)),
+    'parser-imports-subprocess': (SESSIONS, 'def prefix_package(logical):',
+                                  'def _helper(command):\n    import subprocess\n    return subprocess.run(command)\n\n\n'
+                                  'def prefix_package(logical):', ('observer',)),
 }
 DECODE = '''package dev.andrix.server.deployment;
 

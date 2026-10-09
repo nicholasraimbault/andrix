@@ -352,12 +352,16 @@ issues the crossing and records the reply as an observation. A lost reply record
   with the REQUEST_LIMIT alert. Cancellation and voiding remain its exits.
 - **Signed bytes.** The bundle's APK digest is signed output. Every rule that compares the active
   bytes with the bundle reads it from a BUNDLE fact that read the plan's publication back
-  PUBLISHED, whichever attempt it followed, because a publication never changes. Two such reads
-  that disagree bind nothing. A ticket reaches PUBLISHED only on such a fact, so from there on a
-  missing or disagreeing read is missing evidence, never other bytes. The ticket holds with the
-  REQUEST_LIMIT alert, and boots and causes are still recorded. A recorded cause still takes
-  effect wherever no bytes are judged, so a cancellation abandons a live session, which needs no
-  APK digest.
+  PUBLISHED, whichever attempt it followed, because a publication never changes. Reads of the
+  plan's publication that disagree bind nothing: two such reads that bind other APKs, any read of
+  other bytes, or one attempt that read the publication both PUBLISHED and ABSENT. Host facts
+  carry no time that a new coordinator can order them by, so those two reads of one attempt
+  disagree whichever came first. An ABSENT read alone only shows that its attempt had no effect.
+  A ticket reaches PUBLISHED only on such a fact, so from there on a missing or disagreeing read
+  is missing evidence, never other bytes. The ticket holds with the REQUEST_LIMIT alert, and boots
+  and causes are still recorded. A recorded cause still takes effect wherever no bytes are judged,
+  so a cancellation abandons a live session, which needs no APK digest. A record that cannot be
+  read gives no fact, so the earlier read still binds.
 - **Latest evidence.** The session's state is its latest exact observation, unless a complete
   listing taken after it no longer shows it. A session is gone only when such a listing comes from
   a later framework instance than the crossing in question, so a session destroyed in memory is
@@ -715,9 +719,11 @@ asks the captive callback.
   trusted role manifest of `scripts/proof/signing_recovery.py`, whose SystemUI platform role binds
   the platform slot. Only then does the ticket see SIGN_COMPLETED, so SIGNED means verified and
   private. A COMPLETED transaction whose retained outputs are gone, damaged or fail their facts is
-  reported as CANNOT_COMPLETE. A read that fails, or a staging failure after every output passed,
-  proves nothing, so it gives no fact. The ticket waits, and a later read stages the same outputs
-  again.
+  reported as CANNOT_COMPLETE. A read that fails, an I/O error of the verifier, or a staging
+  failure after every output passed proves nothing, so it gives no fact. The ticket waits, and a
+  later read verifies and stages the same outputs again. The apksig engine reports an error
+  writing or reading back its scratch copies as such an I/O error. An exception from inside apksig
+  cannot show whether a file or the disk failed, so it is a check that fails.
 - **Publication.** It names exactly the bundles of the ticket's own SIGN requests, each with its
   transaction, which is that request's ID. A plan that signs nothing is decision 3's restoration
   plan, and names the restoration that the repaired plan's publication bound. The store publishes
@@ -753,14 +759,14 @@ archive whose entry runs past its central directory is refused as invalid.
 | Suite | Cases | What it shows |
 | --- | --- | --- |
 | `DeploymentRecordsTest` | 52 | 23 goldens, two layouts by hand, every strict code refused by position, informational fields free, every relation, a bundle fact's attempt and plan and its digests set exactly when it read the publication, resealed mutations of every kind refused or canonical, the stable prefix |
-| `TicketMachineTest` | 70 | the exit table equals the plan's, every cycle passes a counted edge, each loop meets its limit, and every rule in single steps, including a second publication only after a read of absence that names the attempt, a read of other bytes held with the alert, and the bundle's bytes read from its own publication |
+| `TicketMachineTest` | 71 | the exit table equals the plan's, every cycle passes a counted edge, each loop meets its limit, and every rule in single steps, including a second publication only after a read of absence that names the attempt, a read of other bytes held with the alert, the bundle's bytes read from its own publication, and after PUBLISHED a later read of other bytes, or of none for an attempt that read it published, held with the alert |
 | `DeploymentStoreTest` | 14 | write once, compare and set, a crash at each write step, presence and footprints, one open ticket, the selection's revision rules |
 | `TransactionTest` | 44 | both routes and both commit modes end to end, decisions 3, 6 and 7 over whole runs, each row of the recovery table, fault sweeps at every crossing, a coordinator lost between the selection and ticket writes, world events at every round, and the invariants of every run |
 | `ArtifactStoreTest` | 22 | 6 goldens, the signing transaction record, strict codes by position, informational times, the stable prefix, resealed mutations refused or canonical, one bundle ID for the same bytes, and publication: together or not at all, bound to the plan's inputs and signer, verified first, a stop at every step, a lost acknowledgement read back, a second publication from the held bundles, a pair from two transactions, a restoration plan publishing the published restoration and only in the variant role, damage as MISMATCH |
-| `SigningTest` | 24 | with a fake apksig: the record written OPEN before the first operation, refusing each callback in turn publishes nothing, a refusal latched although the engine swallows it, an engine that returns its input or discards its operations' results, a fourth key operation, a lost reply resolved by the transaction ID, the proof that a request can no longer complete, a request recorded under its own grant, a staging error and an unreadable output that give no fact, every scheme and every signer verified, other entries, other input bytes, v1 files and other manifest facts refused, both bundles together or neither, a lost acknowledgement, a second publication from the held bundles, a pair from two transactions, a restoration plan publishing the published restoration, one whole coordinator run to PUBLISHED and a repair plan after it, and the input entry digest's ASCII folding and refusal of a name past the end |
+| `SigningTest` | 26 | with a fake apksig: the record written OPEN before the first operation, refusing each callback in turn publishes nothing, a refusal latched although the engine swallows it, an engine that returns its input or discards its operations' results, a fourth key operation, a lost reply resolved by the transaction ID, the proof that a request can no longer complete, a request recorded under its own grant, a staging error, an I/O error of the verifier and an unreadable output that give no fact, every scheme and every signer verified, other entries, other input bytes, v1 files and other manifest facts refused, both bundles together or neither, a lost acknowledgement, a second publication from the held bundles, a pair from two transactions, a restoration plan publishing the published restoration, one whole coordinator run to PUBLISHED and a repair plan after it, a later read of a damaged or missing publication that holds the ticket with the alert, and the input entry digest's ASCII folding and refusal of a name past the end |
 
 `scripts/proof/component_transaction_records.py` checks every golden against its own encoder,
-written from the tables above, and runs 109 deliberate defects against the suites predicted to catch
+written from the tables above, and runs 112 deliberate defects against the suites predicted to catch
 them. Given the pinned apksigner jar, the sealed SystemUI build, the development platform key and a
 role manifest with its commitment, it also runs `SealedOutputsTest`. That suite reproduces the
 sealed outputs byte for byte with the tool's options, then signs, verifies and publishes the pair in

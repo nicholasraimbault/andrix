@@ -167,17 +167,33 @@ public final class Reconciler {
          * The plan's publication as the store read it back complete: a BUNDLE_PUBLISHED fact naming
          * the plan, whose APK digests are those of the bundles the publication binds to the plan's
          * roles. A publication never changes, so any such read serves, whichever attempt it
-         * followed. Null when there is none, or when two such reads disagree.
+         * followed. Null when there is none, or when the reads of the plan's publication disagree:
+         * two such reads bind other APKs, a read names other bytes, or one attempt read it both
+         * published and absent. Store damage never heals on its own. Host facts carry no time that
+         * a new coordinator can order them by, so the two reads of one attempt disagree whichever
+         * came first. An absent read alone only shows that its attempt had no effect. An unreadable
+         * record gives no fact.
          */
         Observation bound(String plan) {
             Observation found = null;
+            List<String> absent = new ArrayList<>();
+            List<String> read = new ArrayList<>();
             for (Observation o : facts) {
-                if (o.classification != Classification.BUNDLE_PUBLISHED || !o.plan.equals(plan)) continue;
+                if (o.kind != ObservationKind.BUNDLE || !o.plan.equals(plan)) continue;
+                if (o.classification == Classification.BUNDLE_MISMATCH) return null;
+                if (o.classification == Classification.BUNDLE_ABSENT) {
+                    absent.add(o.subject);
+                    continue;
+                }
                 if (found != null && (!found.digest.equals(o.digest) || !found.bundleApk.equals(o.bundleApk)
                         || !found.restorationApk.equals(o.restorationApk))) {
                     return null;
                 }
                 found = o;
+                read.add(o.subject);
+            }
+            for (String attempt : absent) {
+                if (read.contains(attempt)) return null;
             }
             return found;
         }

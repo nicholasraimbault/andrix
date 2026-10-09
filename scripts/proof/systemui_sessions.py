@@ -563,15 +563,26 @@ _PREFIX_FORMS = {'mOriginalInstallerPackageName': _OPTIONAL_PACKAGE, 'installerP
                  'installFlags': r'0x[0-9a-f]{1,8}', 'appPackageName': _OPTIONAL_PACKAGE}
 
 
+# How often the pinned layout prints each prefix key in one record: installerPackageName twice, in
+# the header and in the parameters, and every other key once.
+_PREFIX_COUNTS = {key: (HEADER_KEYS + PARAMS_KEYS).count(key) for key in _PREFIX_KEYS}
+
+
 def prefix_package(logical):
     """The package that a record names before its first free text field, or None.
 
     Every field up to appPackageName is a number, a package name, a path or null, so none holds a
-    space, and text inside a later value cannot change this answer. None means that the prefix has
-    no known form or names no package."""
+    space, and text inside a later value cannot change this answer. The installer is the exception:
+    the shell's -i option can set it to free text that prints a whole prefix of its own, naming
+    another package. Such text repeats the prefix keys, so the prefix counts only when each of its
+    keys occurs as often as the pinned layout prints it. None means that the prefix has no known
+    form or names no package."""
     tokens = logical.split(' ')
     if len(tokens) <= len(_PREFIX_KEYS):
         return None
+    for key, count in _PREFIX_COUNTS.items():
+        if sum(token.startswith(key + '=') for token in tokens) != count:
+            return None
     for key, token in zip(_PREFIX_KEYS, tokens):
         if not token.startswith(key + '=') or not re.fullmatch(_PREFIX_FORMS.get(key, r'-?[0-9]{1,19}'),
                                                                 token[len(key) + 1:]):

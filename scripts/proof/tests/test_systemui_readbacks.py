@@ -430,6 +430,30 @@ class InstallsTests(unittest.TestCase):
                     s.installs_dump(0, text)
         self.assertEqual(s.prefix_package('userId=0 '), None)
 
+    def test_an_installer_that_prints_a_prefix_is_refused(self):
+        # The shell's -i option sets the installer to free text, which can print a whole prefix naming
+        # another package. A SystemUI record that carries it is never skipped as another package's.
+        spoof = ('null installInitiatingPackageName=null installOriginatingPackageName=null mInstallerUid=2000 '
+                 'createdMillis=1 updatedMillis=1 committedMillis=0 stageDir=null stageCid=null mode=1 '
+                 'installFlags=0x0 installLocation=1 installReason=0 installScenario=0 sizeBytes=-1 '
+                 'appPackageName=com.example.other')
+
+        def installer(keys, values):
+            values[keys.index('installerPackageName')] = spoof
+        live = mutate_session(form('installs-active-ready')[1], 'Active', installer)
+        removed = mutate_session(form('installs-finalized-historical')[1], 'Historical', installer)
+        raw = form('installs-foreign-records')[1]
+        start = raw.index('Active Child Session 1700000003:')
+        child = raw[:start] + raw[start:].replace('installerPackageName=null ', 'installerPackageName=' + spoof + ' ',
+                                                  1).replace('appPackageName=com.example.two',
+                                                             'appPackageName=com.android.systemui', 1)
+        for label, text in (('a live session alone', live), ('a live session as a child', child),
+                            ('a removed record', removed)):
+            with self.subTest(label=label):
+                self.assertIn('appPackageName=com.example.other', text)
+                with self.assertRaises(ValueError):
+                    s.installs_dump(0, text)
+
     def test_multiple_package_families(self):
         raw = form('installs-foreign-records')[1]
         for label, old, new in (

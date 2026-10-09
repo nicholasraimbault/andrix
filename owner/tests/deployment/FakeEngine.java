@@ -3,6 +3,7 @@ package dev.andrix.server.deployment;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
@@ -28,7 +29,8 @@ import java.util.zip.ZipInputStream;
  * <p>Modes model engines that must not pass: one that swallows each key operation's exception,
  * one that makes more than three key operations, one that returns its input as the APK, one that
  * discards the operations' results and signs with the key itself, one that names another
- * certificate for a scheme, and one that signs other bytes than its input.
+ * certificate for a scheme, and one that signs other bytes than its input. Its verifier can also
+ * fail with an I/O error, as apksig's engine does when it cannot write its scratch files.
  */
 final class FakeEngine implements HostSigner.Engine {
     static final int V2_BLOCK = 0x7109871a;
@@ -51,6 +53,8 @@ final class FakeEngine implements HostSigner.Engine {
     final String[] schemeCertificates = new String[3];
     /** Signs these bytes instead of its input. */
     byte[] substitute;
+    /** The number of coming verifications that fail with an I/O error before they check anything. */
+    int ioErrors;
 
     FakeEngine(String certificate) { this.certificate = certificate; }
 
@@ -98,6 +102,10 @@ final class FakeEngine implements HostSigner.Engine {
 
     @Override
     public HostSigner.Verification verify(byte[] apk, byte[] idsig, int sdkMin, int sdkMax) {
+        if (ioErrors > 0) {
+            ioErrors--;
+            throw new UncheckedIOException(new IOException("the scratch files cannot be written"));
+        }
         try {
             Map<Integer, byte[]> block = parseBlock(ApkEntries.signingBlock(apk));
             String entries = ApkEntries.digest(apk);

@@ -165,26 +165,43 @@ public final class SigningTest {
         }
     }
 
+    /**
+     * A deployment store and a coordinator with a host's builder as its host and the facade's shell
+     * route as its device, the factory chosen, and the pair's plan with its SIGN grant and ticket.
+     */
+    static final class Run {
+        final DeploymentStore store;
+        final Coordinator c;
+        final Plan pair = plan();
+        final Ticket first = Fixtures.ticket(1, pair).build();
+
+        Run(Host h, List<String> problems) throws IOException {
+            store = DeploymentStore.unsynced(h.root.resolve("deployment"), Fixtures.INSTALLATION);
+            store.initialize();
+            AndroidFacade android = new AndroidFacade(7, World.FACTORY);
+            android.store = store;
+            long[] n = {0};
+            c = new Coordinator(store, android.shell(), h.builder, Fixtures.TRUST,
+                    () -> String.format("%016x%016x", 0x2a5000000000000L, ++n[0]));
+            String none = DeploymentRecords.NO_ID;
+            check(problems, store.putSelection(null, new DeploymentRecords.Selection(Fixtures.INSTALLATION,
+                    Fixtures.COMPONENT, 0, DeploymentRecords.ChoiceKind.FACTORY, none,
+                    DeploymentRecords.UpdateResponsibility.REBUILD_WINDOW, Fixtures.WINDOW,
+                    DeploymentRecords.Realization.UNCHECKED, none, none, none, Fixtures.TIME)), "selection");
+            check(problems, store.addPlan(pair) && store.addAuthorization(grant(pair, 1, 3)), "plan and SIGN grant");
+            check(problems, store.createTicket(first), "ticket");
+        }
+    }
+
     // The coordinator with this builder as its host and the facade's shell route as its device,
     // from an approved plan to PUBLISHED, then a repair plan that publishes the restoration.
     static void whole(Path base, List<String> problems) throws Exception {
         Host h = host(base);
-        DeploymentStore store = DeploymentStore.unsynced(h.root.resolve("deployment"), Fixtures.INSTALLATION);
-        store.initialize();
-        AndroidFacade android = new AndroidFacade(7, World.FACTORY);
-        android.store = store;
-        long[] n = {0};
-        Coordinator c = new Coordinator(store, android.shell(), h.builder, Fixtures.TRUST,
-                () -> String.format("%016x%016x", 0x2a5000000000000L, ++n[0]));
-        String none = DeploymentRecords.NO_ID;
-        check(problems, store.putSelection(null, new DeploymentRecords.Selection(Fixtures.INSTALLATION,
-                Fixtures.COMPONENT, 0, DeploymentRecords.ChoiceKind.FACTORY, none,
-                DeploymentRecords.UpdateResponsibility.REBUILD_WINDOW, Fixtures.WINDOW,
-                DeploymentRecords.Realization.UNCHECKED, none, none, none, Fixtures.TIME)), "selection");
-        Plan pair = plan();
-        check(problems, store.addPlan(pair) && store.addAuthorization(grant(pair, 1, 3)), "plan and SIGN grant");
-        Ticket first = Fixtures.ticket(1, pair).build();
-        check(problems, store.createTicket(first), "ticket");
+        Run run = new Run(h, problems);
+        DeploymentStore store = run.store;
+        Coordinator c = run.c;
+        Plan pair = run.pair;
+        Ticket first = run.first;
         // Without a STAGE grant the ticket stays PUBLISHED once its publication reads back.
         Ticket end = settle(c, store, first.ticketId, 40, null);
         check(problems, end.state == State.PUBLISHED && end.flags == 0
@@ -209,6 +226,40 @@ public final class SigningTest {
         check(problems, repaired.state == State.PUBLISHED && p != null && p.bundles.size() == 1
                 && p.bundles.get(0).equals(h.store.publication(pair.planId).bundles.get(1))
                 && h.signer.operations() == 6, "the repair plan's run ended " + repaired.state);
+    }
+
+    // The pair's run to PUBLISHED, then damage to its publication: a bundle that reads other bytes,
+    // or a record that is gone. The builder's next read names the ticket's last attempt, which read
+    // the publication complete, and the ticket holds with the alert. A cancellation still ends it.
+    static void later(Path base, List<String> problems) throws Exception {
+        for (String damage : List.of("other bytes", "no record")) {
+            Host h = host(base);
+            Run run = new Run(h, problems);
+            Ticket end = settle(run.c, run.store, run.first.ticketId, 40, null);
+            check(problems, end.state == State.PUBLISHED && end.flags == 0, damage + ": the run ended " + end.state);
+            Path store = h.root.resolve("store");
+            if (damage.equals("other bytes")) {
+                Path apk = store.resolve("bundles").resolve(h.store.publication(run.pair.planId).bundles.get(0))
+                        .resolve("base.apk");
+                Files.write(apk, new byte[] {1}, java.nio.file.StandardOpenOption.APPEND);
+            } else {
+                try (Stream<Path> records = Files.list(store.resolve("publications"))) {
+                    for (Path record : records.toList()) Files.delete(record);
+                }
+            }
+            Presence seen = damage.equals("other bytes") ? Presence.MISMATCH : Presence.ABSENT;
+            Classification read = damage.equals("other bytes") ? Classification.BUNDLE_MISMATCH
+                    : Classification.BUNDLE_ABSENT;
+            Ticket held = settle(run.c, run.store, run.first.ticketId, 10, null);
+            boolean recorded = run.store.observations().values.stream().anyMatch(o -> o.classification == read
+                    && o.subject.equals(end.last(Crossing.PUBLISH).reference));
+            check(problems, h.store.planPublication(run.pair.planId) == seen && recorded, damage + ": no later read");
+            check(problems, held.state == State.PUBLISHED && held.flag(DeploymentRecords.FLAG_REQUEST_LIMIT),
+                    damage + ": the ticket did not hold, flags " + held.flags);
+            check(problems, run.c.cancel(run.first.ticketId)
+                    && settle(run.c, run.store, run.first.ticketId, 10, null).state == State.CANCELLED,
+                    damage + ": the hold has no exit");
+        }
     }
 
     // Rounds until a round changes nothing and issues nothing, or the ticket reaches the state.
@@ -475,6 +526,26 @@ public final class SigningTest {
             check(problems, later.size() == 1 && later.get(0).classification == Classification.SIGN_COMPLETED
                     && stagingDirs(h.root.resolve("store")) == 2 && h.signer.operations() == 6, "later " + later);
         });
+        cases.run("builder / an I/O error of the verifier gives no fact, and a later read verifies the same outputs",
+                problems -> {
+            Host h = host(base);
+            Transaction open = h.builder.open(plan, both, TX);
+            HostSigner.Reply reply = h.signer.sign(open, Map.of(Role.VARIANT, VARIANT_INPUT, Role.RESTORATION,
+                    RESTORATION_INPUT));
+            check(problems, reply != null && h.read(TX) != null && h.read(TX).state == TransactionState.COMPLETED,
+                    "signed");
+            // The verifier cannot write its scratch files: that proves nothing about the outputs.
+            h.engine.ioErrors = 1;
+            List<Observation> read = h.builder.query(ticket(plan, State.SIGNING, sign), plan, List.of(both));
+            check(problems, read.isEmpty() && h.read(TX).state == TransactionState.COMPLETED
+                    && stagingDirs(h.root.resolve("store")) == 0, "an I/O error of the verifier gave " + read);
+            h.engine.ioErrors = 1;
+            Observation call = h.builder.sign(ticket(plan, State.SIGNING, sign), plan, sign, both);
+            check(problems, call == null && h.signer.operations() == 6, "an I/O error of the verifier answered " + call);
+            List<Observation> later = h.builder.query(ticket(plan, State.SIGNING, sign), plan, List.of(both));
+            check(problems, later.size() == 1 && later.get(0).classification == Classification.SIGN_COMPLETED
+                    && stagingDirs(h.root.resolve("store")) == 2 && h.signer.operations() == 6, "later " + later);
+        });
         cases.run("builder / a request without a record is recorded with the role and input of its own grant",
                 problems -> {
             Host h = host(base);
@@ -677,6 +748,8 @@ public final class SigningTest {
         });
         cases.run("builder / one whole run publishes a variant and its restoration, then a repair plan the restoration",
                 problems -> whole(base, problems));
+        cases.run("builder / a later read of the publication, damaged or gone, holds the ticket with the alert",
+                problems -> later(base, problems));
         cases.finish("Host signer and bundle builder checks passed");
     }
 }
