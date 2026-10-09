@@ -109,7 +109,7 @@
  import android.os.FileUtils;
  import android.os.Handler;
  import android.os.Message;
-@@ -563,6 +564,435 @@
+@@ -563,6 +564,436 @@
      final WatchedArrayMap<String, SharedUserSetting> mSharedUsers = new WatchedArrayMap<>();
      @Watched(manual = true)
      private final AppIdSettingMap mAppIds;
@@ -126,7 +126,7 @@
 +    // Original histories of this instance's exact core pins, never current eligibility.
 +    private final java.util.Map<Long, NativeIdentityStore.History> mNativeRememberedBindings =
 +            new java.util.HashMap<>();
-+    // Conservatively retained until an exact confirmed retirement releases one.
++    // Every store hold this instance observed. A release keeps its app ID until a new instance.
 +    private final java.util.Set<Integer> mNativeStoreAppIds = new java.util.TreeSet<>();
 +    private final ArrayMap<String, Integer> mNativePrincipalMutations = new ArrayMap<>();
 +
@@ -392,14 +392,15 @@
 +        refreshNativePrincipalAppIdsLPw();
 +    }
 +
-+    /** Called only after the original owned retirement's checked store ACK. */
++    // The release finish, only after the checked store acknowledgement of a durable omission. It
++    // forgets the remembered history, but the app ID stays in the held set until a new Settings
++    // instance: the allocator skips it, the key fence holds, preparation refuses and package
++    // mutation stays blocked, and callbacks queued in memory by its numeric IDs end with this one.
 +    void finishNativeIdentityReleaseLPw(NativePrincipalPins.Record record, NativeIdentityStore.Loaded loaded) {
-+        int appId = record.appId;
 +        if (!loaded.enumerationComplete || loaded.header.status != NativeIdentityStore.Status.VALID
-+                || loaded.occupiedAppIds.contains(appId)) {
-+            throw new IllegalStateException("Native store retirement is not confirmed");
++                || loaded.occupiedAppIds.contains(record.appId)) {
++            throw new IllegalStateException("Native store release is not confirmed");
 +        }
-+        mNativeStoreAppIds.remove(appId);
 +        mNativeRememberedBindings.remove(record.id);
 +        observeNativeIdentityStoreLPw(loaded);
 +    }
@@ -545,7 +546,7 @@
  
      @Watched(manual = true)
      private final PccIdSettingMap mPccIds;
-@@ -828,6 +1258,7 @@
+@@ -828,6 +1259,7 @@
  
          mSharedUsers.snapshot(r.mSharedUsers);
          mAppIds = r.mAppIds.snapshot();
@@ -553,7 +554,7 @@
          mPccIds = r.mPccIds.snapshot();
  
          mRenamedPackages.snapshot(r.mRenamedPackages);
-@@ -1396,14 +1827,32 @@
+@@ -1396,14 +1828,32 @@
      boolean registerAppIdLPw(PackageSetting p, boolean forceNew) throws PackageManagerException {
          final boolean createdNew;
          if (p.getAppId() == 0 || forceNew) {

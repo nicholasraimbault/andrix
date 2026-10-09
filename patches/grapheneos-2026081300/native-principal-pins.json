@@ -2,7 +2,7 @@
   "version": 1,
   "project": "frameworks/base",
   "head": "aab06a8bd44c4c2b58eeec780fde83baa9d43a40",
-  "patch_sha256": "609b6222f8c02673e52396cb590b1f46f82b225e975ea9fb1ff1afbb00c7997d",
+  "patch_sha256": "6f5ab48de7c60438b203be173fea8c6591b5a8fed97c69c1886befc36ca314a4",
   "files": [
     {
       "path": "services/core/java/com/android/server/pm/AppIdSettingMap.java",
@@ -12,7 +12,7 @@
     {
       "path": "services/core/java/com/android/server/pm/Settings.java",
       "upstream_sha256": "bff2de579d206a39be81ef0b798df8f6e845d2f28efbbcd63554ccffbddae5a1",
-      "candidate_sha256": "9da59af43ceeaf705a1d56cf2f895f2e5420b4828bd202af27863480e10be36a"
+      "candidate_sha256": "2456c7395c97b838d5f0853d850e16d58d995b082cdad14ee5068b5f3263bcf4"
     },
     {
       "path": "services/core/java/com/android/server/pm/PackageManagerService.java",
@@ -196,6 +196,18 @@
       "path": "services/core/java/com/android/server/pm/Settings.java",
       "source": "owner/tests/platform/native_recovery_fragments/deferral.java.inc",
       "sha256": "ac1e3b8e4ef98fb593224673824d0942f7bb38d3b9986f0cb7d59eef0909a8dd"
+    },
+    {
+      "name": "observation",
+      "path": "services/core/java/com/android/server/pm/Settings.java",
+      "source": "owner/tests/platform/native_recovery_fragments/observation.java.inc",
+      "sha256": "3ec3bda6a37eec0752ecdd2363a61df6c9eebd38966fc0eaa0f16eaa28f0d709"
+    },
+    {
+      "name": "release-finish",
+      "path": "services/core/java/com/android/server/pm/Settings.java",
+      "source": "owner/tests/platform/native_recovery_fragments/release-finish.java.inc",
+      "sha256": "bd8d21c0189304e5cb31d086ef7881cb46f3e5293079d242366dd03584e29eec"
     }
   ]
 }

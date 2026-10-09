@@ -469,6 +469,13 @@ HARNESS_LABELS = (
      ' Restore and the gated release engine with its continuation from durable state, their writer rules and'
      ' refusals, and the fault sweeps of every transaction at each writer step, which B1 builds but does not'
      ' ship'),
+    ('production', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleSettingsTest',),
+     'the Format.V2 seeding deferral of a version 1 retiring body and the absence of lifecycle boot facts, through'
+     ' the facade and the history harness'),
+    ('new-format', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleSettingsTest',),
+     'the Format.V3 seeding of retiring, retired and suspended accounts, the boot facts, the retired boot rule and'
+     ' the release body in Settings, through the facade and the history harness, which B1 builds but does not'
+     ' ship'),
     ('production', 'scripts/proof/tests/test_native_identity_persistence.py', ('NativePrincipalRecoveryTest',),
      'the recovery view, which constructs no store'),
     ('legacy', 'scripts/proof/tests/test_native_identity_persistence.py', ('NativeIdentityPersistenceTest',),

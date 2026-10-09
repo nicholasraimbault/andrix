@@ -845,8 +845,11 @@ public final class NativeCreationHistoryTest {
                     && marker.users.get(0).retiring && v2(1, live(R)).equals(marked.header.value),
                     "marked " + marked.header.value);
             check(problems, reopenedPhase(root, V2, PKG_R) == Phase.RETIRING, "reopened phase");
+            // The durable omission keeps R held in this Settings instance, and a new one frees it.
             check(problems, manager.finishRetirementAfterQuiescence(r) && v2(1).equals(storedOf(root, V2))
-                    && !pm.mSettings.isNativePrincipalAppIdLPr(R), "release " + storedOf(root, V2));
+                    && pm.mSettings.isNativePrincipalAppIdLPr(R), "release " + storedOf(root, V2));
+            check(problems, !boot(root, V2, Map.of(PKG_R, R)).mSettings.isNativePrincipalAppIdLPr(R),
+                    "a new instance kept the released hold");
         });
         run("retirement / BODY origin republishes after its body was observed missing", problems -> {
             Path root = pairLayout(v2(1, boundCreating(A, 1, PKG_A)));
@@ -1081,24 +1084,41 @@ public final class NativeCreationHistoryTest {
             int fresh = pm.mSettings.ids.acquireAndRegisterNewAppId(new PackageSetting("dev.andrix.fresh"));
             check(problems, fresh >= 10000 && !held.contains(fresh), "allocated a held ID " + fresh);
         });
-        run("holds / an exact release lifts only its own UID hold and keystore fence", problems -> {
+        run("holds / an exact release keeps its UID hold and keystore fence until a new instance", problems -> {
             Path root = pairLayout(BESIDE_A);
             slot(root, A, BODY_A);
-            PackageManagerService pm = boot(root, V2, Map.of(PKG_A, A, PKG_R, R));
+            PackageManagerService pm = boot(root, V2, Map.of(PKG_A, A, PKG_R, R, PKG_C, C));
             NativePrincipalManager manager = new NativePrincipalManager(pm);
             NativePrincipalManager.Handle r = manager.prepare(manager.select(PKG_R, 0));
+            // A hold this instance adds reaches the recovery view through the hold refresh, as the
+            // adapted Settings refresh publishes it.
+            manager.prepare(manager.select(PKG_C, 0));
+            check(problems, fenced(pm.mSettings.mNativeRecoveryView, C), "a new hold is not in the recovery view");
             check(problems, manager.commit(r) && manager.beginRetirement(r)
                     && fenced(pm.mSettings.mNativeRecoveryView, R) && pm.mSettings.isNativePrincipalAppIdLPr(R),
                     "before the release");
+            NativePrincipalPins.Record released = manager.identity(r);
+            check(problems, pm.mSettings.nativePrincipalStoredHistoryLPr(released) != null, "no remembered history");
             check(problems, manager.finishRetirementAfterQuiescence(r)
-                    && v2(2, live(A)).equals(storedOf(root, V2)), "release " + storedOf(root, V2));
-            // The refresh after the exact release publishes the smaller hold set to the recovery
-            // view, as the adapted Settings refresh does.
+                    && v2(3, boundCreating(C, 3, PKG_C), live(A)).equals(storedOf(root, V2)),
+                    "release " + storedOf(root, V2));
+            // The durable omission keeps R in this instance's held set: the refresh after the
+            // release still publishes it to the allocator and the recovery view, so the key fence
+            // holds and preparation refuses. Only the remembered history is forgotten.
             NativePrincipalRecovery view = pm.mSettings.mNativeRecoveryView;
-            check(problems, !pm.mSettings.isNativePrincipalAppIdLPr(R) && !view.holdsAppId(R)
-                    && !view.protectsKeystore(R), "the released hold or keystore fence remains");
+            check(problems, pm.mSettings.isNativePrincipalAppIdLPr(R) && fenced(view, R)
+                    && !pm.mSettings.pins.reservedAppIds().contains(R)
+                    && pm.mSettings.nativePrincipalStoredHistoryLPr(released) == null,
+                    "the released hold, keystore fence or history");
+            check(problems, throwsType(() -> manager.prepare(manager.select(PKG_R, 0)), IllegalStateException.class),
+                    "preparation of the released app ID");
+            // A new Settings instance frees R.
+            PackageManagerService fresh = boot(root, V2, Map.of(PKG_A, A, PKG_R, R, PKG_C, C));
+            check(problems, !fresh.mSettings.isNativePrincipalAppIdLPr(R)
+                    && !fresh.mSettings.mNativeRecoveryView.holdsAppId(R)
+                    && fenced(fresh.mSettings.mNativeRecoveryView, A), "a new instance kept the released hold");
             check(problems, pm.mSettings.isNativePrincipalAppIdLPr(A) && fenced(view, A)
-                    && pm.mSettings.pins.reservedAppIds().equals(Set.of(A)), "another hold was lifted");
+                    && pm.mSettings.pins.reservedAppIds().equals(Set.of(A, C)), "another hold was lifted");
             // Only the native identity is released. This claims nothing about the package's APK
             // or data: it stays installed at its app ID, and the names and code paths the view
             // protects stay until a separately owned maintenance rebuilds the view.

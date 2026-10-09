@@ -30,7 +30,7 @@ def scratch(test):
 
 
 def predictions_rules():
-    return json.loads(runner.PREDICTIONS.read_text())['p3']['source_rule_mutants']
+    return json.loads(runner.PREDICTIONS.read_text())['p3_checkpoint_2']['source_rule_mutants']
 
 
 class LifecycleRecordSourceTests(unittest.TestCase):
@@ -87,10 +87,11 @@ class LifecycleRecordSourceTests(unittest.TestCase):
     def test_case_names_and_counts(self):
         predictions = json.loads(runner.PREDICTIONS.read_text())
         self.assertIn('PREDICTED', predictions['status'])
-        self.assertEqual(predictions['cases'], {'codec': 47, 'reads': 60, 'goldens': 9, 'mutants': 159, 'store': 49,
-                                                'transactions': 57, 'faults': 136})
+        self.assertEqual(predictions['cases'], {'codec': 47, 'reads': 60, 'goldens': 9, 'mutants': 166, 'store': 49,
+                                                'transactions': 57, 'faults': 136, 'settings': 12})
         self.assertEqual((len(runner.CODEC_NAMES), len(runner.READ_NAMES), len(runner.STORE_NAMES),
-                          len(runner.TRANSACTION_NAMES), len(runner.FAULT_NAMES)), (47, 60, 49, 57, 136))
+                          len(runner.TRANSACTION_NAMES), len(runner.FAULT_NAMES), len(runner.SETTINGS_NAMES)),
+                         (47, 60, 49, 57, 136, 12))
         self.assertEqual(predictions['store_by_label'], {'new-format': 47, 'legacy': 1, 'production': 1})
         self.assertEqual(predictions['transactions_by_label'], {'new-format': 53, 'legacy': 2, 'production': 2})
         # P2b's fault kinds: the two disposition transactions and Restore, with and without an intact copy.
@@ -137,7 +138,12 @@ class LifecycleRecordSourceTests(unittest.TestCase):
         moved = dict(texts)
         moved[runner.PERSISTENCE] = moved[runner.PERSISTENCE].replace(runner.RELEASE_BODIES[0], '    boolean free(', 1)
         self.assertIn('release', runner.unreachable_rules(moved, others))
-        self.assertEqual(predictions_rules(), {'capability': 4, 'release': 6, 'primitives': 4, 'boot-facts': 3})
+        self.assertEqual(predictions_rules(), {'capability': 4, 'release': 10, 'primitives': 4, 'boot-facts': 3})
+        # The old release path keeps exactly its P6 allowances, each a body that exists today.
+        self.assertEqual({entry for entry, _, _ in runner.P6_RELEASE_ALLOWANCES},
+                         {'finishRetirement', 'finishNativeIdentityReleaseLPw', 'finishRetire'})
+        manager = runner.b1.strip_java_comments(texts[runner.MANAGER])
+        self.assertEqual(len(runner.body_spans(manager, (runner.OLD_RELEASE_BODY,))), 1)
         # Only Settings' boot facts fragment, carried verbatim by the facade, builds boot facts.
         fragment = runner.integration.FRAGMENTS[runner.BOOT_FACTS_FRAGMENT][1].read_text()
         self.assertEqual(fragment.count('NativeIdentityPersistence.bootFacts(loaded)'), 1)
@@ -153,7 +159,7 @@ class LifecycleRecordSourceTests(unittest.TestCase):
                 self.assertTrue(changed or harness)
                 for path, text in changed.items():
                     self.assertNotEqual(text, (ROOT / path).read_text())
-                self.assertTrue(set(suites) <= {'codec', 'reads', 'store', 'transactions', 'faults'})
+                self.assertTrue(set(suites) <= {'codec', 'reads', 'store', 'transactions', 'faults', 'settings'})
         predictions = json.loads(runner.PREDICTIONS.read_text())['mutants_caught_at_least']
         self.assertEqual(set(predictions), set(runner.MUTANTS))
         # A drifted anchor is refused.
@@ -167,8 +173,9 @@ class LifecycleRecordSourceTests(unittest.TestCase):
         self.assertEqual(runner.label_problems(), [])
         self.assertIn('new-format', runner.b1.LIVING_RUN_LABELS)
         rows = [row for row in runner.b1.HARNESS_LABELS if row[0] == 'new-format']
-        # The read test's row and the store, transaction and fault tests' row, all of this runner.
-        self.assertEqual([row[1] for row in rows], ['scripts/proof/native_lifecycle_record.py'] * 2)
+        # The read test's row, the store, transaction and fault tests' row and the Settings test's row,
+        # all of this runner.
+        self.assertEqual([row[1] for row in rows], ['scripts/proof/native_lifecycle_record.py'] * 3)
         for label in (('production', 'archived-baseline'), ('rollback-reader',)):
             for step in ('reads', 'store', 'transactions', 'faults'):
                 with mock.patch.dict(runner.STEP_LABELS, {step: label}):
@@ -205,7 +212,10 @@ class LifecycleRecordSourceTests(unittest.TestCase):
 class LifecycleTransitionSourceTests(unittest.TestCase):
     def test_lifecycle_cases_are_named_once_and_labelled_by_format(self):
         self.assertEqual(runner.lifecycle_name_problems(), [])
-        self.assertEqual(runner.PHASES, ('candidate', 'codec', 'reads', 'store', 'transactions', 'faults', 'mutants'))
+        self.assertEqual(runner.PHASES, ('candidate', 'codec', 'reads', 'store', 'transactions', 'faults',
+                                         'settings', 'mutants'))
+        self.assertEqual({runner.FORMAT_LABELS[name.split(' / ', 1)[0]] for name in runner.SETTINGS_NAMES},
+                         {'production', 'new-format'})
         self.assertEqual({runner.case_label(name) for name in runner.FAULT_NAMES}, {'new-format'})
         for names in (runner.STORE_NAMES, runner.TRANSACTION_NAMES):
             self.assertEqual({runner.case_label(name) for name in names}, {'legacy', 'production', 'new-format'})
@@ -247,7 +257,14 @@ class LifecycleTransitionSourceTests(unittest.TestCase):
         every = {'production', 'legacy', 'new-format'}
         self.assertEqual(labelled, {runner.CODEC_TEST: {'production'}, runner.READ_TEST: every,
                                     runner.STORE_TEST: every, runner.TRANSACTION_TEST: every,
-                                    runner.FAULT_TEST: {'new-format'}})
+                                    runner.FAULT_TEST: {'new-format'},
+                                    runner.SETTINGS_TEST: {'production', 'new-format'}})
+        # Every Settings fragment mutant changes the facade and the harness alike.
+        for name, (edits, suites) in runner.MUTANTS.items():
+            if any(target.startswith(runner.FRAGMENT) for target, _, _ in edits):
+                changed, harness, _ = runner.mutant_texts()[name]
+                self.assertIn(runner.FACADE, changed, name)
+                self.assertTrue(harness, name)
         self.assertEqual(runner.STEP_LABELS['faults'], ('new-format',))
         # A defect names cases of the suites it runs, and every suite runs some defect.
         used = {suite for _, suites in runner.MUTANTS.values() for suite in suites}

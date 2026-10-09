@@ -25,8 +25,8 @@ import java.util.Map;
  * reservation until the complete body has been moved into the preferred backup, and its body
  * after. It restores PENDING until the durable marker is the selected copy, RETIRING after.
  * R's record, hold and the selected counter are conserved, and the same original handle
- * converges without another ID. These are host injected failures, not Android crash or power
- * loss evidence.
+ * converges without another ID. A completed release keeps R held in the same Settings instance.
+ * These are host injected failures, not Android crash or power loss evidence.
  */
 public final class NativeCreationHistoryFaultTest {
     private static final List<String> STEPS = List.of("seed-synced", "backup-renamed",
@@ -159,7 +159,7 @@ public final class NativeCreationHistoryFaultTest {
                         Phase.PENDING, step);
                 check(problems, r.manager.beginRetirement(r.handle)
                         && r.manager.finishRetirementAfterQuiescence(r.handle)
-                        && v2(1).equals(storedOf(r.root, V2)) && !r.pm.mSettings.isNativePrincipalAppIdLPr(R),
+                        && v2(1).equals(storedOf(r.root, V2)) && r.pm.mSettings.isNativePrincipalAppIdLPr(R),
                         step + ": retry " + storedOf(r.root, V2));
             });
         }
@@ -181,7 +181,7 @@ public final class NativeCreationHistoryFaultTest {
                 reopened(problems, r.root, Source.BODY, marked ? Phase.RETIRING : Phase.PENDING, step);
                 check(problems, r.manager.beginRetirement(r.handle)
                         && r.manager.finishRetirementAfterQuiescence(r.handle)
-                        && v2(1).equals(storedOf(r.root, V2)) && !r.pm.mSettings.isNativePrincipalAppIdLPr(R),
+                        && v2(1).equals(storedOf(r.root, V2)) && r.pm.mSettings.isNativePrincipalAppIdLPr(R),
                         step + ": retry " + storedOf(r.root, V2));
             });
         }

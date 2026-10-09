@@ -21,8 +21,10 @@ rebuilds the candidate Settings from the pinned framework copies, runs the codec
 every golden it writes with the independent encoder byte for byte, runs the read test under
 Format.V1, V2 and V3 with the facade identity predicate and the candidate's seeding text, runs the
 lifecycle store and transaction tests under every format and the fault sweeps of every lifecycle
-transaction at each writer step under Format.V3, through the existing host write fault seams, and
-runs each deliberate defect against the suites predicted to catch it. It does not nest another
+transaction at each writer step under Format.V3, through the existing host write fault seams, runs
+the Settings test, whose seeding, boot facts, retired boot and release body cases go through both
+the facade and the history harness, and runs each deliberate defect against the suites predicted to
+catch it, a Settings fragment defect in the facade and the harness alike. It does not nest another
 runner.
 
 Host JVM evidence only: not Android, crash, power loss, storage or activation evidence. Format.V3
@@ -57,19 +59,25 @@ READ_TEST = 'NativeLifecycleReadTest'
 STORE_TEST = 'NativeLifecycleStoreTest'
 TRANSACTION_TEST = 'NativeLifecycleTransactionTest'
 FAULT_TEST = 'NativeLifecycleFaultTest'
+# The Settings level rules over both host copies of the adapted Settings text, the facade and the
+# history harness: seeding, the boot facts, the retired boot rule and the release body.
+SETTINGS_TEST = 'NativeLifecycleSettingsTest'
 # The shared fixtures of the store, transaction and fault tests, and the host write fault seam.
 SUPPORT = 'NativeLifecycleTestSupport'
 FAULT_SEAM = 'NativeHeaderWriteFaults'
 # The history harness text the read test runs: the candidate's exact Settings texts.
 HARNESS = 'harness'
-PHASES = ('candidate', 'codec', 'reads', 'store', 'transactions', 'faults', 'mutants')
+# A mutant target naming a Settings fragment: the defect is in the fragment text, so it is applied to
+# the facade and to the harness, which both carry that text verbatim, and both copies run it.
+FRAGMENT = 'fragment:'
+PHASES = ('candidate', 'codec', 'reads', 'store', 'transactions', 'faults', 'settings', 'mutants')
 # Every step is living. The read, store and transaction tests run each store format under its own
 # label: Format.V1 is legacy, Format.V2 production and Format.V3 the new format, which B1 builds and
 # does not ship. The fault sweeps run Format.V3 only.
 STEP_LABELS = {'codec': ('production',), 'reads': ('production', 'legacy', 'new-format'),
                'store': ('production', 'legacy', 'new-format'),
                'transactions': ('production', 'legacy', 'new-format'), 'faults': ('new-format',),
-               'mutants': ('production', 'legacy', 'new-format')}
+               'settings': ('production', 'new-format'), 'mutants': ('production', 'legacy', 'new-format')}
 FORMAT_LABELS = {'V1': 'legacy', 'V2': 'production', 'V3': 'new-format'}
 
 # ---------------------------------------------------------------- the independent encoder
@@ -409,6 +417,19 @@ FAULT_KINDS = ('suspend', 'repeated suspension', 'lift', 'markRetiring', 'legacy
                'release RELEASING confirmation', 'release omission', 'release completion confirmation',
                'release completion')
 FAULT_NAMES = tuple('%s / %s' % (kind, step) for kind in FAULT_KINDS for step in FAULT_STEPS)
+SETTINGS_NAMES = (
+    'V2 / a version 1 retiring body is deferred at seeding',
+    'V3 / a retiring account is deferred at seeding',
+    'V3 / a suspended account is deferred at seeding',
+    'V3 / an eligible account stays recoverable',
+    'V3 / a retired account is a retired boot and is deferred',
+    'V3 / the boot facts defer an unmapped ticketed tombstone',
+    'V3 / the boot facts are recorded once and survive later reads',
+    'V2 / the production format gives no lifecycle fact',
+    'V3 / disposition needs an instance that began with the account RETIRED',
+    'V3 / release needs an instance that began with the account RETIRED',
+    'V3 / a durable release keeps the app ID held until a new instance',
+    'V3 / the release finish refuses without a durable omission')
 
 # ---------------------------------------------------------------- deliberate defects
 
@@ -425,9 +446,21 @@ _PUBLISH_CHECK = ('                || slot.users.get(0).retiring\n'
 _PUBLISH_RETIRING = '                || slot.users.get(0).retiring) return false;\n'
 _CONFIRM_HEAD = '        if (expected.version > format.slotCeiling) return false;\n'
 # Each defect: its edits, as target, exact old text and new text, and the suites that run it. A
-# target is a source path, or HARNESS: the history harness text filled from the candidate, whose
-# identity and seeding are the fragments, so its anchors are checked in the fragment files. The
-# predictions file lists the checks each must fail. A compile failure is a harness failure.
+# target is a source path, HARNESS: the history harness text filled from the candidate, whose
+# identity and seeding are the fragments, so its anchors are checked in the fragment files, or
+# FRAGMENT and a fragment name: the same edit in the facade and the harness, anchored once in the
+# fragment. The predictions file lists the checks each must fail. A compile failure is a harness
+# failure.
+_SEEDING_LIFECYCLE = ('                        || history.retiring\n'
+                      '                        || !history.suspensions.isEmpty()) {\n')
+_BOOT_DEFERRAL = ('        for (String name : names) {\n'
+                  '            PackageSetting pkg = getPackageLPr(name);\n'
+                  '            mNativeRecoveryView = deferNativeName(mNativeRecoveryView, name, pkg == null ? null'
+                  ' : pkg.getPath());\n'
+                  '        }\n')
+_OBSERVED = ('        mNativeIdentityLoaded = loaded;\n'
+             '        // A failed/reduced read is not authority to forget a previous hold.\n')
+_FORGET = '        mNativeRememberedBindings.remove(record.id);\n'
 MUTANTS = {
     # Records: one encoding per value, the invariants and the prefix reader.
     'v2-admits-v1-values': (((RECORDS,
@@ -547,8 +580,25 @@ MUTANTS = {
         '                || currentSerial < 0 || history.appId != candidateAppId || history.retiring\n'),),
         ('reads',)),
     # Settings: the identity predicate in the facade and the candidate, and the seeding names.
-    'identity-ignores-prefixes': (((FACADE, _IDENTITY_PREFIX, ''), (HARNESS, _IDENTITY_PREFIX, '')), ('reads',)),
-    'seeding-ignores-prefixes': (((HARNESS, _SEEDING_PREFIX, ''),), ('reads',)),
+    'identity-ignores-prefixes': (((FRAGMENT + 'identity', _IDENTITY_PREFIX, ''),), ('reads',)),
+    'seeding-ignores-prefixes': (((FRAGMENT + 'recovery-seeding', _SEEDING_PREFIX, ''),), ('reads',)),
+    # Settings fragments, each run by the facade and the harness alike.
+    'seeding-ignores-retired-accounts': (((FRAGMENT + 'recovery-seeding', _SEEDING_LIFECYCLE,
+                                           '                        || !history.suspensions.isEmpty()) {\n'),),
+                                         ('settings',)),
+    'seeding-ignores-suspended-accounts': (((FRAGMENT + 'recovery-seeding', _SEEDING_LIFECYCLE,
+                                             '                        || history.retiring) {\n'),), ('settings',)),
+    'boot-facts-from-the-cached-view': (((FRAGMENT + 'retired-boot', '        return mNativeBootFacts;\n',
+                                          '        return NativeIdentityPersistence.bootFacts(mNativeIdentityLoaded);\n'),),
+                                        ('settings',)),
+    'boot-facts-recorded-again-on-observe': (((FRAGMENT + 'observation', _OBSERVED, _OBSERVED
+        + '        if (mNativeBootFacts != null) mNativeBootFacts = NativeIdentityPersistence.bootFacts(loaded);\n'),),
+        ('settings',)),
+    'boot-facts-lose-their-deferral': (((FRAGMENT + 'boot-facts', _BOOT_DEFERRAL, ''),), ('settings',)),
+    'release-finish-drops-the-hold': (((FRAGMENT + 'release-finish', _FORGET,
+                                        '        mNativeStoreAppIds.remove(record.appId);\n' + _FORGET),),
+                                      ('settings',)),
+    'release-finish-keeps-the-history': (((FRAGMENT + 'release-finish', _FORGET, ''),), ('settings',)),
     # P2a writer rules: the store's pure predicates, which the transactions apply as invalid requests.
     'scope-bit-0-written': (((STORE,
         '        if ((entry.scope & NativeIdentityRecords.SCOPE_BLOCKS_DISPOSITION) != 0) return false;\n', ''),),
@@ -1054,10 +1104,13 @@ CAPABILITY_TESTS = tuple(PLATFORM + name + '.java' for name in (SUPPORT, TRANSAC
 # The release entry points: the persistence release and the store primitives that only release uses,
 # which remove a releasing slot, confirm a released slot, write RELEASING, write the omission and drop
 # a user. No production text calls or references one outside the release bodies of the persistence:
-# the release engine, and the version 1 release finishRetirement until P6 retires it. The manager's
-# releaseUid, the pins' finishRelease and Settings' finishNativeIdentityReleaseLPw join in P3 and P4.
+# the release engine, and the version 1 release finishRetirement until P6 retires it. Settings' release
+# finish and the old release path join in P3: the manager's finishRetirementAfterQuiescence, the pins'
+# finishRetire and the persistence's finishRetirement. The manager's releaseUid and the pins'
+# finishRelease join in P4.
 RELEASE_ENTRY_POINTS = ('release', 'removeReleasingSlot', 'confirmReleasedSlot', 'markSlotReleasing',
-                        'omitReleasedSlot', 'dropReleasedUser')
+                        'omitReleasedSlot', 'dropReleasedUser', 'finishNativeIdentityReleaseLPw',
+                        'finishRetirementAfterQuiescence', 'finishRetire', 'finishRetirement')
 RELEASE_BODIES = ('    boolean release(NativePrincipalPins.Record record, String expectedLineage,',
                   '    boolean finishRetirement(NativePrincipalPins.Record record, String expectedLineage,')
 # The store's own release powers behind the named primitives: writeAnyHeader, which makes RELEASING
@@ -1077,6 +1130,12 @@ BOOT_FACTS_TESTS = CAPABILITY_TESTS
 UNREACHABLE_RULES = ('capability', 'release', 'primitives', 'boot-facts')
 MANAGER = FRAMEWORK_DIR + 'NativePrincipalManager.java'
 NON_NATIVE = FRAMEWORK_DIR + 'CeStorageAccessTracker.java'
+# The old release path stays reachable until P6 retires it. Each allowance names an entry point, the
+# production text and the one body there that may call it today. P6 removes every allowance.
+OLD_RELEASE_BODY = '    public boolean finishRetirementAfterQuiescence(Handle handle) {'
+P6_RELEASE_ALLOWANCES = (('finishRetirement', MANAGER, OLD_RELEASE_BODY),
+                         ('finishNativeIdentityReleaseLPw', MANAGER, OLD_RELEASE_BODY),
+                         ('finishRetire', MANAGER, OLD_RELEASE_BODY))
 
 
 def other_java_texts(production):
@@ -1133,12 +1192,20 @@ def unreachable_violations(texts, others):
         if name == PERSISTENCE and len(allowed) != len(RELEASE_BODIES):
             problems.append('release: the release bodies of %s are not each found once' % name)
         for entry in RELEASE_ENTRY_POINTS:
+            spans = list(allowed)
+            for allowed_entry, holder, body in P6_RELEASE_ALLOWANCES:
+                if allowed_entry == entry and holder == name:
+                    found_body = body_spans(code, (body,))
+                    if not found_body:
+                        problems.append('release: the allowed body of %s in %s is not found once' % (entry, name))
+                    spans += found_body
             pattern = r'(?:\.\s*|::\s*|(?<![\w$.:]))%s\b(?=\s*\()|::\s*%s\b' % (entry, entry)
             for found in re.finditer(pattern, code):
                 line = code[code.rfind('\n', 0, found.start()) + 1:found.start()]
-                if re.fullmatch(r'\s*(?:(?:static|final|synchronized)\s+)*boolean\s+', line):
+                if re.fullmatch(r'\s*(?:(?:public|protected|private|static|final|synchronized)\s+)*'
+                                r'(?:boolean|void)\s+', line):
                     continue  # Its declaration.
-                if any(start <= found.start() < end for start, end in allowed):
+                if any(start <= found.start() < end for start, end in spans):
                     continue
                 problems.append('release: %s calls or references %s outside the release bodies' % (name, entry))
     if STORE in texts:
@@ -1303,6 +1370,16 @@ def unreachable_mutants():
         'slot-writer-referenced': (changed((STORE, confirm,
             '    private interface SlotWriter { boolean write(Slot expected, Slot next, boolean restore, boolean drop); }\n'
             '    private final SlotWriter slotWriter = this :: writeExistingSlot;\n\n' + confirm)), {'primitives'}),
+        'release-finish-called-from-settings': (changed((settings, None,
+            '\n        finishNativeIdentityReleaseLPw(record, loaded);\n')), {'release'}),
+        'old-release-called-from-manager': (changed((MANAGER, manager,
+            '    boolean retireNow(Handle handle) {\n        return finishRetirementAfterQuiescence(handle);\n    }\n\n'
+            + manager)), {'release'}),
+        'pins-release-referenced-from-manager': (changed((MANAGER, manager,
+            '    private static final java.util.function.BiConsumer<NativePrincipalPins, NativePrincipalPins.Pin>\n'
+            '            FINISH = NativePrincipalPins::finishRetire;\n\n' + manager)), {'release'}),
+        'old-store-release-called-from-publish': (changed((PERSISTENCE, publish,
+            '        finishRetirement(record, null, null);\n' + publish)), {'release'}),
         'drop-referenced-from-manager': (changed((MANAGER, manager,
             '    private static final Object DROP = (Object) (java.util.function.Predicate<NativeIdentityStore>)\n'
             '            store -> store.dropReleasedUser(null, 0, null);\n\n' + manager)), {'release'}),
@@ -1354,7 +1431,8 @@ def oracle_problems():
 
 def mutant_texts():
     """The source texts each mutant changes, with its edits applied, and its harness edits. Each
-    anchor must occur exactly once, a harness anchor in the identity or seeding fragment."""
+    anchor must occur exactly once, a harness anchor in the identity or seeding fragment, and a
+    fragment anchor in its fragment and in the facade, which carries the fragment verbatim."""
     fragments = {name: path.read_text() for name, (_, path) in integration.FRAGMENTS.items()}
     result = {}
     for name, (edits, suites) in MUTANTS.items():
@@ -1365,6 +1443,13 @@ def mutant_texts():
                     raise ValueError('harness mutant anchor drift: ' + name)
                 harness.append((old, new))
                 continue
+            if target.startswith(FRAGMENT):
+                fragment = fragments.get(target[len(FRAGMENT):], '')
+                if fragment.count(old) != 1 or (ROOT / FACADE).read_text().count(fragment) != 1:
+                    raise ValueError('fragment mutant anchor drift: ' + name)
+                harness.append((old, new))
+                texts[FACADE] = b1.replace_once(texts.get(FACADE, (ROOT / FACADE).read_text()), old, new)
+                continue
             texts[target] = b1.replace_once(texts.get(target, (ROOT / target).read_text()), old, new)
         result[name] = (texts, tuple(harness), suites)
     return result
@@ -1372,6 +1457,7 @@ def mutant_texts():
 
 # The case names of each suite that runs deliberate defects.
 SUITE_NAMES = {'codec': CODEC_NAMES, 'reads': READ_NAMES, 'store': STORE_NAMES, 'transactions': TRANSACTION_NAMES,
+               'settings': SETTINGS_NAMES,
                'faults': FAULT_NAMES}
 # The lifecycle suites of P2a: each one's test class and case names.
 LIFECYCLE_SUITES = {'store': (STORE_TEST, STORE_NAMES), 'transactions': (TRANSACTION_TEST, TRANSACTION_NAMES),
@@ -1422,8 +1508,9 @@ def label_problems():
     every = set(FORMAT_LABELS.values())
     if (labelled.get(CODEC_TEST) != {'production'} or labelled.get(READ_TEST) != every
             or labelled.get(STORE_TEST) != every or labelled.get(TRANSACTION_TEST) != every
-            or labelled.get(FAULT_TEST) != {'new-format'} or set(labelled) != {
-                CODEC_TEST, READ_TEST, STORE_TEST, TRANSACTION_TEST, FAULT_TEST}):
+            or labelled.get(FAULT_TEST) != {'new-format'}
+            or labelled.get(SETTINGS_TEST) != {'production', 'new-format'} or set(labelled) != {
+                CODEC_TEST, READ_TEST, STORE_TEST, TRANSACTION_TEST, FAULT_TEST, SETTINGS_TEST}):
         problems.append('harness labels of this runner differ: %s' % labelled)
     if {row[0] for row in b1.HARNESS_LABELS if row[0] == 'new-format'} != {'new-format'} or any(
             row[1] != 'scripts/proof/native_lifecycle_record.py' for row in b1.HARNESS_LABELS if row[0] == 'new-format'):
@@ -1443,7 +1530,8 @@ def source_checks():
     except (OSError, ValueError) as error:
         problems.append('oracle: %s' % error)
     for test, names in ((CODEC_TEST, CODEC_NAMES), (READ_TEST, READ_NAMES), (STORE_TEST, STORE_NAMES),
-                        (TRANSACTION_TEST, TRANSACTION_NAMES), (FAULT_TEST, FAULT_NAMES)):
+                        (TRANSACTION_TEST, TRANSACTION_NAMES), (FAULT_TEST, FAULT_NAMES),
+                        (SETTINGS_TEST, SETTINGS_NAMES)):
         if len(set(names)) != len(names):
             problems.append('duplicate case names of ' + test)
         # A failure prints 'FAIL <name>: <problems>', read up to the first colon and space.
@@ -1454,6 +1542,10 @@ def source_checks():
         if not name.startswith('golden / ') and codec.count('"%s"' % name) != 1:
             problems.append('codec case not named once in its source: ' + name)
     problems += lifecycle_name_problems()
+    settings_source = (ROOT / PLATFORM / (SETTINGS_TEST + '.java')).read_text()
+    for name in SETTINGS_NAMES:
+        if settings_source.count('"%s"' % name) != 1 or name.split(' / ', 1)[0] not in ('V2', 'V3'):
+            problems.append('settings case not named once in its source: ' + name)
     try:
         texts = b1.production_texts()
         problems += unreachable_violations(texts, other_java_texts(texts))
@@ -1480,9 +1572,9 @@ def source_checks():
             problems.append('mutant prediction inconsistent: ' + name)
     counts = predictions['cases']
     if (counts['codec'], counts['reads'], counts['goldens'], counts['mutants'], counts['store'],
-            counts['transactions'], counts['faults']) != (
+            counts['transactions'], counts['faults'], counts['settings']) != (
             len(CODEC_NAMES), len(READ_NAMES), len(GOLDEN_NAMES), len(MUTANTS), len(STORE_NAMES),
-            len(TRANSACTION_NAMES), len(FAULT_NAMES)):
+            len(TRANSACTION_NAMES), len(FAULT_NAMES), len(SETTINGS_NAMES)):
         problems.append('predicted counts differ from the case lists')
     by_label = {suite: {} for suite in ('store', 'transactions')}
     for suite in by_label:
@@ -1533,6 +1625,15 @@ def read_files(settings, texts=None, harness=()):
     return files
 
 
+def settings_files(settings, texts=None, harness=()):
+    """The read files with the shared fixtures and the Settings test in place of the read test."""
+    files = read_files(settings, texts, harness)
+    del files['tests/%s.java' % READ_TEST]
+    for name in (SUPPORT, SETTINGS_TEST):
+        files['tests/%s.java' % name] = (ROOT / PLATFORM / (name + '.java')).read_bytes()
+    return files
+
+
 def run_suite(work, files, main, args, names):
     """One complete run: its build, its outcome by name and the case names it printed."""
     work.mkdir(parents=True)
@@ -1563,6 +1664,11 @@ def codec_suite(work, texts=None):
 def read_suite(work, settings, texts=None, harness=()):
     return run_suite(work, read_files(settings, texts, harness), READ_TEST, [str(work / 'reads-state')],
                      READ_NAMES)
+
+
+def settings_suite(work, settings, texts=None, harness=()):
+    return run_suite(work, settings_files(settings, texts, harness), SETTINGS_TEST, [str(work / 'settings-state')],
+                     SETTINGS_NAMES)
 
 
 def lifecycle_files(test, texts=None):
@@ -1647,6 +1753,19 @@ def qualify(work, pinned, report):
                 problems.append('%s suite ran without assertions' % suite)
         report['completed_phases'].append(suite)
 
+    result, record = settings_suite(work / 'settings', settings)
+    steps['settings'] = result
+    steps['settings']['labels'] = {name.split(' / ', 1)[0]: FORMAT_LABELS[name.split(' / ', 1)[0]]
+                                   for name in SETTINGS_NAMES}
+    if red_names(result, SETTINGS_NAMES) != set() or 'unqualified' not in record.get('run', {}).get('stdout', ''):
+        problems.append('settings suite')
+    else:
+        refused = b1.execute(work / 'settings', SETTINGS_TEST, [str(work / 'settings' / 'no-assertions')],
+                             assertions=False, timeout=120)
+        if not refused['returncode'] or '-ea' not in refused['stderr']:
+            problems.append('settings suite ran without assertions')
+    report['completed_phases'].append('settings')
+
     steps['mutants'] = {}
     expectations = predictions['mutants_caught_at_least']
     for name, (texts, harness, suites) in mutant_texts().items():
@@ -1658,6 +1777,8 @@ def qualify(work, pinned, report):
                 (result, _), _ = codec_suite(directory, texts)
             elif suite == 'reads':
                 result, _ = read_suite(directory, settings, texts, harness)
+            elif suite == 'settings':
+                result, _ = settings_suite(directory, settings, texts, harness)
             else:
                 result, _ = lifecycle_suite(directory, suite, texts)
             names = SUITE_NAMES[suite]

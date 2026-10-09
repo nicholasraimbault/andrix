@@ -22,7 +22,10 @@ history that is retiring, retired or suspended, as the scan refuses it.
 Three lifecycle fragments pin the boot facts. `boot-facts.java.inc` records them once, after
 seeding, from the same boot read, and defers the package each one names.
 `retired-boot.java.inc` holds the queries that disposition and release take them from, and
-`deferral.java.inc` is the deferral of a package name.
+`deferral.java.inc` is the deferral of a package name. `observation.java.inc` takes each later
+store read into the cached view and the held set without touching the boot facts, and
+`release-finish.java.inc` forgets a released account's remembered history while its app ID stays
+held until a new Settings instance.
 
 The facade contains every Settings fragment verbatim, and its restore runs restoration,
 observation, seeding and the boot facts in the order of the adapted boot method.

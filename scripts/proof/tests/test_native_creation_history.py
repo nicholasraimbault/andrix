@@ -40,9 +40,12 @@ def synthetic_settings(fragments=None, side=None):
     lifecycle = 'boot-facts' in fragments
     boot = '        recordNativeBootFactsLPw(loaded);\n' if lifecycle else ''
     queries = fragments['boot-facts'] + '\n' + fragments['retired-boot'] + '\n' if lifecycle else ''
-    release = ('    void finishNativeIdentityReleaseLPw(NativePrincipalPins.Record record,'
-               ' NativeIdentityStore.Loaded loaded) {\n        observeNativeIdentityStoreLPw(loaded);\n    }\n\n'
-               if lifecycle else '')
+    observe = (fragments['observation'] + '\n' + fragments['release-finish'] + '\n' if lifecycle else
+               '    void observeNativeIdentityStoreLPw(NativeIdentityStore.Loaded loaded) {\n'
+               '        mNativeIdentityLoaded = loaded;\n'
+               '        mNativeStoreAppIds.addAll(loaded.occupiedAppIds);\n'
+               '        rememberNativeHistoriesLPw(loaded);\n'
+               '        refreshNativePrincipalAppIdsLPw();\n    }\n\n')
     return ('final class Settings {\n'
             '    private final java.util.Map<Long, NativeIdentityStore.History> mNativeRememberedBindings =\n'
             '            new java.util.HashMap<>();\n\n'
@@ -61,12 +64,7 @@ def synthetic_settings(fragments=None, side=None):
             '    boolean isNativePrincipalAppIdLPr(int appId) {\n'
             '        return mNativeStoreAppIds.contains(appId) || nativePrincipalPinsLPr().isAppIdPinned(appId);\n'
             '    }\n\n' + fragments['identity'] + '\n' + fragments['path-safety']
-            + '\n    void observeNativeIdentityStoreLPw(NativeIdentityStore.Loaded loaded) {\n'
-            '        mNativeIdentityLoaded = loaded;\n'
-            '        mNativeStoreAppIds.addAll(loaded.occupiedAppIds);\n'
-            '        rememberNativeHistoriesLPw(loaded);\n'
-            '        refreshNativePrincipalAppIdsLPw();\n    }\n\n'
-            + release + refresh +
+            + '\n' + observe + refresh +
             '        java.util.Set<Integer> held = new java.util.TreeSet<>(mNativeStoreAppIds);\n'
             '        held.addAll(nativePrincipalPinsLPr().reservedAppIds());\n'
             '        mAppIds.setNativePrincipalAppIds(held);\n'
@@ -158,8 +156,10 @@ class CreationHistorySourceTests(unittest.TestCase):
         self.assertNotIn('reservedAppIds', runner.TEMPLATE.read_text())
         body_only = settings.replace('        rememberNativeHistoriesLPw(loaded);\n',
                                      '        if (loaded.bindingUsable(0)) return;\n', 1)
+        # The observation is also a fragment, so the candidate's edited text no longer matches it.
         self.assertEqual(runner.b2_text_checks(body_only),
-                         ['candidate observation does not remember through the history view'])
+                         ['candidate OBSERVE is not the end of fragment observation',
+                          'candidate observation does not remember through the history view'])
         with self.assertRaises(ValueError):
             runner.settings_texts(settings.replace('    void refreshNativePrincipalAppIdsLPw() {\n', ''))
 

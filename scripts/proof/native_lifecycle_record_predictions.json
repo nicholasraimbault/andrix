@@ -1,5 +1,5 @@
 {
-  "status": "PREDICTED before any guarded execution of the P3 sources. Nothing here is an executed result.",
+  "status": "PREDICTED before any guarded execution of the P3 checkpoint 2 sources. Nothing here is an executed result.",
   "plan": "plans/2026-10-08-native-lifecycle-record.md",
   "package": "B1 P1: the slot version 2 codec, the stable prefix reader and the readers in every format; B1 P2a: the lifecycle store transitions, the suspend, lift, markRetiring and markRetired transactions, the publication refusal and the writer rules; B1 P2b checkpoint 1: the boot facts, the deletion or migration step, confirm disposal and Restore; B1 P2c: Restore's claim and phase fixes and the gated release engine at the persistence level, with its capability, its store primitives and the source rules that keep release unreachable.",
   "basis": "Each count is the length of the runner's case lists. Each mutant's catches are traced against the cases it breaks; a defect that another rule also refuses names only the cases that reach it.",
@@ -7,10 +7,11 @@
     "codec": 47,
     "reads": 60,
     "goldens": 9,
-    "mutants": 159,
+    "mutants": 166,
     "store": 49,
     "transactions": 57,
-    "faults": 136
+    "faults": 136,
+    "settings": 12
   },
   "reads_by_label": {
     "legacy": 20,
@@ -780,6 +781,32 @@
     ],
     "continuation-beside-a-live-binding": [
       "V3 / continuation refuses a live binding of the package elsewhere before any effect"
+    ],
+    "seeding-ignores-retired-accounts": [
+      "V2 / a version 1 retiring body is deferred at seeding",
+      "V3 / a retiring account is deferred at seeding"
+    ],
+    "seeding-ignores-suspended-accounts": [
+      "V3 / a suspended account is deferred at seeding"
+    ],
+    "boot-facts-from-the-cached-view": [
+      "V3 / disposition needs an instance that began with the account RETIRED",
+      "V3 / release needs an instance that began with the account RETIRED",
+      "V3 / the boot facts are recorded once and survive later reads"
+    ],
+    "boot-facts-recorded-again-on-observe": [
+      "V3 / disposition needs an instance that began with the account RETIRED",
+      "V3 / release needs an instance that began with the account RETIRED",
+      "V3 / the boot facts are recorded once and survive later reads"
+    ],
+    "boot-facts-lose-their-deferral": [
+      "V3 / the boot facts defer an unmapped ticketed tombstone"
+    ],
+    "release-finish-drops-the-hold": [
+      "V3 / a durable release keeps the app ID held until a new instance"
+    ],
+    "release-finish-keeps-the-history": [
+      "V3 / a durable release keeps the app ID held until a new instance"
     ]
   },
   "round_2": {
@@ -1070,5 +1097,36 @@
       "primitives": 4,
       "boot-facts": 3
     }
+  },
+  "p3_checkpoint_2": {
+    "changes": "The release finish keeps the app ID in the held set and forgets the remembered history until a new Settings instance. The observation and the release finish become fragments that the facade carries verbatim. A new Settings suite runs the seeding, boot facts, retired boot and release body rules through the facade and the history harness. Fragment mutants change the facade and the harness alike, and the two existing Settings mutants move to them. The release rule gains Settings' release finish and the old release path, each allowed only in the manager body that calls it today, until P6.",
+    "changed_counts": {
+      "mutants": [
+        159,
+        166
+      ]
+    },
+    "new_counts": {
+      "settings": 12
+    },
+    "unchanged_counts": {
+      "codec": 47,
+      "reads": 60,
+      "goldens": 9,
+      "store": 49,
+      "transactions": 57,
+      "faults": 136
+    },
+    "source_rule_mutants": {
+      "capability": 4,
+      "release": 10,
+      "primitives": 4,
+      "boot-facts": 3
+    },
+    "p6_release_allowances": [
+      "finishRetirement in NativePrincipalManager.finishRetirementAfterQuiescence",
+      "finishNativeIdentityReleaseLPw in NativePrincipalManager.finishRetirementAfterQuiescence",
+      "finishRetire in NativePrincipalManager.finishRetirementAfterQuiescence"
+    ]
   }
 }

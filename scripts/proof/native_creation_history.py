@@ -238,7 +238,7 @@ FOCUSED_NAMES = (
     'seeding / an incomplete data owner enumeration keeps unidentified code',
     'seeding / a reservation seeds as its published body under every data owner',
     'holds / every hold and fence remains',
-    'holds / an exact release lifts only its own UID hold and keystore fence')
+    'holds / an exact release keeps its UID hold and keystore fence until a new instance')
 FAULT_KINDS = ('exact header confirmation', 'first body write', 'LIVE completion',
                'rebound retirement publication', 'rebound retirement marker')
 FAULT_NAMES = tuple('%s / %s' % (kind, step) for kind in FAULT_KINDS for step in STEPS)
@@ -509,7 +509,8 @@ def b2_text_checks(settings):
             problems.append('candidate %s differs from fragment %s' % (tag, name))
     if settings.count(fragments['stored-history']) != 1 or fragments['stored-history'] not in texts['STORED']:
         problems.append('candidate lacks the stored history fragment where the harness cuts it')
-    for tag, name in (('BOOT_FACTS', 'boot-facts'), ('RETIRED_BOOT', 'retired-boot')):
+    for tag, name in (('BOOT_FACTS', 'boot-facts'), ('RETIRED_BOOT', 'retired-boot'),
+                      ('RELEASE_FINISH', 'release-finish'), ('OBSERVE', 'observation')):
         if settings.count(fragments[name]) != 1 or not fragments[name].endswith(texts[tag]):
             problems.append('candidate %s is not the end of fragment %s' % (tag, name))
     if texts['APPLY'].count('recordNativeBootFactsLPw(loaded);') != 1:
@@ -856,6 +857,11 @@ def b2_product(settings, override=None):
     files = b1.product_sources(framework_override=framework)
     if FACADE in override:
         files['stubs/com/android/server/pm/Settings.java'] = override[FACADE].encode()
+    if SEEDING in override:
+        # A seeding defect is in the fragment text, which the facade carries verbatim too.
+        facade = files['stubs/com/android/server/pm/Settings.java'].decode()
+        files['stubs/com/android/server/pm/Settings.java'] = b1.replace_once(
+            facade, (ROOT / SEEDING).read_text(), override[SEEDING]).encode()
     files.update(history_stubs())
     files['tests/NativeHistoryHarness.java'] = harness_source(settings, 'b2', override.get(SEEDING)).encode()
     return files

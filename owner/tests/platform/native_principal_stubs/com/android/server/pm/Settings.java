@@ -13,8 +13,9 @@ import java.util.Set;
 import java.util.TreeSet;
 
 // Restoration, stored histories, the identity predicate, the scan rule, path safety, boot
-// recovery seeding, the boot facts, the retired boot queries and the deferral are the exact
-// fragments of the adapted framework Settings. Its restore runs them in the adapted boot order.
+// recovery seeding, the boot facts, the retired boot queries, the deferral, the observation and
+// the release finish are the exact fragments of the adapted framework Settings. Its restore runs
+// them in the adapted boot order.
 final class Settings {
     static final String LINEAGE = "0123456789abcdef0123456789abcdef";
     NativePrincipalPins pins = new NativePrincipalPins(64);
@@ -164,10 +165,12 @@ final class Settings {
         // As the adapted framework's refresh does: the recovery view holds the same app IDs.
         mNativeRecoveryView = mNativeRecoveryView.withHolds(union);
     }
-    void observeNativeIdentityStoreLPw(NativeIdentityStore.Loaded value) {
-        mNativeIdentityLoaded = value;
-        storeHolds.addAll(value.occupiedAppIds);
-        rememberNativeHistoriesLPw(value);
+    // The exact observation fragment of the adapted framework Settings.
+    void observeNativeIdentityStoreLPw(NativeIdentityStore.Loaded loaded) {
+        mNativeIdentityLoaded = loaded;
+        // A failed/reduced read is not authority to forget a previous hold.
+        mNativeStoreAppIds.addAll(loaded.occupiedAppIds);
+        rememberNativeHistoriesLPw(loaded);
         refreshNativePrincipalAppIdsLPw();
     }
 
@@ -267,12 +270,18 @@ final class Settings {
                 user == null || user.partial ? -1 : user.serialNumber);
     }
 
-    void finishNativeIdentityReleaseLPw(NativePrincipalPins.Record record, NativeIdentityStore.Loaded observed) {
-        if (!observed.enumerationComplete || observed.header.status != NativeIdentityStore.Status.VALID
-                || observed.occupiedAppIds.contains(record.appId)) throw new AssertionError("early UID release");
-        storeHolds.remove(record.appId);
+    // The exact release finish fragment of the adapted framework Settings.
+    // The release finish, only after the checked store acknowledgement of a durable omission. It
+    // forgets the remembered history, but the app ID stays in the held set until a new Settings
+    // instance: the allocator skips it, the key fence holds, preparation refuses and package
+    // mutation stays blocked, and callbacks queued in memory by its numeric IDs end with this one.
+    void finishNativeIdentityReleaseLPw(NativePrincipalPins.Record record, NativeIdentityStore.Loaded loaded) {
+        if (!loaded.enumerationComplete || loaded.header.status != NativeIdentityStore.Status.VALID
+                || loaded.occupiedAppIds.contains(record.appId)) {
+            throw new IllegalStateException("Native store release is not confirmed");
+        }
         mNativeRememberedBindings.remove(record.id);
-        observeNativeIdentityStoreLPw(observed);
+        observeNativeIdentityStoreLPw(loaded);
     }
 
     // The exact deferral fragment of the adapted framework Settings.

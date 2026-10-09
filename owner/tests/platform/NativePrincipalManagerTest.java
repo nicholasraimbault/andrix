@@ -159,11 +159,21 @@ public final class NativePrincipalManagerTest {
         assert manager.phase(second) == NativePrincipalPins.Phase.RETIRING;
         assert manager.finishRetirementAfterQuiescence(second);
         assert pm.mSettings.pins.reservedAppIds().isEmpty();
-
-        NativePrincipalManager.Handle fresh = manager.prepare(manager.select(a.getPackageName(), 0));
-        assert manager.identity(fresh).id > secondId;
-        assert manager.commit(fresh);
+        // Both durable omissions keep their app IDs held in this Settings instance: the key fence
+        // holds and preparation refuses. A new instance frees them.
+        assert pm.mSettings.storeHolds.containsAll(Set.of(10123, 10124));
+        assert pm.mSettings.mNativeRecoveryView.protectsKeystore(10123)
+                && pm.mSettings.mNativeRecoveryView.protectsKeystore(10124);
+        refused(() -> manager.prepare(manager.select(a.getPackageName(), 0)));
         Path persistedRoot = pm.mSettings.root;
+        PackageManagerService releasedPm = new PackageManagerService(persistedRoot, false, LEGACY);
+        releasedPm.mSettings.add(a.getPackageName(), 10123);
+        releasedPm.mSettings.restoreAfterPackageSettings();
+        assert releasedPm.mSettings.storeHolds.isEmpty();
+        NativePrincipalManager next = new NativePrincipalManager(releasedPm);
+        NativePrincipalManager.Handle fresh = next.prepare(next.select(a.getPackageName(), 0));
+        assert next.identity(fresh).id > secondId;
+        assert next.commit(fresh);
         PackageManagerService restoredPm = new PackageManagerService(persistedRoot, false, LEGACY);
         restoredPm.mSettings.add(a.getPackageName(), 10123); // Ordinary Settings read comes first.
         restoredPm.mSettings.restoreAfterPackageSettings();
@@ -237,8 +247,13 @@ public final class NativePrincipalManagerTest {
         Os.forbiddenMonitor = early.mLock;
         assert earlyManager.beginRetirement(neverActive);
         assert earlyManager.finishRetirementAfterQuiescence(neverActive);
-        assert early.mSettings.storeHolds.isEmpty();
+        // The release keeps the app ID held in this Settings instance, and a new one frees it.
+        assert early.mSettings.storeHolds.equals(Set.of(10126));
         Os.forbiddenMonitor = null;
+        PackageManagerService earlyNext = new PackageManagerService(early.mSettings.root, false, LEGACY);
+        earlyNext.mSettings.add("dev.andrix.early", 10126);
+        earlyNext.mSettings.restoreAfterPackageSettings();
+        assert earlyNext.mSettings.storeHolds.isEmpty();
 
         // Codec support for a future header is not manager admission. Its
         // header-only UID hold survives even when no directory can reveal it.
