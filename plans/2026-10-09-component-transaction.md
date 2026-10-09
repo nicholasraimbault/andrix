@@ -3,9 +3,10 @@
 Status: accepted by the owner on 2026-10-09. This is the first durable component transaction, for
 gate 3 of [current work](current.md). It applies the proposed
 [owner trust, selection and deployment contract](2026-09-24-owner-composition-contract.md) under
-the accepted [signing default](2026-09-23-signing-authorization-scope.md). Its eight owner
-decisions remain open, and each is needed only before the step it names. Decision 8 asks whether
-to widen the signing default for one case. A read only study of the pinned Package Manager and
+the accepted [signing default](2026-09-23-signing-authorization-scope.md), with one narrow
+exception in decision 8. The owner decided seven of its eight decisions on 2026-10-09, after an
+independent review of the recommendations. Decision 5, the rollback target, waits for test
+results. A read only study of the pinned Package Manager and
 apexd sources shaped this plan, and independent reviews in three rounds checked it against the
 same sources. It enables nothing by itself. D1 and D2 can start now on the host. D3 can be
 written now, and D4's comparison can run now.
@@ -61,186 +62,101 @@ ships. The [lifecycle record](2026-10-08-native-lifecycle-record.md) settles tha
 floor image that reads its records. For deployment records, decision 5 chooses between such a floor
 and records that stay safe to ignore.
 
-## Open owner decisions
+## Owner decisions
 
-These are the decisions the plan needs from the owner. Decision 8 asks whether to widen the
-accepted signing default for one case. Engineering choices are listed with the design.
+Accepted on 2026-10-09, after an independent review of the recommendations that the owner
+requested. Each applies from the step that needs it. Decision 5 is still open.
 
-### 1. Installation authority for shared system components
+- **Decision 1. Installation authority.** A distinct device grant, normally held by the owner,
+  governs staging and activating code that every Android user runs, starting with SystemUI. The
+  owner can delegate it for one component at a time. It governs the managed path only. An
+  authorized administrator can still change the system through root, as the
+  [architecture](../docs/architecture.md#administrative-elevation) allows, outside these records.
+  The grant confers no account or user administration, and those grants confer no installation
+  authority.
+- **Decision 2. Late commit by default.** Signing, publication and Andrix's own checks run ahead of
+  time. The owner's activation then arms the change and starts the reboot. A crash after the change
+  is armed still applies it. Early commit stays available as an explicit owner policy.
+- **Decision 3. Activation and health responses.** Each activating reboot needs the owner's
+  consent. Automatic restoration from the restoration bundle runs only when the original approval
+  listed it. That approval names the restoration reboot and its interruption of every user, and
+  gives the restoration's STAGE and ACTIVATE grants up front. A health observation that is
+  unavailable never counts as a failure.
+- **Decision 4. The device copy of the platform role.** The accepted
+  [installation key recovery](2026-09-22-installation-key-recovery.md) default stands. The protected
+  device signing copy holds the platform role. That needs personalization. The image's platform
+  packages carry the owner's own platform certificate, and every later image needs the owner's
+  platform signature. The threat boundary for signing on a compromised OS is written before
+  personal keys are provisioned.
+- **Decision 6. Update responsibility across image updates.** An image update waits a declared
+  rebuild window, for example two weeks, while the variant is rebuilt on the new base. The rebuilt
+  variant's paired restoration is signed before the image applies. If the rebuild is not ready
+  within the window, the owner can approve a temporary switch to the new image's own SystemUI,
+  built from its factory source, until the rebuild lands. The owner's change stays the recorded
+  choice and is never silently dropped. The owner may also choose a longer hold, or keep the old
+  variant knowingly as a stale base.
+- **Decision 7. Reboot consent with several Android users.** The installation grant holder consents.
+  Other running users get notice and a declared delay first, but cannot block the change. A
+  restoration approved in advance may run with shorter notice when SystemUI cannot deliver the
+  notice, but only under an explicit emergency policy, which the installation grant does not imply.
+  Notice must not depend only on the UI being repaired.
+- **Decision 8. Signing approval for a variant and its restoration.** This is a narrow exception to
+  the accepted [signing default](2026-09-23-signing-authorization-scope.md). One approval and one
+  fresh authentication cover exactly a SystemUI variant and its restoration. They are signed in one
+  transaction of six key operations, and published together or not at all. The prompt shows both
+  input digests and says which APK is the recovery copy. The exception covers no other set of
+  inputs, and signing implies no installation or activation.
 
-Who may stage and activate, through the managed path, code that every Android user runs, starting
-with SystemUI. The grant governs that path only. An authorized administrator can still change the
-system through root, as the [architecture](../docs/architecture.md#administrative-elevation)
-allows, outside these records.
-
-- **Options.**
-  - (a) A distinct device grant, normally held by the phone's owner and delegable in scope.
-  - (b) Any Android user administrator.
-  - (c) The native account administration grant.
-  - (d) A holder named for each component.
-- **Consequences.**
-  - (a) One more grant to define, hold and record. It keeps installation apart from account and
-    user administration, as the accepted policies do.
-  - (b) Reuses an existing Android role. Every administrator could then change code that all users
-    run. The [decision audit](2026-09-25-deliberate-decision-audit.md) treats administrator status
-    as a candidate input, not blanket authority.
-  - (c) Couples system code changes to account administration. The accepted
-    [lifecycle authority](2026-10-06-native-account-lifecycle.md) says that installation authority
-    confers no account administration. The audit's principle of one accountable owner for each
-    kind of authority argues against the reverse as well.
-  - (d) Allows narrow delegation, at the cost of an assignment for every component.
-- **Recommendation.** (a). SystemUI code affects every user, and the accepted policies keep these
-  authorities separate.
-- **Needed** before D7.
-
-### 2. The default commit mode
-
-Which commit mode applies unless the owner sets another. The other mode stays available as an
-explicit owner policy.
-
-- **Options.**
-  - (a) Early commit. Approving staging lets any later reboot apply the change.
-  - (b) Late commit. The change applies only at the reboot the owner activates.
-- **Consequences.**
-  - (a) Activation then needs only a reboot, and any reboot activates the change, a crash
-    included. Under the accepted [rolling composition](2026-09-21-rolling-composition.md) rule,
-    permission to stage is not permission to interrupt. The owner's staging approval must therefore
-    cover activation explicitly. Commit arms the checkpoint, so the next boot of any cause runs
-    under it. Every user's writes in that boot stay provisional until it commits. A ready session
-    that waits long can also be abandoned by Android's storage freeing.
-  - (b) The change waits for the owner's activation, but it is not inert. A crash between commit
-    and the requested reboot still applies it. A commit cut short becomes ready again only after a
-    later boot. It is then rebooted under an unexpired activation that no reboot has used, after
-    any notice that decision 7 requires, or abandoned.
-- **Recommendation.** (b).
-- **Needed** before D7.
-
-### 3. Activation and health response defaults
-
-- **Activation options.** (a) Consent at each activation. (b) A configured policy that activates
-  within its scope without a new prompt.
-- **Health response options.** (a) Report and wait for the owner. (b) Restore automatically from
-  the restoration bundle, when the original approval listed that effect.
-- **Consequences.**
-  - Activation (a) means every activating reboot is one the owner asked for.
-  - Activation (b) means fewer prompts. The policy must name every effect it covers, because
-    omitted effects are not implied.
-  - Health (a) can leave a degraded UI in place until the owner acts, through a recovery route
-    that must work without the replaced UI. No such product route exists yet, so choosing (a)
-    blocks D7 until one does.
-  - Health (b) needs the restoration's STAGE and ACTIVATE grants up front. It ends every user's
-    work, and it may run before anyone unlocks. It cannot run after a base move, which voids the
-    restoration bundle.
-- **Recommendation.** Activation (a) and health response (b).
-- **Needed** before D7.
-
-### 4. The device copy of the platform role
-
-The accepted [installation key recovery](2026-09-22-installation-key-recovery.md) default places a
-protected signing copy of the installation authorities on the device, platform signer identities
-included. That default stands unless D8's threat statement argues for departing from it.
-
-- **Options.**
-  - (a) Confirm the default. The device copy holds the platform role.
-  - (b) Depart from it. The platform role stays off the device.
-- **Consequences.**
-  - (a) The phone can sign SystemUI itself, and the architecture names component signing on the
-    device as a goal. It needs personalization. No universal project key is distributed, so the
-    image's platform packages must carry the owner's own platform certificate. Every later image
-    then needs the owner's platform signature too. The device copy holds a role that many factory
-    packages share, so the open question about signing on a compromised OS matters more.
-  - (b) Every SystemUI change needs a signer off the device. The audit says that moving signing
-    roots off the device changes owner capability and needs an explicit decision.
-- **Recommendation.** (a).
-- **Needed** before any nondisposable key signs SystemUI, in D8.
+## Open owner decision
 
 ### 5. The supported rollback target once deployment records exist
 
 The owner accepted B1's image, in the [lifecycle record](2026-10-08-native-lifecycle-record.md),
-as the supported rollback target. Deployment records raise the question again.
+as the supported rollback target. Deployment records raise the question again. An image that reads
+them can show a base move after a rollback. Rollback protection applies to whole images, though.
+Enforcing a newer floor ends B1's image as a fallback, for unrelated platform defects too.
 
 - **Options.**
-  - (a) Move the supported rollback target to a floor image just before the first device writer of
-    deployment records. The floor reads lifecycle version 2 slots and deployment records. It runs
-    the cohort check and reports the result, and it writes no deployment record. Verified boot
-    rollback indexes enforce it as a release gate.
-  - (b) Keep B1's image as the supported rollback target.
-- **Consequences.**
-  - (a) Replaces the owner's accepted choice. Rollback protection applies to whole images, so once
-    it enforces the new floor, B1's image no longer boots. The floor must be qualified on Android
-    with both kinds of records present. After a rollback to it, the owner still sees a base move.
-  - (b) Earlier images stay supported. While one runs, no coordinator runs. Deployment records are
-    ignored, and a variant built for a later base stays active without a warning. On return, every
-    open ticket and the selection record must be reconciled by observation before any new crossing.
-    The records must therefore stay safe to ignore.
-- **Recommendation.** (a), because only an image that runs the cohort check can show a base move
-  after a rollback.
-- **Needed** before D7 starts, because under (a) D7 builds the floor image first.
+  - (a) A floor image just before the first device writer of deployment records. It reads
+    lifecycle version 2 slots and deployment records, runs the cohort check and reports the result,
+    and writes no deployment record.
+  - (b) A minimal deployment reader and cohort checker on a retained known good base close to B1's
+    image. This too replaces the exact accepted B1 artifact.
+  - (c) Keep B1's image. Deployment records are then ignored while it runs, so they must stay safe
+    to ignore. On return, every open ticket and the selection record are reconciled by observation
+    before any new crossing.
+- **Next.** Build and compare candidate floors. Qualify them on Android with both kinds of records
+  present, and measure how far verified boot rollback indexes reach. The owner decides with that
+  evidence.
+- **Needed** before D7 starts.
 
-### 6. Update responsibility across image updates
+## Alternatives considered
 
-Who keeps the owner's SystemUI choice current when the image changes under it. The selection record
-stores the answer.
+- **Installation authority held elsewhere.** Any Android user administrator could then change code
+  that all users run. The native account administration grant would couple system code to account
+  administration. A holder named for each component, without a common grant, would need an
+  assignment for every component.
+- **Early commit by default.** Activation would need only a reboot, but any later reboot would
+  activate the change, a crash included, and the armed session could be abandoned by Android's
+  storage freeing.
+- **Report and wait on a failed health window.** A degraded UI would stay until the owner acts,
+  through a repair route that works without SystemUI. No such product route exists yet.
+- **The platform role off the device.** Every SystemUI change would need a signer elsewhere. The
+  audit treats that as a change of owner capability that needs its own decision.
+- **An open ended hold of image updates.** It would block every fix in the image, not only
+  SystemUI's.
+- **Letting the factory copy win at once.** The owner's change would stop until it is rebuilt, and
+  uninstall cannot bring the factory copy back.
+- **Keeping the old variant by default.** SystemUI would run on a base it was not built for, with
+  the new factory fixes hidden.
+- **Other reboot consent rules.** The grant holder alone, with no notice, can cost other users their
+  work. Requiring every running user to consent gives each of them an indefinite veto.
+- **Two signing transactions.** Each would have its own approval and fresh authentication. They
+  would publish just as safely, through the artifact store, at the cost of a second prompt. A
+  deliberately approved development batch was also possible, but the default leaves its
+  publication rules open.
 
-- **Options.**
-  - (a) Hold image updates until a variant rebuilt on the new base exists.
-  - (b) Let the factory copy win.
-  - (c) Keep the old variant and show the hidden fixes.
-- **Consequences.**
-  - (a) Every fix in the image waits for the rebuild, not only SystemUI's. Each image update
-    currently needs a host rebuild of the variant, and costs two reboots: the image's, then the
-    rebuilt variant's. The old variant still runs for one boot on the new base, because the image
-    change fails sessions staged on the old base. The rebuilt variant's paired restoration is
-    signed before the image applies, so a repair exists for that boot.
-  - (b) The owner's change stops until it is rebuilt. Uninstall cannot bring the factory copy back
-    once a variant is installed. This option therefore needs gate 2's version projection, or the
-    variant built into the image. It cannot be chosen until gate 2 provides one of them.
-  - (c) Nothing waits. SystemUI runs on a base it was not built for, with the new factory fixes
-    hidden and no repair signed in advance, until a repair plan lands.
-- **Recommendation.** (a). An image update applied without a rebuild falls back to (c), and is
-  reported as a stale base.
-- **Needed** before a variant stays active across an image update outside disposable guests.
-
-### 7. Consent for a reboot with several Android users
-
-Whose consent a reboot needs when it ends other Android users' work and locks their credential
-encrypted storage. This covers activation reboots and the reboots of automatic restoration under
-decision 3.
-
-- **Options.**
-  - (a) The installation grant holder's consent covers every user.
-  - (b) Every other user with running work or unlocked storage must also consent.
-  - (c) The grant holder consents, and other running users get notice and a declared delay first.
-- **Consequences.**
-  - (a) The simplest. Other users can lose work without warning.
-  - (b) No user loses work without consent, but any one user can hold back a fix indefinitely.
-  - (c) Other users can save their work, but cannot block the change.
-- **Recommendation.** (c).
-- **Needed** before any activation or automatic restoration on a device where more than one
-  Android user is running.
-
-### 8. Signing approval for a variant and its restoration
-
-The accepted [signing default](2026-09-23-signing-authorization-scope.md) confirms one input artifact
-for each approval. A SystemUI change needs two signed APKs: the variant, and its restoration, which
-is the variant's recovery route.
-
-- **Options.**
-  - (a) Widen the default for this case. One approval and one fresh authentication cover both
-    APKs. They are signed in one transaction of six key operations, and published together or not
-    at all.
-  - (b) Keep the default. Sign two transactions, each with its own approval and fresh
-    authentication. The artifact store publishes neither bundle until both verify.
-- **Consequences.**
-  - (a) One prompt for each change. That single authentication authorizes six key operations on
-    two inputs. The prompt shows both input digests and says which APK is the recovery copy.
-  - (b) Two prompts for each change, and no accepted policy changes. Publication stays all or
-    nothing through the artifact store, not through the signing transaction.
-- **Recommendation.** (a). The two APKs are one change and its way back, and the prompt names both.
-- **Needed** before D8. D2 can start under either option, because its host signer uses no
-  authentication.
-
-### Later owner decisions
+## Later owner decisions
 
 These are not needed for gate 3:
 
@@ -285,8 +201,7 @@ SystemUI comes first, as a staged persistent system APK with its v4 sidecar.
 
 - It is the change the vision names.
 - Each of its APKs is the three operation signing case that the accepted default was written for.
-  A variant with its restoration takes six operations, in one transaction under decision 8 (a) or
-  in two under decision 8 (b).
+  A variant with its restoration takes six operations in one transaction, under decision 8.
 - Its first trials can start from an existing sealed normal image with the frozen SystemUI
   variants, if that image's factory SystemUI matches the `985c9a4` baseline.
 
@@ -329,13 +244,10 @@ signing transaction, with no partial publication. The qualified Android vehicle 
 operation and needs authentication for each key operation. SystemUI is signed with the platform
 key. In the lab image that is the public AOSP development key.
 
-- **Approval scope.** The accepted default confirms one input artifact. Under decision 8 (a), one
-  approval and one fresh authentication cover a variant and its restoration. They are signed in one
-  transaction of six operations, three for each APK, and published together or not at all. The plan
-  does not treat the pair as a deliberately approved batch. The default allows development batches
-  but leaves their publication rules open. Here neither output may be published alone, because the
-  restoration is the variant's recovery route. Under decision 8 (b), each APK is its own
-  transaction, and the artifact store publishes neither bundle until both verify.
+- **Approval scope.** The accepted default confirms one input artifact. Under decision 8, one
+  approval and one fresh authentication cover exactly a variant and its restoration. They are signed
+  in one transaction of six operations, three for each APK, and published together or not at all.
+  Neither output may be published alone, because the restoration is the variant's recovery route.
 - **Approved context.** It names the installation, the actor, the input digests and facts of both
   APKs, and the platform role by certificate and key digest. It also names the purpose, the
   schemes, the SDK range and the four expected outputs.
@@ -351,7 +263,7 @@ key. In the lab image that is the public AOSP development key.
   effect.
 - **Signer location.** First a host signer with the development key. That host then belongs to the
   operation's trusted base, which the [integrated model](2026-09-25-integrated-platform-model.md)
-  permits. Then the protected device signer, once decision 4 is settled. Its mechanism is an
+  permits. Then the protected device signer, under decision 4. Its mechanism is an
   engineering choice among the candidates that keep per operation key checks. The recommendation is
   the platform transaction token candidate. It authenticates through SystemUI's credential UI, so it
   cannot be the only way to authorize a repair.
@@ -559,7 +471,7 @@ What the source establishes:
 
 Commit modes:
 
-- **Late commit**, the recommended default. Signing, publication and Andrix's own checks run ahead
+- **Late commit**, the default under decision 2. Signing, publication and Andrix's own checks run ahead
   of time. The checks are a signer equal to the installed signer, a versionCode above both the
   factory and the active copy, and a cohort match. ACTIVATE comes before the session is created.
   Creation, write, commit and the reboot then run as one short sequence.
@@ -620,8 +532,7 @@ user's unlock.
   front.
 - A base move voids the only repair signed in advance, so automatic restoration cannot run after
   it. If the variant then breaks the keyguard on the new base, only the host route remains. Under
-  decision 6 (a), the rebuilt variant's paired restoration is therefore signed before the image
-  applies.
+  decision 6, a rebuilt variant's paired restoration is therefore signed before the image applies.
 - In the lab, the repair route is the authenticated host shell. A product route that works without
   SystemUI is a gap.
 
@@ -775,8 +686,8 @@ account work owns the build slot and the emulator until further notice.
 - **Changes.** The plan, authorization, ticket, observation and selection records, their codec,
   the ticket state machine, the cohort check and reconciliation, in Java. The code lives in its own
   Java package. Host facades model the Android behavior cited here, including both readback routes.
-  The records allow one or two signing transactions for each plan, so either answer to decision 8
-  fits the fixed layout.
+  The records allow one or two signing transactions for each plan, so a later change to decision 8
+  still fits the fixed layout.
 - **Qualified by.** Golden bytes and mutation fuzzing of every record kind. A check that every
   state has an exit, and that each loop is either bounded or held with an alert. Fault sweeps at
   every step. Mutants for a replay, an early outcome, a second create or commit, a READY_AGAIN that
@@ -789,9 +700,8 @@ account work owns the build slot and the emulator until further notice.
 ### D2. Artifact store and bundle builder
 
 - **Changes.** The artifact store with durable publication. A bundle builder that signs the variant
-  and its restoration with six apksig operations, through a host signer with the development key.
-  They form one transaction under decision 8 (a), or two under decision 8 (b). It verifies both
-  bundles against the role manifest.
+  and its restoration with six apksig operations in one transaction, under decision 8, through a
+  host signer with the development key. It verifies both bundles against the role manifest.
 - **Qualified by.** Refusing each signing callback in turn publishes nothing. Both bundles verify
   against the role manifest with the SystemUI platform role added. A lost acknowledgement resolves
   by reading the exact bytes. A lost signing reply resolves by request ID, or by the host signer's
@@ -869,14 +779,14 @@ account work owns the build slot and the emulator until further notice.
 
 - **Changes.** The device coordinator. It runs before unlock and keeps its records in system DE
   storage. It creates its own sessions and reads them through `getSessionInfo` as their installer
-  UID. It takes over open host tickets by recorded handover. Under decision 5 (a), a floor image
-  comes first. It reads deployment records, runs the cohort check and reports it, and writes none.
-  D7 starts after decisions 1, 2, 3 and 5.
+  UID. It takes over open host tickets by recorded handover. Decision 5 is settled first, with the
+  candidate floor images it compares. Each reads deployment records, runs the cohort check and
+  reports it, and writes none. D7 starts after decision 5.
 - **Qualified by.** Image and artifact inspection, then fresh guests and the D5 and D6 trials under
-  the device coordinator. A repair through a route that does not depend on SystemUI. If decision 3
-  chose health response (a), D7 waits until such a route exists. Under decision 5 (a), the floor
-  image is qualified on Android with lifecycle version 2 slots and deployment records present,
-  before the writer reaches the normal image.
+  the device coordinator. A repair through a route that does not depend on SystemUI, including the
+  automatic restoration of decision 3. The floor that decision 5 selects is qualified on Android
+  with lifecycle version 2 slots and deployment records present, before the writer reaches the
+  normal image.
 - **Stays off.** The writer in the normal image, until the rollback contract of decision 5 is in
   place. A guard keeps it off, not only the absence of a caller. Protected signing and the APEX
   class stay off too.
@@ -890,9 +800,9 @@ account work owns the build slot and the emulator until further notice.
   in which a lost reply resolves by request ID, never by a second signature. The signer's proof
   that a request can no longer complete, which lets SIGNING end in SIGN_FAILED. A repair
   authorization that still works when SystemUI is broken.
-- **Stays off.** Every nondisposable key, until decision 4. Protected signing of a variant and its
-  restoration, until decision 8. Personalization, which decision 4 (a) needs, has its own
-  compatibility, interruption and recovery checks.
+- **Stays off.** Every nondisposable key, until the threat boundary of decision 4 is written.
+  Personalization, which decision 4 needs, has its own compatibility, interruption and recovery
+  checks.
 - **Needs.** The build slot and the emulator.
 
 ### D9. The `/usr` APEX class
@@ -959,7 +869,7 @@ When builds resume:
 - The lab platform key is public. A real key needs decision 4 and personalization.
 - The lab is userdebug. RescueParty is off there, any installer can request a downgrade, and the
   APEX refusal on user builds cannot be observed.
-- Multiple users are not qualified, and decision 7 comes first.
+- Multiple users are not qualified.
 - Version 1 refuses targets that the native store holds or that carry a native account, at planning
   and before each native crossing.
 - A QMP stop is not power loss. Directory times are not durability evidence.

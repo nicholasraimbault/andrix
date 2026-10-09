@@ -281,8 +281,8 @@ Gate 3 now has an accepted plan for the
 [first durable component transaction](2026-10-09-component-transaction.md), starting with
 SystemUI. Its host steps can start: the records and ticket state machine, the artifact store and
 bundle builder, the session observer and the choice of test image. Emulator trials wait for the
-emulator, and the device coordinator, protected signing and the `/usr` APEX class wait for the
-owner decisions they name.
+emulator. The owner decided seven of the plan's eight decisions. The rollback target waits for
+qualified candidate floor images, before the device coordinator.
 
 ## Product checkpoint
 

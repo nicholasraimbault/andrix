@@ -50,6 +50,12 @@ approved development batches or broader administrative contexts. General arbitra
 commands and root shells remain accepted goals, not a signing API's curated action menu.
 Ordinary jobs must not silently acquire any of that authority.
 
+On 2026-10-09 the owner accepted one narrow exception, as decision 8 of the
+[first durable component transaction](2026-10-09-component-transaction.md). One approval and one
+fresh authentication may cover exactly a SystemUI variant and its restoration, signed in one
+transaction and published together or not at all. The prompt names both inputs and the recovery
+copy. The exception covers no other set of inputs, and the default otherwise stands.
+
 ## Keep policy separate from mechanism
 
 The earlier proposal framed a short Keystore authentication window as the necessary price
