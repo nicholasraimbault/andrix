@@ -253,13 +253,16 @@ cancelling or voiding ends it. After PUBLISHED, a read of the plan's publication
 disagrees with another holds the ticket with the same alert. A recorded cause, such as a
 cancellation, still abandons a live session, because an abandon needs no bundle digest.
 
-A restoration plan approved in advance under decision 3 signs nothing. It is the only plan that
-may publish without signing. Its publication record names exactly one bundle, in its own variant
-role: the bundle signed as the restoration of the plan it repairs, which that plan's publication
-already binds in its restoration role. The bundle carries the plan's signer, signing input and
-versionCode, and keeps its own signing transaction. The store verifies it again before it writes
-the record. No bundle signed as a variant ever fills a restoration role, so decision 8's approval
-of which APK is the recovery copy stays the only way a bundle becomes one.
+A repair plan that installs the restoration of the plan it repairs signs nothing. Such a plan,
+whether approved in advance under decision 3 or approved when it runs, is the only kind that may
+publish without signing, and its target is the variant role. Its publication record names exactly
+one bundle, in that role: the bundle signed as the restoration of the plan it repairs, which that
+plan's publication already binds in its restoration role. The bundle carries the plan's signer,
+signing input and versionCode, and keeps its own signing transaction. The store verifies it again
+before it writes the record. No bundle signed as a variant ever fills a restoration role, so
+decision 8's approval of which APK is the recovery copy stays the only way a bundle becomes one.
+Approval in advance matters only for activation. It is what allows decision 3's automatic
+restoration and decision 7's shorter notice, never publication.
 
 ### Signatures and grants
 
