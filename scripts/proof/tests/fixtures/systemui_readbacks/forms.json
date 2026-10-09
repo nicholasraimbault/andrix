@@ -1,0 +1,260 @@
+{
+ "boot-completed": {
+  "command": "getprop sys.boot_completed",
+  "exit": 0,
+  "origin": "source",
+  "stderr": ""
+ },
+ "boot-id": {
+  "command": "cat /proc/sys/kernel/random/boot_id",
+  "exit": 0,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "boot-not-completed": {
+  "command": "getprop sys.boot_completed",
+  "exit": 0,
+  "origin": "source",
+  "stderr": ""
+ },
+ "digest-data": {
+  "command": "sha256sum '/data/app/~~EqvwNErLUKwVeZB_S0CLiA==/com.android.systemui-ilHNckf09AGTZ3jNQm-LEQ==/base.apk'",
+  "exit": 0,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "digest-factory": {
+  "command": "sha256sum /system_ext/priv-app/SystemUI/SystemUI.apk",
+  "exit": 0,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "factory-version-list": {
+  "command": "pm list packages --user 0 --factory-only --show-versioncode com.android.systemui",
+  "exit": 0,
+  "origin": "source",
+  "stderr": ""
+ },
+ "fingerprint": {
+  "command": "getprop ro.build.fingerprint",
+  "exit": 0,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "framework-pid": {
+  "command": "pidof system_server",
+  "exit": 0,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "framework-stat": {
+  "command": "cat /proc/957/stat",
+  "exit": 0,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "installs-active-ready": {
+  "command": "dumpsys -t 25 package installs",
+  "exit": 0,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "installs-active-referrer": {
+  "command": "dumpsys -t 25 package installs",
+  "exit": 0,
+  "origin": "source",
+  "stderr": ""
+ },
+ "installs-destroyed-ready": {
+  "command": "dumpsys -t 25 package installs",
+  "exit": 0,
+  "origin": "source",
+  "stderr": ""
+ },
+ "installs-finalized-failed": {
+  "command": "dumpsys -t 25 package installs",
+  "exit": 0,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "installs-finalized-historical": {
+  "command": "dumpsys -t 25 package installs",
+  "exit": 0,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "installs-finalized-two": {
+  "command": "dumpsys -t 25 package installs",
+  "exit": 0,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "installs-foreign-records": {
+  "command": "dumpsys -t 25 package installs",
+  "exit": 0,
+  "origin": "source",
+  "stderr": ""
+ },
+ "installs-historical-outcomes": {
+  "command": "dumpsys -t 25 package installs",
+  "exit": 0,
+  "origin": "source",
+  "stderr": ""
+ },
+ "installs-historical-refused": {
+  "command": "dumpsys -t 25 package installs",
+  "exit": 0,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "installs-historical-unknown": {
+  "command": "dumpsys -t 25 package installs",
+  "exit": 0,
+  "origin": "source",
+  "stderr": ""
+ },
+ "installs-silent-tail": {
+  "command": "dumpsys -t 25 package installs",
+  "exit": 0,
+  "origin": "source",
+  "stderr": ""
+ },
+ "installs-unknown-package": {
+  "command": "dumpsys -t 25 package installs",
+  "exit": 0,
+  "origin": "source",
+  "stderr": ""
+ },
+ "listing-applied-history": {
+  "command": "pm list staged-sessions --only-parent",
+  "exit": 1,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "listing-empty": {
+  "command": "pm list staged-sessions --only-parent",
+  "exit": 1,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "listing-failed-signer": {
+  "command": "pm list staged-sessions --only-parent",
+  "exit": 1,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "listing-failed-verity": {
+  "command": "pm list staged-sessions --only-parent",
+  "exit": 1,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "listing-pair-mismatched": {
+  "command": "pm list staged-sessions --only-parent",
+  "exit": 1,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "listing-pair-nonstaged": {
+  "command": "pm list staged-sessions --only-parent",
+  "exit": 1,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "listing-plain-children": {
+  "command": "pm list staged-sessions",
+  "exit": 1,
+  "origin": "source",
+  "stderr": ""
+ },
+ "listing-ready": {
+  "command": "pm list staged-sessions --only-parent",
+  "exit": 1,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "listing-ready-failed": {
+  "command": "pm list staged-sessions --only-parent",
+  "exit": 1,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "path-data": {
+  "command": "pm path --user 0 com.android.systemui",
+  "exit": 0,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "path-factory": {
+  "command": "pm path --user 0 com.android.systemui",
+  "exit": 0,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "reply-commit-ready": {
+  "command": "pm install-commit --staged-ready-timeout 60000 2014338406",
+  "exit": 0,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "reply-create-staged": {
+  "command": "pm install-create --user 0 -r --pkg com.android.systemui --staged",
+  "exit": 0,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "systemui-context": {
+  "command": "cat /proc/1839/attr/current",
+  "exit": 0,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "systemui-pid": {
+  "command": "pidof com.android.systemui",
+  "exit": 0,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "uid-list": {
+  "command": "cmd package list packages -U com.android.systemui",
+  "exit": 0,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "uptime": {
+  "command": "cat /proc/uptime",
+  "exit": 0,
+  "origin": "source",
+  "stderr": ""
+ },
+ "vdc-needs-checkpoint-failed": {
+  "command": "vdc checkpoint needsCheckpoint",
+  "exit": 25,
+  "origin": "source",
+  "stderr": "Command: checkpoint needsCheckpoint Failed: Status(-1, EX_SECURITY)\n"
+ },
+ "vdc-needs-checkpoint-none": {
+  "command": "vdc checkpoint needsCheckpoint",
+  "exit": 0,
+  "origin": "source",
+  "stderr": ""
+ },
+ "vdc-needs-checkpoint-pending": {
+  "command": "vdc checkpoint needsCheckpoint",
+  "exit": 1,
+  "origin": "source",
+  "stderr": ""
+ },
+ "vdc-supports-checkpoint": {
+  "command": "vdc checkpoint supportsCheckpoint",
+  "exit": 1,
+  "origin": "source",
+  "stderr": ""
+ },
+ "version-uid-list": {
+  "command": "pm list packages --user 0 --show-versioncode -U com.android.systemui",
+  "exit": 0,
+  "origin": "source",
+  "stderr": ""
+ }
+}

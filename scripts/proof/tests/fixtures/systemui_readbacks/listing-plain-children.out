@@ -1,0 +1,7 @@
+sessionId = 1234567890; appPackageName = null; isStaged = true; isReady = true; isApplied = false; isFailed = false; err
+orMsg = ;
+  sessionId = 1234567891; appPackageName = com.android.systemui; isStaged = true; isReady = true; isApplied = false; isF
+  ailed = false; errorMsg = ;
+  sessionId = 1234567892; not found
+sessionId = 987654321; appPackageName = com.android.systemui; isStaged = true; isReady = false; isApplied = false; isFai
+led = false; errorMsg = ;

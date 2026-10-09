@@ -1,0 +1,33 @@
+Active install sessions:
+  
+Finalized install sessions:
+  
+Historical install sessions:
+  Session 636061913:
+    userId=0 mOriginalInstallerUid=2000 mOriginalInstallerPackageName=null installerPackageName=null 
+    installInitiatingPackageName=com.android.shell installOriginatingPackageName=null mInstallerUid=2000 
+    createdMillis=1790106716772 updatedMillis=1790106716772 committedMillis=0 
+    stageDir=/data/app-staging/session_636061913 stageCid=null 
+    mode=1 installFlags=0x500032 installLocation=1 installReason=0 installScenario=0 sizeBytes=-1 appPackageName=com.and
+    roid.systemui appIcon=false appLabel=null originatingUri=null originatingUid=-1 referrerUri=null abiOverride=null vo
+    lumeUuid=null mPermissionStates={} packageSource=1 whitelistedRestrictedPermissions=null autoRevokePermissions=3 ins
+    tallerPackageName=null isMultiPackage=false isStaged=true forceQueryable=false requireUserAction=UNSPECIFIED require
+    dInstalledVersionCode=-1 dataLoaderParams=null rollbackDataPolicy=0 rollbackLifetimeMillis=0 rollbackImpactLevel=0 a
+    pplicationEnabledSettingPersistent=false developmentInstallFlags=0x0 unarchiveId=-1 dexoptCompilerFilter=null forceV
+    erification=false isAutoInstallDependenciesEnabled=true extensionParams=null 
+    mClientProgress=0.0 mProgress=0.0 mCommitted=true mPreapprovalRequested=false mSealed=true 
+    mPermissionsManuallyAccepted=false mStageDirInUse=false mDestroyed=false mFds=0 mBridges=0 mFinalStatus=-110 
+    mFinalMessage=Session was failed mParentSessionId=-1 mChildSessionIds=[] mSessionApplied=false 
+    mSessionFailed=false mSessionReady=false mSessionErrorCode=0 mSessionErrorMessage= mPreapprovalDetails=null 
+    mPreVerifiedDomains=null mAppPackageName=com.android.systemui mInitialVerificationPolicy=0 
+    mCurrentVerificationPolicy=0 
+  
+  
+Legacy install sessions:
+  {}
+  
+Gentle update with constraints info:
+  hasPendingIdleJob=false 
+  Num of PendingIdleFutures=0 
+  Num of PendingChecks=0 
+    VerificationPolicyPerUser={0=0} 

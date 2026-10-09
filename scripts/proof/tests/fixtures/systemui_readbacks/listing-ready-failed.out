@@ -1,0 +1,5 @@
+sessionId = 1978352588; appPackageName = com.android.systemui; isStaged = true; isReady = true; isApplied = false; isFai
+led = false; errorMsg = ;
+sessionId = 2014338406; appPackageName = com.android.systemui; isStaged = true; isReady = false; isApplied = false; isFa
+iled = true; errorMsg = Reverting back to safe state. Marking 2014338406 as failed. Reason for revert: Failed to install
+ sessionId: 2014338406 Error: Existing package com.android.systemui signatures do not match newer version; ignoring!;

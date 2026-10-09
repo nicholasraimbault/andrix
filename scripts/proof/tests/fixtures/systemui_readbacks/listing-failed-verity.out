@@ -1,0 +1,7 @@
+sessionId = 1978352588; appPackageName = com.android.systemui; isStaged = true; isReady = false; isApplied = false; isFa
+iled = true; errorMsg = Reverting back to safe state. Marking 1978352588 as failed. Reason for revert: Failed to install
+ sessionId: 1978352588 Error: fs-verity not set up for system package update com.android.server.pm.PackageManagerExcepti
+on: APK doesn't have fs-verity: /data/app-staging/session_1978352588/base.apk;
+sessionId = 2014338406; appPackageName = com.android.systemui; isStaged = true; isReady = false; isApplied = false; isFa
+iled = true; errorMsg = Reverting back to safe state. Marking 2014338406 as failed. Reason for revert: Failed to install
+ sessionId: 2014338406 Error: Existing package com.android.systemui signatures do not match newer version; ignoring!;

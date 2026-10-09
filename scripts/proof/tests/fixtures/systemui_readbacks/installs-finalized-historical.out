@@ -1,0 +1,77 @@
+Active install sessions:
+  
+Finalized install sessions:
+  Finalized Session 181393819:
+    userId=0 mOriginalInstallerUid=2000 mOriginalInstallerPackageName=null installerPackageName=null 
+    installInitiatingPackageName=com.android.shell installOriginatingPackageName=null mInstallerUid=2000 
+    createdMillis=1790105144214 updatedMillis=1790105144214 committedMillis=1790105148331 
+    stageDir=/data/app-staging/session_181393819 stageCid=null 
+    mode=1 installFlags=0x500032 installLocation=1 installReason=0 installScenario=0 sizeBytes=-1 
+    appPackageName=com.android.systemui appIcon=false appLabel=null originatingUri=null originatingUid=-1 
+    referrerUri=null abiOverride=null volumeUuid=null mPermissionStates={} packageSource=1 
+    whitelistedRestrictedPermissions=null autoRevokePermissions=3 installerPackageName=null isMultiPackage=false 
+    isStaged=true forceQueryable=false requireUserAction=UNSPECIFIED requiredInstalledVersionCode=-1 
+    dataLoaderParams=null rollbackDataPolicy=0 rollbackLifetimeMillis=0 rollbackImpactLevel=0 
+    applicationEnabledSettingPersistent=false developmentInstallFlags=0x0 unarchiveId=-1 dexoptCompilerFilter=null 
+    forceVerification=false isAutoInstallDependenciesEnabled=true extensionParams=null 
+    mClientProgress=0.0 mProgress=0.0 mCommitted=true mPreapprovalRequested=false mSealed=false 
+    mPermissionsManuallyAccepted=false mStageDirInUse=false mDestroyed=false mFds=0 mBridges=0 mFinalStatus=0 
+    mFinalMessage=null params.isMultiPackage=false params.isStaged=true mParentSessionId=-1 mChildSessionIds=[] 
+    mSessionApplied=false mSessionFailed=true mSessionReady=false mSessionErrorCode=-110 
+    mSessionErrorMessage=Reverting back to safe state. Marking 181393819 as failed. Reason for revert: Failed to install
+     sessionId: 181393819 Error: Existing package com.android.systemui signatures do not match newer version; ignoring! 
+    mPreapprovalDetails=null mInitialVerificationPolicy=0 mCurrentVerificationPolicy=0 
+  
+  Finalized Session 1590532299:
+    userId=0 mOriginalInstallerUid=2000 mOriginalInstallerPackageName=null installerPackageName=null 
+    installInitiatingPackageName=com.android.shell installOriginatingPackageName=null mInstallerUid=2000 
+    createdMillis=1790105909889 updatedMillis=1790106265229 committedMillis=1790105913195 
+    stageDir=/data/app-staging/session_1590532299 stageCid=null 
+    mode=1 installFlags=0x500032 installLocation=1 installReason=0 installScenario=0 sizeBytes=-1 
+    appPackageName=com.android.systemui appIcon=false appLabel=null originatingUri=null originatingUid=-1 
+    referrerUri=null abiOverride=null volumeUuid=null mPermissionStates={} packageSource=1 
+    whitelistedRestrictedPermissions=null autoRevokePermissions=3 installerPackageName=null isMultiPackage=false 
+    isStaged=true forceQueryable=false requireUserAction=UNSPECIFIED requiredInstalledVersionCode=-1 
+    dataLoaderParams=null rollbackDataPolicy=0 rollbackLifetimeMillis=0 rollbackImpactLevel=0 
+    applicationEnabledSettingPersistent=false developmentInstallFlags=0x0 unarchiveId=-1 dexoptCompilerFilter=null 
+    forceVerification=false isAutoInstallDependenciesEnabled=true extensionParams=null 
+    mClientProgress=0.0 mProgress=0.0 mCommitted=true mPreapprovalRequested=false mSealed=true 
+    mPermissionsManuallyAccepted=false mStageDirInUse=false mDestroyed=false mFds=0 mBridges=0 mFinalStatus=0 
+    mFinalMessage=null params.isMultiPackage=false params.isStaged=true mParentSessionId=-1 mChildSessionIds=[] 
+    mSessionApplied=false mSessionFailed=true mSessionReady=false mSessionErrorCode=-110 
+    mSessionErrorMessage=Reverting back to safe state. Marking 1590532299 as failed. Reason for revert: Failed to instal
+    l sessionId: 1590532299 Error: fs-verity not set up for system package update com.android.server.pm.PackageManagerEx
+    ception: APK doesn't have fs-verity: /data/app-staging/session_1590532299/base.apk mPreapprovalDetails=null 
+    mInitialVerificationPolicy=0 mCurrentVerificationPolicy=0 
+  
+  
+Historical install sessions:
+  Session 636061908:
+    userId=0 mOriginalInstallerUid=2000 mOriginalInstallerPackageName=null installerPackageName=null 
+    installInitiatingPackageName=com.android.shell installOriginatingPackageName=null mInstallerUid=2000 
+    createdMillis=1790106716772 updatedMillis=1790106716772 committedMillis=0 
+    stageDir=/data/app-staging/session_636061908 stageCid=null 
+    mode=1 installFlags=0x500032 installLocation=1 installReason=0 installScenario=0 sizeBytes=-1 appPackageName=com.and
+    roid.systemui appIcon=false appLabel=null originatingUri=null originatingUid=-1 referrerUri=null abiOverride=null vo
+    lumeUuid=null mPermissionStates={} packageSource=1 whitelistedRestrictedPermissions=null autoRevokePermissions=3 ins
+    tallerPackageName=null isMultiPackage=false isStaged=true forceQueryable=false requireUserAction=UNSPECIFIED require
+    dInstalledVersionCode=-1 dataLoaderParams=null rollbackDataPolicy=0 rollbackLifetimeMillis=0 rollbackImpactLevel=0 a
+    pplicationEnabledSettingPersistent=false developmentInstallFlags=0x0 unarchiveId=-1 dexoptCompilerFilter=null forceV
+    erification=false isAutoInstallDependenciesEnabled=true extensionParams=null 
+    mClientProgress=0.0 mProgress=0.0 mCommitted=false mPreapprovalRequested=false mSealed=true 
+    mPermissionsManuallyAccepted=false mStageDirInUse=false mDestroyed=false mFds=0 mBridges=0 mFinalStatus=-103 
+    mFinalMessage=Failed to collect certificates from /data/app-staging/session_636061908/base.apk using APK Signature S
+    cheme v4: Actual digest does not match the v4 signature mParentSessionId=-1 mChildSessionIds=[] 
+    mSessionApplied=false mSessionFailed=false mSessionReady=false mSessionErrorCode=0 mSessionErrorMessage= 
+    mPreapprovalDetails=null mPreVerifiedDomains=null mAppPackageName=com.android.systemui 
+    mInitialVerificationPolicy=0 mCurrentVerificationPolicy=0 
+  
+  
+Legacy install sessions:
+  {}
+  
+Gentle update with constraints info:
+  hasPendingIdleJob=false 
+  Num of PendingIdleFutures=0 
+  Num of PendingChecks=0 
+    VerificationPolicyPerUser={0=0} 

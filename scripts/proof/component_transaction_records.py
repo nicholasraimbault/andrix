@@ -29,6 +29,13 @@ import subprocess
 import sys
 import tempfile
 
+# The observer suite lives beside this file. The observer imports this module as a package
+# module for its encoder, while this file also runs as a script.
+if __package__:
+    from . import systemui_observer_suite as observer_suite
+else:
+    import systemui_observer_suite as observer_suite
+
 ROOT = Path(__file__).resolve().parents[2]
 PREDICTIONS = ROOT / 'scripts/proof/component_transaction_records_predictions.json'
 README = ROOT / 'owner/deployment/README.md'
@@ -50,7 +57,7 @@ ARTIFACT_RECORDS = MAIN_DIR + 'ArtifactRecords.java'
 ARTIFACT_STORE = MAIN_DIR + 'ArtifactStore.java'
 HOST_SIGNER = MAIN_DIR + 'HostSigner.java'
 BUNDLE_BUILDER = MAIN_DIR + 'BundleBuilder.java'
-PHASES = ('build', 'codec', 'machine', 'store', 'transactions', 'artifacts', 'signing', 'mutants')
+PHASES = ('build', 'codec', 'machine', 'store', 'transactions', 'artifacts', 'signing', 'mutants', 'observer')
 GIB = 1 << 30
 # Every JVM stays well inside the 2 GiB guard: a capped heap, metaspace and code cache, the serial
 # collector, and one client JIT compiler thread instead of parallel compiles. One JVM runs at a time.
@@ -77,7 +84,9 @@ SEALED_NAMES = (
 
 # ---------------------------------------------------------------- the independent encoder
 # Written from the layout tables of owner/deployment/README.md alone, never from the Java codec:
-# field order, widths and codes as the README states them. A test oracle only.
+# field order, widths and codes as the README states them. Two uses: the oracle that the Java
+# codec's goldens must equal, and the writer of the D3 shell observer's Observation records, which
+# the observer phase decodes again with the Java codec. Neither use rests on the codec alone.
 
 MAGIC = 0x52445841
 TYPES = {'plan': 1, 'authorization': 2, 'ticket': 3, 'observation': 4, 'selection': 5, 'manifest': 6,
@@ -1291,6 +1300,7 @@ def source_checks():
         problems += prediction_problems(strict(PREDICTIONS.read_text()))
     except (OSError, ValueError, KeyError) as error:
         problems.append('predictions: %s' % error)
+    problems += observer_suite.source_problems()
     return problems
 
 
@@ -1465,6 +1475,12 @@ def qualify(work, report):
     steps['mutants'] = {}
     mutant_runs(work, steps['mutants'], problems)
     report['completed_phases'].append('mutants')
+    # D3's shell observer suite, registered here: its Python suites and defects, and its records
+    # decoded by the codec just built, under the same JVM caps.
+    javac = ['javac', '-J' + JAVAC_HEAP, *('-J' + option for option in JVM_LIMITS), '--release', '17', '-Xlint:all',
+             '-Werror', '-implicit:none', '-proc:none']
+    java = ['java', JAVA_HEAP, *JVM_LIMITS, '-ea']
+    observer_suite.qualify(work, base / 'classes', report, javac, java, tool_environment())
 
 
 def mutant_runs(work, records, problems, names=None):

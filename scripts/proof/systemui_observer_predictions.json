@@ -1,0 +1,27 @@
+{
+  "status": "PREDICTED for D3's read only shell observer, written before its guarded run and before the runs of the new cases and defects: both Python suites pass every case; the Java codec decodes each observation the observer gives from the fixtures, twenty five records of the BOOT, CHECKPOINT, FACTORY, ACTIVE, LISTING and SESSION kinds, encodes each to the same bytes and reads the same fields; and each defect below fails at least the cases listed. Nothing here is a guarded result. One correction followed the first run of the new observer cases: it found 27 cases where 26 were predicted, because a positive control for records of other packages was added, and the new removal cases sit in their own class. The counts and names here are corrected; every other figure is as first predicted.",
+  "cases": {"readbacks": 25, "observer": 27},
+  "decoded": 25,
+  "mutants_caught_at_least": {
+    "unknown-form-accepted": ["InstallsTests.test_controls_fail"],
+    "unknown-pair-absorbed": ["InstallsTests.test_an_unknown_pair_after_free_text_is_refused"],
+    "unknown-package-taken-as-foreign": ["InstallsTests.test_records_of_other_packages_block_nothing"],
+    "referrer-mismatch-accepted": ["InstallsTests.test_nonce_correlation",
+                                   "InstallsTests.test_a_referrer_with_a_mismatched_nonce_is_not_the_ticket_session",
+                                   "SessionFactTests.test_another_tickets_referrer_is_not_this_ticket"],
+    "write-command-allowed": ["AllowlistTests.test_source_rule",
+                              "AllowlistTests.test_write_commands_are_refused_before_the_shell"],
+    "shell-reached-around-read": ["AllowlistTests.test_source_rule"],
+    "boot-id-ignored": ["RefusalTests.test_a_boot_between_the_reads_gives_no_fact"],
+    "instance-ignored": ["RefusalTests.test_a_framework_restart_between_the_reads_gives_no_fact"],
+    "listing-disagreement-accepted": ["SessionFactTests.test_disagreement_gives_no_fact"],
+    "listed-session-missing-accepted": ["RemovalTests.test_a_listed_session_missing_from_the_dump_gives_no_fact"],
+    "incomplete-listing-accepted": ["RemovalTests.test_the_join_needs_a_complete_listing"],
+    "destroyed-still-listed-accepted": ["RemovalTests.test_a_destroyed_session_still_listed_gives_no_fact"],
+    "removed-still-listed-accepted": ["RemovalTests.test_a_removed_session_still_listed_gives_no_fact"],
+    "committed-refused": ["RemovalTests.test_a_committed_removed_session_needs_its_terminal_flag"],
+    "abandon-without-message": ["RemovalTests.test_an_abandon_needs_its_message"],
+    "destroyed-after-terminal-flags": ["RemovalTests.test_a_destroyed_session_reads_abandoned"],
+    "unknown-package-ignored": ["RemovalTests.test_a_staged_session_of_no_known_package_gives_no_fact"]
+  }
+}

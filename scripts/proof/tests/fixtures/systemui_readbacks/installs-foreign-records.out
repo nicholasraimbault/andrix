@@ -1,0 +1,150 @@
+Active install sessions:
+  Active Session 1700000000:
+    userId=0 mOriginalInstallerUid=2000 mOriginalInstallerPackageName=null installerPackageName=null 
+    installInitiatingPackageName=com.android.shell installOriginatingPackageName=null mInstallerUid=2000 
+    createdMillis=1790056243182 updatedMillis=1790056248021 committedMillis=1790056247949 
+    stageDir=/data/app-staging/session_1378782103 stageCid=null 
+    mode=1 installFlags=0x500032 installLocation=1 installReason=0 installScenario=0 sizeBytes=-1 
+    appPackageName=com.example.other appIcon=false appLabel=null originatingUri=null originatingUid=-1 
+    referrerUri=null abiOverride=null volumeUuid=null 
+    mPermissionStates={android.permission.CAMERA=1, android.permission.RECORD_AUDIO=1} packageSource=1 
+    whitelistedRestrictedPermissions=null autoRevokePermissions=3 installerPackageName=null isMultiPackage=false 
+    isStaged=true forceQueryable=false requireUserAction=UNSPECIFIED requiredInstalledVersionCode=-1 
+    dataLoaderParams=null rollbackDataPolicy=0 rollbackLifetimeMillis=0 rollbackImpactLevel=0 
+    applicationEnabledSettingPersistent=false developmentInstallFlags=0x0 unarchiveId=-1 dexoptCompilerFilter=null 
+    forceVerification=false isAutoInstallDependenciesEnabled=true extensionParams=null 
+    mClientProgress=1.0 mProgress=0.90000004 mCommitted=true mPreapprovalRequested=false mSealed=true 
+    mPermissionsManuallyAccepted=false mStageDirInUse=false mDestroyed=false mFds=0 mBridges=0 mFinalStatus=0 
+    mFinalMessage=null params.isMultiPackage=false params.isStaged=true mParentSessionId=-1 mChildSessionIds=[] 
+    mSessionApplied=false mSessionFailed=false mSessionReady=true mSessionErrorCode=0 mSessionErrorMessage= 
+    mPreapprovalDetails=null mInitialVerificationPolicy=0 mCurrentVerificationPolicy=0 
+  
+  Active Session 1700000001:
+    userId=0 mOriginalInstallerUid=2000 mOriginalInstallerPackageName=null installerPackageName=null 
+    installInitiatingPackageName=com.android.shell installOriginatingPackageName=null mInstallerUid=2000 
+    createdMillis=1790056243182 updatedMillis=1790056248021 committedMillis=1790056247949 stageDir=null stageCid=null 
+    mode=1 installFlags=0x500032 installLocation=1 installReason=0 installScenario=0 sizeBytes=-1 appPackageName=null 
+    appIcon=false appLabel=null originatingUri=null originatingUid=-1 referrerUri=null abiOverride=null 
+    volumeUuid=null mPermissionStates={} packageSource=1 whitelistedRestrictedPermissions=null autoRevokePermissions=3 
+    installerPackageName=null isMultiPackage=true isStaged=true forceQueryable=false requireUserAction=UNSPECIFIED 
+    requiredInstalledVersionCode=-1 dataLoaderParams=null rollbackDataPolicy=0 rollbackLifetimeMillis=0 
+    rollbackImpactLevel=0 applicationEnabledSettingPersistent=false developmentInstallFlags=0x0 unarchiveId=-1 
+    dexoptCompilerFilter=null forceVerification=false isAutoInstallDependenciesEnabled=true extensionParams=null 
+    mClientProgress=1.0 mProgress=0.90000004 mCommitted=true mPreapprovalRequested=false mSealed=true 
+    mPermissionsManuallyAccepted=false mStageDirInUse=false mDestroyed=false mFds=0 mBridges=0 mFinalStatus=0 
+    mFinalMessage=null params.isMultiPackage=true params.isStaged=true mParentSessionId=-1 
+    mChildSessionIds=[1700000002, 1700000003] mSessionApplied=false mSessionFailed=false mSessionReady=false 
+    mSessionErrorCode=0 mSessionErrorMessage= mPreapprovalDetails=null mInitialVerificationPolicy=0 
+    mCurrentVerificationPolicy=0 
+  
+    Active Child Session 1700000002:
+      userId=0 mOriginalInstallerUid=2000 mOriginalInstallerPackageName=null installerPackageName=null 
+      installInitiatingPackageName=com.android.shell installOriginatingPackageName=null mInstallerUid=2000 
+      createdMillis=1790056243182 updatedMillis=1790056248021 committedMillis=1790056247949 
+      stageDir=/data/app-staging/session_1700000002 stageCid=null 
+      mode=1 installFlags=0x500032 installLocation=1 installReason=0 installScenario=0 sizeBytes=-1 
+      appPackageName=com.example.one appIcon=false appLabel=null originatingUri=null originatingUid=-1 
+      referrerUri=null abiOverride=null volumeUuid=null mPermissionStates={} packageSource=1 
+      whitelistedRestrictedPermissions=null autoRevokePermissions=3 installerPackageName=null isMultiPackage=false 
+      isStaged=true forceQueryable=false requireUserAction=UNSPECIFIED requiredInstalledVersionCode=-1 
+      dataLoaderParams=null rollbackDataPolicy=0 rollbackLifetimeMillis=0 rollbackImpactLevel=0 
+      applicationEnabledSettingPersistent=false developmentInstallFlags=0x0 unarchiveId=-1 dexoptCompilerFilter=null 
+      forceVerification=false isAutoInstallDependenciesEnabled=true extensionParams=null 
+      mClientProgress=1.0 mProgress=0.90000004 mCommitted=true mPreapprovalRequested=false mSealed=true 
+      mPermissionsManuallyAccepted=false mStageDirInUse=false mDestroyed=false mFds=0 mBridges=0 mFinalStatus=0 
+      mFinalMessage=null params.isMultiPackage=false params.isStaged=true mParentSessionId=1700000001 
+      mChildSessionIds=[] mSessionApplied=false mSessionFailed=false mSessionReady=false mSessionErrorCode=0 
+      mSessionErrorMessage= mPreapprovalDetails=null mInitialVerificationPolicy=0 mCurrentVerificationPolicy=0 
+    
+    Active Child Session 1700000003:
+      userId=0 mOriginalInstallerUid=2000 mOriginalInstallerPackageName=null installerPackageName=null 
+      installInitiatingPackageName=com.android.shell installOriginatingPackageName=null mInstallerUid=2000 
+      createdMillis=1790056243182 updatedMillis=1790056248021 committedMillis=1790056247949 
+      stageDir=/data/app-staging/session_1700000003 stageCid=null 
+      mode=1 installFlags=0x500032 installLocation=1 installReason=0 installScenario=0 sizeBytes=-1 
+      appPackageName=com.example.two appIcon=false appLabel=null originatingUri=null originatingUid=-1 
+      referrerUri=null abiOverride=null volumeUuid=null mPermissionStates={} packageSource=1 
+      whitelistedRestrictedPermissions=null autoRevokePermissions=3 installerPackageName=null isMultiPackage=false 
+      isStaged=true forceQueryable=false requireUserAction=UNSPECIFIED requiredInstalledVersionCode=-1 
+      dataLoaderParams=null rollbackDataPolicy=0 rollbackLifetimeMillis=0 rollbackImpactLevel=0 
+      applicationEnabledSettingPersistent=false developmentInstallFlags=0x0 unarchiveId=-1 dexoptCompilerFilter=null 
+      forceVerification=false isAutoInstallDependenciesEnabled=true extensionParams=null 
+      mClientProgress=1.0 mProgress=0.90000004 mCommitted=true mPreapprovalRequested=false mSealed=true 
+      mPermissionsManuallyAccepted=false mStageDirInUse=false mDestroyed=false mFds=0 mBridges=0 mFinalStatus=0 
+      mFinalMessage=null params.isMultiPackage=false params.isStaged=true mParentSessionId=1700000001 
+      mChildSessionIds=[] mSessionApplied=false mSessionFailed=false mSessionReady=false mSessionErrorCode=0 
+      mSessionErrorMessage= mPreapprovalDetails=null mInitialVerificationPolicy=0 mCurrentVerificationPolicy=0 
+    
+  
+Finalized install sessions:
+  Finalized Session 2014338406:
+    userId=0 mOriginalInstallerUid=2000 mOriginalInstallerPackageName=null installerPackageName=null 
+    installInitiatingPackageName=com.android.shell installOriginatingPackageName=null mInstallerUid=2000 
+    createdMillis=1790064952089 updatedMillis=1790065322142 committedMillis=1790064956707 
+    stageDir=/data/app-staging/session_2014338406 stageCid=null 
+    mode=1 installFlags=0x500032 installLocation=1 installReason=0 installScenario=0 sizeBytes=-1 
+    appPackageName=com.android.systemui appIcon=false appLabel=null originatingUri=null originatingUid=-1 
+    referrerUri=null abiOverride=null volumeUuid=null mPermissionStates={} packageSource=1 
+    whitelistedRestrictedPermissions=null autoRevokePermissions=3 installerPackageName=null isMultiPackage=false 
+    isStaged=true forceQueryable=false requireUserAction=UNSPECIFIED requiredInstalledVersionCode=-1 
+    dataLoaderParams=null rollbackDataPolicy=0 rollbackLifetimeMillis=0 rollbackImpactLevel=0 
+    applicationEnabledSettingPersistent=false developmentInstallFlags=0x0 unarchiveId=-1 dexoptCompilerFilter=null 
+    forceVerification=false isAutoInstallDependenciesEnabled=true extensionParams=null 
+    mClientProgress=0.0 mProgress=0.0 mCommitted=true mPreapprovalRequested=false mSealed=true 
+    mPermissionsManuallyAccepted=false mStageDirInUse=false mDestroyed=false mFds=0 mBridges=0 mFinalStatus=0 
+    mFinalMessage=null params.isMultiPackage=false params.isStaged=true mParentSessionId=-1 mChildSessionIds=[] 
+    mSessionApplied=false mSessionFailed=true mSessionReady=false mSessionErrorCode=-110 
+    mSessionErrorMessage=Reverting back to safe state. Marking 2014338406 as failed. Reason for revert: Failed to instal
+    l sessionId: 2014338406 Error: Existing package com.android.systemui signatures do not match newer version; ignoring
+    ! mPreapprovalDetails=null mInitialVerificationPolicy=0 mCurrentVerificationPolicy=0 
+  
+  
+Historical install sessions:
+  Session 1700000011:
+    userId=0 mOriginalInstallerUid=2000 mOriginalInstallerPackageName=null installerPackageName=null 
+    installInitiatingPackageName=com.android.shell installOriginatingPackageName=null mInstallerUid=2000 
+    createdMillis=1790106716772 updatedMillis=1790106716772 committedMillis=0 stageDir=null stageCid=null 
+    mode=1 installFlags=0x500032 installLocation=1 installReason=0 installScenario=0 sizeBytes=-1 appPackageName=null ap
+    pIcon=false appLabel=null originatingUri=null originatingUid=-1 referrerUri=null abiOverride=null volumeUuid=null mP
+    ermissionStates={} packageSource=1 whitelistedRestrictedPermissions=null autoRevokePermissions=3 installerPackageNam
+    e=null isMultiPackage=true isStaged=true forceQueryable=false requireUserAction=UNSPECIFIED requiredInstalledVersion
+    Code=-1 dataLoaderParams=null rollbackDataPolicy=0 rollbackLifetimeMillis=0 rollbackImpactLevel=0 applicationEnabled
+    SettingPersistent=false developmentInstallFlags=0x0 unarchiveId=-1 dexoptCompilerFilter=null forceVerification=false
+     isAutoInstallDependenciesEnabled=true extensionParams=null 
+    mClientProgress=0.0 mProgress=0.0 mCommitted=false mPreapprovalRequested=false mSealed=true 
+    mPermissionsManuallyAccepted=false mStageDirInUse=false mDestroyed=false mFds=0 mBridges=0 mFinalStatus=-103 
+    mFinalMessage=Failed to collect certificates from /data/app-staging/session_636061908/base.apk using APK Signature S
+    cheme v4: Actual digest does not match the v4 signature mParentSessionId=-1 mChildSessionIds=[1700000012] 
+    mSessionApplied=false mSessionFailed=false mSessionReady=false mSessionErrorCode=0 mSessionErrorMessage= 
+    mPreapprovalDetails=null mPreVerifiedDomains=null mAppPackageName=null mInitialVerificationPolicy=0 
+    mCurrentVerificationPolicy=0 
+  
+  Session 1700000012:
+    userId=0 mOriginalInstallerUid=2000 mOriginalInstallerPackageName=null installerPackageName=null 
+    installInitiatingPackageName=com.android.shell installOriginatingPackageName=null mInstallerUid=2000 
+    createdMillis=1790106716772 updatedMillis=1790106716772 committedMillis=0 
+    stageDir=/data/app-staging/session_1700000012 stageCid=null 
+    mode=1 installFlags=0x500032 installLocation=1 installReason=0 installScenario=0 sizeBytes=-1 appPackageName=com.exa
+    mple.one appIcon=false appLabel=null originatingUri=null originatingUid=-1 referrerUri=null abiOverride=null volumeU
+    uid=null mPermissionStates={} packageSource=1 whitelistedRestrictedPermissions=null autoRevokePermissions=3 installe
+    rPackageName=null isMultiPackage=false isStaged=true forceQueryable=false requireUserAction=UNSPECIFIED requiredInst
+    alledVersionCode=-1 dataLoaderParams=null rollbackDataPolicy=0 rollbackLifetimeMillis=0 rollbackImpactLevel=0 applic
+    ationEnabledSettingPersistent=false developmentInstallFlags=0x0 unarchiveId=-1 dexoptCompilerFilter=null forceVerifi
+    cation=false isAutoInstallDependenciesEnabled=true extensionParams=null 
+    mClientProgress=0.0 mProgress=0.0 mCommitted=false mPreapprovalRequested=false mSealed=true 
+    mPermissionsManuallyAccepted=false mStageDirInUse=false mDestroyed=false mFds=0 mBridges=0 mFinalStatus=-103 
+    mFinalMessage=Failed to collect certificates from /data/app-staging/session_636061908/base.apk using APK Signature S
+    cheme v4: Actual digest does not match the v4 signature mParentSessionId=1700000011 mChildSessionIds=[] 
+    mSessionApplied=false mSessionFailed=false mSessionReady=false mSessionErrorCode=0 mSessionErrorMessage= 
+    mPreapprovalDetails=null mPreVerifiedDomains=null mAppPackageName=com.example.one mInitialVerificationPolicy=0 
+    mCurrentVerificationPolicy=0 
+  
+  
+Legacy install sessions:
+  {}
+  
+Gentle update with constraints info:
+  hasPendingIdleJob=false 
+  Num of PendingIdleFutures=0 
+  Num of PendingChecks=0 
+    VerificationPolicyPerUser={0=0} 
