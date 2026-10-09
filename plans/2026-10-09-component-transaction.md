@@ -272,6 +272,8 @@ key. In the lab image that is the public AOSP development key.
   approval and one fresh authentication cover exactly a variant and its restoration. They are signed
   in one transaction of six operations, three for each APK, and published together or not at all.
   Neither output may be published alone, because the restoration is the variant's recovery route.
+  The three operations are the v2, v3 and v4 signatures. No v1 signature is made, because these APKs
+  require SDK 37, where Android never reads one.
 - **Approved context.** It names the installation, the actor, the input digests and facts of both
   APKs, and the platform role by certificate and key digest. It also names the purpose, the
   schemes, the SDK range and the four expected outputs.
@@ -280,6 +282,12 @@ key. In the lab image that is the public AOSP development key.
   lost operation publishes nothing. A lost reply is resolved by its request ID, never by signing
   again. When the signer proves that a request can no longer complete, the ticket records
   SIGN_FAILED.
+- **Signer records.** The signer keeps its own durable record of each transaction, written before the
+  first key operation. It holds the request ID, the six operation IDs and the four expected outputs,
+  and a request ID that has a record is never signed again. The signer keeps the record for as long
+  as the ticket that made the request exists. The host signer proves that a request can no longer
+  complete when it finds the record still open, or absent, because one coordinator serializes every
+  call to it. The protected device signer needs its own proof, designed with it.
 - **Separate grants.** Each grant is its own record. SIGN covers the transaction. STAGE covers one
   session for one bundle on one native base. ACTIVATE covers one activating reboot for that plan,
   and a reboot request that never took effect does not use it. An ACTIVATE that no reboot has used
