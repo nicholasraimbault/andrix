@@ -281,7 +281,8 @@ There are five record kinds:
   policy it expects. It also holds the health criteria and window, the recovery route and the
   commit mode, with a boot limit, a reboot time limit, a limit on repeated requests and an expiry
   window for an unused ACTIVATE. The affected users are all users, because the code is shared.
-- **Authorization**, append only. Plan, effects, actor and grant reference.
+- **Authorization**, append only. Plan, one effect, actor, and the grant reference with its
+  component scope. An interaction that grants several effects writes one record for each.
 - **Ticket**, one attempt with exactly one owning coordinator. ID, plan, attempt, state, an
   UNRESOLVED flag, a recorded cause, a boot count, native references and an issued ledger. It keeps
   one health outcome for each user it observed. Each ledger entry is written and synced before its
@@ -381,7 +382,7 @@ A ticket covers one attempt under one plan. Every state has an exit:
 | HEALTH_WINDOW | CLOSED_APPLIED or SUPERSEDED. DIVERGED when other bytes become active. An image change ends the window, and the ticket closes as CLOSED_APPLIED with the outcomes observed so far, while the realization status reports DISPLACED or STALE_BASE. |
 | SIGN_FAILED, NO_SESSION, ABANDONED | By the recorded cause |
 | FAILED_NATIVE | VOID when the cause is a changed build fingerprint, otherwise by the recorded cause |
-| NATIVE_RECORD_LOST | APPLIED_PROVISIONAL when the active bytes are the bundle's. By the recorded cause when they are the prior bytes. Otherwise VOID if the ticket never reached COMMIT_INTENT, and DIVERGED if it did. |
+| NATIVE_RECORD_LOST | APPLIED_PROVISIONAL when the ticket reached COMMIT_INTENT and the active bytes are the bundle's. By the recorded cause when they are the prior bytes. Otherwise VOID if the ticket never reached COMMIT_INTENT or the cohort changed, and DIVERGED if it did. |
 
 The terminal states are CLOSED_APPLIED, CLOSED_FAILED, CANCELLED, VOID, DIVERGED and SUPERSEDED.
 
@@ -399,13 +400,16 @@ Rules:
 - Two kinds of evidence clear the flag. One is an observation of the exact native reference. The
   other is proof of absence. A complete listing in a later framework instance that shows no staged
   session for the package is one such proof. The signer's proof that a request can no longer
-  complete is another.
+  complete is another. On the device route, a listing of the staged sessions with each one's nonce
+  is a third, once D7 qualifies that it reads the referrer of every listed session.
 - A new crossing follows only when observation shows that the earlier one had no effect, as for an
   abandon whose session is still live in a later framework instance.
 - A ticket's ledger only grows. Each ticket counts the kernel boots it observes from SESSION_INTENT
   on. Its state returns to an earlier one only along four loops:
   - REBOOT_INTENT returns to READY after a lost reboot request. The plan's request limit bounds
-    this loop, and at the limit the ticket abandons the session.
+    this loop, and at the limit the ticket abandons the session. Only lost requests count toward
+    it. A ticket's ledger holds at most 16 reboot requests, and a full ledger also abandons the
+    session.
   - The health window restarts after a reboot. The boot limit bounds this loop, and at the limit
     the window ends as UNHEALTHY for every user still observed.
   - BOOT_OBSERVED recurs after APPLIED_PROVISIONAL while a checkpointed install repeats. Only
@@ -425,7 +429,9 @@ Rules:
   `/data`. A crash before the commit rolls that flag back with `/data`, and nothing activates. This
   rests on the checkpoint's rollback, which must be measured.
 - Cancellation and voiding never cut an unresolved intent short. They are recorded at once and
-  take effect once the intent resolves. A live session is then abandoned first.
+  take effect once the intent resolves. A live session is then abandoned first. If the change
+  applies anyway, the ticket closes as CLOSED_APPLIED with the cancellation as its recorded cause.
+  The choice stays as it was, and the realization reports DIVERGED until a repair plan.
 - A change to the selection revision or the trust policy voids the plan before COMMIT_INTENT.
   From then on it closes new crossings. A session not yet activated is abandoned, and one already
   activating is observed to its end.
@@ -573,7 +579,7 @@ checkpoint, were not inspected, so the rollback behavior must be measured.
   files and an armed checkpoint with two tries. It does not mean a signer check, boot acceptance,
   compatibility or health. Under early commit it also means that the change applies at any reboot.
 - **Applied.** All of these hold in one boot:
-  - The session is applied.
+  - The session is applied, or its record is gone after the ticket reached COMMIT_INTENT.
   - The active package has the bundle's bytes, versionCode and signer.
   - The UID and SELinux context are unchanged.
   - The checkpoint is observed committed.
@@ -701,7 +707,9 @@ account work owns the build slot and the emulator until further notice.
 
 - **Changes.** The artifact store with durable publication. A bundle builder that signs the variant
   and its restoration with six apksig operations in one transaction, under decision 8, through a
-  host signer with the development key. It verifies both bundles against the role manifest.
+  host signer with the development key. It verifies both bundles against the role manifest. It
+  defines the observation that shows a publication had no effect, after which the ticket may
+  publish again, and the ledger allows that second publication.
 - **Qualified by.** Refusing each signing callback in turn publishes nothing. Both bundles verify
   against the role manifest with the SystemUI platform role added. A lost acknowledgement resolves
   by reading the exact bytes. A lost signing reply resolves by request ID, or by the host signer's
@@ -848,11 +856,15 @@ When builds resume:
   therefore bound with every field of the native reference.
 - On the shell route, the referrer cannot be read until D3 qualifies a readback. A lost create
   reply can stay UNRESOLVED there.
-- A lost abandon reply blocks the component until a later framework instance shows the outcome.
+- Every abandon blocks the component until a later framework instance confirms its outcome,
+  whether or not its reply arrived.
 - Ready is weak. A wrong signer and a missing sidecar both reach ready. A session that replied
   ready can also come back unready.
 - The checkpoint's commit trigger and timing are unknown, because vold and init were not inspected.
   Its rollback affects every user's writes in that boot.
+- A boot count written during a checkpointed boot rolls back with `/data`, so a coordinator on the
+  device can undercount boots toward the boot limit. D7 keeps the count outside that rollback, or
+  allows for it.
 - The design assumes userdata checkpoint support, which the lab emulator has. Without it, Android
   installs at boot with no rollback of `/data`. This plan does not cover that case.
 - That a framework restart applies nothing assumes the boot completed property stays set across
