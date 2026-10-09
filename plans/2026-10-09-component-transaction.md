@@ -272,8 +272,8 @@ key. In the lab image that is the public AOSP development key.
   approval and one fresh authentication cover exactly a variant and its restoration. They are signed
   in one transaction of six operations, three for each APK, and published together or not at all.
   Neither output may be published alone, because the restoration is the variant's recovery route.
-  The three operations are the v2, v3 and v4 signatures. No v1 signature is made, because these APKs
-  require SDK 37, where Android never reads one.
+  The three operations are the v2, v3 and v4 signatures. No v1 signature is made. These APKs require
+  SDK 37 and always carry v2 and v3 signatures, so Android never verifies a v1 signature for them.
 - **Approved context.** It names the installation, the actor, the input digests and facts of both
   APKs, and the platform role by certificate and key digest. It also names the purpose, the
   schemes, the SDK range and the four expected outputs.
