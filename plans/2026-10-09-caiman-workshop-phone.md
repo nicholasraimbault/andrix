@@ -51,6 +51,10 @@ that shape this plan:
    matching the practice of GrapheneOS and LineageOS. The files stay out of the Andrix source
    repository. Nothing is published yet. Publishing a specific build is a release step that comes
    to the owner when a build is ready. The way back kits are no longer held.
+3. **Running the phone unlocked (decision 1).** On 2026-10-09 the owner accepted running the phone
+   unlocked for the length of this plan, after an independent review recommended bounded trials
+   instead. The owner accepts that fixing a problem may take time. The owner also accepts the
+   remaining risk that "Never brick it" describes.
 
 The decision did not cover who downloads Google's images. Google's download page asks whoever
 downloads to accept its terms. So this plan proposes that the owner downloads them, or authorises
@@ -83,9 +87,13 @@ This plan also relies on earlier accepted decisions:
 ## Open owner decisions
 
 These belong to the owner. Each lists its options, their consequences, a recommendation and the
-stage that needs it.
+stage that needs it. Decision 1 is decided, and its facts stay here for the record.
 
 ### 1. Running the phone unlocked
+
+Decided on 2026-10-09: accepted for the length of this plan, as "Owner decisions already made"
+records. A strong lock screen credential and keeping the phone in the owner's physical control
+remain recommended.
 
 Rule 2 excludes locking until a separate locked mode plan exists. So the phone runs unlocked from
 stage 7 until it returns to GrapheneOS for good.
