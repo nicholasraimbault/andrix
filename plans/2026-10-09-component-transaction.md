@@ -249,13 +249,17 @@ ended, in an observation that names that PUBLISH attempt. The ticket may then pu
 from the exact bundles the store already holds, and never by signing again. D1's ledger allows two
 PUBLISH entries for this. A publication record that names other bytes than the store holds is
 damage, which never heals on its own. The ticket then holds with the REQUEST_LIMIT alert, and only
-cancelling or voiding ends it.
+cancelling or voiding ends it. After PUBLISHED, a read of the plan's publication that is missing or
+disagrees with another holds the ticket with the same alert. A recorded cause, such as a
+cancellation, still abandons a live session, because an abandon needs no bundle digest.
 
-A restoration plan approved in advance under decision 3 signs nothing. Its own publication record
-names the restoration bundle that the original change's publication already made visible, matched
-by its signing input and versionCode, with that bundle's own signing transaction. The store verifies
-the bundle again before it writes the record. Decision 8 is kept, because the pair was published
-together first, and a plan that signs can never publish a bundle signed for another role.
+A restoration plan approved in advance under decision 3 signs nothing. It is the only plan that
+may publish without signing. Its publication record names exactly one bundle, in its own variant
+role: the bundle signed as the restoration of the plan it repairs, which that plan's publication
+already binds in its restoration role. The bundle carries the plan's signer, signing input and
+versionCode, and keeps its own signing transaction. The store verifies it again before it writes
+the record. No bundle signed as a variant ever fills a restoration role, so decision 8's approval
+of which APK is the recovery copy stays the only way a bundle becomes one.
 
 ### Signatures and grants
 
@@ -311,9 +315,11 @@ There are five record kinds:
   crossing.
 - **Observation**, append only. Boot ID, Android user and serial, kind, digest of the raw capture,
   and classification. An observation of the boot or the device carries a value that means no user.
-  Observations are facts scoped to one boot, not standing assertions. One exception: a read that
-  finds a plan's publication PUBLISHED stays true across boots, because a published bundle never
-  changes. A read of anything else is repeated in each boot.
+  Observations are facts scoped to one boot, not standing assertions. Facts about the host, such
+  as a signer's reply or a publication read tied to a PUBLISH attempt, carry no boot and answer only
+  for their request or attempt. A read that finds a plan's publication PUBLISHED stays true across
+  boots, because a published bundle never changes. Every observation of the device is repeated in
+  each boot.
 - **Selection**, one for each component. It holds the owner's choice, which is a plan or the
   factory copy, with a revision and the update responsibility from decision 6. A separate
   realization status says how the active bytes relate to that choice.
