@@ -612,7 +612,7 @@ def verify_release(git, tag, signers, manifest_url=MANIFEST_URL):
             or fields.get('type') != 'commit' or fields.get('tag') != tag):
         raise CarryError('tag object does not name this release and commit')
     try:
-        _, err = store.run(['-c', 'gpg.ssh.program=/usr/bin/ssh-keygen',
+        _, err = store.run([*source.VERIFY_PINS,
                             '-c', 'gpg.ssh.allowedSignersFile=' + str(signers), 'verify-tag', local])
     except CarryError as error:
         raise CarryError('tag signature rejected: ' + tag) from error

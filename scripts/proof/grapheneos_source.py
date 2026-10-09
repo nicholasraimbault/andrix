@@ -25,6 +25,14 @@ MANIFEST_SHA256 = 'c50f0096f538e604aa008e8ab4e3f1a3739f142c60c878a32f402c11eb406
 SIGNERS_SHA256 = '344f59c6f058699e63fea68e35953b341c14e3bf1fbc1256f6baa84aa2aca1d0'
 REPO_COMMIT = 'b85886fa9f5b4e2189cc5b2f40bd0a80459d4c77'
 PROJECT_COUNT = 1108
+# git verify-tag runs the program of the signature's own format, and a repository's own config
+# could point that program elsewhere. Settings on the command line win over every config file.
+# Only ssh-keygen may verify, the OpenPGP and X.509 programs always fail, a signature counts only
+# for a principal of the allowed signers, and no revocation file from a config applies.
+VERIFY_PINS = ('-c', 'gpg.ssh.program=/usr/bin/ssh-keygen',
+               '-c', 'gpg.program=/usr/bin/false', '-c', 'gpg.openpgp.program=/usr/bin/false',
+               '-c', 'gpg.x509.program=/usr/bin/false', '-c', 'gpg.minTrustLevel=fully',
+               '-c', 'gpg.ssh.revocationFile=/dev/null')
 
 
 class SourceError(Exception):
@@ -193,7 +201,7 @@ def inspect(root, allowed_signers, progress=None):
     if run(manifest_repo, 'rev-parse', 'refs/tags/' + TAG + '^{commit}')[1].decode().strip() != MANIFEST_COMMIT:
         raise SourceError('Manifest tag target differs')
     check_tracked_clean(manifest_repo)
-    run(manifest_repo, '-c', 'gpg.ssh.program=/usr/bin/ssh-keygen',
+    run(manifest_repo, *VERIFY_PINS,
         '-c', 'gpg.ssh.allowedSignersFile=' + str(allowed_signers), 'verify-tag', TAG)
     tool = root / '.repo/repo'
     if run(tool, 'rev-parse', 'HEAD')[1].decode().strip() != REPO_COMMIT:

@@ -101,7 +101,11 @@ class SourceTests(unittest.TestCase):
         for key in cases:
             self.overrides={key:(0,b'0'*40+b'\n')}
             with self.assertRaises(g.SourceError):self.inspect()
-        args=('-c','gpg.ssh.program=/usr/bin/ssh-keygen','-c','gpg.ssh.allowedSignersFile='+str(self.signers),'verify-tag',g.TAG)
+        # The pins are spelled out here, so a change to them fails this case.
+        args=('-c','gpg.ssh.program=/usr/bin/ssh-keygen','-c','gpg.program=/usr/bin/false',
+              '-c','gpg.openpgp.program=/usr/bin/false','-c','gpg.x509.program=/usr/bin/false',
+              '-c','gpg.minTrustLevel=fully','-c','gpg.ssh.revocationFile=/dev/null',
+              '-c','gpg.ssh.allowedSignersFile='+str(self.signers),'verify-tag',g.TAG)
         self.overrides={('.repo/manifests',args):g.SourceError('signature rejected')}
         with self.assertRaises(g.SourceError):self.inspect()
 

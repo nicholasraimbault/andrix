@@ -946,6 +946,40 @@ class CarryCheckTests(Offline):
         self.assertEqual(list(base['kernel_prebuilts']), ['kernel/prebuilts/6.12/arm64'])
         self.assertEqual(base['patched_projects']['frameworks/base']['revision'], self.fb_base)
 
+    def test_store_config_cannot_change_the_verification(self):
+        """A store whose own config points the OpenPGP or X.509 program at a stand in that accepts any
+        block and names the expected signer, for a release tag that no key signed."""
+        self.build(JAVA)
+        manifest = self.work / 'remote/platform_manifest'
+        commit = run(manifest, 'rev-parse', 'refs/tags/%s^{commit}' % self.TARGET)
+        stand_in = self.work / 'accept-all'
+        stand_in.write_text('#!/bin/sh\ncat >/dev/null\n'
+                            "printf '[GNUPG:] NEWSIG\\n[GNUPG:] GOODSIG 0123456789ABCDEF fixture\\n"
+                            "[GNUPG:] TRUST_ULTIMATE 0 pgp\\n'\n"
+                            "echo 'Good \"git\" signature for fixture@example.invalid with ED25519 key "
+                            "SHA256:stand-in' >&2\nexit 0\n")
+        stand_in.chmod(0o755)
+        ref = 'refs/tags/' + self.TARGET
+        for name, key, armor in (('openpgp', 'gpg.program', 'PGP SIGNATURE'),
+                                 ('openpgp by its own name', 'gpg.openpgp.program', 'PGP SIGNATURE'),
+                                 ('x509', 'gpg.x509.program', 'SIGNED MESSAGE')):
+            with self.subTest(name):
+                body = ('object %s\ntype commit\ntag %s\ntagger Carry fixture <fixture@example.invalid> '
+                        '1791000000 +0000\n\n%s\n-----BEGIN %s-----\n\niQ==\n-----END %s-----\n'
+                        % (commit, self.TARGET, self.TARGET, armor, armor))
+                run(manifest, 'update-ref', ref, run(manifest, 'mktag', data=body.encode()))
+                git = self.git()
+                store = git.store(self.manifest_url, 'manifest-' + self.TARGET)
+                store.run(['config', key, str(stand_in)])
+                store.fetch(['+%s:%s' % (ref, ref)], depth=1)
+                # The control's premise: without the pins, the store's own config accepts the tag.
+                _, err = store.run(['-c', 'gpg.ssh.program=/usr/bin/ssh-keygen',
+                                    '-c', 'gpg.ssh.allowedSignersFile=' + str(self.signers), 'verify-tag', ref])
+                self.assertIn(b'Good "git" signature for fixture@example.invalid', err)
+                with mock.patch.object(source, 'SIGNERS_SHA256', sha(self.signers.read_bytes())):
+                    with self.assertRaisesRegex(carry.CarryError, 'signature rejected'):
+                        carry.verify_release(git, self.TARGET, self.signers, self.manifest_url)
+
     def test_moved_target_carries_and_seals(self):
         moved = JAVA.replace('package demo;\n', 'package demo;\n\nimport a.B;\n')
         self.build(moved)
