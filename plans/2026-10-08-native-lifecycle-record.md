@@ -329,8 +329,15 @@ Further effects:
   checked. On return to the new image, the package stays stranded at the fresh UID and deferred.
 - **B1's image.** It decodes the copy, and the stable prefix of any later slot version, so the
   package name protects and app ID registration refuses the fresh UID. A valid sibling slot naming
-  the same package or principal as a version 2 slot then reads as a conflict, which 24bfb6a would
-  read as valid. Both fail closed.
+  the same package or principal as a version 2 slot then reads as a conflict, and neither account
+  is restored.
+- **A sibling on the older images.** 24bfb6a and 78456b3 cannot read the version 2 slot, so they
+  read a valid sibling as they would beside a damaged slot. They admit its package at its own app
+  ID under its own record, keep the version 2 slot's app ID held with no history, and withhold the
+  counter. A sibling naming the version 2 account's principal therefore has that principal restored
+  for its own package. Beside a readable version 1 account, both images refuse the same sibling.
+  This needs a principal issued twice, which no writer does, and it happens only on a return below
+  the rollback floor, which owner decision 2 leaves unsupported once lifecycle records exist.
 
 ### Rejected representations
 
@@ -531,7 +538,7 @@ Android's own package suspension is a different mechanism and must not carry thi
   - The binding runner: the store class identity, the pinned format enum text and its version swap
     mutant, the mutant anchors, focused names, harness labels, name lists and counts.
   - The rollback readers, which today use the current sources under version 1 and must move to
-    pinned 24bfb6a and 78456b3 objects. 24bfb6a is not yet a pinned revision.
+    pinned 24bfb6a and 78456b3 objects.
   - The future format tests, which need version 3 slot frames for their unknown version cases.
     Their expectations and case count change, because a relabeled version 1 body now has a valid
     prefix.
