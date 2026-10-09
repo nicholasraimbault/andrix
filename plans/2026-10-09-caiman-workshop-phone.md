@@ -55,8 +55,10 @@ that shape this plan:
    unlocked for the length of this plan, after an independent review recommended bounded trials
    instead. The owner accepts that fixing a problem may take time. The owner also accepts the
    remaining risk that "Never brick it" describes.
+4. **The flashing computer (decision 5).** On 2026-10-09 the owner chose their own laptop, separate
+   from the build machine.
 
-The decision did not cover who downloads Google's images. Google's download page asks whoever
+The vendor files decision did not cover who downloads Google's images. Google's download page asks whoever
 downloads to accept its terms. So this plan proposes that the owner downloads them, or authorises
 each such download explicitly, adevtool's included.
 
@@ -160,6 +162,8 @@ The answers stay in private records. Recommendation: confirm the list as propose
 answers and a window of two days. Needed before stage 7.
 
 ### 5. The flashing computer
+
+Decided on 2026-10-09: the owner's laptop, as "Owner decisions already made" records.
 
 GrapheneOS's guide fixes what the computer needs (rule 8). The owner's choice is which computer.
 
@@ -766,8 +770,12 @@ GrapheneOS, unchanged, until stage 7.
 ### Stage 2. Way back preparation
 
 - **Changes:** the flashing computer, under decision 5. It gets platform tools r35.0.2 checked by
-  SHA-256 and udev rules. The runbook is written, with the stop points and the fixed reading script.
-  The allowed signers file already pinned in the upstream records is the trust anchor for the kits.
+  SHA-256 and, on Linux, udev rules. The runbook is written, with the stop points and the fixed
+  reading script. The allowed signers file already pinned in the upstream records is the trust
+  anchor for the kits. Builds and kits reach the flashing computer as a session folder whose
+  checksums are verified there before use. The way back kit stays on it, so no session depends on
+  the build machine or the network. The owner runs every command there, and the stop point
+  readings are checked with the plan's checkers before anything is written.
 - **Qualifies:** `fastboot --version` reports 35.0.1 or later, the web installer loads in a WebUSB
   browser, and the runbook is reviewed.
 - **Stays off:** the phone.
