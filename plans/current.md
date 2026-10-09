@@ -289,6 +289,10 @@ qualified candidate floor images, before the device coordinator.
 There is no supported Andrix release or buildable Pixel deployment product. Current results
 are bounded emulator, host and artifact qualifications, not general hardware or phone claims.
 
+The accepted [workshop phone plan](2026-10-09-caiman-workshop-phone.md) sets the stages, safety
+rules and owner decisions for bringing Andrix to the owner's Pixel 9 Pro. No Andrix image has
+been built for it, and nothing has touched the phone.
+
 ### Native development and work
 
 The ARM64/Bionic prototype supplies a terminal/editor, C/C++ compilation, Make, LLDB and

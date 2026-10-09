@@ -75,7 +75,8 @@ separate from the retained Unix milestones:
 - [Rolling composition and installation](2026-09-21-rolling-composition.md), with a
   [long term architecture assessment](2026-09-23-composition-architecture-assessment.md)
   covering source variants, exact artifacts, version selection and native activation.
-- [Later Pixel integration](2026-09-21-pixel-integration.md).
+- [Later Pixel integration](2026-09-21-pixel-integration.md), with the accepted
+  [workshop phone plan](2026-10-09-caiman-workshop-phone.md) for the owner's Pixel 9 Pro.
 
 The proposed integration contracts define responsibilities and deciding gates. They do not
 promote a principal representation, signing topology or composition mechanism into the accepted
