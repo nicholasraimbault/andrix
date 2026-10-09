@@ -28,29 +28,47 @@ P=scripts/pixel
 python3 -B $P/adevtool_record.py record --tree "$TREE" --release 2026100600 --out 2026100600.json
 python3 -B $P/adevtool_record.py verify --tree "$TREE" 2026100600.json
 
-# A session record, in the session directory, which holds only session records. Only the very
-# first session names the phone's release, as its private record shows it.
+# caiman-stable, saved with curl -o into a fresh file right before it is used. The file's
+# modification time is the fetch time. Never copy the file, and never use wget's timestamping.
+rm -f stable/caiman-stable
+curl --fail -o stable/caiman-stable https://releases.grapheneos.org/caiman-stable
+
+# A session record, in the session directory, which holds only session records. The very first
+# session starts from the current stable release, which the build number that stop point 1
+# recorded from Settings must show.
 python3 -B $P/version_criterion.py start --out sessions/S1.json --session S1 --date 2026-10-09 \
-  --first-release 2026081300
+  --first --from-stable stable/caiman-stable --build-number 2026100600 > start.out
 # Every later session starts from the newest record and the SHA-256 the owner kept of it. If the
-# phone updated itself since, the current stable release starts the record: caiman-stable saved
-# right before start, and the build number that stop point 1 recorded from Settings.
-curl -o caiman-stable https://releases.grapheneos.org/caiman-stable
+# phone updated itself since, the current stable release starts the record in the same way.
 python3 -B $P/version_criterion.py start --out sessions/S2.json --session S2 --date 2026-10-10 \
   --previous sessions/S1.json --previous-sha256 "$KEPT_SHA256" \
-  --updated-from-stable caiman-stable --build-number 2026100600
+  --updated-from-stable stable/caiman-stable --build-number 2026100600 > start.out
+# start, verify and decide print the record's new SHA-256 on their last line. The next verify
+# or decide of the session needs it. A refusal prints none, and the record stays as it was.
+keep_sha256() { tail -n 1 "$1" | grep -x '[0-9a-f]\{64\}' || printf '%s\n' "$RECORD_SHA256"; }
+RECORD_SHA256=$(keep_sha256 start.out)
+
+# Verify each kit or zip the session may write, once, before the readings. The slow checks run
+# here, and the session record keeps the verified identity under the file's SHA-256.
+python3 -B $P/version_criterion.py verify --record 2026081300.json --record 2026100600.json \
+  --manifests "$MANIFESTS" --allowed-signers allowed_signers \
+  --image grapheneos --zip caiman-install-2026100600.zip --stable stable/caiman-stable \
+  --avbtool "$PINNED_TREE/external/avb/avbtool.py" --simg2img "$TOOLS/simg2img" \
+  --lpunpack "$TOOLS/lpunpack" --session sessions/S2.json --record-sha256 "$RECORD_SHA256" > verify.out
+RECORD_SHA256=$(keep_sha256 verify.out)
 
 # In fastboot mode, the fixed readings with the sealed fastboot, then stop point 3.
 sh $P/readings.sh "$SEALED/platform-tools/fastboot" > readings.txt
 python3 -B $P/readings.py readings.txt --stage 8 --os-booted yes
 
-# May this image be written now? Exit 0 ALLOW, 1 REFUSE, 3 WAIT for a fresh approval.
+# May this image be written now? Exit 0 ALLOW, 1 REFUSE, 3 WAIT for a fresh approval. decide
+# hashes the zip again and takes the identity that verify kept.
 python3 -B $P/version_criterion.py decide --record 2026081300.json --record 2026100600.json \
   --manifests "$MANIFESTS" --allowed-signers allowed_signers \
-  --image grapheneos --zip caiman-install-2026100600.zip --stable caiman-stable \
-  --avbtool "$PINNED_TREE/external/avb/avbtool.py" --session sessions/S2.json \
-  --readings readings.txt --stage 8 --os-booted yes --update-pending no --channel stable \
-  --security-previews no --approval approval.json
+  --image grapheneos --zip caiman-install-2026100600.zip --session sessions/S2.json \
+  --record-sha256 "$RECORD_SHA256" --readings readings.txt --stage 8 --os-booted yes \
+  --update-pending no --channel stable --security-previews no --approval approval.json > decide.out
+RECORD_SHA256=$(keep_sha256 decide.out)
 
 # Gate step 8 at the desk: Google's image or a GrapheneOS kit against a build's base tag.
 python3 -B $P/version_criterion.py desk --record 2026100600.json --manifests "$MANIFESTS" \
@@ -68,7 +86,12 @@ No identity and no session fact is typed.
 
 - **The image.** `--zip` is the image itself. A GrapheneOS install zip is identified by its signed
   build number after every check that needs no phone passes. Google's image is identified by
-  the factory digest that adevtool's index records. The decision names the file's SHA-256.
+  the factory digest that adevtool's index records. `verify` runs these checks once in the
+  session and keeps the identity in the session record under the file's SHA-256. `decide`
+  hashes the file again and takes that identity, which must still agree with the adevtool
+  records it is given. A file that changed since, or was never verified, is refused. So the
+  15 minutes of the readings cover only `decide`'s fast part. The decision names the file's
+  SHA-256.
 - **An Andrix zip** must also meet four conditions:
   - Its vbmeta must verify against the workshop key whose SHA-256 `install_zip.py` records
     (`WORKSHOP_PKMD_SHA256`).
@@ -79,17 +102,25 @@ No identity and no session fact is typed.
     script must set it from the tag it verified, never by hand.
 - **The session record.** `--session` is the checker's own session record. It holds the
   phone's release recorded at the session's start, the releases carried from the previous
-  session, and every ALLOWed release. An ALLOW is written into it before the decision returns,
-  so before the write runs. Its date is the UTC date of its start, and the approval names that
-  date.
+  session, the identities that `verify` kept, and every ALLOWed release. An ALLOW is written
+  into it before the decision returns, so before the write runs. Its date is the UTC date of
+  its start, and the approval names that date.
 - **The session chain.** A phone's session records live in one directory that holds nothing
   else, each as `NAME.json` in the form the checker writes. Each record names the SHA-256 of the
-  record before it, and exactly one record, the first, names none. `start` and `decide` verify
-  the whole chain and refuse a broken link, a fork where two records name one parent, a second
-  first record, a repeated session name, any other file, and a `--previous` or `--session` that
-  is not the newest record. Nothing points at the newest record, so after the last `decide` of a
-  session the owner keeps its SHA-256 privately, for example from `sha256sum`. The next `start`
-  needs it as `--previous-sha256` and refuses a newest record that no longer hashes to it.
+  record before it, and exactly one record, the first, names none. `start`, `verify` and
+  `decide` verify the whole chain and refuse a broken link, a fork where two records name one
+  parent, a second first record, a repeated session name, any other file, and a `--previous` or
+  `--session` that is not the newest record. Nothing points at the newest record, so each
+  `start`, `verify` and `decide` that does not refuse prints the record's new SHA-256 on its
+  last line. The next `verify` or `decide` of the session needs it as `--record-sha256` and
+  refuses a record that no longer hashes to it, so an edit between two commands is caught. A
+  refusal prints no SHA-256 and leaves the record unchanged. After the last command of a
+  session the owner keeps the last SHA-256 privately. It equals the record's `sha256sum`. The
+  next `start` needs it as `--previous-sha256` and refuses a newest record that no longer hashes
+  to it.
+- **The first record** starts from the current stable release, never from a typed release:
+  `start --first --from-stable FILE --build-number B`, with FILE and B as below. B must be the
+  stable release or its security preview, or the session waits until the phone has updated.
 - **A phone that updated itself.** After an update between sessions, the readings may match
   none of the carried releases. `start --previous ... --updated-from-stable FILE --build-number B`
   then starts the new record from the current stable release, beside the carried releases. FILE
@@ -109,16 +140,18 @@ No identity and no session fact is typed.
   session's start or its last ALLOW are refused, and so are readings dated after now and
   readings older than the maximum age at the moment of the decision. The maximum age is the
   plan's 15 minutes. `--readings-max-age` may lower it, from 1 to 15 minutes, never raise it.
-- **One decide at a time.** `decide` holds an exclusive lock on the session record from before
-  it reads the record until after it writes an ALLOW. A second `decide` meanwhile refuses, and
-  so does one whose record was replaced between its opening and its lock. Run it again with
-  fresh readings once the first has returned. `start` holds the same lock on the previous
-  record while it reads the chain and writes the new record.
-- **A leftover `NAME.json.new`.** `decide` writes the record to `NAME.json.new` and then renames
-  it. A leftover file means a `decide` stopped in between and never returned its decision, so
-  its ALLOW reached no one. Every later `start` and `decide` refuses and names the file. The
-  operator inspects it, compares it with `NAME.json`, and removes it by hand. Then take fresh
-  readings and run `decide` again.
+- **One command at a time.** `verify` and `decide` hold an exclusive lock on the session record
+  from before they read the record until after they write it. A second one meanwhile refuses,
+  and so does one whose record was replaced between its opening and its lock. Run it again,
+  with fresh readings for `decide`, once the first has returned. `start` holds the same lock on
+  the previous record, and a lock on the session directory, while it reads the chain and
+  writes the new record.
+- **A leftover `NAME.json.new`.** `start`, `verify` and `decide` write a record to
+  `NAME.json.new`, fsync it, and then rename it into place, and `start` never replaces an
+  existing record. A leftover file means one of them stopped in between and never returned, so
+  its result, an ALLOW among them, reached no one. Every later `start`, `verify` and `decide`
+  refuses and names the file. The operator inspects it, compares it with `NAME.json`, and
+  removes it by hand. Then take fresh readings and run the command again.
 - **Signed tags.** `--manifests` is a local clone of GrapheneOS's `platform_manifest` with its
   tags. Every release tag in the range must verify with `git verify-tag` against the allowed
   signers file that `upstream/bases` pins. The command line pins `gpg.ssh.program` to
@@ -139,8 +172,12 @@ No identity and no session fact is typed.
 - **Other inputs.**
   - `--update-pending` is `yes`, `no` or `unknown`, and unknown counts as pending.
   - `--channel` must be `stable`.
-  - `--stable` is the content of `releases.grapheneos.org/caiman-stable`, and
-    `--stable-fetched-at` is the time it was read.
+  - `--stable`, `--from-stable` and `--updated-from-stable` are
+    `releases.grapheneos.org/caiman-stable`, saved with `curl -o` into a fresh file at that
+    moment. Its modification time is the fetch time, so the file is never copied, and wget's
+    default timestamping is never used. `start` and a `decide` that may meet a pending update
+    refuse a file fetched more than 15 minutes before them or dated after them. `verify` and
+    `desk` give `--stable` to the install zip checks, which compare the zip's release with it.
   - The patch level for the rollback index comes from `upstream/bases/TAG.json` where that
     exists.
 - **Disk space.** Rebuilding the dynamic partitions from the super splits needs several GB
@@ -159,24 +196,36 @@ the checkers among them.
    Settings, the release channel, which must be Stable, and whether security previews are
    enabled. If the OS does not boot, stop point 1 is skipped as the plan's exception says, and
    `decide` gets `--os-booted no`.
-3. **`start`.** The very first session gives `--first-release`. Every later session gives
-   `--previous` with the newest record of the session directory and `--previous-sha256` with the
-   SHA-256 the owner kept. If the build number of step 2 is newer than every release the newest
-   record knows, the phone updated itself. Then save caiman-stable with `curl -o` and run
-   `start` within 15 minutes with `--updated-from-stable` and `--build-number`. If `start` says
-   the session waits, the phone has not reached the stable release yet: let it update, and go
-   back to step 2.
-4. **Stop point 2, in fastboot mode.** On the bootloader screen that shows "Fastboot Mode", run
+3. **`start`.** Where `start` needs caiman-stable, first remove the old file and save a fresh one
+   with `curl --fail -o`, then run `start` within 15 minutes.
+   - The very first session gives `--first --from-stable FILE --build-number B`, with B from
+     step 2.
+   - Every later session gives `--previous` with the newest record of the session directory and
+     `--previous-sha256` with the SHA-256 the owner kept. If the build number of step 2 is newer
+     than every release the newest record knows, the phone updated itself, and `start` also
+     gives `--updated-from-stable FILE --build-number B`.
+   - If `start` says the session waits, the phone has not reached the stable release yet. Let it
+     update, and go back to step 2.
+
+   Keep the SHA-256 on the last line of the output for the next command.
+4. **`verify`** each kit or zip the session may write, once, at the desk, with the last
+   SHA-256 as `--record-sha256`. The slow checks, super rebuilds included, run here. Keep the
+   new SHA-256 it prints.
+5. **Stop point 2, in fastboot mode.** On the bootloader screen that shows "Fastboot Mode", run
    `readings.sh` with the sealed fastboot into a new readings file.
-5. **Stop point 3.** Run `readings.py` with the session's stage. `decide` checks it again.
-6. **`decide`**, at most 15 minutes after the readings. ALLOW: run the named image's complete
-   script and nothing else. WAIT: stay in fastboot mode until a fresh approval names the image,
-   then go back to step 4. REFUSE: write nothing, and read the reasons.
-7. **Before every further write**, repeat steps 4 to 6 with fresh readings. A partial write is
-   run again the same way.
-8. **After the last `decide`**, the owner takes the SHA-256 of the session record, for example
-   with `sha256sum sessions/S2.json`, and keeps it privately for the next session's
-   `--previous-sha256`. Nobody edits the record afterwards.
+6. **Stop point 3.** Run `readings.py` with the session's stage. `decide` checks it again.
+7. **`decide`**, at most 15 minutes after the readings, with the last SHA-256 as
+   `--record-sha256`. When the OS does not boot and an update may be pending, save a fresh
+   caiman-stable with `curl --fail -o` and give it as `--stable`. Keep the SHA-256 that `decide`
+   prints, unless it refused. ALLOW: run the named image's complete script and nothing else.
+   WAIT: stay in fastboot mode until a fresh approval names the image, then go back to step 5.
+   REFUSE: write nothing, and read the reasons.
+8. **Before every further write**, repeat steps 5 to 7 with fresh readings. A partial write is
+   run again the same way. A kit or zip the approval adds later is verified first, as in step
+   4.
+9. **After the last command**, the owner keeps the last SHA-256 it printed privately for the
+   next session's `--previous-sha256`. It equals `sha256sum sessions/S2.json`. Nobody edits the
+   record afterwards.
 
 ## Where adevtool records each tag's stock build
 
@@ -253,7 +302,12 @@ Each rule has at least one mutated input that the checker must refuse. The tests
 | The session record and fresh readings | `start_session`, `decide` | `SessionTests`, `test_stale_readings_are_refused`, `test_session_flow` |
 | Stop point 4, a phone that updated itself starts from the current stable release, newer than every carried release and shown by the build number | `start_session`, `stable_start`, `check_stable_entry` | `UpdatedFromStableTests`, `test_updated_from_stable_on_the_command_line`, `test_the_typed_updated_release_is_not_an_option` |
 | One chain of session records, started only from the newest, whose SHA-256 the owner keeps | `read_chain`, `newest_link`, `start` | `ChainTests`, `test_decide_needs_the_newest_record` |
-| One decide at a time, and a leftover `.new` refused until removed by hand | `lock_session`, `write_session`, `read_chain` | `test_a_held_lock_refuses_a_second_decide`, `test_a_record_replaced_while_locking_is_refused`, `test_a_leftover_new_file_is_refused_until_removed_by_hand` |
+| The first record starts from the current stable release, never from a typed release | `start_session`, `stable_start`, `check_stable_entry` | `test_the_first_record_starts_from_the_stable_release`, `test_the_typed_first_release_is_not_an_option`, `test_stable_entry_controls` |
+| Each start, verify and decide prints the record's SHA-256, and the next verify or decide needs it | `locked_record`, `report` | `test_each_decide_needs_the_sha256_the_last_command_printed`, `test_an_identity_edited_in_the_record_is_caught_by_the_chain` |
+| Kits and zips verified once, decide takes the kept identity by SHA-256 | `verify`, `verified_image`, `check_identity`, `check_verified` | `VerifiedIdentityTests`, `test_decide_takes_the_identity_that_verify_kept`, `test_a_file_that_changed_since_verify_is_refused`, `test_an_identity_not_in_the_record_is_refused` |
+| A pending update decision reads caiman-stable's fetch time from the file | `check_fetch`, `read_stable`, `decide` | `test_a_stale_or_future_fetch_time_is_refused`, `test_pending_update_takes_the_fetch_time_from_the_stable_file` |
+| start writes atomically and never over a record | `publish_record`, `lock_directory` | `test_start_writes_atomically` |
+| One command at a time, and a leftover `.new` refused until removed by hand | `lock_session`, `write_session`, `read_chain` | `test_a_held_lock_refuses_a_second_decide`, `test_a_record_replaced_while_locking_is_refused`, `test_a_leftover_new_file_is_refused_until_removed_by_hand` |
 | Fresh readings before each write, at most 15 minutes old | `decide` | `test_readings_older_than_the_maximum_age_are_refused`, `test_readings_max_age_option` |
 | The session date is the UTC date of its start, and the approval names it | `check_session`, `decide` | `test_session_date_is_the_utc_date_of_its_start`, `test_approval_names_the_session_kind_and_wipe` |
 | Signed tags and records bound to their signed manifests | `signed_tags`, `bind_record`, `load_table`, `check_coverage` | `SignedTagTests`, `TableTests.test_refused_tables`, `BindingTests`, `test_records_cover_every_signed_tag_between` |
@@ -293,12 +347,14 @@ is read, and only a reviewed change to that file can change them.
   yet (design item 6).
 - **The fetch time of caiman-stable** is the saved file's modification time, which `curl -o`
   sets to the time of the download. A tool that sets the server's time instead, as `wget` does by
-  default, makes the file look stale, and `start` refuses it. `touch` can change the time, so the
-  file must not be edited or touched by hand.
+  default, makes the file look stale, and it is refused. A copy made with `cp` gets the time of
+  the copy, which would make an old file look fresh, and `touch` can change the time. So the
+  file is always saved fresh with `curl` and never copied, edited or touched by hand.
 - **The build number** is typed from Settings. A wrong one can only refuse or raise the
   reference, because it must name the stable release or its security preview.
-- **The lock** is an advisory `flock`. It binds `decide` and `start` and nothing else, so it does
-  not stop an edit by hand. Keep the session directory on a local file system.
+- **The lock** is an advisory `flock`. It binds `start`, `verify` and `decide` and nothing else,
+  so it does not stop an edit by hand. The SHA-256 that each command prints catches such an
+  edit at the next command. Keep the session directory on a local file system.
 - **The rollback index** is checked against the patch timestamp, as the plan says. Where the build
   sets it was not read, because AOSP's build files were outside the sources available.
 - **The committed records** carry the commits of the sealed carry report, which a test checks.
