@@ -662,7 +662,11 @@ checkpoint, were not inspected, so the rollback behavior must be measured.
 - **Data.** Returning to known good code does not undo a data migration. Each plan states its data
   transition, and the first plan declares it forward only.
 - **Checkpoint.** It covers one boot until it commits. Its rollback reverts all of `/data` written
-  in that boot, for every user. Its timing must be measured.
+  in that boot, for every user. Its timing must be measured. The checkpoint counts as observed
+  committed only when one bracketed reading in that boot shows that the device supports checkpoints
+  and that none is pending, so no rollback can follow in that boot. A device that reports no
+  checkpoint support gives no such observation. Until a rule for such devices is designed, its
+  crossings wait.
 - **RollbackManager.** Android asks it to enable rollback only when a session requests that, and
   does not fail the install if it cannot. RollbackManager itself is outside the inspected sources.
   It is a candidate only. Earlier direct AOSP rollback experiments showed that the dependencies of
