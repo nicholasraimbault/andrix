@@ -277,6 +277,13 @@ frameworks/base security fixes, and 2026100600 has all of them. Four touch Andri
 targets, one of them only the lab writer's target. These are source facts about the
 [upstream records](../upstream/README.md). They select no base and qualify no build.
 
+Gate 3 now has an accepted plan for the
+[first durable component transaction](2026-10-09-component-transaction.md), starting with
+SystemUI. Its host steps can start: the records and ticket state machine, the artifact store and
+bundle builder, the session observer and the choice of test image. Emulator trials wait for the
+emulator, and the device coordinator, protected signing and the `/usr` APEX class wait for the
+owner decisions they name.
+
 ## Product checkpoint
 
 There is no supported Andrix release or buildable Pixel deployment product. Current results

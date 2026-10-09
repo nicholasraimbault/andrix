@@ -29,7 +29,10 @@ stages, including rollback to the last version 1 image and back. The
 accepted policy for creating, suspending, retiring and deleting native accounts and releasing
 their UIDs. The accepted [native account lifecycle record](2026-10-08-native-lifecycle-record.md)
 designs how suspension, retirement and remaining obligations are stored, splits retirement from
-UID release and keeps release off.
+UID release and keeps release off. The accepted
+[first durable component transaction](2026-10-09-component-transaction.md) designs how a SystemUI
+change is signed, published, staged, activated, observed and recovered. Its eight owner decisions
+remain open until the steps that need them.
 
 The [2026-09-21 accepted vision revision](2026-09-21-owner-composable-android.md) expands
 Andrix from a Unix focused layer to an owner composable Android OS. Its platform work is
