@@ -684,13 +684,12 @@ public final class TransactionTest {
             String id = w.open(plan, 1);
             w.run(id, 10, false, State.HEALTH_WINDOW);
             check(problems, w.open(plan, 9) == null, "a second open ticket for the component");
-            Plan repair = w.add(Fixtures.plan(5).repairs(plan.planId).bundle(Fixtures.RESTORATION,
+            Plan repair = w.add(Fixtures.plan(5).repairs(plan.planId).bundle(Fixtures.RESTORATION_INPUT,
                     Fixtures.RESTORATION_APK, Fixtures.RESTORATION_VERSION).restoration(DeploymentRecords.NO_DIGEST,
                     DeploymentRecords.NO_DIGEST, 0).signing(0).base(Fixtures.BUNDLE_APK, Fixtures.BUNDLE_VERSION,
                     Fixtures.UID, Fixtures.CONTEXT).selectionRevision(1).build());
             w.grant(Fixtures.lab(30, repair, Effect.STAGE, 0, w.android.wall()));
             w.grant(Fixtures.lab(31, repair, Effect.ACTIVATE, 0, w.android.wall()));
-            w.host.published.add(Fixtures.RESTORATION);
             w.settle(id);
             Ticket superseded = w.ticket(id);
             check(problems, superseded.state == State.SUPERSEDED && superseded.successor.equals(repair.planId),
@@ -709,7 +708,7 @@ public final class TransactionTest {
             Plan plan = plan(w, Fixtures.plan(1).healthResponse(HealthResponse.RESTORE_AUTOMATICALLY)
                     .restorationPlan(Fixtures.id(0x105)));
             // The approval lists the restoration reboot and grants its STAGE and ACTIVATE up front.
-            Plan restoration = w.add(Fixtures.plan(5).repairs(plan.planId).bundle(Fixtures.RESTORATION,
+            Plan restoration = w.add(Fixtures.plan(5).repairs(plan.planId).bundle(Fixtures.RESTORATION_INPUT,
                     Fixtures.RESTORATION_APK, Fixtures.RESTORATION_VERSION).restoration(DeploymentRecords.NO_DIGEST,
                     DeploymentRecords.NO_DIGEST, 0).signing(0).base(Fixtures.BUNDLE_APK, Fixtures.BUNDLE_VERSION,
                     Fixtures.UID, Fixtures.CONTEXT).selectionRevision(1).build());
@@ -737,7 +736,7 @@ public final class TransactionTest {
             World w = world(Route.SHELL, 93);
             Plan plan = plan(w, Fixtures.plan(1).healthResponse(HealthResponse.RESTORE_AUTOMATICALLY)
                     .restorationPlan(Fixtures.id(0x105)));
-            Plan restoration = w.add(Fixtures.plan(5).repairs(plan.planId).bundle(Fixtures.RESTORATION,
+            Plan restoration = w.add(Fixtures.plan(5).repairs(plan.planId).bundle(Fixtures.RESTORATION_INPUT,
                     Fixtures.RESTORATION_APK, Fixtures.RESTORATION_VERSION).restoration(DeploymentRecords.NO_DIGEST,
                     DeploymentRecords.NO_DIGEST, 0).signing(0).base(Fixtures.BUNDLE_APK, Fixtures.BUNDLE_VERSION,
                     Fixtures.UID, Fixtures.CONTEXT).selectionRevision(1).build());

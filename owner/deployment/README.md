@@ -65,12 +65,13 @@ pkg   component                                                             pref
 u8    class                 1 STAGED_SYSTEM_APK, 2 STAGED_APEX, 3 NONSTAGED_APK     strict
 u8    target                1 VARIANT, 2 FACTORY, 3 TEMPORARY_FACTORY              strict
 id    repairs               the plan this one repairs or replaces, or zero
-d32   bundle                bundle ID: VARIANT nonzero, FACTORY zero
+d32   bundleInput           signing input entry digest: VARIANT nonzero, FACTORY zero
 d32   bundleApk             SHA-256 of base.apk, the same presence
 i64   bundleVersion         VARIANT above factoryVersion and baseVersion, FACTORY 0
 d32   signer                signer certificate digest, the same presence
-d32   restoration           restoration bundle ID or zero, always zero for FACTORY
-d32   restorationApk        zero exactly when restoration is zero
+d32   restorationInput      the restoration's signing input entry digest or zero, always
+                            zero for FACTORY
+d32   restorationApk        zero exactly when restorationInput is zero
 i64   restorationVersion    above bundleVersion when present, else 0
 u8    signing               0, 1 or 2 transactions; 2 needs a restoration; FACTORY 0  strict
 text  fingerprint           the cohort's build fingerprint
@@ -104,8 +105,14 @@ i64   created               wall clock ms                                       
 
 The criteria bits are 0 UID and context, 1 no crash or ANR, 2 UI marker, 3 unlock and CE
 authority, 4 active bytes unchanged, 5 native work runs, 6 recovery route reachable. A plan does
-not repair itself. A TEMPORARY_FACTORY plan names its bundle, APK, versionCode and signer as a
-VARIANT plan does, and in `repairs` the chosen plan it stands in for.
+not repair itself. A TEMPORARY_FACTORY plan names its bundle's input, APK, versionCode and signer
+as a VARIANT plan does, and in `repairs` the chosen plan it stands in for.
+
+A signing input entry digest is the SHA-256 over the input APK's ZIP entries outside the APK
+Signing Block. It is the input's identity for signing, because a built APK may already carry
+signatures that prove nothing about the outputs. The plan names its signing inputs, never its
+bundle IDs: a bundle ID covers the signed bytes that the plan's own signing produces. The plan's
+publication record binds the produced bundles to it.
 
 ### Authorization, type 2
 
@@ -152,7 +159,7 @@ id    successor             nonzero exactly in SUPERSEDED
 u16   count, then health entries ascending by user, then serial, at most 64:
       i32 user >= 0, i64 serial >= 0, u8 outcome                                   strict
       0 OBSERVING, 1 HEALTHY, 2 DEGRADED, 3 UNHEALTHY, 4 INCONCLUSIVE, 5 REMOVED
-u16   count, then ledger entries in issue order, at most 59:
+u16   count, then ledger entries in issue order, at most 60:
       u8 crossing, id boot, i64 instance, i64 elapsed, id grant, id reference, i64 issuedAt
 ```
 
@@ -163,14 +170,14 @@ The states are 1 PLANNED, 2 AUTHORIZED, 3 SIGNING, 4 SIGNED, 5 PUBLISHED, 6 SESS
 23 CLOSED_APPLIED, 24 CLOSED_FAILED, 25 CANCELLED, 26 VOID, 27 DIVERGED, 28 SUPERSEDED. The
 attempt is at least 1.
 
-The crossings, with the most entries of each in one ledger, are 1 SIGN (2), 2 PUBLISH (1),
+The crossings, with the most entries of each in one ledger, are 1 SIGN (2), 2 PUBLISH (2),
 3 CREATE (1), 4 WRITE (1), 5 COMMIT (1), 6 ABANDON (16), 7 REBOOT (16), 8 NOTICE (17) and
 9 HANDOVER (4). An entry's `issuedAt` is informational. Its rules:
 
 - SIGN, CREATE, COMMIT, REBOOT and NOTICE name the authorization they rely on in `grant`. The
   others have a zero grant.
-- SIGN names its signing request in `reference`, CREATE the ticket nonce, and HANDOVER the new
-  coordinator. The others have a zero reference.
+- SIGN names its signing request in `reference`, PUBLISH its attempt, CREATE the ticket nonce,
+  and HANDOVER the new coordinator. The others have a zero reference.
 - CREATE, WRITE, COMMIT and ABANDON need their boot and a framework instance, which is at least 0.
   REBOOT and NOTICE need their boot. SIGN, PUBLISH and HANDOVER may have a zero boot, and then
   instance -1 and elapsed 0.
@@ -222,7 +229,7 @@ u8    classification        by kind, see below                                  
 | 8 USER | user | none | 1 RUNNING_UNLOCKED, 2 RUNNING_LOCKED, 3 NOT_RUNNING, 4 REMOVED |
 | 9 HEALTH | component and user | u16 criteria covered, nonzero, bits 0..6 | 1 HELD, 2 DEGRADED, 3 CRASH, 4 INCONCLUSIVE |
 | 10 SIGNER | component | id request | 1 PENDING, 2 COMPLETED, 3 REFUSED, 4 CANNOT_COMPLETE |
-| 11 BUNDLE | component | d32 bundle | 1 PUBLISHED, 2 ABSENT, 3 MISMATCH |
+| 11 BUNDLE | component | id attempt, d32 publication | 1 PUBLISHED, 2 ABSENT, 3 MISMATCH |
 
 The observation's relations:
 
@@ -230,12 +237,17 @@ The observation's relations:
   no user. The user scope has a user and an empty component. HEALTH has both.
 - SIGNER and BUNDLE may be read on the HOST route, and only they. With a zero boot they need
   instance -1 and elapsed 0.
+- A BUNDLE fact is the artifact store's read of one plan's publication record, taken after the
+  PUBLISH call it names in `attempt` had ended, which is nonzero. PUBLISHED means that the record
+  reads back and every bundle it names is exact, and its `publication` is the record's SHA-256.
+  ABSENT means that no record exists, and MISMATCH that it names other bytes. Both have a zero
+  `publication`.
 - LISTING and SESSION need an instance. The listing's count is above zero exactly for
   SESSIONS_FOR_PACKAGE.
 - REPLY answers CREATE, WRITE, COMMIT, ABANDON, REBOOT or NOTICE, and a framework crossing needs
   an instance. READY, ACCEPTED and PENDING answer only COMMIT, and COMMIT never answers SUCCESS.
   A reply carries a reference exactly when it is a CREATE's SUCCESS, and then it holds the
-  session. The ledger index is below 59.
+  session. The ledger index is below 60.
 
 ### Selection, type 5
 
@@ -320,6 +332,17 @@ issues the crossing and records the reply as an observation. A lost reply record
   sessions all carry a nonce and none the ticket's, and the signer's proof that a request can no
   longer complete. The only repeated crossings are the reboot request after its time limit and the
   abandon whose session a later framework instance still shows live.
+- **Publication.** SIGNED issues PUBLISH with a fresh attempt ID as the entry's reference. The
+  ticket moves to PUBLISHED once a BUNDLE fact naming a PUBLISH attempt of any of the plan's
+  tickets reads the plan's publication PUBLISHED, and no attempt read MISMATCH. A plan has one
+  publication, so a later attempt of the same plan skips signing once an earlier attempt's
+  publication read back. A lost acknowledgement is resolved by reading, never by publishing again.
+  Only a BUNDLE fact that names the ticket's last attempt and reads the record ABSENT shows that
+  the attempt had no effect. The record's rename is the single commit point, the store has one
+  writer, and no step sees a crossing in flight, so a read taken after the call ended proves
+  absence. One more PUBLISH then follows, which the store completes from the bundles it already
+  holds, never by signing again. After a second attempt without effect the ticket holds in SIGNED
+  with the REQUEST_LIMIT alert. Cancellation and voiding remain its exits.
 - **Latest evidence.** The session's state is its latest exact observation, unless a complete
   listing taken after it no longer shows it. A session is gone only when such a listing comes from
   a later framework instance than the crossing in question, so a session destroyed in memory is
@@ -353,7 +376,7 @@ issues the crossing and records the reply as an observation. A lost reply record
   for the boot the notice is owed. A restoration approved in advance waits only its shorter
   emergency delay, and only under an EMERGENCY_NOTICE grant when its notice was not delivered.
   Such a restoration is a VARIANT plan whose repaired plan names it as its `restorationPlan` and
-  whose bundle, APK and versionCode are that plan's restoration. The coordinator reads the
+  whose bundle input, APK and versionCode are that plan's restoration. The coordinator reads the
   repaired plan from the store and passes it to the step. A rebuilt variant, any other repair and
   a TEMPORARY_FACTORY plan wait the full delay, and the codec refuses a shorter delay for a
   TEMPORARY_FACTORY plan. The ACTIVATE's expiry bounds every wait.
@@ -414,8 +437,8 @@ coordinator lost between the two writes leaves the choice moved and the ticket o
 and the next step reads that move as the plan's own. A host fault point sits between the two
 writes. A fact identical to the latest recorded fact about the same thing, in the same boot and
 framework instance, is not recorded again, so a polling coordinator does not grow the store with
-every round. The same thing is the kind, route, component, user, request or ledger entry, and for
-a session its ID, for a bundle its digest. The latest such fact is the one with the largest elapsed
+every round. The same thing is the kind, route, component, user, request, PUBLISH attempt or
+ledger entry, and for a session its ID. The latest such fact is the one with the largest elapsed
 time in its boot, never a position in a list, because a new coordinator lists the store by ID and
 IDs need not rise with time. When several share that time, a new fact repeats only if it equals
 each of them. Signer and bundle facts are decided by precedence, so any identical fact settles
@@ -496,25 +519,31 @@ and at most 4,096 bytes.
 id    installation          nonzero                                         prefix
 pkg   component                                                             prefix
 u8    role                  1 VARIANT, 2 RESTORATION                        prefix
-id    request               the signing transaction, nonzero                prefix
-d32   input                 SHA-256 of the unsigned input APK, nonzero              strict
-d32   inputEntries          digest of the input's ZIP entries outside the signing block, nonzero
+id    transaction           the signing transaction, nonzero                prefix
+d32   input                 SHA-256 of the exact input APK bytes, nonzero
+d32   inputEntries          the input's identity: SHA-256 over its ZIP entries outside the
+                            signing block, nonzero
 i64   versionCode           > 0
-d32   apk                   SHA-256 of base.apk, nonzero, not the input's
+d32   apk                   SHA-256 of base.apk, nonzero, and it may equal input
 i64   apkBytes              > 0
 d32   idsig                 SHA-256 of base.apk.idsig, nonzero
 i64   idsigBytes            > 0
 d32   certificate           SHA-256 of the signer certificate, nonzero
 d32   key                   SHA-256 of the signer public key, nonzero
 u8    schemes               bit 0 v2, 1 v3, 2 v4: exactly 7                         strict
-u16   sdkMin                >= 1, the range the schemes were verified for
-u16   sdkMax                >= sdkMin
+u16   sdkMin                >= 1, the low end of the APK's declared SDK range
+u16   sdkMax                >= sdkMin, the high end of that range
 u8    v4                    1 VERIFIED                                              strict
-i64   createdAt             wall clock ms                                           informational
 ```
 
 The bundle ID is the SHA-256 of the manifest's whole frame, checksum included. It names bytes,
-not approval: the manifest names the signing request but no plan or grant.
+not approval: the manifest names the signing transaction but no plan or grant. Each scheme was
+checked explicitly over the SDK range, because `apksigner verify` can report v2 as unverified at
+a high minimum SDK although its block is present. The manifest holds no time,
+so the same bytes always give the same ID. The operations' own IDs stay in the signer's records.
+Built inputs may already carry signatures, which prove nothing about the outputs, so the input's
+identity is `inputEntries`, and signing that reproduces its input exactly is still a valid
+bundle.
 
 ### Publication, type 7
 
@@ -522,14 +551,16 @@ not approval: the manifest names the signing request but no plan or grant.
 id    installation          nonzero                                         prefix
 id    plan                  nonzero                                         prefix
 pkg   component                                                             prefix
-id    request               the signing transaction, nonzero
 u8    count                 1 or 2                                                  strict
-      then for each: d32 bundle, nonzero, and u8 role, VARIANT first, then RESTORATION
+      then for each: d32 bundle, nonzero, u8 role, VARIANT first, then RESTORATION,
+      and id transaction, the bundle's own signing transaction, nonzero
 i64   publishedAt           wall clock ms                                           informational
 ```
 
-A publication never names one bundle twice. `decodePrefix` reads a later version's installation,
-then a manifest's component and request or a publication's plan and component, and nothing after.
+A publication never names one bundle twice. Each bundle names its own signing transaction, so a
+pair from two transactions fits the layout. `decodePrefix` reads a later version's installation,
+then a manifest's component and transaction or a publication's plan and component, and nothing
+after.
 
 ### Layout and publication
 
@@ -547,8 +578,13 @@ then a manifest's component and request or a publication's plan and component, a
   it holds. A named bundle that differs, lacks a file or holds another is MISMATCH. A damaged,
   newer or unreadable publication makes every ID UNAVAILABLE, because it might name it.
 - **Together or not at all.** A plan's publication names its bundle and, when it has one, its
-  restoration, from one signing request, in that order. The store refuses any other set, so a
-  bundle is never published alone (decision 8).
+  restoration, in that order. The store refuses any other set, so a bundle is never published
+  alone (decision 8).
+- **Bound to the plan.** The plan names only its signing inputs. Each bundle must carry the
+  plan's input entry digest and versionCode for its role, and the transaction the publication
+  names for it. The publication record is what binds the produced bundles to the plan. A plan
+  that signs nothing names bundles that another publication made visible, and this version of
+  the store does not publish for it.
 - **Order.** Staging writes each member and the manifest through its own descriptor, syncs each,
   then syncs the staging directory and the root. Publication then reads every staged bundle back,
   verifies all of them, renames each into `bundles/<id>`, syncs `bundles/`, and writes the
@@ -556,8 +592,15 @@ then a manifest's component and request or a publication's plan and component, a
   read back. Nothing is visible before that last rename, so a stop at any point leaves both
   bundles visible or neither.
 - **A lost acknowledgement.** It resolves by reading the exact bytes. A second publication of a
-  plan writes nothing: it is true only when the stored publication has exactly its bytes and every
-  bundle it names reads back PUBLISHED.
+  plan that has a publication writes nothing: it is true only when the stored publication has
+  exactly its bytes and every bundle it names reads back PUBLISHED.
+- **No effect, then once more.** `planPublication` reads a plan's record: PUBLISHED, ABSENT,
+  MISMATCH or UNAVAILABLE. Read after a PUBLISH call has ended, ABSENT shows that the call had no
+  effect, because the record's rename is the single commit point. The staging directories are
+  never evidence. A second publication then completes from the exact bundles the store already
+  holds, whether still staged or already renamed into `bundles/<id>` with no record naming them.
+  `held` reads such a bundle back without its bytes being supplied again, and every bundle is
+  verified again before the record is written. Nothing is signed again.
 - **Resuming.** A bundle already in `bundles/<id>` with the exact bytes is the same content,
   because its name is its manifest's digest. A resumed publication keeps it and drops the staging
   copy. Other bytes under that name are never replaced, and the publication fails.
@@ -569,15 +612,16 @@ call. On the device, restoration bundles live in system DE storage, which D7 own
 
 | Suite | Cases | What it shows |
 | --- | --- | --- |
-| `DeploymentRecordsTest` | 49 | 22 goldens, two layouts by hand, every strict code refused by position, informational fields free, every relation, resealed mutations of every kind refused or canonical, the stable prefix |
-| `TicketMachineTest` | 66 | the exit table equals the plan's, every cycle passes a counted edge, each loop meets its limit, and every rule in single steps |
+| `DeploymentRecordsTest` | 50 | 23 goldens, two layouts by hand, every strict code refused by position, informational fields free, every relation, resealed mutations of every kind refused or canonical, the stable prefix |
+| `TicketMachineTest` | 67 | the exit table equals the plan's, every cycle passes a counted edge, each loop meets its limit, and every rule in single steps, including a second publication only after a read of absence that names the attempt |
 | `DeploymentStoreTest` | 14 | write once, compare and set, a crash at each write step, presence and footprints, one open ticket, the selection's revision rules |
 | `TransactionTest` | 44 | both routes and both commit modes end to end, decisions 3, 6 and 7 over whole runs, each row of the recovery table, fault sweeps at every crossing, a coordinator lost between the selection and ticket writes, world events at every round, and the invariants of every run |
-| `ArtifactStoreTest` | 13 | 4 goldens, strict codes by position, informational times, the stable prefix, resealed mutations refused or canonical, and publication: together or not at all, verified first, a stop at every step, a lost acknowledgement read back, damage as MISMATCH |
+| `ArtifactStoreTest` | 17 | 4 goldens, strict codes by position, informational times, the stable prefix, resealed mutations refused or canonical, one bundle ID for the same bytes, and publication: together or not at all, bound to the plan's inputs, verified first, a stop at every step, a lost acknowledgement read back, a second publication from the held bundles, a pair from two transactions, damage as MISMATCH |
 
 `scripts/proof/component_transaction_records.py` checks every golden against its own encoder,
-written from the tables above, and runs 63 deliberate defects against the suites predicted to catch
-them.
+written from the tables above, and runs 77 deliberate defects against the suites predicted to catch
+them. Every compiler and JVM it starts has a capped heap, metaspace and code cache, the serial
+collector and one client JIT compiler thread, so the run stays well inside its 2 GiB guard.
 
 ## What the owner decisions changed
 
@@ -612,7 +656,8 @@ keep version 1, because no device has written them.
   notice was not delivered, and no other grant implies it.
 - **Decision 8.** No layout change. The fixtures sign a variant and its restoration in one SIGN
   with both inputs. The signing count still allows two transactions, as the plan's D1 section asks
-  at line 689.
+  at line 689. The artifact store's publication names each bundle's own signing transaction, so a
+  pair from two transactions fits there too.
 - **Decisions 4 and 5.** No change. Decision 5 is open, so the layouts may still change before D7.
 
 The qualification follows. The consent mutant became a grant scope mutant, six new mutants guard
@@ -624,9 +669,12 @@ The plan names these records' contents but not their fields. These are D1's choi
 
 - **Lineage.** The plan's lineage is two fields: `installation`, which binds every record to one
   store as the native store's lineage does, and `repairs`, the plan it repairs or replaces.
-- **Bundle facts.** The plan copies each APK's digest and versionCode and the signer digest from
-  the bundle manifests, so the cohort check needs no artifact store. D2's planner must fill them
-  from the verified manifests.
+- **Bundle facts.** The plan names each APK's signing input by its entry digest, never a bundle
+  ID, because a bundle ID covers the signed bytes that the plan's own signing produces. The
+  publication record binds the produced bundles to the plan. The plan also copies each APK's
+  digest and versionCode and the signer digest, so the cohort check needs no artifact store. The
+  APK digests are signed bytes too, so a plan cannot know them before its own signing. This choice
+  is still open: see the assessment.
 - **Native base.** The base is the cohort, which is the fingerprint and the factory APK with its
   versionCode, plus the bytes, versionCode, UID and context active when planned. The UID and
   context serve the Applied definition's "unchanged" test.
@@ -650,9 +698,10 @@ The plan names these records' contents but not their fields. These are D1's choi
 - **Causes.** VOID_TARGET covers the native store's targets, and OTHER_BYTES becomes VOID before
   COMMIT_INTENT and DIVERGED after it.
 - **Signing count 0.** A plan whose bundles are already signed, such as a repair with the
-  restoration, signs nothing. A later attempt of a plan whose earlier attempt published its
-  bundles signs nothing either: the step reads the bundles back published, and never infers
-  publication from an earlier attempt's ledger.
+  restoration, signs nothing, and its PUBLISH binds the bundles that another publication made
+  visible. A later attempt of a plan whose earlier attempt published its bundles signs nothing
+  either: the step needs a fact that reads the plan's publication back PUBLISHED after an earlier
+  attempt's PUBLISH, and never infers publication from a ledger alone.
 
 ## Where the plan is contradictory or underspecified
 
@@ -673,8 +722,10 @@ owner's decisions. Each item says what D1 does.
   line 356 reserves DIVERGED for root and other installers. D1 closes as VOID with VOID_BASE when
   the cohort changed.
 - **A publication that never completes.** SIGNED has no failure exit (line 368), and a lost
-  acknowledgement is never resolved by publishing again (lines 237 to 238). D1 holds in SIGNED
-  until the owner cancels. D2's artifact store must say how a staged publication completes.
+  acknowledgement is never resolved by publishing again (lines 237 to 238). D1 held in SIGNED
+  until the owner cancelled. The amendment at 9334d70 settles it, and D2 follows it: a read of the
+  plan's publication record absent, naming the attempt, allows one more publication from the held
+  bundles, and a second attempt without effect holds with the REQUEST_LIMIT alert.
 - **How long verification may take.** Line 378 abandons a session "still not ready after
   verification had time to run" without a duration. D1 adds the plan field `verificationWait`.
 - **ACTIVATE under early commit.** Decision 3 needs the owner's consent for each activating reboot
@@ -731,36 +782,47 @@ owner's decisions. Each item says what D1 does.
 ## Assessment of the open items
 
 An independent review of the first D1 candidate assessed the nineteen items above and found three
-more. D1 does not edit the plan. Plan amendments come separately, and those that need an owner
-decision go to the owner first. Line numbers refer to the plan at 2c7a250.
+more. D1 and D2 do not edit the plan. Plan amendments come separately, and those that need an
+owner decision go to the owner first. Line numbers in the items refer to the plan at 2c7a250.
 
-These need a plan amendment or design work before D7, by the review's assessment:
+The plan amendments in ac61668 and 9334d70 settled these, and the records follow them:
 
-- **2, applied after a lost record.** Real. Applied should accept an absent record only after
-  COMMIT_INTENT, and the NATIVE_RECORD_LOST row needs the same limit. Amend before D5. D1 now
-  applies both limits.
-- **3, a lost record across an image change.** Real. Add "VOID when the cohort changed" to that
-  row, matching lines 381 and 556.
-- **4, a publication that never completes.** Partly real. CANCELLED is an exit. But line 403
-  allows a new PUBLISH once observation shows no effect, and the PUBLISH bound of 1 forbids it. D2
-  should define that proof, and the layout should reserve a second PUBLISH.
+- **1.** An authorization holds one effect, with the grant's component scope.
+- **2, applied after a lost record.** Applied accepts an absent record only after COMMIT_INTENT,
+  and the NATIVE_RECORD_LOST row has the same limit.
+- **3, a lost record across an image change.** The row voids the ticket when the cohort changed.
+- **4, a publication that never completes.** The plan's publication record read absent after the
+  PUBLISH call has ended, in a fact naming that attempt, shows that the attempt had no effect. The
+  ledger allows two PUBLISH entries, and the second publishes from the bundles the store holds.
+- **10, closing after a late cancellation or voiding.** CLOSED_APPLIED with the cause recorded,
+  the choice unchanged, and DIVERGED until a repair plan.
+- **11, abandons with a successful reply.** Every abandon blocks the component until a later
+  framework instance confirms it.
+- **12, absence on the device route.** The device nonce listing is a proof of absence once D7
+  qualifies that it reads the referrer of every listed session.
+- **21, the boot count on the device.** D7 keeps the count outside the checkpoint rollback, or
+  allows for it.
+- **22, the REBOOT ledger bound.** The ledger holds at most 16 reboot requests, only lost requests
+  count toward the request limit, and a full ledger abandons.
+
+These still need a plan amendment or design work before D7, by the review's assessment:
+
 - **6, ACTIVATE under early commit.** Real. State under "Commit modes" that both modes need an
   ACTIVATE before COMMIT_INTENT, and that an early commit session whose ACTIVATE expires unused is
   abandoned. This follows from decision 3, but the owner should see it.
-- **10, closing after a late cancellation or voiding.** Real. Name the outcome: CLOSED_APPLIED
-  with the cause recorded, the choice unchanged, and DIVERGED until a repair plan.
-- **11, abandons with a successful reply.** Not a contradiction. Line 498 is the rule. Amend line
-  851 to say that every abandon blocks the component until a later framework instance confirms it.
-- **12, absence on the device route.** Not a contradiction, since the plan calls the listing "one
-  such proof". Still, add the device nonce listing to the proofs, and have D7 qualify that it can
-  read the referrer of every listed session.
 - **15, how the notice is delivered.** Real. D3 or D7 needs a notice route that avoids SystemUI
   and gives an observable receipt. Ask the owner whether the route changes what other users see.
   Until then a lost reply counts as undelivered and shortens the delay.
+- **20, the restoration's ACTIVATE.** Decision 3's ACTIVATE, granted in advance, expires on the
+  restoration plan's own `activateWindow`. A restoration that is needed later than that waits for
+  a new grant.
+- **The plan's APK digests.** The plan copies each bundle's APK digest for the cohort check. Like
+  a bundle ID, that digest covers the signed bytes, so a plan whose own signing produces them
+  cannot know it before signing. The cohort check should take the digest from the bundles that
+  the plan's publication binds, and the plan should keep only facts known before signing.
 
 The review finds that this note settles the rest, optionally with a one line wording fix:
 
-- **1.** A wording slip at line 284. Keep one effect per record.
 - **5.** Keep `verificationWait`. D5 and D6 measure it.
 - **7.** The consenting party is the holder of a grant covering the component, from decisions 1
   and 7. The owner may confirm decision 3's wording.
@@ -773,19 +835,6 @@ The review finds that this note settles the rest, optionally with a one line wor
 - **17.** Abandon the open session first.
 - **18.** INCONCLUSIVE.
 - **19.** Exempt only the abandon of the ticket's own session.
-
-New items, each needing an amendment before D7:
-
-- **20, the restoration's ACTIVATE.** Decision 3's ACTIVATE, granted in advance, expires on the
-  restoration plan's own `activateWindow`. A restoration that is needed later than that waits for
-  a new grant.
-- **21, the boot count on the device.** A boot count written during a checkpointed boot rolls back
-  with `/data` (lines 323 and 553), so the device coordinator can undercount boots toward the boot
-  limit.
-- **22, the REBOOT ledger bound.** The ledger holds 16 REBOOT entries, below what the rules allow,
-  which is the boot limit times the request limit. D1 now counts only lost requests against the
-  request limit, as the table's REQUEST edges imply, and a ticket whose ledger is full abandons
-  instead of requesting again. The plan should name the bound.
 
 The repair link is fixed: the cohort check links the open repair plan and keeps the link across
 a status change. These items stay open:

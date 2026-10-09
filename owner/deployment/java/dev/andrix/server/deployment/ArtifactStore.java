@@ -44,7 +44,13 @@ import java.util.TreeSet;
  * {@code bundles/}, then writes the publication by the deployment store's protocol: stage, sync,
  * read back, rename, sync the parent, read back. A published bundle never changes. A lost
  * acknowledgement is resolved by reading the exact bytes, never by publishing again: a second
- * publication of a plan only reads.
+ * publication of a plan that has a publication only reads.
+ *
+ * <p>The plan names the signing inputs of its bundles, and the publication binds the bundles
+ * signed from them to the plan. A publication that stopped before its record was written had no
+ * effect, which {@link #planPublication} shows by reading the record absent. One more publication
+ * then completes from the exact bundles the store already holds, whether still staged or already
+ * renamed, never from a second signing: {@link #held} reads such a bundle back.
  *
  * <p>The store holds no lock. Its one coordinator serializes every call. Host only: the device
  * keeps restoration bundles in system DE storage, which step D7 owns.
@@ -193,25 +199,31 @@ public final class ArtifactStore {
 
     /**
      * Publishes the plan's bundles together: the variant, and its restoration when the plan has
-     * one. Every bundle is verified before anything is renamed. True only when the publication
-     * reads back with every bundle PUBLISHED. When the plan already has a publication, nothing is
-     * written: the result is whether it reads back as exactly this one.
+     * one. Each bundle must be signed from the plan's input for its role, at the plan's
+     * versionCode, in the transaction the publication names for it. Every bundle is verified
+     * before anything is renamed. True only when the publication reads back with every bundle
+     * PUBLISHED. When the plan already has a publication, nothing is written: the result is
+     * whether it reads back as exactly this one. A plan that signs nothing names bundles another
+     * publication made visible, and version 1 of this store does not bind those.
      */
     public boolean publish(Plan plan, Publication publication, List<Staged> staged, Verifier verifier) {
         if (!installation.equals(publication.installation) || !publication.plan.equals(plan.planId)
-                || !publication.component.equals(plan.component)) {
+                || !publication.component.equals(plan.component) || plan.signing == 0) {
             return false;
         }
         // Decision 8: the variant and its restoration are published together or not at all.
-        List<String> expected = new ArrayList<>();
-        expected.add(plan.bundle);
-        if (plan.hasRestoration()) expected.add(plan.restoration);
-        if (!publication.bundles.equals(expected)) return false;
+        List<String> inputs = new ArrayList<>();
+        inputs.add(plan.bundleInput);
+        if (plan.hasRestoration()) inputs.add(plan.restorationInput);
+        if (publication.bundles.size() != inputs.size()) return false; // Never one bundle alone.
         if (staged.size() != publication.bundles.size()) return false;
         for (int i = 0; i < staged.size(); i++) {
             Staged b = staged.get(i);
-            if (!b.id.equals(publication.bundles.get(i)) || b.manifest.role != Publication.roleAt(i)
-                    || !b.manifest.component.equals(plan.component) || !b.manifest.request.equals(publication.request)) {
+            Manifest m = b.manifest;
+            long version = i == 0 ? plan.bundleVersion : plan.restorationVersion;
+            if (!b.id.equals(publication.bundles.get(i)) || m.role != Publication.roleAt(i)
+                    || !m.component.equals(plan.component) || !m.inputEntries.equals(inputs.get(i))
+                    || m.versionCode != version || !m.transaction.equals(publication.transactions.get(i))) {
                 return false;
             }
         }
@@ -224,7 +236,8 @@ public final class ArtifactStore {
         }
         try {
             for (Staged b : staged) {
-                if (!exact(root.resolve(STAGING + "-" + b.id), b)) return false;
+                // The private copy, or the exact bundle an earlier publication renamed and no record names.
+                if (!exact(root.resolve(STAGING + "-" + b.id), b) && !exact(bundle(b.id), b)) return false;
                 String reason = verifier.verify(b);
                 if (reason != null) return false;
             }
@@ -287,6 +300,64 @@ public final class ArtifactStore {
     private boolean visible(Publication p) {
         for (String id : p.bundles) if (presence(id) != Presence.PUBLISHED) return false;
         return true;
+    }
+
+    /**
+     * A bundle the store already holds, read back as staged: its private copy, or its directory
+     * under {@code bundles/}, holding exactly the manifest with this ID and the members it names.
+     * Null when it holds neither. This is how a second publication completes without the bytes
+     * being supplied again, and never by signing again.
+     */
+    public Staged held(String id) {
+        DeploymentRecords.checkDigest(id, "bundle", false);
+        for (Path dir : List.of(root.resolve(STAGING + "-" + id), bundle(id))) {
+            if (node(dir) != Node.DIRECTORY) continue;
+            Read manifest = readRaw(dir.resolve(MANIFEST_FILE));
+            Read apk = readRaw(dir.resolve(APK_FILE));
+            Read idsig = readRaw(dir.resolve(IDSIG_FILE));
+            if (manifest.found != Node.FILE || apk.found != Node.FILE || idsig.found != Node.FILE) continue;
+            if (!DeploymentRecords.sha256Hex(manifest.bytes).equals(id)) continue;
+            try {
+                Manifest m = ArtifactRecords.decodeManifest(manifest.bytes);
+                Staged b = new Staged(m, manifest.bytes, apk.bytes, idsig.bytes);
+                if (installation.equals(m.installation) && apk.bytes.length == m.apkBytes
+                        && idsig.bytes.length == m.idsigBytes && DeploymentRecords.sha256Hex(apk.bytes).equals(m.apk)
+                        && DeploymentRecords.sha256Hex(idsig.bytes).equals(m.idsig) && exact(dir, b)) {
+                    return b;
+                }
+            } catch (IllegalArgumentException damaged) {
+                // Not this copy.
+            }
+        }
+        return null;
+    }
+
+    /**
+     * What a reader sees of one plan's publication: PUBLISHED when its record reads back and every
+     * bundle it names is PUBLISHED, ABSENT when no record exists, MISMATCH when the record names
+     * another plan or a bundle reads back other bytes, and UNAVAILABLE when the record or a bundle
+     * cannot be read, or is damaged or newer. Read after a PUBLISH call has ended, ABSENT shows that
+     * the call had no effect, because the record's rename is the single commit point.
+     */
+    public Presence planPublication(String plan) {
+        DeploymentRecords.checkId(plan, "plan", false);
+        Read raw = readRaw(publicationFile(plan));
+        if (raw.found == Node.ABSENT) return Presence.ABSENT;
+        if (raw.found != Node.FILE) return Presence.UNAVAILABLE;
+        Publication p;
+        try {
+            p = ArtifactRecords.decodePublication(raw.bytes);
+        } catch (IllegalArgumentException damagedOrNewer) {
+            return Presence.UNAVAILABLE;
+        }
+        if (!p.plan.equals(plan) || !p.installation.equals(installation)) return Presence.MISMATCH;
+        Presence result = Presence.PUBLISHED;
+        for (String id : p.bundles) {
+            Presence each = presence(id);
+            if (each == Presence.UNAVAILABLE) return Presence.UNAVAILABLE;
+            if (each != Presence.PUBLISHED) result = Presence.MISMATCH;
+        }
+        return result;
     }
 
     // ------------------------------------------------------------------ reads

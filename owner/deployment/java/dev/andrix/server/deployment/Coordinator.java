@@ -57,10 +57,16 @@ public final class Coordinator {
         /** Issues one signing request. Returns the signer's reply, or null when it is lost. */
         Observation sign(Ticket ticket, Plan plan, Entry entry, Authorization grant);
 
-        /** Publishes the plan's bundles. Returns the read back result, or null when it is lost. */
+        /**
+         * Publishes the plan's bundles. Returns the store's read of the plan's publication after the
+         * call, naming the entry's attempt, or null when the reply is lost.
+         */
         Observation publish(Ticket ticket, Plan plan, Entry entry);
 
-        /** Queries open signing requests by ID and reads the plan's bundles back. */
+        /**
+         * Queries open signing requests by ID, and reads the plan's publication back in a fact that
+         * names the ticket's last PUBLISH attempt, whose call has ended by then.
+         */
         List<Observation> query(Ticket ticket, Plan plan);
     }
 
@@ -206,13 +212,12 @@ public final class Coordinator {
     }
 
     // Facts about the same thing: the same kind, boot, framework instance, route, component, user
-    // and request or ledger entry, and for a session its ID, for a bundle its digest.
+    // and request, PUBLISH attempt or ledger entry, and for a session its ID.
     private static boolean sameSubject(Observation a, Observation b) {
         return a.kind == b.kind && a.boot.equals(b.boot) && a.instance == b.instance && a.route == b.route
                 && a.component.equals(b.component) && a.user == b.user && a.serial == b.serial
                 && a.subject.equals(b.subject) && a.sequence == b.sequence && a.crossing == b.crossing
-                && (a.kind != ObservationKind.SESSION || a.reference.sessionId == b.reference.sessionId)
-                && (a.kind != ObservationKind.BUNDLE || a.digest.equals(b.digest));
+                && (a.kind != ObservationKind.SESSION || a.reference.sessionId == b.reference.sessionId);
     }
 
     private static boolean identical(Observation a, Observation b) {

@@ -30,14 +30,14 @@ import java.util.stream.Stream;
  */
 public final class ArtifactStoreTest {
     // Pinned by the runner against its independent encoder.
-    private static final int GOLDEN_MANIFEST_VARIANT_BYTES = 329;
-    private static final String GOLDEN_MANIFEST_VARIANT_SHA256 = "78aca427279c846a3c2963a724971313ad63e0683a9e09acb33111f683d5808e";
-    private static final int GOLDEN_MANIFEST_RESTORATION_BYTES = 329;
-    private static final String GOLDEN_MANIFEST_RESTORATION_SHA256 = "86a448487e6567ac5a5836a8c29f2a5f01edd3cfb78aa3b0465322a14192b55b";
-    private static final int GOLDEN_PUBLICATION_PAIR_BYTES = 189;
-    private static final String GOLDEN_PUBLICATION_PAIR_SHA256 = "63625b68147359c0ea9e3d7053f34fb80b57bd0781852cc643abecff4bb70499";
+    private static final int GOLDEN_MANIFEST_VARIANT_BYTES = 321;
+    private static final String GOLDEN_MANIFEST_VARIANT_SHA256 = "54ee87992b779d59aedbeb6ced96cdab977167a4f8613af84403e8b462000a74";
+    private static final int GOLDEN_MANIFEST_RESTORATION_BYTES = 321;
+    private static final String GOLDEN_MANIFEST_RESTORATION_SHA256 = "5a13a6b299d322c2faf35ceb4d787f3344c6e1dff20b467fdd438a27e8cfd1d0";
+    private static final int GOLDEN_PUBLICATION_PAIR_BYTES = 205;
+    private static final String GOLDEN_PUBLICATION_PAIR_SHA256 = "1436d9786033a39b5d486a771be40c6d2d9c85bd736ee1526898de3f2087282f";
     private static final int GOLDEN_PUBLICATION_ONE_BYTES = 156;
-    private static final String GOLDEN_PUBLICATION_ONE_SHA256 = "35915c5304625e9233e39b2f23544890c363f80787853a35c7786a728fd24fa9";
+    private static final String GOLDEN_PUBLICATION_ONE_SHA256 = "cb1811d26a22c4849d4d45ad360a9e66ad1f5ed0259a5bace9bd76c081e31524";
 
     private static final Cases cases = new Cases();
     private static final String REQUEST = Fixtures.id(0x5e);
@@ -61,24 +61,28 @@ public final class ArtifactStoreTest {
 
     static byte[] idsig(int n) { return ("v4 sidecar " + n).getBytes(StandardCharsets.US_ASCII); }
 
-    static Manifest manifest(Role role, int n, String request) {
+    static Manifest manifest(Role role, int n, String transaction) {
         byte[] apk = apk(n);
         byte[] idsig = idsig(n);
-        return new Manifest(INSTALLATION, Fixtures.COMPONENT, role, request, Fixtures.digest(0x30 + n),
+        return new Manifest(INSTALLATION, Fixtures.COMPONENT, role, transaction, Fixtures.digest(0x30 + n),
                 Fixtures.digest(0x40 + n), role == Role.VARIANT ? Fixtures.BUNDLE_VERSION : Fixtures.RESTORATION_VERSION,
                 DeploymentRecords.sha256Hex(apk), apk.length, DeploymentRecords.sha256Hex(idsig), idsig.length, CERT,
-                KEY, ArtifactRecords.SCHEMES, 37, 37, V4Check.VERIFIED, TIME + n);
+                KEY, ArtifactRecords.SCHEMES, 37, 37, V4Check.VERIFIED);
     }
 
     static Manifest variant() { return manifest(Role.VARIANT, 1, REQUEST); }
 
     static Manifest restoration() { return manifest(Role.RESTORATION, 2, REQUEST); }
 
+    static String variantId() { return ArtifactRecords.bundleId(variant()); }
+
+    static String restorationId() { return ArtifactRecords.bundleId(restoration()); }
+
+    // The plan names the signing inputs by their entry digests, never the bundles signed from them.
     static Plan plan(boolean withRestoration) {
-        Plan.Builder b = Fixtures.plan(1).bundle(ArtifactRecords.bundleId(variant()), variant().apk,
-                Fixtures.BUNDLE_VERSION);
+        Plan.Builder b = Fixtures.plan(1).bundle(variant().inputEntries, variant().apk, Fixtures.BUNDLE_VERSION);
         if (withRestoration) {
-            b.restoration(ArtifactRecords.bundleId(restoration()), restoration().apk, Fixtures.RESTORATION_VERSION);
+            b.restoration(restoration().inputEntries, restoration().apk, Fixtures.RESTORATION_VERSION);
         } else {
             b.restoration(DeploymentRecords.NO_DIGEST, DeploymentRecords.NO_DIGEST, 0);
         }
@@ -86,9 +90,13 @@ public final class ArtifactStoreTest {
     }
 
     static Publication publication(Plan plan) {
-        List<String> ids = new ArrayList<>(List.of(plan.bundle));
-        if (plan.hasRestoration()) ids.add(plan.restoration);
-        return new Publication(INSTALLATION, plan.planId, plan.component, REQUEST, ids, TIME + 9);
+        List<String> ids = new ArrayList<>(List.of(variantId()));
+        List<String> transactions = new ArrayList<>(List.of(REQUEST));
+        if (plan.hasRestoration()) {
+            ids.add(restorationId());
+            transactions.add(REQUEST);
+        }
+        return new Publication(INSTALLATION, plan.planId, plan.component, ids, transactions, TIME + 9);
     }
 
     // ------------------------------------------------------------------ records
@@ -126,29 +134,38 @@ public final class ArtifactStoreTest {
             }
             check(problems, refusedManifest(reseal(Arrays.copyOf(m, m.length + 1))), "manifest trailing byte");
             byte[] p = ArtifactRecords.encodePublication(publication(plan(true)));
-            int count = 12 + 16 + 16 + 2 + Fixtures.COMPONENT.length() + 16;
-            for (int[] change : new int[][] {{count, 0}, {count, 3}, {count + 33, 2}, {count + 66, 1}}) {
+            int count = 12 + 16 + 16 + 2 + Fixtures.COMPONENT.length();
+            for (int[] change : new int[][] {{count, 0}, {count, 3}, {count + 33, 2}, {count + 82, 1}}) {
                 check(problems, refusedPublication(resealed(p, change[0], change[1])), "publication byte " + change[0]);
             }
             check(problems, refusedPublication(resealed(m, 4, 7)), "a manifest read as a publication");
             check(problems, refusedManifest(resealed(m, 6, 2)), "version 2 read as version 1");
             boolean twice = false;
             try {
-                new Publication(INSTALLATION, Fixtures.id(1), Fixtures.COMPONENT, REQUEST,
-                        List.of(Fixtures.digest(1), Fixtures.digest(1)), 0);
+                new Publication(INSTALLATION, Fixtures.id(1), Fixtures.COMPONENT,
+                        List.of(Fixtures.digest(1), Fixtures.digest(1)), List.of(REQUEST, REQUEST), 0);
             } catch (IllegalArgumentException expected) {
                 twice = true;
             }
             check(problems, twice, "a bundle named twice");
+            byte[] zero = p.clone();
+            Arrays.fill(zero, count + 34, count + 50, (byte) 0);
+            check(problems, refusedPublication(reseal(zero)), "a zero signing transaction");
+            boolean unpaired = false;
+            try {
+                new Publication(INSTALLATION, Fixtures.id(1), Fixtures.COMPONENT, List.of(Fixtures.digest(1)),
+                        List.of(REQUEST, REQUEST), 0);
+            } catch (IllegalArgumentException expected) {
+                unpaired = true;
+            }
+            check(problems, unpaired, "a transaction without its bundle");
         });
         cases.run("records / informational times decide nothing and the prefix reads a later version", problems -> {
             for (long t : new long[] {Long.MIN_VALUE, -1, 0, Long.MAX_VALUE}) {
-                Manifest m = variant();
-                Manifest other = new Manifest(m.installation, m.component, m.role, m.request, m.input, m.inputEntries,
-                        m.versionCode, m.apk, m.apkBytes, m.idsig, m.idsigBytes, m.certificate, m.key, m.schemes,
-                        m.sdkMin, m.sdkMax, m.v4, t);
-                check(problems, ArtifactRecords.decodeManifest(ArtifactRecords.encodeManifest(other)).createdAt == t,
-                        "time " + t);
+                Publication p = publication(plan(true));
+                Publication other = new Publication(p.installation, p.plan, p.component, p.bundles, p.transactions, t);
+                check(problems, ArtifactRecords.decodePublication(ArtifactRecords.encodePublication(other))
+                        .publishedAt == t, "time " + t);
             }
             byte[] later = resealed(ArtifactRecords.encodeManifest(variant()), 6, 2);
             ArtifactRecords.Prefix prefix = ArtifactRecords.decodePrefix(later);
@@ -190,6 +207,18 @@ public final class ArtifactStoreTest {
                 torn[torn.length - 1] ^= 1;
                 check(problems, ArtifactRecords.intactFrame(torn) == null, "a checksum change accepted");
             }
+        });
+        cases.run("records / the same bytes keep one bundle ID, and the output may equal its input", problems -> {
+            check(problems, variantId().equals(ArtifactRecords.bundleId(manifest(Role.VARIANT, 1, REQUEST))),
+                    "a manifest built again has another ID");
+            check(problems, !variantId().equals(ArtifactRecords.bundleId(manifest(Role.VARIANT, 1, Fixtures.id(0x5f)))),
+                    "the signing transaction outside the ID");
+            Manifest m = variant();
+            Manifest reproduced = new Manifest(m.installation, m.component, m.role, m.transaction, m.apk,
+                    m.inputEntries, m.versionCode, m.apk, m.apkBytes, m.idsig, m.idsigBytes, m.certificate, m.key,
+                    m.schemes, m.sdkMin, m.sdkMax, m.v4);
+            check(problems, ArtifactRecords.decodeManifest(ArtifactRecords.encodeManifest(reproduced))
+                    .equals(reproduced), "signing that reproduced its input exactly refused");
         });
     }
 
@@ -253,7 +282,7 @@ public final class ArtifactStoreTest {
     private static final ArtifactStore.Verifier PASS = b -> null;
 
     private static List<Presence> both(ArtifactStore s, Plan plan) {
-        return List.of(s.presence(plan.bundle), s.presence(plan.restoration));
+        return List.of(s.presence(variantId()), s.presence(restorationId()));
     }
 
     private static final List<Presence> PUBLISHED = List.of(Presence.PUBLISHED, Presence.PUBLISHED);
@@ -276,19 +305,19 @@ public final class ArtifactStoreTest {
             Plan plan = plan(true);
             List<Staged> staged = stageBoth(s);
             check(problems, staged.get(0) != null && staged.get(1) != null, "staged");
-            check(problems, staged.get(0).id.equals(plan.bundle) && staged.get(1).id.equals(plan.restoration),
+            check(problems, staged.get(0).id.equals(variantId()) && staged.get(1).id.equals(restorationId()),
                     "bundle IDs are the manifest digests");
             check(problems, both(s, plan).equals(ABSENT), "staging is invisible " + both(s, plan));
             check(problems, s.publish(plan, publication(plan), staged, PASS), "published");
             check(problems, both(s, plan).equals(PUBLISHED), "both published " + both(s, plan));
-            check(problems, Arrays.equals(s.members(plan.bundle).get(0), apk(1))
-                    && Arrays.equals(s.members(plan.restoration).get(1), idsig(2)), "exact members");
+            check(problems, Arrays.equals(s.members(variantId()).get(0), apk(1))
+                    && Arrays.equals(s.members(restorationId()).get(1), idsig(2)), "exact members");
             check(problems, s.publication(plan.planId).equals(publication(plan)), "publication read back");
             Plan alone = plan(false);
             ArtifactStore single = store(fresh(base), step -> { });
             List<Staged> one = List.of(single.stage(variant(), apk(1), idsig(1)));
             check(problems, single.publish(alone, publication(alone), one, PASS)
-                    && single.presence(alone.bundle) == Presence.PUBLISHED, "a plan without a restoration");
+                    && single.presence(variantId()) == Presence.PUBLISHED, "a plan without a restoration");
         });
         cases.run("store / a stop at every step leaves both bundles visible or neither", problems -> {
             Plan plan = plan(true);
@@ -349,23 +378,23 @@ public final class ArtifactStoreTest {
                 verified.add(b.id);
                 return null;
             });
-            check(problems, ok && verified.equals(List.of(plan.bundle, plan.restoration)), "verified " + verified);
+            check(problems, ok && verified.equals(List.of(variantId(), restorationId())), "verified " + verified);
         });
         cases.run("store / a bundle is never published alone", problems -> {
             Plan plan = plan(true);
             Path root = fresh(base);
             ArtifactStore s = store(root, step -> { });
             List<Staged> staged = stageBoth(s);
-            Publication alone = new Publication(INSTALLATION, plan.planId, plan.component, REQUEST,
-                    List.of(plan.bundle), TIME);
+            Publication alone = new Publication(INSTALLATION, plan.planId, plan.component, List.of(variantId()),
+                    List.of(REQUEST), TIME);
             check(problems, !s.publish(plan, alone, staged.subList(0, 1), PASS), "the variant alone");
-            Publication swapped = new Publication(INSTALLATION, plan.planId, plan.component, REQUEST,
-                    List.of(plan.restoration, plan.bundle), TIME);
+            Publication swapped = new Publication(INSTALLATION, plan.planId, plan.component,
+                    List.of(restorationId(), variantId()), List.of(REQUEST, REQUEST), TIME);
             check(problems, !s.publish(plan, swapped, List.of(staged.get(1), staged.get(0)), PASS), "roles swapped");
             check(problems, !s.publish(plan, publication(plan), staged.subList(0, 1), PASS), "one staged bundle");
             Staged otherRequest = s.stage(manifest(Role.RESTORATION, 2, Fixtures.id(0x5f)), apk(2), idsig(2));
             check(problems, !s.publish(plan, publication(plan), List.of(staged.get(0), otherRequest), PASS),
-                    "a restoration of another signing transaction");
+                    "a restoration the publication does not name");
             check(problems, both(s, plan).equals(ABSENT) && bundleDirs(root) == 0, "visible " + both(s, plan));
         });
         cases.run("store / a lost acknowledgement resolves by reading the exact bytes", problems -> {
@@ -378,15 +407,15 @@ public final class ArtifactStoreTest {
             List<Staged> staged = stageBoth(s);
             check(problems, !s.publish(plan, publication(plan), staged, PASS), "the acknowledgement was lost");
             check(problems, both(s, plan).equals(PUBLISHED), "read back " + both(s, plan));
-            check(problems, Arrays.equals(s.members(plan.bundle).get(0), apk(1))
-                    && Arrays.equals(s.members(plan.restoration).get(0), apk(2)), "the exact bytes");
+            check(problems, Arrays.equals(s.members(variantId()).get(0), apk(1))
+                    && Arrays.equals(s.members(restorationId()).get(0), apk(2)), "the exact bytes");
             lose[0] = false;
             List<String> points = new ArrayList<>();
             ArtifactStore again = store(root, points::add);
             check(problems, again.publish(plan, publication(plan), staged, b -> "never asked"), "resolved by reading");
             check(problems, points.isEmpty(), "written again " + points);
-            Publication other = new Publication(INSTALLATION, plan.planId, plan.component, REQUEST,
-                    List.of(plan.bundle, plan.restoration), TIME + 1);
+            Publication other = new Publication(INSTALLATION, plan.planId, plan.component,
+                    List.of(variantId(), restorationId()), List.of(REQUEST, REQUEST), TIME + 1);
             check(problems, !again.publish(plan, other, staged, PASS) && again.publication(plan.planId)
                     .equals(publication(plan)), "a published record never changes");
         });
@@ -396,7 +425,7 @@ public final class ArtifactStoreTest {
                 Path root = fresh(base);
                 ArtifactStore s = store(root, step -> { });
                 check(problems, s.publish(plan, publication(plan), stageBoth(s), PASS), "published");
-                Path dir = root.resolve("bundles").resolve(plan.restoration);
+                Path dir = root.resolve("bundles").resolve(restorationId());
                 if (damage == 0) {
                     byte[] bytes = Files.readAllBytes(dir.resolve("base.apk"));
                     bytes[7] ^= 1;
@@ -408,8 +437,9 @@ public final class ArtifactStoreTest {
                 } else {
                     Files.write(dir.resolve("manifest.rec"), ArtifactRecords.encodeManifest(variant()));
                 }
-                check(problems, s.presence(plan.bundle) == Presence.PUBLISHED
-                        && s.presence(plan.restoration) == Presence.MISMATCH, "damage " + damage + " " + both(s, plan));
+                check(problems, s.presence(variantId()) == Presence.PUBLISHED
+                        && s.presence(restorationId()) == Presence.MISMATCH
+                        && s.planPublication(plan.planId) == Presence.MISMATCH, "damage " + damage + " " + both(s, plan));
             }
         });
         cases.run("store / unpublished bundles, staging leftovers and unreadable publications", problems -> {
@@ -417,18 +447,18 @@ public final class ArtifactStoreTest {
             Path root = fresh(base);
             ArtifactStore s = store(root, step -> { });
             List<Staged> staged = stageBoth(s);
-            Files.move(root.resolve(".staging-" + plan.bundle), root.resolve("bundles").resolve(plan.bundle));
-            check(problems, s.presence(plan.bundle) == Presence.ABSENT, "a bundle no publication names is invisible");
+            Files.move(root.resolve(".staging-" + variantId()), root.resolve("bundles").resolve(variantId()));
+            check(problems, s.presence(variantId()) == Presence.ABSENT, "a bundle no publication names is invisible");
             Files.write(root.resolve("publications").resolve(".x.rec.staging"), new byte[] {1});
-            check(problems, s.presence(plan.bundle) == Presence.ABSENT, "a staging leftover is a record");
+            check(problems, s.presence(variantId()) == Presence.ABSENT, "a staging leftover is a record");
             Path damaged = root.resolve("publications").resolve(Fixtures.id(0x777) + ".rec");
             Files.write(damaged, new byte[] {1, 2, 3});
-            check(problems, s.presence(plan.bundle) == Presence.UNAVAILABLE
-                    && s.presence(plan.restoration) == Presence.UNAVAILABLE, "a damaged publication might name it");
+            check(problems, s.presence(variantId()) == Presence.UNAVAILABLE
+                    && s.presence(restorationId()) == Presence.UNAVAILABLE, "a damaged publication might name it");
             Files.delete(damaged);
             Files.write(root.resolve("publications").resolve(Fixtures.id(0x778) + ".rec"),
                     resealed(ArtifactRecords.encodePublication(publication(plan)), 6, 2));
-            check(problems, s.presence(plan.bundle) == Presence.UNAVAILABLE, "a newer publication might name it");
+            check(problems, s.presence(variantId()) == Presence.UNAVAILABLE, "a newer publication might name it");
             Files.delete(root.resolve("publications").resolve(Fixtures.id(0x778) + ".rec"));
             // The resumed publication keeps the bundle already there, which has the exact bytes.
             List<Staged> again = List.of(staged.get(0), staged.get(1));
@@ -441,13 +471,90 @@ public final class ArtifactStoreTest {
             Path root = fresh(base);
             ArtifactStore s = store(root, step -> { });
             List<Staged> staged = stageBoth(s);
-            Path squatter = root.resolve("bundles").resolve(plan.restoration);
+            Path squatter = root.resolve("bundles").resolve(restorationId());
             Files.createDirectory(squatter);
             Files.write(squatter.resolve("base.apk"), apk(9));
             check(problems, !s.publish(plan, publication(plan), staged, PASS), "published over other bytes");
             check(problems, s.publication(plan.planId) == null && both(s, plan).equals(ABSENT)
                     && Arrays.equals(Files.readAllBytes(squatter.resolve("base.apk")), apk(9)), "replaced");
             check(problems, s.stage(variant(), apk(2), idsig(1)) == null, "members that differ from the manifest staged");
+        });
+        cases.run("store / the plan names its inputs and the publication binds the bundles signed from them",
+                problems -> {
+            Plan plan = plan(true);
+            ArtifactStore s = store(fresh(base), step -> { });
+            List<Staged> staged = stageBoth(s);
+            Plan otherInput = plan.toBuilder().restoration(Fixtures.digest(0x49), restoration().apk,
+                    Fixtures.RESTORATION_VERSION).build();
+            check(problems, !s.publish(otherInput, publication(otherInput), staged, PASS), "a bundle of another input");
+            Plan otherVersion = plan.toBuilder().restoration(restoration().inputEntries, restoration().apk, 42).build();
+            check(problems, !s.publish(otherVersion, publication(otherVersion), staged, PASS), "another versionCode");
+            Plan signsNothing = plan.toBuilder().signing(0).build();
+            check(problems, !s.publish(signsNothing, publication(signsNothing), staged, PASS), "a plan that signs nothing");
+            check(problems, both(s, plan).equals(ABSENT) && s.planPublication(plan.planId) == Presence.ABSENT,
+                    "visible " + both(s, plan));
+            check(problems, s.publish(plan, publication(plan), staged, PASS)
+                    && s.planPublication(plan.planId) == Presence.PUBLISHED, "the plan's own inputs refused");
+        });
+        cases.run("store / a second publication completes from the bundles the store already holds", problems -> {
+            Plan plan = plan(true);
+            Path root = fresh(base);
+            boolean[] stop = {true};
+            ArtifactStore s = store(root, step -> {
+                if (stop[0] && step.equals("bundles-synced")) throw new Stop();
+            });
+            check(problems, !s.publish(plan, publication(plan), stageBoth(s), PASS), "stopped after the renames");
+            check(problems, both(s, plan).equals(ABSENT) && s.planPublication(plan.planId) == Presence.ABSENT
+                    && bundleDirs(root) == 2, "an effect " + both(s, plan));
+            stop[0] = false;
+            // No bytes are supplied again and nothing is signed again: the store reads its own bundles.
+            List<Staged> held = Arrays.asList(s.held(variantId()), s.held(restorationId()));
+            check(problems, held.get(0) != null && held.get(1) != null, "held bundles unreadable");
+            List<String> verified = new ArrayList<>();
+            check(problems, s.publish(plan, publication(plan), held, b -> {
+                verified.add(b.id);
+                return null;
+            }) && both(s, plan).equals(PUBLISHED) && s.planPublication(plan.planId) == Presence.PUBLISHED,
+                    "the second publication " + both(s, plan));
+            check(problems, verified.equals(List.of(variantId(), restorationId())), "verified again " + verified);
+            check(problems, s.held(Fixtures.digest(0x99)) == null, "a bundle the store does not hold");
+            // A stop before any rename leaves the private copies, which the store also holds.
+            Path second = fresh(base);
+            ArtifactStore t = store(second, step -> {
+                if (step.equals("verified")) throw new Stop();
+            });
+            check(problems, !t.publish(plan, publication(plan), stageBoth(t), PASS), "stopped before the renames");
+            ArtifactStore resumed = store(second, step -> { });
+            List<Staged> copies = Arrays.asList(resumed.held(variantId()), resumed.held(restorationId()));
+            check(problems, copies.get(0) != null && copies.get(1) != null
+                    && resumed.publish(plan, publication(plan), copies, PASS) && both(resumed, plan).equals(PUBLISHED),
+                    "completed from the private copies");
+            // A held copy whose bytes changed is no bundle.
+            Path third = fresh(base);
+            ArtifactStore u = store(third, step -> {
+                if (step.equals("bundles-synced")) throw new Stop();
+            });
+            check(problems, !u.publish(plan, publication(plan), stageBoth(u), PASS), "stopped");
+            Path apkFile = third.resolve("bundles").resolve(restorationId()).resolve("base.apk");
+            byte[] bytes = Files.readAllBytes(apkFile);
+            bytes[3] ^= 1;
+            Files.write(apkFile, bytes);
+            check(problems, u.held(restorationId()) == null, "a changed bundle read as held");
+        });
+        cases.run("store / a pair from two signing transactions fits the publication", problems -> {
+            ArtifactStore s = store(fresh(base), step -> { });
+            Manifest r = manifest(Role.RESTORATION, 2, Fixtures.id(0x5f));
+            String rid = ArtifactRecords.bundleId(r);
+            Plan plan = plan(true).toBuilder().signing(2).build();
+            List<Staged> staged = List.of(s.stage(variant(), apk(1), idsig(1)), s.stage(r, apk(2), idsig(2)));
+            Publication wrong = new Publication(INSTALLATION, plan.planId, plan.component, List.of(variantId(), rid),
+                    List.of(REQUEST, REQUEST), TIME);
+            check(problems, !s.publish(plan, wrong, staged, PASS), "a transaction the bundle was not signed in");
+            Publication two = new Publication(INSTALLATION, plan.planId, plan.component, List.of(variantId(), rid),
+                    List.of(REQUEST, Fixtures.id(0x5f)), TIME);
+            check(problems, s.publish(plan, two, staged, PASS) && s.presence(variantId()) == Presence.PUBLISHED
+                    && s.presence(rid) == Presence.PUBLISHED && s.publication(plan.planId).equals(two),
+                    "the pair of two transactions");
         });
     }
 }

@@ -148,13 +148,14 @@ public final class Reconciler {
             return best;
         }
 
+        // What the store read of the plan's publication after one PUBLISH attempt's call had ended.
         // A published bundle never changes: published wins over absent, and a mismatch over both.
-        Classification bundle(String bundle) {
+        Classification publication(String attempt) {
             List<Classification> order = List.of(Classification.BUNDLE_ABSENT, Classification.BUNDLE_PUBLISHED,
                     Classification.BUNDLE_MISMATCH);
             Classification best = null;
             for (Observation o : facts) {
-                if (o.kind == ObservationKind.BUNDLE && o.digest.equals(bundle)
+                if (o.kind == ObservationKind.BUNDLE && o.subject.equals(attempt)
                         && (best == null || order.indexOf(o.classification) > order.indexOf(best))) {
                     best = o.classification;
                 }
@@ -370,10 +371,7 @@ public final class Reconciler {
             case SIGNED:
                 if (b.cause() != Cause.NONE) return close(c, b, "recorded cause before publication");
                 if (published(c)) return to(c, b, State.PUBLISHED, "bundles read back published");
-                if (t.count(Crossing.PUBLISH) == 0) {
-                    return issue(c, b, State.SIGNED, entry(c, Crossing.PUBLISH, NO_ID, NO_ID), "publish");
-                }
-                return null; // A lost acknowledgement resolves by reading the bytes, never by publishing again.
+                return publish(c, b);
             case PUBLISHED:
                 return stage(c, b);
             case SESSION_INTENT:
@@ -476,10 +474,37 @@ public final class Reconciler {
         return signNext(c, b, State.SIGNING);
     }
 
+    // The plan's publication read back complete after a PUBLISH attempt of any of its tickets, and
+    // no attempt read a mismatch. A plan has one publication, which never changes once written.
     private static boolean published(Context c) {
-        Plan p = c.plan;
-        if (c.view.bundle(p.bundle) != Classification.BUNDLE_PUBLISHED) return false;
-        return !p.hasRestoration() || c.view.bundle(p.restoration) == Classification.BUNDLE_PUBLISHED;
+        boolean complete = false;
+        for (Ticket other : c.planTickets) {
+            for (Entry e : other.ledger) {
+                if (e.crossing != Crossing.PUBLISH) continue;
+                Classification seen = c.view.publication(e.reference);
+                if (seen == Classification.BUNDLE_MISMATCH) return false;
+                complete |= seen == Classification.BUNDLE_PUBLISHED;
+            }
+        }
+        return complete;
+    }
+
+    // A lost acknowledgement is resolved by reading, never by publishing again. Only the plan's
+    // publication record read absent after the last attempt's call had ended, in a fact naming
+    // that attempt, shows that the attempt had no effect. One more attempt then follows, which the
+    // store completes from the bundles it already holds. After a second attempt without effect the
+    // ticket holds and alerts.
+    private static Step publish(Context c, Ticket.Builder b) {
+        Ticket t = c.ticket;
+        Entry last = t.last(Crossing.PUBLISH);
+        if (last == null) return issue(c, b, State.SIGNED, entry(c, Crossing.PUBLISH, NO_ID, c.ids.get()), "publish");
+        if (c.view.publication(last.reference) != Classification.BUNDLE_ABSENT) return null;
+        if (t.count(Crossing.PUBLISH) < Crossing.PUBLISH.bound) {
+            return issue(c, b, State.SIGNED, entry(c, Crossing.PUBLISH, NO_ID, c.ids.get()),
+                    "the publication had no effect: publish once more from the held bundles");
+        }
+        b.set(FLAG_REQUEST_LIMIT);
+        return done(c, b, null, null, "a second publication had no effect: holding and alerting");
     }
 
     // ---------------------------------------------------------- staging
@@ -1053,7 +1078,7 @@ public final class Reconciler {
         Plan p = c.plan;
         Plan r = c.repaired;
         return r != null && p.target == Target.VARIANT && r.restorationPlan.equals(p.planId) && r.hasRestoration()
-                && p.bundle.equals(r.restoration) && p.bundleApk.equals(r.restorationApk)
+                && p.bundleInput.equals(r.restorationInput) && p.bundleApk.equals(r.restorationApk)
                 && p.bundleVersion == r.restorationVersion;
     }
 

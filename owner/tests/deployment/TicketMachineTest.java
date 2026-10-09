@@ -653,7 +653,7 @@ public final class TicketMachineTest {
 
     // A plan that installs another plan's restoration bundle in its place, as its restoration does.
     private static Plan.Builder restorationOf(Plan original, long n) {
-        return Fixtures.plan(n).repairs(original.planId).bundle(original.restoration, original.restorationApk,
+        return Fixtures.plan(n).repairs(original.planId).bundle(original.restorationInput, original.restorationApk,
                 original.restorationVersion).restoration(DeploymentRecords.NO_DIGEST, DeploymentRecords.NO_DIGEST, 0)
                 .signing(0);
     }
@@ -974,7 +974,7 @@ public final class TicketMachineTest {
         cases.run("restoration / automatic restoration runs only when the approval listed it", problems -> {
             Plan listed = Fixtures.plan(1).healthResponse(HealthResponse.RESTORE_AUTOMATICALLY)
                     .restorationPlan(id(0x105)).build();
-            Plan restoration = Fixtures.plan(5).repairs(listed.planId).bundle(Fixtures.RESTORATION,
+            Plan restoration = Fixtures.plan(5).repairs(listed.planId).bundle(Fixtures.RESTORATION_INPUT,
                     Fixtures.RESTORATION_APK, 41).restoration(DeploymentRecords.NO_DIGEST, DeploymentRecords.NO_DIGEST, 0)
                     .signing(0).base(BUNDLE_APK, 40, Fixtures.UID, Fixtures.CONTEXT).selectionRevision(1).build();
             Classification[] probes = {Classification.HEALTH_HELD, Classification.HEALTH_CRASH,
@@ -1293,13 +1293,22 @@ public final class TicketMachineTest {
         });
         cases.run("signing / a later attempt skips signing only when the bundles read back published", problems -> {
             // An earlier attempt published the bundles and was cancelled before any session.
-            Bed later = Bed.late().grants().at(State.AUTHORIZED).host(Classification.BUNDLE_PUBLISHED,
-                    Fixtures.BUNDLE).host(Classification.BUNDLE_PUBLISHED, Fixtures.RESTORATION);
+            Bed later = Bed.late().grants().at(State.AUTHORIZED);
             Ticket.Builder earlier = Fixtures.ticket(2, later.plan).state(State.CANCELLED).cause(Cause.CANCELLED);
             for (Crossing c : TO_PUBLISHED) earlier.append(Bed.entry(c, B1, 1, 1100));
             later.others.add(earlier.build());
+            Bed unread = Bed.late().grants().at(State.AUTHORIZED);
+            unread.others.add(earlier.build());
+            Step u = unread.step();
+            check(problems, u.ticket.state == State.AUTHORIZED && u.issue == null,
+                    "an unread publication skipped signing " + u);
+            later.host(Classification.BUNDLE_PUBLISHED, Fixtures.PUBLISH_ATTEMPT);
             Step p = later.step();
             check(problems, p.ticket.state == State.SIGNING && p.issue == null, "published bundles signed again " + p);
+            Bed other = Bed.late().grants().at(State.AUTHORIZED).host(Classification.BUNDLE_PUBLISHED, id(0x9b99));
+            Step o = other.step();
+            check(problems, o.issue != null && o.issue.crossing == Crossing.SIGN,
+                    "another plan's publication skipped signing " + o);
             Bed fresh = Bed.late().grants().at(State.AUTHORIZED);
             Step f = fresh.step();
             check(problems, f.ticket.state == State.SIGNING && f.issue != null && f.issue.crossing == Crossing.SIGN,
@@ -1308,15 +1317,47 @@ public final class TicketMachineTest {
         cases.run("publish / a lost acknowledgement is resolved by reading, never by publishing again", problems -> {
             Bed bed = Bed.late().grants().at(State.SIGNED, Crossing.SIGN);
             Step s = bed.step();
-            check(problems, s.issue != null && s.issue.crossing == Crossing.PUBLISH, "publish " + s);
+            check(problems, s.issue != null && s.issue.crossing == Crossing.PUBLISH
+                    && !s.issue.reference.equals(NO_ID), "publish with an attempt ID " + s);
             for (int i = 0; i < 3; i++) {
                 Step again = bed.step();
                 check(problems, again.issue == null && again.ticket.state == State.SIGNED, "published again " + again);
             }
-            bed.host(Classification.BUNDLE_ABSENT, Fixtures.BUNDLE).host(Classification.BUNDLE_PUBLISHED, Fixtures.BUNDLE);
-            check(problems, bed.step().ticket.state == State.SIGNED, "the restoration unread");
-            bed.host(Classification.BUNDLE_PUBLISHED, Fixtures.RESTORATION);
+            // A read that names no attempt of this ticket, or a mismatch, proves nothing.
+            bed.host(Classification.BUNDLE_ABSENT, id(0x9b99)).host(Classification.BUNDLE_PUBLISHED, id(0x9b98));
+            check(problems, bed.step().issue == null && bed.ticket.state == State.SIGNED, "another attempt's read");
+            bed.host(Classification.BUNDLE_PUBLISHED, s.issue.reference);
             check(problems, bed.step().ticket.state == State.PUBLISHED, "read back");
+            Bed mismatch = Bed.late().grants().at(State.SIGNED, Crossing.SIGN, Crossing.PUBLISH)
+                    .host(Classification.BUNDLE_PUBLISHED, Fixtures.PUBLISH_ATTEMPT)
+                    .host(Classification.BUNDLE_MISMATCH, Fixtures.PUBLISH_ATTEMPT);
+            Step m = mismatch.step();
+            check(problems, m.issue == null && m.ticket.state == State.SIGNED, "a mismatch read as published " + m);
+        });
+        cases.run("publish / a second publication follows only a read of absence naming the attempt", problems -> {
+            Bed bed = Bed.late().grants().at(State.SIGNED, Crossing.SIGN, Crossing.PUBLISH);
+            bed.host(Classification.BUNDLE_ABSENT, id(0x9b99));
+            check(problems, bed.step().issue == null, "another attempt's absence");
+            bed.host(Classification.BUNDLE_ABSENT, Fixtures.PUBLISH_ATTEMPT);
+            Step second = bed.step();
+            check(problems, second.issue != null && second.issue.crossing == Crossing.PUBLISH
+                    && !second.issue.reference.equals(Fixtures.PUBLISH_ATTEMPT)
+                    && second.ticket.state == State.SIGNED && second.ticket.count(Crossing.PUBLISH) == 2,
+                    "second publication " + second);
+            Step wait = bed.step();
+            check(problems, wait.issue == null && !wait.ticket.flag(DeploymentRecords.FLAG_REQUEST_LIMIT),
+                    "the first attempt's absence used again " + wait);
+            bed.host(Classification.BUNDLE_ABSENT, second.issue.reference);
+            Step held = bed.step();
+            check(problems, held.issue == null && held.ticket.state == State.SIGNED
+                    && held.ticket.flag(DeploymentRecords.FLAG_REQUEST_LIMIT), "held with the alert " + held);
+            Step still = bed.step();
+            check(problems, still.issue == null && still.ticket.equals(held.ticket), "a third publication " + still);
+            bed.host(Classification.BUNDLE_PUBLISHED, second.issue.reference);
+            check(problems, bed.step().ticket.state == State.PUBLISHED, "published after the hold");
+            Bed cancelled = Bed.late().grants().at(State.SIGNED, Crossing.SIGN, Crossing.PUBLISH);
+            cancelled.ticket = cancelled.ticket.toBuilder().cause(Cause.CANCELLED).build();
+            check(problems, cancelled.step().ticket.state == State.CANCELLED, "the hold has an exit");
         });
         cases.run("handover / the coordinator changes only by a recorded handover", problems -> {
             Bed bed = Bed.late().grants().at(State.READY, TO_COMMIT);

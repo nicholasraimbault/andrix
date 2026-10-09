@@ -86,7 +86,8 @@ final class Bed {
     static Entry entry(Crossing c, String boot, long instance, long elapsed) {
         String grant = c == Crossing.SIGN ? SIGN : c == Crossing.CREATE ? STAGE
                 : c == Crossing.COMMIT || c == Crossing.REBOOT || c == Crossing.NOTICE ? ACTIVATE : NO_ID;
-        String reference = c == Crossing.SIGN ? id(0x7e57) : c == Crossing.CREATE ? NONCE : NO_ID;
+        String reference = c == Crossing.SIGN ? id(0x7e57) : c == Crossing.PUBLISH ? Fixtures.PUBLISH_ATTEMPT
+                : c == Crossing.CREATE ? NONCE : NO_ID;
         boolean host = c == Crossing.SIGN || c == Crossing.PUBLISH;
         return new Entry(c, host ? NO_ID : boot, host ? -1 : instance, host ? 0 : elapsed, grant, reference, TIME);
     }
@@ -165,10 +166,9 @@ final class Bed {
         return add(f(c).user(user, serial).number(criteria));
     }
 
-    Bed host(Classification c, String subjectOrDigest) {
-        Observation.Builder b = Fixtures.fact(++n, NO_ID, c, 0);
-        if (c.kind == DeploymentRecords.ObservationKind.SIGNER) b.subject(subjectOrDigest); else b.digest(subjectOrDigest);
-        return add(b);
+    /** A host fact: a signer fact names its request, a bundle fact the PUBLISH attempt it read after. */
+    Bed host(Classification c, String subject) {
+        return add(Fixtures.fact(++n, NO_ID, c, 0).subject(subject));
     }
 
     Context context() {

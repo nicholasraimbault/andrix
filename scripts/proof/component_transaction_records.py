@@ -50,6 +50,12 @@ ARTIFACT_RECORDS = MAIN_DIR + 'ArtifactRecords.java'
 ARTIFACT_STORE = MAIN_DIR + 'ArtifactStore.java'
 PHASES = ('build', 'codec', 'machine', 'store', 'transactions', 'artifacts', 'mutants')
 GIB = 1 << 30
+# Every JVM stays well inside the 2 GiB guard: a capped heap, metaspace and code cache, the serial
+# collector, and one client JIT compiler thread instead of parallel compiles. One JVM runs at a time.
+JVM_LIMITS = ('-XX:+UseSerialGC', '-XX:TieredStopAtLevel=1', '-XX:CICompilerCount=1', '-XX:MaxMetaspaceSize=128m',
+              '-XX:ReservedCodeCacheSize=48m')
+JAVAC_HEAP = '-Xmx384m'
+JAVA_HEAP = '-Xmx256m'
 
 # ---------------------------------------------------------------- the independent encoder
 # Written from the layout tables of owner/deployment/README.md alone, never from the Java codec:
@@ -75,7 +81,7 @@ FLAGS = {'UNRESOLVED': 1, 'BOOT_LIMIT': 2, 'REQUEST_LIMIT': 4}
 CAUSES = {'NONE': 0, 'CANCELLED': 1, 'VOID_SELECTION': 2, 'VOID_TRUST': 3, 'VOID_TARGET': 4, 'VOID_BASE': 5,
           'OTHER_BYTES': 6}
 OUTCOMES = {'OBSERVING': 0, 'HEALTHY': 1, 'DEGRADED': 2, 'UNHEALTHY': 3, 'INCONCLUSIVE': 4, 'REMOVED': 5}
-CROSSINGS = {'SIGN': (1, 2), 'PUBLISH': (2, 1), 'CREATE': (3, 1), 'WRITE': (4, 1), 'COMMIT': (5, 1),
+CROSSINGS = {'SIGN': (1, 2), 'PUBLISH': (2, 2), 'CREATE': (3, 1), 'WRITE': (4, 1), 'COMMIT': (5, 1),
              'ABANDON': (6, 16), 'REBOOT': (7, 16), 'NOTICE': (8, 17), 'HANDOVER': (9, 4)}
 KINDS = {'BOOT': 1, 'CHECKPOINT': 2, 'FACTORY': 3, 'ACTIVE': 4, 'LISTING': 5, 'SESSION': 6, 'REPLY': 7, 'USER': 8,
          'HEALTH': 9, 'SIGNER': 10, 'BUNDLE': 11}
@@ -127,8 +133,8 @@ def ref(presence=0, session=0, created=0, stage='', installer=0, nonce=ZERO_ID):
 def plan(p):
     body = raw(p['installation'], 16) + raw(p['plan'], 16) + text(p['component'])
     body += struct.pack('<BB', CLASSES[p['class']], TARGETS[p['target']]) + raw(p['repairs'], 16)
-    body += raw(p['bundle'], 32) + raw(p['bundleApk'], 32) + struct.pack('<q', p['bundleVersion'])
-    body += raw(p['signer'], 32) + raw(p['restoration'], 32) + raw(p['restorationApk'], 32)
+    body += raw(p['bundleInput'], 32) + raw(p['bundleApk'], 32) + struct.pack('<q', p['bundleVersion'])
+    body += raw(p['signer'], 32) + raw(p['restorationInput'], 32) + raw(p['restorationApk'], 32)
     body += struct.pack('<qB', p['restorationVersion'], p['signing']) + text(p['fingerprint'])
     body += raw(p['factoryApk'], 32) + struct.pack('<q', p['factoryVersion'])
     body += raw(p['baseApk'], 32) + struct.pack('<qi', p['baseVersion'], p['baseUid']) + text(p['baseContext'])
@@ -188,7 +194,7 @@ def observation(o):
     elif kind == 'SIGNER':
         body += raw(facts['request'], 16)
     elif kind == 'BUNDLE':
-        body += raw(facts['bundle'], 32)
+        body += raw(facts['attempt'], 16) + raw(facts['publication'], 32)
     return record('observation', body)
 
 
@@ -203,19 +209,21 @@ def selection(s):
 def manifest(m):
     """A bundle manifest, type 6, from the README's artifact store table."""
     body = raw(m['installation'], 16) + text(m['component']) + struct.pack('<B', ROLES[m['role']])
-    body += raw(m['request'], 16) + raw(m['input'], 32) + raw(m['inputEntries'], 32)
+    body += raw(m['transaction'], 16) + raw(m['input'], 32) + raw(m['inputEntries'], 32)
     body += struct.pack('<q', m['versionCode']) + raw(m['apk'], 32) + struct.pack('<q', m['apkBytes'])
     body += raw(m['idsig'], 32) + struct.pack('<q', m['idsigBytes']) + raw(m['certificate'], 32) + raw(m['key'], 32)
-    body += struct.pack('<BHHBq', m['schemes'], m['sdkMin'], m['sdkMax'], V4_CHECKS[m['v4']], m['created'])
+    body += struct.pack('<BHHB', m['schemes'], m['sdkMin'], m['sdkMax'], V4_CHECKS[m['v4']])
     return record('manifest', body)
 
 
 def publication(p):
-    """A publication, type 7: the bundles in order, the variant first, then its restoration."""
-    body = raw(p['installation'], 16) + raw(p['plan'], 16) + text(p['component']) + raw(p['request'], 16)
+    """A publication, type 7: the bundles in order, the variant first, then its restoration, each
+    with its own signing transaction."""
+    body = raw(p['installation'], 16) + raw(p['plan'], 16) + text(p['component'])
     body += struct.pack('<B', len(p['bundles']))
     for index, bundle in enumerate(p['bundles']):
         body += raw(bundle, 32) + struct.pack('<B', ROLES['VARIANT' if index == 0 else 'RESTORATION'])
+        body += raw(p['transactions'][index], 16)
     return record('publication', body + struct.pack('<q', p['published']))
 
 
@@ -242,8 +250,8 @@ def digest(b):
 
 def base_plan(n):
     return {'installation': INSTALLATION, 'plan': ident(0x100 + n), 'component': COMPONENT,
-            'class': 'STAGED_SYSTEM_APK', 'target': 'VARIANT', 'repairs': ZERO_ID, 'bundle': digest(0xb1),
-            'bundleApk': digest(0xa1), 'bundleVersion': 40, 'signer': digest(0x51), 'restoration': digest(0xb2),
+            'class': 'STAGED_SYSTEM_APK', 'target': 'VARIANT', 'repairs': ZERO_ID, 'bundleInput': digest(0xb1),
+            'bundleApk': digest(0xa1), 'bundleVersion': 40, 'signer': digest(0x51), 'restorationInput': digest(0xb2),
             'restorationApk': digest(0xa2), 'restorationVersion': 41, 'signing': 1, 'fingerprint': FINGERPRINT,
             'factoryApk': digest(0xf0), 'factoryVersion': 37, 'baseApk': digest(0xf0), 'baseVersion': 37,
             'baseUid': UID, 'baseContext': CONTEXT, 'selectionRevision': 0, 'trustPolicy': digest(0x7a),
@@ -281,14 +289,15 @@ def maximum_ticket():
     boot, nonce, coordinator = 'bb' * 16, 'aa' * 16, 'cc' * 16
     finals = ('HEALTHY', 'DEGRADED', 'UNHEALTHY', 'INCONCLUSIVE', 'REMOVED')
     ledger = []
-    order = ['SIGN', 'SIGN', 'PUBLISH', 'CREATE', 'WRITE', 'COMMIT']
+    order = ['SIGN', 'SIGN', 'PUBLISH', 'PUBLISH', 'CREATE', 'WRITE', 'COMMIT']
     for name in ('REBOOT', 'ABANDON', 'NOTICE', 'HANDOVER'):
         order += [name] * CROSSINGS[name][1]
     for n, name in enumerate(order):
         host = name in ('SIGN', 'PUBLISH')
         grant = {'SIGN': '11' * 16, 'CREATE': '22' * 16, 'COMMIT': '33' * 16, 'REBOOT': '33' * 16,
                  'NOTICE': '33' * 16}.get(name, ZERO_ID)
-        reference = {'SIGN': '44' * 15 + '%02x' % n, 'CREATE': nonce, 'HANDOVER': coordinator}.get(name, ZERO_ID)
+        reference = {'SIGN': '44' * 15 + '%02x' % n, 'PUBLISH': '55' * 15 + '%02x' % n, 'CREATE': nonce,
+                     'HANDOVER': coordinator}.get(name, ZERO_ID)
         ledger.append((name, ZERO_ID if host else boot, -1 if host else n, 0 if host else 1000 * n, grant, reference,
                        -n))
     return {'installation': 'ff' * 16, 'ticket': 'ee' * 16, 'component': 'a.' + 'b' * 253, 'plan': 'dd' * 16,
@@ -308,12 +317,12 @@ def goldens():
                  repairs=ident(0x101), baseApk=digest(0xa0), baseVersion=39, criteria=0x3f, bootLimit=8,
                  rebootTimeLimit=60_000, requestLimit=5, activateWindow=7_200_000, verificationWait=600_000,
                  selectionRevision=2, created=TIME + 1)
-    factory = dict(base_plan(3), target='FACTORY', bundle=ZERO_DIGEST, bundleApk=ZERO_DIGEST, bundleVersion=0,
-                   signer=ZERO_DIGEST, restoration=ZERO_DIGEST, restorationApk=ZERO_DIGEST, restorationVersion=0,
+    factory = dict(base_plan(3), target='FACTORY', bundleInput=ZERO_DIGEST, bundleApk=ZERO_DIGEST, bundleVersion=0,
+                   signer=ZERO_DIGEST, restorationInput=ZERO_DIGEST, restorationApk=ZERO_DIGEST, restorationVersion=0,
                    signing=0, noticeDelay=120_000, emergencyNoticeDelay=120_000, selectionRevision=5,
                    repairs=ident(0x102))
-    temporary = dict(base_plan(4), target='TEMPORARY_FACTORY', repairs=ident(0x101), bundle=digest(0xb3),
-                     bundleApk=digest(0xa3), bundleVersion=42, restoration=ZERO_DIGEST, restorationApk=ZERO_DIGEST,
+    temporary = dict(base_plan(4), target='TEMPORARY_FACTORY', repairs=ident(0x101), bundleInput=digest(0xb3),
+                     bundleApk=digest(0xa3), bundleVersion=42, restorationInput=ZERO_DIGEST, restorationApk=ZERO_DIGEST,
                      restorationVersion=0, fingerprint=NEW_FINGERPRINT, factoryApk=digest(0xf1), factoryVersion=38,
                      baseApk=digest(0xa1), baseVersion=40, selectionRevision=1, created=TIME + 3)
     holder = {'installation': INSTALLATION, 'component': COMPONENT, 'actor': 'GRANT_HOLDER', 'user': 0, 'serial': 0,
@@ -330,7 +339,7 @@ def goldens():
     unresolved = dict(base_ticket(2, late['plan']), state='SESSION_INTENT', flags=('UNRESOLVED',), boot=ident(0xb0071),
                       reference=(16, 0, 0, '', 0, nonce1), ledger=[
                           ('SIGN', ZERO_ID, -1, 0, ident(0x201), ident(0x7001), TIME + 40),
-                          ('PUBLISH', ZERO_ID, -1, 0, ZERO_ID, ZERO_ID, TIME + 50),
+                          ('PUBLISH', ZERO_ID, -1, 0, ZERO_ID, ident(0x9b01), TIME + 50),
                           ('CREATE', ident(0xb0071), 7, 5000, ident(0x204), nonce1, TIME + 60)])
     boot2 = ident(0xb0072)
     window = dict(base_ticket(3, late['plan']), state='HEALTH_WINDOW', flags=('BOOT_LIMIT',), bootCount=2,
@@ -339,7 +348,7 @@ def goldens():
                   windowBoot=ident(0xb0073), windowStart=90_000,
                   health=[(0, 0, 'OBSERVING'), (10, 12, 'UNHEALTHY')], ledger=[
                       ('SIGN', ZERO_ID, -1, 0, ident(0x201), ident(0x7003), TIME + 40),
-                      ('PUBLISH', ZERO_ID, -1, 0, ZERO_ID, ZERO_ID, TIME + 50),
+                      ('PUBLISH', ZERO_ID, -1, 0, ZERO_ID, ident(0x9b03), TIME + 50),
                       ('CREATE', boot2, 7, 5000, ident(0x204), ident(0x6e03), TIME + 60),
                       ('WRITE', boot2, 7, 5100, ZERO_ID, ZERO_ID, TIME + 61),
                       ('COMMIT', boot2, 7, 5200, ident(0x202), ZERO_ID, TIME + 62),
@@ -381,6 +390,8 @@ def goldens():
         'OBS_HEALTH': observation(fact(4, boot3, 'HEALTH', 'DEGRADED', 95_000, user=10, serial=12,
                                        facts={'count': 0x7b})),
         'OBS_SIGNER': observation(fact(5, ZERO_ID, 'SIGNER', 'COMPLETED', 0, facts={'request': ident(0x7001)})),
+        'OBS_BUNDLE': observation(fact(8, ZERO_ID, 'BUNDLE', 'PUBLISHED', 0, facts={
+            'attempt': ident(0x9b01), 'publication': digest(0xd7)})),
         'SELECTION_FACTORY': selection({'installation': INSTALLATION, 'component': COMPONENT, 'revision': 0,
                                         'choice': 'FACTORY', 'plan': ZERO_ID, 'responsibility': 'REBUILD_WINDOW',
                                         'rebuildWindow': WINDOW, 'realization': 'UNCHECKED', 'checkedBoot': ZERO_ID,
@@ -404,20 +415,21 @@ def artifact_member(n):
 
 def artifact_manifest(role, n):
     apk, idsig = artifact_member(n)
-    return manifest({'installation': INSTALLATION, 'component': COMPONENT, 'role': role, 'request': ident(0x5e),
+    return manifest({'installation': INSTALLATION, 'component': COMPONENT, 'role': role, 'transaction': ident(0x5e),
                      'input': digest(0x30 + n), 'inputEntries': digest(0x40 + n),
                      'versionCode': 40 if role == 'VARIANT' else 41, 'apk': sha(apk), 'apkBytes': len(apk),
                      'idsig': sha(idsig), 'idsigBytes': len(idsig), 'certificate': digest(0xc1), 'key': digest(0xc2),
-                     'schemes': SCHEMES, 'sdkMin': 37, 'sdkMax': 37, 'v4': 'VERIFIED', 'created': TIME + n})
+                     'schemes': SCHEMES, 'sdkMin': 37, 'sdkMax': 37, 'v4': 'VERIFIED'})
 
 
 def artifact_goldens():
     """The artifact store's goldens, the same values the Java artifact suite builds."""
     variant, restoration = artifact_manifest('VARIANT', 1), artifact_manifest('RESTORATION', 2)
-    pair = {'installation': INSTALLATION, 'plan': ident(0x101), 'component': COMPONENT, 'request': ident(0x5e),
-            'bundles': [sha(variant), sha(restoration)], 'published': TIME + 9}
+    pair = {'installation': INSTALLATION, 'plan': ident(0x101), 'component': COMPONENT,
+            'bundles': [sha(variant), sha(restoration)], 'transactions': [ident(0x5e), ident(0x5e)],
+            'published': TIME + 9}
     return {'MANIFEST_VARIANT': variant, 'MANIFEST_RESTORATION': restoration, 'PUBLICATION_PAIR': publication(pair),
-            'PUBLICATION_ONE': publication(dict(pair, bundles=[sha(variant)]))}
+            'PUBLICATION_ONE': publication(dict(pair, bundles=[sha(variant)], transactions=[ident(0x5e)]))}
 
 
 ARTIFACT_GOLDEN_NAMES = ('MANIFEST_VARIANT', 'MANIFEST_RESTORATION', 'PUBLICATION_PAIR', 'PUBLICATION_ONE')
@@ -426,19 +438,21 @@ GOLDEN_NAMES = ('PLAN_LATE_ONE', 'PLAN_EARLY_TWO', 'PLAN_FACTORY', 'PLAN_TEMPORA
                 'AUTH_EMERGENCY',
                 'TICKET_PLANNED', 'TICKET_UNRESOLVED', 'TICKET_WINDOW', 'TICKET_SUPERSEDED', 'TICKET_MAXIMUM',
                 'OBS_BOOT', 'OBS_ACTIVE', 'OBS_LISTING', 'OBS_SESSION_SHELL', 'OBS_REPLY_DEVICE', 'OBS_HEALTH',
-                'OBS_SIGNER', 'SELECTION_FACTORY', 'SELECTION_STALE', 'SELECTION_TEMPORARY')
+                'OBS_SIGNER', 'OBS_BUNDLE', 'SELECTION_FACTORY', 'SELECTION_STALE', 'SELECTION_TEMPORARY')
 
 # The README's statements this encoder relies on: the frame, the bounds and the crossing bounds.
 README_FACTS = (
     'u32  magic      0x52445841, "AXDR" in file order',
     'u16  type       1 plan, 2 authorization, 3 ticket, 4 observation, 5 selection',
-    'u16   count, then ledger entries in issue order, at most 59:',
-    'The crossings, with the most entries of each in one ledger, are 1 SIGN (2), 2 PUBLISH (1), 3 CREATE (1), '
+    'u16   count, then ledger entries in issue order, at most 60:',
+    'The crossings, with the most entries of each in one ledger, are 1 SIGN (2), 2 PUBLISH (2), 3 CREATE (1), '
     '4 WRITE (1), 5 COMMIT (1), 6 ABANDON (16), 7 REBOOT (16), 8 NOTICE (17) and 9 HANDOVER (4).',
+    '| 11 BUNDLE | component | id attempt, d32 publication | 1 PUBLISHED, 2 ABSENT, 3 MISMATCH |',
     'i32   user                  >= 0, or -10000 (USER_NULL) for no user          prefix',
     'They use the frame above with types 6 and 7, version 1, and at most 4,096 bytes.',
     'u8    schemes               bit 0 v2, 1 v3, 2 v4: exactly 7                         strict',
-    'then for each: d32 bundle, nonzero, and u8 role, VARIANT first, then RESTORATION',
+    'then for each: d32 bundle, nonzero, u8 role, VARIANT first, then RESTORATION, '
+    'and id transaction, the bundle\'s own signing transaction, nonzero',
     'The bundle ID is the SHA-256 of the manifest\'s whole frame, checksum included.',
 )
 
@@ -555,6 +569,7 @@ MACHINE_NAMES = (
     'signing / one transaction by default and the two that the records still allow',
     'signing / a later attempt skips signing only when the bundles read back published',
     'publish / a lost acknowledgement is resolved by reading, never by publishing again',
+    'publish / a second publication follows only a read of absence naming the attempt',
     'handover / the coordinator changes only by a recorded handover')
 
 STORE_NAMES = (
@@ -616,6 +631,7 @@ ARTIFACT_NAMES = (
     'records / strict codes, relations and trailing bytes are refused',
     'records / informational times decide nothing and the prefix reads a later version',
     'records / every single byte change is refused or canonical',
+    'records / the same bytes keep one bundle ID, and the output may equal its input',
     'store / the pair is staged, published together and read back exactly',
     'store / a stop at every step leaves both bundles visible or neither',
     "store / refusing either bundle's verification publishes nothing",
@@ -624,7 +640,10 @@ ARTIFACT_NAMES = (
     'store / a lost acknowledgement resolves by reading the exact bytes',
     'store / changed, missing or extra members read as MISMATCH',
     'store / unpublished bundles, staging leftovers and unreadable publications',
-    'store / a different bundle under the same ID is never replaced')
+    'store / a different bundle under the same ID is never replaced',
+    'store / the plan names its inputs and the publication binds the bundles signed from them',
+    'store / a second publication completes from the bundles the store already holds',
+    'store / a pair from two signing transactions fits the publication')
 
 NAMES = {'codec': CODEC_NAMES, 'machine': MACHINE_NAMES, 'store': STORE_NAMES, 'transactions': TRANSACTION_NAMES,
          'artifacts': ARTIFACT_NAMES}
@@ -668,8 +687,15 @@ _ABANDON_HOLD = ('            if (t.count(Crossing.ABANDON) >= p.requestLimit) {
 _PUBLICATION_WRITE = '            if (!write(index, bytes)) return false; // Visible from here.\n'
 _VERIFY_EACH = ('                String reason = verifier.verify(b);\n'
                 '                if (reason != null) return false;\n')
-_OBSERVATION_END = ('            case BUNDLE:\n                b.digest = in.digest();\n                break;\n'
-                    '            default:\n                break;\n        }\n        in.finish();\n')
+_OBSERVATION_END = ('            case BUNDLE:\n                b.subject = in.id();\n                b.digest = in.digest();\n'
+                    '                break;\n            default:\n                break;\n        }\n        in.finish();\n')
+_PUBLISH_READ = '        if (c.view.publication(last.reference) != Classification.BUNDLE_ABSENT) return null;\n'
+_PUBLISH_HOLD = ('        b.set(FLAG_REQUEST_LIMIT);\n'
+                 '        return done(c, b, null, null, "a second publication had no effect: holding and alerting");\n')
+_HELD_OR_STAGED = ('                if (!exact(root.resolve(STAGING + "-" + b.id), b) && !exact(bundle(b.id), b)) '
+                   'return false;\n')
+_BOUND = ('                    || !m.component.equals(plan.component) || !m.inputEntries.equals(inputs.get(i))\n'
+          '                    || m.versionCode != version || !m.transaction.equals(publication.transactions.get(i))) {\n')
 
 MUTANTS = {
     # The plan's named defects.
@@ -686,8 +712,8 @@ MUTANTS = {
         '        if (created(c.ticket) && !crossingAllowed(c)) {\n'
         '            return done(c, b, null, null, why + "; waiting for the checkpoint");\n        }\n', ''),),
         ('machine',)),
-    'second-create-bound': (((RECORDS, 'SIGN(1, 2), PUBLISH(2, 1), CREATE(3, 1), WRITE(4, 1),',
-                              'SIGN(1, 2), PUBLISH(2, 1), CREATE(3, 2), WRITE(4, 1),'),), ('codec',)),
+    'second-create-bound': (((RECORDS, 'SIGN(1, 2), PUBLISH(2, 2), CREATE(3, 1), WRITE(4, 1),',
+                              'SIGN(1, 2), PUBLISH(2, 2), CREATE(3, 2), WRITE(4, 1),'),), ('codec',)),
     'second-commit-replayed': (((RECORDS, 'WRITE(4, 1), COMMIT(5, 1), ABANDON(6, 16),',
                                  'WRITE(4, 1), COMMIT(5, 2), ABANDON(6, 16),'),
                                 (RECONCILER, '        return unresolved(c, b, "commit reply lost or ambiguous");\n',
@@ -798,7 +824,7 @@ MUTANTS = {
     'emergency-notice-without-policy': (((RECONCILER,
         '        return policy && approved && !delivered ? p.emergencyNoticeMillis : p.noticeDelayMillis;\n',
         '        return approved && !delivered ? p.emergencyNoticeMillis : p.noticeDelayMillis;\n'),), ('machine',)),
-    # Round 2: the review's blocking findings.
+    # The selection write, the owed move and the restoration rules.
     'selection-write-skipped': (((COORDINATOR,
         '            if (!store.putSelection(selection, step.selection)) throw new StoreRefused("selection not written");\n',
         ''),), ('transactions',)),
@@ -814,7 +840,7 @@ MUTANTS = {
         '                if (p.healthResponse == null) {\n'),), ('machine', 'transactions')),
     'emergency-notice-any-repair': (((RECONCILER, '        boolean approved = approvedRestoration(c);\n',
                                       '        boolean approved = !p.repairs.equals(NO_ID);\n'),), ('machine',)),
-    # Round 2: the review's smaller issues.
+    # Request counting, applied bytes, lost records and the commit check.
     'request-limit-counts-reboots': (((RECONCILER, _ACTIVATE_LIMIT,
         _ACTIVATE_GRANT + '        if (t.count(Crossing.REBOOT) >= p.requestLimit) '
         'return abandon(c, b, "reboot request limit");\n'),), ('machine',)),
@@ -827,8 +853,8 @@ MUTANTS = {
     'diverged-without-commit-accepted': (((MACHINE, _COMMIT_CHECK, ''),), ('machine',)),
     # The second CREATE reuses the ticket's nonce and the machine accepts it in place, so the codec
     # and the step check pass it and only the replay checks can catch it.
-    'create-replayed': (((RECORDS, 'SIGN(1, 2), PUBLISH(2, 1), CREATE(3, 1), WRITE(4, 1),',
-                          'SIGN(1, 2), PUBLISH(2, 1), CREATE(3, 2), WRITE(4, 1),'),
+    'create-replayed': (((RECORDS, 'SIGN(1, 2), PUBLISH(2, 2), CREATE(3, 1), WRITE(4, 1),',
+                          'SIGN(1, 2), PUBLISH(2, 2), CREATE(3, 2), WRITE(4, 1),'),
                          (MACHINE, '            case WRITE: return state == State.SESSION_BOUND;\n',
                           '            case CREATE: return state == State.SESSION_INTENT;\n'
                           '            case WRITE: return state == State.SESSION_BOUND;\n'),
@@ -872,8 +898,8 @@ MUTANTS = {
                                                  _PUBLICATION_WRITE + '            for (Staged b : staged) '
                                                  'if (verifier.verify(b) != null) return false;\n')), ('artifacts',)),
     'artifact-bundle-published-alone': (((ARTIFACT_STORE,
-        '        if (!publication.bundles.equals(expected)) return false;\n',
-        '        if (!publication.bundles.get(0).equals(plan.bundle)) return false;\n'),), ('artifacts',)),
+        '        if (publication.bundles.size() != inputs.size()) return false; // Never one bundle alone.\n',
+        '        if (publication.bundles.size() > inputs.size()) return false;\n'),), ('artifacts',)),
     'artifact-unnamed-bundle-visible': (((ARTIFACT_STORE, '        if (!named) return Presence.ABSENT;\n', ''),),
                                         ('artifacts',)),
     'artifact-read-back-trusts-the-name': (((ARTIFACT_STORE,
@@ -899,8 +925,38 @@ MUTANTS = {
         '            if (Role.of(in.u8()) != Publication.roleAt(i)) throw DeploymentRecords.invalid("roles out of order");\n',
         '            Role.of(in.u8());\n'),), ('artifacts',)),
     'artifact-trailing-bytes': (((ARTIFACT_RECORDS,
-        '        long createdAt = in.i64();\n        in.finish();\n', '        long createdAt = in.i64();\n'),),
+        '        V4Check v4 = V4Check.of(in.u8());\n        in.finish();\n', '        V4Check v4 = V4Check.of(in.u8());\n'),),
         ('artifacts',)),
+    # The second publication: a proof of no effect tied to the attempt, a bound of two, a hold
+    # with the alert, and completion from the bundles the store holds.
+    'publish-again-without-proof': (((RECONCILER, _PUBLISH_READ,
+        '        if (c.view.publication(last.reference) == Classification.BUNDLE_MISMATCH) return null;\n'),),
+        ('machine', 'transactions')),
+    'absence-not-tied-to-attempt': (((RECONCILER,
+        '                if (o.kind == ObservationKind.BUNDLE && o.subject.equals(attempt)\n',
+        '                if (o.kind == ObservationKind.BUNDLE\n'),), ('machine', 'transactions')),
+    'publish-bound-one': (((RECORDS, 'SIGN(1, 2), PUBLISH(2, 2), CREATE(3, 1), WRITE(4, 1),',
+                            'SIGN(1, 2), PUBLISH(2, 1), CREATE(3, 1), WRITE(4, 1),'),), ('codec', 'machine')),
+    'second-publication-unheld': (((RECONCILER, _PUBLISH_HOLD, '        return null;\n'),), ('machine',)),
+    'bundle-fact-without-attempt': (((RECORDS,
+        '            boolean subjectKind = kind == ObservationKind.REPLY || kind == ObservationKind.SIGNER\n'
+        '                    || kind == ObservationKind.BUNDLE;\n',
+        '            boolean subjectKind = kind == ObservationKind.REPLY || kind == ObservationKind.SIGNER;\n'),),
+        ('codec',)),
+    'artifact-held-bundles-refused': (((ARTIFACT_STORE, _HELD_OR_STAGED,
+        '                if (!exact(root.resolve(STAGING + "-" + b.id), b)) return false;\n'),), ('artifacts',)),
+    'artifact-plan-inputs-unbound': (((ARTIFACT_STORE, _BOUND,
+        '                    || !m.component.equals(plan.component)\n'
+        '                    || m.versionCode != version || !m.transaction.equals(publication.transactions.get(i))) {\n'),),
+        ('artifacts',)),
+    'artifact-one-transaction': (((ARTIFACT_STORE, _BOUND,
+        _BOUND.replace('publication.transactions.get(i)', 'publication.transactions.get(0)')),), ('artifacts',)),
+    'artifact-input-equal-output-refused': (((ARTIFACT_RECORDS,
+        '            this.installation = installation;\n            this.component = component;\n'
+        '            this.transaction = transaction;\n',
+        '            if (input.equals(apk)) throw DeploymentRecords.invalid("the input is not signed output");\n'
+        '            this.installation = installation;\n            this.component = component;\n'
+        '            this.transaction = transaction;\n'),), ('artifacts',)),
 }
 
 REQUIRED_DEFECTS = {
@@ -918,6 +974,11 @@ REQUIRED_DEFECTS = {
     'a bundle published alone': ('artifact-bundle-published-alone',),
     'a lost acknowledgement not resolved by reading': ('artifact-lost-acknowledgement-republished',
                                                        'artifact-read-back-trusts-the-name'),
+    'a second publication without a proof of no effect': ('publish-again-without-proof',
+                                                          'absence-not-tied-to-attempt'),
+    'a second publication that cannot finish from the held bundles': ('artifact-held-bundles-refused',),
+    'a publication not bound to the plan\'s signing inputs': ('artifact-plan-inputs-unbound',),
+    'a pair from two signing transactions refused': ('artifact-one-transaction',),
 }
 
 
@@ -968,7 +1029,7 @@ def oracle_problems():
     for fact in README_FACTS:
         if ' '.join(fact.split()) not in ' '.join(readme.split()):
             problems.append('the README no longer states: ' + fact[:60])
-    if MAX_LEDGER != 59:
+    if MAX_LEDGER != 60:
         problems.append('ledger bound %d' % MAX_LEDGER)
     artifact_pins = java_goldens(source_text('artifacts'))
     artifact_gold = artifact_goldens()
@@ -1149,7 +1210,8 @@ def build(work, files):
         path.write_bytes(data)
     classes = work / 'classes'
     classes.mkdir(parents=True)
-    result = subprocess.run(['javac', '-J-Xmx512m', '--release', '17', '-Xlint:all', '-Werror', '-implicit:none',
+    result = subprocess.run(['javac', '-J' + JAVAC_HEAP, *('-J' + option for option in JVM_LIMITS), '--release', '17',
+                             '-Xlint:all', '-Werror', '-implicit:none',
                              '-proc:none', '-d', str(classes), *sorted(str(source / name) for name in files)],
                             capture_output=True, text=True, timeout=600, cwd=work, env=tool_environment())
     return {'returncode': result.returncode, 'output': (result.stdout + result.stderr)[-20000:],
@@ -1167,7 +1229,8 @@ def failed_checks(stdout):
 def execute(work, main, args, assertions=True, timeout=1800):
     state = work / 'jvm-tmp'
     state.mkdir(exist_ok=True)
-    result = subprocess.run(['java', '-Xmx256m', *(['-ea'] if assertions else []), '-Djava.io.tmpdir=' + str(state),
+    result = subprocess.run(['java', JAVA_HEAP, *JVM_LIMITS, *(['-ea'] if assertions else []),
+                             '-Djava.io.tmpdir=' + str(state),
                              '-cp', str(work / 'classes'), PACKAGE + '.' + main, *args],
                             capture_output=True, text=True, timeout=timeout, cwd=work, env=tool_environment())
     return {'returncode': result.returncode, 'stdout': result.stdout[-200000:], 'stderr': result.stderr[-20000:],
@@ -1275,6 +1338,8 @@ def mutant_runs(work, records, problems, names=None):
         record['caught'] = sorted(failed)
         if record['missed'] or not failed:
             problems.append('mutant %s not caught: %s' % (name, record['missed']))
+        # The record keeps the result. Deleting the build frees its page cache inside the guard.
+        shutil.rmtree(directory)
 
 
 def fresh_outside(path, what):

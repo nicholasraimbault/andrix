@@ -85,13 +85,13 @@ public final class DeploymentRecordsTest {
     private static final int GOLDEN_TICKET_PLANNED_BYTES = 235;
     private static final String GOLDEN_TICKET_PLANNED_SHA256 = "52d4647c577d9189cc918b8d91d7158e3d08e666d9e66457bc6520a8ba117bdb";
     private static final int GOLDEN_TICKET_UNRESOLVED_BYTES = 454;
-    private static final String GOLDEN_TICKET_UNRESOLVED_SHA256 = "a836d8fcbadbc259269d7fd4e77c591ffd4d52de9a99682d7574adbebcecc26d";
+    private static final String GOLDEN_TICKET_UNRESOLVED_SHA256 = "aca94157a626782c8b517b75ec2c351e2edf4b4b5a5c7a4def5d17dbfa4a6ad3";
     private static final int GOLDEN_TICKET_WINDOW_BYTES = 732;
-    private static final String GOLDEN_TICKET_WINDOW_SHA256 = "cb297578e536a48a96a223082ecee3bd06fb361d87a7b78e2ae99189dcabc278";
+    private static final String GOLDEN_TICKET_WINDOW_SHA256 = "6552b4ced46488f4a4e7edc2c624878b0be761ccacea8fc1744054df8787b10c";
     private static final int GOLDEN_TICKET_SUPERSEDED_BYTES = 712;
     private static final String GOLDEN_TICKET_SUPERSEDED_SHA256 = "aa0668858c6c29ce5c52a313f16befdc9f937e65fdb274ed5b9ec4f0f4691482";
-    private static final int GOLDEN_TICKET_MAXIMUM_BYTES = 5864;
-    private static final String GOLDEN_TICKET_MAXIMUM_SHA256 = "d1a32eee83c63db96befba9a385e9e0166e0112d2d2360db9ac844aa821977e8";
+    private static final int GOLDEN_TICKET_MAXIMUM_BYTES = 5937;
+    private static final String GOLDEN_TICKET_MAXIMUM_SHA256 = "f28084b61ab3324a23e5aa73ed16607c87f52efb88b659c2368982354e55f960";
     private static final int GOLDEN_OBS_BOOT_BYTES = 237;
     private static final String GOLDEN_OBS_BOOT_SHA256 = "f711d0057e31c19b4b6d4133142a209fb0a5e52ed8fae4c6ae9e5c0532c1f9e9";
     private static final int GOLDEN_OBS_ACTIVE_BYTES = 260;
@@ -106,6 +106,8 @@ public final class DeploymentRecordsTest {
     private static final String GOLDEN_OBS_HEALTH_SHA256 = "fd7aa73d6982b0810a061f4b55f456b65363bc724cc92d5c0f60691fc2373048";
     private static final int GOLDEN_OBS_SIGNER_BYTES = 201;
     private static final String GOLDEN_OBS_SIGNER_SHA256 = "7b6e0563786f4ee0de90009a1c93ab80c625b08ba887c99bcd29a254f7d4e857";
+    private static final int GOLDEN_OBS_BUNDLE_BYTES = 233;
+    private static final String GOLDEN_OBS_BUNDLE_SHA256 = "d9750442fd9492f2f5c6f1a573560fe2ce1e599e408cedbc819b62a2bdbde4a4";
     private static final int GOLDEN_SELECTION_FACTORY_BYTES = 173;
     private static final String GOLDEN_SELECTION_FACTORY_SHA256 = "4995f27093bbd21aad786b99f73a32db49f0a3f145ea2cbb22aeb5f06f96c13a";
     private static final int GOLDEN_SELECTION_STALE_BYTES = 173;
@@ -131,8 +133,8 @@ public final class DeploymentRecordsTest {
     static final List<String> GOLDEN_ORDER = List.of("PLAN_LATE_ONE", "PLAN_EARLY_TWO", "PLAN_FACTORY",
             "PLAN_TEMPORARY", "AUTH_SIGN", "AUTH_ACTIVATE_LAB", "AUTH_EMERGENCY", "TICKET_PLANNED",
             "TICKET_UNRESOLVED", "TICKET_WINDOW", "TICKET_SUPERSEDED", "TICKET_MAXIMUM", "OBS_BOOT", "OBS_ACTIVE",
-            "OBS_LISTING", "OBS_SESSION_SHELL", "OBS_REPLY_DEVICE", "OBS_HEALTH", "OBS_SIGNER", "SELECTION_FACTORY",
-            "SELECTION_STALE", "SELECTION_TEMPORARY");
+            "OBS_LISTING", "OBS_SESSION_SHELL", "OBS_REPLY_DEVICE", "OBS_HEALTH", "OBS_SIGNER", "OBS_BUNDLE",
+            "SELECTION_FACTORY", "SELECTION_STALE", "SELECTION_TEMPORARY");
 
     // ------------------------------------------------------------------ golden values
 
@@ -183,7 +185,7 @@ public final class DeploymentRecordsTest {
         return Fixtures.ticket(2, planLateOne()).state(State.SESSION_INTENT).flags(DeploymentRecords.FLAG_UNRESOLVED)
                 .boot(id(0xb0071)).reference(Reference.NONE.withNonce(id(0x6e01)))
                 .append(new Entry(Crossing.SIGN, NO_ID, -1, 0, id(0x201), id(0x7001), TIME + 40))
-                .append(new Entry(Crossing.PUBLISH, NO_ID, -1, 0, NO_ID, NO_ID, TIME + 50))
+                .append(new Entry(Crossing.PUBLISH, NO_ID, -1, 0, NO_ID, id(0x9b01), TIME + 50))
                 .append(new Entry(Crossing.CREATE, id(0xb0071), 7, 5000, id(0x204), id(0x6e01), TIME + 60)).build();
     }
 
@@ -194,7 +196,7 @@ public final class DeploymentRecordsTest {
                 .window(id(0xb0073), 90_000)
                 .health(List.of(new Health(0, 0, Outcome.OBSERVING), new Health(10, 12, Outcome.UNHEALTHY)))
                 .append(new Entry(Crossing.SIGN, NO_ID, -1, 0, id(0x201), id(0x7003), TIME + 40))
-                .append(new Entry(Crossing.PUBLISH, NO_ID, -1, 0, NO_ID, NO_ID, TIME + 50))
+                .append(new Entry(Crossing.PUBLISH, NO_ID, -1, 0, NO_ID, id(0x9b03), TIME + 50))
                 .append(new Entry(Crossing.CREATE, id(0xb0072), 7, 5000, id(0x204), id(0x6e03), TIME + 60))
                 .append(new Entry(Crossing.WRITE, id(0xb0072), 7, 5100, NO_ID, NO_ID, TIME + 61))
                 .append(new Entry(Crossing.COMMIT, id(0xb0072), 7, 5200, id(0x202), NO_ID, TIME + 62))
@@ -233,8 +235,8 @@ public final class DeploymentRecordsTest {
         for (int i = 0; i < 64; i++) health.add(new Health(i, 3L * i, finals[i % finals.length]));
         b.health(health);
         int n = 0;
-        for (Crossing c : List.of(Crossing.SIGN, Crossing.SIGN, Crossing.PUBLISH, Crossing.CREATE, Crossing.WRITE,
-                Crossing.COMMIT)) {
+        for (Crossing c : List.of(Crossing.SIGN, Crossing.SIGN, Crossing.PUBLISH, Crossing.PUBLISH, Crossing.CREATE,
+                Crossing.WRITE, Crossing.COMMIT)) {
             b.append(maximumEntry(c, n++, boot, nonce, coordinator));
         }
         for (Crossing c : List.of(Crossing.REBOOT, Crossing.ABANDON, Crossing.NOTICE, Crossing.HANDOVER)) {
@@ -248,6 +250,7 @@ public final class DeploymentRecordsTest {
         String grant = c == Crossing.SIGN ? "11".repeat(16) : c == Crossing.CREATE ? "22".repeat(16)
                 : c == Crossing.COMMIT || c == Crossing.REBOOT || c == Crossing.NOTICE ? "33".repeat(16) : NO_ID;
         String reference = c == Crossing.SIGN ? "44".repeat(15) + String.format("%02x", n)
+                : c == Crossing.PUBLISH ? "55".repeat(15) + String.format("%02x", n)
                 : c == Crossing.CREATE ? nonce : c == Crossing.HANDOVER ? coordinator : NO_ID;
         return new Entry(c, host ? NO_ID : boot, host ? -1 : n, host ? 0 : 1000L * n, grant, reference, -n);
     }
@@ -282,6 +285,12 @@ public final class DeploymentRecordsTest {
 
     static Observation obsSigner() {
         return Fixtures.fact(5, NO_ID, Classification.SIGN_COMPLETED, 0).subject(id(0x7001)).build();
+    }
+
+    // The store's read of the plan's publication after the PUBLISH attempt of ticketUnresolved().
+    static Observation obsBundle() {
+        return Fixtures.fact(8, NO_ID, Classification.BUNDLE_PUBLISHED, 0).subject(id(0x9b01)).digest(digest(0xd7))
+                .build();
     }
 
     static Selection selectionFactory() {
@@ -324,6 +333,7 @@ public final class DeploymentRecordsTest {
         make.put("OBS_REPLY_DEVICE", () -> DeploymentRecords.encodeObservation(obsReplyDevice()));
         make.put("OBS_HEALTH", () -> DeploymentRecords.encodeObservation(obsHealth()));
         make.put("OBS_SIGNER", () -> DeploymentRecords.encodeObservation(obsSigner()));
+        make.put("OBS_BUNDLE", () -> DeploymentRecords.encodeObservation(obsBundle()));
         make.put("SELECTION_FACTORY", () -> DeploymentRecords.encodeSelection(selectionFactory()));
         make.put("SELECTION_STALE", () -> DeploymentRecords.encodeSelection(selectionStale()));
         make.put("SELECTION_TEMPORARY", () -> DeploymentRecords.encodeSelection(selectionTemporary()));
@@ -359,6 +369,7 @@ public final class DeploymentRecordsTest {
         PINS.put("OBS_REPLY_DEVICE", new Object[] {GOLDEN_OBS_REPLY_DEVICE_BYTES, GOLDEN_OBS_REPLY_DEVICE_SHA256});
         PINS.put("OBS_HEALTH", new Object[] {GOLDEN_OBS_HEALTH_BYTES, GOLDEN_OBS_HEALTH_SHA256});
         PINS.put("OBS_SIGNER", new Object[] {GOLDEN_OBS_SIGNER_BYTES, GOLDEN_OBS_SIGNER_SHA256});
+        PINS.put("OBS_BUNDLE", new Object[] {GOLDEN_OBS_BUNDLE_BYTES, GOLDEN_OBS_BUNDLE_SHA256});
         PINS.put("SELECTION_FACTORY", new Object[] {GOLDEN_SELECTION_FACTORY_BYTES, GOLDEN_SELECTION_FACTORY_SHA256});
         PINS.put("SELECTION_STALE", new Object[] {GOLDEN_SELECTION_STALE_BYTES, GOLDEN_SELECTION_STALE_SHA256});
         PINS.put("SELECTION_TEMPORARY", new Object[] {GOLDEN_SELECTION_TEMPORARY_BYTES,
@@ -688,7 +699,7 @@ public final class DeploymentRecordsTest {
             check(problems, refusedValue(() -> Fixtures.plan(1).target(Target.FACTORY).build()), "factory with bundle");
             check(problems, refusedValue(() -> planFactory().toBuilder().base(digest(0xa0), 39, UID, CONTEXT).build()),
                     "factory plan with a variant active");
-            check(problems, refusedValue(() -> Fixtures.plan(1).bundle(Fixtures.BUNDLE, BUNDLE_APK, 37).build()),
+            check(problems, refusedValue(() -> Fixtures.plan(1).bundle(Fixtures.BUNDLE_INPUT, BUNDLE_APK, 37).build()),
                     "bundle at the factory version");
             check(problems, refusedValue(() -> Fixtures.plan(1).base(digest(0xa0), 45, UID, CONTEXT).build()),
                     "bundle below the base");
@@ -696,11 +707,11 @@ public final class DeploymentRecordsTest {
                     "factory bytes at another version");
             check(problems, refusedValue(() -> Fixtures.plan(1).base(digest(0xa0), 36, UID, CONTEXT).build()),
                     "base below the factory");
-            check(problems, refusedValue(() -> Fixtures.plan(1).restoration(Fixtures.RESTORATION,
+            check(problems, refusedValue(() -> Fixtures.plan(1).restoration(Fixtures.RESTORATION_INPUT,
                     Fixtures.RESTORATION_APK, 40).build()), "restoration not above the bundle");
-            check(problems, refusedValue(() -> Fixtures.plan(1).restoration(Fixtures.RESTORATION, NO_DIGEST, 41)
+            check(problems, refusedValue(() -> Fixtures.plan(1).restoration(Fixtures.RESTORATION_INPUT, NO_DIGEST, 41)
                     .build()), "restoration without its APK");
-            check(problems, refusedValue(() -> Fixtures.plan(1).restoration(Fixtures.BUNDLE, BUNDLE_APK, 41).build()),
+            check(problems, refusedValue(() -> Fixtures.plan(1).restoration(Fixtures.BUNDLE_INPUT, BUNDLE_APK, 41).build()),
                     "restoration equal to the bundle");
             check(problems, refusedValue(() -> Fixtures.plan(1).restoration(NO_DIGEST, NO_DIGEST, 0).signing(2)
                     .build()), "two transactions without a restoration");
@@ -999,7 +1010,7 @@ public final class DeploymentRecordsTest {
         cases.run("size / the largest ticket fits MAX_BYTES", problems -> {
             byte[] largest = goldens().get("TICKET_MAXIMUM");
             check(problems, largest != null && largest.length <= DeploymentRecords.MAX_BYTES, "largest ticket");
-            check(problems, DeploymentRecords.MAX_LEDGER == 59, "ledger bound " + DeploymentRecords.MAX_LEDGER);
+            check(problems, DeploymentRecords.MAX_LEDGER == 60, "ledger bound " + DeploymentRecords.MAX_LEDGER);
             Ticket max = ticketMaximum();
             check(problems, max.ledger.size() == DeploymentRecords.MAX_LEDGER && max.health.size() == 64,
                     "every bound reached");

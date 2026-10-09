@@ -1,24 +1,24 @@
 {
-  "status": "PREDICTED for D1 with three follow-ups from an independent review, and for the artifact store of D2: the latest fact by time, the owed realization from the step's facts, a replayed create that only the replay checks can catch, and durable publication of a variant with its restoration. Written before any run of these sources, guarded, unguarded or mutant. Runs of earlier sources preceded it. Nothing here is a guarded or mutant result.",
+  "status": "PREDICTED for D1 with the layout changes of D2, and for the artifact store of D2: the plan names its signing inputs, the publication names each bundle's signing transaction, the manifest holds no time and takes the input's identity from its entries outside the signing block, and a second publication follows a read of absence naming the PUBLISH attempt, completes from the bundles the store holds, and holds with the alert after a second attempt without effect. Written before any run of these sources, guarded, unguarded or mutant. Runs of earlier sources preceded it. Nothing here is a guarded or mutant result.",
   "plan": "plans/2026-10-09-component-transaction.md",
-  "package": "D1: the deployment records, their codec, the ticket state machine, reconciliation and host storage. D2, first part: the bundle manifest, the publication record and the artifact store",
+  "package": "D1: the deployment records, their codec, the ticket state machine, reconciliation and host storage. D2: the bundle manifest, the publication record, the artifact store and the second publication",
   "basis": "Each count is the length of the runner's case lists. Each golden is the independent encoder's bytes. Each mutant's catches are traced against the cases that reach the changed rule; a defect that another rule also refuses names only the cases that reach it.",
   "cases": {
-    "codec": 49,
-    "machine": 66,
+    "codec": 50,
+    "machine": 67,
     "store": 14,
     "transactions": 44,
-    "artifacts": 13,
-    "goldens": 22,
+    "artifacts": 17,
+    "goldens": 23,
     "artifact_goldens": 4,
-    "mutants": 68
+    "mutants": 77
   },
   "guarded_run": {
-    "cases_passed": 186,
+    "cases_passed": 192,
     "cases_failed": 0,
-    "goldens_equal_to_the_encoder": 22,
+    "goldens_equal_to_the_encoder": 23,
     "artifact_goldens_equal_to_the_encoder": 4,
-    "mutants_caught": 68,
+    "mutants_caught": 77,
     "status": "PASS"
   },
   "goldens": {
@@ -56,19 +56,19 @@
     },
     "TICKET_UNRESOLVED": {
       "bytes": 454,
-      "sha256": "a836d8fcbadbc259269d7fd4e77c591ffd4d52de9a99682d7574adbebcecc26d"
+      "sha256": "aca94157a626782c8b517b75ec2c351e2edf4b4b5a5c7a4def5d17dbfa4a6ad3"
     },
     "TICKET_WINDOW": {
       "bytes": 732,
-      "sha256": "cb297578e536a48a96a223082ecee3bd06fb361d87a7b78e2ae99189dcabc278"
+      "sha256": "6552b4ced46488f4a4e7edc2c624878b0be761ccacea8fc1744054df8787b10c"
     },
     "TICKET_SUPERSEDED": {
       "bytes": 712,
       "sha256": "aa0668858c6c29ce5c52a313f16befdc9f937e65fdb274ed5b9ec4f0f4691482"
     },
     "TICKET_MAXIMUM": {
-      "bytes": 5864,
-      "sha256": "d1a32eee83c63db96befba9a385e9e0166e0112d2d2360db9ac844aa821977e8"
+      "bytes": 5937,
+      "sha256": "f28084b61ab3324a23e5aa73ed16607c87f52efb88b659c2368982354e55f960"
     },
     "OBS_BOOT": {
       "bytes": 237,
@@ -98,6 +98,10 @@
       "bytes": 201,
       "sha256": "7b6e0563786f4ee0de90009a1c93ab80c625b08ba887c99bcd29a254f7d4e857"
     },
+    "OBS_BUNDLE": {
+      "bytes": 233,
+      "sha256": "d9750442fd9492f2f5c6f1a573560fe2ce1e599e408cedbc819b62a2bdbde4a4"
+    },
     "SELECTION_FACTORY": {
       "bytes": 173,
       "sha256": "4995f27093bbd21aad786b99f73a32db49f0a3f145ea2cbb22aeb5f06f96c13a"
@@ -113,20 +117,20 @@
   },
   "artifact_goldens": {
     "MANIFEST_VARIANT": {
-      "bytes": 329,
-      "sha256": "78aca427279c846a3c2963a724971313ad63e0683a9e09acb33111f683d5808e"
+      "bytes": 321,
+      "sha256": "54ee87992b779d59aedbeb6ced96cdab977167a4f8613af84403e8b462000a74"
     },
     "MANIFEST_RESTORATION": {
-      "bytes": 329,
-      "sha256": "86a448487e6567ac5a5836a8c29f2a5f01edd3cfb78aa3b0465322a14192b55b"
+      "bytes": 321,
+      "sha256": "5a13a6b299d322c2faf35ceb4d787f3344c6e1dff20b467fdd438a27e8cfd1d0"
     },
     "PUBLICATION_PAIR": {
-      "bytes": 189,
-      "sha256": "63625b68147359c0ea9e3d7053f34fb80b57bd0781852cc643abecff4bb70499"
+      "bytes": 205,
+      "sha256": "1436d9786033a39b5d486a771be40c6d2d9c85bd736ee1526898de3f2087282f"
     },
     "PUBLICATION_ONE": {
       "bytes": 156,
-      "sha256": "35915c5304625e9233e39b2f23544890c363f80787853a35c7786a728fd24fa9"
+      "sha256": "cb1811d26a22c4849d4d45ad360a9e66ad1f5ed0259a5bace9bd76c081e31524"
     }
   },
   "mutants_caught_at_least": {
@@ -370,8 +374,7 @@
       "store / changed, missing or extra members read as MISMATCH"
     ],
     "artifact-lost-acknowledgement-republished": [
-      "store / a lost acknowledgement resolves by reading the exact bytes",
-      "store / a stop at every step leaves both bundles visible or neither"
+      "store / a lost acknowledgement resolves by reading the exact bytes"
     ],
     "artifact-staging-read-as-record": [
       "store / unpublished bundles, staging leftovers and unreadable publications",
@@ -389,6 +392,36 @@
     ],
     "artifact-trailing-bytes": [
       "records / strict codes, relations and trailing bytes are refused"
+    ],
+    "publish-again-without-proof": [
+      "publish / a lost acknowledgement is resolved by reading, never by publishing again",
+      "publish / a second publication follows only a read of absence naming the attempt"
+    ],
+    "absence-not-tied-to-attempt": [
+      "publish / a lost acknowledgement is resolved by reading, never by publishing again",
+      "publish / a second publication follows only a read of absence naming the attempt"
+    ],
+    "publish-bound-one": [
+      "size / the largest ticket fits MAX_BYTES",
+      "publish / a second publication follows only a read of absence naming the attempt"
+    ],
+    "second-publication-unheld": [
+      "publish / a second publication follows only a read of absence naming the attempt"
+    ],
+    "bundle-fact-without-attempt": [
+      "golden / obs bundle"
+    ],
+    "artifact-held-bundles-refused": [
+      "store / a second publication completes from the bundles the store already holds"
+    ],
+    "artifact-plan-inputs-unbound": [
+      "store / the plan names its inputs and the publication binds the bundles signed from them"
+    ],
+    "artifact-one-transaction": [
+      "store / a pair from two signing transactions fits the publication"
+    ],
+    "artifact-input-equal-output-refused": [
+      "records / the same bytes keep one bundle ID, and the output may equal its input"
     ]
   }
 }

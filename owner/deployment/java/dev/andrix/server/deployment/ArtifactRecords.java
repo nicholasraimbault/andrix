@@ -14,11 +14,15 @@ import java.util.Objects;
  * type 7. They use the frame of the deployment records: magic "AXDR", a u16 type, a u16 version,
  * a u32 length, the body and the SHA-256 of every preceding byte. Integers are little endian.
  *
- * <p>A manifest names bytes, never approval. Its SHA-256 over the whole frame is the bundle ID.
- * A publication names the bundles of one plan that become visible together: the variant, and its
- * restoration when the plan has one (decision 8). Each kind has a fixed version, strict fields
- * that refuse unknown codes, one informational time that decides nothing, and a stable prefix
- * that every later version keeps.
+ * <p>A manifest names bytes, never approval. Its SHA-256 over the whole frame is the bundle ID, and
+ * it holds no time, so the same bytes always give the same ID. A built APK may already carry
+ * signatures, which prove nothing about the outputs, so the input's identity is the digest of its
+ * ZIP entries outside the signing block. A publication names the bundles of one plan that become
+ * visible together, the variant and its restoration when the plan has one (decision 8), and each
+ * bundle's own signing transaction, so a pair from two transactions fits the layout. It binds the
+ * produced bundles to the plan, which names only their signing inputs. Each kind has a fixed
+ * version, strict fields that refuse unknown codes and a stable prefix that every later version
+ * keeps. The publication's one informational time decides nothing.
  */
 public final class ArtifactRecords {
     public static final int MANIFEST = 6;
@@ -70,8 +74,11 @@ public final class ArtifactRecords {
         public final String installation;
         public final String component;
         public final Role role;
-        public final String request;
+        /** The signing transaction. The operations' own IDs stay in the signer's records. */
+        public final String transaction;
+        /** The SHA-256 of the exact input APK bytes. */
         public final String input;
+        /** The input's identity: the SHA-256 over its ZIP entries outside the signing block. */
         public final String inputEntries;
         public final long versionCode;
         public final String apk;
@@ -84,16 +91,18 @@ public final class ArtifactRecords {
         public final int sdkMin;
         public final int sdkMax;
         public final V4Check v4;
-        /** Informational. */
-        public final long createdAt;
 
-        public Manifest(String installation, String component, Role role, String request, String input,
+        /**
+         * The schemes are each checked explicitly over the APK's declared SDK range. Signing may
+         * reproduce its input exactly, so the output may equal the input.
+         */
+        public Manifest(String installation, String component, Role role, String transaction, String input,
                 String inputEntries, long versionCode, String apk, long apkBytes, String idsig, long idsigBytes,
-                String certificate, String key, int schemes, int sdkMin, int sdkMax, V4Check v4, long createdAt) {
+                String certificate, String key, int schemes, int sdkMin, int sdkMax, V4Check v4) {
             DeploymentRecords.checkId(installation, "installation", false);
             DeploymentRecords.checkPackage(component);
             this.role = Objects.requireNonNull(role, "role");
-            DeploymentRecords.checkId(request, "request", false);
+            DeploymentRecords.checkId(transaction, "transaction", false);
             for (String d : List.of(input, inputEntries, apk, idsig, certificate, key)) {
                 DeploymentRecords.checkDigest(d, "digest", false);
             }
@@ -101,10 +110,9 @@ public final class ArtifactRecords {
             if (apkBytes <= 0 || idsigBytes <= 0) throw DeploymentRecords.invalid("an empty member");
             if (schemes != SCHEMES) throw DeploymentRecords.invalid("schemes other than v2, v3 and v4");
             if (sdkMin < 1 || sdkMax < sdkMin || sdkMax > 0xffff) throw DeploymentRecords.invalid("SDK range");
-            if (input.equals(apk)) throw DeploymentRecords.invalid("the input is not signed output");
             this.installation = installation;
             this.component = component;
-            this.request = request;
+            this.transaction = transaction;
             this.input = input;
             this.inputEntries = inputEntries;
             this.versionCode = versionCode;
@@ -118,7 +126,6 @@ public final class ArtifactRecords {
             this.sdkMin = sdkMin;
             this.sdkMax = sdkMax;
             this.v4 = Objects.requireNonNull(v4, "v4");
-            this.createdAt = createdAt;
         }
 
         @Override
@@ -135,27 +142,30 @@ public final class ArtifactRecords {
         public final String installation;
         public final String plan;
         public final String component;
-        public final String request;
         /** The bundle IDs: the variant, then the restoration when there is one. */
         public final List<String> bundles;
+        /** Each bundle's signing transaction, in the same order. */
+        public final List<String> transactions;
         /** Informational. */
         public final long publishedAt;
 
-        public Publication(String installation, String plan, String component, String request, List<String> bundles,
-                long publishedAt) {
+        public Publication(String installation, String plan, String component, List<String> bundles,
+                List<String> transactions, long publishedAt) {
             DeploymentRecords.checkId(installation, "installation", false);
             DeploymentRecords.checkId(plan, "plan", false);
             DeploymentRecords.checkPackage(component);
-            DeploymentRecords.checkId(request, "request", false);
             List<String> copy = new ArrayList<>(bundles);
+            List<String> signing = new ArrayList<>(transactions);
             if (copy.isEmpty() || copy.size() > 2) throw DeploymentRecords.invalid("one or two bundles");
+            if (signing.size() != copy.size()) throw DeploymentRecords.invalid("a transaction for each bundle");
             for (String b : copy) DeploymentRecords.checkDigest(b, "bundle", false);
+            for (String t : signing) DeploymentRecords.checkId(t, "transaction", false);
             if (copy.size() == 2 && copy.get(0).equals(copy.get(1))) throw DeploymentRecords.invalid("a bundle twice");
             this.installation = installation;
             this.plan = plan;
             this.component = component;
-            this.request = request;
             this.bundles = Collections.unmodifiableList(copy);
+            this.transactions = Collections.unmodifiableList(signing);
             this.publishedAt = publishedAt;
         }
 
@@ -179,7 +189,7 @@ public final class ArtifactRecords {
         public final String installation;
         /** The manifest's component, or the publication's. */
         public final String component;
-        /** The manifest's request, or the publication's plan. */
+        /** The manifest's signing transaction, or the publication's plan. */
         public final String id;
 
         Prefix(int type, int version, String installation, String component, String id) {
@@ -201,7 +211,7 @@ public final class ArtifactRecords {
         out.id(m.installation);
         out.text(m.component);
         out.u8(m.role.code);
-        out.id(m.request);
+        out.id(m.transaction);
         out.raw(m.input);
         out.raw(m.inputEntries);
         out.i64(m.versionCode);
@@ -215,7 +225,6 @@ public final class ArtifactRecords {
         out.u16(m.sdkMin);
         out.u16(m.sdkMax);
         out.u8(m.v4.code);
-        out.i64(m.createdAt);
         return out.seal();
     }
 
@@ -224,11 +233,11 @@ public final class ArtifactRecords {
         out.id(p.installation);
         out.id(p.plan);
         out.text(p.component);
-        out.id(p.request);
         out.u8(p.bundles.size());
         for (int i = 0; i < p.bundles.size(); i++) {
             out.raw(p.bundles.get(i));
             out.u8(Publication.roleAt(i).code);
+            out.id(p.transactions.get(i));
         }
         out.i64(p.publishedAt);
         return out.seal();
@@ -239,7 +248,7 @@ public final class ArtifactRecords {
         String installation = in.hex(16);
         String component = in.text();
         Role role = Role.of(in.u8());
-        String request = in.hex(16);
+        String transaction = in.hex(16);
         String input = in.hex(32);
         String entries = in.hex(32);
         long version = in.i64();
@@ -253,10 +262,9 @@ public final class ArtifactRecords {
         int sdkMin = in.u16();
         int sdkMax = in.u16();
         V4Check v4 = V4Check.of(in.u8());
-        long createdAt = in.i64();
         in.finish();
-        return new Manifest(installation, component, role, request, input, entries, version, apk, apkBytes, idsig,
-                idsigBytes, certificate, key, schemes, sdkMin, sdkMax, v4, createdAt);
+        return new Manifest(installation, component, role, transaction, input, entries, version, apk, apkBytes, idsig,
+                idsigBytes, certificate, key, schemes, sdkMin, sdkMax, v4);
     }
 
     public static Publication decodePublication(byte[] record) {
@@ -264,23 +272,24 @@ public final class ArtifactRecords {
         String installation = in.hex(16);
         String plan = in.hex(16);
         String component = in.text();
-        String request = in.hex(16);
         int count = in.u8();
         if (count < 1 || count > 2) throw DeploymentRecords.invalid("one or two bundles");
         List<String> bundles = new ArrayList<>();
+        List<String> transactions = new ArrayList<>();
         for (int i = 0; i < count; i++) {
             bundles.add(in.hex(32));
             if (Role.of(in.u8()) != Publication.roleAt(i)) throw DeploymentRecords.invalid("roles out of order");
+            transactions.add(in.hex(16));
         }
         long publishedAt = in.i64();
         in.finish();
-        return new Publication(installation, plan, component, request, bundles, publishedAt);
+        return new Publication(installation, plan, component, bundles, transactions, publishedAt);
     }
 
     /**
      * The stable prefix of an intact frame of a later version: the installation, then the
-     * component and request of a manifest, or the plan and component of a publication. It reads
-     * nothing after the prefix.
+     * component and signing transaction of a manifest, or the plan and component of a
+     * publication. It reads nothing after the prefix.
      */
     public static Prefix decodePrefix(byte[] record) {
         In in = new In(record, 0, true);
@@ -290,9 +299,9 @@ public final class ArtifactRecords {
         if (in.type == MANIFEST) {
             String component = in.text();
             in.u8(); // The role: a later version may add codes.
-            String request = in.hex(16);
-            DeploymentRecords.checkId(request, "request", false);
-            return new Prefix(in.type, in.version, installation, component, request);
+            String transaction = in.hex(16);
+            DeploymentRecords.checkId(transaction, "transaction", false);
+            return new Prefix(in.type, in.version, installation, component, transaction);
         }
         String plan = in.hex(16);
         DeploymentRecords.checkId(plan, "plan", false);

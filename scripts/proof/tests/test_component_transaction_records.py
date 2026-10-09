@@ -62,10 +62,12 @@ class ComponentTransactionSourceTests(unittest.TestCase):
             kind = {'MANIFEST': 6, 'PUBLICATION': 7}[name.split('_')[0]]
             self.assertEqual(data[:4], b'AXDR', name)
             self.assertEqual(struct.unpack('<HHI', data[4:12]), (kind, 1, len(data)), name)
-        # The pair names both manifests by their digests, the variant first.
+        # The pair names both manifests by their digests, the variant first, each with its own
+        # signing transaction.
         pair = gold['PUBLICATION_PAIR']
-        self.assertIn(bytes.fromhex(runner.sha(gold['MANIFEST_VARIANT'])) + b'\x01'
-                      + bytes.fromhex(runner.sha(gold['MANIFEST_RESTORATION'])) + b'\x02', pair)
+        transaction = bytes.fromhex(runner.ident(0x5e))
+        self.assertIn(bytes.fromhex(runner.sha(gold['MANIFEST_VARIANT'])) + b'\x01' + transaction
+                      + bytes.fromhex(runner.sha(gold['MANIFEST_RESTORATION'])) + b'\x02' + transaction, pair)
         predictions = json.loads(runner.PREDICTIONS.read_text())['artifact_goldens']
         self.assertEqual({name: (row['bytes'], row['sha256']) for name, row in predictions.items()}, pins)
 
@@ -99,11 +101,11 @@ class ComponentTransactionSourceTests(unittest.TestCase):
     def test_case_names_and_counts(self):
         predictions = json.loads(runner.PREDICTIONS.read_text())
         self.assertIn('PREDICTED', predictions['status'])
-        self.assertEqual(predictions['cases'], {'codec': 49, 'machine': 66, 'store': 14, 'transactions': 44,
-                                                'artifacts': 13, 'goldens': 22, 'artifact_goldens': 4, 'mutants': 68})
+        self.assertEqual(predictions['cases'], {'codec': 50, 'machine': 67, 'store': 14, 'transactions': 44,
+                                                'artifacts': 17, 'goldens': 23, 'artifact_goldens': 4, 'mutants': 77})
         self.assertEqual({suite: len(names) for suite, names in runner.NAMES.items()},
-                         {'codec': 49, 'machine': 66, 'store': 14, 'transactions': 44, 'artifacts': 13})
-        self.assertEqual(predictions['guarded_run']['cases_passed'], 186)
+                         {'codec': 50, 'machine': 67, 'store': 14, 'transactions': 44, 'artifacts': 17})
+        self.assertEqual(predictions['guarded_run']['cases_passed'], 192)
         for names in runner.NAMES.values():
             for name in names:
                 self.assertNotIn(': ', name)
@@ -131,7 +133,7 @@ class ComponentTransactionSourceTests(unittest.TestCase):
                 runner.mutant_texts()
 
     def test_every_required_defect_has_a_mutant(self):
-        self.assertEqual(len(runner.REQUIRED_DEFECTS), 13)
+        self.assertEqual(len(runner.REQUIRED_DEFECTS), 17)
         for defect, names in runner.REQUIRED_DEFECTS.items():
             for name in names:
                 self.assertIn(name, runner.MUTANTS, defect)
@@ -214,6 +216,25 @@ class ComponentTransactionRefusalTests(unittest.TestCase):
                 imported.add(node.module)
         self.assertFalse({name for name in imported if name and name.startswith('native_')}, imported)
         self.assertNotIn('test_native', Path(runner.__file__).read_text())
+
+
+    def test_every_jvm_caps_its_memory_and_compiler_threads(self):
+        calls = []
+
+        def capture(command, **kwargs):
+            calls.append(command)
+            return mock.Mock(returncode=0, stdout='', stderr='')
+        work = scratch(self)
+        with mock.patch.object(runner.subprocess, 'run', capture):
+            runner.build(work / 'b', {})
+            runner.execute(work, 'Main', [])
+        javac, java = calls
+        self.assertEqual(javac[:2], ['javac', '-J-Xmx384m'])
+        self.assertEqual(java[:2], ['java', '-Xmx256m'])
+        for option in ('-XX:+UseSerialGC', '-XX:TieredStopAtLevel=1', '-XX:CICompilerCount=1',
+                       '-XX:MaxMetaspaceSize=128m', '-XX:ReservedCodeCacheSize=48m'):
+            self.assertIn('-J' + option, javac)
+            self.assertIn(option, java)
 
 
 class ComponentTransactionJvmTests(unittest.TestCase):

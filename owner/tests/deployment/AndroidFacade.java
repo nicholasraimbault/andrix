@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package dev.andrix.server.deployment;
 
+import static dev.andrix.server.deployment.DeploymentRecords.NO_DIGEST;
 import static dev.andrix.server.deployment.DeploymentRecords.NO_ID;
 
 import dev.andrix.server.deployment.DeploymentRecords.Authorization;
@@ -661,9 +662,13 @@ final class AndroidFacade {
 
     // ------------------------------------------------------------------ the host signer and store
 
-    /** The host signer with the development key, and the artifact store. */
+    /**
+     * The host signer with the development key, and the artifact store. A plan has one
+     * publication, which binds the bundles its signing produced, or the held bundles it names.
+     */
     final class Host implements Coordinator.Host {
         final Map<String, Classification> requests = new HashMap<>();
+        /** The plans whose publication record is written. */
         final Set<String> published = new HashSet<>();
         boolean refuse;
         int signatures;
@@ -689,11 +694,17 @@ final class AndroidFacade {
             Fault fault = begin(ticket, entry);
             if (fault == Fault.CRASH_BEFORE) throw new Crash();
             if (fault == Fault.NO_EFFECT) return null;
-            published.add(plan.bundle);
-            if (plan.hasRestoration()) published.add(plan.restoration);
+            published.add(plan.planId);
             if (fault == Fault.CRASH_AFTER) throw new Crash();
             if (fault == Fault.LOST) return null;
-            return hostFact(Classification.BUNDLE_PUBLISHED).digest(plan.bundle).build();
+            return publication(plan, entry.reference);
+        }
+
+        // The store's read of the plan's publication record, naming the attempt it follows.
+        private Observation publication(Plan plan, String attempt) {
+            boolean written = published.contains(plan.planId);
+            return hostFact(written ? Classification.BUNDLE_PUBLISHED : Classification.BUNDLE_ABSENT).subject(attempt)
+                    .digest(written ? Fixtures.PUBLICATION : NO_DIGEST).build();
         }
 
         // The signer answers by request ID. A request it never received can no longer complete:
@@ -711,14 +722,9 @@ final class AndroidFacade {
                 Classification c = requests.computeIfAbsent(e.reference, r -> Classification.SIGN_CANNOT_COMPLETE);
                 list.add(hostFact(c).subject(e.reference).build());
             }
-            if (plan.target == DeploymentRecords.Target.VARIANT) {
-                list.add(hostFact(published.contains(plan.bundle) ? Classification.BUNDLE_PUBLISHED
-                        : Classification.BUNDLE_ABSENT).digest(plan.bundle).build());
-                if (plan.hasRestoration()) {
-                    list.add(hostFact(published.contains(plan.restoration) ? Classification.BUNDLE_PUBLISHED
-                            : Classification.BUNDLE_ABSENT).digest(plan.restoration).build());
-                }
-            }
+            // Read after the last attempt's call has ended: no crossing is in flight during a query.
+            Entry attempt = ticket.last(Crossing.PUBLISH);
+            if (attempt != null) list.add(publication(plan, attempt.reference));
             return list;
         }
 
