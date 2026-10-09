@@ -282,10 +282,17 @@ installed and waiting for a reboot. Readings from an earlier session therefore a
    An Andrix build belongs to its base tag, and a security preview to its base release. Google's
    stock image belongs to the earliest release built from that stock build, as adevtool at that
    release records, for example CP3A.261005.005 for 2026100600. The image may be written only if
+   each firmware reading equals the version that one of the session's known releases records, and
    one of these holds:
    - its release is newer than the phone's release, by GrapheneOS's release numbers;
-   - it has the same stock build ID as the phone's release, and its `android-info.txt` versions
-     equal these readings.
+   - it has the same stock build ID as the phone's release.
+
+   The session's known releases are the phone's release recorded at the session's start and every
+   release written in this session. A reading that matches none of them refuses every write,
+   because it may come from newer firmware. A partial write, such as a new bootloader beside an
+   older radio, still matches known releases, so the whole script can run again as rule 4
+   requires. Every known release then carries firmware no newer than the image's, on this plan's
+   assumption that a newer release never ships older firmware, so no component goes back.
 
    Stock build IDs are compared only for equality, never ordered, because adevtool's index lists
    carrier variants beside their base builds. A stock image that no GrapheneOS release is built
@@ -294,17 +301,24 @@ installed and waiting for a reboot. Readings from an earlier session therefore a
    Its inputs are fixed so that no typed value can approve older firmware:
    - **The image's identity** is read from the image itself, never typed: the signed build number
      of a GrapheneOS zip, the signed `vbmeta` of an Andrix zip, and the stock build inside Google's
-     image. The decision names the image's SHA-256, and only that file is written.
+     image. The decision names the image's SHA-256, and only that file is written. An Andrix zip's
+     `vbmeta` must verify against the workshop key recorded for this phone. Its `android-info.txt`
+     and stock build must equal its base tag's record, and its bootloader and radio images must be
+     byte identical to the official kit of that tag.
    - **The phone's release** is the release recorded at the session's start, and it counts as the
-     newer of that release and any image written in the session. The readings must equal the
-     versions recorded for that release. Fresh readings come before each write.
+     newer of that release and any image written in the session. The checker keeps both in its
+     own session record, written before each write runs, so neither is typed. Readings carry the
+     time they were taken, and readings older than the session's last write are refused. Fresh
+     readings come before each write.
    - **The records** cover every signed caiman release tag from the phone's release through the
-     image's release. Each is bound to the adevtool revision that its tag's manifest pins. If any
-     is missing, the image is refused.
+     image's release. The tag list comes from the signed tags of GrapheneOS's manifest repository,
+     each with its verified signature, never from a page or a file passed in. Each record is bound
+     to the adevtool revision that its tag's manifest pins, and names the tree commit it was
+     derived from. If any is missing, the image is refused.
    - **Release numbers** end in 00 for a release and 01 for its security preview. Any other ending
      is refused until a rule covers it. GrapheneOS states that a security preview uses the same
-     sources as its regular release, which implies the same firmware. The comparison of versions
-     still runs wherever stock builds are equal.
+     sources as its regular release, which implies the same firmware. The readings are still
+     compared with the known releases' recorded versions.
    - **The approval.** The session's approval must name the image. An image that meets the
      criterion but is not named waits in fastboot mode for a fresh approval. Nothing is written in
      stage 3, and no Andrix image is written before stage 8.
