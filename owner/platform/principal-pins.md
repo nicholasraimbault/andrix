@@ -123,7 +123,26 @@ conflict, and nothing is restored from it. Every format reads the stable prefix 
 above version 2 as the same evidence. A broken prefix gives none, and the frame stays a footprint.
 Every slot writer refuses a value above its format's ceiling before its first effect. A RETIRED
 body restores a RETIRING pin, and only a body in the policy's Eligible state, ELIGIBLE with no
-suspension entry, owns a scan or restores as a reservation. Nothing writes a lifecycle record yet.
+suspension entry, owns a scan or restores as a reservation.
+
+Under Format.V3 the store changes a lifecycle only through named transitions: suspend and lift
+change suspension entries, retire writes the retirement block, and confirm retired discharges the
+retirement kinds. The state only moves forward. A written retirement block never changes, except
+that a legacy marker's unknown inventory continues once to every kind outstanding. No user leaves a
+slot until the release engine exists, and the generic update keeps every lifecycle, every user's
+identity and a tombstone's release ticket, which only the release engine writes. The writers are
+narrower than the decoder: no recovery hold or scope bit 0 is written, a reason must be in the
+registry and allowed for its actor class, an account user entry or retirement names the account's
+own user and serial, the six entries are allotted one to the account's user, one to a recovery
+hold and four to grants, no writer creates a legacy marker or a user removal, and an obligation's
+reference is bound once. The persistence transactions suspend, lift, markRetiring and markRetired
+carry these through for one exact binding. A fifth grant or a seventh actor gets an explicit full
+result, and a repeated suspension by the same actor confirms its entry unchanged, with a distinct
+result when the request differs from it. Each transaction refuses under Format.V1 and Format.V2
+before any effect, and under Format.V3 the version 1 marker and release refuse. Publication refuses
+a suspended binding itself, before its header changes, while the shared slot confirmation admits
+every lifecycle. Because no production text constructs Format.V3, the image still writes no
+lifecycle record.
 
 ## Persistence and lock discipline
 

@@ -78,6 +78,14 @@ public final class NativeLifecycleReadTest {
         return new Slot(LINEAGE, appId, name, generation, SIGNERS, List.of(new UserEntry(id, 0, SERIAL, lifecycle)));
     }
 
+    private static List<Obligation> outstandingInventory() {
+        List<Obligation> list = new ArrayList<>();
+        for (ObligationKind kind : ObligationKind.values()) {
+            list.add(new Obligation(kind, ObligationState.OUTSTANDING, ZERO, 0, 0));
+        }
+        return list;
+    }
+
     private static List<Obligation> retiredInventory() {
         List<Obligation> list = new ArrayList<>();
         for (ObligationKind kind : ObligationKind.values()) {
@@ -406,13 +414,23 @@ public final class NativeLifecycleReadTest {
         });
     }
 
+    // A's retirement under Format.V3: the account's own user, every kind outstanding.
+    private static final Retirement RETIREMENT = new Retirement(ActorClass.ACCOUNT_USER, 0, SERIAL, ZERO,
+            1_700_000_000_002L, outstandingInventory());
+
     // Each writer of an otherwise valid layout: header retry, confirmation and marker of A, and
-    // confirmation of an unrelated sibling.
-    private static final Map<String, Write> WRITERS = Map.of(
-            "header retry", store -> store.writeHeader(header(2, live(A), live(B)), header(2, live(A), live(B))),
-            "confirm A", store -> store.confirmExistingSlot(ELIGIBLE_A),
-            "mark A retiring", store -> store.updateExistingSlot(ELIGIBLE_A, RETIRING_A),
-            "confirm sibling", store -> store.confirmExistingSlot(body(B, PKG_B, 2, 1, Lifecycle.version1(false))));
+    // confirmation of an unrelated sibling. A's marker is the version 1 flag through the generic
+    // update under the earlier formats, and the retire transition under Format.V3, where the
+    // generic update changes no lifecycle.
+    private static Map<String, Write> writers(Format format) {
+        Write marker = ceilingTwo(format) ? store -> store.markSlotRetiring(ELIGIBLE_A, 1, RETIREMENT)
+                : store -> store.updateExistingSlot(ELIGIBLE_A, RETIRING_A);
+        return Map.of(
+                "header retry", store -> store.writeHeader(header(2, live(A), live(B)), header(2, live(A), live(B))),
+                "confirm A", store -> store.confirmExistingSlot(ELIGIBLE_A),
+                "mark A retiring", marker,
+                "confirm sibling", store -> store.confirmExistingSlot(body(B, PKG_B, 2, 1, Lifecycle.version1(false))));
+    }
 
     // The older valid copies of A and an unrelated sibling, and this frame in one position.
     private static Path older(String position, byte[] frame) throws Exception {
@@ -432,7 +450,7 @@ public final class NativeLifecycleReadTest {
     private static void positions(Format format) {
         String f = format.name() + " / ";
         run(f + "healthy controls, every writer succeeds", problems -> {
-            for (Map.Entry<String, Write> writer : new TreeMap<>(WRITERS).entrySet()) {
+            for (Map.Entry<String, Write> writer : new TreeMap<>(writers(format)).entrySet()) {
                 Path root = older("none", null);
                 check(problems, load(root, format).bindingUsable(A), "control not usable");
                 check(problems, writer.getValue().run(open(root, format)), writer.getKey() + " refused");
@@ -469,7 +487,7 @@ public final class NativeLifecycleReadTest {
                                 .anyMatch(record -> record.appId == A), "the older copies' pin is gone");
                     }
                     check(problems, loaded.slots.get(B).status == Status.VALID, "sibling " + loaded.slots.get(B).status);
-                    for (Map.Entry<String, Write> writer : new TreeMap<>(WRITERS).entrySet()) {
+                    for (Map.Entry<String, Write> writer : new TreeMap<>(writers(format)).entrySet()) {
                         Path root = older(position, frame);
                         Map<String, String> before = footprint(root);
                         check(problems, !writer.getValue().run(open(root, format)), writer.getKey() + " wrote");

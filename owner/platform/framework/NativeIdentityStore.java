@@ -27,10 +27,19 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 
+import com.android.server.pm.NativeIdentityRecords.ActorClass;
 import com.android.server.pm.NativeIdentityRecords.Header;
 import com.android.server.pm.NativeIdentityRecords.HeaderEntry;
+import com.android.server.pm.NativeIdentityRecords.Lifecycle;
+import com.android.server.pm.NativeIdentityRecords.LifecycleState;
+import com.android.server.pm.NativeIdentityRecords.Obligation;
+import com.android.server.pm.NativeIdentityRecords.ObligationKind;
+import com.android.server.pm.NativeIdentityRecords.ObligationState;
+import com.android.server.pm.NativeIdentityRecords.Retirement;
 import com.android.server.pm.NativeIdentityRecords.Slot;
 import com.android.server.pm.NativeIdentityRecords.SlotPhase;
+import com.android.server.pm.NativeIdentityRecords.Suspension;
+import com.android.server.pm.NativeIdentityRecords.SuspensionReason;
 import com.android.server.pm.NativeIdentityRecords.UserEntry;
 
 /**
@@ -119,6 +128,20 @@ import com.android.server.pm.NativeIdentityRecords.UserEntry;
  * agree. A missing slot now is no proof that no body ever existed: one may have been
  * lost before a restart. Either is data for restoring a pending pin and matching an
  * explicit designation, never a grant.
+ *
+ * Under a format that writes version 2 slots, an account's lifecycle record changes only
+ * through the named transitions: addSuspension and liftSuspension change suspension
+ * entries, markSlotRetiring writes the retirement block, and markSlotRetired confirms
+ * retired. The state only moves forward, ELIGIBLE to RETIRING to RETIRED. A written
+ * retirement block never changes, except that a legacy marker's unknown inventory
+ * continues once to every kind outstanding. No user leaves a slot: only the release
+ * engine, which does not exist yet, will drop a user, RETIRED with every obligation
+ * discharged and no suspension entry. The generic update keeps every lifecycle there.
+ * A tombstone's release ticket is likewise the release engine's alone. Each transition also
+ * applies the writer rules of the lifecycle record, which are narrower than what its
+ * decoder accepts: see writableSuspension, placeFree, writableRetirement and
+ * writableReceipts. Under the earlier formats every transition refuses at the slot
+ * ceiling before its first effect, and version 1's retiring rule stays.
  */
 final class NativeIdentityStore {
     enum Status { MISSING, VALID, DAMAGED, CONFLICT, UNSUPPORTED }
@@ -381,6 +404,12 @@ final class NativeIdentityStore {
     private static final int HEADER_V2 = 2;
     // The only user of a reservation history: this adapter supports user 0.
     private static final int USER_SYSTEM = 0;
+    // The first slot version that carries an account lifecycle record. A format whose slot
+    // ceiling reaches it changes lifecycles only through the named transitions.
+    private static final int LIFECYCLE_SLOT_VERSION = 2;
+    // The grant references' places among a version 2 record's six suspension entries, as writers
+    // allot them beside one for the account's user and one for a recovery hold.
+    private static final int GRANT_PLACES = 4;
 
     private final File root;
     private final File slotRoot;
@@ -1250,10 +1279,21 @@ final class NativeIdentityStore {
 
     /**
      * Existing binding mutation only: no counter reconstruction or new identity issuance. A slot
-     * of a version above this format's ceiling is refused before anything else.
+     * of a version above this format's ceiling is refused before anything else. Under a format
+     * that writes version 2 slots it changes no lifecycle and drops no user: only the named
+     * transitions change a lifecycle, and only the release engine will drop a user. Under the
+     * earlier formats version 1's rule stays: retirement is irreversible for every user that
+     * remains, and only a retiring user may be dropped.
      */
     boolean updateExistingSlot(Slot expected, Slot next) {
         Objects.requireNonNull(expected); Objects.requireNonNull(next);
+        return writeExistingSlot(expected, next, false);
+    }
+
+    // The checked writer of an existing slot, shared by the generic update and the named
+    // transitions. A transition passes true for the one lifecycle its own rule computed; the
+    // generic update passes false.
+    private boolean writeExistingSlot(Slot expected, Slot next, boolean transition) {
         if (expected.version > format.slotCeiling || next.version > format.slotCeiling) return false;
         if (writeInspectionBlocked(next.appId)) return false;
         Loaded loaded = load();
@@ -1276,16 +1316,20 @@ final class NativeIdentityStore {
                 || next.generation != expected.generation + 1
                 || read.status != Status.VALID
                 || !(read.value.equals(expected) || read.value.equals(next))) return false;
-        // Retirement is irreversible for every entry that remains present.
-        for (UserEntry prior : expected.users) {
-            boolean retained = false;
-            for (UserEntry current : next.users) {
-                if (prior.userId != current.userId) continue;
-                retained = true;
-                if (prior.id != current.id || prior.userSerial != current.userSerial
-                        || (prior.retiring && !current.retiring)) return false;
+        if (format.slotCeiling < LIFECYCLE_SLOT_VERSION) {
+            // Retirement is irreversible for every entry that remains present.
+            for (UserEntry prior : expected.users) {
+                boolean retained = false;
+                for (UserEntry current : next.users) {
+                    if (prior.userId != current.userId) continue;
+                    retained = true;
+                    if (prior.id != current.id || prior.userSerial != current.userSerial
+                            || (prior.retiring && !current.retiring)) return false;
+                }
+                if (!retained && !prior.retiring) return false;
             }
-            if (!retained && !prior.retiring) return false;
+        } else if (!lifecyclesKept(expected, next, transition)) {
+            return false;
         }
         // User additions need their own durable issuance proof. The first
         // platform adapter supports only the original user 0 binding.
@@ -1298,6 +1342,261 @@ final class NativeIdentityStore {
         }
         return writeStrict(slotFile(next.appId), NativeIdentityRecords.encodeSlot(next),
                 NativeIdentityRecords.encodeSlot(read.value), false, false);
+    }
+
+    // The store transitions between two values of one slot under a format that writes lifecycle
+    // records. Every user keeps its identity: its principal ID, Android user and serial. A
+    // tombstone keeps its release ticket, which only the release engine writes. The generic update
+    // keeps every lifecycle, and a named transition changes at most the one lifecycle its rule
+    // computed.
+    private static boolean lifecyclesKept(Slot expected, Slot next, boolean transition) {
+        if (!Objects.equals(expected.ticket, next.ticket)) return false;
+        int changed = 0;
+        for (UserEntry prior : expected.users) {
+            UserEntry current = user(next, prior.id);
+            // No user leaves: only the release engine will drop one, RETIRED with every
+            // obligation discharged and no suspension entry.
+            if (current == null) return false;
+            if (current.userId != prior.userId
+                    || current.userSerial != prior.userSerial) return false;
+            if (!current.lifecycle.equals(prior.lifecycle)) ++changed;
+        }
+        return changed <= (transition ? 1 : 0);
+    }
+
+    /**
+     * The suspend transition: adds this entry to the account of principal ID id in the expected
+     * slot and changes nothing else. It is the only primitive that adds a suspension entry, and
+     * any lifecycle state may hold entries. The entry must pass {@link #writableSuspension} for
+     * that account, whose record holds no entry of the same actor and has a free place for the
+     * entry's actor class: see {@link #placeFree}.
+     * Otherwise it refuses before any effect, and so it does beside any store footprint, when
+     * expected is not the fresh durable value, and under a format whose slot ceiling is 1.
+     */
+    boolean addSuspension(Slot expected, long id, Suspension entry) {
+        Objects.requireNonNull(expected); Objects.requireNonNull(entry);
+        UserEntry user = user(expected, id);
+        return user != null && writeLifecycle(expected, user, suspended(user, entry));
+    }
+
+    /**
+     * The lift transition: removes exactly this entry, equal in every field, from the account of
+     * principal ID id and changes nothing else. It is the only primitive that removes a
+     * suspension entry. A recovery hold has no lift path in this stage. Lifting the last entry of
+     * an eligible account leaves a value that version 1 expresses, which is written as version 1.
+     * Refuses as {@link #addSuspension} does.
+     */
+    boolean liftSuspension(Slot expected, long id, Suspension entry) {
+        Objects.requireNonNull(expected); Objects.requireNonNull(entry);
+        UserEntry user = user(expected, id);
+        return user != null && writeLifecycle(expected, user, lifted(user, entry));
+    }
+
+    /**
+     * The retire transition: an ELIGIBLE account of principal ID id becomes RETIRING with this
+     * retirement block, which must pass {@link #writableRetirement}, and keeps every suspension
+     * entry. A legacy marker's block is never written over an eligible account: it passes only as
+     * the inventory rule, over a RETIRING legacy marker whose inventory is unknown, which then
+     * continues to every kind outstanding with its class, actor, grant and time unchanged. Every
+     * other block, state or account refuses as {@link #addSuspension} does.
+     */
+    boolean markSlotRetiring(Slot expected, long id, Retirement retirement) {
+        Objects.requireNonNull(expected); Objects.requireNonNull(retirement);
+        UserEntry user = user(expected, id);
+        return user != null && writeLifecycle(expected, user, retiring(user, retirement));
+    }
+
+    /**
+     * Confirms retired: a RETIRING account of principal ID id with a known inventory becomes
+     * RETIRED, each retirement kind discharged by its receipt, which must pass
+     * {@link #writableReceipts}. Only OUTSTANDING becomes DISCHARGED here. A discharged kind stays
+     * exactly as it is, and a bound reference is never bound again. The retirement block's class,
+     * actor, grant and time, every disposition kind and every suspension entry stay. It releases
+     * nothing. Every other account refuses as {@link #addSuspension} does.
+     */
+    boolean markSlotRetired(Slot expected, long id, List<Obligation> receipts) {
+        Objects.requireNonNull(expected);
+        List<Obligation> copy = List.copyOf(Objects.requireNonNull(receipts));
+        UserEntry user = user(expected, id);
+        return user != null && writeLifecycle(expected, user, retired(user, copy));
+    }
+
+    // One account's lifecycle becomes next in its slot's next generation, through the checked
+    // writer of an existing slot. The lineage, app ID, package, signers, every other user and
+    // every identity stay.
+    private boolean writeLifecycle(Slot expected, UserEntry user, Lifecycle next) {
+        if (next == null || expected.generation == Long.MAX_VALUE) return false;
+        List<UserEntry> users = new ArrayList<>(expected.users.size());
+        for (UserEntry each : expected.users) {
+            users.add(each != user ? each
+                    : new UserEntry(each.id, each.userId, each.userSerial, next));
+        }
+        return writeExistingSlot(expected, new Slot(expected.lineage, expected.appId,
+                expected.packageName, expected.generation + 1, expected.signerSha256, users), true);
+    }
+
+    private static UserEntry user(Slot slot, long id) {
+        for (UserEntry user : slot.users) if (user.id == id) return user;
+        return null;
+    }
+
+    // The pure rules of the named transitions. Each returns the lifecycle its transition makes of
+    // this user's, or null when the store's rules refuse it. None touches another user.
+
+    private static Lifecycle suspended(UserEntry user, Suspension entry) {
+        Lifecycle prior = user.lifecycle;
+        if (!writableSuspension(user.userId, user.userSerial, entry)) return null;
+        // A fifth grant, or a seventh actor, waits for a free place.
+        if (!placeFree(prior, entry.actorClass)) return null;
+        // One entry per actor. Its repeated suspension is a confirmation, never a second entry.
+        for (Suspension held : prior.suspensions) {
+            if (sameActor(held, entry)) return null;
+        }
+        List<Suspension> entries = new ArrayList<>(prior.suspensions);
+        entries.add(entry);
+        entries.sort(NativeIdentityRecords::order);
+        return new Lifecycle(prior.state, entries, prior.retirement);
+    }
+
+    private static Lifecycle lifted(UserEntry user, Suspension entry) {
+        Lifecycle prior = user.lifecycle;
+        // In this stage a recovery hold has no lift path.
+        if (entry.actorClass == ActorClass.RECOVERY_HOLD) return null;
+        // Only the exact entry its actor placed.
+        if (!prior.suspensions.contains(entry)) return null;
+        List<Suspension> entries = new ArrayList<>(prior.suspensions);
+        entries.remove(entry);
+        return new Lifecycle(prior.state, entries, prior.retirement);
+    }
+
+    private static Lifecycle retiring(UserEntry user, Retirement retirement) {
+        Lifecycle prior = user.lifecycle;
+        if (!writableRetirement(user.userId, user.userSerial, retirement)) return null;
+        if (retirement.actorClass == ActorClass.LEGACY_MARKER) {
+            // The inventory rule, the one change of a written block: a RETIRING legacy marker's
+            // unknown inventory, which only a legacy marker has, continues to every kind
+            // outstanding, once. Its class, actor, grant and time stay, all zero. No writer
+            // creates a legacy marker.
+            if (prior.state != LifecycleState.RETIRING) return null;
+            if (!prior.retirement.obligations.isEmpty()) return null;
+        } else if (prior.state != LifecycleState.ELIGIBLE) {
+            // The state only moves forward, and a written block never changes.
+            return null;
+        }
+        return new Lifecycle(LifecycleState.RETIRING, prior.suspensions, retirement);
+    }
+
+    private static Lifecycle retired(UserEntry user, List<Obligation> receipts) {
+        Lifecycle prior = user.lifecycle;
+        if (!writableReceipts(receipts) || prior.state != LifecycleState.RETIRING) return null;
+        Retirement held = prior.retirement;
+        // RETIRED needs a known inventory: a legacy marker continues first.
+        if (held.obligations.isEmpty()) return null;
+        List<Obligation> obligations = new ArrayList<>(held.obligations);
+        for (Obligation receipt : receipts) {
+            // A known inventory lists every kind once, in kind order.
+            int index = receipt.kind.code - 1;
+            Obligation duty = obligations.get(index);
+            // A discharged kind stays exactly as it is.
+            if (duty.state == ObligationState.DISCHARGED) {
+                if (!duty.equals(receipt)) return null;
+                continue;
+            }
+            // Only OUTSTANDING becomes DISCHARGED here. A kind orphaned with its Android user
+            // waits for stage C.
+            if (duty.state != ObligationState.OUTSTANDING) return null;
+            // A reference is bound once: an unbound one may be bound now, a bound one never
+            // changes, to zero or to another reference.
+            if (!duty.reference.equals(NativeIdentityRecords.NO_REFERENCE)
+                    && !duty.reference.equals(receipt.reference)) return null;
+            obligations.set(index, receipt);
+        }
+        return new Lifecycle(LifecycleState.RETIRED, prior.suspensions, new Retirement(
+                held.actorClass, held.actorUserId, held.actorSerial, held.grant, held.time,
+                obligations));
+    }
+
+    /**
+     * Whether this lifecycle has a free place for an entry of this actor class, as writers allot
+     * a version 2 record's six suspension entries: one to the account's user, one to a recovery
+     * hold and four to grant references. So a fifth grant waits while the account's user keeps
+     * its place. The decoder accepts any six entries, one per actor, so a later writer's records
+     * stay readable, and beside six entries of any classes no place is free. Pure.
+     */
+    static boolean placeFree(Lifecycle lifecycle, ActorClass actorClass) {
+        if (lifecycle.suspensions.size() >= NativeIdentityRecords.MAX_SUSPENSIONS) return false;
+        int held = 0;
+        for (Suspension entry : lifecycle.suspensions) {
+            if (entry.actorClass == actorClass) ++held;
+        }
+        return held < (actorClass == ActorClass.ADMIN_GRANT ? GRANT_PLACES : 1);
+    }
+
+    /**
+     * Whether two suspension entries come from one actor, of whom a record holds at most one
+     * entry: the account's user, one grant reference whatever its actor fields, or the recovery
+     * hold. Pure.
+     */
+    static boolean sameActor(Suspension first, Suspension second) {
+        return first.actorClass == second.actorClass
+                && (first.actorClass != ActorClass.ADMIN_GRANT || first.grant.equals(second.grant));
+    }
+
+    /**
+     * The writer rules of a suspension entry for the account of this Android user and serial,
+     * narrower than what the decoder accepts. Pure. A writer of this stage writes only the
+     * account user's own entry and grant entries: recovery holds come from the recovery route,
+     * which this stage lacks. It never sets scope bit 0, which blocks deletion and migration,
+     * until the owner accepts a design that grants that power. Bit 1 belongs to a recovery hold
+     * alone, which the entry itself requires. The reason is in the registry and allowed for the
+     * entry's actor class. An account user entry's actor is the account's own user and serial.
+     */
+    static boolean writableSuspension(int userId, long userSerial, Suspension entry) {
+        if (entry.actorClass != ActorClass.ACCOUNT_USER
+                && entry.actorClass != ActorClass.ADMIN_GRANT) return false;
+        if ((entry.scope & NativeIdentityRecords.SCOPE_BLOCKS_DISPOSITION) != 0) return false;
+        SuspensionReason reason = SuspensionReason.registered(entry.reason);
+        if (reason == null) return false;
+        if (!reason.actors.contains(entry.actorClass)) return false;
+        return entry.actorClass != ActorClass.ACCOUNT_USER
+                || (entry.actorUserId == userId && entry.actorSerial == userSerial);
+    }
+
+    /**
+     * The writer rules of a retirement block for the account of this Android user and serial.
+     * Pure. A retirement starts with this design's inventory, every kind outstanding and
+     * unbound, with no code or time. Its actor is the account's own user and serial, or a grant.
+     * USER_REMOVAL belongs to the Android user removal path alone, which is stage C's. A legacy
+     * marker's block, all zero, passes only in that form: the retire transition takes it as a
+     * legacy marker's continuation, never over an eligible account.
+     */
+    static boolean writableRetirement(int userId, long userSerial, Retirement retirement) {
+        if (retirement.actorClass == ActorClass.USER_REMOVAL) return false;
+        if (retirement.actorClass == ActorClass.ACCOUNT_USER && (retirement.actorUserId != userId
+                || retirement.actorSerial != userSerial)) return false;
+        if (retirement.obligations.isEmpty()) return false;
+        for (Obligation duty : retirement.obligations) {
+            if (!duty.equals(new Obligation(duty.kind, ObligationState.OUTSTANDING,
+                    NativeIdentityRecords.NO_REFERENCE, 0, 0))) return false;
+        }
+        return true;
+    }
+
+    /**
+     * The writer rules of the receipts that confirm retired: one DISCHARGED obligation for each
+     * retirement kind, in kind order, each its owner's explicit receipt. Nothing to do is a
+     * receipt too. A receipt binds its reference, or none when it keeps zero. No disposition kind
+     * is discharged here. Pure.
+     */
+    static boolean writableReceipts(List<Obligation> receipts) {
+        int index = 0;
+        for (ObligationKind kind : ObligationKind.values()) {
+            if (kind.disposition()) continue;
+            if (index >= receipts.size()) return false;
+            Obligation receipt = receipts.get(index++);
+            if (receipt.kind != kind || receipt.state != ObligationState.DISCHARGED) return false;
+        }
+        return index == receipts.size();
     }
 
     /**

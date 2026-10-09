@@ -1807,8 +1807,8 @@ public final class NativeIdentityRecords {
     }
 
     // The order of suspension entries: class, then actor serial, then grant reference. Lowercase
-    // hex compares as the unsigned bytes it encodes.
-    private static int order(Suspension first, Suspension second) {
+    // hex compares as the unsigned bytes it encodes. The store's suspend transition sorts by it.
+    static int order(Suspension first, Suspension second) {
         int order = Integer.compare(first.actorClass.code, second.actorClass.code);
         if (order == 0) order = Long.compare(first.actorSerial, second.actorSerial);
         return order != 0 ? order : first.grant.compareTo(second.grant);

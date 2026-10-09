@@ -69,17 +69,17 @@
     {
       "path": "services/core/java/com/android/server/pm/NativeIdentityRecords.java",
       "source": "owner/platform/framework/NativeIdentityRecords.java",
-      "sha256": "e580fae94471813dcf4e33dc59a23273ef9bdbc3146c6cec0ffbc599daa6f9b0"
+      "sha256": "4be9c8a0135d3793bb4153e9dc794c2afbf6e4bdbc3466d447b883fe30e0b032"
     },
     {
       "path": "services/core/java/com/android/server/pm/NativeIdentityStore.java",
       "source": "owner/platform/framework/NativeIdentityStore.java",
-      "sha256": "a82bf9017daa93745c964bfa950d458b48ff642a38b10afa548a25012fd1f723"
+      "sha256": "ca8742eccf53f2e5a38305abee5f6fcdfada895df747c3cb874d86dc77e9b673"
     },
     {
       "path": "services/core/java/com/android/server/pm/NativeIdentityPersistence.java",
       "source": "owner/platform/framework/NativeIdentityPersistence.java",
-      "sha256": "08e262fe2c784a09156a3dbbdcaa1bc3c7c3d4104625ca4008b9be47a2b88e0f"
+      "sha256": "163e0040679956b0d6abe65e80b5ed5f0e44ab0ff8cc2e63519fbf122deca895"
     },
     {
       "path": "services/core/java/com/android/server/pm/NativePrincipalRecovery.java",

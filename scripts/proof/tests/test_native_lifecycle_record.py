@@ -83,8 +83,12 @@ class LifecycleRecordSourceTests(unittest.TestCase):
     def test_case_names_and_counts(self):
         predictions = json.loads(runner.PREDICTIONS.read_text())
         self.assertIn('PREDICTED', predictions['status'])
-        self.assertEqual(predictions['cases'], {'codec': 47, 'reads': 60, 'goldens': 9, 'mutants': 35})
-        self.assertEqual((len(runner.CODEC_NAMES), len(runner.READ_NAMES)), (47, 60))
+        self.assertEqual(predictions['cases'], {'codec': 47, 'reads': 60, 'goldens': 9, 'mutants': 94, 'store': 33,
+                                                'transactions': 29, 'faults': 48})
+        self.assertEqual((len(runner.CODEC_NAMES), len(runner.READ_NAMES), len(runner.STORE_NAMES),
+                          len(runner.TRANSACTION_NAMES), len(runner.FAULT_NAMES)), (47, 60, 33, 29, 48))
+        self.assertEqual(predictions['store_by_label'], {'new-format': 31, 'legacy': 1, 'production': 1})
+        self.assertEqual(predictions['transactions_by_label'], {'new-format': 25, 'legacy': 2, 'production': 2})
         self.assertEqual(predictions['reads_by_label'], {'legacy': 20, 'production': 20, 'new-format': 20})
         for format_name in ('V1', 'V2', 'V3'):
             self.assertEqual(len(runner.read_names(format_name)), 20)
@@ -106,7 +110,7 @@ class LifecycleRecordSourceTests(unittest.TestCase):
                 self.assertTrue(changed or harness)
                 for path, text in changed.items():
                     self.assertNotEqual(text, (ROOT / path).read_text())
-                self.assertTrue(set(suites) <= {'codec', 'reads'})
+                self.assertTrue(set(suites) <= {'codec', 'reads', 'store', 'transactions', 'faults'})
         predictions = json.loads(runner.PREDICTIONS.read_text())['mutants_caught_at_least']
         self.assertEqual(set(predictions), set(runner.MUTANTS))
         # A drifted anchor is refused.
@@ -120,10 +124,16 @@ class LifecycleRecordSourceTests(unittest.TestCase):
         self.assertEqual(runner.label_problems(), [])
         self.assertIn('new-format', runner.b1.LIVING_RUN_LABELS)
         rows = [row for row in runner.b1.HARNESS_LABELS if row[0] == 'new-format']
-        self.assertEqual([row[1] for row in rows], ['scripts/proof/native_lifecycle_record.py'])
+        # The read test's row and the store, transaction and fault tests' row, all of this runner.
+        self.assertEqual([row[1] for row in rows], ['scripts/proof/native_lifecycle_record.py'] * 2)
         for label in (('production', 'archived-baseline'), ('rollback-reader',)):
-            with mock.patch.dict(runner.STEP_LABELS, {'reads': label}):
-                self.assertTrue(runner.label_problems())
+            for step in ('reads', 'store', 'transactions', 'faults'):
+                with mock.patch.dict(runner.STEP_LABELS, {step: label}):
+                    self.assertTrue(runner.label_problems())
+        # A new-format row of another harness is refused.
+        with mock.patch.object(runner.b1, 'HARNESS_LABELS', runner.b1.HARNESS_LABELS + (
+                ('new-format', 'scripts/proof/native_creation_binding.py', ('NativeCreationBindingTest',), 'x'),)):
+            self.assertIn('the new-format label names another harness', runner.label_problems())
 
     def test_golden_and_result_checks(self):
         gold = scratch(self)
@@ -147,6 +157,64 @@ class LifecycleRecordSourceTests(unittest.TestCase):
         self.assertEqual(runner.b1.boot_literal(texts), runner.b1.PRODUCTION)
         for name, text in texts.items():
             self.assertNotRegex(runner.b1.strip_java_comments(text), r'\bFormat\s*\.\s*V3\b', name)
+
+
+class LifecycleTransitionSourceTests(unittest.TestCase):
+    def test_lifecycle_cases_are_named_once_and_labelled_by_format(self):
+        self.assertEqual(runner.lifecycle_name_problems(), [])
+        self.assertEqual(runner.PHASES, ('candidate', 'codec', 'reads', 'store', 'transactions', 'faults', 'mutants'))
+        self.assertEqual({runner.case_label(name) for name in runner.FAULT_NAMES}, {'new-format'})
+        for names in (runner.STORE_NAMES, runner.TRANSACTION_NAMES):
+            self.assertEqual({runner.case_label(name) for name in names}, {'legacy', 'production', 'new-format'})
+        # A case missing from its source, or a fault kind swept twice, is reported.
+        with mock.patch.object(runner, 'STORE_NAMES', runner.STORE_NAMES + ('V3 / absent',)):
+            self.assertIn('NativeLifecycleStoreTest case not named once in its source: V3 / absent',
+                          runner.lifecycle_name_problems())
+        with mock.patch.object(runner, 'FAULT_KINDS', runner.FAULT_KINDS + ('absent',)):
+            self.assertIn('fault kind not swept once: absent', runner.lifecycle_name_problems())
+        with mock.patch.object(runner, 'STORE_NAMES', runner.STORE_NAMES[:-1]):
+            self.assertIn('predicted counts differ from the case lists', runner.source_checks())
+
+    def test_fault_sweeps_reuse_the_existing_seams(self):
+        # The eight steps are the B0 write fault seams', injected only into the fault sweep's copies.
+        self.assertEqual(runner.FAULT_STEPS, tuple(runner.b1.STEPS))
+        with mock.patch.object(runner, 'FAULT_STEPS', runner.FAULT_STEPS[:-1]):
+            self.assertIn('the fault steps are not the eight steps of the existing write fault seams',
+                          runner.lifecycle_name_problems())
+        faults = runner.lifecycle_files(runner.FAULT_TEST)
+        store = runner.lifecycle_files(runner.STORE_TEST)
+        self.assertIn('NativeHeaderWriteFaults.at(', faults['framework/NativeIdentityStore.java'].decode())
+        self.assertIn('NativeHeaderWriteFaults.at(', faults['fixtures/ResilientAtomicFile.java'].decode())
+        self.assertIn('tests/NativeHeaderWriteFaults.java', faults)
+        self.assertNotIn('NativeHeaderWriteFaults', store['framework/NativeIdentityStore.java'].decode())
+        self.assertNotIn('tests/NativeHeaderWriteFaults.java', store)
+        for files, test in ((faults, runner.FAULT_TEST), (store, runner.STORE_TEST)):
+            self.assertIn('tests/%s.java' % test, files)
+            self.assertIn('tests/NativeLifecycleTestSupport.java', files)
+        # Production sources carry no seam.
+        for path in (ROOT / runner.FRAMEWORK_DIR).glob('*.java'):
+            self.assertNotIn('NativeHeaderWriteFaults', path.read_text(), path.name)
+
+    def test_lifecycle_labels_and_mutant_suites(self):
+        labelled = {}
+        for label, harness, classes, _ in runner.b1.HARNESS_LABELS:
+            if harness == 'scripts/proof/native_lifecycle_record.py':
+                for name in classes:
+                    labelled.setdefault(name, set()).add(label)
+        every = {'production', 'legacy', 'new-format'}
+        self.assertEqual(labelled, {runner.CODEC_TEST: {'production'}, runner.READ_TEST: every,
+                                    runner.STORE_TEST: every, runner.TRANSACTION_TEST: every,
+                                    runner.FAULT_TEST: {'new-format'}})
+        self.assertEqual(runner.STEP_LABELS['faults'], ('new-format',))
+        # A defect names cases of the suites it runs, and every suite runs some defect.
+        used = {suite for _, suites in runner.MUTANTS.values() for suite in suites}
+        self.assertEqual(used, set(runner.SUITE_NAMES))
+        p2a = json.loads(runner.PREDICTIONS.read_text())['p2a']['new_mutants']
+        self.assertEqual(len(p2a), 59)
+        self.assertTrue(set(p2a) <= set(runner.MUTANTS))
+        with mock.patch.dict(runner.MUTANTS, {'scope-bit-0-written': (runner.MUTANTS['scope-bit-0-written'][0],
+                                                                      ('codec',))}):
+            self.assertIn('mutant prediction inconsistent: scope-bit-0-written', runner.source_checks())
 
 
 class LifecycleRecordRefusalTests(unittest.TestCase):

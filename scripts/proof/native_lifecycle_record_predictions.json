@@ -1,13 +1,16 @@
 {
-  "status": "PREDICTED before any guarded execution of the P1 round 2 sources. Nothing here is an executed result.",
+  "status": "PREDICTED before any guarded execution of the P2a round 2 sources. Nothing here is an executed result.",
   "plan": "plans/2026-10-08-native-lifecycle-record.md",
-  "package": "B1 P1: the slot version 2 codec, the stable prefix reader and the readers in every format",
+  "package": "B1 P1: the slot version 2 codec, the stable prefix reader and the readers in every format; B1 P2a: the lifecycle store transitions, the suspend, lift, markRetiring and markRetired transactions, the publication refusal and the writer rules",
   "basis": "Each count is the length of the runner's case lists. Each mutant's catches are traced against the cases it breaks; a defect that another rule also refuses names only the cases that reach it.",
   "cases": {
     "codec": 47,
     "reads": 60,
     "goldens": 9,
-    "mutants": 35
+    "mutants": 94,
+    "store": 33,
+    "transactions": 29,
+    "faults": 48
   },
   "reads_by_label": {
     "legacy": 20,
@@ -204,7 +207,9 @@
     ],
     "update-past-slot-ceiling": [
       "V1 / version 2 slot writes refuse before any effect",
-      "V2 / version 2 slot writes refuse before any effect"
+      "V2 / version 2 slot writes refuse before any effect",
+      "V1 / every transition refuses before any effect",
+      "V2 / every transition refuses before any effect"
     ],
     "history-drops-suspensions": [
       "V3 / a suspended version 2 slot"
@@ -224,6 +229,256 @@
       "V1 / the identity predicate and seeding read a later frame's valid prefix",
       "V2 / the identity predicate and seeding read a later frame's valid prefix",
       "V3 / the identity predicate and seeding read a later frame's valid prefix"
+    ],
+    "scope-bit-0-written": [
+      "V3 / suspend refuses scope bit 0 before any effect",
+      "V3 / suspend refuses requests no writer writes before any effect"
+    ],
+    "unregistered-reason-written": [
+      "V3 / suspend refuses a reason outside the registry before any effect",
+      "V3 / suspend refuses requests no writer writes before any effect"
+    ],
+    "reason-class-unchecked": [
+      "V3 / suspend refuses a reason its actor class may not use before any effect",
+      "V3 / suspend refuses requests no writer writes before any effect"
+    ],
+    "suspension-actor-unchecked": [
+      "V3 / suspend refuses an account user entry of another user or serial before any effect",
+      "V3 / suspend refuses requests no writer writes before any effect"
+    ],
+    "recovery-hold-written": [
+      "V3 / suspend refuses a recovery hold before any effect",
+      "V3 / suspend refuses requests no writer writes before any effect"
+    ],
+    "retirement-actor-unchecked": [
+      "V3 / retire refuses blocks no writer writes before any effect",
+      "V3 / markRetiring refuses blocks no writer writes before any effect"
+    ],
+    "user-removal-written": [
+      "V3 / retire refuses blocks no writer writes before any effect",
+      "V3 / markRetiring refuses blocks no writer writes before any effect"
+    ],
+    "written-inventory-accepted": [
+      "V3 / retire refuses blocks no writer writes before any effect",
+      "V3 / markRetiring refuses blocks no writer writes before any effect"
+    ],
+    "unknown-inventory-requested": [
+      "V3 / markRetiring refuses blocks no writer writes before any effect"
+    ],
+    "receipt-kinds-unchecked": [
+      "V3 / confirm retired refuses an unknown inventory, an orphaned kind and incomplete receipts",
+      "V3 / markRetired refuses receipts that are not one of each retirement kind before any effect"
+    ],
+    "store-entry-unchecked": [
+      "V3 / suspend refuses scope bit 0 before any effect",
+      "V3 / suspend refuses a reason outside the registry before any effect",
+      "V3 / suspend refuses a reason its actor class may not use before any effect",
+      "V3 / suspend refuses an account user entry of another user or serial before any effect",
+      "V3 / suspend refuses a recovery hold before any effect"
+    ],
+    "store-block-unchecked": [
+      "V3 / retire refuses blocks no writer writes before any effect"
+    ],
+    "store-receipts-unchecked": [
+      "V3 / confirm retired refuses an unknown inventory, an orphaned kind and incomplete receipts"
+    ],
+    "suspension-request-unchecked": [
+      "V3 / suspend refuses requests no writer writes before any effect"
+    ],
+    "retirement-request-unchecked": [
+      "V3 / markRetiring refuses blocks no writer writes before any effect"
+    ],
+    "receipts-request-unchecked": [
+      "V3 / markRetired refuses receipts that are not one of each retirement kind before any effect"
+    ],
+    "seventh-entry-written": [
+      "V3 / suspend refuses a seventh actor before any effect",
+      "V3 / a seventh actor is full beside six entries"
+    ],
+    "seventh-actor-refused-not-full": [
+      "V3 / a fifth grant is full beside the account user's place and applies once a grant is lifted",
+      "V3 / a seventh actor is full beside six entries"
+    ],
+    "second-entry-per-actor-written": [
+      "V3 / suspend refuses a second entry from one actor before any effect"
+    ],
+    "actor-ignores-grant": [
+      "V3 / suspend adds one entry in order and changes nothing else",
+      "V3 / suspend allots four grant places and keeps the account user's place",
+      "V3 / a fifth grant is full beside the account user's place and applies once a grant is lifted",
+      "V3 / only the actor that placed an entry lifts it"
+    ],
+    "lift-any-entry-of-its-actor": [
+      "V3 / only the actor that placed an entry lifts it"
+    ],
+    "store-lifts-by-class": [
+      "V3 / lift refuses an entry the record does not hold exactly before any effect"
+    ],
+    "recovery-hold-lifted-by-store": [
+      "V3 / lift refuses a recovery hold before any effect"
+    ],
+    "recovery-hold-lift-path": [
+      "V3 / lift refuses a recovery hold and another user's account user entry as invalid requests"
+    ],
+    "lift-actor-unchecked": [
+      "V3 / lift refuses a recovery hold and another user's account user entry as invalid requests"
+    ],
+    "retire-from-any-state": [
+      "V3 / retire never moves an account back or changes its block",
+      "V3 / markRetiring confirms its own retirement and refuses any other",
+      "V3 / a legacy marker continues once through markRetiring"
+    ],
+    "legacy-marker-created": [
+      "V3 / retire never creates a legacy marker",
+      "V3 / markRetiring never creates a legacy marker"
+    ],
+    "inventory-continued-again": [
+      "V3 / a legacy marker's inventory continues once to every kind outstanding",
+      "V3 / retire never moves an account back or changes its block"
+    ],
+    "retired-from-any-state": [
+      "V3 / confirm retired refuses an account that is not retiring before any effect"
+    ],
+    "unknown-inventory-retired": [
+      "V3 / confirm retired refuses an unknown inventory, an orphaned kind and incomplete receipts",
+      "V3 / markRetired refuses until every retirement kind can be discharged"
+    ],
+    "orphaned-kind-discharged": [
+      "V3 / confirm retired refuses an unknown inventory, an orphaned kind and incomplete receipts",
+      "V3 / markRetired refuses until every retirement kind can be discharged"
+    ],
+    "reference-bound-again": [
+      "V3 / confirm retired binds a reference once and keeps a discharged kind",
+      "V3 / markRetired refuses until every retirement kind can be discharged"
+    ],
+    "discharged-kind-changed": [
+      "V3 / confirm retired binds a reference once and keeps a discharged kind"
+    ],
+    "retired-drops-entries": [
+      "V3 / confirm retired discharges every retirement kind and keeps everything else",
+      "V3 / markRetired discharges the retirement kinds and confirms its retry",
+      "V3 / a retired account keeps its entries and restores a RETIRING pin"
+    ],
+    "retiring-drops-entries": [
+      "V3 / retire writes RETIRING with its block and keeps every entry",
+      "V3 / markRetiring writes the block and keeps every suspension entry"
+    ],
+    "retired-block-changed": [
+      "V3 / confirm retired discharges every retirement kind and keeps everything else",
+      "V3 / markRetired discharges the retirement kinds and confirms its retry"
+    ],
+    "v3-update-keeps-version-1-rule": [
+      "V3 / the generic update refuses every lifecycle change",
+      "V3 / the generic update never drops a user",
+      "V3 / the generic update never writes a ticket"
+    ],
+    "v3-update-changes-lifecycles": [
+      "V3 / the generic update refuses every lifecycle change"
+    ],
+    "user-leaves-slot": [
+      "V3 / the generic update never drops a user"
+    ],
+    "lifecycle-format-everywhere": [
+      "V1 / every lifecycle transaction refuses before any effect",
+      "V2 / every lifecycle transaction refuses before any effect",
+      "V1 / the version 1 marker and release still work",
+      "V2 / the version 1 marker and release still work"
+    ],
+    "lift-under-earlier-formats": [
+      "V1 / every lifecycle transaction refuses before any effect",
+      "V2 / every lifecycle transaction refuses before any effect"
+    ],
+    "version-1-marker-under-v3": [
+      "V3 / the version 1 marker refuses before any effect"
+    ],
+    "version-1-release-under-v3": [
+      "V3 / the version 1 release refuses before any effect"
+    ],
+    "publication-admits-suspended": [
+      "V3 / publish refuses a suspended binding before any effect"
+    ],
+    "publication-check-in-confirmation": [
+      "V3 / a header phase change completes a suspended body",
+      "V3 / a repeated suspension by the same actor confirms its entry unchanged",
+      "V3 / a lift once durable is confirmed again"
+    ],
+    "repeated-suspension-not-confirmed": [
+      "V3 / a repeated suspension by the same actor confirms its entry unchanged",
+      "V3 / a repeated suspension that differs holds the actor's entry unchanged",
+      "suspend / backup-unlinked",
+      "repeated suspension / seed-synced",
+      "repeated suspension / backup-renamed",
+      "repeated suspension / backup-published",
+      "repeated suspension / write-started",
+      "repeated suspension / main-synced",
+      "repeated suspension / reserve-synced",
+      "repeated suspension / backup-unlink",
+      "repeated suspension / backup-unlinked"
+    ],
+    "lift-retry-refused": [
+      "V3 / only the actor that placed an entry lifts it",
+      "V3 / a lift once durable is confirmed again",
+      "lift / backup-unlinked"
+    ],
+    "retiring-retry-refused": [
+      "V3 / markRetiring confirms its own retirement and refuses any other",
+      "V3 / a legacy marker continues once through markRetiring",
+      "markRetiring / backup-unlinked",
+      "legacy continuation / backup-unlinked"
+    ],
+    "retired-retry-refused": [
+      "V3 / markRetired discharges the retirement kinds and confirms its retry",
+      "markRetired / backup-unlinked"
+    ],
+    "suspension-resets-state": [
+      "V3 / suspend and lift keep a retiring or retired account's state and block"
+    ],
+    "lift-resets-state": [
+      "V3 / suspend and lift keep a retiring or retired account's state and block"
+    ],
+    "last-generation-overflows": [
+      "V3 / every transition refuses at the last generation before any effect"
+    ],
+    "v3-update-ignores-serial": [
+      "V3 / the generic update keeps every user's identity"
+    ],
+    "v3-update-changes-ticket": [
+      "V3 / the generic update never writes a ticket"
+    ],
+    "grants-take-every-place": [
+      "V3 / suspend allots four grant places and keeps the account user's place",
+      "V3 / a fifth grant is full beside the account user's place and applies once a grant is lifted"
+    ],
+    "user-place-taken-by-grants": [
+      "V3 / suspend allots four grant places and keeps the account user's place",
+      "V3 / a fifth grant is full beside the account user's place and applies once a grant is lifted",
+      "V3 / suspend writes the entries of the account user and of a grant"
+    ],
+    "store-place-unchecked": [
+      "V3 / suspend allots four grant places and keeps the account user's place",
+      "V3 / suspend refuses a seventh actor before any effect"
+    ],
+    "differing-repeat-reported-as-suspended": [
+      "V3 / a repeated suspension that differs holds the actor's entry unchanged",
+      "repeated suspension / seed-synced",
+      "repeated suspension / backup-renamed",
+      "repeated suspension / backup-published",
+      "repeated suspension / write-started",
+      "repeated suspension / main-synced",
+      "repeated suspension / reserve-synced",
+      "repeated suspension / backup-unlink",
+      "repeated suspension / backup-unlinked"
+    ],
+    "differing-repeat-refused": [
+      "V3 / a repeated suspension that differs holds the actor's entry unchanged",
+      "repeated suspension / seed-synced",
+      "repeated suspension / backup-renamed",
+      "repeated suspension / backup-published",
+      "repeated suspension / write-started",
+      "repeated suspension / main-synced",
+      "repeated suspension / reserve-synced",
+      "repeated suspension / backup-unlink",
+      "repeated suspension / backup-unlinked"
     ]
   },
   "round_2": {
@@ -257,5 +512,164 @@
       "reason-actors-widened"
     ],
     "not_added": "A mutant that drops the actor serial from the order is the same defect as comparing the grant first: two entries of one class always differ in their grant references, so the same cases catch it and no case can tell them apart."
+  },
+  "store_by_label": {
+    "new-format": 31,
+    "legacy": 1,
+    "production": 1
+  },
+  "transactions_by_label": {
+    "new-format": 25,
+    "legacy": 2,
+    "production": 2
+  },
+  "p2a": {
+    "changes": "The store gains the named lifecycle transitions addSuspension, liftSuspension, markSlotRetiring and markSlotRetired with their writer rules, and under Format.V3 its generic update keeps every lifecycle and drops no user. The persistence gains suspend, lift, markRetiring with a Retirement and markRetired, each refused under Format.V1 and V2 before any effect; the version 1 marker and release refuse under Format.V3; publish refuses a suspended binding itself. The read test's Format.V3 marker writer becomes the retire transition, its case names and count unchanged.",
+    "changed_counts": {
+      "mutants": [
+        35,
+        88
+      ],
+      "store": [
+        0,
+        30
+      ],
+      "transactions": [
+        0,
+        28
+      ],
+      "faults": [
+        0,
+        48
+      ],
+      "reads": [
+        60,
+        60
+      ],
+      "codec": [
+        47,
+        47
+      ],
+      "goldens": [
+        9,
+        9
+      ]
+    },
+    "new_mutants": [
+      "actor-ignores-grant",
+      "differing-repeat-refused",
+      "differing-repeat-reported-as-suspended",
+      "discharged-kind-changed",
+      "grants-take-every-place",
+      "inventory-continued-again",
+      "last-generation-overflows",
+      "legacy-marker-created",
+      "lifecycle-format-everywhere",
+      "lift-actor-unchecked",
+      "lift-any-entry-of-its-actor",
+      "lift-resets-state",
+      "lift-retry-refused",
+      "lift-under-earlier-formats",
+      "orphaned-kind-discharged",
+      "publication-admits-suspended",
+      "publication-check-in-confirmation",
+      "reason-class-unchecked",
+      "receipt-kinds-unchecked",
+      "receipts-request-unchecked",
+      "recovery-hold-lift-path",
+      "recovery-hold-lifted-by-store",
+      "recovery-hold-written",
+      "reference-bound-again",
+      "repeated-suspension-not-confirmed",
+      "retire-from-any-state",
+      "retired-block-changed",
+      "retired-drops-entries",
+      "retired-from-any-state",
+      "retired-retry-refused",
+      "retirement-actor-unchecked",
+      "retirement-request-unchecked",
+      "retiring-drops-entries",
+      "retiring-retry-refused",
+      "scope-bit-0-written",
+      "second-entry-per-actor-written",
+      "seventh-actor-refused-not-full",
+      "seventh-entry-written",
+      "store-block-unchecked",
+      "store-entry-unchecked",
+      "store-lifts-by-class",
+      "store-place-unchecked",
+      "store-receipts-unchecked",
+      "suspension-actor-unchecked",
+      "suspension-request-unchecked",
+      "suspension-resets-state",
+      "unknown-inventory-requested",
+      "unknown-inventory-retired",
+      "unregistered-reason-written",
+      "user-leaves-slot",
+      "user-place-taken-by-grants",
+      "user-removal-written",
+      "v3-update-changes-lifecycles",
+      "v3-update-changes-ticket",
+      "v3-update-ignores-serial",
+      "v3-update-keeps-version-1-rule",
+      "version-1-marker-under-v3",
+      "version-1-release-under-v3",
+      "written-inventory-accepted"
+    ],
+    "equivalent": "The lifecycle format checks at the start of suspend, markRetiring and markRetired: under a slot ceiling of 1 every value they could write is version 2, and the shared slot writer refuses it at the ceiling before any effect, so removing one call leaves no observable difference. The lift check is observable, as an absent entry would be confirmed through a write, and so is the shared predicate.",
+    "development_correction": "One prediction was corrected after a development run outside the guard, before any guarded run: publication-check-in-confirmation no longer names the publication case. With the refusal moved into the shared confirmation, the CREATING to LIVE header transition calls that confirmation and refuses before its write, so publication still has no effect. The defect shows where the plan places the refusal: a header phase change of a suspended body, and the confirmations of a repeated suspension and of a durable lift beside another entry, refuse."
+  },
+  "p2a_round_2": {
+    "changes": "Under Format.V3 the generic update also keeps every user's serial, with its first case and mutant, and a tombstone's release ticket. Writers allot a version 2 record's six entries one to the account's user, one to a recovery hold and four to grants, so a fifth grant is FULL while the account's user keeps its place; the decoder still accepts any six entries, one per actor. A repeated suspension by the same actor confirms its entry unchanged through the checked writers: SUSPENDED when the request equals it, HELD_UNCHANGED when it differs. The store suite now catches update-past-slot-ceiling too.",
+    "changed_counts": {
+      "mutants": [
+        88,
+        94
+      ],
+      "store": [
+        30,
+        33
+      ],
+      "transactions": [
+        28,
+        29
+      ]
+    },
+    "store_cases_added": [
+      "V3 / suspend allots four grant places and keeps the account user's place",
+      "V3 / the generic update keeps every user's identity",
+      "V3 / the generic update never writes a ticket"
+    ],
+    "transaction_cases": {
+      "renamed": {
+        "V3 / a repeated suspension with another reason, scope or actor refuses before any effect": "V3 / a repeated suspension that differs holds the actor's entry unchanged",
+        "V3 / a seventh actor is full and applies once an entry is free": "V3 / a fifth grant is full beside the account user's place and applies once a grant is lifted"
+      },
+      "added": [
+        "V3 / a seventh actor is full beside six entries"
+      ]
+    },
+    "fault_cases": "The repeated suspension sweep now asks with another reason and expects HELD_UNCHANGED. Its names and count stay.",
+    "removed_mutants": [
+      "repeat-of-another-request"
+    ],
+    "new_mutants": [
+      "differing-repeat-refused",
+      "differing-repeat-reported-as-suspended",
+      "grants-take-every-place",
+      "store-place-unchecked",
+      "user-place-taken-by-grants",
+      "v3-update-changes-ticket",
+      "v3-update-ignores-serial"
+    ],
+    "changed_mutants": [
+      "actor-ignores-grant",
+      "repeated-suspension-not-confirmed",
+      "seventh-actor-refused-not-full",
+      "seventh-entry-written",
+      "update-past-slot-ceiling",
+      "v3-update-keeps-version-1-rule"
+    ],
+    "equivalent": "The user ID half of the V3 identity rule: the generic update's user addition check also refuses a principal moved to another Android user, so only the serial half has a mutant."
   }
 }

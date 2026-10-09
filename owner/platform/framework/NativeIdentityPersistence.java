@@ -1,11 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.android.server.pm;
 
+import com.android.server.pm.NativeIdentityRecords.ActorClass;
 import com.android.server.pm.NativeIdentityRecords.CreationBinding;
 import com.android.server.pm.NativeIdentityRecords.Header;
 import com.android.server.pm.NativeIdentityRecords.HeaderEntry;
+import com.android.server.pm.NativeIdentityRecords.Lifecycle;
+import com.android.server.pm.NativeIdentityRecords.LifecycleState;
+import com.android.server.pm.NativeIdentityRecords.Obligation;
+import com.android.server.pm.NativeIdentityRecords.Retirement;
 import com.android.server.pm.NativeIdentityRecords.Slot;
 import com.android.server.pm.NativeIdentityRecords.SlotPhase;
+import com.android.server.pm.NativeIdentityRecords.Suspension;
 import com.android.server.pm.NativeIdentityRecords.UserEntry;
 
 import java.util.ArrayList;
@@ -23,9 +29,10 @@ import java.util.TreeSet;
 /**
  * Package Manager's per target transactions over its {@link NativeIdentityStore}, for the
  * trusted native principal caller only. Each call carries one exact core pin record through
- * the store's checked steps: reservation, publication, retirement marker or final release.
- * Nothing is kept between calls. Every call starts from a fresh load and continues exactly
- * the durable state that the same transaction left behind.
+ * the store's checked steps: reservation, publication, retirement marker or final release, and
+ * under the lifecycle format suspension, lift, retirement and confirmed retirement. Nothing is
+ * kept between calls. Every call starts from a fresh load and continues exactly the durable
+ * state that the same transaction left behind.
  *
  * <p>This is not a UID allocator, a grant, a caller check or a public API. It takes no Binder
  * input, creates no PackageSetting or other installed state, never initializes a store and
@@ -56,7 +63,16 @@ import java.util.TreeSet;
  * authorizes execution, CE access or foreground presentation.
  *
  * <p>Null arguments throw {@link NullPointerException}. Malformed signer sets, lineages and
- * snapshots throw {@link IllegalArgumentException}. Both happen before any effect.
+ * snapshots throw {@link IllegalArgumentException}, and so does a lifecycle request that no
+ * writer of this stage writes. Both happen before any effect.
+ *
+ * <p>The lifecycle transactions, suspend, lift, markRetiring with a {@link Retirement} and
+ * markRetired, write version 2 slots. Each refuses under a format whose slot ceiling is 1
+ * before any effect, and the store's named transitions apply the lifecycle record's store
+ * rules again. Under the lifecycle format the version 1 retirement marker and the final
+ * release refuse before any effect: the marker would drop suspension entries and create a
+ * legacy marker, and a user leaves a slot only through the release engine, which does not
+ * exist yet.
  *
  * <p>Pure static helpers shared by real Settings and its host facade interpret the store's
  * historical identities: the pins a view restores, the exact record a history names and the
@@ -71,6 +87,38 @@ final class NativeIdentityPersistence {
     private static final int VERSION_2 = 2;
 
     private final NativeIdentityStore store;
+
+    /**
+     * The result of a suspension. An actor's differing repeat and an explicit refusal for want of
+     * a place are distinguished from every other refusal or uncertainty.
+     */
+    enum SuspensionResult {
+        /**
+         * This entry is durable: written now, or the actor's equal entry confirmed through the
+         * checked writers.
+         */
+        SUSPENDED,
+        /**
+         * The actor's entry exists and stays unchanged, confirmed through the checked writers:
+         * the request differed from it, and the entry keeps its stored reason, scope, time, note
+         * and actor fields. The account is suspended by this actor. To change the reason or
+         * scope, the actor lifts its entry and suspends again.
+         */
+        HELD_UNCHANGED,
+        /**
+         * Refused before any effect: no place is free for the actor's class. Writers allot one
+         * place to the account's user, one to a recovery hold and four to grant references, and a
+         * record holds six entries at most. The account stays suspended by the others. The caller
+         * keeps this suspension as a pending durable intent, designates nothing for the account
+         * meanwhile and applies it as soon as a place is free.
+         */
+        FULL,
+        /**
+         * Refused, as a request that cannot be written over the durable state, or uncertain, as
+         * false is for every other transaction.
+         */
+        REFUSED
+    }
 
     /**
      * One validated reservation proposal: a complete core snapshot and the original signer set
@@ -358,15 +406,17 @@ final class NativeIdentityPersistence {
      * this class, including the stored signer set it expects here.
      *
      * <p>An eligible existing binding must match every record field and the expected signer
-     * set, and must not be retiring. A valid header's CREATING entry for it completes to LIVE
-     * first. With a bad header an intact binding is still confirmed, without the counter.
-     * Otherwise the target needs this record's reservePending entry in a creation ready store
-     * and no body yet: its private directory is resumed, generation 1 is published and the
-     * entry becomes LIVE. Retries confirm the same binding and never issue another ID. Every
-     * true result ends with a checked confirmation of the exact slot. A complete creation
-     * binding on the entry must name this record's user and serial and the expected signer
-     * set, or nothing is published; an entry without one, from an older writer, is published
-     * as before.
+     * set, and must be in the policy's Eligible state: not retiring or retired, and with no
+     * suspension entry. That refusal is this transaction's own, before the header changes. The
+     * shared slot confirmation, which retirement and header phase changes also use, admits every
+     * lifecycle. A valid header's CREATING entry for it completes to LIVE first. With a bad
+     * header an intact binding is still confirmed, without the counter. Otherwise the target
+     * needs this record's reservePending entry in a creation ready store and no body yet: its
+     * private directory is resumed, generation 1 is published and the entry becomes LIVE.
+     * Retries confirm the same binding and never issue another ID. Every true result ends with
+     * a checked confirmation of the exact slot. A complete creation binding on the entry must
+     * name this record's user and serial and the expected signer set, or nothing is published;
+     * an entry without one, from an older writer, is published as before.
      */
     boolean publish(NativePrincipalPins.Record record, Set<String> expectedSigners) {
         Objects.requireNonNull(record, "record");
@@ -389,7 +439,8 @@ final class NativeIdentityPersistence {
             if (slot == null || !slot.equals(created)) return false;
         }
         if (!boundTo(slot, record) || !slot.signerSha256.equals(signers)
-                || slot.users.get(0).retiring) return false;
+                || slot.users.get(0).retiring
+                || !slot.users.get(0).lifecycle.suspensions.isEmpty()) return false;
         if (loaded.header.status == NativeIdentityStore.Status.VALID) {
             Header header = loaded.header.value;
             HeaderEntry entry = entry(header, record.appId);
@@ -405,11 +456,15 @@ final class NativeIdentityPersistence {
      * Durably marks this exact existing binding retiring, before account removal or
      * quiescence begins. Needs only an intact eligible binding, so it works with a bad header.
      * A missing target returns false: the caller publishes its own pending creation first if
-     * that creation must enter retirement. An existing marker is confirmed, never cleared.
+     * that creation must enter retirement. An existing marker is confirmed, never cleared. Under
+     * the lifecycle format it refuses before any effect: the marker would create a legacy marker
+     * and drop suspension entries, and markRetiring with a Retirement writes the retirement
+     * block there.
      */
     boolean markRetiring(NativePrincipalPins.Record record, Set<String> expectedSigners) {
         Objects.requireNonNull(record, "record");
         Set<String> signers = signers(expectedSigners);
+        if (lifecycleFormat()) return false;
         Slot slot = bound(store.load(), record);
         if (slot == null || !slot.signerSha256.equals(signers)) return false;
         UserEntry user = slot.users.get(0);
@@ -437,7 +492,8 @@ final class NativeIdentityPersistence {
      * counter and every other entry. Each step continues after a lost reply. Every remaining
      * copy must be this binding or its tombstone, and a live binding of this package or ID
      * in another slot refuses. True means the final omission is durable. Only then may the
-     * core pin finish.
+     * core pin finish. Under the lifecycle format it refuses before any effect: a user leaves a
+     * slot only through the release engine there.
      */
     boolean finishRetirement(NativePrincipalPins.Record record, String expectedLineage,
             Set<String> expectedSigners) {
@@ -445,6 +501,7 @@ final class NativeIdentityPersistence {
         checkLineage(expectedLineage);
         Set<String> signers = signers(expectedSigners);
         if (record.userId != USER_SYSTEM) return false;
+        if (lifecycleFormat()) return false;
         NativeIdentityStore.Loaded loaded = store.load();
         if (!loaded.enumerationComplete
                 || loaded.header.status != NativeIdentityStore.Status.VALID) return false;
@@ -490,6 +547,157 @@ final class NativeIdentityPersistence {
         }
         return store.removeReleasingSlot(releasing, appId)
                 && store.writeHeader(releasing, without(releasing, appId));
+    }
+
+    /**
+     * The suspend transaction: durably adds this entry to the exact binding of this user 0
+     * record, or confirms its actor's existing entry. The caller closes admission in memory
+     * first, keeps that closure through an uncertain result and retries from its own durable
+     * intent until the entry is confirmed.
+     *
+     * <p>Needs the lifecycle format and only an intact binding with the expected signers, so it
+     * works with a bad header, in any lifecycle state. A repeated suspension by the same actor,
+     * the account's user or a grant reference whatever its actor fields, confirms the existing
+     * entry unchanged through the checked writers: {@link SuspensionResult#SUSPENDED} when the
+     * request equals it, and {@link SuspensionResult#HELD_UNCHANGED} when it differs. To change a
+     * reason or scope, the actor lifts and suspends again. Without a free place for the actor's
+     * class, as for a fifth grant or a seventh actor, it is {@link SuspensionResult#FULL}.
+     *
+     * @throws IllegalArgumentException for a request no writer of this stage writes: see
+     *     {@link NativeIdentityStore#writableSuspension}; and for malformed signers
+     */
+    SuspensionResult suspend(NativePrincipalPins.Record record, Set<String> expectedSigners,
+            Suspension entry) {
+        Objects.requireNonNull(record, "record");
+        Set<String> signers = signers(expectedSigners);
+        Objects.requireNonNull(entry, "entry");
+        if (!NativeIdentityStore.writableSuspension(record.userId, record.userSerial, entry)) {
+            throw new IllegalArgumentException("suspension entry outside the writer rules");
+        }
+        if (!lifecycleFormat()) return SuspensionResult.REFUSED;
+        Slot slot = bound(store.load(), record);
+        if (slot == null || !slot.signerSha256.equals(signers)) return SuspensionResult.REFUSED;
+        Lifecycle lifecycle = slot.users.get(0).lifecycle;
+        for (Suspension held : lifecycle.suspensions) {
+            if (!NativeIdentityStore.sameActor(held, entry)) continue;
+            if (!store.confirmExistingSlot(slot)) return SuspensionResult.REFUSED;
+            return held.equals(entry) ? SuspensionResult.SUSPENDED : SuspensionResult.HELD_UNCHANGED;
+        }
+        if (!NativeIdentityStore.placeFree(lifecycle, entry.actorClass)) return SuspensionResult.FULL;
+        return store.addSuspension(slot, record.id, entry)
+                ? SuspensionResult.SUSPENDED : SuspensionResult.REFUSED;
+    }
+
+    /**
+     * The lift transaction: durably removes exactly this entry from the exact binding of this
+     * user 0 record. In this stage only the actor that placed an entry lifts it. The caller has
+     * established that it is this entry's actor and passes the entry as the record holds it.
+     * Another entry of the same actor refuses, such as a grant entry that another Android user
+     * placed under the same grant. With no entry of this actor the lift is durable already, as
+     * after an uncertain earlier result, and the binding is confirmed through checked writers.
+     *
+     * <p>Needs the lifecycle format and only an intact binding with the expected signers. A lift
+     * takes effect when it is durable, and eligibility returns only through a fresh designation.
+     * Lifting the last entry of an eligible account writes version 1 again, so older images
+     * admit the account again.
+     *
+     * @throws IllegalArgumentException for a recovery hold, which has no lift path in this
+     *     stage, an account user entry of another user or serial, and malformed signers
+     */
+    boolean lift(NativePrincipalPins.Record record, Set<String> expectedSigners, Suspension entry) {
+        Objects.requireNonNull(record, "record");
+        Set<String> signers = signers(expectedSigners);
+        Objects.requireNonNull(entry, "entry");
+        if (entry.actorClass == ActorClass.RECOVERY_HOLD) {
+            throw new IllegalArgumentException("a recovery hold has no lift path in this stage");
+        }
+        if (entry.actorClass == ActorClass.ACCOUNT_USER && (entry.actorUserId != record.userId
+                || entry.actorSerial != record.userSerial)) {
+            throw new IllegalArgumentException("an account user entry of another user");
+        }
+        if (!lifecycleFormat()) return false;
+        Slot slot = bound(store.load(), record);
+        if (slot == null || !slot.signerSha256.equals(signers)) return false;
+        for (Suspension held : slot.users.get(0).lifecycle.suspensions) {
+            if (NativeIdentityStore.sameActor(held, entry)) {
+                return held.equals(entry) && store.liftSuspension(slot, record.id, entry);
+            }
+        }
+        return store.confirmExistingSlot(slot);
+    }
+
+    /**
+     * The retire transaction: durably makes the exact eligible binding of this user 0 record
+     * RETIRING with this retirement block, with every suspension entry kept, before quiescence
+     * starts. The block names its actor, the account's user with that user's own serial or a
+     * grant, and lists every kind outstanding. Its exact retry confirms it. A RETIRING legacy
+     * marker with an unknown inventory takes only its continuation, a legacy marker block that
+     * lists every kind outstanding; no writer creates a legacy marker. Any other durable state or
+     * block refuses: the state only moves forward and a written block never changes.
+     *
+     * <p>Needs the lifecycle format and only an intact binding with the expected signers, so it
+     * works with a bad header. A missing target returns false.
+     *
+     * @throws IllegalArgumentException for a block no writer of this stage writes: see
+     *     {@link NativeIdentityStore#writableRetirement}; and for malformed signers
+     */
+    boolean markRetiring(NativePrincipalPins.Record record, Set<String> expectedSigners,
+            Retirement retirement) {
+        Objects.requireNonNull(record, "record");
+        Set<String> signers = signers(expectedSigners);
+        Objects.requireNonNull(retirement, "retirement");
+        if (!NativeIdentityStore.writableRetirement(record.userId, record.userSerial, retirement)) {
+            throw new IllegalArgumentException("retirement outside the writer rules");
+        }
+        if (!lifecycleFormat()) return false;
+        Slot slot = bound(store.load(), record);
+        if (slot == null || !slot.signerSha256.equals(signers)) return false;
+        Lifecycle lifecycle = slot.users.get(0).lifecycle;
+        if (lifecycle.state == LifecycleState.RETIRING && retirement.equals(lifecycle.retirement)) {
+            return store.confirmExistingSlot(slot);
+        }
+        return store.markSlotRetiring(slot, record.id, retirement);
+    }
+
+    /**
+     * Confirms retired: the exact RETIRING binding of this user 0 record, with a known
+     * inventory, durably becomes RETIRED with each retirement kind discharged by its receipt. The
+     * account authority calls it once every retirement kind's owner gave its receipt. It releases
+     * nothing, and every disposition kind and suspension entry stays. Its exact retry, RETIRED
+     * with every retirement kind equal to its receipt, confirms it.
+     *
+     * <p>Needs the lifecycle format and only an intact binding with the expected signers. A
+     * legacy marker continues through markRetiring first. A kind orphaned with its Android user,
+     * a discharged kind with another receipt and a receipt that would bind a bound reference
+     * again refuse.
+     *
+     * @throws IllegalArgumentException for receipts that are not one DISCHARGED obligation of
+     *     each retirement kind in kind order, and for malformed signers
+     */
+    boolean markRetired(NativePrincipalPins.Record record, Set<String> expectedSigners,
+            List<Obligation> receipts) {
+        Objects.requireNonNull(record, "record");
+        Set<String> signers = signers(expectedSigners);
+        List<Obligation> copy = List.copyOf(Objects.requireNonNull(receipts, "receipts"));
+        if (!NativeIdentityStore.writableReceipts(copy)) {
+            throw new IllegalArgumentException("not one receipt of each retirement kind");
+        }
+        if (!lifecycleFormat()) return false;
+        Slot slot = bound(store.load(), record);
+        if (slot == null || !slot.signerSha256.equals(signers)) return false;
+        Lifecycle lifecycle = slot.users.get(0).lifecycle;
+        if (lifecycle.state == LifecycleState.RETIRED) {
+            return lifecycle.retirement.obligations.containsAll(copy)
+                    && store.confirmExistingSlot(slot);
+        }
+        return store.markSlotRetired(slot, record.id, copy);
+    }
+
+    // Whether this store's format reads and writes version 2 slots, which carry lifecycle
+    // records. Every lifecycle transaction refuses under an earlier format before any effect, and
+    // the version 1 retirement marker and release refuse under this one.
+    private boolean lifecycleFormat() {
+        return store.format().slotCeiling >= VERSION_2;
     }
 
     private static Slot eligible(NativeIdentityStore.Loaded loaded, int appId) {

@@ -456,6 +456,16 @@ HARNESS_LABELS = (
     ('new-format', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleReadTest',),
      'the Format.V3 reads of version 2 slots as positive state, the discrimination controls, and its'
      ' version 2 slot writes, which B1 builds but does not ship'),
+    ('production', 'scripts/proof/native_lifecycle_record.py',
+     ('NativeLifecycleStoreTest', 'NativeLifecycleTransactionTest'),
+     'the Format.V2 refusals of every lifecycle store transition and transaction before any effect, and the'
+     ' version 1 marker and release that still work there'),
+    ('legacy', 'scripts/proof/native_lifecycle_record.py',
+     ('NativeLifecycleStoreTest', 'NativeLifecycleTransactionTest'), 'the same refusals and controls under Format.V1'),
+    ('new-format', 'scripts/proof/native_lifecycle_record.py',
+     ('NativeLifecycleStoreTest', 'NativeLifecycleTransactionTest', 'NativeLifecycleFaultTest'),
+     'the Format.V3 lifecycle store transitions and transactions, their writer rules and refusals, and the'
+     ' fault sweeps of every transaction at each writer step, which B1 builds but does not ship'),
     ('production', 'scripts/proof/tests/test_native_identity_persistence.py', ('NativePrincipalRecoveryTest',),
      'the recovery view, which constructs no store'),
     ('legacy', 'scripts/proof/tests/test_native_identity_persistence.py', ('NativeIdentityPersistenceTest',),

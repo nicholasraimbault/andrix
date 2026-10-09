@@ -1,0 +1,110 @@
+// SPDX-License-Identifier: Apache-2.0
+package com.android.server.pm;
+
+import static com.android.server.pm.NativeLifecycleTestSupport.*;
+
+import android.system.Os;
+import com.android.server.pm.NativeIdentityPersistence.SuspensionResult;
+import com.android.server.pm.NativeIdentityRecords.ActorClass;
+import com.android.server.pm.NativeIdentityRecords.Lifecycle;
+import com.android.server.pm.NativeIdentityRecords.Slot;
+import com.android.server.pm.NativeIdentityRecords.Suspension;
+import com.android.server.pm.NativeIdentityRecords.SuspensionReason;
+import com.android.server.pm.NativeIdentityStore.History;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Set;
+
+/**
+ * Host injected I/O failures at each of the eight steps of the actual strict slot writer, in each
+ * lifecycle transaction under Format.V3: suspend, the confirmation of a repeated suspension that
+ * differs from the held entry, lift of the last entry, markRetiring, a legacy marker's
+ * continuation and markRetired. The harness inserts the existing fault seam into copies of the
+ * store and strict writer sources; production sources contain none, and every case checks that
+ * its step was reached. The preferred backup
+ * keeps the prior value until the final step, so a fresh store reads the prior until the backup is
+ * gone and the target after it, never anything else, with the app ID held and the binding intact.
+ * The caller then retries its own durable intent through a fresh persistence and store, which
+ * continue from the durable files alone, and the target is durable in its one encoding. These are
+ * host injected failures, not Android crash or power loss evidence.
+ */
+public final class NativeLifecycleFaultTest {
+    private static final List<String> STEPS = List.of("seed-synced", "backup-renamed",
+            "backup-published", "write-started", "main-synced", "reserve-synced", "backup-unlink",
+            "backup-unlinked");
+    private static final String SLOT = "record.bin";
+    private static final Suspension USER = byUser(SuspensionReason.USER_PAUSED);
+    private static final Suspension GRANT = byGrant(1, SuspensionReason.CREDENTIAL_EXPOSED);
+
+    // The caller's durable intent: the record, its signers and the request, never a store value.
+    private interface Call { boolean run(NativeIdentityPersistence persistence) throws Exception; }
+
+    // Whether this view's history of A carries exactly this value's lifecycle and its pin phase.
+    private static boolean historyOf(NativeIdentityStore.Loaded loaded, Slot value) {
+        History history = loaded.history(A);
+        Lifecycle lifecycle = value.users.get(0).lifecycle;
+        Set<Long> retiring = NativeIdentityPersistence.restoration(loaded.histories()).retiringIds;
+        return history != null && history.state == lifecycle.state
+                && history.suspensions.equals(lifecycle.suspensions)
+                && retiring.equals(history.retiring ? Set.of(ID_A) : Set.of());
+    }
+
+    private static void sweep(String name, Slot prior, Slot target, int version, Call call) {
+        for (String step : STEPS) {
+            run(name + " / " + step, problems -> {
+                try {
+                    Path root = layout(prior);
+                    byte[] header = Files.readAllBytes(root.resolve("store.bin"));
+                    NativeHeaderWriteFaults.arm(step, SLOT);
+                    check(problems, !call.run(persistence(root, V3)) && NativeHeaderWriteFaults.reached(),
+                            "no injected failure");
+                    NativeHeaderWriteFaults.disarm();
+                    // Only the durable files remain. The prior stays selected until its backup is gone.
+                    Slot durable = step.equals("backup-unlinked") ? target : prior;
+                    NativeIdentityStore.Loaded loaded = load(root, V3);
+                    check(problems, durable.equals(stored(root, V3)), "durable " + stored(root, V3));
+                    check(problems, loaded.occupiedAppIds.contains(A) && loaded.bindingUsable(A),
+                            "the hold or binding was lost");
+                    check(problems, historyOf(loaded, durable), "history " + loaded.history(A));
+                    // A fresh persistence and store continue the same intent from those files alone.
+                    check(problems, call.run(persistence(root, V3)), "the retry was refused");
+                    check(problems, target.equals(stored(root, V3)) && holds(root, target, version),
+                            "the retry left " + stored(root, V3));
+                    check(problems, historyOf(load(root, V3), target), "history " + load(root, V3).history(A));
+                    check(problems, Arrays.equals(header, Files.readAllBytes(root.resolve("store.bin"))),
+                            "the header changed");
+                } finally {
+                    NativeHeaderWriteFaults.disarm();
+                }
+            });
+        }
+    }
+
+    public static void main(String[] args) throws Exception {
+        if (!NativeLifecycleFaultTest.class.desiredAssertionStatus()) throw new AssertionError("run with java -ea");
+        start(Path.of(args[0]).resolve("lifecycle-faults"));
+        Slot eligible = slotA(1, Lifecycle.version1(false));
+        Slot suspended = slotA(2, eligible(USER));
+        sweep("suspend", eligible, suspended, 2,
+                persistence -> persistence.suspend(RECORD_A, SIGNERS, USER) == SuspensionResult.SUSPENDED);
+        // The same actor with another reason: its held entry is confirmed unchanged.
+        Suspension repeated = new Suspension(ActorClass.ACCOUNT_USER, 0, 0, SERIAL, ZERO,
+                SuspensionReason.SUSPECTED_COMPROMISE.code, TIME + 9, null);
+        sweep("repeated suspension", suspended, suspended, 2,
+                persistence -> persistence.suspend(RECORD_A, SIGNERS, repeated) == SuspensionResult.HELD_UNCHANGED);
+        sweep("lift", suspended, slotA(3, Lifecycle.version1(false)), 1,
+                persistence -> persistence.lift(RECORD_A, SIGNERS, USER));
+        sweep("markRetiring", slotA(2, eligible(USER, GRANT)), slotA(3, retiring(byUserRetirement(), USER, GRANT)), 2,
+                persistence -> persistence.markRetiring(RECORD_A, SIGNERS, byUserRetirement()));
+        sweep("legacy continuation", slotA(1, Lifecycle.version1(true)), slotA(2, retiring(legacyContinued())), 2,
+                persistence -> persistence.markRetiring(RECORD_A, SIGNERS, legacyContinued()));
+        sweep("markRetired", slotA(2, retiring(byGrantRetirement(), USER)),
+                slotA(3, retired(discharged(byGrantRetirement(), receipts()), USER)), 2,
+                persistence -> persistence.markRetired(RECORD_A, SIGNERS, receipts()));
+        finish(Os.allClosed());
+        System.out.println("Every lifecycle transaction continued from durable state after host injected"
+                + " failures; Android crash and power loss unqualified");
+    }
+}

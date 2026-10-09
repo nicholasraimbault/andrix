@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Guarded host qualification of the native account lifecycle record codec and its readers: the
-slot version 2 codec, the stable prefix reader of later slot versions and the reads of every store
-format, as B1 package P1 of plans/2026-10-08-native-lifecycle-record.md defines them.
+"""Guarded host qualification of the native account lifecycle record codec, its readers and its
+first writers: the slot version 2 codec, the stable prefix reader of later slot versions and the
+reads of every store format, as B1 package P1 of plans/2026-10-08-native-lifecycle-record.md
+defines them, and the store's named lifecycle transitions with the suspend, lift, markRetiring and
+markRetired transactions of package P2a, with their fault sweeps.
 
 Pure source checks run first. An independent encoder, written here from the plan's layout alone,
 gives every version 2 golden. Each must have the length and SHA-256 that the Java codec test pins,
@@ -12,8 +14,11 @@ starts unless an actual cgroup bounds this process to 2 GiB of memory, no swap, 
 tasks, with core dumps disabled, and a JDK is on PATH. Otherwise the run is NOT_RUN. A guarded run
 rebuilds the candidate Settings from the pinned framework copies, runs the codec test and compares
 every golden it writes with the independent encoder byte for byte, runs the read test under
-Format.V1, V2 and V3 with the facade identity predicate and the candidate's seeding text, and runs
-each deliberate defect against the suites predicted to catch it. It does not nest another runner.
+Format.V1, V2 and V3 with the facade identity predicate and the candidate's seeding text, runs the
+lifecycle store and transaction tests under every format and the fault sweeps of every lifecycle
+transaction at each writer step under Format.V3, through the existing host write fault seams, and
+runs each deliberate defect against the suites predicted to catch it. It does not nest another
+runner.
 
 Host JVM evidence only: not Android, crash, power loss, storage or activation evidence. Format.V3
 is constructed only by host tests here; no production text constructs it."""
@@ -44,12 +49,21 @@ PERSISTENCE = FRAMEWORK_DIR + 'NativeIdentityPersistence.java'
 FACADE = b1.FACADE
 CODEC_TEST = 'NativeLifecycleCodecTest'
 READ_TEST = 'NativeLifecycleReadTest'
+STORE_TEST = 'NativeLifecycleStoreTest'
+TRANSACTION_TEST = 'NativeLifecycleTransactionTest'
+FAULT_TEST = 'NativeLifecycleFaultTest'
+# The shared fixtures of the store, transaction and fault tests, and the host write fault seam.
+SUPPORT = 'NativeLifecycleTestSupport'
+FAULT_SEAM = 'NativeHeaderWriteFaults'
 # The history harness text the read test runs: the candidate's exact Settings texts.
 HARNESS = 'harness'
-PHASES = ('candidate', 'codec', 'reads', 'mutants')
-# Every step is living. The read test runs each store format under its own label: Format.V1 is
-# legacy, Format.V2 production and Format.V3 the new format, which B1 builds and does not ship.
+PHASES = ('candidate', 'codec', 'reads', 'store', 'transactions', 'faults', 'mutants')
+# Every step is living. The read, store and transaction tests run each store format under its own
+# label: Format.V1 is legacy, Format.V2 production and Format.V3 the new format, which B1 builds and
+# does not ship. The fault sweeps run Format.V3 only.
 STEP_LABELS = {'codec': ('production',), 'reads': ('production', 'legacy', 'new-format'),
+               'store': ('production', 'legacy', 'new-format'),
+               'transactions': ('production', 'legacy', 'new-format'), 'faults': ('new-format',),
                'mutants': ('production', 'legacy', 'new-format')}
 FORMAT_LABELS = {'V1': 'legacy', 'V2': 'production', 'V3': 'new-format'}
 
@@ -263,6 +277,78 @@ def read_names(format_name):
 
 READ_NAMES = tuple(name for format_name in ('V1', 'V2', 'V3') for name in read_names(format_name))
 
+# The lifecycle store test: the named transitions under Format.V3, then the refusals of the earlier
+# formats. Every name is one literal in its source.
+STORE_NAMES = (
+    'V3 / suspend adds one entry in order and changes nothing else',
+    'V3 / suspend refuses scope bit 0 before any effect',
+    'V3 / suspend refuses a reason outside the registry before any effect',
+    'V3 / suspend refuses a reason its actor class may not use before any effect',
+    'V3 / suspend refuses an account user entry of another user or serial before any effect',
+    'V3 / suspend refuses a recovery hold before any effect',
+    'V3 / suspend refuses a second entry from one actor before any effect',
+    'V3 / suspend refuses a seventh actor before any effect',
+    "V3 / suspend allots four grant places and keeps the account user's place",
+    'V3 / lift removes exactly its entry and the last one writes version 1',
+    'V3 / lift refuses an entry the record does not hold exactly before any effect',
+    'V3 / lift refuses a recovery hold before any effect',
+    "V3 / suspend and lift keep a retiring or retired account's state and block",
+    'V3 / retire writes RETIRING with its block and keeps every entry',
+    'V3 / retire refuses blocks no writer writes before any effect',
+    'V3 / retire never creates a legacy marker',
+    'V3 / retire never moves an account back or changes its block',
+    "V3 / a legacy marker's inventory continues once to every kind outstanding",
+    'V3 / confirm retired discharges every retirement kind and keeps everything else',
+    'V3 / confirm retired refuses an unknown inventory, an orphaned kind and incomplete receipts',
+    'V3 / confirm retired binds a reference once and keeps a discharged kind',
+    'V3 / confirm retired refuses an account that is not retiring before any effect',
+    'V3 / the generic update refuses every lifecycle change',
+    'V3 / the generic update never drops a user',
+    "V3 / the generic update keeps every user's identity",
+    'V3 / the generic update never writes a ticket',
+    'V3 / the generic update still rewrites an unchanged lifecycle',
+    'V3 / every transition needs the fresh durable value',
+    'V3 / every transition refuses at the last generation before any effect',
+    "V3 / every transition refuses beside a later slot version's footprint",
+    'V3 / a header phase change completes a suspended body',
+    *('%s / every transition refuses before any effect' % format_name for format_name in ('V1', 'V2')))
+# The lifecycle transaction test: the persistence transactions under Format.V3, then each earlier
+# format's refusals and its version 1 marker and release.
+TRANSACTION_NAMES = (
+    'V3 / suspend writes the entries of the account user and of a grant',
+    'V3 / a repeated suspension by the same actor confirms its entry unchanged',
+    "V3 / a repeated suspension that differs holds the actor's entry unchanged",
+    "V3 / a fifth grant is full beside the account user's place and applies once a grant is lifted",
+    'V3 / a seventh actor is full beside six entries',
+    'V3 / suspend refuses requests no writer writes before any effect',
+    'V3 / only the actor that placed an entry lifts it',
+    'V3 / lifting the last suspension writes version 1 again',
+    'V3 / a lift once durable is confirmed again',
+    "V3 / lift refuses a recovery hold and another user's account user entry as invalid requests",
+    'V3 / markRetiring writes the block and keeps every suspension entry',
+    'V3 / markRetiring confirms its own retirement and refuses any other',
+    'V3 / markRetiring refuses blocks no writer writes before any effect',
+    'V3 / a legacy marker continues once through markRetiring',
+    'V3 / markRetiring never creates a legacy marker',
+    'V3 / markRetired discharges the retirement kinds and confirms its retry',
+    'V3 / markRetired refuses until every retirement kind can be discharged',
+    'V3 / markRetired refuses receipts that are not one of each retirement kind before any effect',
+    'V3 / a retired account keeps its entries and restores a RETIRING pin',
+    'V3 / publish refuses a suspended binding before any effect',
+    'V3 / publish refuses a retiring or retired binding before any effect',
+    'V3 / the version 1 marker refuses before any effect',
+    'V3 / the version 1 release refuses before any effect',
+    'V3 / every lifecycle transaction needs only an intact binding',
+    'V3 / a damaged, foreign or unbound record is never written',
+    *('%s / %s' % (format_name, case) for format_name in ('V1', 'V2')
+      for case in ('every lifecycle transaction refuses before any effect',
+                   'the version 1 marker and release still work')))
+# The fault sweeps: each lifecycle transaction, failed at each writer step of the strict slot writer.
+FAULT_STEPS = ('seed-synced', 'backup-renamed', 'backup-published', 'write-started', 'main-synced',
+               'reserve-synced', 'backup-unlink', 'backup-unlinked')
+FAULT_KINDS = ('suspend', 'repeated suspension', 'lift', 'markRetiring', 'legacy continuation', 'markRetired')
+FAULT_NAMES = tuple('%s / %s' % (kind, step) for kind in FAULT_KINDS for step in FAULT_STEPS)
+
 # ---------------------------------------------------------------- deliberate defects
 
 _IDENTITY_PREFIX = ('                // A later slot version\'s stable prefix names its package as negative evidence.\n'
@@ -271,6 +357,12 @@ _IDENTITY_PREFIX = ('                // A later slot version\'s stable prefix na
                     '                }\n')
 _SEEDING_PREFIX = ('            for (NativeIdentityRecords.SlotPrefix prefix : copies.prefixes)'
                    ' names.add(prefix.packageName);\n')
+# The publication transaction's own refusal of a binding outside the policy's Eligible state, and the
+# shared slot confirmation's first line.
+_PUBLISH_CHECK = ('                || slot.users.get(0).retiring\n'
+                  '                || !slot.users.get(0).lifecycle.suspensions.isEmpty()) return false;\n')
+_PUBLISH_RETIRING = '                || slot.users.get(0).retiring) return false;\n'
+_CONFIRM_HEAD = '        if (expected.version > format.slotCeiling) return false;\n'
 # Each defect: its edits, as target, exact old text and new text, and the suites that run it. A
 # target is a source path, or HARNESS: the history harness text filled from the candidate, whose
 # identity and seeding are the fragments, so its anchors are checked in the fragment files. The
@@ -381,7 +473,7 @@ MUTANTS = {
                                   ('reads',)),
     'update-past-slot-ceiling': (((STORE,
         '        if (expected.version > format.slotCeiling || next.version > format.slotCeiling) return false;\n',
-        ''),), ('reads',)),
+        ''),), ('reads', 'store')),
     'history-drops-suspensions': (((STORE, '            this.suspensions = lifecycle.suspensions;\n',
                                     '            this.suspensions = List.of();\n'),), ('reads',)),
     'retired-restores-pending': (((STORE,
@@ -396,6 +488,223 @@ MUTANTS = {
     # Settings: the identity predicate in the facade and the candidate, and the seeding names.
     'identity-ignores-prefixes': (((FACADE, _IDENTITY_PREFIX, ''), (HARNESS, _IDENTITY_PREFIX, '')), ('reads',)),
     'seeding-ignores-prefixes': (((HARNESS, _SEEDING_PREFIX, ''),), ('reads',)),
+    # P2a writer rules: the store's pure predicates, which the transactions apply as invalid requests.
+    'scope-bit-0-written': (((STORE,
+        '        if ((entry.scope & NativeIdentityRecords.SCOPE_BLOCKS_DISPOSITION) != 0) return false;\n', ''),),
+        ('store', 'transactions')),
+    'unregistered-reason-written': (((STORE,
+        '        if (reason == null) return false;\n        if (!reason.actors.contains(entry.actorClass)) return false;\n',
+        '        if (reason != null && !reason.actors.contains(entry.actorClass)) return false;\n'),),
+        ('store', 'transactions')),
+    'reason-class-unchecked': (((STORE, '        if (!reason.actors.contains(entry.actorClass)) return false;\n', ''),),
+                               ('store', 'transactions')),
+    'suspension-actor-unchecked': (((STORE,
+        '        return entry.actorClass != ActorClass.ACCOUNT_USER\n'
+        '                || (entry.actorUserId == userId && entry.actorSerial == userSerial);\n',
+        '        return true;\n'),), ('store', 'transactions')),
+    'recovery-hold-written': (((STORE,
+        '        if (entry.actorClass != ActorClass.ACCOUNT_USER\n'
+        '                && entry.actorClass != ActorClass.ADMIN_GRANT) return false;\n', ''),),
+        ('store', 'transactions')),
+    'retirement-actor-unchecked': (((STORE,
+        '        if (retirement.actorClass == ActorClass.ACCOUNT_USER && (retirement.actorUserId != userId\n'
+        '                || retirement.actorSerial != userSerial)) return false;\n', ''),), ('store', 'transactions')),
+    'user-removal-written': (((STORE, '        if (retirement.actorClass == ActorClass.USER_REMOVAL) return false;\n', ''),),
+                             ('store', 'transactions')),
+    'written-inventory-accepted': (((STORE,
+        '            if (!duty.equals(new Obligation(duty.kind, ObligationState.OUTSTANDING,\n'
+        '                    NativeIdentityRecords.NO_REFERENCE, 0, 0))) return false;\n', ''),),
+        ('store', 'transactions')),
+    'unknown-inventory-requested': (((STORE, '        if (retirement.obligations.isEmpty()) return false;\n', ''),),
+                                    ('transactions',)),
+    'receipt-kinds-unchecked': (((STORE,
+        '            if (receipt.kind != kind || receipt.state != ObligationState.DISCHARGED) return false;\n', ''),),
+        ('store', 'transactions')),
+    # The store applies each writer rule itself, and each transaction applies it to its request.
+    'store-entry-unchecked': (((STORE,
+        '        if (!writableSuspension(user.userId, user.userSerial, entry)) return null;\n', ''),), ('store',)),
+    'store-block-unchecked': (((STORE,
+        '        if (!writableRetirement(user.userId, user.userSerial, retirement)) return null;\n', ''),), ('store',)),
+    'store-receipts-unchecked': (((STORE,
+        '        if (!writableReceipts(receipts) || prior.state != LifecycleState.RETIRING) return null;\n',
+        '        if (prior.state != LifecycleState.RETIRING) return null;\n'),), ('store',)),
+    'suspension-request-unchecked': (((PERSISTENCE,
+        '        if (!NativeIdentityStore.writableSuspension(record.userId, record.userSerial, entry)) {\n'
+        '            throw new IllegalArgumentException("suspension entry outside the writer rules");\n'
+        '        }\n', ''),), ('transactions',)),
+    'retirement-request-unchecked': (((PERSISTENCE,
+        '        if (!NativeIdentityStore.writableRetirement(record.userId, record.userSerial, retirement)) {\n'
+        '            throw new IllegalArgumentException("retirement outside the writer rules");\n'
+        '        }\n', ''),), ('transactions',)),
+    'receipts-request-unchecked': (((PERSISTENCE,
+        '        if (!NativeIdentityStore.writableReceipts(copy)) {\n'
+        '            throw new IllegalArgumentException("not one receipt of each retirement kind");\n'
+        '        }\n', ''),), ('transactions',)),
+    # Entries: the six entry bound and its allotment, one entry per actor, and lifts of exactly the
+    # placed entry.
+    'seventh-entry-written': (((STORE,
+        '        if (lifecycle.suspensions.size() >= NativeIdentityRecords.MAX_SUSPENSIONS) return false;\n', ''),),
+        ('store', 'transactions')),
+    'seventh-actor-refused-not-full': (((PERSISTENCE,
+        '        if (!NativeIdentityStore.placeFree(lifecycle, entry.actorClass)) return SuspensionResult.FULL;\n',
+        ''),), ('transactions',)),
+    # Grant references take every place, so the account's user finds none beside them.
+    'grants-take-every-place': (((STORE,
+        '        return held < (actorClass == ActorClass.ADMIN_GRANT ? GRANT_PLACES : 1);\n',
+        '        return held < (actorClass == ActorClass.ADMIN_GRANT ? NativeIdentityRecords.MAX_SUSPENSIONS : 1);\n'),),
+        ('store', 'transactions')),
+    # Every entry counts against every class's places, so the account's user loses its own.
+    'user-place-taken-by-grants': (((STORE,
+        '            if (entry.actorClass == actorClass) ++held;\n', '            ++held;\n'),),
+        ('store', 'transactions')),
+    'store-place-unchecked': (((STORE,
+        '        if (!placeFree(prior, entry.actorClass)) return null;\n', ''),), ('store',)),
+    'second-entry-per-actor-written': (((STORE,
+        '        for (Suspension held : prior.suspensions) {\n            if (sameActor(held, entry)) return null;\n'
+        '        }\n', ''),), ('store',)),
+    # A grant's entries are one actor whatever its grant reference.
+    'actor-ignores-grant': (((STORE,
+        '        return first.actorClass == second.actorClass\n'
+        '                && (first.actorClass != ActorClass.ADMIN_GRANT || first.grant.equals(second.grant));\n',
+        '        return first.actorClass == second.actorClass;\n'),), ('store', 'transactions')),
+    # A lift removes its actor's entry whatever the request names.
+    'lift-any-entry-of-its-actor': (((PERSISTENCE,
+        '                return held.equals(entry) && store.liftSuspension(slot, record.id, entry);\n',
+        '                return store.liftSuspension(slot, record.id, held);\n'),), ('transactions',)),
+    'store-lifts-by-class': (((STORE,
+        '        if (!prior.suspensions.contains(entry)) return null;\n'
+        '        List<Suspension> entries = new ArrayList<>(prior.suspensions);\n        entries.remove(entry);\n',
+        '        List<Suspension> entries = new ArrayList<>(prior.suspensions);\n'
+        '        if (!entries.removeIf(held -> held.actorClass == entry.actorClass)) return null;\n'),), ('store',)),
+    'recovery-hold-lifted-by-store': (((STORE,
+        '        if (entry.actorClass == ActorClass.RECOVERY_HOLD) return null;\n', ''),), ('store',)),
+    # Suspend or lift move a retiring or retired account back to ELIGIBLE.
+    'suspension-resets-state': (((STORE,
+        '        entries.sort(NativeIdentityRecords::order);\n'
+        '        return new Lifecycle(prior.state, entries, prior.retirement);\n',
+        '        entries.sort(NativeIdentityRecords::order);\n'
+        '        return new Lifecycle(LifecycleState.ELIGIBLE, entries, null);\n'),), ('store',)),
+    'lift-resets-state': (((STORE,
+        '        entries.remove(entry);\n        return new Lifecycle(prior.state, entries, prior.retirement);\n',
+        '        entries.remove(entry);\n        return new Lifecycle(LifecycleState.ELIGIBLE, entries, null);\n'),),
+        ('store',)),
+    'recovery-hold-lift-path': (((PERSISTENCE,
+        '        if (entry.actorClass == ActorClass.RECOVERY_HOLD) {\n'
+        '            throw new IllegalArgumentException("a recovery hold has no lift path in this stage");\n'
+        '        }\n', ''),), ('transactions',)),
+    'lift-actor-unchecked': (((PERSISTENCE,
+        '        if (entry.actorClass == ActorClass.ACCOUNT_USER && (entry.actorUserId != record.userId\n'
+        '                || entry.actorSerial != record.userSerial)) {\n'
+        '            throw new IllegalArgumentException("an account user entry of another user");\n'
+        '        }\n', ''),), ('transactions',)),
+    # Store transitions: the state only moves forward, entries change only through suspend and lift,
+    # a written block is fixed except a legacy marker's inventory continuation, and no user leaves.
+    'retire-from-any-state': (((STORE,
+        '        } else if (prior.state != LifecycleState.ELIGIBLE) {\n'
+        '            // The state only moves forward, and a written block never changes.\n'
+        '            return null;\n        }\n', '        }\n'),), ('store', 'transactions')),
+    'legacy-marker-created': (((STORE,
+        '            if (prior.state != LifecycleState.RETIRING) return null;\n'
+        '            if (!prior.retirement.obligations.isEmpty()) return null;\n',
+        '            if (prior.retirement != null && !prior.retirement.obligations.isEmpty()) return null;\n'),),
+        ('store', 'transactions')),
+    'inventory-continued-again': (((STORE,
+        '            if (!prior.retirement.obligations.isEmpty()) return null;\n', ''),), ('store',)),
+    'retired-from-any-state': (((STORE,
+        '        if (!writableReceipts(receipts) || prior.state != LifecycleState.RETIRING) return null;\n',
+        '        if (!writableReceipts(receipts) || prior.state == LifecycleState.ELIGIBLE) return null;\n'),),
+        ('store',)),
+    'unknown-inventory-retired': (((STORE, '        if (held.obligations.isEmpty()) return null;\n', ''),),
+                                  ('store', 'transactions')),
+    'orphaned-kind-discharged': (((STORE,
+        '            if (duty.state != ObligationState.OUTSTANDING) return null;\n', ''),), ('store', 'transactions')),
+    'reference-bound-again': (((STORE,
+        '            if (!duty.reference.equals(NativeIdentityRecords.NO_REFERENCE)\n'
+        '                    && !duty.reference.equals(receipt.reference)) return null;\n', ''),),
+        ('store', 'transactions')),
+    'discharged-kind-changed': (((STORE,
+        '                if (!duty.equals(receipt)) return null;\n                continue;\n',
+        '                obligations.set(index, receipt);\n                continue;\n'),), ('store',)),
+    'retired-drops-entries': (((STORE,
+        '        return new Lifecycle(LifecycleState.RETIRED, prior.suspensions, new Retirement(\n',
+        '        return new Lifecycle(LifecycleState.RETIRED, List.of(), new Retirement(\n'),),
+        ('store', 'transactions')),
+    # The new marker keeps every entry, unlike the version 1 marker's path under this format.
+    'retiring-drops-entries': (((STORE,
+        '        return new Lifecycle(LifecycleState.RETIRING, prior.suspensions, retirement);\n',
+        '        return new Lifecycle(LifecycleState.RETIRING, List.of(), retirement);\n'),),
+        ('store', 'transactions')),
+    'retired-block-changed': (((STORE,
+        '                held.actorClass, held.actorUserId, held.actorSerial, held.grant, held.time,\n',
+        '                held.actorClass, held.actorUserId, held.actorSerial, held.grant, held.time + 1,\n'),),
+        ('store', 'transactions')),
+    # The generic update under Format.V3 keeps version 1's rule, which allows RETIRED back to
+    # RETIRING, entries added or lifted, a changed block and a retired user dropped.
+    'v3-update-keeps-version-1-rule': (((STORE,
+        '        if (format.slotCeiling < LIFECYCLE_SLOT_VERSION) {\n',
+        '        if (format.slotCeiling < LIFECYCLE_SLOT_VERSION || !transition) {\n'),), ('store',)),
+    'v3-update-changes-lifecycles': (((STORE,
+        '        return changed <= (transition ? 1 : 0);\n', '        return true;\n'),), ('store',)),
+    'user-leaves-slot': (((STORE,
+        '            if (current == null) return false;\n', '            if (current == null) continue;\n'),), ('store',)),
+    # The generic update binds the principal to another incarnation of its user.
+    'v3-update-ignores-serial': (((STORE,
+        '            if (current.userId != prior.userId\n                    || current.userSerial != prior.userSerial) return false;\n',
+        '            if (current.userId != prior.userId) return false;\n'),), ('store',)),
+    # The generic update adds, changes or drops a tombstone's release ticket.
+    'v3-update-changes-ticket': (((STORE,
+        '        if (!Objects.equals(expected.ticket, next.ticket)) return false;\n', ''),), ('store',)),
+    # A transition at the last generation overflows instead of refusing.
+    'last-generation-overflows': (((STORE,
+        '        if (next == null || expected.generation == Long.MAX_VALUE) return false;\n',
+        '        if (next == null) return false;\n'),), ('store',)),
+    # Refusals: the earlier formats, and the version 1 marker and release under the lifecycle format.
+    'lifecycle-format-everywhere': (((PERSISTENCE,
+        '        return store.format().slotCeiling >= VERSION_2;\n', '        return true;\n'),), ('transactions',)),
+    'lift-under-earlier-formats': (((PERSISTENCE,
+        '        if (!lifecycleFormat()) return false;\n        Slot slot = bound(store.load(), record);\n'
+        '        if (slot == null || !slot.signerSha256.equals(signers)) return false;\n'
+        '        for (Suspension held : slot.users.get(0).lifecycle.suspensions) {\n',
+        '        Slot slot = bound(store.load(), record);\n'
+        '        if (slot == null || !slot.signerSha256.equals(signers)) return false;\n'
+        '        for (Suspension held : slot.users.get(0).lifecycle.suspensions) {\n'),), ('transactions',)),
+    'version-1-marker-under-v3': (((PERSISTENCE,
+        '        Set<String> signers = signers(expectedSigners);\n        if (lifecycleFormat()) return false;\n',
+        '        Set<String> signers = signers(expectedSigners);\n'),), ('transactions',)),
+    'version-1-release-under-v3': (((PERSISTENCE,
+        '        if (record.userId != USER_SYSTEM) return false;\n        if (lifecycleFormat()) return false;\n',
+        '        if (record.userId != USER_SYSTEM) return false;\n'),), ('transactions',)),
+    # Publication refuses a suspended binding itself, before the header completes, and not in the
+    # shared slot confirmation that retirement and header phase changes also use.
+    'publication-admits-suspended': (((PERSISTENCE, _PUBLISH_CHECK, _PUBLISH_RETIRING),), ('transactions',)),
+    'publication-check-in-confirmation': (((PERSISTENCE, _PUBLISH_CHECK, _PUBLISH_RETIRING),
+        (STORE, _CONFIRM_HEAD, _CONFIRM_HEAD
+         + '        for (UserEntry user : expected.users) if (!user.lifecycle.suspensions.isEmpty()) return false;\n')),
+        ('store', 'transactions')),
+    # Continuation: each retry of durable state confirms it, never refuses it or writes it twice.
+    'repeated-suspension-not-confirmed': (((PERSISTENCE,
+        '            if (!store.confirmExistingSlot(slot)) return SuspensionResult.REFUSED;\n',
+        '            if (!store.addSuspension(slot, record.id, entry)) return SuspensionResult.REFUSED;\n'),),
+        ('transactions', 'faults')),
+    # A repeat that differs from the held entry reports it as this request's entry, or refuses it.
+    'differing-repeat-reported-as-suspended': (((PERSISTENCE,
+        '            return held.equals(entry) ? SuspensionResult.SUSPENDED : SuspensionResult.HELD_UNCHANGED;\n',
+        '            return SuspensionResult.SUSPENDED;\n'),), ('transactions', 'faults')),
+    'differing-repeat-refused': (((PERSISTENCE,
+        '            return held.equals(entry) ? SuspensionResult.SUSPENDED : SuspensionResult.HELD_UNCHANGED;\n',
+        '            return held.equals(entry) ? SuspensionResult.SUSPENDED : SuspensionResult.REFUSED;\n'),),
+        ('transactions', 'faults')),
+    'lift-retry-refused': (((PERSISTENCE,
+        '            }\n        }\n        return store.confirmExistingSlot(slot);\n    }\n\n    /**\n     * The retire transaction',
+        '            }\n        }\n        return false;\n    }\n\n    /**\n     * The retire transaction'),),
+        ('transactions', 'faults')),
+    'retiring-retry-refused': (((PERSISTENCE,
+        '        if (lifecycle.state == LifecycleState.RETIRING && retirement.equals(lifecycle.retirement)) {\n'
+        '            return store.confirmExistingSlot(slot);\n        }\n', ''),), ('transactions', 'faults')),
+    'retired-retry-refused': (((PERSISTENCE,
+        '        if (lifecycle.state == LifecycleState.RETIRED) {\n'
+        '            return lifecycle.retirement.obligations.containsAll(copy)\n'
+        '                    && store.confirmExistingSlot(slot);\n        }\n', ''),), ('transactions', 'faults')),
 }
 
 
@@ -460,6 +769,43 @@ def mutant_texts():
     return result
 
 
+# The case names of each suite that runs deliberate defects.
+SUITE_NAMES = {'codec': CODEC_NAMES, 'reads': READ_NAMES, 'store': STORE_NAMES, 'transactions': TRANSACTION_NAMES,
+               'faults': FAULT_NAMES}
+# The lifecycle suites of P2a: each one's test class and case names.
+LIFECYCLE_SUITES = {'store': (STORE_TEST, STORE_NAMES), 'transactions': (TRANSACTION_TEST, TRANSACTION_NAMES),
+                    'faults': (FAULT_TEST, FAULT_NAMES)}
+
+
+def case_label(name):
+    """The run label of one store, transaction or fault case: its format's, or new-format for a fault
+    sweep, which runs Format.V3 only."""
+    return FORMAT_LABELS.get(name.split(' / ', 1)[0], 'new-format')
+
+
+def lifecycle_name_problems():
+    """Each store and transaction case is named once in its source, as one literal or as the literal
+    tail of its format's loop. Each fault kind is swept once, over the eight steps of the existing host
+    write fault seams."""
+    problems = []
+    for test, names in ((STORE_TEST, STORE_NAMES), (TRANSACTION_TEST, TRANSACTION_NAMES)):
+        source = (ROOT / PLATFORM / (test + '.java')).read_text()
+        for name in names:
+            prefix, rest = name.split(' / ', 1)
+            literal = source.count('"%s"' % name) == 1 and prefix == 'V3'
+            looped = prefix in ('V1', 'V2') and source.count('" / %s"' % rest) == 1
+            if not (literal or looped):
+                problems.append('%s case not named once in its source: %s' % (test, name))
+    faults = (ROOT / PLATFORM / (FAULT_TEST + '.java')).read_text()
+    for kind in FAULT_KINDS:
+        if faults.count('sweep("%s", ' % kind) != 1:
+            problems.append('fault kind not swept once: ' + kind)
+    steps = ', '.join('"%s"' % step for step in FAULT_STEPS)
+    if FAULT_STEPS != tuple(b1.STEPS) or ' '.join(steps.split()) not in ' '.join(faults.split()):
+        problems.append('the fault steps are not the eight steps of the existing write fault seams')
+    return problems
+
+
 def label_problems():
     """Every step is living and carries living labels. This runner's harness rows name its tests,
     and the new-format label names only cases that are not production in B1."""
@@ -472,7 +818,11 @@ def label_problems():
     for label, _, classes, _ in rows:
         for name in classes:
             labelled.setdefault(name, set()).add(label)
-    if labelled.get(CODEC_TEST) != {'production'} or labelled.get(READ_TEST) != set(FORMAT_LABELS.values()):
+    every = set(FORMAT_LABELS.values())
+    if (labelled.get(CODEC_TEST) != {'production'} or labelled.get(READ_TEST) != every
+            or labelled.get(STORE_TEST) != every or labelled.get(TRANSACTION_TEST) != every
+            or labelled.get(FAULT_TEST) != {'new-format'} or set(labelled) != {
+                CODEC_TEST, READ_TEST, STORE_TEST, TRANSACTION_TEST, FAULT_TEST}):
         problems.append('harness labels of this runner differ: %s' % labelled)
     if {row[0] for row in b1.HARNESS_LABELS if row[0] == 'new-format'} != {'new-format'} or any(
             row[1] != 'scripts/proof/native_lifecycle_record.py' for row in b1.HARNESS_LABELS if row[0] == 'new-format'):
@@ -491,7 +841,8 @@ def source_checks():
         problems += oracle_problems()
     except (OSError, ValueError) as error:
         problems.append('oracle: %s' % error)
-    for test, names in ((CODEC_TEST, CODEC_NAMES), (READ_TEST, READ_NAMES)):
+    for test, names in ((CODEC_TEST, CODEC_NAMES), (READ_TEST, READ_NAMES), (STORE_TEST, STORE_NAMES),
+                        (TRANSACTION_TEST, TRANSACTION_NAMES), (FAULT_TEST, FAULT_NAMES)):
         if len(set(names)) != len(names):
             problems.append('duplicate case names of ' + test)
         # A failure prints 'FAIL <name>: <problems>', read up to the first colon and space.
@@ -501,6 +852,7 @@ def source_checks():
     for name in CODEC_NAMES:
         if not name.startswith('golden / ') and codec.count('"%s"' % name) != 1:
             problems.append('codec case not named once in its source: ' + name)
+    problems += lifecycle_name_problems()
     try:
         mutant_texts()
     except ValueError as error:
@@ -513,13 +865,23 @@ def source_checks():
         problems.append('mutant predictions do not list every mutant')
     for name, checks in expected.items():
         suites = MUTANTS.get(name, ((), ()))[1]
-        allowed = set(CODEC_NAMES if 'codec' in suites else ()) | set(READ_NAMES if 'reads' in suites else ())
-        if not checks or not set(checks) <= allowed:
+        allowed = {check for suite in suites if suite in SUITE_NAMES for check in SUITE_NAMES[suite]}
+        if not checks or not set(checks) <= allowed or not set(suites) <= set(SUITE_NAMES):
             problems.append('mutant prediction inconsistent: ' + name)
     counts = predictions['cases']
-    if (counts['codec'], counts['reads'], counts['goldens'], counts['mutants']) != (
-            len(CODEC_NAMES), len(READ_NAMES), len(GOLDEN_NAMES), len(MUTANTS)):
+    if (counts['codec'], counts['reads'], counts['goldens'], counts['mutants'], counts['store'],
+            counts['transactions'], counts['faults']) != (
+            len(CODEC_NAMES), len(READ_NAMES), len(GOLDEN_NAMES), len(MUTANTS), len(STORE_NAMES),
+            len(TRANSACTION_NAMES), len(FAULT_NAMES)):
         problems.append('predicted counts differ from the case lists')
+    by_label = {suite: {} for suite in ('store', 'transactions')}
+    for suite in by_label:
+        for name in SUITE_NAMES[suite]:
+            label = case_label(name)
+            by_label[suite][label] = by_label[suite].get(label, 0) + 1
+    if (predictions['store_by_label'], predictions['transactions_by_label']) != (
+            by_label['store'], by_label['transactions']):
+        problems.append('predicted counts by label differ from the case lists')
     problems += label_problems()
     return problems
 
@@ -593,6 +955,25 @@ def read_suite(work, settings, texts=None, harness=()):
                      READ_NAMES)
 
 
+def lifecycle_files(test, texts=None):
+    """The current product sources, with any framework text a defect changes, the shared fixtures and
+    one lifecycle test. The fault sweeps take the existing host write fault seams, injected into
+    copies of the store and strict writer sources, and the seam class."""
+    framework = {Path(path).stem: value for path, value in (texts or {}).items() if path.startswith(FRAMEWORK_DIR)}
+    files = b1.product_sources(framework_override=framework)
+    if test == FAULT_TEST:
+        files = b1.with_seams(files)
+        files['tests/%s.java' % FAULT_SEAM] = (ROOT / PLATFORM / (FAULT_SEAM + '.java')).read_bytes()
+    for name in (SUPPORT, test):
+        files['tests/%s.java' % name] = (ROOT / PLATFORM / (name + '.java')).read_bytes()
+    return files
+
+
+def lifecycle_suite(work, suite, texts=None):
+    test, names = LIFECYCLE_SUITES[suite]
+    return run_suite(work, lifecycle_files(test, texts), test, [str(work / 'lifecycle-state')], names)
+
+
 def golden_problems(gold):
     """Each golden the codec test wrote against the independent encoder, byte for byte."""
     expected = goldens()
@@ -643,6 +1024,19 @@ def qualify(work, pinned, report):
             problems.append('read suite ran without assertions')
     report['completed_phases'].append('reads')
 
+    for suite, (test, names) in LIFECYCLE_SUITES.items():
+        result, record = lifecycle_suite(work / suite, suite)
+        steps[suite] = result
+        steps[suite]['labels'] = {name.split(' / ', 1)[0]: case_label(name) for name in names}
+        if red_names(result, names) != set() or 'unqualified' not in record.get('run', {}).get('stdout', ''):
+            problems.append('%s suite' % suite)
+        else:
+            refused = b1.execute(work / suite, test, [str(work / suite / 'no-assertions')], assertions=False,
+                                 timeout=120)
+            if not refused['returncode'] or '-ea' not in refused['stderr']:
+                problems.append('%s suite ran without assertions' % suite)
+        report['completed_phases'].append(suite)
+
     steps['mutants'] = {}
     expectations = predictions['mutants_caught_at_least']
     for name, (texts, harness, suites) in mutant_texts().items():
@@ -652,10 +1046,11 @@ def qualify(work, pinned, report):
             directory = work / 'mutants' / name / suite
             if suite == 'codec':
                 (result, _), _ = codec_suite(directory, texts)
-                names = CODEC_NAMES
-            else:
+            elif suite == 'reads':
                 result, _ = read_suite(directory, settings, texts, harness)
-                names = READ_NAMES
+            else:
+                result, _ = lifecycle_suite(directory, suite, texts)
+            names = SUITE_NAMES[suite]
             record[suite] = result
             if 'error' in result:
                 problems.append('mutant %s did not compile; not a red result' % name)
