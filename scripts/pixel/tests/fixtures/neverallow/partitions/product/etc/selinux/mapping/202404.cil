@@ -1,0 +1,3 @@
+; SYNTHETIC product mapping
+(typeattribute product_marker_file_202404)
+(typeattributeset product_marker_file_202404 (product_marker_file))

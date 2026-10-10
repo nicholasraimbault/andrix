@@ -1,0 +1,10 @@
+; SYNTHETIC vendor policy. It names the versioned attributes of every mapping file, as a real
+; vendor policy names the platform's public types.
+(type vendor_file)
+(allow shell_202404 vendor_file (file (read open)))
+(allow andrix_terminal_202404 vendor_file (file (getattr)))
+(allow shell_202404 product_marker_file_202404 (file (getattr)))
+; a vendor extended permission rule, as an extracted vendor policy keeps them
+(allow shell_202404 vendor_file (file (ioctl)))
+(allowx shell_202404 vendor_file (ioctl file (0x0001)))
+(neverallowx shell_202404 vendor_file (ioctl file (0x8008)))

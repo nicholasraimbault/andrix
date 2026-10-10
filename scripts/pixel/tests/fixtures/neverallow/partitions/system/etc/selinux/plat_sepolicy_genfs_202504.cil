@@ -1,0 +1,2 @@
+; SYNTHETIC genfs labels
+(genfscon sysfs "/" (u object_r sysfs ((s0) (s0))))

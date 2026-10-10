@@ -35,3 +35,8 @@ a108c6dd08afe9ad5e3fe09f36ae513b2fac34c7d18a2a66d5a90ebb742933f4  2026100600 bui
 
 The readings samples, the fastboot and timeout stand-ins, the keys, the images, the install
 zips and the signed manifest repository of `world.py` in the tests are synthetic. They are built in a temporary directory for each run and never kept.
+
+`neverallow/partitions` is synthetic too. Its CIL files form a small split policy laid out as on
+the phone, and it declares only the classes, permissions and types that Andrix's 28 rules and
+their witnesses name. The tests compile its precompiled policy with the pinned `secilc` and write
+its hash files in a temporary directory for each run.

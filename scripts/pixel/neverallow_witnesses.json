@@ -1,0 +1,359 @@
+{
+  "schema": "andrix.pixel.neverallow_witnesses/1",
+  "description": "Andrix's literal neverallow rules, their expansion by m4 and one witness allow statement for each. scripts/pixel/neverallow_check.py checks the table against the sources and the policy.",
+  "macros": {
+    "capability_class_set": {
+      "value": "{ capability capability2 cap_userns cap2_userns }",
+      "source": "system/sepolicy/public/global_macros:5"
+    },
+    "no_x_file_perms": {
+      "value": "{ execute execute_no_trans }",
+      "source": "system/sepolicy/public/neverallow_macros:6"
+    },
+    "userdebug_or_eng": {
+      "value": "its argument for userdebug and eng, nothing for user",
+      "source": "system/sepolicy/public/te_macros:583"
+    }
+  },
+  "rules": [
+    {
+      "number": 1,
+      "title": "devpts of the owner",
+      "source": "owner/sepolicy/andrix_owner.te",
+      "line": 42,
+      "rule": "neverallow { untrusted_app_all isolated_app_all andrix_terminal } andrix_owner_devpts:chr_file { open read write ioctl };",
+      "expansion": {
+        "user": "neverallow { untrusted_app_all isolated_app_all andrix_terminal } andrix_owner_devpts:chr_file { open read write ioctl };",
+        "userdebug": "neverallow { untrusted_app_all isolated_app_all andrix_terminal } andrix_owner_devpts:chr_file { open read write ioctl };"
+      },
+      "witness": "(allow andrix_terminal andrix_owner_devpts (chr_file (read)))"
+    },
+    {
+      "number": 2,
+      "title": "home sockets",
+      "source": "owner/sepolicy/andrix_owner.te",
+      "line": 57,
+      "rule": "neverallow { untrusted_app_all isolated_app_all andrix_terminal andrixd } andrix_home_file:sock_file { create open read write unlink };",
+      "expansion": {
+        "user": "neverallow { untrusted_app_all isolated_app_all andrix_terminal andrixd } andrix_home_file:sock_file { create open read write unlink };",
+        "userdebug": "neverallow { untrusted_app_all isolated_app_all andrix_terminal andrixd } andrix_home_file:sock_file { create open read write unlink };"
+      },
+      "witness": "(allow andrixd andrix_home_file (sock_file (create)))"
+    },
+    {
+      "number": 3,
+      "title": "owner connectto",
+      "source": "owner/sepolicy/andrix_owner.te",
+      "line": 58,
+      "rule": "neverallow { untrusted_app_all isolated_app_all andrix_terminal andrixd } andrix_owner:unix_stream_socket connectto;",
+      "expansion": {
+        "user": "neverallow { untrusted_app_all isolated_app_all andrix_terminal andrixd } andrix_owner:unix_stream_socket connectto;",
+        "userdebug": "neverallow { untrusted_app_all isolated_app_all andrix_terminal andrixd } andrix_owner:unix_stream_socket connectto;"
+      },
+      "witness": "(allow andrixd andrix_owner (unix_stream_socket (connectto)))"
+    },
+    {
+      "number": 4,
+      "title": "owner ptrace",
+      "source": "owner/sepolicy/andrix_owner.te",
+      "line": 78,
+      "rule": "neverallow andrix_owner { domain -andrix_owner }:process ptrace;",
+      "expansion": {
+        "user": "neverallow andrix_owner { domain -andrix_owner }:process ptrace;",
+        "userdebug": "neverallow andrix_owner { domain -andrix_owner }:process ptrace;"
+      },
+      "witness": "(allow andrix_owner init (process (ptrace)))"
+    },
+    {
+      "number": 5,
+      "title": "owner Binder",
+      "source": "owner/sepolicy/andrix_owner.te",
+      "line": 84,
+      "rule": "neverallow andrix_owner andrixd:binder call;",
+      "expansion": {
+        "user": "neverallow andrix_owner andrixd:binder call;",
+        "userdebug": "neverallow andrix_owner andrixd:binder call;"
+      },
+      "witness": "(allow andrix_owner andrixd (binder (call)))"
+    },
+    {
+      "number": 6,
+      "title": "session service",
+      "source": "owner/sepolicy/andrix_owner.te",
+      "line": 85,
+      "rule": "neverallow andrix_owner andrix_session_service:service_manager find;",
+      "expansion": {
+        "user": "neverallow andrix_owner andrix_session_service:service_manager find;",
+        "userdebug": "neverallow andrix_owner andrix_session_service:service_manager find;"
+      },
+      "witness": "(allow andrix_owner andrix_session_service (service_manager (find)))"
+    },
+    {
+      "number": 7,
+      "title": "cgroup writes",
+      "source": "owner/sepolicy/andrix_owner.te",
+      "line": 86,
+      "rule": "neverallow andrix_owner { cgroup cgroup_v2 }:file { write append };",
+      "expansion": {
+        "user": "neverallow andrix_owner { cgroup cgroup_v2 }:file { write append };",
+        "userdebug": "neverallow andrix_owner { cgroup cgroup_v2 }:file { write append };"
+      },
+      "witness": "(allow andrix_owner cgroup_v2 (file (write)))"
+    },
+    {
+      "number": 8,
+      "title": "signals to andrixd",
+      "source": "owner/sepolicy/andrix_owner.te",
+      "line": 87,
+      "rule": "neverallow andrix_owner andrixd:process { ptrace signal sigkill sigstop setrlimit setsched };",
+      "expansion": {
+        "user": "neverallow andrix_owner andrixd:process { ptrace signal sigkill sigstop setrlimit setsched };",
+        "userdebug": "neverallow andrix_owner andrixd:process { ptrace signal sigkill sigstop setrlimit setsched };"
+      },
+      "witness": "(allow andrix_owner andrixd (process (sigkill)))"
+    },
+    {
+      "number": 9,
+      "title": "andrixd_exec",
+      "source": "owner/sepolicy/andrix_owner.te",
+      "line": 88,
+      "rule": "neverallow andrix_owner andrixd_exec:file { execute execute_no_trans entrypoint };",
+      "expansion": {
+        "user": "neverallow andrix_owner andrixd_exec:file { execute execute_no_trans entrypoint };",
+        "userdebug": "neverallow andrix_owner andrixd_exec:file { execute execute_no_trans entrypoint };"
+      },
+      "witness": "(allow andrix_owner andrixd_exec (file (execute)))"
+    },
+    {
+      "number": 10,
+      "title": "home code in andrixd",
+      "source": "owner/sepolicy/andrix_owner.te",
+      "line": 89,
+      "rule": "neverallow andrixd andrix_home_file:file { execute execute_no_trans entrypoint };",
+      "expansion": {
+        "user": "neverallow andrixd andrix_home_file:file { execute execute_no_trans entrypoint };",
+        "userdebug": "neverallow andrixd andrix_home_file:file { execute execute_no_trans entrypoint };"
+      },
+      "witness": "(allow andrixd andrix_home_file (file (entrypoint)))"
+    },
+    {
+      "number": 11,
+      "title": "entry execute",
+      "source": "owner/sepolicy/andrix_owner.te",
+      "line": 92,
+      "rule": "neverallow { domain -andrixd -andrix_owner userdebug_or_eng(`-overlay_remounter') } andrix_owner_entry:file execute;",
+      "expansion": {
+        "user": "neverallow { domain -andrixd -andrix_owner } andrix_owner_entry:file execute;",
+        "userdebug": "neverallow { domain -andrixd -andrix_owner -overlay_remounter } andrix_owner_entry:file execute;"
+      },
+      "witness": "(allow shell andrix_owner_entry (file (execute)))"
+    },
+    {
+      "number": 12,
+      "title": "entry without transition",
+      "source": "owner/sepolicy/andrix_owner.te",
+      "line": 93,
+      "rule": "neverallow andrix_owner andrix_owner_entry:file execute_no_trans;",
+      "expansion": {
+        "user": "neverallow andrix_owner andrix_owner_entry:file execute_no_trans;",
+        "userdebug": "neverallow andrix_owner andrix_owner_entry:file execute_no_trans;"
+      },
+      "witness": "(allow andrix_owner andrix_owner_entry (file (execute_no_trans)))"
+    },
+    {
+      "number": 13,
+      "title": "PID property",
+      "source": "owner/sepolicy/andrix_owner.te",
+      "line": 94,
+      "rule": "neverallow { domain -andrixd -init } andrix_owner_pid_prop:property_service set;",
+      "expansion": {
+        "user": "neverallow { domain -andrixd -init } andrix_owner_pid_prop:property_service set;",
+        "userdebug": "neverallow { domain -andrixd -init } andrix_owner_pid_prop:property_service set;"
+      },
+      "witness": "(allow shell andrix_owner_pid_prop (property_service (set)))"
+    },
+    {
+      "number": 14,
+      "title": "console socket",
+      "source": "owner/sepolicy/andrix_owner.te",
+      "line": 95,
+      "rule": "neverallow { domain -andrixd -andrix_terminal } andrix_console_socket:unix_stream_socket { read write };",
+      "expansion": {
+        "user": "neverallow { domain -andrixd -andrix_terminal } andrix_console_socket:unix_stream_socket { read write };",
+        "userdebug": "neverallow { domain -andrixd -andrix_terminal } andrix_console_socket:unix_stream_socket { read write };"
+      },
+      "witness": "(allow untrusted_app andrix_console_socket (unix_stream_socket (read)))"
+    },
+    {
+      "number": 15,
+      "title": "home directories",
+      "source": "owner/sepolicy/andrix_owner.te",
+      "line": 96,
+      "rule": "neverallow { untrusted_app_all isolated_app_all } andrix_home_file:dir { open read write add_name remove_name };",
+      "expansion": {
+        "user": "neverallow { untrusted_app_all isolated_app_all } andrix_home_file:dir { open read write add_name remove_name };",
+        "userdebug": "neverallow { untrusted_app_all isolated_app_all } andrix_home_file:dir { open read write add_name remove_name };"
+      },
+      "witness": "(allow untrusted_app andrix_home_file (dir (add_name)))"
+    },
+    {
+      "number": 16,
+      "title": "home files",
+      "source": "owner/sepolicy/andrix_owner.te",
+      "line": 97,
+      "rule": "neverallow { untrusted_app_all isolated_app_all } andrix_home_file:{ file lnk_file fifo_file } { open read write execute };",
+      "expansion": {
+        "user": "neverallow { untrusted_app_all isolated_app_all } andrix_home_file:{ file lnk_file fifo_file } { open read write execute };",
+        "userdebug": "neverallow { untrusted_app_all isolated_app_all } andrix_home_file:{ file lnk_file fifo_file } { open read write execute };"
+      },
+      "witness": "(allow isolated_app andrix_home_file (lnk_file (read)))"
+    },
+    {
+      "number": 17,
+      "title": "capabilities",
+      "source": "owner/sepolicy/andrix_owner.te",
+      "line": 98,
+      "rule": "neverallow { andrixd andrix_owner } self:capability_class_set *;",
+      "expansion": {
+        "user": "neverallow { andrixd andrix_owner } self:{ capability capability2 cap_userns cap2_userns } *;",
+        "userdebug": "neverallow { andrixd andrix_owner } self:{ capability capability2 cap_userns cap2_userns } *;"
+      },
+      "witness": "(allow andrixd self (capability (chown)))"
+    },
+    {
+      "number": 18,
+      "title": "terminal and home directories",
+      "source": "owner/sepolicy/andrix_terminal.te",
+      "line": 20,
+      "rule": "neverallow andrix_terminal andrix_home_file:dir { open read write add_name remove_name };",
+      "expansion": {
+        "user": "neverallow andrix_terminal andrix_home_file:dir { open read write add_name remove_name };",
+        "userdebug": "neverallow andrix_terminal andrix_home_file:dir { open read write add_name remove_name };"
+      },
+      "witness": "(allow andrix_terminal andrix_home_file (dir (remove_name)))"
+    },
+    {
+      "number": 19,
+      "title": "terminal and home files",
+      "source": "owner/sepolicy/andrix_terminal.te",
+      "line": 21,
+      "rule": "neverallow andrix_terminal andrix_home_file:file { open read write execute };",
+      "expansion": {
+        "user": "neverallow andrix_terminal andrix_home_file:file { open read write execute };",
+        "userdebug": "neverallow andrix_terminal andrix_home_file:file { open read write execute };"
+      },
+      "witness": "(allow andrix_terminal andrix_home_file (file (open)))"
+    },
+    {
+      "number": 20,
+      "title": "terminal and andrixd devpts",
+      "source": "owner/sepolicy/andrix_terminal.te",
+      "line": 22,
+      "rule": "neverallow andrix_terminal andrixd_devpts:chr_file { read write ioctl };",
+      "expansion": {
+        "user": "neverallow andrix_terminal andrixd_devpts:chr_file { read write ioctl };",
+        "userdebug": "neverallow andrix_terminal andrixd_devpts:chr_file { read write ioctl };"
+      },
+      "witness": "(allow andrix_terminal andrixd_devpts (chr_file (ioctl)))"
+    },
+    {
+      "number": 21,
+      "title": "terminal and entry execute",
+      "source": "owner/sepolicy/andrix_terminal.te",
+      "line": 23,
+      "rule": "neverallow andrix_terminal andrix_owner_entry:file execute;",
+      "expansion": {
+        "user": "neverallow andrix_terminal andrix_owner_entry:file execute;",
+        "userdebug": "neverallow andrix_terminal andrix_owner_entry:file execute;"
+      },
+      "witness": "(allow andrix_terminal andrix_owner_entry (file (execute)))",
+      "also_violates": [
+        11
+      ]
+    },
+    {
+      "number": 22,
+      "title": "terminal signals to the owner",
+      "source": "owner/sepolicy/andrix_terminal.te",
+      "line": 24,
+      "rule": "neverallow andrix_terminal andrix_owner:process { ptrace signal sigkill sigstop };",
+      "expansion": {
+        "user": "neverallow andrix_terminal andrix_owner:process { ptrace signal sigkill sigstop };",
+        "userdebug": "neverallow andrix_terminal andrix_owner:process { ptrace signal sigkill sigstop };"
+      },
+      "witness": "(allow andrix_terminal andrix_owner (process (sigstop)))"
+    },
+    {
+      "number": 23,
+      "title": "lifecycle service",
+      "source": "owner/platform/sepolicy/owner_lifecycle.te",
+      "line": 7,
+      "rule": "neverallow { andrix_owner andrix_terminal untrusted_app_all isolated_app_all } andrix_lifecycle_service:service_manager find;",
+      "expansion": {
+        "user": "neverallow { andrix_owner andrix_terminal untrusted_app_all isolated_app_all } andrix_lifecycle_service:service_manager find;",
+        "userdebug": "neverallow { andrix_owner andrix_terminal untrusted_app_all isolated_app_all } andrix_lifecycle_service:service_manager find;"
+      },
+      "witness": "(allow untrusted_app andrix_lifecycle_service (service_manager (find)))"
+    },
+    {
+      "number": 24,
+      "title": "lifecycle control property",
+      "source": "owner/platform/sepolicy/owner_lifecycle.te",
+      "line": 13,
+      "rule": "neverallow { domain -init -system_server } ctl_andrix_owner_prop:property_service set;",
+      "expansion": {
+        "user": "neverallow { domain -init -system_server } ctl_andrix_owner_prop:property_service set;",
+        "userdebug": "neverallow { domain -init -system_server } ctl_andrix_owner_prop:property_service set;"
+      },
+      "witness": "(allow shell ctl_andrix_owner_prop (property_service (set)))"
+    },
+    {
+      "number": 25,
+      "title": "owner execution of other data",
+      "source": "patches/grapheneos-2026081300/owner-session-policy.patch",
+      "line": 14,
+      "rule": "neverallow andrix_owner { data_file_type -andrix_home_file }:file no_x_file_perms;",
+      "expansion": {
+        "user": "neverallow andrix_owner { data_file_type -andrix_home_file }:file { execute execute_no_trans };",
+        "userdebug": "neverallow andrix_owner { data_file_type -andrix_home_file }:file { execute execute_no_trans };"
+      },
+      "witness": "(allow andrix_owner app_data_file (file (execute)))"
+    },
+    {
+      "number": 26,
+      "title": "home execution by other domains",
+      "source": "patches/grapheneos-2026081300/owner-session-policy.patch",
+      "line": 15,
+      "rule": "neverallow { domain -andrix_owner } andrix_home_file:file no_x_file_perms;",
+      "expansion": {
+        "user": "neverallow { domain -andrix_owner } andrix_home_file:file { execute execute_no_trans };",
+        "userdebug": "neverallow { domain -andrix_owner } andrix_home_file:file { execute execute_no_trans };"
+      },
+      "witness": "(allow shell andrix_home_file (file (execute_no_trans)))"
+    },
+    {
+      "number": 27,
+      "title": "transition into the owner",
+      "source": "patches/grapheneos-2026081300/owner-session-policy.patch",
+      "line": 16,
+      "rule": "neverallow { domain -andrixd } andrix_owner:process transition;",
+      "expansion": {
+        "user": "neverallow { domain -andrixd } andrix_owner:process transition;",
+        "userdebug": "neverallow { domain -andrixd } andrix_owner:process transition;"
+      },
+      "witness": "(allow init andrix_owner (process (transition)))"
+    },
+    {
+      "number": 28,
+      "title": "dyntransition into the owner",
+      "source": "patches/grapheneos-2026081300/owner-session-policy.patch",
+      "line": 17,
+      "rule": "neverallow domain andrix_owner:process dyntransition;",
+      "expansion": {
+        "user": "neverallow domain andrix_owner:process dyntransition;",
+        "userdebug": "neverallow domain andrix_owner:process dyntransition;"
+      },
+      "witness": "(allow andrixd andrix_owner (process (dyntransition)))"
+    }
+  ]
+}

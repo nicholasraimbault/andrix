@@ -1,0 +1,2 @@
+; SYNTHETIC platform mapping: the versioned attribute that the vendor policy uses for shell.
+(typeattributeset shell_202404 (shell))

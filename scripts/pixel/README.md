@@ -18,6 +18,7 @@ means refuse or stop, with the reasons in the JSON report.
 | `readings.sh` | The fixed reading script of stop point 2 |
 | `readings.py` | Its parser and stop point 3 |
 | `install_zip.py` | The checks that need no phone, for a GrapheneOS install zip |
+| `neverallow_check.py` | Andrix's neverallow rules on the policy the phone would load (design item 2, steps A to G) |
 
 ## Use
 
@@ -352,6 +353,65 @@ The OS image list of the optimized form, its order and the wipe erases are fixed
 `flash_script.py` and refuse any other script. They are unconfirmed until a real install zip
 is read, and only a reviewed change to that file can change them.
 
+## The neverallow check
+
+adevtool sets `SELINUX_IGNORE_NEVERALLOWS := true` for caiman, so a caiman build checks none of
+Andrix's 28 neverallow rules. `neverallow_check.py` checks them afterwards on the policy the
+phone would load. It follows item 2 of the
+[stage 1 design](../../plans/2026-10-09-caiman-design-items.md#2-the-neverallow-check).
+
+```sh
+python3 -B $P/neverallow_check.py --partitions "$PARTITIONS" --official "$OFFICIAL" \
+  --expanded "$OUT/soong/.intermediates/system/sepolicy/sepolicy_neverallows.sepolicy_analyze.conf/android_common/sepolicy_neverallows.sepolicy_analyze.conf" \
+  --variant user --policy-dir sepolicy/private --policy-dir owner/sepolicy \
+  --policy-dir owner/platform/sepolicy --patches patches/grapheneos-2026081300 \
+  --sepolicy-analyze "$TOOLS/sepolicy-analyze" --secilc "$TOOLS/secilc" --checkpolicy "$TOOLS/checkpolicy"
+```
+
+**Inputs.**
+
+- `--partitions` is a directory of partition files laid out as on the phone:
+  `system/etc/selinux`, `system/build.prop`, `system_ext/etc/selinux`, `product/etc/selinux` and
+  `vendor/etc/selinux`. The whole directory is walked, so the check can show what is absent.
+  `--file PHONE_PATH=HOST_PATH`, repeated, gives single files instead. Step A then refuses,
+  because single files cannot show that no image carries an odm or userdebug policy.
+- `--official` is the same for the official GrapheneOS release of the base tag, for steps F and G.
+- `--expanded` is the build's expanded rule file. The existing module always expands for `user`,
+  so a `userdebug` build needs its own module with the real variant.
+- `--variant` must equal `ro.build.type`. It selects rule 11's expansion, which keeps
+  `-overlay_remounter` for `userdebug`.
+- `--policy-dir` and `--patches` name, relative to `--source-root`, the Andrix policy directories
+  the product adds and the directories of patch records. Every record for `system/sepolicy` is
+  read, and its patch must hash to the record's `patch_sha256`.
+- `sepolicy-analyze`, `secilc` and `checkpolicy` are pinned by SHA-256 to the pinned tree's host
+  output.
+- `neverallow_witnesses.json` holds each rule's source line, literal text, `user` and `userdebug`
+  expansions and witness, one CIL `allow` of one permission inside the rule.
+
+**Steps.** Every step runs and reports, and the policy passes only if all pass.
+
+| Step | Passes only if |
+|---|---|
+| A | `/vendor/etc/selinux/precompiled_sepolicy` exists, no other `precompiled_sepolicy` and no `userdebug_plat_sepolicy.cil` exists anywhere, `ro.build.type` is the variant, and each of the three hash pairs is one equal line that the CIL file followed by its mapping file hashes to |
+| B | `sepolicy-analyze POLICY attribute domain` lists `andrixd`, `andrix_owner` and `andrix_terminal` |
+| C | every literal `neverallow` in the sources has exactly one entry, each entry's text is its line, its expansion is the rule with the three known macros applied, and that expansion is a statement of the expanded rule file. A literal `neverallowxperm` or an unknown macro refuses |
+| D | `sepolicy-analyze POLICY neverallow -w -f RULES` on the 28 expansions exits 0 and prints nothing, so a warning fails like a violation |
+| E | `secilc` with init's arguments and file order gives a control whose `checkpolicy -M -b -C` text equals the loaded policy's, the control passes, and each witness added as one more CIL file fails its own rule alone and the whole set, with exactly its own violation |
+| F | every other `neverallow` of the expanded rule file gives no violation and no warning on this policy that the official policy does not give too. Shared violations are listed as vendor findings, and warnings on both are listed |
+| G | `secilc` without `-N`, with the build's check flags, over this policy's CIL files reports no violated rule that the same run on the official files does not report. A unit is the rule and its offending rules, without places and with generated attribute numbers dropped |
+
+**Limits.**
+
+- Reading an install zip is not written yet. The partitions come from extracted images.
+- The pins name the 2026081300 host tools. A caiman build at 2026100600 needs its own tools pinned.
+- Step F compares warnings by their text, which names the undefined name but not the rule.
+- Step G compares units by text. If the vendor or bridge policy renumbers generated attributes,
+  units that differ only there compare equal, which can hide a new offending rule that differs
+  only in such a name.
+- The stage 1 corpus, the Andrix Cuttlefish product, cannot pass. It loads its policy from odm and
+  is built `userdebug`, so step A refuses it. Its expanded rule file is the `user` one, so step C
+  refuses it for `userdebug`. No official GrapheneOS policy exists for it, so steps F and G refuse.
+
 ## Limits
 
 - **Unconfirmed answer forms.** The forms that `readings.py` accepts come from fastboot's source
@@ -397,4 +457,6 @@ are skipped unless `ANDRIX_PIXEL_TREES` names them, for example
 `ANDRIX_PIXEL_TREES=2026081300=/path/a:2026100600=/path/b`. Those cases derive the records again
 from the real trees and compare the fixture copies with the trees. The vbmeta cases need the
 pinned tree's avbtool, through `ANDRIX_PIXEL_TREES` or `ANDRIX_GRAPHENEOS_ROOT`.
+The neverallow cases of steps B and D to G need `sepolicy-analyze`, `secilc` and `checkpolicy`
+from the pinned tree's host output, through `ANDRIX_PIXEL_TREES`.
 `tests/fixtures/README.md` lists where each fixture comes from.

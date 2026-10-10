@@ -1,0 +1,3 @@
+; SYNTHETIC system_ext mapping
+(typeattribute andrix_terminal_202404)
+(typeattributeset andrix_terminal_202404 (andrix_terminal))
