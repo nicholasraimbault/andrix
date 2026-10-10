@@ -1,7 +1,7 @@
 {
-  "status": "PREDICTED before any guarded execution of the revised P5 checkpoint 2 sources. Nothing here is an executed result.",
+  "status": "PREDICTED before any guarded execution of the P6 checkpoint 1a sources. Nothing here is an executed result.",
   "plan": "plans/2026-10-08-native-lifecycle-record.md",
-  "package": "B1 P1: the slot version 2 codec, the stable prefix reader and the readers in every format; B1 P2a: the lifecycle store transitions, the suspend, lift, markRetiring and markRetired transactions, the publication refusal and the writer rules; B1 P2b checkpoint 1: the boot facts, the deletion or migration step, confirm disposal and Restore; B1 P2c: Restore's claim and phase fixes and the gated release engine at the persistence level, with its capability, its store primitives and the source rules that keep release unreachable; B1 P3: Settings seeding, boot facts, the retired boot rule and the release finish; B1 P4: the manager's lifecycle operations beside the old ones, their format refusals before any effect, the suspension closure, every activation point's suspension refusal, the gated release with the retired boot rule, and the source rules that keep every new operation without a production caller. B1 P5 checkpoint 1: the pinned inputs of the rollback models of 24bfb6a and 78456b3, and the lifecycle layout emitter with its coverage check. B1 P5 checkpoint 2: the rollback models of 24bfb6a and 78456b3 over every lifecycle layout, B1's readers under Format.V2 and Format.V3, a layout of RELEASING without a directory under a version 2 header, and their controls.",
+  "package": "B1 P1: the slot version 2 codec, the stable prefix reader and the readers in every format; B1 P2a: the lifecycle store transitions, the suspend, lift, markRetiring and markRetired transactions, the publication refusal and the writer rules; B1 P2b checkpoint 1: the boot facts, the deletion or migration step, confirm disposal and Restore; B1 P2c: Restore's claim and phase fixes and the gated release engine at the persistence level, with its capability, its store primitives and the source rules that keep release unreachable; B1 P3: Settings seeding, boot facts, the retired boot rule and the release finish; B1 P4: the manager's lifecycle operations beside the old ones, their format refusals before any effect, the suspension closure, every activation point's suspension refusal, the gated release with the retired boot rule, and the source rules that keep every new operation without a production caller. B1 P5 checkpoint 1: the pinned inputs of the rollback models of 24bfb6a and 78456b3, and the lifecycle layout emitter with its coverage check. B1 P5 checkpoint 2: the rollback models of 24bfb6a and 78456b3 over every lifecycle layout, B1's readers under Format.V2 and Format.V3, a layout of RELEASING without a directory under a version 2 header, and their controls. B1 P6 checkpoint 1: the rotated swap controls of the rollback models, the reservation's withdrawal under B1's Format.V2 reader, the sealed rollback assembly and the guest codec pin check. B1 P6 checkpoint 1a: the positive halves of the existing formats' retirement and release flows moved to the lifecycle format under the new-format label, and the case map of the old flows.",
   "basis": "Each count is the length of the runner's case lists. Each mutant's catches are traced against the cases it breaks; a defect that another rule also refuses names only the cases that reach it.",
   "cases": {
     "codec": 47,
@@ -12,7 +12,7 @@
     "transactions": 57,
     "faults": 136,
     "settings": 12,
-    "manager": 19,
+    "manager": 29,
     "layouts": 205
   },
   "reads_by_label": {
@@ -1211,7 +1211,7 @@
   "manager_by_label": {
     "legacy": 1,
     "production": 1,
-    "new-format": 17
+    "new-format": 27
   },
   "p4_checkpoint_1": {
     "changes": "The manager gains its lifecycle operations beside the old ones: suspend, lift, beginRetirement with a retirement block, confirmRetired, beginDisposition, confirmDisposition and releaseUid, with Handle.released. Each refuses under a format without lifecycle records before any effect, including the closure and the pin change. Suspension closes admission in memory first, through Settings' deferral and a mark on the handle, and keeps it through a refused or uncertain write. Preparation, commit, currentIdentity and the published binding check refuse a suspended account. The pins gain finishRelease. The release rule gains releaseUid and finishRelease, and only the manager's gated release calls the engine, Settings' release finish and finishRelease.",
@@ -1690,5 +1690,72 @@
       "revised_after_first_run": "The first development run of the reader check under Format.V3, against the earlier prediction of 230 VALID and a history for every VALID read, failed 55 layouts and the class count: 53 tombstone layouts and the two multi-user values had no history, and those two values read UNSUPPORTED, from the store's user 0 rule. The check now names that rule and expects a history only for one user accounts, and this prediction was revised before the next run. The Format.V2 run and both cross-format controls matched the first prediction."
     },
     "registration_guard": "the patch text of the fresh registration branch begins with the identity predicate check, once"
+  },
+  "p6_checkpoint_1": {
+    "revision": "The follow-ups to P5 checkpoint 2, predicted before any run of them. These swap controls replace those of P5 checkpoint 2, which gave only footprint, admitted and nothing. The layouts, the classes, the format controls and the reader counts of P5 checkpoint 2 stay as predicted there.",
+    "rollback": {
+      "24bf": {
+        "swap_control": {
+          "companion-sibling-package-suspended": "footprint",
+          "companion-sibling-principal-suspended": "reservation",
+          "state-suspended-user": "lost",
+          "state-retired": "sibling",
+          "companion-reservation-suspended": "sibling-principal",
+          "companion-reservation-retiring": "withdrawn",
+          "value-tombstone-without-ticket": "admitted",
+          "state-lifted": "retiring",
+          "moved-retirement-publication-write-started": "tombstone",
+          "value-releasing-tombstone-without-ticket": "nothing",
+          "value-legacy-marker": "conflict"
+        },
+        "swap_control_fails": 11
+      },
+      "7845": {
+        "swap_control": {
+          "companion-sibling-package-suspended": "footprint",
+          "companion-reservation-retiring": "reservation",
+          "state-suspended-user": "lost",
+          "state-retired": "sibling",
+          "companion-lost-suspended": "sibling-principal",
+          "state-disposing": "withdrawn",
+          "value-tombstone-without-ticket": "admitted",
+          "state-lifted": "retiring",
+          "moved-retirement-publication-write-started": "tombstone",
+          "value-releasing-tombstone-without-ticket": "nothing",
+          "value-legacy-marker": "conflict"
+        },
+        "swap_control_fails": 11
+      },
+      "basis": "Each model gives each of the 11 classes once to a layout of another class, and each fails there: footprint and reservation on a layout with a restored pin, lost on a footprint that maps its package, sibling and sibling-principal on a version 2 layout without a restored sibling, withdrawn on a layout whose header the model reads, reservation under 78456b3 on a withdrawn layout, admitted on a tombstone without a pin, retiring on an admitted package the scan allows, tombstone on a pinned or unsupported layout, nothing on a layout that maps a package, and conflict on a pinned legacy marker. Every run and format control count is unchanged."
+    },
+    "readers": {
+      "reservation_withdrawn": "Under Format.V2 each of the 11 reservation layouts also reads the bound reservation withdrawn: no pin, no history, every mapped package deferred and refused. V2 and V3 still pass 206 each, and each cross-format control still fails exactly the 165 layouts with a version 2 slot, because every reservation layout is one of them."
+    },
+    "lab": "The lab source check also requires the working tree codec to equal the guest codec pin. The codec is unchanged, so the lab predictions are unchanged.",
+    "unchanged": "Binding, history, counter and lab: PASS with the counts of P5 checkpoint 2. Lifecycle: the phases and case counts of P5 checkpoint 2, 183 mutants."
+  },
+  "p6_checkpoint_1a": {
+    "revision": "The move before the refusal: the store still accepts the old writes, so every existing suite and count stays as predicted before, and the manager suite gains ten lifecycle cases. The manager suite ran in development as the cases were written, before this prediction: 21, 24, 26, 27, 28 and 29 passed. One development run failed the tenth case on a full footprint check stricter than the probe it ports; the case now asserts what the probe asserts. One new case was renamed so that its name is one literal in its source.",
+    "manager": {
+      "cases": 29,
+      "new_cases": [
+        "V3 / publication, retirement, release and a later reservation keep header version 2",
+        "V3 / a restored reservation refuses retirement before any effect until designated, then retires",
+        "V3 / a retirement without a durable block restores PENDING after a restart",
+        "V3 / a reservation whose package signer changed retires with its stored signers",
+        "V3 / a cached body missing from the store returns false without a write",
+        "V3 / a BODY origin republishes after its body was observed missing, then retires",
+        "V3 / a lost BODY cannot be republished while the counter is blocked",
+        "V3 / a BODY origin whose body is damaged, or missing under a LIVE entry, retires without a write",
+        "V3 / a retiring account still consumes admission capacity",
+        "V3 / a pending reservation and an unpublished retiring creation reserve together"
+      ]
+    },
+    "case_map": {
+      "mapped": 34,
+      "to_move": 12,
+      "rule": "every old flow is named once by a literal its suite holds; every mapped target is a case the guarded run requires to pass, or an emitted layout"
+    },
+    "unchanged": "Binding, history, counter and lab: PASS with their counts of P5 checkpoint 2. Lifecycle: every other phase and count as predicted for P6 checkpoint 1, with the manager suite at 29, all passing, and 183 mutants each caught at least as predicted."
   }
 }

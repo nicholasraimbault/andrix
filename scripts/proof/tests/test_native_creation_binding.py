@@ -709,9 +709,9 @@ class ArchiveTests(unittest.TestCase):
         # Every name the archive uses without the archived prefix is the Git reader, the loader, its
         # closed tree guard and the archive's own check, or pinned revision data; nothing that looks
         # living is archive code or data.
-        loader = {'ROOT', 'CLOSED_ROOT', 'READ_EVENTS', '_CLOSED', 'WorktreeRead', 'sha', 'git_bytes', 'git_paths',
-                  'manifest', 'pinned_bytes', 'pinned_paths', 'worktree_closed', 'outside_repository',
-                  '_refuse_worktree_reads', 'archive_problems'}
+        loader = {'ROOT', 'CLOSED_ROOT', 'READ_EVENTS', 'SPAWN_EVENTS', '_CLOSED', '_SEALED', '_LOADER', 'WorktreeRead',
+                  'sha', 'git_bytes', 'git_paths', 'manifest', 'pinned_bytes', 'pinned_paths', 'worktree_closed',
+                  'outside_repository', '_refuse_worktree_reads', 'archive_problems'}
         for name in sorted(set(runner.ARCHIVE_SHARED) - loader):
             self.assertTrue(pin_data(getattr(runner, name)), name)
         for name in ('ARCHIVED_ROLLBACK_READERS', 'ARCHIVED_PIN_GROUPS', 'ARCHIVED_STEPS'):

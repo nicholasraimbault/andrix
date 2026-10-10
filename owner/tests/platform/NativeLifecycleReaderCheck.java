@@ -26,9 +26,10 @@ import java.util.TreeSet;
  * package the store names is protected: the identity predicate names it, which is the first check of
  * a fresh app ID registration, so a package whose mapping is lost cannot register afresh. A mapped
  * package of a version 2 slot is deferred and refused by the scan. A valid sibling naming the same
- * package or principal as a version 2 slot reads as a CONFLICT. Layouts without a version 2 slot are read
- * as the old images read them, under either format: the positive controls and the conflict of two
- * readable siblings.
+ * package or principal as a version 2 slot reads as a CONFLICT. A bound reservation beside a version 2
+ * slot is withdrawn: no pin, no history, its package deferred and refused. Layouts without a version 2
+ * slot are read as the old images read them, under either format: the positive controls and the
+ * conflict of two readable siblings.
  *
  * <p>Under Format.V3, the lifecycle format that B1 builds but does not ship, the same bytes are
  * positive state: no unsupported footprint, no version 2 slot read as UNSUPPORTED unless it holds a
@@ -154,6 +155,19 @@ public final class NativeLifecycleReaderCheck {
                 }
                 if (expected.equals("lost")) {
                     check(problems, mapped.isEmpty() && packages.containsValue("lost"), "not a lost mapping");
+                }
+                if (expected.equals("reservation")) {
+                    // The bound reservation elsewhere is withdrawn under B1's image too: no pin, no
+                    // history, and its package deferred and refused like the version 2 slot's.
+                    Set<Integer> histories = new TreeSet<>(loaded.histories().keySet());
+                    check(problems, pins.isEmpty() && histories.isEmpty(),
+                            "the reservation kept pins " + pins + " history " + histories);
+                    for (Map.Entry<String, Integer> entry : mapped.entrySet()) {
+                        PackageSetting setting = pm.mSettings.getPackageLPr(entry.getKey());
+                        check(problems, pm.mSettings.mNativeRecoveryView.defersName(entry.getKey())
+                                && setting != null && refused(pm, setting),
+                                entry.getKey() + " is not withdrawn: deferred and refused");
+                    }
                 }
                 if (expected.startsWith("sibling")) {
                     for (int appId : mapped.values()) {

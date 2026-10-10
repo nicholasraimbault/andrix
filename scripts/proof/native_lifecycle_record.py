@@ -465,7 +465,201 @@ MANAGER_NAMES = (
     'V3 / the release body keeps the app ID held until a new instance',
     'V3 / a lost reply after the omission is acknowledged in the instance and freed at the next boot',
     'V3 / release refuses before any effect without its gate',
-    'V3 / release refuses a suspension closed in memory before any effect')
+    'V3 / release refuses a suspension closed in memory before any effect',
+    # P6: the positive halves of the existing formats' flows, moved to the lifecycle format.
+    'V3 / publication, retirement, release and a later reservation keep header version 2',
+    'V3 / a restored reservation refuses retirement before any effect until designated, then retires',
+    'V3 / a retirement without a durable block restores PENDING after a restart',
+    'V3 / a reservation whose package signer changed retires with its stored signers',
+    'V3 / a cached body missing from the store returns false without a write',
+    'V3 / a BODY origin republishes after its body was observed missing, then retires',
+    'V3 / a lost BODY cannot be republished while the counter is blocked',
+    'V3 / a BODY origin whose body is damaged, or missing under a LIVE entry, retires without a write',
+    'V3 / a retiring account still consumes admission capacity',
+    'V3 / a pending reservation and an unpublished retiring creation reserve together')
+
+# ---------------------------------------------------------------- the case map of the old flows
+# The flows of the existing formats that retire or release. Each old flow is named by its suite's
+# source, its case name and a literal that its source holds once at least: its case name, its family
+# prefix or its method. Its positive half moves to the lifecycle format under the new-format label:
+# CASE_MAP names the lifecycle cases that carry it, each a case the guarded run requires to pass, or
+# an emitted layout. CASE_MAP_TO_MOVE names the old flows whose lifecycle case is still to be written.
+# The refusal side of every old flow joins when the store refuses the old writes.
+_STEPS = ('seed-synced', 'backup-renamed', 'backup-published', 'write-started', 'main-synced', 'reserve-synced',
+          'backup-unlink', 'backup-unlinked')
+_RELEASE_SWEEPS = tuple('%s / %s' % (kind, step) for kind in (
+    'release tombstone', 'release tombstone confirmation', 'release RELEASING', 'release RELEASING confirmation',
+    'release omission', 'release completion confirmation', 'release completion') for step in _STEPS)
+CASE_MAP = (
+    # The binding suite.
+    ('NativeCreationBindingTest', 'V1 / an owned flow writes the golden version 1 bytes, its retirement part',
+     '"V1 / an owned flow writes the golden version 1 bytes"',
+     ('golden / retiring', 'golden / retired', 'golden / ticket',
+      'V3 / markRetiring writes the block and keeps every suspension entry',
+      'V3 / release clears the key namespace, then writes the ticketed tombstone, RELEASING and the omission')),
+    ('NativeCreationBindingTest', 'V2 / pending and unpublished RETIRING pins reserve together',
+     '"V2 / pending and unpublished RETIRING pins reserve together"',
+     ('V3 / a pending reservation and an unpublished retiring creation reserve together',)),
+    ('NativeCreationBindingTest', 'V2 / publication, marker, release and a later reservation keep version 2, its'
+     ' marker and release', '"V2 / publication, marker, release and a later reservation keep version 2"',
+     ('V3 / publication, retirement, release and a later reservation keep header version 2',)),
+    ('NativeCreationBindingTest', 'signer mutation / Q reserves P with its original signers, its retirement and'
+     ' release', '"signer mutation / Q reserves P with its original signers"',
+     ('V3 / a reservation whose package signer changed retires with its stored signers',
+      'V3 / publication, retirement, release and a later reservation keep header version 2')),
+    ('NativeCreationBindingTest', 'signer mutation / a durable P reservation does not strand Q, its retirement and'
+     ' release', '"signer mutation / a durable P reservation does not strand Q"',
+     ('V3 / a reservation whose package signer changed retires with its stored signers',
+      'V3 / publication, retirement, release and a later reservation keep header version 2')),
+    # The faulted write of this family is the reservation, which no format refusal touches; its
+    # lifecycle half is the retirement of the unpublished RETIRING creation beside the pending one.
+    ('NativeCreationBindingFaultTest', 'pending and RETIRING together / <step>, its retirement and release',
+     '"pending and RETIRING together / "',
+     ('V3 / a pending reservation and an unpublished retiring creation reserve together',
+      'V3 / publication, retirement, release and a later reservation keep header version 2')),
+    ('NativeCreationBindingFaultTest', 'version 2 prior ordering / release marker', 'priorOrdering("release marker"',
+     tuple('release RELEASING / ' + step for step in _STEPS)),
+    ('NativeCreationBindingFaultTest', 'version 2 prior ordering / omission', 'priorOrdering("omission"',
+     tuple('release omission / ' + step for step in _STEPS)),
+    ('NativeCreationBindingLayouts', 'pending-retiring-<step>', '"pending-retiring-"',
+     tuple('moved-pending-retiring-' + step for step in _STEPS)),
+    ('NativeCreationBindingLayouts', 'final-released', '"final-released"', ('moved-final-released',)),
+    # The history suite.
+    ('NativeCreationHistoryTest', 'retirement / a never rebound reservation refuses before any effect',
+     '"retirement / a never rebound reservation refuses before any effect"',
+     ('V3 / a restored reservation refuses retirement before any effect until designated, then retires',)),
+    ('NativeCreationHistoryTest', 'retirement / an explicitly rebound reservation publishes and retires',
+     '"retirement / an explicitly rebound reservation publishes and retires"',
+     ('V3 / a restored reservation refuses retirement before any effect until designated, then retires',
+      'V3 / the release body keeps the app ID held until a new instance')),
+    ('NativeCreationHistoryTest', 'retirement / no durable marker restores PENDING after restart',
+     '"retirement / no durable marker restores PENDING after restart"',
+     ('V3 / a retirement without a durable block restores PENDING after a restart',)),
+    ('NativeCreationHistoryTest', 'retirement / a cached body missing from the store returns false without a write',
+     '"retirement / a cached body missing from the store returns false without a write"',
+     ('V3 / a cached body missing from the store returns false without a write',)),
+    ('NativeCreationHistoryTest', 'retirement / BODY origin republishes after its body was observed missing',
+     '"retirement / BODY origin republishes after its body was observed missing"',
+     ('V3 / a BODY origin republishes after its body was observed missing, then retires',
+      'V3 / publication, retirement, release and a later reservation keep header version 2')),
+    ('NativeCreationHistoryTest', 'retirement / a restored retiring body finishes',
+     '"retirement / a restored retiring body finishes"',
+     ('V3 / a retired account keeps its entries and restores a RETIRING pin',
+      'V3 / disposition and release need an instance that began with the account RETIRED')),
+    ('NativeCreationHistoryTest', 'holds / an exact release keeps its UID hold and keystore fence until a new'
+     ' instance', '"holds / an exact release keeps its UID hold and keystore fence until a new instance"',
+     ('V3 / a durable release keeps the app ID held until a new instance',
+      'V3 / the release body keeps the app ID held until a new instance')),
+    ('NativeCreationHistoryFaultTest', 'rebound retirement marker / <step>', '"rebound retirement marker / "',
+     tuple('markRetiring / ' + step for step in _STEPS)),
+    ('NativeCreationHistoryLayouts', 'history-retirement-marker-<step>',
+     'interrupted("history-retirement-marker"', tuple('moved-retirement-block-' + step for step in _STEPS)),
+    ('NativeCreationHistoryLayouts', 'history-retirement-publication-<step>',
+     'interrupted("history-retirement-publication"', tuple('moved-retirement-publication-' + step for step in _STEPS)),
+    # The counter suite.
+    ('NativeCounterAdmissionTest', 'residual / another lineage above the counter strands a later release',
+     '"residual / another lineage above the counter strands a later release"',
+     ('V3 / continuation refuses a counter that does not cover the account before any effect',)),
+    ('NativeCounterAdmissionTest', 'manager / a lost BODY cannot be republished while the counter is blocked',
+     '"manager / a lost BODY cannot be republished while the counter is blocked"',
+     ('V3 / a lost BODY cannot be republished while the counter is blocked',)),
+    ('NativePreparationAdmissionTest', 'capacity: a retiring binding still consumes admission capacity',
+     'void capacity(', ('V3 / a retiring account still consumes admission capacity',)),
+    ('NativeCounterAdmissionTest', 'manager / a healthy body retires beside a blocked store',
+     '"manager / a healthy body retires beside a blocked store"',
+     ('V3 / every lifecycle transaction needs only an intact binding',)),
+    # The manager and persistence suites, which name no cases: their flows by method or call.
+    ('NativePrincipalManagerTest', 'main: retirement, quiescence and release of two handles, a restored one, a'
+     ' marker and a partial store', 'manager.finishRetirementAfterQuiescence(first)',
+     ('V3 / retirement moves the pin and then writes its block',
+      'V3 / disposition and release need an instance that began with the account RETIRED',
+      'V3 / the release body keeps the app ID held until a new instance',
+      'V3 / a lost reply after the omission is acknowledged in the instance and freed at the next boot')),
+    # The store test's version 1 primitives: under the lifecycle format the generic writers refuse
+    # these steps, which only the release engine takes.
+    ('NativeIdentityStoreTest', 'main: the retiring flag, user drop, RELEASING, removal, omission and released'
+     ' confirmation', 'assert store.removeReleasingSlot(releasing, APP); // Exact filesystem continuation.',
+     ('V3 / retire writes RETIRING with its block and keeps every entry',
+      'V3 / the user drop writes the ticketed tombstone of a releasable account only',
+      "V3 / RELEASING needs the release engine's ticketed tombstone",
+      'V3 / continuation passes only the checked removal and omission',
+      'V3 / release clears the key namespace, then writes the ticketed tombstone, RELEASING and the omission',
+      'V3 / release completes a CREATING entry to LIVE before the key namespace and the tombstone',
+      "V3 / a ticket's principal ID is sibling, claim and counter evidence")),
+    # The living probe's five modes: missing, present, damaged, LIVE without a body, counter unknown.
+    ('BodyOriginRetirementProbe', 'the living probe run, its five modes', 'Retirement marker is not durably confirmed',
+     ('V3 / a BODY origin republishes after its body was observed missing, then retires',
+      'V3 / retirement moves the pin and then writes its block',
+      'V3 / a BODY origin whose body is damaged, or missing under a LIVE entry, retires without a write',
+      'V3 / a lost BODY cannot be republished while the counter is blocked')),
+    ('NativeIdentityPersistenceTest', 'retirementMonotonic', 'void retirementMonotonic(',
+     ('V3 / markRetiring confirms its own retirement and refuses any other',
+      'V3 / retire never moves an account back or changes its block')),
+    ('NativeIdentityPersistenceTest', 'headerOnlyDamage', 'void headerOnlyDamage(',
+     ('V3 / every lifecycle transaction needs only an intact binding',)),
+    ('NativeIdentityPersistenceTest', 'creatingEntryCompletesBeforeOmission',
+     'void creatingEntryCompletesBeforeOmission(',
+     ('V3 / release completes a CREATING entry to LIVE before the key namespace and the tombstone',)),
+    ('NativeIdentityPersistenceTest', 'releaseRefusals', 'void releaseRefusals(',
+     ('V3 / release refuses outside a retired boot before any effect',
+      'V3 / release refuses beside a suspension entry or an open obligation before any effect',
+      'V3 / release refuses tickets of another principal and unchecked users before any effect',
+      "V3 / release refuses beside a foreign copy or another ticket's tombstone before any effect",
+      'V3 / continuation refuses a counter that does not cover the account before any effect',
+      'V3 / continuation refuses a live binding of the package elsewhere before any effect')),
+    ('NativeIdentityPersistenceTest', 'markWithUnknownOutcomes', 'void markWithUnknownOutcomes(',
+     tuple('markRetiring / ' + step for step in _STEPS)),
+    ('NativeIdentityPersistenceTest', 'releaseWithUnknownOutcomes', 'void releaseWithUnknownOutcomes(',
+     _RELEASE_SWEEPS + ('V3 / an interrupted release continues from RELEASING without a directory or with an'
+                        ' emptied one',)),
+    ('NativeIdentityPersistenceTest', 'noSnapshotDerivedDeletion', 'void noSnapshotDerivedDeletion(',
+     ('V3 / continuation passes only the checked removal and omission',)),
+)
+CASE_MAP_TO_MOVE = (
+    ('NativeIdentityHeaderFootprintTest', 'confirmReleasedSlot cannot release an addition',
+     '"confirmReleasedSlot cannot release an addition"'),
+    ('NativeIdentityHeaderFootprintTest', 'removeReleasingSlot refused', '"removeReleasingSlot refused"'),
+    ('NativeIdentityHeaderFootprintTest', 'owned retirement header steps refused',
+     '"owned retirement header steps refused"'),
+    ('NativeIdentityHeaderFootprintTest', 'interrupted omission is compatible', '"interrupted omission is compatible"'),
+    ('NativeIdentityHeaderFootprintTest', 'same manager / unpublished RETIRING B with C id2',
+     '"same manager / unpublished RETIRING B with C id2"'),
+    ('NativeIdentityHeaderFootprintTest', 'same manager / B release waits for C',
+     '"same manager / B release waits for C"'),
+    ('NativeHeaderWriteFaultTest', 'unpublished RETIRING B', '"unpublished RETIRING B"'),
+    ('NativeHeaderWriteFaultTest', 'prior ordering / release marker', 'priorOrdering("release marker"'),
+    ('NativeHeaderWriteFaultTest', 'prior ordering / omission', 'priorOrdering("omission"'),
+    ('NativeCreationHistoryFaultTest', 'rebound retirement publication / <step>',
+     '"rebound retirement publication / "'),
+    ('NativeIdentityFutureFormatTest', 'releasing, cases and ownedSeeds: the lifecycle writer rows', 'releasing('),
+    ('NativeIdentityPresenceTest', 'releasing, matrixCases, unsearchable and the RELEASING and owned retirement'
+     ' cases', 'releasing('),
+)
+
+
+def case_map_problems():
+    """Every old flow is named once, by a literal its suite's source holds, either with lifecycle cases
+    that exist in the suites the guarded run requires to pass or among the layouts, or among the flows
+    still to move."""
+    problems = []
+    targets = set(LAYOUT_NAMES)
+    for _, names in SUITE_NAMES.items():
+        targets.update(names)
+    seen = set()
+    for suite, name, literal, *rest in CASE_MAP + CASE_MAP_TO_MOVE:
+        if (suite, name) in seen:
+            problems.append('old flow named twice in the case map: %s %s' % (suite, name))
+        seen.add((suite, name))
+        source = ROOT / PLATFORM / (suite + '.java')
+        if not source.is_file() or literal not in source.read_text():
+            problems.append('old flow not in its suite: %s %s' % (suite, name))
+        for target in (rest[0] if rest else ()):
+            if target not in targets:
+                problems.append('case map target is no lifecycle case: %s -> %s' % (name, target))
+        if rest and not rest[0]:
+            problems.append('case map entry without a lifecycle case: %s' % name)
+    return problems
+
 
 # ---------------------------------------------------------------- the lifecycle layouts
 # NativeLifecycleLayouts emits, under Format.V3 with the existing host write fault seams, the store
@@ -939,9 +1133,9 @@ def layout_groups():
 
 
 def layout_name_problems():
-    """The emitter names each state and value layout once, sweeps each transaction and manager operation
-    once over the eight steps of the existing write fault seams, and names each moved family and the
-    companions as predicted."""
+    """The emitter names each state and value layout once, sweeps each transaction once over the eight
+    steps of the existing write fault seams, and names each moved family and the companions as
+    predicted."""
     problems = []
     source = (ROOT / PLATFORM / (LAYOUTS + '.java')).read_text()
     for name in STATE_LAYOUTS + VALUE_LAYOUTS + ('moved-final-released', 'companion-sibling-principal-suspended',
@@ -978,12 +1172,14 @@ def layout_name_problems():
 # from 24bfb6a only by the boot literal, the store comments and the host facade default. Each model
 # fills the harness template with the Settings texts of its own candidate, which the history runner's
 # archive rebuilds from that revision's pinned patch. The pinned half of each compile set is assembled
-# with the working tree closed, so any read of a living file raises.
+# sealed: with the working tree closed, so any read of a living file raises, and with no path read
+# outside the repository and no process started except by the Git reader, so the manifest test sees
+# every input.
 ROLLBACK_MODELS = (('24bf', 'V2'), ('7845', 'V1'))
 ROLLBACK_SUPPORT = ('NativeHeaderTestSupport', 'NativeBindingTestSupport', 'NativeHistoryTestSupport')
 
 
-@b1.archived
+@b1.sealed
 def rollback_model_files(revision, settings):
     """The pinned half of one rollback model's compile set: the registered revision's product, the
     24bfb6a history stubs, the 24bfb6a harness template filled with this revision's candidate Settings
@@ -1172,17 +1368,27 @@ def swapped(lines, swaps):
     return ''.join(out)
 
 
-def model_prediction_problems(predicted):
-    """The predicted classes of each model and of the reader cover every layout once, and every control
-    names layouts that exist with a class that differs from the predicted one."""
+def swap_controls(predictions):
+    """Each rollback model's swap control, rotated: every class's assertions applied once, to a layout
+    of another class."""
+    return {revision: predictions['p6_checkpoint_1']['rollback'][revision]['swap_control']
+            for revision, _ in ROLLBACK_MODELS}
+
+
+def model_prediction_problems(predicted, swaps):
+    """The predicted classes of each model and of the reader cover every layout once, and every swap
+    control names layouts that exist and gives each class exactly once, so the assertions of every
+    class are shown to reject a layout of another class."""
     problems = []
     for revision, _ in ROLLBACK_MODELS:
         counts = predicted['rollback'][revision]['classes']
         if sum(counts.values()) != len(LAYOUT_NAMES) or not set(counts) <= set(ROLLBACK_CLASSES):
             problems.append('predicted rollback classes of %s do not cover the layouts' % revision)
-        for name, klass in predicted['rollback'][revision]['swap_control'].items():
+        for name, klass in swaps[revision].items():
             if name not in LAYOUT_NAMES or klass not in ROLLBACK_CLASSES:
                 problems.append('rollback swap control %s %s' % (name, klass))
+        if sorted(swaps[revision].values()) != sorted(ROLLBACK_CLASSES):
+            problems.append('rollback swap control of %s does not give each class once' % revision)
     counts = predicted['readers']['classes']
     if sum(counts.values()) != len(LAYOUT_NAMES) or not set(counts) <= set(READER_CLASSES):
         problems.append('predicted reader classes do not cover the layouts')
@@ -2534,8 +2740,12 @@ def source_checks():
     if (layouts['names'], layouts['facts'], layouts['step_families'], layouts['by_group']) != (
             len(LAYOUT_NAMES), len(LAYOUT_FACTS), len(LAYOUT_STEP_FAMILIES), layout_groups()):
         problems.append('predicted layouts differ from the layout lists')
-    problems += model_prediction_problems(predictions['p5_checkpoint_2'])
+    problems += model_prediction_problems(predictions['p5_checkpoint_2'], swap_controls(predictions))
     problems += registration_guard_problems()
+    problems += case_map_problems()
+    case_map = predictions['p6_checkpoint_1a']['case_map']
+    if (case_map['mapped'], case_map['to_move']) != (len(CASE_MAP), len(CASE_MAP_TO_MOVE)):
+        problems.append('predicted case map differs from the case map')
     by_label = {suite: {} for suite in ('store', 'transactions', 'manager')}
     for suite in by_label:
         for name in SUITE_NAMES[suite]:
@@ -2819,10 +3029,14 @@ def rollback_phase(work, predictions, pinned_halves, emitted, steps, problems):
     for revision, format_name in ROLLBACK_MODELS if read else ():
         record = steps['rollback'][revision] = {}
         expected = predicted['rollback'][revision]
+        swaps = swap_controls(predictions)[revision]
         lines = expectation_lines(read, lambda layout, revision=revision: rollback_class(layout, revision))
         record['classes'] = class_counts(lines)
         if record['classes'] != expected['classes']:
             problems.append('rollback classes of %s differ from the prediction: %s' % (revision, record['classes']))
+        same = sorted(name for name, klass in swaps.items() if rollback_class(read[name], revision) == klass)
+        if same:
+            problems.append('rollback swap control of %s keeps the own class of %s' % (revision, same))
         base = work / 'rollback' / revision
         base.mkdir(parents=True)
         (base / 'expectations').write_text(lines)
@@ -2833,8 +3047,8 @@ def rollback_phase(work, predictions, pinned_halves, emitted, steps, problems):
             continue
         names = ['lifecycle rollback / ' + name for name in LAYOUT_NAMES] + ['lifecycle rollback / layouts by class']
         controls = {'run': (format_name, lines, ()),
-                    'swap control': (format_name, swapped(lines, expected['swap_control']),
-                                     ['lifecycle rollback / ' + name for name in expected['swap_control']]),
+                    'swap control': (format_name, swapped(lines, swaps),
+                                     ['lifecycle rollback / ' + name for name in swaps]),
                     'format control': (expected['format_control_format'], lines,
                                        ['lifecycle rollback / ' + name for name in expected['format_control']])}
         for leg, (format_used, text, failing) in controls.items():

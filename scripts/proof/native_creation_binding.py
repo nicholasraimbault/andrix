@@ -500,8 +500,8 @@ HARNESS_LABELS = (
      ' but does not ship'),
     ('new-format', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleLayouts',),
      'the store layouts that the Format.V3 lifecycle writers leave, at each state and every writer step of each'
-     ' transaction and manager operation, with the values no writer of B1 writes and the companions, for the'
-     ' rollback models and B1\'s readers, which B1 builds but does not ship'),
+     ' transaction, with the values no writer of B1 writes and the companions, for the rollback models and'
+     ' B1\'s readers, which B1 builds but does not ship'),
     ('production', 'scripts/proof/tests/test_native_identity_persistence.py', ('NativePrincipalRecoveryTest',),
      'the recovery view, which constructs no store'),
     ('legacy', 'scripts/proof/tests/test_native_identity_persistence.py', ('NativeIdentityPersistenceTest',),
@@ -1309,18 +1309,26 @@ def source_checks():
 # ---------------------------------------------------------------- JVM builds, guarded
 
 def git_bytes(revision, path):
-    result = subprocess.run(['git', '-C', str(ROOT), 'show', '%s:%s' % (revision, path)],
-                            capture_output=True, timeout=60,
-                            env=dict(os.environ, GIT_OPTIONAL_LOCKS='0', GIT_NO_REPLACE_OBJECTS='1'))
+    _LOADER.append(True)
+    try:
+        result = subprocess.run(['git', '-C', str(ROOT), 'show', '%s:%s' % (revision, path)],
+                                capture_output=True, timeout=60,
+                                env=dict(os.environ, GIT_OPTIONAL_LOCKS='0', GIT_NO_REPLACE_OBJECTS='1'))
+    finally:
+        _LOADER.pop()
     if result.returncode:
         raise ValueError('baseline source unavailable: ' + path)
     return result.stdout
 
 
 def git_paths(revision, directory):
-    result = subprocess.run(['git', '-C', str(ROOT), 'ls-tree', '-r', '--name-only', revision,
-                             directory], capture_output=True, timeout=60,
-                            env=dict(os.environ, GIT_OPTIONAL_LOCKS='0', GIT_NO_REPLACE_OBJECTS='1'))
+    _LOADER.append(True)
+    try:
+        result = subprocess.run(['git', '-C', str(ROOT), 'ls-tree', '-r', '--name-only', revision,
+                                 directory], capture_output=True, timeout=60,
+                                env=dict(os.environ, GIT_OPTIONAL_LOCKS='0', GIT_NO_REPLACE_OBJECTS='1'))
+    finally:
+        _LOADER.pop()
     if result.returncode:
         raise ValueError('baseline tree unavailable: ' + directory)
     return sorted(result.stdout.decode().splitlines())
@@ -1531,12 +1539,27 @@ CLOSED_ROOT = ROOT
 # directory and globbing. Git objects are read by a git subprocess, which raises none of these.
 READ_EVENTS = frozenset({'open', 'os.listdir', 'os.scandir', 'glob.glob', 'glob.glob/2',
                          'pathlib.Path.glob', 'pathlib.Path.rglob'})
+# The audit events of process starts. A sealed assembly starts a process only through the Git reader,
+# git_bytes and git_paths, which mark their own subprocess as the loader's.
+SPAWN_EVENTS = frozenset({'subprocess.Popen', 'os.system', 'os.exec', 'os.posix_spawn', 'os.spawn', 'os.fork',
+                          'os.forkpty', 'pty.spawn'})
 _CLOSED = []
+_SEALED = []
+_LOADER = []
 
 
 def _refuse_worktree_reads(event, args):
-    """While the working tree is closed, refuse each path read under the repository root."""
-    if not _CLOSED or event not in READ_EVENTS or not args or isinstance(args[0], int):
+    """While the working tree is closed, refuse each path read under the repository root. While an
+    assembly is also sealed, refuse every process start outside the Git reader and every path read
+    outside the repository too."""
+    if not _CLOSED:
+        return
+    if _SEALED and not _LOADER:
+        if event in SPAWN_EVENTS:
+            raise WorktreeRead('sealed assembly started a process outside the Git reader: ' + event)
+        if event in READ_EVENTS and not (args and isinstance(args[0], int)):
+            raise WorktreeRead('sealed assembly read a path: %r' % (args[0] if args else None,))
+    if event not in READ_EVENTS or not args or isinstance(args[0], int):
         return
     try:
         path = os.path.realpath(os.path.abspath(os.fsdecode(args[0])))
@@ -1568,6 +1591,21 @@ def archived(assembly):
     def closed(*args, **kwargs):
         with worktree_closed():
             return assembly(*args, **kwargs)
+    return closed
+
+
+def sealed(assembly):
+    """A sealed archived assembly: the working tree is closed, and it starts no process and reads no
+    path outside the repository either. Its only input is the Git objects that git_bytes and git_paths
+    read, so its manifest names everything it read."""
+    @functools.wraps(assembly)
+    def closed(*args, **kwargs):
+        with worktree_closed():
+            _SEALED.append(True)
+            try:
+                return assembly(*args, **kwargs)
+            finally:
+                _SEALED.pop()
     return closed
 
 
@@ -2020,12 +2058,14 @@ def archive_problems():
 
 
 # The other module level names of this runner that its archive uses: the pinned revisions and pins,
-# the Git reader, the loader, its closed tree guard and the archive's own check. Every other name
-# the archive uses begins with archived or ARCHIVED_, so no name that looks living is archive code.
+# the Git reader, the loader, its closed tree and sealed assembly guard and the archive's own check.
+# Every other name the archive uses begins with archived or ARCHIVED_, so no name that looks living
+# is archive code.
 ARCHIVE_SHARED = ('ARCHIVE', 'REVISIONS', 'BASELINE_SHA256', 'ORIGINAL_B0_SHA256', 'ARCHIVE_SHA256',
-                  'PRODUCT_DIFFERENCES', 'BASELINE_INPUTS_SHA256', 'ROOT', 'CLOSED_ROOT', 'READ_EVENTS', '_CLOSED',
-                  'WorktreeRead', 'sha', 'git_bytes', 'git_paths', 'manifest', 'pinned_bytes', 'pinned_paths',
-                  'worktree_closed', 'outside_repository', '_refuse_worktree_reads', 'archive_problems')
+                  'PRODUCT_DIFFERENCES', 'BASELINE_INPUTS_SHA256', 'ROOT', 'CLOSED_ROOT', 'READ_EVENTS',
+                  'SPAWN_EVENTS', '_CLOSED', '_SEALED', '_LOADER', 'WorktreeRead', 'sha', 'git_bytes', 'git_paths',
+                  'manifest', 'pinned_bytes', 'pinned_paths', 'worktree_closed', 'outside_repository',
+                  '_refuse_worktree_reads', 'archive_problems')
 
 
 def module_names(text):

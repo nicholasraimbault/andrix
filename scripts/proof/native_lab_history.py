@@ -52,7 +52,8 @@ FAULTS = ('error', 'exception', 'observation')
 GENERATOR = 'dev.andrix.proof.nativelab.LabHistoryStore'
 # The guest generator's codec: the record codec of the lifecycle record at the revision of B1's host
 # packages, read from its Git object and pinned by SHA-256, so the guest layouts are what B1's own
-# codec encodes. The guest layouts are generated at these fixed values.
+# codec encodes. The source checks require the working tree's codec to equal this pin, so a codec
+# change forces a deliberate re-pin. The guest layouts are generated at these fixed values.
 GUEST_REVISION = 'e6f8b681021b5c36256a50337803ef8ec4268ab1'
 GUEST_CODEC = ('owner/platform/framework/NativeIdentityRecords.java',
                '4be9c8a0135d3793bb4153e9dc794c2afbf6e4bdbc3466d447b883fe30e0b032')
@@ -257,6 +258,15 @@ def subject_problems(subject, store, observe):
     return []
 
 
+def codec_pin_problems():
+    """The working tree's record codec equals the guest generator's pinned codec, so a codec change
+    cannot leave the guest layouts on a stale pin: it forces a deliberate re-pin of both values."""
+    path, digest = GUEST_CODEC
+    if sha((ROOT / path).read_bytes()) != digest:
+        return ['the working tree codec differs from the guest generator pin: re-pin GUEST_REVISION and GUEST_CODEC']
+    return []
+
+
 def source_checks():
     """Pure and read only: nothing is created, and no compiler or JVM starts."""
     problems = []
@@ -268,6 +278,7 @@ def source_checks():
     except ValueError as error:
         return problems + ['writer fixture subject: %s' % error]
     problems += ['production format guard: ' + item for item in b1.format_violations(b1.production_texts())]
+    problems += codec_pin_problems()
     store = (LAB_DIR / 'LabHistoryStore.java').read_text()
     code = b1.strip_java_comments(store)
     problems += subject_problems(subject, store, observer())

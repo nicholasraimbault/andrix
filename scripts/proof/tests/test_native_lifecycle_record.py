@@ -92,12 +92,12 @@ class LifecycleRecordSourceTests(unittest.TestCase):
         predictions = json.loads(runner.PREDICTIONS.read_text())
         self.assertIn('PREDICTED', predictions['status'])
         self.assertEqual(predictions['cases'], {'codec': 47, 'reads': 60, 'goldens': 9, 'mutants': 183, 'store': 49,
-                                                'transactions': 57, 'faults': 136, 'settings': 12, 'manager': 19,
+                                                'transactions': 57, 'faults': 136, 'settings': 12, 'manager': 29,
                                                 'layouts': 205})
         self.assertEqual((len(runner.CODEC_NAMES), len(runner.READ_NAMES), len(runner.STORE_NAMES),
                           len(runner.TRANSACTION_NAMES), len(runner.FAULT_NAMES), len(runner.SETTINGS_NAMES),
-                          len(runner.MANAGER_NAMES)), (47, 60, 49, 57, 136, 12, 19))
-        self.assertEqual(predictions['manager_by_label'], {'legacy': 1, 'production': 1, 'new-format': 17})
+                          len(runner.MANAGER_NAMES)), (47, 60, 49, 57, 136, 12, 29))
+        self.assertEqual(predictions['manager_by_label'], {'legacy': 1, 'production': 1, 'new-format': 27})
         self.assertEqual(predictions['store_by_label'], {'new-format': 47, 'legacy': 1, 'production': 1})
         self.assertEqual(predictions['transactions_by_label'], {'new-format': 53, 'legacy': 2, 'production': 2})
         # P2b's fault kinds: the two disposition transactions and Restore, with and without an intact copy.
@@ -245,6 +245,26 @@ class LifecycleRecordSourceTests(unittest.TestCase):
 
 
 class LifecycleTransitionSourceTests(unittest.TestCase):
+    def test_the_case_map_names_each_old_flow_and_real_lifecycle_cases(self):
+        self.assertEqual(runner.case_map_problems(), [])
+        predicted = json.loads(runner.PREDICTIONS.read_text())['p6_checkpoint_1a']['case_map']
+        self.assertEqual((predicted['mapped'], predicted['to_move']),
+                         (len(runner.CASE_MAP), len(runner.CASE_MAP_TO_MOVE)))
+        # Every target is a lifecycle case under the new-format label, or an emitted layout.
+        for _, _, _, targets in runner.CASE_MAP:
+            for target in targets:
+                self.assertTrue(target in runner.LAYOUT_NAMES or runner.case_label(target) == 'new-format', target)
+        suite, name, literal, targets = runner.CASE_MAP[0]
+        with mock.patch.object(runner, 'CASE_MAP', runner.CASE_MAP + ((suite, name, literal, targets),)):
+            self.assertIn('old flow named twice in the case map: %s %s' % (suite, name), runner.case_map_problems())
+        with mock.patch.object(runner, 'CASE_MAP', ((suite, name, '"no such case"', targets),)):
+            self.assertIn('old flow not in its suite: %s %s' % (suite, name), runner.case_map_problems())
+        with mock.patch.object(runner, 'CASE_MAP', ((suite, name, literal, ('V3 / no such case',)),)):
+            self.assertIn('case map target is no lifecycle case: %s -> V3 / no such case' % name,
+                          runner.case_map_problems())
+        with mock.patch.object(runner, 'CASE_MAP', ((suite, name, literal, ()),)):
+            self.assertIn('case map entry without a lifecycle case: %s' % name, runner.case_map_problems())
+
     def test_lifecycle_cases_are_named_once_and_labelled_by_format(self):
         self.assertEqual(runner.lifecycle_name_problems(), [])
         self.assertEqual(runner.PHASES, ('candidate', 'codec', 'reads', 'store', 'transactions', 'faults',
@@ -367,7 +387,7 @@ class LifecycleLayoutTests(unittest.TestCase):
         # The manager's writes are the persistence transactions': no manager layout is emitted.
         self.assertFalse([name for name in runner.LAYOUT_NAMES if name.startswith('manager-')])
         self.assertEqual(predicted['phases'], list(runner.PHASES))
-        # Every transaction of the fault sweeps and every manager operation is a step family.
+        # Every transaction of the fault sweeps is a step family.
         self.assertEqual(len(runner.STEP_LAYOUTS), 8 * len(runner.FAULT_KINDS))
         with mock.patch.object(runner, 'FAULT_KINDS', runner.FAULT_KINDS + ('unswept',)):
             self.assertIn('transaction not swept once by the emitter: unswept', runner.layout_name_problems())
@@ -480,6 +500,21 @@ class LifecycleLayoutTests(unittest.TestCase):
                 runner.rollback_model_files('24bf', '')
         with self.assertRaises(ValueError):
             runner.rollback_model_files('0018', '')
+        # The assembly is sealed too: a Git object read past the loader through a raw subprocess, and
+        # a path read outside the repository, both raise, so nothing escapes the manifest test.
+        outside = scratch(self) / 'outside'
+        outside.write_bytes(b'x')
+        probes = {'raw git show': lambda revision: {'x': runner.b1.subprocess.run(
+                      ['git', '-C', str(ROOT), 'show', 'HEAD:' + runner.RECORDS], capture_output=True).stdout},
+                  'read outside': lambda revision: {'x': outside.read_bytes()},
+                  'list outside': lambda revision: {'x': bytes(len(os.listdir(outside.parent)))}}
+        for name, probe in probes.items():
+            with self.subTest(probe=name), mock.patch.object(runner.b1, 'archived_product_sources', probe):
+                with self.assertRaises(runner.b1.WorktreeRead):
+                    runner.rollback_model_files('24bf', '')
+        # Outside a sealed assembly the same reads are allowed, and the Git reader stays allowed inside.
+        self.assertEqual(outside.read_bytes(), b'x')
+        self.assertTrue(runner.b1.sealed(lambda: runner.b1.git_paths(runner.b1.REVISIONS['24bf'], runner.RECORDS))())
         # The manifest test: exactly the pinned paths, the product from the model's revision.
         reads = {revision: sorted(runner.rollback_model_paths(revision)) for revision, _ in runner.ROLLBACK_MODELS}
         self.assertEqual(runner.rollback_manifest_problems(reads), [])
@@ -582,8 +617,18 @@ class LifecycleModelTests(unittest.TestCase):
         self.assertIsNotNone(runner.check_outcome(dict(failing, passed=[]), names, ['x / b']))
 
     def test_predictions_cover_every_layout_and_name_real_controls(self):
-        predicted = json.loads(runner.PREDICTIONS.read_text())['p5_checkpoint_2']
-        self.assertEqual(runner.model_prediction_problems(predicted), [])
+        predictions = json.loads(runner.PREDICTIONS.read_text())
+        predicted, swaps = predictions['p5_checkpoint_2'], runner.swap_controls(predictions)
+        self.assertEqual(runner.model_prediction_problems(predicted, swaps), [])
+        # The swap controls are rotated: each model gives every class once, to a layout of another class.
+        for revision, _ in runner.ROLLBACK_MODELS:
+            self.assertEqual(sorted(swaps[revision].values()), sorted(runner.ROLLBACK_CLASSES))
+            self.assertEqual(predictions['p6_checkpoint_1']['rollback'][revision]['swap_control_fails'],
+                             len(swaps[revision]))
+        repeated = json.loads(json.dumps(swaps))
+        repeated['7845']['state-lifted'] = 'footprint'
+        self.assertIn('rollback swap control of 7845 does not give each class once',
+                      runner.model_prediction_problems(predicted, repeated))
         for revision, _ in runner.ROLLBACK_MODELS:
             self.assertEqual(sum(predicted['rollback'][revision]['classes'].values()), len(runner.LAYOUT_NAMES))
             self.assertEqual(len(predicted['rollback'][revision]['format_control']), 47)
@@ -592,11 +637,12 @@ class LifecycleModelTests(unittest.TestCase):
                          (157, 2))
         self.assertEqual(predicted['rollback']['24bf']['classes']['sibling-principal'], 1)
         self.assertEqual(predicted['rollback']['24bf']['classes']['conflict'], 2)
-        broken = json.loads(json.dumps(predicted))
-        broken['rollback']['24bf']['swap_control']['no-such-layout'] = 'admitted'
-        self.assertIn('rollback swap control no-such-layout admitted', runner.model_prediction_problems(broken))
+        broken, unknown = json.loads(json.dumps(predicted)), json.loads(json.dumps(swaps))
+        unknown['24bf']['no-such-layout'] = 'admitted'
+        self.assertIn('rollback swap control no-such-layout admitted', runner.model_prediction_problems(broken, unknown))
         broken['readers']['classes']['nothing'] += 1
-        self.assertIn('predicted reader classes do not cover the layouts', runner.model_prediction_problems(broken))
+        self.assertIn('predicted reader classes do not cover the layouts',
+                      runner.model_prediction_problems(broken, swaps))
 
     def test_the_registration_guard_is_the_first_fresh_check(self):
         self.assertEqual(runner.registration_guard_problems(), [])

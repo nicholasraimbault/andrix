@@ -662,6 +662,15 @@ class GuestInputTests(unittest.TestCase):
         path, digest = runner.GUEST_CODEC
         self.assertEqual(runner.sha(runner.b1.git_bytes(runner.GUEST_REVISION, path)), digest)
 
+    def test_a_changed_working_tree_codec_forces_a_re_pin(self):
+        self.assertEqual(runner.codec_pin_problems(), [])
+        path, digest = runner.GUEST_CODEC
+        with mock.patch.object(runner, 'GUEST_CODEC', (path, '0' * 64)):
+            self.assertEqual(runner.codec_pin_problems(), [
+                'the working tree codec differs from the guest generator pin: re-pin GUEST_REVISION and GUEST_CODEC'])
+            self.assertIn('the working tree codec differs from the guest generator pin: re-pin GUEST_REVISION and'
+                          ' GUEST_CODEC', runner.source_checks())
+
     def test_the_oracle_agrees_with_the_independent_decoder(self):
         import native_lifecycle_record as lifecycle
         lineage, app_id, other_app_id, serial = runner.GUEST_VALUES
