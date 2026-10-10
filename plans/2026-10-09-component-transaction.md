@@ -107,6 +107,22 @@ requested. Each applies from the step that needs it. Decision 5 is still open.
   input digests and says which APK is the recovery copy. The exception covers no other set of
   inputs, and signing implies no installation or activation.
 
+On 2026-10-10 the owner settled five details of these decisions:
+
+- **Consent comes before arming.** The consent to an activating reboot comes before the change is
+  armed, in both commit modes. Under early commit the change is armed when it commits, so the
+  consent comes before the commit. No later reboot, a crash included, can then apply a change that
+  was not approved.
+- **The consenting party.** The holder of the component's installation grant gives that consent.
+  That is normally the owner, who can delegate the grant for one component and take it back.
+- **Notice when SystemUI is broken.** When SystemUI cannot deliver decision 7's notice, Andrix's
+  own app shows a full screen notice to each running user and records a receipt.
+- **The restoration's activation.** An ACTIVATE given in advance for an automatic restoration stays
+  valid through the whole health window of the change it would restore.
+- **A boot loop counts as a failure.** An unavailable health observation still never counts as a
+  failure, with one exception. Once a ticket's boot count reaches the boot limit, which is set above
+  ordinary reboots, the window ends as UNHEALTHY, so an approved restoration can run.
+
 ## Open owner decision
 
 ### 5. The supported rollback target once deployment records exist
@@ -302,8 +318,9 @@ key. In the lab image that is the public AOSP development key.
 - **Separate grants.** Each grant is its own record. SIGN covers the transaction. STAGE covers one
   session for one bundle on one native base. ACTIVATE covers one activating reboot for that plan,
   and a reboot request that never took effect does not use it. An ACTIVATE that no reboot has used
-  expires after a window the plan states. One interaction may grant all three if it lists each
-  effect.
+  expires after a window the plan states. An ACTIVATE given in advance for an automatic restoration
+  lasts through the health window of the change it would restore. One interaction may grant all
+  three if it lists each effect.
 - **Signer location.** First a host signer with the development key. That host then belongs to the
   operation's trusted base, which the [integrated model](2026-09-25-integrated-platform-model.md)
   permits. Then the protected device signer, under decision 4. Its mechanism is an
@@ -739,7 +756,7 @@ Gaps:
 ## Steps
 
 Each step names what it changes, what qualifies it, what stays off and what it needs. The native
-account work owns the build slot and the emulator until further notice.
+account work owns the build slot and has first claim on the emulator.
 
 ### D1. Records and state machine
 
@@ -880,15 +897,18 @@ account work owns the build slot and the emulator until further notice.
 
 ### Scheduling
 
-The native account work owns the build slot and the emulator until further notice. Under that:
+The native account work owns the build slot and has first claim on the emulator. On 2026-10-10 the
+owner allowed the component work to use the emulator while the native account work does not need
+it. Component trials stop when the native account image is ready for its guests, and resume after
+them. Under that:
 
 - D1 and D2 can start now on the host. D1 keeps its code outside `com.android.server.pm`, the
   native store's Java package, where package access cannot stop construction of the store's
   release capability. Neither step touches the sources, runners or pins that B1 freezes.
 - D2 signs existing frozen outputs. A new SystemUI build needs the build slot.
 - D3 can be written now, with the pinned framework core sources for `SessionParams.dump`. Its
-  referrer, dumpsys and `vdc` forms need guest captures, so it cannot qualify while the native
-  account work holds the emulator.
+  referrer, dumpsys and `vdc` forms need guest captures, so it qualifies on the emulator while the
+  native account work does not need it.
 - D4's comparison can run on the host. Its fallback build, and everything from D5 onward, waits for
   the build slot or the emulator. If D4's comparison passes, D5 and D6 need only the emulator,
   except for D6's control with a higher factory version.
