@@ -598,20 +598,24 @@ Restart scope:
   installer UID, `createdMillis`, the stage directory and the sealed and committed flags. The
   historical section also keeps the final status and message of a removed session until the next
   framework start. The existing `historical_failure` parser already reads it.
-- dumpsys shows the referrer only through `SessionParams.dump`, which this plan did not inspect. On
-  the shell route, a lost create reply therefore stays UNRESOLVED until D3 qualifies a referrer
-  readback.
+- `SessionParams.dump` shows the referrer. D3 captured the active ready session form with its
+  ticket nonce. The reconciler already binds a qualified matching nonce on either route, so this
+  form can resolve a lost create reply on the shell route. Other unqualified forms stay unknown.
+  This changes no authority and does not extend nonce exclusion as a proof of absence to the shell.
 - If `SessionParams.dump` omits the referrer, the fallback is a helper run under the shell UID that
   calls `getStagedSessions`. The session API returns the referrer unscrubbed to UIDs below 10000.
 - A complete listing in a later framework instance that shows no staged session for the package at
   all still gives NO_SESSION.
-- The shell user cannot call `vdc`, because vold answers only system and root. The shell route
-  reads the checkpoint state through StorageManager instead: `sm supports-checkpoint`, and a fixed
-  read only helper run as the shell user that calls only `supportsCheckpoint` and `needsCheckpoint`,
-  a query the shell's MOUNT_FORMAT_FILESYSTEMS permission allows. Each reading is bracketed by boot
-  ID and framework identity reads. The property `vold.checkpoint_committed` is recorded only as
-  supplementary data, because vold can set it without a checkpoint flagged mount and does not
-  clear it on reset. This route awaits its guest qualification in D3.
+- The shell user cannot call `vdc`, because vold answers only system and root. On the test image it
+  cannot run `vdc` at all. The shell route reads the checkpoint state through StorageManager
+  instead: a fixed read only helper run as the shell user that calls only `supportsCheckpoint` and
+  `needsCheckpoint`, a query the shell's MOUNT_FORMAT_FILESYSTEMS permission allows. Each reading
+  is bracketed by boot ID and framework identity reads. The
+  property `vold.checkpoint_committed` is recorded only as supplementary data, because vold can set
+  it without a checkpoint flagged mount and does not clear it on reset. The helper's one reading
+  decides the fact. D3 also used `sm supports-checkpoint` as a companion read of support only,
+  not a state fact. The public observer invokes only the fixed helper. A D3 guest showed its
+  committed answer as the shell user. The pending answer awaits D5.
 - The device coordinator creates its own sessions and reads them as their installer UID, which gets
   the referrer unscrubbed. A coordinator outside system, root and shell must also be an allowlisted
   staged installer.
@@ -636,7 +640,7 @@ user's unlock.
 
 | Event | What Android may leave | Ticket rule |
 | --- | --- | --- |
-| Create reply lost | A session written to Android's file lazily, or none | Find it by nonce on the device route. On the shell route it stays UNRESOLVED, unless a complete listing in a later framework instance shows no staged session for the package. That gives NO_SESSION. |
+| Create reply lost | A session written to Android's file lazily, or none | Bind a qualified session carrying the ticket's nonce on either route. Without such an observation, the shell route stays UNRESOLVED until a complete listing in a later framework instance shows no staged session for the package. That gives NO_SESSION. Nonce exclusion alone stays device only. |
 | Framework restart before commit | Nothing, if the session's creation never reached the file. Its stage directory is then deleted. | NATIVE_RECORD_LOST, and a new attempt |
 | Write fails, or its reply is lost | An open, partial session | ABANDON_INTENT for that exact session. A retry is a new attempt. |
 | Commit reply lost | Verifying, ready or failed, or refused into the in memory history | Observe by session ID, through the listing and the dumpsys sections. Android defers an abandon while verification runs. |
@@ -839,8 +843,9 @@ account work owns the build slot and has first claim on the emulator.
   `pm list staged-sessions`, `dumpsys package installs`, `sm supports-checkpoint` and the checkpoint
   helper. An inspection of
   `SessionParams.dump` in the pinned framework core sources, or the helper's readback instead.
-  Output that matches no known form stays unknown, as the current parsers already require. Until
-  D3 qualifies, a lost create reply stays UNRESOLVED on the shell route.
+  Output that matches no known form stays unknown, as the current parsers already require. D3
+  captured the active ready referrer form, which permits the existing shell nonce binding rule.
+  The other forms remain separately qualified or unknown, never assumed from that one capture.
 - **Stays off.** Every change to the device.
 - **Needs.** The host and the pinned framework core sources to write it, and the emulator to
   qualify it.

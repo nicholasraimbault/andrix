@@ -4,10 +4,12 @@
 The observer reads Android's state through the lab shell route and encodes what it read as
 version 1 Observation records, with the runner's independent encoder. It never writes to the
 device: every command it can run is one of the fixed read only forms in ALLOWED, and anything else
-is refused before it reaches the shell. Each readback is bracketed by two reads of the kernel boot
-ID, and each framework readback also by two reads of the framework instance. A readback that
-changed boot or instance, or whose output matches no known form, gives no observation at all, so
-the ticket waits. Host evidence only: the forms are qualified by guest captures, not by this file.
+is refused before it reaches the shell. Besides Android's own tools it runs one program, the fixed
+checkpoint helper of tests/checkpoint-read, and only after reading that its bytes are the admitted
+ones. Each readback is bracketed by two reads of the kernel boot ID, and each framework readback
+also by two reads of the framework instance. A readback that changed boot or instance, or whose
+output matches no known form, gives no observation at all, so the ticket waits. Host evidence
+only: the forms are qualified by guest captures, not by this file.
 
 The framework instance has one scale on the shell route: system_server's start time, in clock
 ticks since the kernel boot, from field 22 of /proc/<pid>/stat. Each framework start in a boot has
@@ -34,8 +36,17 @@ LISTING = 'pm list staged-sessions'
 INSTALLS = 'dumpsys -t 25 package installs'
 FINGERPRINT = 'getprop ro.build.fingerprint'
 BOOT_COMPLETED = 'getprop sys.boot_completed'
-SUPPORTS_CHECKPOINT = 'vdc checkpoint supportsCheckpoint'
-NEEDS_CHECKPOINT = 'vdc checkpoint needsCheckpoint'
+SHELL_IDENTITY = 'id'
+# The fixed checkpoint helper: the only bytes the observer runs that are not Android's own. D5's
+# vehicle pushes the jar built from tests/checkpoint-read, whose SHA-256 is pinned here, to this
+# path. The path and the invocation are exactly those a D3 guest qualified. The observer never
+# pushes, so it reads the file's digest, and the shell user, before and after each run.
+CHECKPOINT_HELPER = '/data/local/tmp/andrix-d3/andrix-checkpoint-read.jar'
+CHECKPOINT_HELPER_SHA256 = 'ae6743f64e3b751906e28d282d720ed2bf2dfd9596baeaea3d4fdb2cf53d6738'
+HELPER_DIGEST = 'sha256sum ' + CHECKPOINT_HELPER
+CHECKPOINT_READ = 'CLASSPATH=' + CHECKPOINT_HELPER + ' app_process /system/bin CheckpointRead'
+# The shell user as `id` shows it: UID and GID 2000 in the shell's SELinux domain.
+SHELL_USER = (2000, 2000, 'u:r:shell:s0')
 ACTIVE_PATH = 'pm path --user 0 ' + PACKAGE
 ACTIVE_VERSION = 'pm list packages --user 0 --show-versioncode -U ' + PACKAGE
 FACTORY_VERSION = 'pm list packages --user 0 --factory-only --show-versioncode ' + PACKAGE
@@ -55,10 +66,12 @@ USER_CLASSES = {'RUNNING_UNLOCKED': 'RUNNING_UNLOCKED', 'RUNNING_LOCKED': 'RUNNI
                 'SHUTDOWN': 'NOT_RUNNING', '-1': 'NOT_RUNNING'}
 
 # Every command the observer may run. Each is a read: no install, session, setting, property or
-# file changes, and no shell syntax. Parameters are filled only from the typed patterns below.
+# file changes, and no shell syntax. Parameters are filled only from the typed patterns below. The
+# helper's invocation is one fixed string: no other class, jar, argument or app_process command.
 ALLOWED = (
     BOOT_ID, UPTIME, FRAMEWORK_PID, SYSTEMUI_PID, LISTING, INSTALLS, FINGERPRINT, BOOT_COMPLETED,
-    SUPPORTS_CHECKPOINT, NEEDS_CHECKPOINT, ACTIVE_PATH, ACTIVE_VERSION, FACTORY_VERSION, FACTORY_DIGEST, USERS,
+    SHELL_IDENTITY, HELPER_DIGEST, CHECKPOINT_READ, ACTIVE_PATH, ACTIVE_VERSION, FACTORY_VERSION, FACTORY_DIGEST,
+    USERS,
 )
 ALLOWED_PATTERNS = (
     re.compile(r'cat /proc/[1-9][0-9]{0,6}/stat'),
@@ -105,7 +118,13 @@ def quiet_failure(capture):
 
 
 class ShellObserver:
-    """Reads one component's facts through `run(command) -> (status, stdout, stderr)`."""
+    """Reads one component's facts through `run(command) -> (status, stdout, stderr)`.
+
+    The run function is the transport, D5's adapter. It runs exactly the command it is given, as
+    the shell user, and returns only for a command that ran to completion: its integer exit status
+    and both output streams, apart and in full, as text. A timeout, launch error or lost connection
+    must raise, never return a status. Anything else that it returns is an incomplete reply, which
+    gives no fact."""
 
     def __init__(self, run, installation, component=PACKAGE, new_id=None, wall=None):
         if component != PACKAGE:
@@ -119,8 +138,11 @@ class ShellObserver:
     def read(self, command):
         if not allowed(command):
             raise Unclassified('Command outside the read only allowlist')
-        code, stdout, stderr = self._run(command)
-        return Capture(command, code, stdout, stderr)
+        reply = self._run(command)
+        if not (isinstance(reply, tuple) and len(reply) == 3 and type(reply[0]) is int
+                and isinstance(reply[1], str) and isinstance(reply[2], str)):
+            raise Unclassified('An incomplete reply: no exit status with both output streams')
+        return Capture(command, *reply)
 
     # ------------------------------------------------ bracketing
 
@@ -202,17 +224,39 @@ class ShellObserver:
                           {'fingerprint': fingerprint})
 
     def checkpoint(self):
-        """PENDING while vold checkpoints this boot. COMMITTED only on a device that supports
-        checkpoints and has none pending, which covers a boot whose checkpoint committed."""
+        """The boot's checkpoint through the framework's storage service, by the fixed helper.
+
+        One reading of the helper decides. COMMITTED needs supports=true and needs=false in that
+        reading, and PENDING supports=true and needs=true. A device without support, a refusal of
+        the helper or of either call, and a reply of no known form give no fact, so the ticket
+        waits. The helper runs only after exact reads of the shell user and of the admitted bytes
+        at its path, and both are read again after it. All of it happens in one boot and one
+        framework instance, whose start time the fact carries, because the storage service lives
+        in system_server. No property is read: vold.checkpoint_committed is never a checkpoint fact."""
         def reader(captures):
-            supports = self._capture(captures, SUPPORTS_CHECKPOINT)
-            needs = self._capture(captures, NEEDS_CHECKPOINT)
-            if not readback.checkpoint_support(supports.code, supports.stdout, supports.stderr):
-                raise ValueError('No checkpoint support: no known form of commit')
-            return readback.checkpoint_state(needs.code, needs.stdout, needs.stderr)
-        boot, instance, elapsed, raw, state = self._bracket(reader)
-        return self._fact(boot, instance, elapsed, raw, 'CHECKPOINT',
-                          'PENDING' if state == 'pending' else 'COMMITTED', '')
+            self._helper_admitted(captures)
+            reply = self._capture(captures, CHECKPOINT_READ)
+            reading = readback.checkpoint_read(reply.code, reply.stdout, reply.stderr)
+            self._helper_admitted(captures)
+            if reading.refusal:
+                raise ValueError('The checkpoint helper gave no answer: ' + reading.refusal)
+            if reading.supports is not True:
+                raise ValueError('No checkpoint support: no commit to observe')
+            if reading.needs is not True and reading.needs is not False:
+                raise ValueError('No answer whether a checkpoint is pending')
+            return reading.needs
+        boot, instance, elapsed, raw, needs = self._bracket(reader, framework=True)
+        return self._fact(boot, instance, elapsed, raw, 'CHECKPOINT', 'PENDING' if needs else 'COMMITTED', '')
+
+    def _helper_admitted(self, captures):
+        """The shell user, then the admitted helper bytes at the fixed path, each read exactly."""
+        identity = self._capture(captures, SHELL_IDENTITY)
+        if readback.shell_identity(identity.code, identity.stdout, identity.stderr) != SHELL_USER:
+            raise ValueError('The commands do not run as the shell user')
+        digest = self._capture(captures, HELPER_DIGEST)
+        if (digest.stderr != ''
+                or readback.file_digest(digest.code, digest.stdout, CHECKPOINT_HELPER) != CHECKPOINT_HELPER_SHA256):
+            raise ValueError('The checkpoint helper is not the admitted bytes')
 
     # ------------------------------------------------ component facts
 

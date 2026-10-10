@@ -6,6 +6,18 @@ status, standard error and origin. Each `<name>.out` holds the standard output b
 `scripts/proof/tests/test_systemui_readbacks.py` parses every form and derives the failing controls
 from them: a truncated form, a reordered section or field, an extra field and an unexpected value.
 
+An origin of `captured` means that the bytes, status and standard error were copied unchanged from
+one guest capture. `source` means that they were derived from source, with illustrative values. A
+source derived form may also carry `guest`, which records what a guest has shown of it:
+
+- `form`: a guest capture has the same form. The same parser accepts it, with the fixture's status
+  and standard error, and reads the same structure from it. The values differ, so the fixture stays
+  source derived.
+- `partial`: a guest showed some of the cases that the fixture holds. The form stays unqualified,
+  and so do the cases that no guest showed.
+
+A form with neither a capture nor a `guest` entry has not been shown by any guest.
+
 ## Captured forms
 
 Captured forms come from the SystemUI component trials and the package verity trial on lab guests,
@@ -49,22 +61,52 @@ framework instance, and the observer joins those pairs. The trials read the plai
 `--only-parent` form. Without children the plain listing prints the same bytes, so the observer
 tests serve these captures for the plain command.
 
+### Captured on the D3 guest
+
+The D3 guest run of 2026-10-10 ran the chosen test image on one fresh guest, in its first boot, as
+the shell user, with SELinux enforcing. The checkpoint groups lie in one boot and framework
+instance, system_server 937 started at tick 10829. The earlier boot wait samples have no such
+identity brackets, and qualify only their output form. Each fixture was copied unchanged from
+the numbered capture that the table names. Only the device command is kept.
+
+| Fixture | Command | Source |
+| --- | --- | --- |
+| `shell-identity` | `id` | Capture 0213, the first baseline identity read after the boot wait |
+| `checkpoint-helper-digest` | `sha256sum /data/local/tmp/andrix-d3/andrix-checkpoint-read.jar` | Capture 0236, the only digest read, after the helper's only push |
+| `checkpoint-read-committed` | `CLASSPATH=/data/local/tmp/andrix-d3/andrix-checkpoint-read.jar app_process /system/bin CheckpointRead` | Capture 0240. Captures 0304 and 0361 are the same bytes. |
+| `sm-supports-checkpoint-true` | `sm supports-checkpoint` | Capture 0241. Captures 0305 and 0362 are the same bytes. |
+| `boot-id-3e3ad786` | `cat /proc/sys/kernel/random/boot_id` | Capture 0237, just before the first helper reading |
+| `uptime-997` | `cat /proc/uptime` | Capture 0218 |
+| `framework-pid-937` | `pidof system_server` | Capture 0238 |
+| `framework-stat-937`, `framework-stat-937-later` | `cat /proc/937/stat` | Captures 0239 and 0246, just before and just after the first helper reading. Their counters differ, their start time does not. |
+| `version-uid-list-systemui-first` | `pm list packages --user 0 --show-versioncode -U com.android.systemui` | Capture 0224. Capture 0355 is the same bytes. |
+| `factory-version-list-systemui-first` | `pm list packages --user 0 --factory-only --show-versioncode com.android.systemui` | Capture 0222 |
+| `vdc-needs-checkpoint-inaccessible` | `vdc checkpoint needsCheckpoint` | Capture 0229. `vdc checkpoint supportsCheckpoint`, capture 0228, gave the same reply. |
+| `boot-completed`, `boot-not-completed` | `getprop sys.boot_completed` | Derived from source before. Captures 0220 and 0050 hold exactly these bytes, with status 0 and nothing on standard error. |
+
 ## Source derived forms
 
-No guest capture exists for these. They were derived from the pinned framework and vold sources,
-and must be qualified on a guest before the observer relies on them.
+These were derived from the pinned framework and vold sources, with illustrative values. The next
+section says what the D3 guest showed of them. A form that no guest has shown must be qualified on a
+guest before the observer relies on it.
 
 | Fixture | Command | Derivation |
 | --- | --- | --- |
 | `listing-plain-children` | `pm list staged-sessions` | `PackageManagerShellCommand.printSessionList` and `printSession`. Without `--only-parent`, children of a multiple package parent follow it, one indent deeper, and a child it cannot find prints `not found`. |
 | `installs-active-referrer` | `dumpsys -t 25 package installs` | `installs-active-ready` with `referrerUri` set to a ticket nonce. It was rendered again through the writer model, because the value changes the wrapping. |
 | `installs-silent-tail` | the same | `installs-historical-refused` with one record of `SilentUpdatePolicy.dump` before the gentle update section |
-| `vdc-needs-checkpoint-pending`, `vdc-needs-checkpoint-none` | `vdc checkpoint needsCheckpoint` | `system/vold/vdc.cpp` answers with exit status 1 or 0 and prints nothing |
-| `vdc-needs-checkpoint-failed` | the same | A failed binder call exits with `ENOTTY`, 25. The error text is illustrative, because only the status is fixed in the source. |
-| `vdc-supports-checkpoint` | `vdc checkpoint supportsCheckpoint` | The same, 1 for supported |
+| `vdc-needs-checkpoint-pending`, `vdc-needs-checkpoint-none` | `vdc checkpoint needsCheckpoint` | Withdrawn. `system/vold/vdc.cpp` answers with exit status 1 or 0 and prints nothing |
+| `vdc-needs-checkpoint-failed` | the same | Withdrawn. A failed binder call exits with `ENOTTY`, 25. The error text is illustrative, because only the status is fixed in the source. |
+| `vdc-supports-checkpoint` | `vdc checkpoint supportsCheckpoint` | Withdrawn. The same, 1 for supported |
+| `checkpoint-read-pending` | the checkpoint helper | `tests/checkpoint-read`: both calls answered, `supports=true` and `needs=true`, status 0 |
+| `checkpoint-read-unsupported` | the same | Both answered, `supports=false`. What `needs` answers on such a device is not known; `false` is illustrative. |
+| `checkpoint-read-call-failed` | the same | A call threw: its answer is `error:` and the exception's class, status 5. `needsCheckpoint()` enforces MOUNT_FORMAT_FILESYSTEMS, so a caller without it would get a SecurityException. The class is illustrative. |
+| `checkpoint-read-service-absent` | the same | No `mount` service: `error=service-absent`, status 3 |
+| `checkpoint-read-lookup-failed` | the same | The reflective lookup threw: `error=lookup:` and the class, status 4. The class is illustrative. |
+| `checkpoint-read-arguments` | the same | Arguments given: `error=arguments`, status 2. The observer never gives any. |
+| `sm-supports-checkpoint-false` | `sm supports-checkpoint` | Taken to print the boolean as the captured `true` does. `cmds/sm` was not inspected for this change. |
 | `version-uid-list` | `pm list packages --user 0 --show-versioncode -U com.android.systemui` | `PackageManagerShellCommand.runListPackages` with both options |
 | `factory-version-list` | `pm list packages --user 0 --factory-only --show-versioncode com.android.systemui` | The same with `MATCH_FACTORY_ONLY`, which lists the factory copy |
-| `boot-completed`, `boot-not-completed` | `getprop sys.boot_completed` | `1` once the boot completed, an empty line before. The trials' reads of it failed during the boot and give no form. |
 | `installs-destroyed-ready` | `dumpsys -t 25 package installs` | `installs-active-ready` with `mDestroyed=true` and the ready flag kept: a staged session abandoned in this framework instance, which the listing no longer shows |
 | `installs-historical-outcomes` | the same | Removed staged sessions of known outcome: an abandon (`-115`, "Session was abandoned"), a refusal with the same status ("User rejected permissions"), and terminal sessions that Android expired after 21 days, applied and failed, which keep their flags (`PackageInstallerService` lines 637 to 648) |
 | `installs-historical-unknown` | the same | A removed session that was committed but holds no terminal flag, whose outcome has no known form |
@@ -75,6 +117,60 @@ and must be qualified on a guest before the observer relies on them.
 | `systemui-pids-two` | `pidof com.android.systemui` | This source derived model has one SystemUI process for each of its two users. Which processes actually run needs a guest capture. Toybox's `pidof` prints every match on one line, separated by spaces. The toybox source is not pinned here. `systemui-pid` is the captured form of one process. |
 | `systemui-status-1839`, `systemui-status-4721` | `cat /proc/<pid>/status` | The kernel's `task_state`: one `Key:` line each, a tab before the value, and `Uid:` with the real, effective, saved and file system IDs. The kernel source is not pinned here, and the values other than `Pid:` and `Uid:` are illustrative. The UIDs are 10112, the captured app ID, for user 0, and 1010112 for user 10, from Android's range of 100000 UIDs for each user. |
 | `systemui-context-4721` | `cat /proc/4721/attr/current` | The captured `systemui-context` with the categories that `levelFrom=user` gives user 10: c522,c768, which is 512 plus the user and 768 plus the user divided by 256. That rule is libselinux's Android code, which is not pinned here. |
+
+## What the D3 guest showed
+
+A separate analysis read the sealed captures again with these parsers. Each command was parsed with
+its own parameters. It confirmed the classifications in `forms.json`:
+
+| Fixture | Guest | Evidence |
+| --- | --- | --- |
+| `uptime` | form | Captures 0218 and 0351 |
+| `installs-active-referrer` | form | Capture 0297: exactly the ready session created at capture 0287 carries that create's nonce, in the active section |
+| `installs-unknown-package` | form | Captures 0322 and 0323: one unnamed staged session, active, which the observer's join refuses |
+| `version-uid-list`, `factory-version-list` | form | Captures 0224, 0355 and 0222. The guest lists SystemUI first and the vendor overlay of SystemUI at versionCode 1, where the fixtures list the overlay first at 37. The parsers read the same SystemUI row from both. |
+| `listing-plain-children` | partial | Children one indent deeper (0257) and a SystemUI child (0338). No child that is not found. |
+| `installs-historical-outcomes` | partial | The abandon (0274 and 0314). Not the refusal "User rejected permissions", nor the two outcomes that Android expires. |
+| `installs-foreign-records` | partial | The live family (0259) and the removed family (0262). Not the record whose permission map has no known form. |
+
+The guest showed none of `installs-silent-tail`, `installs-historical-unknown`, the four source
+derived vdc forms, the users and process forms, or the helper's source derived forms. Capture 0312 was taken at
+once after an abandon and already shows the session historical, so `installs-destroyed-ready` stays
+unshown.
+
+The run's own report differs on four forms. Its parser step compared more than the form:
+
+- **`framework-stat`.** The report marked it different. The step parsed this fixture, read from
+  PID 957, against the capture's command for PID 937, so the fixture refused. Capture 0217 itself
+  parses with its own PID, and so did every identity bracket of the run.
+- **`version-uid-list` and `factory-version-list`.** The report marked them different because the
+  listing order and the overlay's version differ from the illustrative fixtures. The form is the
+  guest's, and the values are not.
+- **`vdc-needs-checkpoint-failed`.** The guest's reply is status 127 from the shell, which cannot
+  run vdc at all, not a refusal from vold. No vdc form is qualified.
+
+The report itself stays as sealed.
+
+## The checkpoint route
+
+The shell user cannot run vdc on the test image, so the observer never reads it. The vdc forms
+above are kept unqualified, as the record of the withdrawn route. The observer reads the checkpoint
+through the framework's storage service instead, with the fixed helper of
+[`tests/checkpoint-read`](../../../../../tests/checkpoint-read/README.md). Its README holds the
+protocol, the reproducible build and the device contract.
+
+- **Classification.** One reading decides. COMMITTED needs `supports=true` and `needs=false` in
+  that reading, and PENDING `supports=true` and `needs=true`.
+- **No fact.** A device without support, every refusal, any standard error, and any other form give
+  no fact.
+- **Admission.** Before the helper runs, `id` must show UID 2000 in the shell's domain, and
+  `sha256sum` must give the admitted digest. Both are read again after it, within one boot and one
+  framework instance.
+- **Companion reads.** `sm supports-checkpoint` reads support only, and never gives a CHECKPOINT
+  fact. `vold.checkpoint_committed` is never read.
+
+The guest qualified only the committed answer, after boot completion. The pending answer awaits
+D5's activation boot.
 
 ## Users, processes and the health probe
 
@@ -166,8 +262,16 @@ A record that matches no known form refuses the whole dump when it could concern
 covers a record of SystemUI, a record whose package is unknown, and a multiple package family with
 a child of SystemUI or of an unknown package. A record or family certainly about other packages
 gives no session and blocks nothing. The fields before `appPackageName` hold no free text, so the
-package named there decides "certainly". The derived forms above reach each of these paths. All
-of them await guest captures.
+package named there decides "certainly". The derived forms above reach each of these paths.
+
+The D3 guest showed some of these paths on real bytes:
+
+- A live and a removed family of other packages, which block nothing.
+- An unnamed staged session, which refuses the join.
+- A live family with a SystemUI child and an unnamed child, which refuses the dump (capture 0340).
+- That family removed, which refuses it too (capture 0344).
+
+A record whose permission map has no known form still awaits a capture.
 
 ## How the forms are pinned
 
@@ -183,9 +287,13 @@ form holds a space followed by a field name and `=`, so a value that does is ref
 an unknown field could hide inside the free text before it, because the writer prints both
 alike.
 
-The referrer finding is pending a guest capture of a session with a referrer. In the pinned
-source, `SessionParams.dump` prints `referrerUri` with `printPair`, which prints `String.valueOf`
-of the `Uri`. `pm install-create --referrer` stores `Uri.parse` of its argument, whose `toString`
-returns the argument unchanged, and Package Manager persists the referrer in the session file.
-Dumpsys should therefore show the referrer of every session in every section, unscrubbed. A
-ticket passes `andrix-ticket:` followed by its 32 hexadecimal digit nonce.
+In the pinned source, `SessionParams.dump` prints `referrerUri` with `printPair`, which prints
+`String.valueOf` of the `Uri`. `pm install-create --referrer` stores `Uri.parse` of its argument,
+whose `toString` returns the argument unchanged, and Package Manager persists the referrer in the
+session file. Dumpsys should therefore show the referrer of every session in every section,
+unscrubbed. A ticket passes `andrix-ticket:` followed by its 32 hexadecimal digit nonce. The D3
+guest showed that form for a ready session in the active section (capture 0297). The reconciler
+already binds a qualified matching nonce on the shell route, so that observed form can resolve a
+lost create reply. This is an engineering clarification, not new installation authority. Nonce
+exclusion as proof of absence remains device only. The shell route still needs a later complete
+listing with no staged session for the package when no matching session was observed.

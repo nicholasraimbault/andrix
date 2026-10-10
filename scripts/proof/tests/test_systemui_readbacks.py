@@ -10,6 +10,12 @@ from scripts.proof import systemui_sessions as s
 FIXTURES = Path(__file__).parent / 'fixtures' / 'systemui_readbacks'
 FORMS = json.loads((FIXTURES / 'forms.json').read_text())
 NONCE = '5e1f0c9a7d3b4e2f8a6c1d0b9e7f3a25'
+HELPER_COMMAND = 'CLASSPATH=/data/local/tmp/andrix-d3/andrix-checkpoint-read.jar app_process /system/bin CheckpointRead'
+HELPER_SHA256 = 'ae6743f64e3b751906e28d282d720ed2bf2dfd9596baeaea3d4fdb2cf53d6738'
+# What a guest showed of each source derived form: the form with other values, or only some cases.
+GUEST = {'uptime': 'form', 'installs-active-referrer': 'form', 'installs-unknown-package': 'form',
+         'version-uid-list': 'form', 'factory-version-list': 'form', 'listing-plain-children': 'partial',
+         'installs-historical-outcomes': 'partial', 'installs-foreign-records': 'partial'}
 
 
 def form(name):
@@ -41,6 +47,12 @@ def parse(name):
         return s.checkpoint_state(code, output, error)
     if command == 'vdc checkpoint supportsCheckpoint':
         return s.checkpoint_support(code, output, error)
+    if command == HELPER_COMMAND:
+        return s.checkpoint_read(code, output, error)
+    if command == 'id':
+        return s.shell_identity(code, output, error)
+    if command == 'sm supports-checkpoint':
+        return s.sm_supports_checkpoint(code, output, error)
     if command.startswith('pm install-create'):
         return s.created_session(code, output)
     if command.startswith('pm install-commit'):
@@ -169,17 +181,25 @@ class FormTests(unittest.TestCase):
         self.assertEqual(names, set(FORMS))
         for name, entry in FORMS.items():
             self.assertIn(entry['origin'], ('captured', 'source'))
+            self.assertLessEqual(set(entry), {'command', 'exit', 'origin', 'stderr', 'guest'}, name)
             text = (FIXTURES / (name + '.out')).read_text() + entry['stderr'] + entry['command']
-            self.assertIsNone(re.search(r'/home/|/srv/|/opt/|/tmp/|/usr/|127\.0\.0\.1|adb ', text), name)
-        self.assertEqual(sum(e['origin'] == 'captured' for e in FORMS.values()), 26)
-        self.assertEqual(sum(e['origin'] == 'source' for e in FORMS.values()), 22)
+            # The device's own /data/local/tmp is no host path.
+            self.assertIsNone(re.search(r'/home/|/srv/|/opt/|(?<!/data/local)/tmp/|/usr/|127\.0\.0\.1|adb ', text), name)
+        self.assertEqual(sum(e['origin'] == 'captured' for e in FORMS.values()), 40)
+        self.assertEqual(sum(e['origin'] == 'source' for e in FORMS.values()), 27)
+        # Only a source derived form can have been shown by a guest with other values or in part,
+        # and showing it never makes its fixture a capture.
+        self.assertEqual({name: entry['guest'] for name, entry in FORMS.items() if 'guest' in entry}, GUEST)
+        self.assertTrue(all(FORMS[name]['origin'] == 'source' for name in GUEST))
 
     def test_every_known_form_is_accepted(self):
+        refused = ('vdc-needs-checkpoint-failed', 'vdc-needs-checkpoint-inaccessible')
         for name in FORMS:
-            if name != 'vdc-needs-checkpoint-failed':
+            if name not in refused:
                 parse(name)
-        with self.assertRaises(ValueError):
-            parse('vdc-needs-checkpoint-failed')
+        for name in refused:
+            with self.assertRaises(ValueError):
+                parse(name)
 
     def test_writer_model_renders_every_captured_dump_again(self):
         for name in FORMS:
@@ -531,9 +551,28 @@ class ActiveAndBootTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             s.file_digest(0, data[1], s.FACTORY_PATH)
 
+    def test_a_guest_form_with_other_values(self):
+        """A D3 guest showed both version lists, with SystemUI listed first and the vendor overlay of
+        SystemUI at versionCode 1. The illustrative fixtures list the overlay first at 37. The parsers
+        read the same SystemUI facts from both, so the form is the guest's, while the illustrative
+        values are not."""
+        for illustrative, captured in (('version-uid-list', 'version-uid-list-systemui-first'),
+                                       ('factory-version-list', 'factory-version-list-systemui-first')):
+            with self.subTest(form=illustrative):
+                self.assertEqual(parse(illustrative), parse(captured))
+                guest, fixture = form(captured)[1].splitlines(), form(illustrative)[1].splitlines()
+                self.assertNotEqual(guest, fixture)
+                self.assertEqual(guest[0].split(' ')[0], 'package:com.android.systemui')
+                self.assertEqual(fixture[0].split(' ')[0], 'package:com.android.systemui.auto_generated_rro_vendor__')
+                self.assertIn(' versionCode:1', guest[1])
+                self.assertIn(' versionCode:37', fixture[0])
+                self.assertEqual(sorted(line.split(' ')[0] for line in guest), sorted(line.split(' ')[0] for line in fixture))
+
     def test_uid_and_version(self):
         self.assertEqual(parse('uid-list'), 10112)
         self.assertEqual(parse('version-uid-list'), (37, 10112))
+        self.assertEqual(parse('version-uid-list-systemui-first'), (37, 10112))
+        self.assertEqual(parse('factory-version-list-systemui-first'), 37)
         uid = form('uid-list')[1]
         version = form('version-uid-list')[1]
         for label, parser, text in (
@@ -584,15 +623,35 @@ class ActiveAndBootTests(unittest.TestCase):
             s.cohort_matches((expected.fingerprint, expected.factory_digest), observed)
 
     def test_checkpoint(self):
+        # The withdrawn vdc route: source derived and unqualified. The shell cannot run vdc at all.
         self.assertEqual(parse('vdc-needs-checkpoint-pending'), 'pending')
         self.assertEqual(parse('vdc-needs-checkpoint-none'), 'not_checkpointing')
         self.assertTrue(parse('vdc-supports-checkpoint'))
+        inaccessible = form('vdc-needs-checkpoint-inaccessible')
+        self.assertEqual(inaccessible, (127, '', '/system/bin/sh: vdc: inaccessible or not found\n'))
+        for parser in (s.checkpoint_state, s.checkpoint_support):
+            with self.assertRaises(ValueError):
+                parser(*inaccessible)
         for code, output, error in ((25, '', ''), (22, '', 'Failed to obtain vold Binder\n'), (2, '', ''),
                                     (1, '1\n', ''), (0, '', 'warning\n'), (-1, '', '')):
             with self.subTest(code=code), self.assertRaises(ValueError):
                 s.checkpoint_state(code, output, error)
         with self.assertRaises(ValueError):
             s.checkpoint_support(5, '', '')
+
+    def test_one_guests_identity_reads(self):
+        """A D3 guest's boot and framework reads: one boot, and system_server 937 started at tick 10829.
+        Two stat reads of one instance differ in their counters, never in the start time. A stat read
+        is only ever parsed with the PID it was read for, so the trials' fixture of 957 refuses 937."""
+        self.assertEqual(parse('boot-id-3e3ad786'), '3e3ad786-b01f-48a0-afba-cab2701946b8')
+        self.assertEqual(parse('uptime-997'), 997260)
+        self.assertEqual(parse('framework-pid-937'), 937)
+        self.assertEqual((parse('framework-stat-937'), parse('framework-stat-937-later')), (10829, 10829))
+        self.assertNotEqual(form('framework-stat-937'), form('framework-stat-937-later'))
+        with self.assertRaises(ValueError):
+            s.start_ticks(0, form('framework-stat')[1], 937, 'system_server')
+        with self.assertRaises(ValueError):
+            s.start_ticks(0, form('framework-stat-937')[1], 957, 'system_server')
 
     def test_process_and_boot_forms(self):
         self.assertEqual(parse('uptime'), 5432170)
@@ -698,6 +757,82 @@ class ActiveAndBootTests(unittest.TestCase):
     def test_replies(self):
         self.assertEqual(parse('reply-create-staged'), 2014338406)
         self.assertEqual(parse('reply-commit-ready'), 'ready')
+
+
+class CheckpointHelperTests(unittest.TestCase):
+    """The fixed checkpoint helper's protocol, the shell's identity and the companion support read."""
+
+    def test_the_captured_answer(self):
+        self.assertEqual(form('checkpoint-read-committed'),
+                         (0, 'andrix-checkpoint-read-v1\nsupports=true\nneeds=false\n', ''))
+        self.assertEqual(parse('checkpoint-read-committed'), s.CheckpointReading(True, False, ''))
+        self.assertEqual(parse('checkpoint-helper-digest'), HELPER_SHA256)
+
+    def test_every_answer_and_refusal(self):
+        expected = {
+            'checkpoint-read-pending': (True, True, ''), 'checkpoint-read-unsupported': (False, False, ''),
+            'checkpoint-read-call-failed': (True, None, 'supports=true needs=error:java.lang.SecurityException'),
+            'checkpoint-read-service-absent': (None, None, 'service-absent'),
+            'checkpoint-read-lookup-failed': (None, None, 'lookup:java.lang.ClassNotFoundException'),
+            'checkpoint-read-arguments': (None, None, 'arguments')}
+        for name, value in expected.items():
+            self.assertEqual(parse(name), s.CheckpointReading(*value), name)
+        # Every pair of answers the protocol allows, with the status the helper computes from them.
+        answers = {'true': True, 'false': False, 'error:unknown': None, 'error:not-boolean': None,
+                   'error:android.os.DeadObjectException': None, 'error:a.b.C$D': None}
+        for supports, first in answers.items():
+            for needs, second in answers.items():
+                text = 'andrix-checkpoint-read-v1\nsupports=%s\nneeds=%s\n' % (supports, needs)
+                code = 0 if None not in (first, second) else 5
+                refusal = '' if code == 0 else 'supports=%s needs=%s' % (supports, needs)
+                with self.subTest(supports=supports, needs=needs):
+                    self.assertEqual(s.checkpoint_read(code, text, ''), s.CheckpointReading(first, second, refusal))
+                    with self.assertRaises(ValueError):
+                        s.checkpoint_read(5 - code, text, '')
+
+    def test_unknown_forms_are_refused(self):
+        committed = form('checkpoint-read-committed')[1]
+        for code, output, error in (
+                (0, committed, 'WARNING: linker: unused DT entry\n'), (0, 'noise\n' + committed, ''),
+                (0, committed + 'extra\n', ''), (0, committed + '\n', ''), (0, committed[:-1], ''),
+                (0, committed.replace('\n', '\r\n'), ''), (0, committed.replace('-v1', '-v2'), ''),
+                (0, committed.replace('andrix-checkpoint-read-v1\n', ''), ''),
+                (0, committed.replace('supports=true', 'supports=TRUE'), ''),
+                (0, committed.replace('needs=false', 'needs=false '), ''),
+                (0, committed.replace('supports=true\n', ''), ''),
+                (0, 'andrix-checkpoint-read-v1\nneeds=false\nsupports=true\n', ''),
+                (0, committed.replace('needs=false', 'needs=error:'), ''),
+                (0, form('checkpoint-read-call-failed')[1], ''), (1, committed, ''), (5, committed, ''),
+                (-1, committed, ''), (255, '', 'Killed\n'), (0, '', ''), (1, '', ''),
+                (3, form('checkpoint-read-arguments')[1], ''), (2, form('checkpoint-read-service-absent')[1], ''),
+                (4, 'andrix-checkpoint-read-v1\nerror=lookup:\n', ''),
+                (4, 'andrix-checkpoint-read-v1\nerror=lookup:java.lang.Bad Name\n', ''),
+                (3, form('checkpoint-read-service-absent')[1] + 'more\n', ''),
+                (None, committed, ''), (False, committed, ''), (0, committed.encode(), ''), (0, committed, None),
+                (0, committed * 100, '')):
+            with self.subTest(code=code, output=output[:60], error=error), self.assertRaises(ValueError):
+                s.checkpoint_read(code, output, error)
+
+    def test_the_shell_identity(self):
+        self.assertEqual(parse('shell-identity'), (2000, 2000, 'u:r:shell:s0'))
+        text = form('shell-identity')[1]
+        root = 'uid=0(root) gid=0(root) groups=0(root),1004(input),1007(log) context=u:r:su:s0\n'
+        self.assertEqual(s.shell_identity(0, root, ''), (0, 0, 'u:r:su:s0'))
+        for code, output, error in (
+                (0, text[:-1], ''), (0, text + text, ''), (0, text.replace(' context=', ' label='), ''),
+                (0, text.replace('uid=2000(shell)', 'uid=2000'), ''), (0, text.replace('groups=', 'groups=,'), ''),
+                (0, text.replace(' context=u:r:shell:s0', ''), ''), (0, text.replace('2000(shell) gid', '02000(shell) gid'), ''),
+                (1, text, ''), (0, text, 'warning\n'), (0, text.encode(), '')):
+            with self.subTest(output=output[-40:], error=error), self.assertRaises(ValueError):
+                s.shell_identity(code, output, error)
+
+    def test_the_companion_support_read(self):
+        self.assertTrue(parse('sm-supports-checkpoint-true'))
+        self.assertFalse(parse('sm-supports-checkpoint-false'))
+        for code, output, error in ((1, '', 'Error: java.lang.SecurityException: x\n'), (0, 'true', ''),
+                                    (0, 'true\n', 'warning\n'), (0, '1\n', ''), (0, 'true\ntrue\n', '')):
+            with self.subTest(output=output, error=error), self.assertRaises(ValueError):
+                s.sm_supports_checkpoint(code, output, error)
 
 
 if __name__ == '__main__':

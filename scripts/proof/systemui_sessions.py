@@ -865,10 +865,101 @@ def cohort_matches(expected, observed):
     return expected == observed
 
 
-# ------------------------------------------------ vdc checkpoint
+# ------------------------------------------------ the checkpoint through the storage service
+#
+# The fixed helper of tests/checkpoint-read runs as the shell user and asks the framework's storage
+# service two questions, supportsCheckpoint() and needsCheckpoint(), through the platform's own
+# IStorageManager proxy. It prints a header line, then either both answers or one error line, and
+# its exit status follows from what it printed.
+
+CHECKPOINT_READ_HEADER = 'andrix-checkpoint-read-v1'
+_JAVA_CLASS = r'[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*'
+_HELPER_ANSWER = r'(true|false|error:(?:not-boolean|unknown|' + _JAVA_CLASS + r'))'
+_HELPER_ANSWERS = re.compile(CHECKPOINT_READ_HEADER + r'\nsupports=' + _HELPER_ANSWER + r'\nneeds=' + _HELPER_ANSWER
+                             + r'\n')
+_HELPER_REFUSALS = {2: re.compile(CHECKPOINT_READ_HEADER + r'\nerror=(arguments)\n'),
+                    3: re.compile(CHECKPOINT_READ_HEADER + r'\nerror=(service-absent)\n'),
+                    4: re.compile(CHECKPOINT_READ_HEADER + r'\nerror=(lookup:' + _JAVA_CLASS + r')\n')}
+
+
+@dataclass(frozen=True)
+class CheckpointReading:
+    """One reply of the checkpoint helper. `supports` and `needs` are the answers of
+    supportsCheckpoint() and needsCheckpoint(), or None where the helper got no answer. `refusal`
+    is empty for an answer. Otherwise it holds the helper's own words: `arguments`,
+    `service-absent`, `lookup:<class>`, or the two answers as printed when a call failed."""
+    supports: bool | None
+    needs: bool | None
+    refusal: str
+
+
+def checkpoint_read(code, output, error):
+    """The checkpoint helper's reply, by its exact protocol in tests/checkpoint-read.
+
+    Status 0: the header, `supports=` and `needs=`, each `true` or `false`. Status 5: the same lines
+    where at least one answer is `error:` and the failure, `not-boolean`, `unknown` or an exception
+    class. Status 2, 3 and 4: the header and one line, `error=arguments`, `error=service-absent` or
+    `error=lookup:` and an exception class. Those four are refusals, which carry no answer to rely
+    on. Anything else is of no known form: another header or status, a status that disagrees with
+    the answers, another line, a missing newline, or any standard error, such as a runtime warning.
+    The answers' meaning is the storage service's: whether the device supports a checkpoint, and
+    whether this boot mounts with checkpointing or is checkpointing now."""
+    if type(code) is not int or not isinstance(output, str) or not isinstance(error, str) or len(output) > 4096:
+        raise ValueError('Checkpoint read of no known form')
+    if error != '':
+        raise ValueError('Checkpoint read with standard error')
+    match = _HELPER_ANSWERS.fullmatch(output)
+    if match:
+        answers = [None if answer.startswith('error:') else answer == 'true' for answer in (match[1], match[2])]
+        if code == 0 and None not in answers:
+            return CheckpointReading(answers[0], answers[1], '')
+        if code == 5 and None in answers:
+            return CheckpointReading(answers[0], answers[1], 'supports=%s needs=%s' % (match[1], match[2]))
+        raise ValueError('Checkpoint read whose status disagrees with its answers')
+    refusal = _HELPER_REFUSALS.get(code)
+    match = refusal.fullmatch(output) if refusal is not None else None
+    if not match:
+        raise ValueError('Checkpoint read of no known form')
+    return CheckpointReading(None, None, match[1])
+
+
+_ID_NAME = r'[a-z_][a-z0-9_]*'
+_ID_NUMBER = r'(?:0|[1-9][0-9]{0,9})'
+_IDENTITY = re.compile(r'uid=(' + _ID_NUMBER + r')\(' + _ID_NAME + r'\) gid=(' + _ID_NUMBER + r')\(' + _ID_NAME
+                       + r'\) groups=' + _ID_NUMBER + r'\(' + _ID_NAME + r'\)(?:,' + _ID_NUMBER + r'\(' + _ID_NAME
+                       + r'\))* context=(u:r:[a-z0-9_]+:s0(?::c[0-9]+(?:,c[0-9]+)*)?)\n')
+
+
+def shell_identity(code, output, error):
+    """`id` on the shell route: the UID, GID and SELinux context that its commands run with.
+
+    The captured form is one line: the UID and GID with their names, every supplementary group
+    with its name, and the context. Toybox's source is not pinned here, so any other form, status
+    or standard error is unknown."""
+    match = _IDENTITY.fullmatch(output) if isinstance(output, str) else None
+    if code != 0 or error != '' or not match:
+        raise ValueError('Identity of no known form')
+    return int(match[1]), int(match[2]), match[3]
+
+
+def sm_supports_checkpoint(code, output, error):
+    """`sm supports-checkpoint`: Android's own client of supportsCheckpoint(), status 0 and the
+    boolean on one line. `true` is the captured form; `false` is taken to print the same way. Any
+    other status, output or standard error, a refusal included, is unknown. It reads support only,
+    never a pending or committed checkpoint, so no CHECKPOINT fact rests on it."""
+    if code != 0 or error != '' or output not in ('true\n', 'false\n'):
+        raise ValueError('Checkpoint support of no known form')
+    return output == 'true\n'
+
+
+# ------------------------------------------------ vdc checkpoint, withdrawn
+#
+# The shell route does not read vdc. A D3 guest showed that the shell user cannot run it at all:
+# `vdc checkpoint ...` exits 127 with `/system/bin/sh: vdc: inaccessible or not found`. These two
+# parsers and their source derived forms stay unqualified, and no reader calls them.
 
 def checkpoint_state(code, output, error):
-    """`vdc checkpoint needsCheckpoint`, source derived from system/vold.
+    """`vdc checkpoint needsCheckpoint`, source derived from system/vold, withdrawn and unqualified.
 
     vdc answers with its exit status and prints nothing. 1: vold is checkpointing this boot, so
     /data writes are still provisional. 0: no checkpoint is pending, either committed or never
@@ -881,7 +972,7 @@ def checkpoint_state(code, output, error):
 
 
 def checkpoint_support(code, output, error):
-    """`vdc checkpoint supportsCheckpoint`, source derived: 1 supported, 0 not."""
+    """`vdc checkpoint supportsCheckpoint`, source derived, withdrawn and unqualified: 1 supported, 0 not."""
     if output != '' or error != '' or code not in (0, 1):
         raise ValueError('Checkpoint support of no known form')
     return code == 1

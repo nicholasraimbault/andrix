@@ -5,8 +5,8 @@ Source checks: the observer's predictions agree with its test sources, and every
 defect anchors exactly once. The guarded run, after the runner's build: both Python suites pass
 with their predicted cases, the Java codec decodes every observation the observer gives from the
 fixtures, encodes each again to the same bytes and reads the same fields, and each defect fails at
-least its predicted cases. Host evidence only. The forms still need guest captures, which the
-fixtures README lists."""
+least its predicted cases. Host evidence only. The fixtures README says which forms a guest has
+shown, and which still need guest captures."""
 from pathlib import Path
 import ast
 import json
@@ -152,6 +152,64 @@ MUTANTS = {
                                 "    if False:\n", ('readbacks', 'observer')),
     'health-probes-locked-users': (OBSERVER, "            if u.removing or u.state != 'RUNNING_UNLOCKED':\n",
                                    '            if u.removing:\n', ('observer',)),
+    # The checkpoint helper's protocol: noise, another version, a status that disagrees, an error read
+    # as an answer, the answers swapped, and text after the answers.
+    'helper-stderr-ignored': (SESSIONS, "    if error != '':\n        raise ValueError('Checkpoint read with standard error')\n",
+                              '', ('readbacks', 'observer')),
+    'helper-protocol-unchecked': (SESSIONS, "CHECKPOINT_READ_HEADER = 'andrix-checkpoint-read-v1'\n",
+                                  "CHECKPOINT_READ_HEADER = 'andrix-checkpoint-read-v[0-9]+'\n", ('readbacks', 'observer')),
+    'helper-status-unchecked': (SESSIONS, '        if code == 0 and None not in answers:\n',
+                                '        if None not in answers:\n', ('readbacks', 'observer')),
+    'helper-error-answer-taken': (SESSIONS,
+        "        answers = [None if answer.startswith('error:') else answer == 'true' for answer in (match[1], match[2])]\n",
+        "        answers = [answer == 'true' for answer in (match[1], match[2])]\n", ('readbacks', 'observer')),
+    'helper-answers-swapped': (SESSIONS, "            return CheckpointReading(answers[0], answers[1], '')\n",
+                               "            return CheckpointReading(answers[1], answers[0], '')\n", ('readbacks', 'observer')),
+    'helper-trailing-text-accepted': (SESSIONS, '    match = _HELPER_ANSWERS.fullmatch(output)\n',
+                                      '    match = _HELPER_ANSWERS.match(output)\n', ('readbacks', 'observer')),
+    'identity-noise-accepted': (SESSIONS, '    match = _IDENTITY.fullmatch(output) if isinstance(output, str) else None\n',
+                                '    match = _IDENTITY.search(output) if isinstance(output, str) else None\n',
+                                ('readbacks', 'observer')),
+    # The checkpoint reader: who runs which bytes, when they are read, what decides, and its brackets.
+    'shell-identity-unchecked': (OBSERVER,
+        '        if readback.shell_identity(identity.code, identity.stdout, identity.stderr) != SHELL_USER:\n',
+        '        if readback.shell_identity(identity.code, identity.stdout, identity.stderr) is None:\n', ('observer',)),
+    'shell-domain-unchecked': (OBSERVER,
+        '        if readback.shell_identity(identity.code, identity.stdout, identity.stderr) != SHELL_USER:\n',
+        '        if readback.shell_identity(identity.code, identity.stdout, identity.stderr)[:2] != SHELL_USER[:2]:\n',
+        ('observer',)),
+    'helper-digest-unchecked': (OBSERVER,
+        '                or readback.file_digest(digest.code, digest.stdout, CHECKPOINT_HELPER) != CHECKPOINT_HELPER_SHA256):\n',
+        '                or readback.file_digest(digest.code, digest.stdout, CHECKPOINT_HELPER) is None):\n', ('observer',)),
+    'helper-digest-stderr-ignored': (OBSERVER, "        if (digest.stderr != ''\n", '        if (False\n', ('observer',)),
+    'helper-run-before-admission': (OBSERVER,
+        '        def reader(captures):\n            self._helper_admitted(captures)\n'
+        '            reply = self._capture(captures, CHECKPOINT_READ)\n',
+        '        def reader(captures):\n            reply = self._capture(captures, CHECKPOINT_READ)\n', ('observer',)),
+    'helper-admitted-only-before': (OBSERVER,
+        '            reading = readback.checkpoint_read(reply.code, reply.stdout, reply.stderr)\n'
+        '            self._helper_admitted(captures)\n',
+        '            reading = readback.checkpoint_read(reply.code, reply.stdout, reply.stderr)\n', ('observer',)),
+    'unsupported-read-as-committed': (OBSERVER, "            if reading.supports is not True:\n"
+                                                "                raise ValueError('No checkpoint support: no commit to observe')\n",
+                                      '', ('observer',)),
+    'pending-read-as-committed': (OBSERVER, "'CHECKPOINT', 'PENDING' if needs else 'COMMITTED', '')",
+                                  "'CHECKPOINT', 'COMMITTED', '')", ('observer',)),
+    'checkpoint-framework-unbracketed': (OBSERVER,
+        '        boot, instance, elapsed, raw, needs = self._bracket(reader, framework=True)\n',
+        '        boot, instance, elapsed, raw, needs = self._bracket(reader)\n', ('observer',)),
+    'incomplete-reply-accepted': (OBSERVER,
+        '        if not (isinstance(reply, tuple) and len(reply) == 3 and type(reply[0]) is int\n'
+        '                and isinstance(reply[1], str) and isinstance(reply[2], str)):\n'
+        "            raise Unclassified('An incomplete reply: no exit status with both output streams')\n",
+        '', ('observer',)),
+    # A broad prefix for app_process, and the property admitted beside the helper.
+    'helper-prefix-allowed': (OBSERVER, 'ALLOWED_PATTERNS = (\n',
+                              "ALLOWED_PATTERNS = (\n    re.compile(r'CLASSPATH=/data/local/tmp/[^ ]+ app_process /system/bin [A-Za-z.]+'),\n",
+                              ('observer',)),
+    'checkpoint-property-allowed': (OBSERVER, '    SHELL_IDENTITY, HELPER_DIGEST, CHECKPOINT_READ,',
+                                    "    'getprop vold.checkpoint_committed', SHELL_IDENTITY, HELPER_DIGEST, CHECKPOINT_READ,",
+                                    ('observer',)),
 }
 DECODE = '''package dev.andrix.server.deployment;
 

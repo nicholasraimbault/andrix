@@ -29,8 +29,9 @@ def device(**changes):
     were read with --only-parent. Without children the plain listing prints the same bytes."""
     replies = {
         o.BOOT_ID: 'boot-id', o.UPTIME: 'uptime', o.FRAMEWORK_PID: 'framework-pid', 'cat /proc/957/stat': 'framework-stat',
-        o.FINGERPRINT: 'fingerprint', o.BOOT_COMPLETED: 'boot-completed', o.SUPPORTS_CHECKPOINT: 'vdc-supports-checkpoint',
-        o.NEEDS_CHECKPOINT: 'vdc-needs-checkpoint-none', o.FACTORY_DIGEST: 'digest-factory',
+        o.FINGERPRINT: 'fingerprint', o.BOOT_COMPLETED: 'boot-completed', o.SHELL_IDENTITY: 'shell-identity',
+        o.HELPER_DIGEST: 'checkpoint-helper-digest', o.CHECKPOINT_READ: 'checkpoint-read-committed',
+        o.FACTORY_DIGEST: 'digest-factory',
         o.FACTORY_VERSION: 'factory-version-list', o.ACTIVE_PATH: 'path-factory', o.ACTIVE_VERSION: 'version-uid-list',
         o.SYSTEMUI_PID: 'systemui-pid', 'cat /proc/1839/attr/current': 'systemui-context',
         'cat /proc/1839/status': 'systemui-status-1839', 'cat /proc/4721/status': 'systemui-status-4721',
@@ -38,6 +39,19 @@ def device(**changes):
         "sha256sum '%s'" % reply('path-data')[1][len('package:'):-1]: 'digest-data',
         o.LISTING: 'listing-failed-signer', o.INSTALLS: 'installs-finalized-failed'}
     replies = {command: reply(name) for command, name in replies.items()}
+    replies.update(changes)
+    return replies
+
+
+def guest(**changes):
+    """The checkpoint reader's replies, each one captured on one D3 guest in one boot and one
+    framework instance: system_server 937, started at tick 10829. Its two stat reads differ in their
+    counters only."""
+    replies = {o.BOOT_ID: reply('boot-id-3e3ad786'), o.UPTIME: reply('uptime-997'),
+               o.FRAMEWORK_PID: reply('framework-pid-937'),
+               'cat /proc/937/stat': [reply('framework-stat-937'), reply('framework-stat-937-later')],
+               o.SHELL_IDENTITY: reply('shell-identity'), o.HELPER_DIGEST: reply('checkpoint-helper-digest'),
+               o.CHECKPOINT_READ: reply('checkpoint-read-committed')}
     replies.update(changes)
     return replies
 
@@ -85,8 +99,9 @@ def fixture_facts():
     facts['factory-present'] = observe.factory()
     facts['active-factory'] = observe.active()
     facts['boot-booting'] = observer(device(**{o.BOOT_COMPLETED: reply('boot-not-completed')}))[0].boot()
-    pending = device(**{o.NEEDS_CHECKPOINT: reply('vdc-needs-checkpoint-pending')})
+    pending = device(**{o.CHECKPOINT_READ: reply('checkpoint-read-pending')})
     facts['checkpoint-pending'] = observer(pending)[0].checkpoint()
+    facts['checkpoint-guest'] = observer(guest())[0].checkpoint()
     facts['active-data'] = observer(device(**{o.ACTIVE_PATH: reply('path-data')}))[0].active()
     pairs = {'failed': ('listing-failed-signer', 'installs-finalized-failed'),
              'refused': ('listing-pair-mismatched', 'installs-finalized-historical'),
@@ -151,14 +166,15 @@ class DeviceFactTests(unittest.TestCase):
         self.assertEqual(booting.boot()['classification'], 'BOOTING')
 
     def test_checkpoint(self):
-        self.assertEqual(observer(device())[0].checkpoint()['classification'], 'COMMITTED')
-        pending = device(**{o.NEEDS_CHECKPOINT: reply('vdc-needs-checkpoint-pending')})
+        committed = observer(device())[0].checkpoint()
+        self.assertEqual((committed['classification'], committed['instance']), ('COMMITTED', 14229))
+        pending = device(**{o.CHECKPOINT_READ: reply('checkpoint-read-pending')})
         fact = observer(pending)[0].checkpoint()
         self.assertEqual((fact['kind'], fact['classification'], fact['component'], fact['facts']),
                          ('CHECKPOINT', 'PENDING', '', {}))
         decode_frame(o.encode(fact))
-        for changes in ({o.NEEDS_CHECKPOINT: reply('vdc-needs-checkpoint-failed')},
-                        {o.SUPPORTS_CHECKPOINT: (0, '', '')}, {o.NEEDS_CHECKPOINT: (2, '', '')}):
+        for changes in ({o.CHECKPOINT_READ: reply('checkpoint-read-unsupported')},
+                        {o.CHECKPOINT_READ: reply('checkpoint-read-call-failed')}, {o.CHECKPOINT_READ: (2, '', '')}):
             with self.subTest(changes=changes), self.assertRaises(o.Unclassified):
                 observer(device(**changes))[0].checkpoint()
 
@@ -328,6 +344,121 @@ class RemovalTests(unittest.TestCase):
                          [('LISTING', 'SESSIONS_FOR_PACKAGE'), ('SESSION', 'FAILED')])
 
 
+class CheckpointTests(unittest.TestCase):
+    """The checkpoint through the storage service, by the fixed helper, as the shell user."""
+
+    HELPER_RUN = [o.SHELL_IDENTITY, o.HELPER_DIGEST, o.CHECKPOINT_READ, o.SHELL_IDENTITY, o.HELPER_DIGEST]
+
+    def checkpoint(self, **changes):
+        observe, shell = observer(guest(**changes))
+        try:
+            return observe.checkpoint(), shell
+        except o.Unclassified:
+            return None, shell
+
+    def test_the_guests_own_reading_gives_committed(self):
+        fact, shell = self.checkpoint()
+        self.assertEqual((fact['kind'], fact['classification'], fact['component'], fact['facts']),
+                         ('CHECKPOINT', 'COMMITTED', '', {}))
+        self.assertEqual((fact['boot'], fact['instance'], fact['elapsed'], fact['user'], fact['serial'], fact['route']),
+                         ('3e3ad786b01f48a0afbacab2701946b8', 10829, 997260, -10000, -1, 'SHELL'))
+        self.assertEqual(shell.commands, [o.BOOT_ID, o.UPTIME, o.FRAMEWORK_PID, 'cat /proc/937/stat', *self.HELPER_RUN,
+                                          o.FRAMEWORK_PID, 'cat /proc/937/stat', o.BOOT_ID])
+        stats = iter([reply('framework-stat-937'), reply('framework-stat-937-later')])
+        replies = guest()
+        captures = [o.Capture(c, *(next(stats) if c == 'cat /proc/937/stat' else replies[c])) for c in shell.commands]
+        self.assertEqual(fact['raw'], o.raw_digest(captures))
+        decode_frame(o.encode(fact))
+
+    def test_pending_needs_support_and_a_pending_answer(self):
+        fact, shell = self.checkpoint(**{o.CHECKPOINT_READ: reply('checkpoint-read-pending')})
+        self.assertEqual((fact['classification'], fact['instance']), ('PENDING', 10829))
+        decode_frame(o.encode(fact))
+
+    def test_no_support_gives_no_fact(self):
+        unsupported = reply('checkpoint-read-unsupported')
+        both = (0, unsupported[1].replace('needs=false', 'needs=true'), '')
+        for value in (unsupported, both):
+            with self.subTest(value=value):
+                self.assertIsNone(self.checkpoint(**{o.CHECKPOINT_READ: value})[0])
+
+    def test_refusals_give_no_fact(self):
+        for name in ('checkpoint-read-call-failed', 'checkpoint-read-service-absent', 'checkpoint-read-lookup-failed',
+                     'checkpoint-read-arguments'):
+            with self.subTest(name=name):
+                self.assertIsNone(self.checkpoint(**{o.CHECKPOINT_READ: reply(name)})[0])
+        pending_refused = (5, 'andrix-checkpoint-read-v1\nsupports=error:java.lang.SecurityException\nneeds=true\n', '')
+        self.assertIsNone(self.checkpoint(**{o.CHECKPOINT_READ: pending_refused})[0])
+
+    def test_noisy_unknown_or_failed_reads_give_no_fact(self):
+        text = reply('checkpoint-read-committed')[1]
+        for value in ((0, text, 'WARNING: linker: unused DT entry\n'), (0, text + 'extra\n', ''), (0, 'noise\n' + text, ''),
+                      (0, text[:-1], ''), (0, text.replace('-v1', '-v2'), ''), (0, text.replace('\n', '\r\n'), ''),
+                      (1, text, ''), (5, text, ''), (0, reply('checkpoint-read-call-failed')[1], ''),
+                      (255, '', 'error: device offline\n'), (0, '', ''), (137, text[:20], ''),
+                      (1, '', 'Exception in thread "main" java.lang.ClassNotFoundException: CheckpointRead\n')):
+            with self.subTest(value=value):
+                self.assertIsNone(self.checkpoint(**{o.CHECKPOINT_READ: value})[0])
+
+    def test_an_incomplete_reply_gives_no_fact(self):
+        text = reply('checkpoint-read-committed')[1]
+        for value in ((None, text, ''), (False, text, ''), (0, text.encode(), ''), (0, text, None), (0, text),
+                      (0, text, '', ''), None):
+            with self.subTest(value=value):
+                self.assertIsNone(self.checkpoint(**{o.CHECKPOINT_READ: value})[0])
+        self.assertIsNone(self.checkpoint(**{o.SHELL_IDENTITY: None})[0])
+        self.assertIsNone(self.checkpoint(**{o.BOOT_ID: (0, reply('boot-id-3e3ad786')[1].encode(), '')})[0])
+
+    def test_the_helper_runs_only_as_the_shell_user_with_the_admitted_bytes(self):
+        identity, digest = reply('shell-identity')[1], reply('checkpoint-helper-digest')[1]
+        root = (0, 'uid=0(root) gid=0(root) groups=0(root),1004(input),1007(log) context=u:r:su:s0\n', '')
+        missing = (1, '', 'sha256sum: %s: No such file or directory\n' % o.CHECKPOINT_HELPER)
+        other = (0, '0' * 64 + digest[64:], '')
+        for changes in ({o.SHELL_IDENTITY: root}, {o.SHELL_IDENTITY: (0, identity.replace('u:r:shell:s0', 'u:r:adbd:s0'), '')},
+                        {o.SHELL_IDENTITY: (0, identity, 'warning\n')}, {o.SHELL_IDENTITY: (1, '', '')},
+                        {o.SHELL_IDENTITY: (0, 'uid=0(root) gid=0(root) groups=0(root)\n' + identity, '')},
+                        {o.HELPER_DIGEST: missing}, {o.HELPER_DIGEST: other}, {o.HELPER_DIGEST: (0, digest, 'warning\n')},
+                        {o.HELPER_DIGEST: (0, digest.replace('andrix-d3', 'andrix-d5'), '')}):
+            with self.subTest(changes=changes):
+                fact, shell = self.checkpoint(**changes)
+                self.assertIsNone(fact)
+                self.assertNotIn(o.CHECKPOINT_READ, shell.commands)
+        # The user or the bytes changed while the helper ran, or the helper went: it ran, but no fact.
+        gone = (1, '', 'Exception in thread "main" java.lang.ClassNotFoundException: CheckpointRead\n')
+        for changes in ({o.HELPER_DIGEST: [reply('checkpoint-helper-digest'), other]},
+                        {o.HELPER_DIGEST: [reply('checkpoint-helper-digest'), missing], o.CHECKPOINT_READ: gone},
+                        {o.SHELL_IDENTITY: [reply('shell-identity'), root]}):
+            with self.subTest(changes=changes):
+                fact, shell = self.checkpoint(**changes)
+                self.assertIsNone(fact)
+                self.assertEqual(shell.commands.count(o.CHECKPOINT_READ), 1)
+
+    def test_a_boot_or_framework_change_gives_no_fact(self):
+        later = (0, '2b1e0f9c-5d4a-4c3b-9a8f-7e6d5c4b3a29\n', '')
+        stat = reply('framework-stat-937')
+        restarted = (0, stat[1].replace(' 10829 ', ' 99999 '), '')
+        moved = {o.FRAMEWORK_PID: [reply('framework-pid-937'), (0, '958\n', '')],
+                 'cat /proc/958/stat': (0, stat[1].replace('937 (', '958 (', 1), '')}
+        for changes in ({o.BOOT_ID: [reply('boot-id-3e3ad786'), later]}, {'cat /proc/937/stat': [stat, restarted]}, moved,
+                        {o.FRAMEWORK_PID: [reply('framework-pid-937'), (1, '', '')]}):
+            with self.subTest(changes=list(changes)):
+                fact, shell = self.checkpoint(**changes)
+                self.assertIsNone(fact)
+                self.assertIn(o.CHECKPOINT_READ, shell.commands)
+        # Two stat reads of one instance differ in their counters, not in the start time.
+        self.assertNotEqual(reply('framework-stat-937'), reply('framework-stat-937-later'))
+        self.assertEqual(self.checkpoint()[0]['classification'], 'COMMITTED')
+
+    def test_no_property_vdc_or_other_program_is_read(self):
+        _, shell = self.checkpoint()
+        self.assertEqual([c for c in shell.commands if 'vdc' in c or c.startswith(('getprop', 'sm ', 'cmd '))], [])
+        for command in ('getprop vold.checkpoint_committed', 'vdc checkpoint needsCheckpoint',
+                        'vdc checkpoint supportsCheckpoint', 'sm supports-checkpoint', 'getprop ro.crypto.state'):
+            with self.subTest(command=command):
+                self.assertFalse(o.allowed(command))
+        self.assertEqual([c for c in o.ALLOWED if 'app_process' in c or 'CLASSPATH' in c], [o.CHECKPOINT_READ])
+
+
 class ClockTests(unittest.TestCase):
     def test_the_clock_reads_the_observation_scale(self):
         observe, shell = observer(device())
@@ -350,7 +481,7 @@ class RefusalTests(unittest.TestCase):
 
     def test_unknown_output_gives_no_fact(self):
         unknown = {o.FINGERPRINT: (0, 'garbage\n', ''), o.BOOT_COMPLETED: (0, 'yes\n', ''),
-                   o.NEEDS_CHECKPOINT: (0, 'x', ''), o.FACTORY_DIGEST: (0, 'x\n', ''),
+                   o.CHECKPOINT_READ: (0, 'x', ''), o.FACTORY_DIGEST: (0, 'x\n', ''),
                    o.FACTORY_VERSION: (0, 'package:com.android.systemui\n', ''), o.ACTIVE_PATH: (0, 'package:/tmp/x\n', ''),
                    o.ACTIVE_VERSION: (0, '', ''), o.SYSTEMUI_PID: (0, '1839\n1840\n', ''),
                    o.LISTING: (1, reply('listing-failed-signer')[1][:-2], ''),
@@ -397,13 +528,22 @@ WRITES = (
     'sha256sum /system_ext/priv-app/SystemUI/SystemUI.apk; reboot', 'cat /proc/1/stat > /data/x',
     "sha256sum '/data/app/~~EqvwNErLUKwVeZB_S0CLiA==/com.android.systemui-ilHNckf09AGTZ3jNQm-LEQ==/base.apk'; reboot",
     'pm list staged-sessions && reboot', 'dumpsys -t 25 package installs | sh', 'cat /proc/$(pidof x)/stat',
-    'pm list staged-sessions\nreboot', 'getprop ro.build.fingerprint `reboot`')
+    'pm list staged-sessions\nreboot', 'getprop ro.build.fingerprint `reboot`', 'sm start-checkpoint 2',
+    'sm unmount private:179,64', 'id; reboot', 'id\nreboot', 'su 0 id', 'run-as com.android.systemui id',
+    'CLASSPATH=/data/local/tmp/andrix-d3/andrix-checkpoint-read.jar app_process /system/bin CheckpointRead x',
+    'CLASSPATH=/data/local/tmp/other.jar app_process /system/bin CheckpointRead',
+    'CLASSPATH=/data/local/tmp/andrix-d3/andrix-checkpoint-read.jar app_process /system/bin Other',
+    'CLASSPATH=/system/framework/sm.jar app_process /system/bin com.android.commands.sm.Sm start-checkpoint 2',
+    'app_process /system/bin com.android.commands.sm.Sm start-checkpoint 2',
+    'CLASSPATH=/data/local/tmp/andrix-d3/andrix-checkpoint-read.jar app_process /system/bin CheckpointRead; reboot')
 WRITE_TOKENS = {'install', 'uninstall', 'abandon', 'commit', 'reboot', 'setprop', 'settings', 'put', 'rm', 'mv',
                 'write', 'start', 'stop', 'kill', 'clear', 'grant', 'revoke', 'commitChanges', 'abortChanges',
                 'startCheckpoint', 'markBootAttempt', 'restoreCheckpoint', 'restoreCheckpointPart',
                 'prepareCheckpoint', 'resetCheckpoint', 'compile', 'am', 'cmd', 'sh', 'su', 'dd', 'touch', 'mkdir'}
-READ_VERBS = ('cat /proc/', 'pidof ', 'pm list ', 'pm path ', 'dumpsys ', 'getprop ', 'sha256sum ',
-              'vdc checkpoint supportsCheckpoint', 'vdc checkpoint needsCheckpoint')
+READ_VERBS = ('cat /proc/', 'pidof ', 'pm list ', 'pm path ', 'dumpsys ', 'getprop ', 'sha256sum ')
+# Exact read forms that no verb covers: the shell's identity and the fixed checkpoint helper, whose
+# reviewed source asks only supportsCheckpoint() and needsCheckpoint().
+EXACT_READS = ('id', 'CLASSPATH=/data/local/tmp/andrix-d3/andrix-checkpoint-read.jar app_process /system/bin CheckpointRead')
 
 
 class UserAndHealthTests(unittest.TestCase):
@@ -572,9 +712,10 @@ class AllowlistTests(unittest.TestCase):
         literals = list(o.ALLOWED)
         self.assertEqual(len(literals), len(assigned[0].value.elts))
         patterns = [p.pattern for p in o.ALLOWED_PATTERNS]
+        self.assertLessEqual(set(EXACT_READS), set(literals))
         for form in literals + patterns:
             with self.subTest(form=form):
-                self.assertTrue(form.startswith(READ_VERBS), form)
+                self.assertTrue(form in EXACT_READS or form.startswith(READ_VERBS), form)
                 tokens = set(form.split(' '))
                 self.assertFalse(tokens & WRITE_TOKENS or any(t.startswith(('install-', '--install')) for t in tokens), form)
         for literal in literals:

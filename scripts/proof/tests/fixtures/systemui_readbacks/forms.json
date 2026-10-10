@@ -2,7 +2,7 @@
  "boot-completed": {
   "command": "getprop sys.boot_completed",
   "exit": 0,
-  "origin": "source",
+  "origin": "captured",
   "stderr": ""
  },
  "boot-id": {
@@ -11,8 +11,62 @@
   "origin": "captured",
   "stderr": ""
  },
+ "boot-id-3e3ad786": {
+  "command": "cat /proc/sys/kernel/random/boot_id",
+  "exit": 0,
+  "origin": "captured",
+  "stderr": ""
+ },
  "boot-not-completed": {
   "command": "getprop sys.boot_completed",
+  "exit": 0,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "checkpoint-helper-digest": {
+  "command": "sha256sum /data/local/tmp/andrix-d3/andrix-checkpoint-read.jar",
+  "exit": 0,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "checkpoint-read-arguments": {
+  "command": "CLASSPATH=/data/local/tmp/andrix-d3/andrix-checkpoint-read.jar app_process /system/bin CheckpointRead",
+  "exit": 2,
+  "origin": "source",
+  "stderr": ""
+ },
+ "checkpoint-read-call-failed": {
+  "command": "CLASSPATH=/data/local/tmp/andrix-d3/andrix-checkpoint-read.jar app_process /system/bin CheckpointRead",
+  "exit": 5,
+  "origin": "source",
+  "stderr": ""
+ },
+ "checkpoint-read-committed": {
+  "command": "CLASSPATH=/data/local/tmp/andrix-d3/andrix-checkpoint-read.jar app_process /system/bin CheckpointRead",
+  "exit": 0,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "checkpoint-read-lookup-failed": {
+  "command": "CLASSPATH=/data/local/tmp/andrix-d3/andrix-checkpoint-read.jar app_process /system/bin CheckpointRead",
+  "exit": 4,
+  "origin": "source",
+  "stderr": ""
+ },
+ "checkpoint-read-pending": {
+  "command": "CLASSPATH=/data/local/tmp/andrix-d3/andrix-checkpoint-read.jar app_process /system/bin CheckpointRead",
+  "exit": 0,
+  "origin": "source",
+  "stderr": ""
+ },
+ "checkpoint-read-service-absent": {
+  "command": "CLASSPATH=/data/local/tmp/andrix-d3/andrix-checkpoint-read.jar app_process /system/bin CheckpointRead",
+  "exit": 3,
+  "origin": "source",
+  "stderr": ""
+ },
+ "checkpoint-read-unsupported": {
+  "command": "CLASSPATH=/data/local/tmp/andrix-d3/andrix-checkpoint-read.jar app_process /system/bin CheckpointRead",
   "exit": 0,
   "origin": "source",
   "stderr": ""
@@ -32,7 +86,14 @@
  "factory-version-list": {
   "command": "pm list packages --user 0 --factory-only --show-versioncode com.android.systemui",
   "exit": 0,
+  "guest": "form",
   "origin": "source",
+  "stderr": ""
+ },
+ "factory-version-list-systemui-first": {
+  "command": "pm list packages --user 0 --factory-only --show-versioncode com.android.systemui",
+  "exit": 0,
+  "origin": "captured",
   "stderr": ""
  },
  "fingerprint": {
@@ -47,8 +108,26 @@
   "origin": "captured",
   "stderr": ""
  },
+ "framework-pid-937": {
+  "command": "pidof system_server",
+  "exit": 0,
+  "origin": "captured",
+  "stderr": ""
+ },
  "framework-stat": {
   "command": "cat /proc/957/stat",
+  "exit": 0,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "framework-stat-937": {
+  "command": "cat /proc/937/stat",
+  "exit": 0,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "framework-stat-937-later": {
+  "command": "cat /proc/937/stat",
   "exit": 0,
   "origin": "captured",
   "stderr": ""
@@ -62,6 +141,7 @@
  "installs-active-referrer": {
   "command": "dumpsys -t 25 package installs",
   "exit": 0,
+  "guest": "form",
   "origin": "source",
   "stderr": ""
  },
@@ -92,12 +172,14 @@
  "installs-foreign-records": {
   "command": "dumpsys -t 25 package installs",
   "exit": 0,
+  "guest": "partial",
   "origin": "source",
   "stderr": ""
  },
  "installs-historical-outcomes": {
   "command": "dumpsys -t 25 package installs",
   "exit": 0,
+  "guest": "partial",
   "origin": "source",
   "stderr": ""
  },
@@ -122,6 +204,7 @@
  "installs-unknown-package": {
   "command": "dumpsys -t 25 package installs",
   "exit": 0,
+  "guest": "form",
   "origin": "source",
   "stderr": ""
  },
@@ -164,6 +247,7 @@
  "listing-plain-children": {
   "command": "pm list staged-sessions",
   "exit": 1,
+  "guest": "partial",
   "origin": "source",
   "stderr": ""
  },
@@ -199,6 +283,24 @@
  },
  "reply-create-staged": {
   "command": "pm install-create --user 0 -r --pkg com.android.systemui --staged",
+  "exit": 0,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "shell-identity": {
+  "command": "id",
+  "exit": 0,
+  "origin": "captured",
+  "stderr": ""
+ },
+ "sm-supports-checkpoint-false": {
+  "command": "sm supports-checkpoint",
+  "exit": 0,
+  "origin": "source",
+  "stderr": ""
+ },
+ "sm-supports-checkpoint-true": {
+  "command": "sm supports-checkpoint",
   "exit": 0,
   "origin": "captured",
   "stderr": ""
@@ -248,7 +350,14 @@
  "uptime": {
   "command": "cat /proc/uptime",
   "exit": 0,
+  "guest": "form",
   "origin": "source",
+  "stderr": ""
+ },
+ "uptime-997": {
+  "command": "cat /proc/uptime",
+  "exit": 0,
+  "origin": "captured",
   "stderr": ""
  },
  "users-two": {
@@ -262,6 +371,12 @@
   "exit": 25,
   "origin": "source",
   "stderr": "Command: checkpoint needsCheckpoint Failed: Status(-1, EX_SECURITY)\n"
+ },
+ "vdc-needs-checkpoint-inaccessible": {
+  "command": "vdc checkpoint needsCheckpoint",
+  "exit": 127,
+  "origin": "captured",
+  "stderr": "/system/bin/sh: vdc: inaccessible or not found\n"
  },
  "vdc-needs-checkpoint-none": {
   "command": "vdc checkpoint needsCheckpoint",
@@ -284,7 +399,14 @@
  "version-uid-list": {
   "command": "pm list packages --user 0 --show-versioncode -U com.android.systemui",
   "exit": 0,
+  "guest": "form",
   "origin": "source",
+  "stderr": ""
+ },
+ "version-uid-list-systemui-first": {
+  "command": "pm list packages --user 0 --show-versioncode -U com.android.systemui",
+  "exit": 0,
+  "origin": "captured",
   "stderr": ""
  }
 }
