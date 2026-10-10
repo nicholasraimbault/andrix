@@ -335,14 +335,21 @@ exits 0 to pass and 1 to refuse, like the other Pixel checkers (`scripts/pixel/R
    `system/sepolicy`, and a witness table, `scripts/pixel/neverallow_witnesses.json`.
 5. Host tools pinned by SHA-256, as `scripts/pixel/install_zip.py:47-55` pins its own:
    `sepolicy-analyze`, `secilc` and `checkpolicy` from the build's host output, and `debugfs`,
-   `simg2img` and `lpunpack`.
+   `simg2img` and `lpunpack`. The pins follow the base tag. Each tag has one reviewed set of
+   digests for `sepolicy-analyze`, `secilc` and `checkpolicy`, added in the pin review that a new
+   tag already needs (`scripts/proof/grapheneos_source.md:30`). The tool reads the base tag from the
+   image's signed `com.andrix.build.base_tag` property and refuses a tag without a set. The release
+   wrapper confirms that the build's own host tools hash to that set. The 2026081300 set serves
+   only the stage 1 corpus.
 
 **Steps.**
 
 - **A. The policy the phone loads.** The vendor image carries a precompiled policy, and no image
   carries `/odm/etc/selinux/precompiled_sepolicy`, which init would prefer. The three hash pairs are
   equal and not empty. Each hash is computed again from its CIL file and mapping file and must
-  equal both copies. An image that carries `userdebug_plat_sepolicy.cil` is refused. On an unlocked
+  equal both copies. The mapping file is the one the vendor's version file names, which init loads.
+  The build hashes the `current` mapping (`system/sepolicy/Android.bp:382-390`), so a vendor
+  version that differs refuses, which fails closed. An image that carries `userdebug_plat_sepolicy.cil` is refused. On an unlocked
   phone booted with a debug ramdisk, init uses that file and compiles the policy instead of loading
   this binary (`system/core/init/selinux.cpp:205-222`, `:239-249`). The flash script check of
   rule 6 already keeps debug boot images off the phone.
@@ -351,7 +358,11 @@ exits 0 to pass and 1 to refuse, like the other Pixel checkers (`scripts/pixel/R
   (`patches/grapheneos-2026081300/owner-session-policy.patch:8-11`), and the third only when the
   owner policy directory is included (`owner/sepolicy/andrix_terminal.te:3`).
 - **C. Andrix rules in expanded form.** The sources are every Andrix policy directory the product
-  adds and every Andrix patch to `system/sepolicy`, not a fixed list. Each witness table entry holds
+  adds, derived from `board/owner-policy.mk`, and every Andrix patch to `system/sepolicy` for the
+  base tag, not a fixed list. For a patch, the text at a line is the text after its leading `+`. A
+  hunk that removes a `neverallow` line or adds an exclusion inside one refuses unless the witness
+  table records it, as it records the two narrowings of the bridge patch. The expanded rule file's
+  digest must equal the one in the release record. Each witness table entry holds
   the source file and line, the literal rule, its expected expansion and its witness. The tool
   requires three things. The literal text at that line in the built commit equals the entry. Every
   literal `neverallow` in those sources has exactly one entry. The expected expansion appears in the
@@ -361,13 +372,18 @@ exits 0 to pass and 1 to refuse, like the other Pixel checkers (`scripts/pixel/R
   (`system/sepolicy/public/te_macros:583`) occur.
 - **D. Andrix rules on the loaded policy.** `sepolicy-analyze <precompiled_sepolicy> neverallow -w
   -f <the 28 rules>`. It passes only with exit status 0, no violation line and nothing at all on
-  standard error. Warnings and violations both go to standard error, so this catches both.
+  standard error. Warnings and violations both go to standard error, so this catches both. With
+  `-w` the tool also prints "Empty class set" and "Empty permission set" there
+  (`system/sepolicy/tools/sepolicy-analyze/neverallow.c:268`, `:361`), and both fail D.
 - **E. Mutants, and a control tied to the loaded policy.** The policy is compiled again from the CIL
   files of step A with init's arguments (`system/core/init/selinux.cpp:350-392`):
-  `secilc <plat_sepolicy.cil> -m -M true -G -N -v -c 30 <mapping>` and the compat, system_ext,
-  product, `plat_pub_versioned`, vendor and genfs files, with the system_ext and product mapping
-  files. First the control. The recompiled binary and the loaded `precompiled_sepolicy` are both
-  decompiled with `checkpolicy -b -C`, and the two outputs must be equal. Only then does the control
+  `secilc <plat_sepolicy.cil> -m -M true -G -N -v -c 30 <mapping>` and the other files in init's
+  order: the platform compat file, system_ext with its mapping and compat file, product with its
+  mapping, `plat_pub_versioned`, vendor, `odm_sepolicy.cil` and genfs, each optional file only when
+  present (`system/core/init/selinux.cpp:298-302`, `:327-330`, `:371-388`). First the control. The
+  recompiled binary and the loaded `precompiled_sepolicy` are both decompiled with
+  `checkpolicy -M -b -C`, because the policy is MLS
+  (`external/selinux/checkpolicy/checkpolicy.c:592-597`), and the two outputs must be equal. Only then does the control
   stand for the policy the phone loads. The control must pass all 28 rules. Then, for each rule, one
   more CIL file holding that rule's witness `allow` statement is added. Each mutant must fail its
   own rule checked alone with `-n`, and the whole set. A witness that does not compile, or a mutant
@@ -381,16 +397,23 @@ exits 0 to pass and 1 to refuse, like the other Pixel checkers (`scripts/pixel/R
   official policy about names that only the Andrix policy defines are expected and do not count.
   On the official policy the exclusions of `andrix_owner` drop silently, which is correct there
   (`system/sepolicy/tools/sepolicy-analyze/neverallow.c:115-118`). A rule that loses a name on both
-  policies is listed in the report, so its weaker coverage stays visible.
+  policies is listed in the report, so its weaker coverage stays visible. A warning names the
+  undefined name, not the rule. Comparing warning lines by count decides as a comparison by rule
+  would, because both runs read the same rule file and a name undefined only in the Andrix policy
+  always adds lines. The report lists the rules that name each warned name. The official policy is
+  read through the verified way back kit, and its hash pairs are checked as in step A.
 - **G. Extended permission rules, an addition to the plan's parts.** `secilc` runs without `-N` over
   the same CIL set, with the build's own check flags
   (`system/sepolicy/build/soong/policy.go:432-447`). It checks every `neverallow` and `neverallowx`
   statement the CIL files carry. The vendor file carries the five vendor `neverallowx` rules, as
   shown above. Inference: the platform files carry their statements too, since init passes `-N` to
-  skip them (`system/core/init/selinux.cpp:353`). The comparison unit is one violated rule with its
-  offending allow rules, normalized without file names and line positions, because the bridge patch
-  shifts lines in `system/sepolicy/private/domain.te`. The run's units are compared with the same
-  run on the official release, and a new unit fails the gate. This covers the `create_pty` rule for
+  skip them (`system/core/init/selinux.cpp:353`). The comparison unit is one violated rule and one
+  offending rule. Each generated attribute name in either is replaced by its `typeattributeset`
+  expression from the same run's CIL files, resolved recursively, and a name that cannot be resolved
+  refuses. File names and line positions are dropped, because the bridge patch shifts lines in
+  `system/sepolicy/private/domain.te`. The run's pairs are compared with the same run on the
+  official release, and a pair that only the Andrix run shows fails the gate. G cannot see a change
+  in the members of a named attribute, such as Andrix domains in `domain`. This covers the `create_pty` rule for
   the Andrix terminal types and the five vendor `neverallowx` rules, which step D cannot see.
 
 **Witness table.** Each witness is one CIL `allow` inside the rule. It was chosen so that it does
@@ -458,19 +481,35 @@ witness avoids rule 8. Rule 10's and rule 19's avoid rule 26, because `no_x_file
   module generated at stage 6 among those that already hold it, or the mutant adds that `allow` with
   the witness.
 
-Stage 1 corpus. Before a caiman build exists, the tool can run on the Andrix Cuttlefish product
-policy built from the pinned tree with the owner session and lifecycle on. Its Andrix rules are the
-same. Inference: nothing sets the flag for that product, so its build checked neverallows, which
-makes it a real positive control and its mutants real negative controls. It needs
-`sepolicy-analyze`, `secilc` and `checkpolicy` from that tree's host output. If they are not there,
-this waits for the build slot.
+Stage 1 corpus. Before a caiman build exists, the tool runs in a separate corpus mode on the
+sealed image of the Andrix Cuttlefish product, built from the pinned tree with the owner session and
+lifecycle on. Its Andrix rules are the same, and its build checked neverallows. Corpus mode can
+never pass the gate. Its only verdicts are CORPUS and REFUSE, and it never exits 0. It departs from
+the gate only where the corpus is not a caiman image:
+
+- It reads the precompiled policy that init would load, from odm before vendor
+  (`system/core/init/selinux.cpp:141-147`), and records a `userdebug_plat_sepolicy.cil` instead of
+  refusing it.
+- Step C checks the `user` expansions against the expanded rule file, and the variant's expansions
+  against the witness table.
+- Step D runs the variant's rules, which must pass. For a `userdebug` corpus it also runs the `user`
+  rules, which must fail with exactly `allow overlay_remounter andrix_owner_entry:file { execute };`.
+- Step G runs on the corpus files alone and must report no violated rule. Step F does not run,
+  because no official policy exists for this product.
+
+The hash pairs of step A, and steps B and E, run as in the gate. A corpus run shows that the tool
+works on a real policy. It shows nothing about a caiman build, and the gate that a caiman build
+must pass does not change. The images are EROFS, so they are read with `fsck.erofs`, not
+`debugfs`.
 
 ### Unverified until a caiman build
 
 - That the expanded rule file is built and contains the 28 expected expansions.
 - That the recompiled control passes and its decompiled text equals the loaded policy's byte for
   byte. If the two differ only in the order of statements, that is a review finding, not a pass.
-- That the installed platform CIL files carry their neverallow statements.
+- That the installed platform CIL files carry their neverallow statements. On the Cuttlefish
+  corpus they do, and its recompiled control is byte for byte the loaded policy. Neither says
+  anything yet about caiman.
 - Which AOSP rules the extracted vendor policy breaks. The first run on the official release lists
   them.
 
