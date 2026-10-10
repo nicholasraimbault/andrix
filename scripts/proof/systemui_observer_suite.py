@@ -83,6 +83,12 @@ MUTANTS = {
     'parser-imports-subprocess': (SESSIONS, 'def prefix_package(logical):',
                                   'def _helper(command):\n    import subprocess\n    return subprocess.run(command)\n\n\n'
                                   'def prefix_package(logical):', ('observer',)),
+    'run-bound-to-another-name': (OBSERVER, '    def read(self, command):',
+                                  '    def _direct(self, command):\n        runner = self._run\n'
+                                  '        return runner(command)\n\n    def read(self, command):', ('observer',)),
+    'run-mapped-over-commands': (OBSERVER, '    def read(self, command):',
+                                 '    def _all(self, commands):\n        return list(map(self._run, commands))\n\n'
+                                 '    def read(self, command):', ('observer',)),
 }
 DECODE = '''package dev.andrix.server.deployment;
 

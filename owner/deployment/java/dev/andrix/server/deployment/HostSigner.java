@@ -127,6 +127,55 @@ public final class HostSigner {
         }
     }
 
+    /** A verification in which every check fails. */
+    public static final Verification FAILED = new Verification(false, false, false, List.of());
+
+    /** A verifier's check that reads the v4 sidecar from a file, as apksig's verifier does. */
+    public interface SidecarCheck {
+        Verification check(Path sidecar) throws Exception;
+    }
+
+    /**
+     * Runs a check that reads the v4 sidecar from a scratch copy while the APK stays in memory, so
+     * only the sidecar touches the disk. The copy is written and read back first, and deleted after.
+     * A check that throws may have met a malformed sidecar, which apksig's reader refuses with
+     * IOException as it does a disk error, so the copy is read again. When it cannot be read, or reads
+     * other bytes than were written, the disk failed: that proves nothing about the outputs, and this
+     * throws UncheckedIOException. When it reads back exactly, the check failed on these bytes.
+     */
+    public static Verification withSidecar(Path copy, byte[] idsig, SidecarCheck check) {
+        try {
+            try {
+                Files.write(copy, idsig);
+                if (!Arrays.equals(Files.readAllBytes(copy), idsig)) {
+                    throw new IOException("the sidecar's scratch copy reads back other bytes");
+                }
+            } catch (IOException unwritten) {
+                throw new UncheckedIOException(unwritten);
+            }
+            try {
+                return check.check(copy);
+            } catch (Exception failed) {
+                byte[] again;
+                try {
+                    again = Files.readAllBytes(copy);
+                } catch (IOException unreadable) {
+                    throw new UncheckedIOException(unreadable); // The disk failed under the check.
+                }
+                if (!Arrays.equals(again, idsig)) {
+                    throw new UncheckedIOException(new IOException("the sidecar's scratch copy changed"));
+                }
+                return FAILED; // The same bytes: the check itself failed.
+            }
+        } finally {
+            try {
+                Files.deleteIfExists(copy);
+            } catch (IOException ignored) {
+                // Scratch only: the next copy replaces it.
+            }
+        }
+    }
+
     /** The answer to a signing call or a read by transaction ID. */
     public static final class Reply {
         public final Transaction record;

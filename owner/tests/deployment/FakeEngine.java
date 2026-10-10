@@ -7,6 +7,9 @@ import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.security.GeneralSecurityException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -31,6 +34,11 @@ import java.util.zip.ZipInputStream;
  * discards the operations' results and signs with the key itself, one that names another
  * certificate for a scheme, and one that signs other bytes than its input. Its verifier can also
  * fail with an I/O error, as apksig's engine does when it cannot write its scratch files.
+ *
+ * <p>Given a scratch directory, its verifier reads the sidecar from a copy there through
+ * {@link HostSigner#withSidecar}, as apksig's engine does. Like apksig's v4 reader, it throws
+ * IOException for a sidecar of another version. Faults can remove or change that copy under the
+ * check, as a failing disk would.
  */
 final class FakeEngine implements HostSigner.Engine {
     static final int V2_BLOCK = 0x7109871a;
@@ -55,6 +63,14 @@ final class FakeEngine implements HostSigner.Engine {
     byte[] substitute;
     /** The number of coming verifications that fail with an I/O error before they check anything. */
     int ioErrors;
+    /** Where the verifier keeps its copy of the sidecar, or null to check it in memory. */
+    Path work;
+    /** Signs sidecars of another version, which the verifier refuses by throwing. */
+    boolean otherVersion;
+    /** The number of coming verifications whose sidecar copy is removed under the check. */
+    int sidecarLost;
+    /** The number of coming verifications whose sidecar copy changes under the check. */
+    int sidecarChanged;
 
     FakeEngine(String certificate) { this.certificate = certificate; }
 
@@ -78,7 +94,7 @@ final class FakeEngine implements HostSigner.Engine {
         String v4Data = "v4 " + DeploymentRecords.sha256Hex(apk);
         byte[] v4 = operation(keys, bytes(prefix + v4Data));
         for (int i = 0; i < extraOperations; i++) operation(keys, bytes("extra " + i));
-        byte[] idsig = concat(bytes("idsig"), value(2, v4Data, breakV4 ? new byte[32] : v4));
+        byte[] idsig = concat(bytes(otherVersion ? "IDSIG" : "idsig"), value(2, v4Data, breakV4 ? new byte[32] : v4));
         return new HostSigner.Signed(apk, idsig);
     }
 
@@ -106,12 +122,37 @@ final class FakeEngine implements HostSigner.Engine {
             ioErrors--;
             throw new UncheckedIOException(new IOException("the scratch files cannot be written"));
         }
+        if (work == null) {
+            try {
+                return check(apk, idsig);
+            } catch (IOException refused) {
+                return HostSigner.FAILED;
+            }
+        }
+        return HostSigner.withSidecar(work.resolve("verify.apk.idsig"), idsig, copy -> {
+            if (sidecarLost > 0) {
+                sidecarLost--;
+                Files.delete(copy);
+            }
+            if (sidecarChanged > 0) {
+                sidecarChanged--;
+                Files.write(copy, bytes("IDSIG"), StandardOpenOption.TRUNCATE_EXISTING);
+            }
+            return check(apk, Files.readAllBytes(copy));
+        });
+    }
+
+    // The checks of one APK and its sidecar. A sidecar of another version throws, as apksig's reader
+    // does with "Invalid signature version.".
+    private HostSigner.Verification check(byte[] apk, byte[] idsig) throws IOException {
+        byte[] prefix = bytes("idsig");
+        if (idsig.length < prefix.length || !Arrays.equals(Arrays.copyOf(idsig, prefix.length), prefix)) {
+            throw new IOException("Invalid signature version.");
+        }
         try {
             Map<Integer, byte[]> block = parseBlock(ApkEntries.signingBlock(apk));
             String entries = ApkEntries.digest(apk);
-            byte[] prefix = bytes("idsig");
-            if (!block.containsKey(V2_BLOCK) || !block.containsKey(V3_BLOCK) || idsig.length < prefix.length
-                    || !Arrays.equals(Arrays.copyOf(idsig, prefix.length), prefix)) {
+            if (!block.containsKey(V2_BLOCK) || !block.containsKey(V3_BLOCK)) {
                 return new HostSigner.Verification(false, false, false, List.of());
             }
             byte[][] s2 = fields(block.get(V2_BLOCK));

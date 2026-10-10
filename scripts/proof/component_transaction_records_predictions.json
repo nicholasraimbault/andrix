@@ -1,25 +1,25 @@
 {
-  "status": "PREDICTED for D1 with the layout changes of D2, and for D2's artifact store, host signer and bundle builder: one signing transaction of six key operations under the captive callback, written OPEN before the first operation and resolved by its ID, never by signing again; every output verified against the platform role before it is staged; both bundles published together or neither; and the restoration plan's publication of the published restoration. Earlier: the plan names only facts known before signing, and a bundle fact carries the APK digests its publication binds. A plan that signs nothing publishes only decision 3's restoration, and a missing or disagreeing publication read holds with the alert while a recorded cause still abandons a live session. Hardened: a plan that signs nothing publishes only in the variant role, a staging error gives no fact, a request without a record is recorded under its own grant, the signer latches a refusal that an engine swallows, and the input entry digest folds only ASCII letters and refuses a name past the end as invalid. Then: the engine signs each input without its signing block and each key operation's result must appear in the outputs; more or fewer than three key operations for an APK keep nothing; every signer of every scheme, the entries, the plan's own input bytes and the facts of their binary manifests are checked; an unreadable retained output gives no fact; and the builder reads the publication after SIGNED, so a whole coordinator run ends PUBLISHED. Later: after PUBLISHED, a read of the plan's publication that names other bytes, or finds it absent for an attempt that read it published, holds the ticket with the alert while a recorded cause still abandons a live session, and an I/O error of the verifier gives no fact, so the ticket waits and reads again. Written before any run of the new cases and mutants. Nothing here is a guarded or mutant result.",
+  "status": "PREDICTED for D1 with the layout changes of D2, and for D2's artifact store, host signer and bundle builder: one signing transaction of six key operations under the captive callback, written OPEN before the first operation and resolved by its ID, never by signing again; every output verified against the platform role before it is staged; both bundles published together or neither; and the restoration plan's publication of the published restoration. Earlier: the plan names only facts known before signing, and a bundle fact carries the APK digests its publication binds. A plan that signs nothing publishes only decision 3's restoration, and a missing or disagreeing publication read holds with the alert while a recorded cause still abandons a live session. Hardened: a plan that signs nothing publishes only in the variant role, a staging error gives no fact, a request without a record is recorded under its own grant, the signer latches a refusal that an engine swallows, and the input entry digest folds only ASCII letters and refuses a name past the end as invalid. Then: the engine signs each input without its signing block and each key operation's result must appear in the outputs; more or fewer than three key operations for an APK keep nothing; every signer of every scheme, the entries, the plan's own input bytes and the facts of their binary manifests are checked; an unreadable retained output gives no fact; and the builder reads the publication after SIGNED, so a whole coordinator run ends PUBLISHED. Later: after PUBLISHED, a read of the plan's publication that names other bytes, or finds it absent for an attempt that read it published, holds the ticket with the alert while a recorded cause still abandons a live session, and an I/O error of the verifier gives no fact, so the ticket waits and reads again. Now: those two reads of one attempt hold the ticket whichever was recorded first, and a round of a terminal ticket makes no host read, so a closed ticket never records a read that holds the open ticket of its plan. The apksig engine verifies the APK from memory, and when a check throws, a sidecar copy that cannot be read again or reads other bytes is an I/O failure, while one that reads back the same is a check that fails. Written before any run of the new cases and mutants. Nothing here is a guarded or mutant result.",
   "plan": "plans/2026-10-09-component-transaction.md",
   "package": "D1: the deployment records, their codec, the ticket state machine, reconciliation and host storage. D2: the bundle manifest, the publication record, the artifact store, the signing transaction record, the host signer and the bundle builder",
   "basis": "Each count is the length of the runner's case lists. Each golden is the independent encoder's bytes. Each mutant's catches are traced against the cases that reach the changed rule; a defect that another rule also refuses names only the cases that reach it.",
   "cases": {
     "codec": 52,
-    "machine": 71,
+    "machine": 72,
     "store": 14,
     "transactions": 44,
     "artifacts": 22,
-    "signing": 26,
+    "signing": 29,
     "goldens": 23,
     "artifact_goldens": 6,
-    "mutants": 112
+    "mutants": 116
   },
   "guarded_run": {
-    "cases_passed": 229,
+    "cases_passed": 233,
     "cases_failed": 0,
     "goldens_equal_to_the_encoder": 23,
     "artifact_goldens_equal_to_the_encoder": 6,
-    "mutants_caught": 112,
+    "mutants_caught": 116,
     "status": "PASS"
   },
   "goldens": {
@@ -545,8 +545,20 @@
     "later-absent-read-ignored": [
       "publish / a later read of other bytes, or of none after a published read, holds with the alert"
     ],
+    "later-absent-read-order-sensitive": [
+      "publish / an absent read recorded before a published read of the same attempt holds with the alert"
+    ],
+    "coordinator-terminal-host-read": [
+      "builder / a round of a closed ticket reads nothing after another ticket of its plan published"
+    ],
     "builder-verifier-io-error-final": [
       "builder / an I/O error of the verifier gives no fact, and a later read verifies the same outputs"
+    ],
+    "verifier-sidecar-not-read-again": [
+      "builder / a sidecar copy lost or changed under a check that throws gives no fact, and a later read verifies"
+    ],
+    "verifier-check-failure-read-as-io": [
+      "builder / a sidecar that a check refuses by throwing, read back the same, reads CANNOT_COMPLETE"
     ]
   }
 }

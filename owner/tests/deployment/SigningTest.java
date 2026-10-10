@@ -98,6 +98,7 @@ public final class SigningTest {
                 throws IOException {
             this.root = root;
             engine = new FakeEngine(engineCertificate);
+            engine.work = Files.createDirectories(root.resolve("engine"));
             signer = new HostSigner(root.resolve("signer"), Fixtures.INSTALLATION, engine, FakeEngine.key(keyName),
                     (t, operation) -> {
                         asked.add(operation);
@@ -260,6 +261,45 @@ public final class SigningTest {
                     && settle(run.c, run.store, run.first.ticketId, 10, null).state == State.CANCELLED,
                     damage + ": the hold has no exit");
         }
+    }
+
+    // A ticket whose two attempts read the publication absent is cancelled, and a second ticket of the
+    // plan, under its own SIGN grant, publishes. A round of the closed ticket then reads nothing from
+    // the host: a read naming its last attempt would find the second ticket's publication, and an
+    // attempt that read both absent and published holds the open ticket with the alert.
+    static void closed(Path base, List<String> problems) throws Exception {
+        int[] stops = {0};
+        Host h = host(base, ROLE, ROLE, ROLE, at -> {
+            if (at.equals("bundles-synced") && stops[0]++ < 2) throw new IOException("stopped");
+        });
+        Run run = new Run(h, problems);
+        Ticket held = settle(run.c, run.store, run.first.ticketId, 40, null);
+        check(problems, held.state == State.SIGNED && held.count(Crossing.PUBLISH) == 2
+                && held.flag(DeploymentRecords.FLAG_REQUEST_LIMIT) && stops[0] == 2
+                && h.store.planPublication(run.pair.planId) == Presence.ABSENT,
+                "the first ticket ended " + held.state + " flags " + held.flags);
+        check(problems, run.c.cancel(run.first.ticketId)
+                && settle(run.c, run.store, run.first.ticketId, 10, null).state == State.CANCELLED,
+                "the first ticket not cancelled");
+        Ticket second = Fixtures.ticket(2, run.pair).attempt(2).build();
+        check(problems, run.store.addAuthorization(grant(run.pair, 2, 3)) && run.store.createTicket(second),
+                "the second ticket");
+        Ticket published = settle(run.c, run.store, second.ticketId, 40, null);
+        check(problems, published.state == State.PUBLISHED && published.flags == 0
+                && h.store.planPublication(run.pair.planId) == Presence.PUBLISHED,
+                "the second ticket ended " + published.state + " flags " + published.flags);
+        Ticket closed = run.store.ticket(run.first.ticketId).value;
+        long hostFacts = hostFacts(run.store);
+        Reconciler.Step round = run.c.round(run.first.ticketId);
+        check(problems, round.ticket.equals(closed) && round.issue == null && hostFacts(run.store) == hostFacts,
+                "the closed ticket's round read the host: " + round);
+        Ticket open = settle(run.c, run.store, second.ticketId, 10, null);
+        check(problems, open.state == State.PUBLISHED && open.flags == 0,
+                "the open ticket ended " + open.state + " flags " + open.flags);
+    }
+
+    static long hostFacts(DeploymentStore store) {
+        return store.observations().values.stream().filter(o -> o.route == DeploymentRecords.Route.HOST).count();
     }
 
     // Rounds until a round changes nothing and issues nothing, or the ticket reaches the state.
@@ -546,6 +586,58 @@ public final class SigningTest {
             check(problems, later.size() == 1 && later.get(0).classification == Classification.SIGN_COMPLETED
                     && stagingDirs(h.root.resolve("store")) == 2 && h.signer.operations() == 6, "later " + later);
         });
+        cases.run("builder / a sidecar copy lost or changed under a check that throws gives no fact, and a later read verifies",
+                problems -> {
+            for (String fault : List.of("lost", "changed")) {
+                Host h = host(base);
+                Transaction open = h.builder.open(plan, both, TX);
+                HostSigner.Reply reply = h.signer.sign(open, Map.of(Role.VARIANT, VARIANT_INPUT, Role.RESTORATION,
+                        RESTORATION_INPUT));
+                check(problems, reply != null && h.read(TX) != null && h.read(TX).state == TransactionState.COMPLETED,
+                        fault + ": signed");
+                // The disk fails under apksig's own read of the sidecar, which throws as for a bad file.
+                if (fault.equals("lost")) {
+                    h.engine.sidecarLost = 1;
+                } else {
+                    h.engine.sidecarChanged = 1;
+                }
+                List<Observation> read = h.builder.query(ticket(plan, State.SIGNING, sign), plan, List.of(both));
+                check(problems, read.isEmpty() && h.read(TX).state == TransactionState.COMPLETED
+                        && stagingDirs(h.root.resolve("store")) == 0, fault + ": a disk error under the check gave " + read);
+                List<Observation> later = h.builder.query(ticket(plan, State.SIGNING, sign), plan, List.of(both));
+                check(problems, later.size() == 1 && later.get(0).classification == Classification.SIGN_COMPLETED
+                        && stagingDirs(h.root.resolve("store")) == 2 && h.signer.operations() == 6,
+                        fault + ": later " + later);
+            }
+            // The copy cannot even be written: an I/O failure before any check.
+            Path missing = base.resolve("no-such-directory").resolve("verify.apk.idsig");
+            String thrown = "nothing";
+            try {
+                HostSigner.withSidecar(missing, new byte[] {1}, copy -> HostSigner.FAILED);
+            } catch (java.io.UncheckedIOException expected) {
+                thrown = "I/O";
+            }
+            check(problems, thrown.equals("I/O"), "an unwritable copy gave " + thrown);
+        });
+        cases.run("builder / a sidecar that a check refuses by throwing, read back the same, reads CANNOT_COMPLETE",
+                problems -> {
+            Host h = host(base);
+            h.engine.otherVersion = true;
+            Observation fact = h.builder.sign(ticket(plan, State.SIGNING, sign), plan, sign, both);
+            check(problems, fact != null && fact.classification == Classification.SIGN_CANNOT_COMPLETE
+                    && h.signer.operations() == 6 && stagingDirs(h.root.resolve("store")) == 0,
+                    "a sidecar of another version " + fact);
+            List<Observation> again = h.builder.query(ticket(plan, State.SIGNING, sign), plan, List.of(both));
+            check(problems, again.size() == 1 && again.get(0).classification == Classification.SIGN_CANNOT_COMPLETE,
+                    "read again " + again);
+            // The helper alone: a check that throws over a copy that reads back the same fails, and the
+            // copy is gone afterwards.
+            Path copy = h.root.resolve("engine").resolve("verify.apk.idsig");
+            HostSigner.Verification refused = HostSigner.withSidecar(copy, new byte[] {1, 2}, c -> {
+                throw new IOException("Invalid signature version.");
+            });
+            check(problems, refused == HostSigner.FAILED && !Files.exists(copy), "a refused sidecar");
+        });
         cases.run("builder / a request without a record is recorded with the role and input of its own grant",
                 problems -> {
             Host h = host(base);
@@ -750,6 +842,8 @@ public final class SigningTest {
                 problems -> whole(base, problems));
         cases.run("builder / a later read of the publication, damaged or gone, holds the ticket with the alert",
                 problems -> later(base, problems));
+        cases.run("builder / a round of a closed ticket reads nothing after another ticket of its plan published",
+                problems -> closed(base, problems));
         cases.finish("Host signer and bundle builder checks passed");
     }
 }

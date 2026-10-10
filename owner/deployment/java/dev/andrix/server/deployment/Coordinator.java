@@ -35,6 +35,10 @@ import java.util.Objects;
  * moved and the ticket one step behind, and the reconciler reads that move as the plan's own. The
  * reconciler also computes an owed move again at APPLIED and in the health window.
  *
+ * <p>A round on a terminal ticket reads nothing from the host and takes no step, so it writes no
+ * ticket and issues nothing. It still observes the device and runs the cohort check, which serve the
+ * component rather than the ticket.
+ *
  * <p>Host only. The device coordinator is step D7.
  */
 public final class Coordinator {
@@ -140,7 +144,11 @@ public final class Coordinator {
         Clock clock = device.clock();
         List<Observation> seen = new ArrayList<>();
         if (clock != null) seen.addAll(device.observe(ticket, plan));
-        seen.addAll(host.query(ticket, plan, store.authorizationsOf(plan.planId)));
+        // A host read names the ticket's last PUBLISH attempt. Read for a closed ticket after another
+        // ticket of the plan published, it would record PUBLISHED for an attempt that read ABSENT,
+        // and that disagreement holds the open ticket. A terminal ticket has nothing left to read.
+        boolean terminal = ticket.state.terminal();
+        if (!terminal) seen.addAll(host.query(ticket, plan, store.authorizationsOf(plan.planId)));
         if (observations == null) observations = new ArrayList<>(store.observations().values);
         for (Observation o : seen) {
             if (repeats(o)) continue;
@@ -149,6 +157,7 @@ public final class Coordinator {
         }
         View view = View.of(clock == null ? DeploymentRecords.NO_ID : clock.boot, plan.component, observations);
         Selection selection = selection(plan.component, view, ticket, plan);
+        if (terminal) return new Step(ticket, null, null, "terminal");
         List<Plan> repairs = new ArrayList<>();
         for (Plan other : store.plans().values) {
             if (other.repairs.equals(plan.planId) && !store.authorizationsOf(other.planId).isEmpty()) {

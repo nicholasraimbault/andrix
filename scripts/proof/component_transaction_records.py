@@ -607,6 +607,7 @@ MACHINE_NAMES = (
     "applied / the bundle's bytes are the APK that its publication bound",
     'publish / a missing publication read holds with the alert, and a cancellation still abandons',
     'publish / a later read of other bytes, or of none after a published read, holds with the alert',
+    'publish / an absent read recorded before a published read of the same attempt holds with the alert',
     'applied / a changed UID or context is not applied',
     'boot / a boot during COMMIT_INTENT is BOOT_OBSERVED',
     'boot / outcomes after the activation boot',
@@ -739,6 +740,8 @@ SIGNING_NAMES = (
     'signer / an engine that swallows a refusal still ends REFUSED with nothing kept',
     'builder / a staging error gives no fact, and a later read stages the same outputs',
     'builder / an I/O error of the verifier gives no fact, and a later read verifies the same outputs',
+    'builder / a sidecar copy lost or changed under a check that throws gives no fact, and a later read verifies',
+    'builder / a sidecar that a check refuses by throwing, read back the same, reads CANNOT_COMPLETE',
     'builder / a request without a record is recorded with the role and input of its own grant',
     'entries / only ASCII letters fold in the names of v1 signature files',
     'entries / a name past the end of the archive is refused as invalid',
@@ -751,7 +754,8 @@ SIGNING_NAMES = (
     "builder / an input whose own facts are not the plan's is never signed",
     'builder / an unreadable retained output gives no fact, and one that is gone reads CANNOT_COMPLETE',
     'builder / one whole run publishes a variant and its restoration, then a repair plan the restoration',
-    'builder / a later read of the publication, damaged or gone, holds the ticket with the alert')
+    'builder / a later read of the publication, damaged or gone, holds the ticket with the alert',
+    'builder / a round of a closed ticket reads nothing after another ticket of its plan published')
 
 NAMES = {'codec': CODEC_NAMES, 'machine': MACHINE_NAMES, 'store': STORE_NAMES, 'transactions': TRANSACTION_NAMES,
          'artifacts': ARTIFACT_NAMES, 'signing': SIGNING_NAMES}
@@ -1178,10 +1182,36 @@ MUTANTS = {
         '                if (o.classification == Classification.BUNDLE_MISMATCH) continue;\n'),), ('machine',)),
     'later-absent-read-ignored': (((RECONCILER, '                if (read.contains(attempt)) return null;\n',
                                     '                if (read.contains(attempt)) continue;\n'),), ('machine',)),
+    # The two reads of one attempt disagree whichever was recorded first, and a round of a closed
+    # ticket reads nothing from the host.
+    'later-absent-read-order-sensitive': (((RECONCILER,
+        '                if (o.classification == Classification.BUNDLE_ABSENT) {\n'
+        '                    absent.add(o.subject);\n',
+        '                if (o.classification == Classification.BUNDLE_ABSENT) {\n'
+        '                    if (read.contains(o.subject)) return null;\n'),), ('machine',)),
+    'coordinator-terminal-host-read': (((COORDINATOR,
+        '        if (!terminal) seen.addAll(host.query(ticket, plan, store.authorizationsOf(plan.planId)));\n',
+        '        seen.addAll(host.query(ticket, plan, store.authorizationsOf(plan.planId)));\n'),), ('signing',)),
     'builder-verifier-io-error-final': (((BUNDLE_BUILDER,
         "                return Finish.UNAVAILABLE; // Only a check that fails is final, never the verifier's I/O "
         "error.\n",
         '                return Finish.FAILED;\n'),), ('signing',)),
+    # When the verifier throws, its sidecar copy is read again: unreadable or changed is an I/O
+    # failure, the same bytes a check that fails.
+    'verifier-sidecar-not-read-again': (((HOST_SIGNER,
+        '                byte[] again;\n'
+        '                try {\n'
+        '                    again = Files.readAllBytes(copy);\n'
+        '                } catch (IOException unreadable) {\n'
+        '                    throw new UncheckedIOException(unreadable); // The disk failed under the check.\n'
+        '                }\n'
+        '                if (!Arrays.equals(again, idsig)) {\n'
+        '                    throw new UncheckedIOException(new IOException("the sidecar\'s scratch copy changed"));\n'
+        '                }\n',
+        ''),), ('signing',)),
+    'verifier-check-failure-read-as-io': (((HOST_SIGNER,
+        '                return FAILED; // The same bytes: the check itself failed.\n',
+        '                throw new UncheckedIOException(new IOException(failed));\n'),), ('signing',)),
     'artifact-input-equal-output-refused': (((ARTIFACT_RECORDS,
         '            this.installation = installation;\n            this.component = component;\n'
         '            this.transaction = transaction;\n',
@@ -1239,6 +1269,12 @@ REQUIRED_DEFECTS = {
     'a later read of the publication that is missing or names other bytes ignored': ('later-mismatch-read-ignored',
                                                                                     'later-absent-read-ignored'),
     "an I/O error of the verifier read as a request that can no longer complete": ('builder-verifier-io-error-final',),
+    'an absent read that holds only when recorded after the published read of its attempt': (
+        'later-absent-read-order-sensitive',),
+    'a round of a terminal ticket that reads the host': ('coordinator-terminal-host-read',),
+    "a disk error under the verifier's own read of the sidecar read as a check that fails": (
+        'verifier-sidecar-not-read-again',),
+    'a malformed sidecar read as an I/O failure, so the ticket waits forever': ('verifier-check-failure-read-as-io',),
 }
 
 

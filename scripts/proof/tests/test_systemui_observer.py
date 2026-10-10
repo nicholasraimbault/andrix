@@ -427,6 +427,17 @@ class AllowlistTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         read = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == 'read')
         self.assertIn(calls[0], list(ast.walk(read)))
+        # Every use of _run is the constructor's assignment or that one call: never bound to another
+        # name, passed on, or called anywhere else.
+        init = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == '__init__')
+        uses = [node for node in ast.walk(tree) if (isinstance(node, ast.Attribute) and node.attr == '_run')
+                or (isinstance(node, ast.Name) and node.id == '_run')]
+        stores = [node for node in uses if isinstance(node.ctx, ast.Store)]
+        self.assertEqual(len(stores), 1)
+        self.assertEqual(ast.unparse(stores[0]), 'self._run')
+        self.assertIn(stores[0], list(ast.walk(init)))
+        others = [node for node in uses if node is not stores[0] and node is not calls[0].func]
+        self.assertEqual(others, [], [ast.unparse(node) for node in others])
         guard = read.body[0]
         self.assertIsInstance(guard, ast.If)
         self.assertEqual(ast.unparse(guard.test), 'not allowed(command)')

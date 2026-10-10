@@ -741,6 +741,28 @@ public final class TicketMachineTest {
             check(problems, on.issue != null && !on.ticket.flag(FLAG_REQUEST_LIMIT),
                     "an attempt without effect held the ticket " + on);
         });
+        cases.run("publish / an absent read recorded before a published read of the same attempt holds with the alert",
+                problems -> {
+            // Host facts carry no time that orders them, so the reverse order disagrees the same way.
+            Bed gone = Bed.late().grants().at(State.READY, TO_COMMIT);
+            gone.host(Classification.BUNDLE_ABSENT, Fixtures.PUBLISH_ATTEMPT);
+            gone.host(Classification.BUNDLE_PUBLISHED, Fixtures.PUBLISH_ATTEMPT);
+            gone.moveTo(B1, 1, 20_000).committed(FACTORY_APK).listing(1).session(Classification.SESSION_READY,
+                    SHELL_REF);
+            Step held = gone.step();
+            check(problems, held.issue == null && held.ticket.state == State.READY
+                    && held.ticket.flag(FLAG_REQUEST_LIMIT), "an absent read before the published one was ignored " + held);
+            // The bound read itself, in both orders.
+            for (boolean absentFirst : new boolean[] {true, false}) {
+                Bed reads = Bed.late().unpublished();
+                reads.host(absentFirst ? Classification.BUNDLE_ABSENT : Classification.BUNDLE_PUBLISHED,
+                        Fixtures.PUBLISH_ATTEMPT);
+                reads.host(absentFirst ? Classification.BUNDLE_PUBLISHED : Classification.BUNDLE_ABSENT,
+                        Fixtures.PUBLISH_ATTEMPT);
+                check(problems, View.of(B1, Fixtures.COMPONENT, reads.obs).bound(reads.plan.planId) == null,
+                        (absentFirst ? "absent first" : "published first") + ": a publication bound");
+            }
+        });
         cases.run("applied / a changed UID or context is not applied", problems -> {
             Bed bed = Bed.late().grants().at(State.APPLIED_PROVISIONAL, TO_REBOOT);
             bed.add(bed.f(Classification.BOOT_COMPLETED));

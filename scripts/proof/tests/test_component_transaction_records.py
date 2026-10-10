@@ -101,12 +101,12 @@ class ComponentTransactionSourceTests(unittest.TestCase):
     def test_case_names_and_counts(self):
         predictions = json.loads(runner.PREDICTIONS.read_text())
         self.assertIn('PREDICTED', predictions['status'])
-        self.assertEqual(predictions['cases'], {'codec': 52, 'machine': 71, 'store': 14, 'transactions': 44,
-                                                'artifacts': 22, 'signing': 26, 'goldens': 23, 'artifact_goldens': 6,
-                                                'mutants': 112})
+        self.assertEqual(predictions['cases'], {'codec': 52, 'machine': 72, 'store': 14, 'transactions': 44,
+                                                'artifacts': 22, 'signing': 29, 'goldens': 23, 'artifact_goldens': 6,
+                                                'mutants': 116})
         self.assertEqual({suite: len(names) for suite, names in runner.NAMES.items()},
-                         {'codec': 52, 'machine': 71, 'store': 14, 'transactions': 44, 'artifacts': 22, 'signing': 26})
-        self.assertEqual(predictions['guarded_run']['cases_passed'], 229)
+                         {'codec': 52, 'machine': 72, 'store': 14, 'transactions': 44, 'artifacts': 22, 'signing': 29})
+        self.assertEqual(predictions['guarded_run']['cases_passed'], 233)
         for names in runner.NAMES.values():
             for name in names:
                 self.assertNotIn(': ', name)
@@ -134,7 +134,7 @@ class ComponentTransactionSourceTests(unittest.TestCase):
                 runner.mutant_texts()
 
     def test_every_required_defect_has_a_mutant(self):
-        self.assertEqual(len(runner.REQUIRED_DEFECTS), 37)
+        self.assertEqual(len(runner.REQUIRED_DEFECTS), 41)
         for defect, names in runner.REQUIRED_DEFECTS.items():
             for name in names:
                 self.assertIn(name, runner.MUTANTS, defect)
