@@ -349,7 +349,8 @@ exits 0 to pass and 1 to refuse, like the other Pixel checkers (`scripts/pixel/R
   equal and not empty. Each hash is computed again from its CIL file and mapping file and must
   equal both copies. The mapping file is the one the vendor's version file names, which init loads.
   The build hashes the `current` mapping (`system/sepolicy/Android.bp:382-390`), so a vendor
-  version that differs refuses, which fails closed. An image that carries `userdebug_plat_sepolicy.cil` is refused. On an unlocked
+  version that differs refuses, which fails closed. An image that carries
+  `userdebug_plat_sepolicy.cil` is refused. On an unlocked
   phone booted with a debug ramdisk, init uses that file and compiles the policy instead of loading
   this binary (`system/core/init/selinux.cpp:205-222`, `:239-249`). The flash script check of
   rule 6 already keeps debug boot images off the phone.
@@ -383,7 +384,8 @@ exits 0 to pass and 1 to refuse, like the other Pixel checkers (`scripts/pixel/R
   present (`system/core/init/selinux.cpp:298-302`, `:327-330`, `:371-388`). First the control. The
   recompiled binary and the loaded `precompiled_sepolicy` are both decompiled with
   `checkpolicy -M -b -C`, because the policy is MLS
-  (`external/selinux/checkpolicy/checkpolicy.c:592-597`), and the two outputs must be equal. Only then does the control
+  (`external/selinux/checkpolicy/checkpolicy.c:592-597`), and the two outputs must be equal. Only
+  then does the control
   stand for the policy the phone loads. The control must pass all 28 rules. Then, for each rule, one
   more CIL file holding that rule's witness `allow` statement is added. Each mutant must fail its
   own rule checked alone with `-n`, and the whole set. A witness that does not compile, or a mutant
@@ -413,7 +415,8 @@ exits 0 to pass and 1 to refuse, like the other Pixel checkers (`scripts/pixel/R
   refuses. File names and line positions are dropped, because the bridge patch shifts lines in
   `system/sepolicy/private/domain.te`. The run's pairs are compared with the same run on the
   official release, and a pair that only the Andrix run shows fails the gate. G cannot see a change
-  in the members of a named attribute, such as Andrix domains in `domain`. This covers the `create_pty` rule for
+  in the members of a named attribute, such as Andrix domains in `domain`. This covers the
+  `create_pty` rule for
   the Andrix terminal types and the five vendor `neverallowx` rules, which step D cannot see.
 
 **Witness table.** Each witness is one CIL `allow` inside the rule. It was chosen so that it does
