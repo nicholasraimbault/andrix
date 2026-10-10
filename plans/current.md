@@ -289,13 +289,15 @@ SystemUI. Its records, ticket state machine, reconciler and host store are host 
 is the artifact store, whose publication record makes a variant and its restoration visible
 together or not at all. Building the store settled how a plan names its bundles and when an
 interrupted publication may be repeated. The host signer and bundle builder sign a variant and its
-restoration in one six operation transaction and reproduce the earlier signed outputs byte for
-byte. A read only shell observer turns the emulator's session listings into records, with forms
-derived from source still to be confirmed on a guest. The test image is chosen: the normal image
-built at `24bfb6a`, whose factory SystemUI equals the `985c9a4` baseline byte for byte, so the
-frozen variants need no rebuild. Emulator trials wait for the emulator. The owner decided seven of
-the plan's eight decisions. The rollback target waits for qualified candidate floor images, before
-the device coordinator.
+restoration in one six operation transaction. Run with the old options they reproduce the earlier
+signed outputs byte for byte. The transaction itself signs without the old v1 scheme, and its
+outputs equal the signing tool's own output for the same inputs. A read only shell observer turns
+the emulator's session listings into records, with forms derived from source still to be
+confirmed on a guest. The test image is chosen: the normal image built at `24bfb6a`, whose factory
+SystemUI equals the `985c9a4` baseline byte for byte, so the frozen variants need no rebuild. The
+owner decided seven of the plan's eight decisions, settled five details of them, and allowed the
+emulator trials to use the emulator while the native account work does not need it. The rollback
+target waits for qualified candidate floor images, before the device coordinator.
 
 ## Product checkpoint
 
