@@ -518,7 +518,10 @@ Android's own package suspension is a different mechanism and must not carry thi
     mapping refused and the sibling conflict.
   - Settings harness parity and mutants.
 - **Image.** An image built at B1, whose final DEX differs from 24bfb6a's only in predicted classes,
-  with every lifecycle and release member absent.
+  with every lifecycle and release member absent. Its diagnostic dump names the deferred packages
+  under a new header version. It also carries B2's renderer, which only the constructed format
+  selects, so B2's image stays one operand away from B1's. Read only diagnostics and the record
+  types the decoder needs are not lifecycle members.
 - **Guest checks.** The staging generator and oracle are extended to version 2 slots. A fresh guest
   boot, then staged layouts:
   - version 1 retiring bodies, scanned and unscanned;
@@ -589,8 +592,9 @@ The staged layouts are:
 
 An instrumented subject with keys, canary data, a granted permission, an app operation, a
 notification preference and a job is carried through suspension, lift and a further boot. The
-diagnostic dump gains the lifecycle state and slot version, without reasons, and its header version
-changes. Every caller, writer, release and deletion stays off.
+diagnostic dump then shows the lifecycle state and slot version, without reasons, under a new
+header version. B1's image already carries that renderer, so B2's construction operand switches it
+on. Every caller, writer, release and deletion stays off.
 
 ### B3. Lab writer
 
