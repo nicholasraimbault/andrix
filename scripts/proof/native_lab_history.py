@@ -47,9 +47,17 @@ NATIVE_IDENTITY = ROOT / 'tests/native-identity'
 PLATFORM = ROOT / 'owner/tests/platform'
 FRAMEWORK = ROOT / 'owner/platform/framework'
 PREDICTIONS = ROOT / 'scripts/proof/native_lab_history_predictions.json'
-PHASES = ('jdk', 'store fixture', 'rehearsal', 'writer regression', 'pure suites')
+PHASES = ('jdk', 'store fixture', 'guest inputs', 'rehearsal', 'writer regression', 'pure suites')
 FAULTS = ('error', 'exception', 'observation')
 GENERATOR = 'dev.andrix.proof.nativelab.LabHistoryStore'
+# The guest generator's codec: the record codec of the lifecycle record at the revision of B1's host
+# packages, read from its Git object and pinned by SHA-256, so the guest layouts are what B1's own
+# codec encodes. The guest layouts are generated at these fixed values.
+GUEST_REVISION = 'e6f8b681021b5c36256a50337803ef8ec4268ab1'
+GUEST_CODEC = ('owner/platform/framework/NativeIdentityRecords.java',
+               '4be9c8a0135d3793bb4153e9dc794c2afbf6e4bdbc3466d447b883fe30e0b032')
+GUEST_VALUES = ('00112233445566778899aabbccddeeff', 10148, 10149, 7)
+OTHER = 'dev.andrix.proof.lifecycleother'
 # The one reviewed host facade overlap, as in the B1 runner: the XML stub's Log replaces the
 # native principal stub's. Any other overlap refuses rather than silently replacing a stub.
 STUB_OVERLAPS = frozenset({'android/util/Log.java'})
@@ -155,6 +163,53 @@ def goldens(lineage='00112233445566778899aabbccddeeff', app_id=10148, serial=7,
         'LIVE': _record(1, 2, head + struct.pack('<qH', 1, 1) + struct.pack('<iBq', app_id, 2, 0) + _ascii('')),
         'BODY': _record(2, 1, head + struct.pack('<iq', app_id, 1) + _ascii(subject) + signers
                         + struct.pack('<H', 1) + struct.pack('<qiqB', 1, 0, serial, 0))}
+
+
+def lifecycle_goldens(mode, lineage='00112233445566778899aabbccddeeff', app_id=10148, other_app_id=10149, serial=7,
+                      signer='874cedf46661e33d62b711b266c96e629d1f64007e55350a59a167c9c23183d3',
+                      subject='dev.andrix.proof.principalclosed', other=OTHER):
+    """The files of one lifecycle guest layout, by path relative to the store, from the documented
+    layouts alone: the plan's version 2 slot with one ELIGIBLE user suspended by that user for
+    USER_PAUSED, code 1, at the fixed time, and the version 1 body and headers as above. A test oracle
+    for the actual codec only; it never produces lab input."""
+    signers = struct.pack('<H', 1) + bytes.fromhex(signer)
+    head = bytes.fromhex(lineage)
+
+    def version_1_body(app, package, principal, retiring):
+        return _record(2, 1, head + struct.pack('<iq', app, 1) + _ascii(package) + signers + struct.pack('<H', 1)
+                       + struct.pack('<qiqB', principal, 0, serial, 1 if retiring else 0))
+
+    def suspended(app, package, principal):
+        entry = struct.pack('<BBiq', 1, 0, 0, serial) + bytes(16) + struct.pack('<Hq', 1, 1_700_000_000_000) + b'\x00'
+        return _record(2, 2, head + struct.pack('<iq', app, 2) + _ascii(package) + signers + struct.pack('<H', 1)
+                       + struct.pack('<qiq', principal, 0, serial) + struct.pack('<BB', 1, 1) + entry)
+
+    def header(version, last, entries):
+        body = head + struct.pack('<qH', last, len(entries))
+        for app, phase, creation, package, bound in sorted(entries):
+            body += struct.pack('<iBq', app, phase, creation) + _ascii(package)
+            if version == 2 and phase == 1:
+                body += (b'\x01' + struct.pack('<iq', 0, serial) + signers) if bound else b'\x00'
+        return _record(1, version, body)
+
+    live = (app_id, 2, 0, '', False)
+    if mode == 'retiring-v1':
+        store, slots = header(1, 1, [live]), {app_id: version_1_body(app_id, subject, 1, True)}
+    elif mode == 'v2-slot':
+        store, slots = header(1, 1, [live]), {app_id: suspended(app_id, subject, 1)}
+    elif mode == 'v2-beside-reservation':
+        store = header(2, 2, [(app_id, 1, 1, subject, True), (other_app_id, 2, 0, '', False)])
+        slots = {other_app_id: suspended(other_app_id, other, 2)}
+    elif mode == 'v2-beside-sibling':
+        store = header(1, 2, [live, (other_app_id, 2, 0, '', False)])
+        slots = {app_id: version_1_body(app_id, subject, 1, False), other_app_id: suspended(other_app_id, subject, 2)}
+    else:
+        raise ValueError('lifecycle guest mode')
+    files = {'store.bin': store, 'store.bin.reservecopy': store}
+    for app, data in slots.items():
+        files['slots/%d/record.bin' % app] = data
+        files['slots/%d/record.bin.reservecopy' % app] = data
+    return files
 
 
 def oracle_problems(files, gold, where):
@@ -405,6 +460,72 @@ def store_fixture(work, predictions, pinned, record, problems, save):
             save()
             if not result['returncode'] or output.exists() or any(cwd.iterdir()):
                 problems.append('generator accepted %s with %s' % (' '.join(arguments), flag))
+
+
+def guest_inputs(work, predictions, pinned, record, problems, save):
+    """The lifecycle guest layouts: the generator compiled with B1's codec from its pinned Git object,
+    each mode's store against the independent oracle byte for byte and against the observer's matching
+    phase, one changed byte refused by the observer, and the generator's refusals before any file."""
+    expected = predictions['guest_inputs']
+    path, digest = GUEST_CODEC
+    codec = b1.git_bytes(GUEST_REVISION, path)
+    record['codec_sha256'] = sha(codec)
+    save()
+    if record['codec_sha256'] != digest or expected['codec_sha256'] != digest:
+        problems.append('guest generator codec differs from its pinned Git object')
+        return
+    sources = work / 'guest-sources'
+    sources.mkdir()
+    (sources / 'NativeIdentityRecords.java').write_bytes(codec)
+    classes = work / 'guest-classes'
+    record['compile'] = javac(work, [sources / 'NativeIdentityRecords.java', LAB_DIR / 'LabHistoryStore.java'], classes)
+    save()
+    if record['compile']['returncode']:
+        problems.append('guest generator compilation failed')
+        return
+    observe = observer()
+    lineage, app_id, other_app_id, serial = GUEST_VALUES
+    record['modes'] = {}
+    if list(observe.LIFECYCLE_MODES) != list(expected['modes']):
+        problems.append('guest modes differ from the predictions')
+    for mode in observe.LIFECYCLE_MODES:
+        output = work / ('guest-' + mode)
+        companion = mode.startswith('v2-beside-')
+        result = java(work, GENERATOR, mode, output, lineage, str(app_id), *([str(other_app_id)] if companion else []),
+                      str(serial), classes=classes, timeout=120)
+        entry = record['modes'][mode] = {'returncode': result['returncode'], 'stdout': result['stdout'][-4000:],
+                                         'stderr': result['stderr'][-2000:]}
+        save()
+        try:
+            manifest = observe.load_lifecycle_generation(result['stdout'].strip())
+            entry['assessed'] = observe.assess_store(output, mode, generation=manifest)
+        except (OSError, ValueError) as error:
+            problems.append('guest input %s: %s' % (mode, error))
+            continue
+        gold = lifecycle_goldens(mode, lineage, app_id, other_app_id, serial)
+        entry['oracle'] = sorted(name for name in set(gold) | set(manifest['files'])
+                                 if not (output / name).is_file() or (output / name).read_bytes() != gold.get(name))
+        save()
+        if result['returncode'] or entry['oracle'] or sorted(gold) != expected['modes'][mode]:
+            problems.append('guest input %s differs from the independent oracle: %s' % (mode, entry['oracle']))
+        # The control: one changed byte in a copy of the store is refused by the observer.
+        control = work / ('guest-control-' + mode)
+        shutil.copytree(output, control)
+        target = control / sorted(gold)[0]
+        changed = bytearray(target.read_bytes())
+        changed[-1] ^= 1
+        target.write_bytes(bytes(changed))
+        if not refused(lambda: observe.assess_store(control, mode, generation=manifest)):
+            problems.append('guest input %s control was not refused' % mode)
+    record['refusals'] = []
+    for index, arguments in enumerate(expected['refusals']):
+        output = work / ('guest-refused-%d' % index)
+        result = java(work, GENERATOR, *[str(output) if item == 'OUTPUT' else item for item in arguments],
+                      classes=classes, timeout=120)
+        record['refusals'].append(result)
+        save()
+        if not result['returncode'] or output.exists():
+            problems.append('guest generator accepted ' + ' '.join(arguments))
 
 
 def rehearsal(work, predictions, pinned, record, problems, save):
@@ -709,7 +830,7 @@ def pure_suites(work, predictions, pinned, record, problems, save):
             problems.append('required pure suite checks skipped: ' + name)
 
 
-STEPS = {'jdk': jdk_phase, 'store fixture': store_fixture, 'rehearsal': rehearsal,
+STEPS = {'jdk': jdk_phase, 'store fixture': store_fixture, 'guest inputs': guest_inputs, 'rehearsal': rehearsal,
          'writer regression': writer_regression, 'pure suites': pure_suites}
 
 

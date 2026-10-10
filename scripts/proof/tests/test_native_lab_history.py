@@ -382,7 +382,7 @@ class LabHistoryRunnerTests(unittest.TestCase):
                          ('TimeoutExpired', 'partial output', 'partial errors'))
         self.assertEqual(report['exception']['command'][0], 'java')
         self.assertEqual((report['completed_phases'], report['not_completed_phases'], report['running_phase']),
-                         (['jdk'], ['store fixture', 'rehearsal', 'writer regression', 'pure suites'],
+                         (['jdk'], ['store fixture', 'guest inputs', 'rehearsal', 'writer regression', 'pure suites'],
                           'store fixture'))
         self.assertEqual(report['problems'], ['an earlier phase failure', 'qualification did not complete'])
         self.assertEqual(report['jdk'], {'complete': True, 'bounded': 'synthetic'})
@@ -642,6 +642,52 @@ class LabHistoryRunnerTests(unittest.TestCase):
                          ('RUNNING', ['jdk'], None))
         record = runner.exception_record(subprocess.TimeoutExpired(['java'], 1, output=b'out', stderr=b'err'))
         self.assertEqual((record['type'], record['stdout'], record['stderr']), ('TimeoutExpired', 'out', 'err'))
+
+
+class GuestInputTests(unittest.TestCase):
+    """The lifecycle guest layouts: the phase, the pinned codec, and the oracle against the lifecycle
+    runner's independent decoder."""
+
+    def test_the_phase_and_its_predictions(self):
+        self.assertEqual(runner.PHASES, ('jdk', 'store fixture', 'guest inputs', 'rehearsal', 'writer regression',
+                                         'pure suites'))
+        self.assertIs(runner.STEPS['guest inputs'], runner.guest_inputs)
+        predicted = json.loads(runner.PREDICTIONS.read_text())['guest_inputs']
+        self.assertEqual(predicted['codec_sha256'], runner.GUEST_CODEC[1])
+        self.assertEqual(list(predicted['modes']), list(runner.observer().LIFECYCLE_MODES))
+        for mode, names in predicted['modes'].items():
+            self.assertEqual(sorted(runner.lifecycle_goldens(mode)), names)
+
+    def test_the_codec_is_its_pinned_git_object(self):
+        path, digest = runner.GUEST_CODEC
+        self.assertEqual(runner.sha(runner.b1.git_bytes(runner.GUEST_REVISION, path)), digest)
+
+    def test_the_oracle_agrees_with_the_independent_decoder(self):
+        import native_lifecycle_record as lifecycle
+        lineage, app_id, other_app_id, serial = runner.GUEST_VALUES
+        for mode in runner.observer().LIFECYCLE_MODES:
+            files = runner.lifecycle_goldens(mode, lineage, app_id, other_app_id, serial)
+            header = lifecycle.decode_header(files['store.bin'])
+            self.assertIsNotNone(header, mode)
+            slots = {int(name.split('/')[1]): lifecycle.decode_slot(data) for name, data in files.items()
+                     if name.endswith('/record.bin')}
+            self.assertTrue(all(slots.values()), mode)
+            self.assertEqual(sorted(entry['app_id'] for entry in header['entries']),
+                             sorted({app_id, *slots}), mode)
+            if mode == 'retiring-v1':
+                self.assertEqual((slots[app_id]['version'], slots[app_id]['users'][0]['legacy']), (1, True))
+            if mode in ('v2-slot', 'v2-beside-reservation', 'v2-beside-sibling'):
+                newer = slots[app_id if mode == 'v2-slot' else other_app_id]
+                user = newer['users'][0]
+                self.assertEqual((newer['version'], user['state'], [entry['class'] for entry in user['entries']]),
+                                 (2, 'ELIGIBLE', ['ACCOUNT_USER']), mode)
+            if mode == 'v2-beside-reservation':
+                self.assertEqual((header['version'], [entry['bound'] for entry in header['entries']]), (2, [True, False]))
+                self.assertEqual(slots[other_app_id]['package'], runner.OTHER)
+            if mode == 'v2-beside-sibling':
+                self.assertEqual((slots[app_id]['package'], slots[other_app_id]['package']),
+                                 (runner.observer().SUBJECT,) * 2)
+                self.assertNotEqual(slots[app_id]['users'][0]['principal'], slots[other_app_id]['users'][0]['principal'])
 
 
 if __name__ == '__main__':

@@ -307,7 +307,15 @@ class CreationBindingSourceTests(unittest.TestCase):
         for label, _, classes, _ in runner.HARNESS_LABELS:
             if label == 'rollback-reader':
                 for name in classes:
+                    if name in runner.LIVING_ROLLBACK_CHECKS:
+                        continue
                     self.assertIsNotNone(runner.harness_class(name, archived=True), name)
+        # The one named exception: the lifecycle rollback check is a working-tree source under the
+        # rollback-reader label alone, compiled only with pinned products, and no pinned object.
+        self.assertEqual(runner.LIVING_ROLLBACK_CHECKS, ('NativeLifecycleRollbackCheck',))
+        self.assertEqual(labels['NativeLifecycleRollbackCheck'], {'rollback-reader'})
+        self.assertIsNotNone(runner.harness_class('NativeLifecycleRollbackCheck'))
+        self.assertIsNone(runner.harness_class('NativeLifecycleRollbackCheck', archived=True))
         self.assertEqual(runner.step_labels('b1 focused'), ('production', 'legacy'))
         self.assertEqual(runner.step_labels('mutants'), ('production', 'legacy'))
         self.assertEqual(runner.step_labels('rollback'), ('legacy', 'production'))

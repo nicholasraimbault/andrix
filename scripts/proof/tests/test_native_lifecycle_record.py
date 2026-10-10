@@ -93,7 +93,7 @@ class LifecycleRecordSourceTests(unittest.TestCase):
         self.assertIn('PREDICTED', predictions['status'])
         self.assertEqual(predictions['cases'], {'codec': 47, 'reads': 60, 'goldens': 9, 'mutants': 183, 'store': 49,
                                                 'transactions': 57, 'faults': 136, 'settings': 12, 'manager': 19,
-                                                'layouts': 289})
+                                                'layouts': 205})
         self.assertEqual((len(runner.CODEC_NAMES), len(runner.READ_NAMES), len(runner.STORE_NAMES),
                           len(runner.TRANSACTION_NAMES), len(runner.FAULT_NAMES), len(runner.SETTINGS_NAMES),
                           len(runner.MANAGER_NAMES)), (47, 60, 49, 57, 136, 12, 19))
@@ -196,8 +196,15 @@ class LifecycleRecordSourceTests(unittest.TestCase):
         self.assertIn('new-format', runner.b1.LIVING_RUN_LABELS)
         rows = [row for row in runner.b1.HARNESS_LABELS if row[0] == 'new-format']
         # The read test's row, the store, transaction and fault tests' row, the Settings test's row, the
-        # manager test's row and the layout emitter's row, all of this runner.
-        self.assertEqual([row[1] for row in rows], ['scripts/proof/native_lifecycle_record.py'] * 5)
+        # manager test's row, the reader check's row and the layout emitter's row, all of this runner.
+        self.assertEqual([row[1] for row in rows], ['scripts/proof/native_lifecycle_record.py'] * 6)
+        # The rollback check is the one living source under an archived label.
+        self.assertEqual(runner.b1.LIVING_ROLLBACK_CHECKS, (runner.ROLLBACK_CHECK,))
+        self.assertEqual([row[0] for row in runner.b1.HARNESS_LABELS if runner.ROLLBACK_CHECK in row[2]],
+                         ['rollback-reader'])
+        with mock.patch.object(runner.b1, 'LIVING_ROLLBACK_CHECKS', ()):
+            self.assertIn('labelled host class not found once: rollback-reader NativeLifecycleRollbackCheck',
+                          runner.b1.label_problems())
         # The pinned step carries only the archived rollback reader label, and no living one.
         self.assertEqual(runner.STEP_LABELS['pinned'], ('rollback-reader',))
         with mock.patch.dict(runner.STEP_LABELS, {'pinned': ('new-format',)}):
@@ -241,7 +248,7 @@ class LifecycleTransitionSourceTests(unittest.TestCase):
     def test_lifecycle_cases_are_named_once_and_labelled_by_format(self):
         self.assertEqual(runner.lifecycle_name_problems(), [])
         self.assertEqual(runner.PHASES, ('candidate', 'codec', 'reads', 'store', 'transactions', 'faults',
-                                         'settings', 'manager', 'pinned', 'layouts', 'mutants'))
+                                         'settings', 'manager', 'pinned', 'layouts', 'rollback', 'readers', 'mutants'))
         self.assertEqual({runner.case_label(name) for name in runner.MANAGER_NAMES},
                          {'legacy', 'production', 'new-format'})
         self.assertEqual({runner.FORMAT_LABELS[name.split(' / ', 1)[0]] for name in runner.SETTINGS_NAMES},
@@ -294,7 +301,9 @@ class LifecycleTransitionSourceTests(unittest.TestCase):
                                     runner.STORE_TEST: every, runner.TRANSACTION_TEST: every,
                                     runner.FAULT_TEST: {'new-format'},
                                     runner.SETTINGS_TEST: {'production', 'new-format'},
-                                    runner.MANAGER_TEST: every, runner.LAYOUTS: {'new-format'}})
+                                    runner.MANAGER_TEST: every, runner.LAYOUTS: {'new-format'},
+                                    runner.ROLLBACK_CHECK: {'rollback-reader'},
+                                    runner.READER_CHECK: {'production', 'new-format'}})
         # Every Settings fragment mutant changes the facade and the harness alike.
         for name, (edits, suites) in runner.MUTANTS.items():
             if any(target.startswith(runner.FRAGMENT) for target, _, _ in edits):
@@ -348,16 +357,20 @@ class LifecycleLayoutTests(unittest.TestCase):
 
     def test_layout_names_groups_and_predictions(self):
         self.assertEqual(runner.layout_name_problems(), [])
-        predicted = json.loads(runner.PREDICTIONS.read_text())['p5_checkpoint_1']
+        predicted = json.loads(runner.PREDICTIONS.read_text())['p5_checkpoint_2']
         self.assertEqual(predicted['layouts']['by_group'], runner.layout_groups())
         self.assertEqual((len(runner.LAYOUT_NAMES), len(runner.LAYOUT_FACTS), len(runner.LAYOUT_STEP_FAMILIES)),
-                         (289, 38, 31))
+                         (205, 42, 20))
+        for name in ('state-releasing-without-directory-header-2', 'state-releasing-without-directory-beside-reservation'):
+            self.assertIn(name, runner.STATE_LAYOUTS)
+        self.assertIn('RELEASING without a directory under header 2', runner.LAYOUT_FACTS)
+        # The manager's writes are the persistence transactions': no manager layout is emitted.
+        self.assertFalse([name for name in runner.LAYOUT_NAMES if name.startswith('manager-')])
         self.assertEqual(predicted['phases'], list(runner.PHASES))
         # Every transaction of the fault sweeps and every manager operation is a step family.
         self.assertEqual(len(runner.STEP_LAYOUTS), 8 * len(runner.FAULT_KINDS))
-        self.assertEqual(len(runner.MANAGER_LAYOUTS), 8 * len(runner.MANAGER_OPERATIONS))
-        with mock.patch.object(runner, 'MANAGER_OPERATIONS', runner.MANAGER_OPERATIONS + ('restore',)):
-            self.assertIn('manager operation not swept once by the emitter: restore', runner.layout_name_problems())
+        with mock.patch.object(runner, 'FAULT_KINDS', runner.FAULT_KINDS + ('unswept',)):
+            self.assertIn('transaction not swept once by the emitter: unswept', runner.layout_name_problems())
         with mock.patch.object(runner, 'STATE_LAYOUTS', runner.STATE_LAYOUTS + ('state-unwritten',)):
             self.assertIn('layout not named once in the emitter: state-unwritten', runner.layout_name_problems())
 
@@ -374,6 +387,19 @@ class LifecycleLayoutTests(unittest.TestCase):
         legacy = runner.decode_slot(gold['LEGACY_SUSPENDED'])['users'][0]
         self.assertEqual((legacy['state'], legacy['retirement']['class'], legacy['retirement']['inventory']),
                          ('RETIRING', 'LEGACY_MARKER', 0))
+        # Obligation states and retirement classes, each as the independent encoder wrote it.
+        retired = runner.decode_slot(gold['RETIRED'])['users'][0]['retirement']
+        self.assertEqual((retired['class'], retired['inventory']), ('ADMIN_GRANT', 1))
+        self.assertEqual([state for _, state in retired['obligations']],
+                         ['DISCHARGED'] * 9 + ['DISPOSING'] * 3 + ['ORPHANED_WITH_USER', 'DISCHARGED'] + ['OUTSTANDING'] * 2)
+        retiring = runner.decode_slot(gold['RETIRING'])['users'][0]['retirement']
+        self.assertEqual((retiring['class'], [state for _, state in retiring['obligations']]),
+                         ('ACCOUNT_USER', ['DISCHARGED'] * 3 + ['OUTSTANDING'] * 13))
+        self.assertEqual(runner.decode_slot(gold['MAXIMUM'])['users'][0]['retirement']['class'], 'USER_REMOVAL')
+        continued = runner.decode_slot(gold['LEGACY_CONTINUED'])['users'][0]['retirement']
+        self.assertEqual((continued['class'], continued['inventory'], len(continued['obligations'])),
+                         ('LEGACY_MARKER', 1, 16))
+        self.assertEqual([kind for kind, _ in retired['obligations']], list(runner.KINDS))
         held = runner.decode_slot(gold['HOLDS'])['users'][0]['entries']
         self.assertEqual([(entry['class'], entry['scope'], entry['note']) for entry in held],
                          [('ACCOUNT_USER', 0, True), ('ADMIN_GRANT', 0, False), ('ADMIN_GRANT', 1, False),
@@ -435,9 +461,9 @@ class LifecycleLayoutTests(unittest.TestCase):
         problems = runner.coverage_problems(without)
         self.assertIn("missing layouts: ['step-lift-main-synced']", problems)
         self.assertIn("writer steps missing: step-lift at ['main-synced']", problems)
-        manager = {name: value for name, value in facts.items() if not name.startswith('manager-releaseuid-omission-')}
-        self.assertIn("writer steps missing: manager-releaseuid-omission at %s" % list(runner.FAULT_STEPS),
-                      runner.coverage_problems(manager))
+        family = {name: value for name, value in facts.items() if not name.startswith('step-release-omission-')}
+        self.assertIn("writer steps missing: step-release-omission at %s" % list(runner.FAULT_STEPS),
+                      runner.coverage_problems(family))
         holder = runner.LAYOUT_NAMES[runner.LAYOUT_FACTS.index('companion lost')]
         lost = dict(facts, **{holder: set()})
         self.assertIn('fact missing: companion lost', runner.coverage_problems(lost))
@@ -465,6 +491,9 @@ class LifecycleLayoutTests(unittest.TestCase):
                       runner.rollback_manifest_problems(extra))
         missing = dict(reads, **{'24bf': reads['24bf'][1:]})
         self.assertEqual(len(runner.rollback_manifest_problems(missing)), 1)
+        # A Git object read past the pinned loader is reported.
+        bypass = dict(reads, **{'7845 git': [(runner.b1.REVISIONS['7845'], 'owner/tests/platform/Other.java')]})
+        self.assertIn("7845 read Git objects outside the pinned loader", runner.rollback_manifest_problems(bypass)[0])
         self.assertEqual(dict(runner.ROLLBACK_MODELS), {'24bf': 'V2', '7845': 'V1'})
 
     def test_pinned_rollback_inputs_from_git_objects(self):
@@ -477,6 +506,121 @@ class LifecycleLayoutTests(unittest.TestCase):
                                 if files['24bf'].get(name) != files['7845'].get(name)), predicted['differing_files'])
         self.assertEqual({revision: len(value) for revision, value in files.items()},
                          {revision: predicted['files_per_model'] for revision in files})
+
+
+class LifecycleModelTests(unittest.TestCase):
+    """The classes the rollback and reader checks take for each layout, their controls and the
+    registration guard."""
+
+    def layout(self, kind, header, slots, packages):
+        return {'name': 'x', 'kind': kind, 'header': header, 'holds': sorted(slots), 'packages': packages,
+                'headers': [], 'slots': slots}
+
+    def body(self, app_id, package, principal, retiring=False):
+        return runner.decode_slot(runner.record(2, 1, bytes.fromhex(runner.LINEAGE) + runner.struct.pack('<iq', app_id, 1)
+                                                + runner.text(package) + runner.struct.pack('<H', 0)
+                                                + runner.struct.pack('<H', 1)
+                                                + runner.struct.pack('<qiqB', principal, 0, 5, 1 if retiring else 0)))
+
+    def test_classes_follow_the_bytes_and_the_header(self):
+        newer = runner.decode_slot(runner.goldens()['SUSPENDED'])  # app 10123, a.b, principal 3
+        layout = self.layout('slot', 1, {10123: [newer]}, {'a.b': 10123})
+        self.assertEqual([runner.rollback_class(layout, model) for model in ('24bf', '7845')], ['footprint'] * 2)
+        layout['header'] = 2
+        self.assertEqual([runner.rollback_class(layout, model) for model in ('24bf', '7845')], ['footprint', 'withdrawn'])
+        self.assertEqual((runner.reader_class(layout), runner.version_two_ids(layout)), ('footprint', [10123]))
+        layout['header'] = 1
+        # The family name in the kind file decides nothing: the bytes do.
+        self.assertEqual(runner.rollback_class(dict(layout, kind='reservation'), '24bf'), 'footprint')
+        self.assertEqual(runner.rollback_class(dict(layout, packages={'a.b': 'lost'}), '24bf'), 'lost')
+        bound = [{'version': 2, 'entries': [{'app_id': 10300, 'phase': 'CREATING', 'package': 'r', 'bound': True}]}]
+        self.assertEqual(runner.rollback_class(dict(layout, headers=bound), '24bf'), 'reservation')
+        same_package = dict(layout, slots={10123: [newer], 10211: [self.body(10211, 'a.b', 4)]})
+        self.assertEqual((runner.rollback_class(same_package, '24bf'), runner.sibling_of(same_package)),
+                         ('sibling', ('sibling', 10211, 4)))
+        same_principal = dict(layout, slots={10123: [newer], 10211: [self.body(10211, 's.t', 3)]})
+        self.assertEqual(runner.sibling_of(same_principal), ('sibling-principal', 10211, 3))
+        readable = dict(layout, kind='version1', slots={10123: [self.body(10123, 'a.b', 3)],
+                                                       10211: [self.body(10211, 'a.b', 4)]})
+        self.assertEqual(runner.rollback_class(readable, '24bf'), 'conflict')
+        positive = self.layout('version1', 1, {10123: [self.body(10123, 'a.b', 3)]}, {'a.b': 10123})
+        self.assertEqual(runner.rollback_class(positive, '24bf'), 'admitted')
+        self.assertEqual(runner.rollback_class(dict(positive, slots={10123: [self.body(10123, 'a.b', 3, True)]}), '24bf'),
+                         'retiring')
+        self.assertEqual(runner.rollback_class(dict(positive, slots={}, packages={}), '24bf'), 'nothing')
+        tombstone = runner.decode_slot(runner.record(2, 1, bytes.fromhex(runner.LINEAGE)
+                                                     + runner.struct.pack('<iq', 10123, 4) + runner.text('a.b')
+                                                     + runner.struct.pack('<HH', 0, 0)))
+        self.assertEqual(runner.rollback_class(dict(positive, slots={10123: [tombstone]}), '24bf'), 'tombstone')
+        self.assertEqual(runner.rollback_class(dict(positive, slots={}), '24bf'), 'admitted')
+
+    def test_the_fact_controls_can_fail(self):
+        self.assertEqual(runner.fact_control_problems(), [])
+        rotated = {code: runner.DUTY_NAMES[code % 4 + 1] for code in runner.DUTY_NAMES}
+        with mock.patch.dict(runner.DUTY_NAMES, rotated):
+            self.assertTrue(runner.fact_control_problems())
+        swapped_classes = {**runner.CLASS_NAMES, 1: 'ADMIN_GRANT', 2: 'ACCOUNT_USER'}
+        with mock.patch.dict(runner.CLASS_NAMES, swapped_classes):
+            self.assertTrue(runner.fact_control_problems())
+
+    def test_expectations_swaps_and_outcomes(self):
+        layouts = {'b': {'kind': 'slot', 'header': 1, 'headers': [], 'packages': {},
+                         'slots': {10200: [{'version': 2, 'users': [], 'package': 'a.b'}]}},
+                   'a': {'kind': 'version1', 'header': 1, 'headers': [], 'slots': {}, 'packages': {}}}
+        lines = runner.expectation_lines(layouts, runner.reader_class)
+        self.assertEqual(lines, 'a nothing - -\nb footprint 10200 -\n')
+        self.assertEqual(runner.class_counts(lines), {'nothing': 1, 'footprint': 1})
+        self.assertEqual(runner.counts_argument({'b': 2, 'a': 1}), 'a=1,b=2')
+        self.assertEqual(runner.swapped(lines, {'b': 'admitted'}), 'a nothing - -\nb admitted 10200 -\n')
+        names = ['x / a', 'x / b']
+        passing = {'passed': names, 'failed': [], 'returncode': 0, 'stdout': 'unqualified'}
+        self.assertIsNone(runner.check_outcome(passing, names))
+        self.assertIsNotNone(runner.check_outcome(passing, names, ['x / b']))
+        failing = {'passed': ['x / a'], 'failed': ['x / b'], 'returncode': 1, 'stdout': ''}
+        self.assertIsNone(runner.check_outcome(failing, names, ['x / b']))
+        self.assertIsNotNone(runner.check_outcome(failing, names))
+        self.assertIsNotNone(runner.check_outcome(dict(failing, passed=[]), names, ['x / b']))
+
+    def test_predictions_cover_every_layout_and_name_real_controls(self):
+        predicted = json.loads(runner.PREDICTIONS.read_text())['p5_checkpoint_2']
+        self.assertEqual(runner.model_prediction_problems(predicted), [])
+        for revision, _ in runner.ROLLBACK_MODELS:
+            self.assertEqual(sum(predicted['rollback'][revision]['classes'].values()), len(runner.LAYOUT_NAMES))
+            self.assertEqual(len(predicted['rollback'][revision]['format_control']), 47)
+        self.assertEqual(predicted['rollback']['7845']['classes']['withdrawn'], 47)
+        self.assertEqual((predicted['readers']['valid_under_v3'], predicted['readers']['outside_user_0_under_v3']),
+                         (157, 2))
+        self.assertEqual(predicted['rollback']['24bf']['classes']['sibling-principal'], 1)
+        self.assertEqual(predicted['rollback']['24bf']['classes']['conflict'], 2)
+        broken = json.loads(json.dumps(predicted))
+        broken['rollback']['24bf']['swap_control']['no-such-layout'] = 'admitted'
+        self.assertIn('rollback swap control no-such-layout admitted', runner.model_prediction_problems(broken))
+        broken['readers']['classes']['nothing'] += 1
+        self.assertIn('predicted reader classes do not cover the layouts', runner.model_prediction_problems(broken))
+
+    def test_the_registration_guard_is_the_first_fresh_check(self):
+        self.assertEqual(runner.registration_guard_problems(), [])
+        with mock.patch.object(runner, 'REGISTRATION_GUARD', runner.REGISTRATION_GUARD.replace('isNative', 'isOther')):
+            self.assertTrue(runner.registration_guard_problems())
+
+    def test_the_checks_name_their_formats_and_api(self):
+        rollback = (ROOT / runner.PLATFORM / (runner.ROLLBACK_CHECK + '.java')).read_text()
+        reader = (ROOT / runner.PLATFORM / (runner.READER_CHECK + '.java')).read_text()
+        # The rollback check names no lifecycle record API that the old products lack.
+        code = runner.b1.strip_java_comments(rollback)
+        for pattern in (r'\bLifecycle\b', r'\bSuspension\b', r'Format\s*\.\s*V3\b', r'\bBootFacts\b',
+                        r'\blifecycleFormat\b', r'\.history\('):
+            self.assertNotRegex(code, pattern)
+        self.assertIn('Format.V3', reader)
+        # The format is passed to boot explicitly; nothing builds through the adapter, reopen or livePm,
+        # whose 24bfb6a copies construct Format.V1.
+        for pattern in (r'\bNativeHeaderApi\b', r'\breopen\s*\(', r'\blivePm', r'\breopenOf\s*\('):
+            self.assertNotRegex(code, pattern)
+        self.assertRegex(code, r'\bboot\(root, format, mapped\)')
+        self.assertRegex(code, r'new NativeIdentityStore\(root\.toFile\(\), format\)')
+        self.assertEqual(runner.STEP_LABELS['rollback'], ('rollback-reader',))
+        self.assertEqual(runner.STEP_LABELS['readers'], ('production', 'new-format'))
+        self.assertIn('rollback', runner.PINNED_STEPS)
 
 
 class LifecycleRecordJvmTests(unittest.TestCase):

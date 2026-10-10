@@ -38,10 +38,11 @@ import java.util.stream.Collectors;
  * compiled from other sources: each lifecycle state, entry class, scope bit and noted entry, both
  * inventories, RETIRED, DISPOSING and the maximum record, tombstones with and without a ticket,
  * RELEASING beside its tombstone and without a directory, the durable state at every writer step
- * of each persistence transaction and of each manager operation, the retirement families that the
+ * of each persistence transaction, whose writes the manager's operations make, the retirement families that the
  * binding and history emitters wrote under the old retirement, and three companions: a version 2
  * slot beside a bound reservation, beside a valid sibling naming the same package or principal,
- * and with its package's mapping lost.
+ * and with its package's mapping lost, with the same siblings beside a readable version 1 account as
+ * their control.
  *
  * <p>The actual writers produce every value they can. Values no writer of this stage writes, scope
  * bit 0, the Android user removal class, orphaned obligations, version 1 values that only older
@@ -139,6 +140,13 @@ public final class NativeLifecycleLayouts {
 
     // Copies the store tree and records what every reader must keep and how its packages are mapped.
     private static void emit(String name, Path root, String kind, Map<String, String> packages) throws Exception {
+        emit(name, root, kind, packages, Set.of());
+    }
+
+    // The same, where the caller names each mapped package whose app ID it expects not to be held: a
+    // write interrupted before its first durable copy names nothing yet. Every other mapping must be held.
+    private static void emit(String name, Path root, String kind, Map<String, String> packages, Set<String> unheld)
+            throws Exception {
         require(NAME.matcher(name).matches() && !emitted.contains(name), "layout name " + name);
         require(KINDS.contains(kind), name + " kind " + kind);
         boolean versionTwo = slotVersion(root) == 2;
@@ -146,14 +154,16 @@ public final class NativeLifecycleLayouts {
                 + slotVersion(root));
         int header = headerVersion(root);
         Set<Integer> holds = new TreeSet<>(load(root, V3).occupiedAppIds);
-        // Only a package mapped at a held app ID is named by the store. A write interrupted before its
-        // first durable copy, such as a reservation staged only in a header seed, names nothing yet.
         Map<String, String> named = new TreeMap<>();
+        Set<String> dropped = new TreeSet<>();
         for (Map.Entry<String, String> entry : packages.entrySet()) {
             if (entry.getValue().equals("lost") || holds.contains(Integer.parseInt(entry.getValue()))) {
                 named.put(entry.getKey(), entry.getValue());
+            } else {
+                dropped.add(entry.getKey());
             }
         }
+        require(dropped.equals(new TreeSet<>(unheld)), name + " leaves " + dropped + " unheld, not " + unheld);
         Path target = Files.createDirectories(out.resolve(name));
         List<Path> paths;
         try (var walk = Files.walk(root)) {
@@ -292,6 +302,21 @@ public final class NativeLifecycleLayouts {
         interrupted("release", "seed-synced", HEADER, 2, () -> release(gone, boot(gone)));
         require(releasePhase(gone).equals("gone"), "gone " + releasePhase(gone));
         emit("state-releasing-without-directory", gone, "version1", Map.of());
+        // The same tail under a version 2 header: release from a creation entry with its binding, which
+        // the engine completes to LIVE first, stopped at its omission.
+        Path goneTwo = store(creatingA());
+        slot(goneTwo, releasableA());
+        interrupted("release", "seed-synced", HEADER, 3, () -> release(goneTwo, boot(goneTwo)));
+        require(releasePhase(goneTwo).equals("gone") && headerVersion(goneTwo) == 2,
+                "gone under header 2: " + releasePhase(goneTwo) + " " + headerVersion(goneTwo));
+        emit("state-releasing-without-directory-header-2", goneTwo, "version1", Map.of());
+        // And beside a bound reservation of another package, whose binding keeps the header at version 2.
+        Path goneBeside = store(besideReservation(ID_R, live(A)));
+        slot(goneBeside, releasableA());
+        interrupted("release", "seed-synced", HEADER, 2, () -> release(goneBeside, boot(goneBeside)));
+        require(releasePhase(goneBeside).equals("gone") && headerVersion(goneBeside) == 2,
+                "gone beside a reservation: " + releasePhase(goneBeside) + " " + headerVersion(goneBeside));
+        emit("state-releasing-without-directory-beside-reservation", goneBeside, "version1", mapped(PKG_R, R));
         Path omitted = layout(releasableA());
         require(release(omitted, boot(omitted)) && releasePhase(omitted).equals("omitted"), "release");
         emit("state-released", omitted, "version1", Map.of());
@@ -438,12 +463,7 @@ public final class NativeLifecycleLayouts {
         sweep("release completion", creatingA(), HEADER, 0);
     }
 
-    // ------------------------------------------------------------------ every manager writer step
-
-    /** A's account at this generation with the installed package's signers. */
-    private static Slot account(long generation, Lifecycle lifecycle) {
-        return new Slot(LINEAGE, A, PKG_A, generation, INSTALLED, List.of(new UserEntry(ID_A, 0, SERIAL, lifecycle)));
-    }
+    // ------------------------------------------------------------------ manager instances
 
     /** One Settings instance over root, with A mapped when it is not retired. */
     private static NativePrincipalManager manager(Path root, boolean mapped) {
@@ -451,53 +471,6 @@ public final class NativeLifecycleLayouts {
         if (mapped) pm.mSettings.add(PKG_A, A);
         pm.mSettings.restoreAfterPackageSettings();
         return new NativePrincipalManager(pm);
-    }
-
-    private interface Operation {
-        boolean run(NativePrincipalManager manager, NativePrincipalManager.Handle handle) throws Exception;
-    }
-
-    // One manager operation over A's account in a fresh instance, failed at each step of its skip-th
-    // strict write of file. Committed first when the operation needs the published binding.
-    private static void managerSweep(String operation, Slot prior, boolean active, String file, int skip,
-            Operation call) throws Exception {
-        for (String step : STEPS) {
-            Path root = layout(prior);
-            NativePrincipalManager manager = manager(root, prior.users.get(0).lifecycle.state == LifecycleState.ELIGIBLE);
-            NativePrincipalManager.Handle handle = manager.find(PKG_A, 0);
-            require(handle != null, operation + " has no handle");
-            if (active) {
-                require(manager.prepare(manager.select(PKG_A, 0)) == handle && manager.commit(handle),
-                        operation + " is not active");
-            }
-            interrupted("manager " + operation, step, file, skip, () -> call.run(manager, handle));
-            boolean directory = Files.isDirectory(root.resolve("slots/" + A), LinkOption.NOFOLLOW_LINKS);
-            emit("manager-" + dashed(operation) + "-" + step, root, slotVersion(root) == 2 ? "slot" : "version1",
-                    directory ? mapped(PKG_A, A) : Map.of());
-        }
-    }
-
-    private static void managerSteps() throws Exception {
-        managerSweep("suspend", account(1, Lifecycle.version1(false)), false, SLOT, 0,
-                (manager, handle) -> manager.suspend(handle, USER) == SuspensionResult.SUSPENDED);
-        managerSweep("lift", account(2, eligible(USER)), false, SLOT, 0,
-                (manager, handle) -> manager.lift(handle, USER));
-        managerSweep("beginRetirement", account(1, Lifecycle.version1(false)), true, SLOT, 0,
-                (manager, handle) -> manager.beginRetirement(handle, byUserRetirement()));
-        managerSweep("confirmRetired", account(2, retiring(byUserRetirement())), false, SLOT, 0,
-                (manager, handle) -> manager.confirmRetired(handle, receipts()));
-        managerSweep("beginDisposition", account(3, retired(retiredBlock())), false, SLOT, 0,
-                (manager, handle) -> manager.beginDisposition(handle));
-        managerSweep("confirmDisposition", account(4, retired(disposing(retiredBlock()))), false, SLOT, 0,
-                (manager, handle) -> manager.confirmDisposition(handle,
-                        disposals(ObligationKind.KEYSTORE, ObligationKind.HOME)));
-        Slot releasable = account(3, retired(allDischarged(byUserRetirement())));
-        Operation release = (manager, handle) -> manager.releaseUid(handle, capability(new Keys()));
-        managerSweep("releaseUid tombstone", releasable, false, SLOT, 0, release);
-        managerSweep("releaseUid tombstone confirmation", releasable, false, SLOT, 1, release);
-        managerSweep("releaseUid RELEASING", releasable, false, HEADER, 0, release);
-        managerSweep("releaseUid RELEASING confirmation", releasable, false, HEADER, 1, release);
-        managerSweep("releaseUid omission", releasable, false, HEADER, 2, release);
     }
 
     // ------------------------------------------------------------------ the moved retirement families
@@ -542,7 +515,8 @@ public final class NativeLifecycleLayouts {
             });
             Map<String, String> both = new TreeMap<>(mapped(PKG_A, A));
             both.put(PKG_B, String.valueOf(B));
-            emit("moved-pending-retiring-" + step, several.mSettings.root, "slot", both);
+            emit("moved-pending-retiring-" + step, several.mSettings.root, "slot", both,
+                    step.equals("seed-synced") ? Set.of(PKG_A) : Set.of());
         }
         // The account released through the lifecycle path: retired, disposed in a retired boot, then
         // released in another, with its entry omitted and its directory gone.
@@ -597,7 +571,20 @@ public final class NativeLifecycleLayouts {
         slot(principal, slotA(2, eligible(USER)));
         slot(principal, new Slot(LINEAGE, S, PKG_S, 1, SIGNERS, List.of(new UserEntry(ID_A, 0, SERIAL,
                 Lifecycle.version1(false)))));
-        emit("companion-sibling-principal-suspended", principal, "sibling", mapped(PKG_S, S));
+        Map<String, String> named = new TreeMap<>(mapped(PKG_S, S));
+        named.put(PKG_A, String.valueOf(A));
+        emit("companion-sibling-principal-suspended", principal, "sibling", named);
+        // The controls: the same siblings beside a readable version 1 account.
+        Path packageControl = store(header(ID_S, live(A), live(S)));
+        slot(packageControl, eligibleA());
+        slot(packageControl, new Slot(LINEAGE, S, PKG_A, 1, SIGNERS, List.of(new UserEntry(ID_S, 0, SERIAL,
+                Lifecycle.version1(false)))));
+        emit("companion-sibling-package-version1", packageControl, "version1", mapped(PKG_A, S));
+        Path principalControl = store(header(ID_S, live(A), live(S)));
+        slot(principalControl, eligibleA());
+        slot(principalControl, new Slot(LINEAGE, S, PKG_S, 1, SIGNERS, List.of(new UserEntry(ID_A, 0, SERIAL,
+                Lifecycle.version1(false)))));
+        emit("companion-sibling-principal-version1", principalControl, "version1", named);
         // The reservation beside a tombstone with its ticket, under LIVE.
         Path ticketed = store(besideReservation(ID_R, live(A)));
         slot(ticketed, tombstoneA());
@@ -620,7 +607,6 @@ public final class NativeLifecycleLayouts {
         groups.put("states", NativeLifecycleLayouts::states);
         groups.put("values", NativeLifecycleLayouts::values);
         groups.put("steps", NativeLifecycleLayouts::steps);
-        groups.put("manager", NativeLifecycleLayouts::managerSteps);
         groups.put("moved", NativeLifecycleLayouts::moved);
         groups.put("companions", NativeLifecycleLayouts::companions);
         List<String> selected = args.length > 2 ? List.of(args[2].split(",")) : List.copyOf(groups.keySet());

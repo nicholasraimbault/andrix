@@ -93,5 +93,22 @@
     "scripts/proof/tests/test_package_verity.py",
     "scripts/proof/tests/test_package_installer_payload_sync.py",
     "scripts/proof/tests/test_native_creation_history.py"
-  ]
+  ],
+  "guest_inputs": {
+    "basis": "The lifecycle guest layouts that a host generator can make, one per store layout of the guest rows: a retiring version 1 body, scanned or with its code withheld before boot; the subject's version 2 slot, read as negative evidence or with its package row removed; a version 2 slot of another package beside the subject's bound reservation; and a version 2 slot naming the subject beside its valid body. Withholding code and removing the package row are guest procedures of the image step. Each mode equals the independent oracle byte for byte and passes the observer's matching phase, one changed byte is refused, and every refusal comes before any file.",
+    "codec_sha256": "4be9c8a0135d3793bb4153e9dc794c2afbf6e4bdbc3466d447b883fe30e0b032",
+    "modes": {
+      "retiring-v1": ["slots/10148/record.bin", "slots/10148/record.bin.reservecopy", "store.bin", "store.bin.reservecopy"],
+      "v2-slot": ["slots/10148/record.bin", "slots/10148/record.bin.reservecopy", "store.bin", "store.bin.reservecopy"],
+      "v2-beside-reservation": ["slots/10149/record.bin", "slots/10149/record.bin.reservecopy", "store.bin", "store.bin.reservecopy"],
+      "v2-beside-sibling": ["slots/10148/record.bin", "slots/10148/record.bin.reservecopy", "slots/10149/record.bin", "slots/10149/record.bin.reservecopy", "store.bin", "store.bin.reservecopy"]
+    },
+    "refusals": [
+      ["v2-beside-sibling", "OUTPUT", "00112233445566778899aabbccddeeff", "10148", "10148", "7"],
+      ["v2-slot", "OUTPUT", "00112233445566778899aabbccddeeff", "10148"],
+      ["retiring-v2", "OUTPUT", "00112233445566778899aabbccddeeff", "10148", "7"],
+      ["v2-beside-reservation", "OUTPUT", "00112233445566778899aabbccddeeff", "10148", "9999", "7"],
+      ["v2-slot", "OUTPUT", "ABC", "10148", "7"]
+    ]
+  }
 }

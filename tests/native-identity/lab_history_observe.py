@@ -34,6 +34,11 @@ GENERATION_KEYS = ('version', 'mode', 'format', 'lab_input_only', 'authority', '
                    'header_sha256', 'header_bytes', 'entries')
 PREDICTION_KEYS = ('version', 'mode', 'format', 'prediction_only', 'authority', 'subject',
                    'signer_sha256', 'lineage', 'app_id', 'user_id', 'user_serial', 'principal_id', 'files')
+# The lifecycle guest layouts: the store each guest row of the lifecycle record's image starts from,
+# with the keys of the generator's manifest. The companions use a second app ID.
+LIFECYCLE_MODES = ('retiring-v1', 'v2-slot', 'v2-beside-reservation', 'v2-beside-sibling')
+LIFECYCLE_KEYS = ('version', 'mode', 'lab_input_only', 'authority', 'subject', 'lineage', 'app_id', 'other_app_id',
+                  'user_id', 'user_serial', 'files')
 # Fields an in scope reply contributes to an UNKNOWN envelope, exactly as reported.
 RETAINED = ('subject', 'request', 'state', 'selection_intent', 'attempt', 'operation', 'observation_attempt',
             'error_class', 'observation_error_class', 'prepare_acknowledged', 'prepare_ack_attempt',
@@ -166,6 +171,34 @@ def load_generation(text):
     return value
 
 
+def load_lifecycle_generation(text):
+    """The generator's manifest of one lifecycle guest layout, exactly: its mode, values and the SHA-256
+    and length of every file, by path relative to the store. Lab input only, never authority."""
+    value = _strict_json(text)
+    companion = type(value) is dict and value.get('mode') in LIFECYCLE_MODES[2:]
+    if (type(value) is not dict or tuple(value) != LIFECYCLE_KEYS or type(value['version']) is not int
+            or value['version'] != 1 or value['mode'] not in LIFECYCLE_MODES or value['lab_input_only'] is not True
+            or value['authority'] is not False or value['subject'] != SUBJECT or not _hex(value['lineage'], 32)
+            or type(value['app_id']) is not int or not 10000 <= value['app_id'] <= 19999
+            or (companion and (type(value['other_app_id']) is not int or not 10000 <= value['other_app_id'] <= 19999
+                               or value['other_app_id'] == value['app_id']))
+            or (not companion and value['other_app_id'] is not None)
+            or type(value['user_id']) is not int or value['user_id'] != 0 or type(value['user_serial']) is not int
+            or not 0 <= value['user_serial'] < 1 << 63 or type(value['files']) is not dict
+            or text != json.dumps(value, separators=(',', ':'))):
+        raise ValueError('lifecycle generation manifest')
+    slots = {str(value['app_id'])} if value['mode'] in LIFECYCLE_MODES[:2] else (
+        {str(value['other_app_id'])} if value['mode'] == 'v2-beside-reservation'
+        else {str(value['app_id']), str(value['other_app_id'])})
+    names = set(HEADERS) | {'slots/%s/%s' % (slot, name) for slot in slots for name in ('record.bin',
+                                                                                          'record.bin.reservecopy')}
+    if set(value['files']) != names or any(type(item) is not dict or set(item) != {'sha256', 'bytes'}
+                                           or not _hex(item['sha256'], 64) or type(item['bytes']) is not int
+                                           for item in value['files'].values()):
+        raise ValueError('lifecycle generation files')
+    return value
+
+
 def _regular(path):
     info = os.lstat(path)
     if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > 65536:
@@ -232,8 +265,9 @@ def _tree(root):
 
 
 def assess_store(snapshot, phase, *, generation=None, prediction=None):
-    """Exact store snapshot of one phase: empty-v1, creating or live. No extra, missing, backup,
-    seed, slot directory, link or alias, and every byte equal to the lab input or prediction."""
+    """Exact store snapshot of one phase: empty-v1, creating or live, or one lifecycle guest layout. No
+    extra, missing, backup, seed, slot directory, link or alias, and every byte equal to the lab input
+    or prediction."""
     root = _root(snapshot)
     files, directories = _tree(root)
     if generation is not None and prediction is not None and generation['lineage'] != prediction['lineage']:
@@ -244,6 +278,17 @@ def assess_store(snapshot, phase, *, generation=None, prediction=None):
                 or _sha(files[HEADERS[0]]) != generation['header_sha256']
                 or len(files[HEADERS[0]]) != generation['header_bytes']):
             raise ValueError('store bytes differ from the generated input')
+    elif phase in LIFECYCLE_MODES and generation is not None and prediction is None:
+        if generation.get('mode') != phase:
+            raise ValueError('lifecycle generation of another mode')
+        expected_directories = {'', 'slots'} | {os.path.dirname(name) for name in generation['files']
+                                                if name.startswith('slots/')}
+        if set(files) != set(generation['files']) or any(
+                _sha(files[name]) != item['sha256'] or len(files[name]) != item['bytes']
+                for name, item in generation['files'].items()):
+            raise ValueError('store bytes differ from the %s lab input' % phase)
+        if files[HEADERS[0]] != files[HEADERS[1]]:
+            raise ValueError('header copies differ')
     elif phase in ('creating', 'live') and prediction is not None:
         predicted = prediction['bytes']
         header = predicted['v2-creating-header.bin' if phase == 'creating' else 'v2-live-header.bin']

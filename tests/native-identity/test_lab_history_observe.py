@@ -352,5 +352,62 @@ class StoreSnapshotTests(unittest.TestCase):
             observe.assess_store(alias, 'creating', prediction=self.prediction)
 
 
+class LifecycleLayoutTests(unittest.TestCase):
+    """The lifecycle guest layouts: the generator's manifest is read exactly, and each snapshot must equal
+    it file for file, with nothing extra or missing."""
+
+    def manifest(self, mode, files, other=None):
+        value = {'version': 1, 'mode': mode, 'lab_input_only': True, 'authority': False, 'subject': observe.SUBJECT,
+                 'lineage': LINEAGE, 'app_id': 10148, 'other_app_id': other, 'user_id': 0, 'user_serial': 7,
+                 'files': {name: {'sha256': hashlib.sha256(data).hexdigest(), 'bytes': len(data)}
+                           for name, data in sorted(files.items())}}
+        return json.dumps(value, separators=(',', ':'))
+
+    def store(self, files):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root)
+        snapshot = root / 'store'
+        (snapshot / 'slots').mkdir(parents=True)
+        for name, data in files.items():
+            (snapshot / name).parent.mkdir(parents=True, exist_ok=True)
+            (snapshot / name).write_bytes(data)
+        return snapshot
+
+    def test_each_mode_equals_its_manifest_exactly(self):
+        header = b'header'
+        one = {'store.bin': header, 'store.bin.reservecopy': header, 'slots/10148/record.bin': b'slot',
+               'slots/10148/record.bin.reservecopy': b'slot'}
+        for mode in ('retiring-v1', 'v2-slot'):
+            generation = observe.load_lifecycle_generation(self.manifest(mode, one))
+            assessed = observe.assess_store(self.store(one), mode, generation=generation)
+            self.assertEqual(assessed['directories'], ['', 'slots', 'slots/10148'])
+            self.assertFalse(assessed['authority'])
+            with self.assertRaises(ValueError):
+                observe.assess_store(self.store(one), 'v2-beside-sibling', generation=generation)
+        both = dict(one, **{'slots/10149/record.bin': b'other', 'slots/10149/record.bin.reservecopy': b'other'})
+        generation = observe.load_lifecycle_generation(self.manifest('v2-beside-sibling', both, other=10149))
+        self.assertEqual(observe.assess_store(self.store(both), 'v2-beside-sibling', generation=generation)['phase'],
+                         'v2-beside-sibling')
+        changed = dict(both, **{'slots/10149/record.bin': b'othes'})
+        extra = dict(both, **{'slots/10149/record.bin-backup': b'other'})
+        missing = {name: data for name, data in both.items() if name != 'slots/10149/record.bin.reservecopy'}
+        torn = dict(both, **{'store.bin.reservecopy': b'headed'})
+        for files in (changed, extra, missing, torn):
+            with self.assertRaises(ValueError):
+                observe.assess_store(self.store(files), 'v2-beside-sibling', generation=generation)
+
+    def test_the_manifest_is_read_exactly(self):
+        one = {'store.bin': b'h', 'store.bin.reservecopy': b'h', 'slots/10148/record.bin': b's',
+               'slots/10148/record.bin.reservecopy': b's'}
+        text = self.manifest('v2-slot', one)
+        self.assertEqual(observe.load_lifecycle_generation(text)['mode'], 'v2-slot')
+        for bad in (text.replace('"v2-slot"', '"v3-slot"'), text.replace('"authority":false', '"authority":true'),
+                    text.replace('"other_app_id":null', '"other_app_id":10149'), text + ' ',
+                    self.manifest('v2-beside-reservation', one, other=10149),
+                    self.manifest('v2-beside-sibling', one, other=10148)):
+            with self.assertRaises(ValueError):
+                observe.load_lifecycle_generation(bad)
+
+
 if __name__ == '__main__':
     unittest.main()

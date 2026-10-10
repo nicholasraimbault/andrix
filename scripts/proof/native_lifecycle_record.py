@@ -77,7 +77,7 @@ HARNESS = 'harness'
 # the facade and to the harness, which both carry that text verbatim, and both copies run it.
 FRAGMENT = 'fragment:'
 PHASES = ('candidate', 'codec', 'reads', 'store', 'transactions', 'faults', 'settings', 'manager', 'pinned',
-          'layouts', 'mutants')
+          'layouts', 'rollback', 'readers', 'mutants')
 # Every step but the pinned one is living. The read, store and transaction tests run each store format
 # under its own label: Format.V1 is legacy, Format.V2 production and Format.V3 the new format, which B1
 # builds and does not ship. The fault sweeps and the layout emitter run Format.V3 only. The pinned step
@@ -87,10 +87,11 @@ STEP_LABELS = {'codec': ('production',), 'reads': ('production', 'legacy', 'new-
                'store': ('production', 'legacy', 'new-format'),
                'transactions': ('production', 'legacy', 'new-format'), 'faults': ('new-format',),
                'settings': ('production', 'new-format'), 'manager': ('production', 'legacy', 'new-format'),
-               'pinned': ('rollback-reader',), 'layouts': ('new-format',),
-               'mutants': ('production', 'legacy', 'new-format')}
-# The steps whose inputs are pinned Git objects only. They carry only archived labels.
-PINNED_STEPS = ('pinned',)
+               'pinned': ('rollback-reader',), 'layouts': ('new-format',), 'rollback': ('rollback-reader',),
+               'readers': ('production', 'new-format'), 'mutants': ('production', 'legacy', 'new-format')}
+# The steps whose products are pinned Git objects only. They carry only archived labels. The rollback
+# step compiles one working-tree check, written against the old API, with those pinned products.
+PINNED_STEPS = ('pinned', 'rollback')
 FORMAT_LABELS = {'V1': 'legacy', 'V2': 'production', 'V3': 'new-format'}
 
 # ---------------------------------------------------------------- the independent encoder
@@ -473,11 +474,6 @@ MANAGER_NAMES = (
 # from the plan's layout alone, never from the Java codec, and the layouts together must show every
 # fact below and every writer step, or the check names what is missing.
 LAYOUTS = 'NativeLifecycleLayouts'
-# The manager's lifecycle operations, each failed at every step of one strict write. releaseUid makes
-# five strict writes from LIVE, as the release engine's fault sweeps name them.
-MANAGER_OPERATIONS = ('suspend', 'lift', 'beginRetirement', 'confirmRetired', 'beginDisposition',
-                      'confirmDisposition', 'releaseUid tombstone', 'releaseUid tombstone confirmation',
-                      'releaseUid RELEASING', 'releaseUid RELEASING confirmation', 'releaseUid omission')
 # The retirement families that the binding and history emitters wrote under the old retirement, now
 # written by the lifecycle record's retirement: a pending reservation's retirement, which publishes its
 # body first, a published account's retirement block, and a reservation interrupted beside a retiring
@@ -489,7 +485,8 @@ STATE_LAYOUTS = (
     'state-recovery-prior-unknown', 'state-recovery-retired', 'state-retiring-user', 'state-retiring-grant',
     'state-legacy-continued', 'state-legacy-suspended', 'state-retired', 'state-retired-suspended',
     'state-disposing', 'state-disposal-confirmed', 'state-releasable', 'state-lifted', 'state-tombstone-ticketed',
-    'state-releasing-tombstone', 'state-releasing-without-directory', 'state-released')
+    'state-releasing-tombstone', 'state-releasing-without-directory', 'state-releasing-without-directory-header-2',
+    'state-releasing-without-directory-beside-reservation', 'state-released')
 # Values no writer of this stage writes, through the codec: durable state of a later writer or an older image.
 VALUE_LAYOUTS = (
     'value-scope-blocks-disposition', 'value-hold-both-scope-bits', 'value-user-removal-retiring',
@@ -497,7 +494,8 @@ VALUE_LAYOUTS = (
     'value-tombstone-without-ticket', 'value-releasing-tombstone-without-ticket')
 COMPANION_LAYOUTS = tuple('companion-%s-%s' % (kind, state) for state in ('suspended', 'retiring', 'retired')
                           for kind in ('reservation', 'sibling-package', 'lost')) + (
-    'companion-sibling-principal-suspended', 'companion-reservation-tombstone')
+    'companion-sibling-principal-suspended', 'companion-reservation-tombstone', 'companion-sibling-package-version1',
+    'companion-sibling-principal-version1')
 
 
 def dashed(text):
@@ -505,14 +503,11 @@ def dashed(text):
 
 
 STEP_LAYOUTS = tuple('step-%s-%s' % (dashed(kind), step) for kind in FAULT_KINDS for step in FAULT_STEPS)
-MANAGER_LAYOUTS = tuple('manager-%s-%s' % (dashed(operation), step) for operation in MANAGER_OPERATIONS
-                        for step in FAULT_STEPS)
 MOVED_LAYOUTS = tuple('moved-%s-%s' % (family, step) for step in FAULT_STEPS for family in MOVED_FAMILIES) + (
     'moved-final-released',)
-LAYOUT_NAMES = STATE_LAYOUTS + VALUE_LAYOUTS + STEP_LAYOUTS + MANAGER_LAYOUTS + MOVED_LAYOUTS + COMPANION_LAYOUTS
+LAYOUT_NAMES = STATE_LAYOUTS + VALUE_LAYOUTS + STEP_LAYOUTS + MOVED_LAYOUTS + COMPANION_LAYOUTS
 # The writer step families, each of which must be present at all eight steps.
 LAYOUT_STEP_FAMILIES = (tuple('step-' + dashed(kind) for kind in FAULT_KINDS)
-                        + tuple('manager-' + dashed(operation) for operation in MANAGER_OPERATIONS)
                         + tuple('moved-' + family for family in MOVED_FAMILIES))
 # Every fact that the layouts must show, read from their bytes: each lifecycle state, entry class,
 # scope value and noted entry, the entry bound, each retirement class, both inventories, each
@@ -529,7 +524,9 @@ LAYOUT_FACTS = (
     'RETIRED with DISPOSING', 'two users', 'maximum record',
     'ticketed tombstone', 'tombstone without a ticket',
     'RELEASING beside a ticketed tombstone', 'RELEASING beside a tombstone without a ticket',
-    'RELEASING without a directory',
+    'RELEASING without a directory', 'RELEASING without a directory under header 2',
+    'RELEASING without a directory beside a bound reservation under header 2',
+    'version 1 siblings naming one package', 'version 1 siblings naming one principal',
     'version 1 legacy marker', 'version 1 eligible',
     'version 2 slot under header 1', 'version 2 slot under header 2',
     'companion reservation', 'companion sibling package', 'companion sibling principal', 'companion lost')
@@ -747,6 +744,10 @@ def layout_facts(layout):
                 continue
             if entry['app_id'] not in layout['slots']:
                 facts.add('RELEASING without a directory')
+                if layout['header'] == 2:
+                    facts.add('RELEASING without a directory under header 2')
+                    if any(other['phase'] == 'CREATING' and other['bound'] for other in header['entries']):
+                        facts.add('RELEASING without a directory beside a bound reservation under header 2')
             for slot in layout['slots'][entry['app_id']] if entry['app_id'] in layout['slots'] else ():
                 if not slot['users']:
                     facts.add('RELEASING beside a ticketed tombstone' if slot['version'] == 2
@@ -770,14 +771,25 @@ def layout_facts(layout):
                     facts.add('companion sibling principal')
     if layout['kind'] == 'lost' and any(layout['packages'].get(slot['package']) == 'lost' for _, slot in newer):
         facts.add('companion lost')
+    if not newer:
+        older = [(app_id, slot) for app_id, slot in copies if slot['users']]
+        for app_id, slot in older:
+            for other, sibling in older:
+                if other == app_id:
+                    continue
+                if sibling['package'] == slot['package']:
+                    facts.add('version 1 siblings naming one package')
+                if ({user['principal'] for user in slot['users']} & {user['principal'] for user in sibling['users']}
+                        and sibling['package'] != slot['package']):
+                    facts.add('version 1 siblings naming one principal')
     return facts
 
 
 def layout_problems(layout):
     """How one layout's files disagree with its bytes: its kind is version1 exactly when no intact
     version 2 slot frame is present, a companion has one, its header version is the highest intact
-    header copy's, its holds include every slot directory and every header entry, and it maps
-    packages only at held app IDs."""
+    header copy's, its holds include every slot directory and every header entry, it maps packages
+    only at held app IDs, and it maps every package that the bytes name at a held app ID."""
     problems = []
     newer = any(slot['version'] == 2 for slots in layout['slots'].values() for slot in slots)
     if newer == (layout['kind'] == 'version1'):
@@ -791,6 +803,78 @@ def layout_problems(layout):
     unheld = sorted(name for name, where in layout['packages'].items() if where != 'lost' and where not in layout['holds'])
     if unheld:
         problems.append('%s: packages mapped at an app ID that is not held: %s' % (layout['name'], unheld))
+    named_packages = {slot['package'] for app_id, slots in layout['slots'].items() if app_id in layout['holds']
+                      for slot in slots}
+    named_packages |= {entry['package'] for header in layout['headers'] for entry in header['entries']
+                       if entry['phase'] == 'CREATING' and entry['app_id'] in layout['holds']}
+    if not named_packages <= set(layout['packages']):
+        problems.append('%s: packages the bytes name are not mapped: %s' % (
+            layout['name'], sorted(named_packages - set(layout['packages']))))
+    return problems
+
+
+# The fact controls: one witness slot encoded by the independent encoder, and the same with one field
+# changed. The fact must hold for the witness and not for the changed copy, so a decoder or fact mapping
+# that misreads a field fails the check. Each entry: the fact, the witness lifecycle and the changed one.
+_ENTRY = ('ACCOUNT_USER', 0, 0, 5, ZERO, 1, 0, None)
+_GRANT = ('ADMIN_GRANT', 0, 0, 5, '11' * 16, 2, 0, None)
+
+
+def _witness_block(state='ELIGIBLE', entries=(_ENTRY,), actor='ACCOUNT_USER', inventory=True, duty='OUTSTANDING'):
+    if state == 'ELIGIBLE':
+        return (state, list(entries), None)
+    duties = [(kind, duty if index >= 9 else ('DISCHARGED' if state == 'RETIRED' else duty), ZERO, 0, 0)
+              for index, kind in enumerate(KINDS)] if inventory else []
+    return (state, list(entries), (actor, 0, 5 if actor != 'LEGACY_MARKER' else 0,
+                                   '33' * 16 if actor == 'ADMIN_GRANT' else ZERO, 0, duties))
+
+
+FACT_CONTROLS = (
+    ('state ELIGIBLE suspended', _witness_block(), _witness_block(state='RETIRING')),
+    ('state RETIRING', _witness_block(state='RETIRING'), _witness_block(state='RETIRED', duty='DISCHARGED')),
+    ('state RETIRED', _witness_block(state='RETIRED'), _witness_block(state='RETIRING')),
+    ('entry ACCOUNT_USER', _witness_block(), _witness_block(entries=(_GRANT,))),
+    ('entry ADMIN_GRANT', _witness_block(entries=(_GRANT,)), _witness_block()),
+    ('entry RECOVERY_HOLD', _witness_block(entries=(('RECOVERY_HOLD', 0, 0, 5, ZERO, 7, 0, None),)),
+     _witness_block()),
+    ('scope 1', _witness_block(entries=(('ACCOUNT_USER', 1, 0, 5, ZERO, 1, 0, None),)), _witness_block()),
+    ('scope 2', _witness_block(entries=(('RECOVERY_HOLD', 2, 0, 5, ZERO, 7, 0, None),)),
+     _witness_block(entries=(('RECOVERY_HOLD', 0, 0, 5, ZERO, 7, 0, None),))),
+    ('scope 3', _witness_block(entries=(('RECOVERY_HOLD', 3, 0, 5, ZERO, 7, 0, None),)),
+     _witness_block(entries=(('RECOVERY_HOLD', 2, 0, 5, ZERO, 7, 0, None),))),
+    ('noted entry', _witness_block(entries=(('ACCOUNT_USER', 0, 0, 5, ZERO, 1, 0, 'ab' * 32),)), _witness_block()),
+    ('retirement ACCOUNT_USER', _witness_block(state='RETIRING'), _witness_block(state='RETIRING', actor='ADMIN_GRANT')),
+    ('retirement ADMIN_GRANT', _witness_block(state='RETIRING', actor='ADMIN_GRANT'), _witness_block(state='RETIRING')),
+    ('retirement USER_REMOVAL', _witness_block(state='RETIRING', actor='USER_REMOVAL'), _witness_block(state='RETIRING')),
+    ('retirement LEGACY_MARKER', _witness_block(state='RETIRING', actor='LEGACY_MARKER', inventory=False),
+     _witness_block(state='RETIRING', inventory=False)),
+    ('inventory 0', _witness_block(state='RETIRING', actor='LEGACY_MARKER', inventory=False),
+     _witness_block(state='RETIRING', actor='LEGACY_MARKER')),
+    ('inventory 1', _witness_block(state='RETIRING'), _witness_block(state='RETIRING', inventory=False)),
+    ('obligation OUTSTANDING', _witness_block(state='RETIRING'), _witness_block(state='RETIRING', duty='DISCHARGED')),
+    ('obligation DISPOSING', _witness_block(state='RETIRED', duty='DISPOSING'), _witness_block(state='RETIRED')),
+    ('obligation DISCHARGED', _witness_block(state='RETIRING', duty='DISCHARGED'), _witness_block(state='RETIRING')),
+    ('obligation ORPHANED_WITH_USER', _witness_block(state='RETIRING', duty='ORPHANED_WITH_USER'),
+     _witness_block(state='RETIRING')),
+    ('RETIRED with DISPOSING', _witness_block(state='RETIRED', duty='DISPOSING'),
+     _witness_block(state='RETIRED', duty='ORPHANED_WITH_USER')),
+)
+
+
+def fact_control_problems():
+    """Each fact control: the witness, encoded by the independent encoder and read back through the
+    independent decoder, shows its fact, and the copy with one field changed does not."""
+    problems = []
+    for fact, witness, changed in FACT_CONTROLS:
+        shown = []
+        for lifecycle in (witness, changed):
+            data = slot_v2(LINEAGE, 10200, 2, 'a.b', [LOW], [(3, 0, 5, lifecycle)])
+            slot = decode_slot(data)
+            layout = {'name': 'control', 'kind': 'slot', 'header': 1, 'holds': [10200], 'packages': {'a.b': 10200},
+                      'headers': [], 'slots': {10200: [slot] if slot else []}}
+            shown.append(fact in layout_facts(layout))
+        if shown != [True, False]:
+            problems.append('fact control %s: witness %s, changed %s' % (fact, shown[0], shown[1]))
     return problems
 
 
@@ -844,13 +928,14 @@ def layouts_check(directory):
         facts[path.name] = layout_facts(layout)
     problems += coverage_problems(facts)
     problems += ['coverage control missed: ' + control for control in coverage_controls(facts)]
+    problems += fact_control_problems()
     return problems, facts
 
 
 def layout_groups():
     """How many layouts each group of the emitter writes, by the group argument it takes."""
     return {'states': len(STATE_LAYOUTS), 'values': len(VALUE_LAYOUTS), 'steps': len(STEP_LAYOUTS),
-            'manager': len(MANAGER_LAYOUTS), 'moved': len(MOVED_LAYOUTS), 'companions': len(COMPANION_LAYOUTS)}
+            'moved': len(MOVED_LAYOUTS), 'companions': len(COMPANION_LAYOUTS)}
 
 
 def layout_name_problems():
@@ -860,15 +945,15 @@ def layout_name_problems():
     problems = []
     source = (ROOT / PLATFORM / (LAYOUTS + '.java')).read_text()
     for name in STATE_LAYOUTS + VALUE_LAYOUTS + ('moved-final-released', 'companion-sibling-principal-suspended',
-                                                 'companion-reservation-tombstone'):
+                                                 'companion-reservation-tombstone', 'companion-sibling-package-version1',
+                                                 'companion-sibling-principal-version1'):
         if source.count('"%s"' % name) != 1:
             problems.append('layout not named once in the emitter: ' + name)
     for kind in FAULT_KINDS:
         if source.count('sweep("%s", ' % kind) != 1:
             problems.append('transaction not swept once by the emitter: ' + kind)
-    for operation in MANAGER_OPERATIONS:
-        if source.count('managerSweep("%s", ' % operation) != 1:
-            problems.append('manager operation not swept once by the emitter: ' + operation)
+    if 'managerSweep(' in source:
+        problems.append('the emitter sweeps manager operations, whose writes the persistence sweeps already make')
     for family in MOVED_FAMILIES:
         if source.count('"moved-%s-" + step' % family) != 1:
             problems.append('moved family not named once in the emitter: ' + family)
@@ -933,12 +1018,174 @@ def rollback_manifest_problems(reads):
     for revision, _ in ROLLBACK_MODELS:
         expected = rollback_model_paths(revision)
         actual = set(reads.get(revision, ()))
+        pinned_git = {(b1.REVISIONS[source], path) for source, path in actual}
+        bypass = sorted(set(reads.get(revision + ' git', ())) - pinned_git)
+        if bypass:
+            problems.append('%s read Git objects outside the pinned loader: %s' % (revision, bypass[:5]))
         for source, path in sorted(actual):
             if path not in b1.manifest(source):
                 problems.append('%s read an unpinned input: %s %s' % (revision, source, path))
         if actual != expected:
             problems.append('%s read %s and missed %s' % (revision, sorted(actual - expected)[:5],
                                                            sorted(expected - actual)[:5]))
+    return problems
+
+
+# ---------------------------------------------------------------- the rollback and reader checks
+# NativeLifecycleRollbackCheck is written against the old API only and compiled into each model's
+# pinned set. NativeLifecycleReaderCheck uses the current sources and the candidate's harness. Both
+# read every emitted layout with the class this runner states for it, from the independent reading of
+# its bytes, and with the predicted count of each class.
+ROLLBACK_CHECK = 'NativeLifecycleRollbackCheck'
+READER_CHECK = 'NativeLifecycleReaderCheck'
+ROLLBACK_CLASSES = ('footprint', 'reservation', 'sibling', 'sibling-principal', 'lost', 'withdrawn', 'admitted',
+                    'retiring', 'tombstone', 'nothing', 'conflict')
+# The classes of layouts with a version 2 slot. Every other class is a positive control or a control
+# that both B1 and the old images read alike, version 1 bytes only.
+VERSION_TWO_CLASSES = ('footprint', 'reservation', 'sibling', 'sibling-principal', 'lost')
+READER_CLASSES = tuple(name for name in ROLLBACK_CLASSES if name != 'withdrawn')
+# The supports of the reader check, from the working tree, and of the rollback check, pinned.
+READER_SUPPORT = ('NativeHeaderTestSupport', 'NativeBindingTestSupport', 'NativeHistoryTestSupport')
+# The registration guard: the first check of a fresh app ID registration in the adapted Settings, so a
+# package that the identity predicate names cannot register afresh.
+REGISTRATION_GUARD = ('     boolean registerAppIdLPw(PackageSetting p, boolean forceNew) throws PackageManagerException {\n'
+                      '         final boolean createdNew;\n'
+                      '         if (p.getAppId() == 0 || forceNew) {\n'
+                      '+            if (isNativePrincipalPackageLPr(p.getPackageName())) {\n'
+                      '+                throw PackageManagerException.ofInternalError("Native identity requires recovery",\n')
+
+
+def registration_guard_problems():
+    """The adapted Settings refuses a fresh registration of any package the identity predicate names,
+    before it acquires an app ID: the host reader check asserts that predicate for a lost mapping."""
+    patch = integration.PATCH.read_text()
+    return [] if patch.count(REGISTRATION_GUARD) == 1 else ['the registration guard is not the first check of a fresh'
+                                                            ' registration in the patch']
+
+
+def version_two_ids(layout):
+    """The app IDs whose slot directory holds an intact version 2 frame, a staging seed included."""
+    return sorted(app_id for app_id, slots in layout['slots'].items() if any(slot['version'] == 2 for slot in slots))
+
+
+def _users(slots):
+    return [user for slot in slots for user in slot['users']]
+
+
+def sibling_of(layout):
+    """The class and expected principal of a valid version 1 slot that names the package or a principal of
+    another slot in the layout, from the bytes: ('sibling' or 'sibling-principal', the sibling's app ID
+    and its principal) beside a version 2 slot, ('conflict', its app ID, its principal) beside a readable
+    version 1 account, or None."""
+    newer = version_two_ids(layout)
+    for app_id, slots in sorted(layout['slots'].items()):
+        older = [slot for slot in slots if slot['version'] == 1 and slot['users']]
+        if app_id in newer or not older:
+            continue
+        sibling = older[0]
+        principals = {user['principal'] for user in sibling['users']}
+        for other, others in sorted(layout['slots'].items()):
+            if other == app_id:
+                continue
+            for copy in others:
+                if not copy['users']:
+                    continue
+                same_package = copy['package'] == sibling['package']
+                same_principal = bool(principals & {user['principal'] for user in copy['users']})
+                if not (same_package or same_principal):
+                    continue
+                if other in newer and copy['version'] == 2:
+                    return ('sibling' if same_package else 'sibling-principal', app_id,
+                            sibling['users'][0]['principal'])
+                if not newer and copy['version'] == 1:
+                    return 'conflict', app_id, sibling['users'][0]['principal']
+    return None
+
+
+def rollback_class(layout, revision):
+    """The class of one layout for one rollback model, from its decoded bytes and header version alone:
+    78456b3 withdraws everything under a version 2 header; beside a version 2 slot, a valid sibling naming
+    its package or principal, a bound reservation of another app ID, a lost mapping, or a footprint;
+    without one, a conflict of two readable siblings, or a positive control that must equal B1's own
+    reading: an eligible body or a reservation admitted, a legacy marker retiring, a tombstone without a
+    ticket deferred, or nothing named."""
+    if revision == '7845' and layout['header'] == 2:
+        return 'withdrawn'
+    sibling = sibling_of(layout)
+    if version_two_ids(layout):
+        if sibling:
+            return sibling[0]
+        newer = set(version_two_ids(layout))
+        if any(entry['phase'] == 'CREATING' and entry['bound'] and entry['app_id'] not in newer
+               for header in layout['headers'] for entry in header['entries']):
+            return 'reservation'
+        return 'lost' if 'lost' in layout['packages'].values() else 'footprint'
+    if sibling:
+        return 'conflict'
+    if not layout['packages']:
+        return 'nothing'
+    users = _users(slot for slots in layout['slots'].values() for slot in slots)
+    if any(user['legacy'] for user in users):
+        return 'retiring'
+    if users:
+        return 'admitted'
+    if any(layout['slots'].values()):
+        return 'tombstone'
+    # No slot copy at all: the mapped package is a bound reservation's.
+    return 'admitted'
+
+
+def reader_class(layout):
+    """B1's class of one layout: the 24bfb6a model's, whose positive controls B1 must read alike."""
+    return rollback_class(layout, '24bf')
+
+
+def expectation_lines(layouts, classify):
+    """One line per layout: its name, its class, its version 2 slot app IDs or "-", and for a sibling the
+    principal that its admitted or conflicting record carries, or "-"."""
+    lines = []
+    for name, layout in sorted(layouts.items()):
+        sibling = sibling_of(layout)
+        lines.append('%s %s %s %s\n' % (name, classify(layout), ','.join(map(str, version_two_ids(layout))) or '-',
+                                         '%d:%d' % sibling[1:] if sibling else '-'))
+    return ''.join(lines)
+
+
+def class_counts(lines):
+    counts = {}
+    for line in lines.splitlines():
+        counts[line.split()[1]] = counts.get(line.split()[1], 0) + 1
+    return counts
+
+
+def counts_argument(counts):
+    return ','.join('%s=%d' % item for item in sorted(counts.items()))
+
+
+def swapped(lines, swaps):
+    """The expectation lines with these layouts given another class: a control that must fail exactly
+    there."""
+    out = []
+    for line in lines.splitlines():
+        name, klass, ids, principal = line.split()
+        out.append('%s %s %s %s\n' % (name, swaps.get(name, klass), ids, principal))
+    return ''.join(out)
+
+
+def model_prediction_problems(predicted):
+    """The predicted classes of each model and of the reader cover every layout once, and every control
+    names layouts that exist with a class that differs from the predicted one."""
+    problems = []
+    for revision, _ in ROLLBACK_MODELS:
+        counts = predicted['rollback'][revision]['classes']
+        if sum(counts.values()) != len(LAYOUT_NAMES) or not set(counts) <= set(ROLLBACK_CLASSES):
+            problems.append('predicted rollback classes of %s do not cover the layouts' % revision)
+        for name, klass in predicted['rollback'][revision]['swap_control'].items():
+            if name not in LAYOUT_NAMES or klass not in ROLLBACK_CLASSES:
+                problems.append('rollback swap control %s %s' % (name, klass))
+    counts = predicted['readers']['classes']
+    if sum(counts.values()) != len(LAYOUT_NAMES) or not set(counts) <= set(READER_CLASSES):
+        problems.append('predicted reader classes do not cover the layouts')
     return problems
 
 
@@ -949,18 +1196,24 @@ def rollback_inputs(pinned, scratch):
     built = b2.archived_candidates(pinned, scratch)
     settings = {'24bf': built[b2.ARCHIVE], '7845': built[b2.ROLLBACK]}
     files, reads = {}, {}
-    original = b1.pinned_bytes
+    original, original_git = b1.pinned_bytes, b1.git_bytes
     for revision, _ in ROLLBACK_MODELS:
         log = reads[revision] = []
+        git = reads[revision + ' git'] = []
 
         def recorded(source, path, log=log):
             log.append((source, path))
             return original(source, path)
+
+        # Every Git object read at all, so a read that bypasses the pinned loader shows too.
+        def git_recorded(commit, path, git=git):
+            git.append((commit, path))
+            return original_git(commit, path)
         try:
-            b1.pinned_bytes = recorded
+            b1.pinned_bytes, b1.git_bytes = recorded, git_recorded
             files[revision] = rollback_model_files(revision, settings[revision])
         finally:
-            b1.pinned_bytes = original
+            b1.pinned_bytes, b1.git_bytes = original, original_git
     return files, reads
 
 # ---------------------------------------------------------------- deliberate defects
@@ -2196,12 +2449,17 @@ def label_problems():
             or labelled.get(STORE_TEST) != every or labelled.get(TRANSACTION_TEST) != every
             or labelled.get(FAULT_TEST) != {'new-format'}
             or labelled.get(SETTINGS_TEST) != {'production', 'new-format'}
-            or labelled.get(MANAGER_TEST) != every or labelled.get(LAYOUTS) != {'new-format'} or set(labelled) != {
-                CODEC_TEST, READ_TEST, STORE_TEST, TRANSACTION_TEST, FAULT_TEST, SETTINGS_TEST, MANAGER_TEST, LAYOUTS}):
+            or labelled.get(MANAGER_TEST) != every or labelled.get(LAYOUTS) != {'new-format'}
+            or labelled.get(ROLLBACK_CHECK) != {'rollback-reader'}
+            or labelled.get(READER_CHECK) != {'production', 'new-format'} or set(labelled) != {
+                CODEC_TEST, READ_TEST, STORE_TEST, TRANSACTION_TEST, FAULT_TEST, SETTINGS_TEST, MANAGER_TEST, LAYOUTS,
+                ROLLBACK_CHECK, READER_CHECK}):
         problems.append('harness labels of this runner differ: %s' % labelled)
     if {row[0] for row in b1.HARNESS_LABELS if row[0] == 'new-format'} != {'new-format'} or any(
             row[1] != 'scripts/proof/native_lifecycle_record.py' for row in b1.HARNESS_LABELS if row[0] == 'new-format'):
         problems.append('the new-format label names another harness')
+    if b1.LIVING_ROLLBACK_CHECKS != (ROLLBACK_CHECK,):
+        problems.append('the living rollback check exception names %s' % (b1.LIVING_ROLLBACK_CHECKS,))
     return problems
 
 
@@ -2272,10 +2530,12 @@ def source_checks():
             len(CODEC_NAMES), len(READ_NAMES), len(GOLDEN_NAMES), len(MUTANTS), len(STORE_NAMES),
             len(TRANSACTION_NAMES), len(FAULT_NAMES), len(SETTINGS_NAMES), len(MANAGER_NAMES), len(LAYOUT_NAMES)):
         problems.append('predicted counts differ from the case lists')
-    layouts = predictions['p5_checkpoint_1']['layouts']
+    layouts = predictions['p5_checkpoint_2']['layouts']
     if (layouts['names'], layouts['facts'], layouts['step_families'], layouts['by_group']) != (
             len(LAYOUT_NAMES), len(LAYOUT_FACTS), len(LAYOUT_STEP_FAMILIES), layout_groups()):
         problems.append('predicted layouts differ from the layout lists')
+    problems += model_prediction_problems(predictions['p5_checkpoint_2'])
+    problems += registration_guard_problems()
     by_label = {suite: {} for suite in ('store', 'transactions', 'manager')}
     for suite in by_label:
         for name in SUITE_NAMES[suite]:
@@ -2421,6 +2681,34 @@ def layout_files():
     return files
 
 
+def rollback_files(pinned_half):
+    """One rollback model's compile set: its pinned half, assembled with the working tree closed, and the
+    working-tree rollback check, the one living input, written against the old API only."""
+    return {**pinned_half, 'tests/%s.java' % ROLLBACK_CHECK: (ROOT / PLATFORM / (ROLLBACK_CHECK + '.java')).read_bytes()}
+
+
+def reader_files(settings):
+    """The reader check's compile set: the current product, the history stubs, the candidate's harness
+    and the current test supports with the B1 adapter."""
+    files = b1.product_sources()
+    files.update(b2.history_stubs())
+    files['tests/NativeHistoryHarness.java'] = b2.harness_source(settings, 'b2').encode()
+    files.update(b1.test_sources(list(READER_SUPPORT) + [READER_CHECK], adapter='b1'))
+    return files
+
+
+def check_outcome(run, names, failing=()):
+    """Whether a finished check passed every named case but exactly the failing ones, and how."""
+    passed, failed = set(run['passed']), set(run['failed'])
+    if passed | failed != set(names) or len(run['passed']) + len(run['failed']) != len(names):
+        return 'cases %d passed, %d failed, of %d named' % (len(passed), len(failed), len(names))
+    if failed != set(failing):
+        return 'failed %s, predicted %s' % (sorted(failed - set(failing))[:5], sorted(set(failing) - failed)[:5])
+    if bool(run['returncode']) != bool(failing) or (not failing and 'unqualified' not in run['stdout']):
+        return 'exit %s' % run['returncode']
+    return None
+
+
 def emitted_names(stdout):
     """The layout names the emitter printed, in order."""
     return [line[len('LAYOUT '):] for line in stdout.splitlines() if line.startswith('LAYOUT ')]
@@ -2438,6 +2726,181 @@ def golden_problems(gold):
         if not path.is_file() or path.read_bytes() != data:
             problems.append('golden %s differs from the independent encoder' % name)
     return problems
+
+
+def pinned_phase(work, pinned, steps, problems, predicted=None):
+    """The rollback models' pinned inputs: assembled from Git objects with the working tree closed, read
+    only where the manifest pins, and compiled against each old product. The file and read counts and the
+    differing files are recorded and compared with the predictions. Returns the pinned halves."""
+    pinned_halves, reads = rollback_inputs(pinned, work / 'pinned-candidates')
+    first, second = (pinned_halves[revision] for revision, _ in ROLLBACK_MODELS)
+    steps['pinned'] = {'manifest': rollback_manifest_problems(reads), 'builds': {},
+                       'files': {revision: len(pinned_halves[revision]) for revision, _ in ROLLBACK_MODELS},
+                       'distinct_reads': {revision: len(set(reads[revision])) for revision, _ in ROLLBACK_MODELS},
+                       'differing_files': sorted(name for name in set(first) | set(second)
+                                                 if first.get(name) != second.get(name))}
+    problems += ['pinned rollback inputs: ' + item for item in steps['pinned']['manifest']]
+    if predicted is not None:
+        record = steps['pinned']
+        if (record['differing_files'] != predicted['differing_files']
+                or set(record['files'].values()) != {predicted['files_per_model']}
+                or set(record['distinct_reads'].values()) != {predicted['distinct_reads_per_model']}):
+            problems.append('pinned inputs differ from the predictions: %s' % {
+                key: record[key] for key in ('files', 'distinct_reads', 'differing_files')})
+    for revision, _ in ROLLBACK_MODELS:
+        built = b1.build(Path(tempfile.mkdtemp(dir=work, prefix='pinned-' + revision + '-')), pinned_halves[revision])
+        steps['pinned']['builds'][revision] = {'returncode': built['returncode'], 'inputs': built['inputs'],
+                                               'output': built['output'][-4000:]}
+        if built['returncode']:
+            problems.append('pinned rollback inputs of %s do not compile' % revision)
+
+    return pinned_halves
+
+
+def layout_evidence(emitted, steps, problems, predicted=None):
+    """The kinds and the layouts without holds of the emitted set, recorded in the report and compared
+    with the predictions."""
+    kinds, without = {}, []
+    for path in sorted(emitted.iterdir()):
+        kind = ' '.join((path / 'kind').read_text().split())
+        kinds[kind] = kinds.get(kind, 0) + 1
+        if not (path / 'holds').read_text():
+            without.append(path.name)
+    steps['layouts']['kinds'], steps['layouts']['without_holds'] = kinds, without
+    if predicted is not None and (kinds != predicted['kinds'] or without != predicted['without_holds']):
+        problems.append('layout kinds or holds differ from the predictions: %s %s' % (kinds, without))
+
+
+def layouts_phase(work, steps, problems, predicted=None):
+    """The layout emitter under Format.V3 and the coverage check over every layout it writes."""
+    layouts = work / 'layouts'
+    (layouts / 'build').mkdir(parents=True)
+    built = b1.build(layouts / 'build', layout_files())
+    steps['layouts'] = {'build': {'returncode': built['returncode'], 'output': built['output'][-4000:]}}
+    if built['returncode']:
+        problems.append('layout emitter does not compile')
+    else:
+        run = b1.execute(layouts / 'build', LAYOUTS, [str(layouts / 'emitted'), str(layouts / 'state')],
+                         timeout=3600)
+        steps['layouts']['run'] = {'returncode': run['returncode'], 'stdout': run['stdout'][-4000:],
+                                   'stderr': run['stderr'][-4000:]}
+        names = emitted_names(run['stdout'])
+        if (run['returncode'] or len(names) != len(set(names)) or sorted(names) != sorted(LAYOUT_NAMES)
+                or 'unqualified' not in run['stdout']):
+            problems.append('layout emitter run')
+        else:
+            refused = b1.execute(layouts / 'build', LAYOUTS, [str(layouts / 'no-assertions'), str(layouts / 'state')],
+                                 assertions=False, timeout=120)
+            if not refused['returncode'] or '-ea' not in refused['stderr']:
+                problems.append('layout emitter ran without assertions')
+            found, facts = layouts_check(layouts / 'emitted')
+            layout_evidence(layouts / 'emitted', steps, problems, predicted)
+            steps['layouts']['coverage'] = found
+            steps['layouts']['facts'] = {name: sorted(value) for name, value in facts.items()}
+            problems += ['layouts: ' + item for item in found]
+
+
+
+def read_emitted(emitted, problems):
+    """Every emitted layout, read by the independent decoder, or none when the set is incomplete."""
+    read = {path.name: read_layout(path) for path in sorted(emitted.iterdir())} if emitted.is_dir() else {}
+    if sorted(read) != sorted(LAYOUT_NAMES):
+        problems.append('no complete layouts to read')
+        return {}
+    return read
+
+
+def rollback_phase(work, predictions, pinned_halves, emitted, steps, problems):
+    """The rollback models over the emitted layouts, each against the class this runner states for every
+    layout from the independent reading, with their swap and format controls."""
+    predicted = predictions['p5_checkpoint_2']
+    read = read_emitted(emitted, problems)
+    steps['rollback'] = {}
+    for revision, format_name in ROLLBACK_MODELS if read else ():
+        record = steps['rollback'][revision] = {}
+        expected = predicted['rollback'][revision]
+        lines = expectation_lines(read, lambda layout, revision=revision: rollback_class(layout, revision))
+        record['classes'] = class_counts(lines)
+        if record['classes'] != expected['classes']:
+            problems.append('rollback classes of %s differ from the prediction: %s' % (revision, record['classes']))
+        base = work / 'rollback' / revision
+        base.mkdir(parents=True)
+        (base / 'expectations').write_text(lines)
+        built = b1.build(base / 'build', rollback_files(pinned_halves[revision]))
+        record['build'] = {'returncode': built['returncode'], 'output': built['output'][-4000:]}
+        if built['returncode']:
+            problems.append('rollback check of %s does not compile' % revision)
+            continue
+        names = ['lifecycle rollback / ' + name for name in LAYOUT_NAMES] + ['lifecycle rollback / layouts by class']
+        controls = {'run': (format_name, lines, ()),
+                    'swap control': (format_name, swapped(lines, expected['swap_control']),
+                                     ['lifecycle rollback / ' + name for name in expected['swap_control']]),
+                    'format control': (expected['format_control_format'], lines,
+                                       ['lifecycle rollback / ' + name for name in expected['format_control']])}
+        for leg, (format_used, text, failing) in controls.items():
+            (base / (leg.replace(' ', '-') + '.expectations')).write_text(text)
+            run = b1.execute(base / 'build', ROLLBACK_CHECK, [
+                str(emitted), str(base / ('state-' + leg.replace(' ', '-'))), format_used,
+                str(base / (leg.replace(' ', '-') + '.expectations')), counts_argument(class_counts(text))],
+                timeout=1800)
+            record[leg] = {'returncode': run['returncode'], 'failed': run['failed'], 'passed': len(run['passed']),
+                           'stdout': run['stdout'][-3000:], 'stderr': run['stderr'][-3000:]}
+            found = check_outcome(run, names, failing)
+            if found:
+                problems.append('rollback %s %s: %s' % (revision, leg, found))
+        refused = b1.execute(base / 'build', ROLLBACK_CHECK, [str(emitted), str(base / 'no-assertions'), format_name,
+                                                              str(base / 'expectations'), 'x=0'],
+                             assertions=False, timeout=120)
+        if not refused['returncode'] or '-ea' not in refused['stderr']:
+            problems.append('rollback check of %s ran without assertions' % revision)
+
+
+
+def readers_phase(work, predictions, settings, emitted, steps, problems):
+    """B1's reader under Format.V2 and Format.V3 over the emitted layouts, with the cross-format controls."""
+    predicted = predictions['p5_checkpoint_2']
+    read = read_emitted(emitted, [])
+    steps['readers'] = {}
+    if read:
+        record = steps['readers']
+        expected = predicted['readers']
+        lines = expectation_lines(read, reader_class)
+        record['classes'] = class_counts(lines)
+        if record['classes'] != expected['classes']:
+            problems.append('reader classes differ from the prediction: %s' % record['classes'])
+        base = work / 'readers'
+        base.mkdir(parents=True)
+        (base / 'expectations').write_text(lines)
+        built = b1.build(base / 'build', reader_files(settings))
+        record['build'] = {'returncode': built['returncode'], 'output': built['output'][-4000:]}
+        if built['returncode']:
+            problems.append('reader check does not compile')
+        else:
+            counts = class_counts(lines)
+            with_valid = dict(counts, valid=expected['valid_under_v3'],
+                              **{'outside-user-0': expected['outside_user_0_under_v3']})
+            versioned = [name for name in LAYOUT_NAMES if reader_class(read[name]) in VERSION_TWO_CLASSES]
+            legs = {'V2': ('V2', None, counts, 'lifecycle reader / ', ()),
+                    'V3': ('V3', None, with_valid, 'lifecycle reader V3 / ', ()),
+                    'V2 asserted under V3': ('V3', 'V2', counts, 'lifecycle reader / ', versioned),
+                    'V3 asserted under V2': ('V2', 'V3', dict(counts, valid=0, **{
+                        'outside-user-0': expected['outside_user_0_under_v3']}), 'lifecycle reader V3 / ', versioned)}
+            for leg, (format_used, other, pairs, prefix, failing) in legs.items():
+                run = b1.execute(base / 'build', READER_CHECK, [
+                    str(emitted), str(base / ('state-' + leg.replace(' ', '-'))), format_used,
+                    str(base / 'expectations'), counts_argument(pairs), *([other] if other else [])], timeout=1800)
+                record[leg] = {'returncode': run['returncode'], 'failed': run['failed'], 'passed': len(run['passed']),
+                               'stdout': run['stdout'][-3000:], 'stderr': run['stderr'][-3000:]}
+                names = [prefix + name for name in LAYOUT_NAMES] + [prefix + 'layouts by class']
+                found = check_outcome(run, names, [prefix + name for name in failing])
+                if found:
+                    problems.append('reader %s: %s' % (leg, found))
+            refused = b1.execute(base / 'build', READER_CHECK, [str(emitted), str(base / 'no-assertions'), 'V2',
+                                                                str(base / 'expectations'), 'x=0'],
+                                 assertions=False, timeout=120)
+            if not refused['returncode'] or '-ea' not in refused['stderr']:
+                problems.append('reader check ran without assertions')
+
 
 
 def qualify(work, pinned, report):
@@ -2508,44 +2971,16 @@ def qualify(work, pinned, report):
 
     lifecycle_phase('manager')
 
-    # The rollback models' pinned inputs: assembled from Git objects with the working tree closed, read
-    # only where the manifest pins, and compiled against each old product.
-    files, reads = rollback_inputs(pinned, work / 'pinned-candidates')
-    steps['pinned'] = {'manifest': rollback_manifest_problems(reads), 'builds': {}}
-    problems += ['pinned rollback inputs: ' + item for item in steps['pinned']['manifest']]
-    for revision, _ in ROLLBACK_MODELS:
-        built = b1.build(Path(tempfile.mkdtemp(dir=work, prefix='pinned-' + revision + '-')), files[revision])
-        steps['pinned']['builds'][revision] = {'returncode': built['returncode'], 'inputs': built['inputs'],
-                                               'output': built['output'][-4000:]}
-        if built['returncode']:
-            problems.append('pinned rollback inputs of %s do not compile' % revision)
+    pinned_halves = pinned_phase(work, pinned, steps, problems, predictions['p5_checkpoint_2']['pinned'])
     report['completed_phases'].append('pinned')
-
-    layouts = work / 'layouts'
-    (layouts / 'build').mkdir(parents=True)
-    built = b1.build(layouts / 'build', layout_files())
-    steps['layouts'] = {'build': {'returncode': built['returncode'], 'output': built['output'][-4000:]}}
-    if built['returncode']:
-        problems.append('layout emitter does not compile')
-    else:
-        run = b1.execute(layouts / 'build', LAYOUTS, [str(layouts / 'emitted'), str(layouts / 'state')],
-                         timeout=3600)
-        steps['layouts']['run'] = {'returncode': run['returncode'], 'stdout': run['stdout'][-4000:],
-                                   'stderr': run['stderr'][-4000:]}
-        names = emitted_names(run['stdout'])
-        if (run['returncode'] or len(names) != len(set(names)) or sorted(names) != sorted(LAYOUT_NAMES)
-                or 'unqualified' not in run['stdout']):
-            problems.append('layout emitter run')
-        else:
-            refused = b1.execute(layouts / 'build', LAYOUTS, [str(layouts / 'no-assertions'), str(layouts / 'state')],
-                                 assertions=False, timeout=120)
-            if not refused['returncode'] or '-ea' not in refused['stderr']:
-                problems.append('layout emitter ran without assertions')
-            found, facts = layouts_check(layouts / 'emitted')
-            steps['layouts']['coverage'] = found
-            steps['layouts']['facts'] = {name: sorted(value) for name, value in facts.items()}
-            problems += ['layouts: ' + item for item in found]
+    layouts_phase(work, steps, problems, predictions['p5_checkpoint_2']['layouts'])
     report['completed_phases'].append('layouts')
+    # Each layout's class comes from the independent reading of its bytes and every class count is
+    # predicted, so no layout leaves its branch.
+    rollback_phase(work, predictions, pinned_halves, work / 'layouts' / 'emitted', steps, problems)
+    report['completed_phases'].append('rollback')
+    readers_phase(work, predictions, settings, work / 'layouts' / 'emitted', steps, problems)
+    report['completed_phases'].append('readers')
 
     steps['mutants'] = {}
     expectations = predictions['mutants_caught_at_least']

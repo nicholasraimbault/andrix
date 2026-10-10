@@ -421,9 +421,11 @@ LAYOUT_NAMES = tuple(sorted(
 # constructs it, or code that constructs no store. legacy: Format.V1 writes or Format.V1 end to end,
 # which model no shipped reader since the normal image became version 2, and every Format.V1 read
 # by the current sources, which stop modelling 78456b3 once B1 edits them; they stay as regressions
-# of the version 1 paths, and none is retired. rollback-reader: Format.V1 reading version 2 state as
-# the supported 78456b3 rollback reader does: the pinned 78456b3 image and its twin, the pinned
-# 24bfb6a sources, in archived runs only. archived-baseline: every other archived run, over pinned
+# of the version 1 paths, and none is retired. rollback-reader: an older image reading newer state as
+# its pinned objects do: Format.V1 reading version 2 state as the supported 78456b3 rollback reader
+# does, the pinned 78456b3 image and its twin, the pinned 24bfb6a sources, and the pinned 24bfb6a
+# image under its own production Format.V2 reading version 2 slots, in runs over pinned products only;
+# the lifecycle rollback check is the one working-tree class among them. archived-baseline: every other archived run, over pinned
 # Git objects of an earlier revision, compared as history, whose inputs and results no edit of the
 # working tree changes. new-format: Format.V3 runs of the current sources, the lifecycle format that
 # reads and writes version 2 slots, which B1 builds but no production text constructs.
@@ -435,7 +437,10 @@ ARCHIVED_RUN_LABELS = ('rollback-reader', 'archived-baseline')
 # A harness that runs cases under more than one format is listed once per label. A living row's
 # classes are compiled from the working tree, and an archived row's from pinned 24bfb6a objects.
 # The one exception is the history parity driver: the living parity compiles its pinned 24bfb6a
-# object, and the history source checks hold the working-tree driver to those bytes.
+# object, and the history source checks hold the working-tree driver to those bytes. The exception the
+# other way is the lifecycle rollback check: a working-tree source written against the API of 24bfb6a
+# and 78456b3 only, compiled only with their pinned products, under the rollback-reader label.
+LIVING_ROLLBACK_CHECKS = ('NativeLifecycleRollbackCheck',)
 HARNESS_LABELS = (
     ('production', 'scripts/proof/tests/test_native_identity_store.py', ('NativeIdentityRecordsTest',),
      'the record codec, which constructs no store'),
@@ -484,6 +489,15 @@ HARNESS_LABELS = (
     ('new-format', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleManagerTest',),
      'the Format.V3 lifecycle operations of the manager, its suspension closure and every activation point\'s'
      ' suspension refusal, which B1 builds but does not ship'),
+    ('rollback-reader', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleRollbackCheck',),
+     'the rollback models of 24bfb6a under Format.V2 and 78456b3 under Format.V1 over every lifecycle layout,'
+     ' a working-tree check compiled only with their pinned products and their own harness texts'),
+    ('production', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleReaderCheck',),
+     'B1\'s Format.V2 reads of every lifecycle layout: names protected, the lost mapping unable to register'
+     ' afresh, and the sibling in CONFLICT'),
+    ('new-format', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleReaderCheck',),
+     'the Format.V3 reads of the same layouts as positive state, the discrimination control, which B1 builds'
+     ' but does not ship'),
     ('new-format', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleLayouts',),
      'the store layouts that the Format.V3 lifecycle writers leave, at each state and every writer step of each'
      ' transaction and manager operation, with the values no writer of B1 writes and the companions, for the'
@@ -613,7 +627,7 @@ def label_problems():
         if label not in RUN_LABELS or not (ROOT / runner).is_file() or not classes or not runs:
             problems.append('harness label row %s %s' % (label, runner))
         for name in classes:
-            if harness_class(name, label in ARCHIVED_RUN_LABELS) is None:
+            if harness_class(name, label in ARCHIVED_RUN_LABELS and name not in LIVING_ROLLBACK_CHECKS) is None:
                 problems.append('labelled host class not found once: %s %s' % (label, name))
     if {row[0] for row in HARNESS_LABELS} != set(RUN_LABELS):
         problems.append('a run label names no harness')
