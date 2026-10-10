@@ -575,7 +575,9 @@ The staged layouts are:
   main;
 - mixed copies in both directions;
 - a ticketed tombstone under LIVE and under RELEASING, and RELEASING with its directory gone;
-- a noted entry and a maximum size record;
+- a noted entry and a maximum size record. The maximum record names users beyond user 0, which
+  every format reads as unsupported in this stage, so B2 keeps that slot's app ID held with no
+  history;
 - controls the new reader must read as damaged: a version 2 encoding of a version 1 value, RETIRED
   with an unknown inventory, and a decoder invariant broken;
 - slot version 3 frames, one with a valid stable prefix read as negative evidence and one with a
