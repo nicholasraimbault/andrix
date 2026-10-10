@@ -813,6 +813,138 @@ public final class TransactionTest {
             check(problems, t.health.size() == 2, "both users observed " + t.health);
             account(w, problems);
         });
+        cases.run("decision 7 / a notice lost before its effect is given again, and the reboot waits for its receipts",
+                problems -> {
+            for (Fault fault : List.of(Fault.NO_EFFECT, Fault.CRASH_BEFORE, Fault.LOST, Fault.CRASH_AFTER)) {
+                World w = world(Route.SHELL, 93);
+                w.android.users.add(new AndroidFacade.User(10, 12));
+                Plan plan = plan(w, Fixtures.plan(1).notice(60_000, 60_000));
+                String id = w.open(plan, 1);
+                // The calls run SIGN, PUBLISH, then the notice before the session.
+                w.android.faults.put(2, fault);
+                Ticket t = w.run(id, 80, false);
+                boolean effect = fault == Fault.LOST || fault == Fault.CRASH_AFTER;
+                List<AndroidFacade.Call> notices = new java.util.ArrayList<>();
+                for (AndroidFacade.Call call : w.android.calls) if (call.crossing == Crossing.NOTICE) notices.add(call);
+                Entry create = t.last(Crossing.CREATE);
+                AndroidFacade.Call delivered = notices.isEmpty() ? null : notices.get(notices.size() - 1);
+                check(problems, t.state == State.CLOSED_APPLIED && notices.size() == (effect ? 1 : 2)
+                        && delivered != null && delivered.fault == Fault.NONE == !effect && create != null
+                        && create.boot.equals(delivered.boot) && create.elapsed - delivered.elapsed >= 60_000,
+                        fault + ": ended " + t + " notices " + notices.size());
+                account(w, problems);
+            }
+        });
+    }
+
+    private static void cohortCases() {
+        cases.run("cohort / a check with no ticket open realizes each new boot", problems -> {
+            World w = world(Route.SHELL, 96);
+            Plan plan = plan(w, Fixtures.plan(1));
+            Ticket t = w.run(w.open(plan, 1), 80, false);
+            w.android.kernelBoot(true);
+            w.android.tick(5_000);
+            String boot = w.android.boot;
+            Selection s = w.coordinator.check(Fixtures.COMPONENT);
+            check(problems, t.state == State.CLOSED_APPLIED && s.realization == Realization.CURRENT
+                    && s.checkedBoot.equals(boot) && s.planId.equals(plan.planId) && s.equals(w.selection()),
+                    "current " + s);
+            w.android.otherInstaller(new Apk(Fixtures.digest(0xee), 45, World.SIGNER, true));
+            Selection other = w.coordinator.check(Fixtures.COMPONENT);
+            check(problems, other.realization == Realization.DIVERGED && other.choice == ChoiceKind.PLAN
+                    && other.planId.equals(plan.planId) && other.revision == s.revision, "other bytes " + other);
+            int calls = w.android.calls.size();
+            check(problems, w.coordinator.check(Fixtures.COMPONENT).equals(other) && w.android.calls.size() == calls,
+                    "a check crossed into the device or changed again");
+            account(w, problems);
+        });
+        cases.run("cohort / a closed ticket's round sets no DIVERGED while another bundle is active before APPLIED",
+                problems -> {
+            World w = world(Route.SHELL, 97);
+            Plan plan = plan(w, Fixtures.plan(1));
+            String id = w.open(plan, 1);
+            w.run(id, 10, false, State.HEALTH_WINDOW);
+            Plan repair = w.add(Fixtures.plan(5).repairs(plan.planId).bundle(Fixtures.RESTORATION_INPUT,
+                    Fixtures.RESTORATION_VERSION).restoration(DeploymentRecords.NO_DIGEST, 0).signing(0)
+                    .base(Fixtures.BUNDLE_APK, Fixtures.BUNDLE_VERSION, Fixtures.UID, Fixtures.CONTEXT)
+                    .selectionRevision(1).build());
+            w.grant(Fixtures.lab(30, repair, Effect.STAGE, 0, w.android.wall()));
+            w.grant(Fixtures.lab(31, repair, Effect.ACTIVATE, 0, w.android.wall()));
+            w.settle(id);
+            String rid = w.open(repair, 2);
+            // The repair's activation boot keeps its checkpoint pending, so it waits before APPLIED.
+            w.android.holdCheckpoint = true;
+            Ticket r = w.run(rid, 40, false, State.APPLIED_PROVISIONAL);
+            Selection before = w.selection();
+            w.coordinator.round(id);
+            Selection closed = w.selection();
+            Selection checked = w.coordinator.check(Fixtures.COMPONENT);
+            check(problems, w.ticket(id).state == State.SUPERSEDED && r.state == State.APPLIED_PROVISIONAL
+                    && w.android.active().digest.equals(Fixtures.RESTORATION_APK)
+                    && closed.realization != Realization.DIVERGED && closed.equals(before) && checked.equals(before),
+                    "repair " + r + " before " + before + " after the closed round " + closed + " check " + checked);
+            w.android.holdCheckpoint = false;
+            Ticket done = w.run(rid, 80, false);
+            Selection landed = w.selection();
+            check(problems, done.state == State.CLOSED_APPLIED && landed.planId.equals(repair.planId)
+                    && landed.realization == Realization.CURRENT, "repair " + done + " " + landed);
+            account(w, problems);
+        });
+        cases.run("lab / a driver's points act between the two writes, on the shell route only", problems -> {
+            int[] fired = {0};
+            World w = world(Route.SHELL, 99);
+            // A lab driver outside the package sees only the public hook and the public point.
+            Coordinator.Points lose = point -> {
+                if (point.equals(Coordinator.BETWEEN_WRITES) && fired[0]++ == 0) {
+                    w.lostBetweenWrites();
+                    throw new AndroidFacade.Crash();
+                }
+            };
+            World device = world(Route.DEVICE, 98);
+            Coordinator refused = new Coordinator(device.store, device.link, device.host, Fixtures.TRUST,
+                    () -> Fixtures.id(0x1d6000));
+            check(problems, !refused.labPoints(lose), "the device route accepted a lab hook");
+            // The route is fixed when the coordinator is made: one that reads DEVICE then, and SHELL
+            // later, still refuses.
+            int[] asked = {0};
+            Coordinator.Device turning = new Coordinator.Device() {
+                @Override
+                public Route route() { return asked[0]++ == 0 ? Route.DEVICE : Route.SHELL; }
+
+                @Override
+                public Reconciler.Clock clock() { return device.link.clock(); }
+
+                @Override
+                public List<DeploymentRecords.Observation> observe(Ticket ticket, Plan plan) {
+                    return device.link.observe(ticket, plan);
+                }
+
+                @Override
+                public List<DeploymentRecords.Observation> observe(String component) {
+                    return device.link.observe(component);
+                }
+
+                @Override
+                public DeploymentRecords.Observation cross(Ticket ticket, Plan plan, Entry entry) {
+                    return device.link.cross(ticket, plan, entry);
+                }
+            };
+            Coordinator fixed = new Coordinator(device.store, turning, device.host, Fixtures.TRUST,
+                    () -> Fixtures.id(0x1d6001));
+            check(problems, asked[0] == 1 && !fixed.labPoints(lose) && turning.route() == Route.SHELL,
+                    "a route read when the hook is installed, not when the coordinator is made");
+            long[] n = {0};
+            w.coordinator = new Coordinator(w.store, w.link, w.host, Fixtures.TRUST,
+                    () -> String.format("%016x%016x", 0x1d7000000000000L, ++n[0]));
+            check(problems, w.coordinator.labPoints(lose), "the shell route refused a lab hook");
+            Plan plan = plan(w, Fixtures.plan(1));
+            Ticket t = w.run(w.open(plan, 1), 80, false);
+            Selection s = w.selection();
+            check(problems, fired[0] == 1 && w.crashes == 1 && t.state == State.CLOSED_APPLIED
+                    && s.planId.equals(plan.planId) && s.realization == Realization.CURRENT,
+                    "fired " + fired[0] + " crashes " + w.crashes + " " + t + " " + s);
+            account(w, problems);
+        });
     }
 
     // ------------------------------------------------------------------ sweeps
@@ -910,6 +1042,7 @@ public final class TransactionTest {
         flowCases();
         recoveryCases();
         decisionCases();
+        cohortCases();
         sweepCases();
         invariantCases();
         cases.finish("Deployment transaction checks passed");

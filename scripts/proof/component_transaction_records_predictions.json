@@ -1,25 +1,25 @@
 {
-  "status": "PREDICTED for D1 with the layout changes of D2, and for D2's artifact store, host signer and bundle builder: one signing transaction of six key operations under the captive callback, written OPEN before the first operation and resolved by its ID, never by signing again; every output verified against the platform role before it is staged; both bundles published together or neither; and the restoration plan's publication of the published restoration. Earlier: the plan names only facts known before signing, and a bundle fact carries the APK digests its publication binds. A plan that signs nothing publishes only decision 3's restoration, and a missing or disagreeing publication read holds with the alert while a recorded cause still abandons a live session. Hardened: a plan that signs nothing publishes only in the variant role, a staging error gives no fact, a request without a record is recorded under its own grant, the signer latches a refusal that an engine swallows, and the input entry digest folds only ASCII letters and refuses a name past the end as invalid. Then: the engine signs each input without its signing block and each key operation's result must appear in the outputs; more or fewer than three key operations for an APK keep nothing; every signer of every scheme, the entries, the plan's own input bytes and the facts of their binary manifests are checked; an unreadable retained output gives no fact; and the builder reads the publication after SIGNED, so a whole coordinator run ends PUBLISHED. Later: after PUBLISHED, a read of the plan's publication that names other bytes, or finds it absent for an attempt that read it published, holds the ticket with the alert while a recorded cause still abandons a live session, and an I/O error of the verifier gives no fact, so the ticket waits and reads again. Now: those two reads of one attempt hold the ticket whichever was recorded first, and a round of a terminal ticket makes no host read, so a closed ticket never records a read that holds the open ticket of its plan. The apksig engine verifies the APK from memory, and when a check throws, a sidecar copy that cannot be read again or reads other bytes is an I/O failure, while one that reads back the same is a check that fails. Written before any run of the new cases and mutants. Nothing here is a guarded or mutant result.",
+  "status": "PREDICTED for D1 with the layout changes of D2, and for D2's artifact store, host signer and bundle builder: one signing transaction of six key operations under the captive callback, written OPEN before the first operation and resolved by its ID, never by signing again; every output verified against the platform role before it is staged; both bundles published together or neither; and the restoration plan's publication of the published restoration. Earlier: the plan names only facts known before signing, and a bundle fact carries the APK digests its publication binds. A plan that signs nothing publishes only decision 3's restoration, and a missing or disagreeing publication read holds with the alert while a recorded cause still abandons a live session. Hardened: a plan that signs nothing publishes only in the variant role, a staging error gives no fact, a request without a record is recorded under its own grant, the signer latches a refusal that an engine swallows, and the input entry digest folds only ASCII letters and refuses a name past the end as invalid. Then: the engine signs each input without its signing block and each key operation's result must appear in the outputs; more or fewer than three key operations for an APK keep nothing; every signer of every scheme, the entries, the plan's own input bytes and the facts of their binary manifests are checked; an unreadable retained output gives no fact; and the builder reads the publication after SIGNED, so a whole coordinator run ends PUBLISHED. Later: after PUBLISHED, a read of the plan's publication that names other bytes, or finds it absent for an attempt that read it published, holds the ticket with the alert while a recorded cause still abandons a live session, and an I/O error of the verifier gives no fact, so the ticket waits and reads again. Now: those two reads of one attempt hold the ticket whichever was recorded first, and a round of a terminal ticket makes no host read, so a closed ticket never records a read that holds the open ticket of its plan. The apksig engine verifies the APK from memory, and when a check throws, a sidecar copy that cannot be read again or reads other bytes is an I/O failure, while one that reads back the same is a check that fails. Now: a notice counts only once delivered, by a RECEIPT fact for each other running user, and the reboot waits for every receipt and the declared delay from the last; a notice that shows no effect is given again; only SystemUI's failure to deliver shortens the delay under the emergency policy; HEALTHY needs full probes that cover the whole window with no gap above a quarter of it; the cohort check has its own entry point and reads the component's open ticket from the store; and a lab driver's points act on the lab shell route only. Then: a user's span starts at a late first unlock only after a listing in the window showed the user not unlocked, and otherwise at the window's start; a required user still without a receipt one declared delay after the latest notice gets it again; each boot has its own notice budget; and the lab hook's route is fixed when the coordinator is made. Written before any run of the new cases and mutants. Nothing here is a guarded or mutant result.",
   "plan": "plans/2026-10-09-component-transaction.md",
   "package": "D1: the deployment records, their codec, the ticket state machine, reconciliation and host storage. D2: the bundle manifest, the publication record, the artifact store, the signing transaction record, the host signer and the bundle builder",
   "basis": "Each count is the length of the runner's case lists. Each golden is the independent encoder's bytes. Each mutant's catches are traced against the cases that reach the changed rule; a defect that another rule also refuses names only the cases that reach it.",
   "cases": {
-    "codec": 52,
-    "machine": 72,
+    "codec": 53,
+    "machine": 78,
     "store": 14,
-    "transactions": 44,
+    "transactions": 48,
     "artifacts": 22,
     "signing": 29,
-    "goldens": 23,
+    "goldens": 24,
     "artifact_goldens": 6,
-    "mutants": 116
+    "mutants": 133
   },
   "guarded_run": {
-    "cases_passed": 233,
+    "cases_passed": 244,
     "cases_failed": 0,
-    "goldens_equal_to_the_encoder": 23,
+    "goldens_equal_to_the_encoder": 24,
     "artifact_goldens_equal_to_the_encoder": 6,
-    "mutants_caught": 116,
+    "mutants_caught": 133,
     "status": "PASS"
   },
   "goldens": {
@@ -102,6 +102,10 @@
     "OBS_BUNDLE": {
       "bytes": 313,
       "sha256": "e1c772d949efa5177d243daac91836b2e6dec7ec3928cee96339e7b3acaf5ab6"
+    },
+    "OBS_RECEIPT": {
+      "bytes": 203,
+      "sha256": "4104f9041961055fd7cc0ed69de237a6eaf6425d429ed6189250bf77921b592d"
     },
     "SELECTION_FACTORY": {
       "bytes": 173,
@@ -559,6 +563,62 @@
     ],
     "verifier-check-failure-read-as-io": [
       "builder / a sidecar that a check refuses by throwing, read back the same, reads CANNOT_COMPLETE"
+    ],
+    "notice-without-receipts": [
+      "ready again / notice and its delay come first",
+      "ready again / other running users get notice and a declared delay",
+      "notice / the reboot waits for a receipt from every other running user and the delay from the last",
+      "notice / a notice that shows no effect is given again, and one that took effect is not"
+    ],
+    "notice-delay-from-first-receipt": [
+      "notice / the reboot waits for a receipt from every other running user and the delay from the last"
+    ],
+    "notice-never-given-again": [
+      "notice / a notice that shows no effect is given again, and one that took effect is not",
+      "decision 7 / a notice lost before its effect is given again, and the reboot waits for its receipts"
+    ],
+    "notice-newcomer-ignored": [
+      "notice / a notice that shows no effect is given again, and one that took effect is not"
+    ],
+    "emergency-notice-after-systemui-delivery": [
+      "notice / a restoration shortens notice only under an emergency policy"
+    ],
+    "health-one-probe-suffices": [
+      "health / the criteria must hold across the whole window"
+    ],
+    "health-start-uncovered": [
+      "health / the criteria must hold across the whole window"
+    ],
+    "health-gap-inside-ignored": [
+      "health / the criteria must hold across the whole window"
+    ],
+    "health-end-uncovered": [
+      "health / the criteria must hold across the whole window"
+    ],
+    "health-new-user-from-window-start": [
+      "health / the criteria must hold across the whole window",
+      "health / time before a late first unlock counts only after a listing showed the user not unlocked"
+    ],
+    "selection-without-open-ticket": [
+      "cohort / a closed ticket's round sets no DIVERGED while another bundle is active before APPLIED"
+    ],
+    "cohort-check-reads-nothing": [
+      "cohort / a check with no ticket open realizes each new boot"
+    ],
+    "lab-points-on-device-route": [
+      "lab / a driver's points act between the two writes, on the shell route only"
+    ],
+    "notice-missed-user-never-again": [
+      "notice / a user still without a receipt after one declared delay gets the notice again"
+    ],
+    "notice-budget-across-boots": [
+      "notice / each boot has its own notice budget"
+    ],
+    "health-span-without-evidence": [
+      "health / time before a late first unlock counts only after a listing showed the user not unlocked"
+    ],
+    "lab-route-read-at-install": [
+      "lab / a driver's points act between the two writes, on the shell route only"
     ]
   }
 }

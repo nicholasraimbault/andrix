@@ -181,6 +181,11 @@ final class Bed {
         return add(f(c).user(user, serial).number(criteria));
     }
 
+    /** A user's receipt of the notice at a ledger index of this bed's ticket. */
+    Bed receipt(int user, long serial, int index, Classification c) {
+        return add(f(c).user(user, serial).receipt(ticket.ticketId, index));
+    }
+
     /**
      * A host fact: a signer fact names its request, a bundle fact the PUBLISH attempt it read after
      * and this bed's plan.

@@ -12,6 +12,7 @@ import dev.andrix.server.deployment.DeploymentRecords.Route;
 import dev.andrix.server.deployment.DeploymentRecords.Selection;
 import dev.andrix.server.deployment.DeploymentRecords.Ticket;
 import dev.andrix.server.deployment.DeploymentStore.Found;
+import dev.andrix.server.deployment.DeploymentStore.Listing;
 import dev.andrix.server.deployment.DeploymentStore.Read;
 import dev.andrix.server.deployment.Reconciler.Clock;
 import dev.andrix.server.deployment.Reconciler.Context;
@@ -37,7 +38,9 @@ import java.util.Objects;
  *
  * <p>A round on a terminal ticket reads nothing from the host and takes no step, so it writes no
  * ticket and issues nothing. It still observes the device and runs the cohort check, which serve the
- * component rather than the ticket.
+ * component rather than the ticket. The cohort check also has its own entry point, {@link #check},
+ * for a boot with no ticket open. Either way it reads the component's open ticket from the store,
+ * never the ticket being rounded.
  *
  * <p>Host only. The device coordinator is step D7.
  */
@@ -51,6 +54,12 @@ public final class Coordinator {
 
         /** Everything this route can read now for one ticket's component. */
         List<Observation> observe(Ticket ticket, Plan plan);
+
+        /**
+         * What the cohort check reads now for a component, with no ticket: the boot, the checkpoint,
+         * and the factory and active copies.
+         */
+        List<Observation> observe(String component);
 
         /** Issues one device crossing. Returns the reply as an observation, or null when it is lost. */
         Observation cross(Ticket ticket, Plan plan, Entry entry);
@@ -83,15 +92,20 @@ public final class Coordinator {
         StoreRefused(String what) { super(what); }
     }
 
-    /** Named points of a round, for host fault injection. Production passes none. */
-    interface Points {
+    /**
+     * Named points of a round, for fault injection by host tests and lab drivers. A point may throw
+     * to stop the coordinator there, as a loss would. Production installs none.
+     */
+    public interface Points {
         void at(String point);
     }
 
     /** The point between the selection write and the ticket write of one round. */
-    static final String BETWEEN_WRITES = "selection-written";
+    public static final String BETWEEN_WRITES = "selection-written";
 
     private Points points = point -> { };
+    // Whether this coordinator reads through the lab shell route, fixed when it is made.
+    private final boolean labRoute;
 
     private final DeploymentStore store;
     private final Device device;
@@ -107,6 +121,7 @@ public final class Coordinator {
     public Coordinator(DeploymentStore store, Device device, Host host, String trustPolicy, Ids ids) {
         this.store = Objects.requireNonNull(store, "store");
         this.device = Objects.requireNonNull(device, "device");
+        this.labRoute = device.route() == Route.SHELL;
         this.host = Objects.requireNonNull(host, "host");
         this.trustPolicy = Objects.requireNonNull(trustPolicy, "trustPolicy");
         this.ids = Objects.requireNonNull(ids, "ids");
@@ -114,6 +129,18 @@ public final class Coordinator {
 
     /** Host fault injection only. */
     void points(Points points) { this.points = Objects.requireNonNull(points, "points"); }
+
+    /**
+     * Installs a lab driver's points, for the lab shell route only. The route is fixed when the
+     * coordinator is made. The device route, which the device coordinator of step D7 uses, refuses
+     * them, so they cannot act in production. Returns whether they were installed.
+     */
+    public boolean labPoints(Points points) {
+        Objects.requireNonNull(points, "points");
+        if (!labRoute) return false;
+        this.points = points;
+        return true;
+    }
 
     /** Whether the native store holds the target. Version 1 refuses such targets at every crossing. */
     public void targetHeld(boolean held) { targetHeld = held; }
@@ -149,14 +176,9 @@ public final class Coordinator {
         // and that disagreement holds the open ticket. A terminal ticket has nothing left to read.
         boolean terminal = ticket.state.terminal();
         if (!terminal) seen.addAll(host.query(ticket, plan, store.authorizationsOf(plan.planId)));
-        if (observations == null) observations = new ArrayList<>(store.observations().values);
-        for (Observation o : seen) {
-            if (repeats(o)) continue;
-            if (!store.addObservation(o)) throw new StoreRefused("observation not recorded");
-            observations.add(o);
-        }
+        record(seen);
         View view = View.of(clock == null ? DeploymentRecords.NO_ID : clock.boot, plan.component, observations);
-        Selection selection = selection(plan.component, view, ticket, plan);
+        Selection selection = selection(plan.component, view);
         if (terminal) return new Step(ticket, null, null, "terminal");
         List<Plan> repairs = new ArrayList<>();
         for (Plan other : store.plans().values) {
@@ -192,6 +214,33 @@ public final class Coordinator {
             }
         }
         return step;
+    }
+
+    /**
+     * The cohort check of one component in the current boot, with no ticket needed: it observes the
+     * device, records what it read, and writes the realization when it changed. It writes no ticket
+     * and issues nothing. Returns the component's selection, unchanged when the device cannot be
+     * reached.
+     */
+    public Selection check(String component) {
+        Clock clock = device.clock();
+        if (clock == null) {
+            Read<Selection> read = store.selection(component);
+            if (read.found != Found.RECORD) throw new StoreRefused("selection unreadable");
+            return read.value;
+        }
+        record(device.observe(component));
+        return selection(component, View.of(clock.boot, component, observations));
+    }
+
+    // Records each new fact once, after reading every recorded fact the first time.
+    private void record(List<Observation> seen) {
+        if (observations == null) observations = new ArrayList<>(store.observations().values);
+        for (Observation o : seen) {
+            if (repeats(o)) continue;
+            if (!store.addObservation(o)) throw new StoreRefused("observation not recorded");
+            observations.add(o);
+        }
     }
 
     // A fact identical to the latest recorded fact about the same thing, in the same boot and
@@ -255,11 +304,26 @@ public final class Coordinator {
         }
     }
 
-    // The component's selection after this boot's cohort check, written when it changed.
-    private Selection selection(String component, View view, Ticket ticket, Plan plan) {
+    // The component's selection after this boot's cohort check, written when it changed. The check
+    // protects an open ticket's bundle before APPLIED, so it reads the component's open ticket from
+    // the store, which allows at most one. A tickets directory that could hide an open ticket leaves
+    // the realization as it stands.
+    private Selection selection(String component, View view) {
         Read<Selection> read = store.selection(component);
         if (read.found != Found.RECORD) throw new StoreRefused("selection unreadable");
         Selection current = read.value;
+        Listing<Ticket> tickets = store.tickets();
+        if (!tickets.footprints.isEmpty()) return current;
+        Ticket open = null;
+        for (Ticket t : tickets.values) {
+            if (t.component.equals(component) && !t.state.terminal()) open = t;
+        }
+        Plan openPlan = null;
+        if (open != null) {
+            Read<Plan> openRead = store.plan(open.planId);
+            if (openRead.found != Found.RECORD) return current;
+            openPlan = openRead.value;
+        }
         Plan chosen = null;
         if (current.choice == ChoiceKind.PLAN) {
             Read<Plan> chosenRead = store.plan(current.planId);
@@ -270,7 +334,7 @@ public final class Coordinator {
             Read<Plan> temporaryRead = store.plan(current.temporary);
             if (temporaryRead.found == Found.RECORD) temporary = temporaryRead.value;
         }
-        Selection checked = Reconciler.cohortCheck(current, chosen, temporary, view, ticket, plan);
+        Selection checked = Reconciler.cohortCheck(current, chosen, temporary, view, open, openPlan);
         if (checked != current) {
             if (!store.putSelection(current, checked)) throw new StoreRefused("realization not written");
             return checked;

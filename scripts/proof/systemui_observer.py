@@ -40,16 +40,30 @@ ACTIVE_PATH = 'pm path --user 0 ' + PACKAGE
 ACTIVE_VERSION = 'pm list packages --user 0 --show-versioncode -U ' + PACKAGE
 FACTORY_VERSION = 'pm list packages --user 0 --factory-only --show-versioncode ' + PACKAGE
 FACTORY_DIGEST = 'sha256sum ' + readback.FACTORY_PATH
+USERS = 'dumpsys user'
+
+# The plan's health criteria that this probe reads, as the records number them. The UI marker (2)
+# and keyguard unlock with CE authority (3) need the user in the foreground, which is a lab action
+# of D5's vehicle. Native work (5) and the recovery route (6) have no reader here.
+UID_AND_CONTEXT, NO_CRASH, ACTIVE_BYTES = 1 << 0, 1 << 1, 1 << 4
+# Android's per user UID range: an app's UID is its user times this, plus its app ID.
+PER_USER_RANGE = 100000
+# How a listed user's state maps to the records' USER classifications. A user Android is removing
+# is REMOVED whatever its state.
+USER_CLASSES = {'RUNNING_UNLOCKED': 'RUNNING_UNLOCKED', 'RUNNING_LOCKED': 'RUNNING_LOCKED',
+                'RUNNING_UNLOCKING': 'RUNNING_LOCKED', 'BOOTING': 'RUNNING_LOCKED', 'STOPPING': 'NOT_RUNNING',
+                'SHUTDOWN': 'NOT_RUNNING', '-1': 'NOT_RUNNING'}
 
 # Every command the observer may run. Each is a read: no install, session, setting, property or
 # file changes, and no shell syntax. Parameters are filled only from the typed patterns below.
 ALLOWED = (
     BOOT_ID, UPTIME, FRAMEWORK_PID, SYSTEMUI_PID, LISTING, INSTALLS, FINGERPRINT, BOOT_COMPLETED,
-    SUPPORTS_CHECKPOINT, NEEDS_CHECKPOINT, ACTIVE_PATH, ACTIVE_VERSION, FACTORY_VERSION, FACTORY_DIGEST,
+    SUPPORTS_CHECKPOINT, NEEDS_CHECKPOINT, ACTIVE_PATH, ACTIVE_VERSION, FACTORY_VERSION, FACTORY_DIGEST, USERS,
 )
 ALLOWED_PATTERNS = (
     re.compile(r'cat /proc/[1-9][0-9]{0,6}/stat'),
     re.compile(r'cat /proc/[1-9][0-9]{0,6}/attr/current'),
+    re.compile(r'cat /proc/[1-9][0-9]{0,6}/status'),
     re.compile(r"sha256sum '" + readback.DATA_PATH.pattern + r"'"),
 )
 
@@ -84,13 +98,20 @@ def boot_hex(uuid):
     return uuid.replace('-', '')
 
 
+def quiet_failure(capture):
+    """Exit status 1 with no output and no error: how pidof says that nothing matched. A failure
+    that prints an error, such as a refused /proc or a lost connection, is an unavailable read."""
+    return (capture.code, capture.stdout, capture.stderr) == (1, '', '')
+
+
 class ShellObserver:
     """Reads one component's facts through `run(command) -> (status, stdout, stderr)`."""
 
     def __init__(self, run, installation, component=PACKAGE, new_id=None, wall=None):
         if component != PACKAGE:
             raise ValueError('Only SystemUI has known forms')
-        self._run, self.installation, self.component = run, installation, component
+        self._run = run
+        self.installation, self.component = installation, component
         self._new_id = new_id or (lambda: secrets.token_hex(16))
         # The host's wall clock is informational in the record and decides nothing.
         self._wall = wall or (lambda: time.time_ns() // 1_000_000)
@@ -137,10 +158,11 @@ class ShellObserver:
         # A framework instance is system_server's start time in clock ticks since the boot.
         return boot, instance[1] if framework else -1, elapsed, raw_digest(captures), facts
 
-    def _fact(self, boot, instance, elapsed, raw, kind, classification, component=None, facts=None):
+    def _fact(self, boot, instance, elapsed, raw, kind, classification, component=None, facts=None,
+              user=encoder.NO_USER, serial=encoder.NO_SERIAL):
         return {'installation': self.installation, 'observation': self._new_id(),
                 'component': self.component if component is None else component, 'boot': boot_hex(boot),
-                'user': encoder.NO_USER, 'serial': encoder.NO_SERIAL, 'kind': kind, 'route': 'SHELL',
+                'user': user, 'serial': serial, 'kind': kind, 'route': 'SHELL',
                 'instance': instance, 'elapsed': elapsed, 'wall': self._wall(), 'raw': raw,
                 'classification': classification, 'facts': facts or {}}
 
@@ -212,10 +234,11 @@ class ShellObserver:
             apk = readback.file_digest(digest.code, digest.stdout, location)
             listed = self._capture(captures, ACTIVE_VERSION)
             version, uid = readback.package_version_uid(listed.code, listed.stdout)
-            pid = self._capture(captures, SYSTEMUI_PID)
-            process = readback.single_pid(pid.code, pid.stdout)
-            context = self._capture(captures, 'cat /proc/%d/attr/current' % process)
-            label = readback.process_context(context.code, context.stdout)
+            # SystemUI runs once for each running user. The fact carries the system user's process.
+            processes = self._processes(captures)
+            if 0 not in processes or processes[0][1] != uid:
+                raise ValueError("No SystemUI process with the package's UID for the system user")
+            label = processes[0][2]
             again = self._capture(captures, ACTIVE_PATH)
             if readback.package_path(again.code, again.stdout) != (kind, location):
                 raise ValueError('The active package changed during the readback')
@@ -223,6 +246,107 @@ class ShellObserver:
         boot, instance, elapsed, raw, (kind, apk, version, uid, label) = self._bracket(reader)
         return self._fact(boot, instance, elapsed, raw, 'ACTIVE', 'FACTORY_COPY' if kind == 'factory' else 'DATA_COPY',
                           facts={'apk': apk, 'version': version, 'uid': uid, 'context': label})
+
+    def _processes(self, captures, absent=False):
+        """Each SystemUI process by its user: {user: (pid, uid, context)}. The user is the UID
+        divided by the per user range. Two processes for one user have no known form. With
+        `absent`, pidof's quiet failure, exit status 1 with no output and no error, reads as no
+        process at all, but only when a second read in the same bracket gives exactly the same.
+        Any other failure is an unavailable read, never an observation of no process."""
+        listed = self._capture(captures, SYSTEMUI_PID)
+        found = {}
+        if absent and quiet_failure(listed):
+            again = self._capture(captures, SYSTEMUI_PID)
+            if not quiet_failure(again):
+                raise ValueError('The SystemUI process read did not repeat')
+            return found
+        for pid in readback.pids(listed.code, listed.stdout):
+            status = self._capture(captures, 'cat /proc/%d/status' % pid)
+            uid = readback.status_uid(status.code, status.stdout, pid)
+            context = self._capture(captures, 'cat /proc/%d/attr/current' % pid)
+            label = readback.process_context(context.code, context.stdout)
+            user = uid // PER_USER_RANGE
+            if user in found:
+                raise ValueError('Two SystemUI processes for one user')
+            found[user] = (pid, uid, label)
+        return found
+
+    # ------------------------------------------------ users and health
+
+    def users(self, previous=()):
+        """One USER fact for each user the listing shows, bound by serial, and REMOVED for each
+        (user, serial) in `previous` that it no longer shows. The listing comes from one framework
+        instance. A listing cut short or of no known form gives no fact at all, because the notice
+        rule is only as complete as this listing."""
+        def reader(captures):
+            listed = self._capture(captures, USERS)
+            return readback.users(listed.code, listed.stdout)
+        boot, instance, elapsed, raw, listed = self._bracket(reader, framework=True)
+        facts, shown = [], set()
+        for u in listed:
+            shown.add((u.user, u.serial))
+            classification = 'REMOVED' if u.removing else USER_CLASSES[u.state]
+            facts.append(self._fact(boot, instance, elapsed, raw, 'USER', classification, '', user=u.user,
+                                    serial=u.serial))
+        for user, serial in previous:
+            if (user, serial) not in shown:
+                facts.append(self._fact(boot, instance, elapsed, raw, 'USER', 'REMOVED', '', user=user,
+                                        serial=serial))
+        return facts
+
+    def health(self, domain, apk, baseline=None):
+        """One HEALTH fact for each user the listing shows running and unlocked. It covers SystemUI's
+        UID and context for that user, which holds when exactly that user's process runs with the
+        package's app ID and the expected SELinux domain, and the active bytes, which hold when the
+        active APK's digest is `apk`. With a baseline from an earlier probe of the same boot, it also
+        covers no crash or ANR: the user's process is still the one the baseline names. Only the
+        system user's SystemUI is persistent, so only its process ending is a crash, or an ANR that
+        ended it, and gives CRASH. Another user's SystemUI may be ended to free memory, so its
+        process ending or missing gives INCONCLUSIVE. Another miss gives DEGRADED. A probe that
+        would hold without a baseline gives no fact, because a HELD fact that leaves out the crash
+        criterion would read as partial criteria for the whole window. Returns the facts and the
+        baseline for the next probe, {(boot, instance, user, serial): pid}. A baseline counts only
+        in its own boot and framework instance: a reboot or a framework restart ends every app,
+        which is not SystemUI's crash, so the next probe starts a new baseline."""
+        def reader(captures):
+            listed = self._capture(captures, USERS)
+            people = readback.users(listed.code, listed.stdout)
+            path = self._capture(captures, ACTIVE_PATH)
+            kind, location = readback.package_path(path.code, path.stdout)
+            digest = self._capture(captures, FACTORY_DIGEST if kind == 'factory' else "sha256sum '%s'" % location)
+            active = readback.file_digest(digest.code, digest.stdout, location)
+            versions = self._capture(captures, ACTIVE_VERSION)
+            _, uid = readback.package_version_uid(versions.code, versions.stdout)
+            return people, active, uid, self._processes(captures, absent=True)
+        boot, instance, elapsed, raw, (people, active, uid, processes) = self._bracket(reader, framework=True)
+        app = uid % PER_USER_RANGE
+        facts, following = [], {}
+        for u in people:
+            if u.removing or u.state != 'RUNNING_UNLOCKED':
+                continue
+            process = processes.get(u.user)
+            key = (boot_hex(boot), instance, u.user, u.serial)
+            if process is not None:
+                following[key] = process[0]
+            earlier = None if baseline is None else baseline.get(key)
+            covered = UID_AND_CONTEXT | ACTIVE_BYTES | (NO_CRASH if earlier is not None else 0)
+            identity = (process is not None and process[1] == u.user * PER_USER_RANGE + app
+                        and process[2].split(':')[2] == domain)
+            ended = process is None or (earlier is not None and process[0] != earlier)
+            if ended and u.user != 0:
+                # ProcessList marks an app's process persistent only for the system user.
+                classification = 'INCONCLUSIVE'
+            elif ended and earlier is not None:
+                classification = 'CRASH'
+            elif identity and active == apk:
+                if earlier is None:
+                    continue
+                classification = 'HELD'
+            else:
+                classification = 'DEGRADED'
+            facts.append(self._fact(boot, instance, elapsed, raw, 'HEALTH', classification, user=u.user,
+                                    serial=u.serial, facts={'count': covered}))
+        return facts, following
 
     # ------------------------------------------------ framework facts
 

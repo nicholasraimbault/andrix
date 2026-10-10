@@ -209,10 +209,34 @@
   "origin": "captured",
   "stderr": ""
  },
+ "systemui-context-4721": {
+  "command": "cat /proc/4721/attr/current",
+  "exit": 0,
+  "origin": "source",
+  "stderr": ""
+ },
  "systemui-pid": {
   "command": "pidof com.android.systemui",
   "exit": 0,
   "origin": "captured",
+  "stderr": ""
+ },
+ "systemui-pids-two": {
+  "command": "pidof com.android.systemui",
+  "exit": 0,
+  "origin": "source",
+  "stderr": ""
+ },
+ "systemui-status-1839": {
+  "command": "cat /proc/1839/status",
+  "exit": 0,
+  "origin": "source",
+  "stderr": ""
+ },
+ "systemui-status-4721": {
+  "command": "cat /proc/4721/status",
+  "exit": 0,
+  "origin": "source",
   "stderr": ""
  },
  "uid-list": {
@@ -223,6 +247,12 @@
  },
  "uptime": {
   "command": "cat /proc/uptime",
+  "exit": 0,
+  "origin": "source",
+  "stderr": ""
+ },
+ "users-two": {
+  "command": "dumpsys user",
   "exit": 0,
   "origin": "source",
   "stderr": ""

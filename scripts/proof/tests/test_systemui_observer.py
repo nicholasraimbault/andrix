@@ -33,6 +33,8 @@ def device(**changes):
         o.NEEDS_CHECKPOINT: 'vdc-needs-checkpoint-none', o.FACTORY_DIGEST: 'digest-factory',
         o.FACTORY_VERSION: 'factory-version-list', o.ACTIVE_PATH: 'path-factory', o.ACTIVE_VERSION: 'version-uid-list',
         o.SYSTEMUI_PID: 'systemui-pid', 'cat /proc/1839/attr/current': 'systemui-context',
+        'cat /proc/1839/status': 'systemui-status-1839', 'cat /proc/4721/status': 'systemui-status-4721',
+        'cat /proc/4721/attr/current': 'systemui-context-4721', o.USERS: 'users-two',
         "sha256sum '%s'" % reply('path-data')[1][len('package:'):-1]: 'digest-data',
         o.LISTING: 'listing-failed-signer', o.INSTALLS: 'installs-finalized-failed'}
     replies = {command: reply(name) for command, name in replies.items()}
@@ -95,6 +97,12 @@ def fixture_facts():
     ready = device(**{o.LISTING: (1, listing_text([READY_ROW]), ''), o.INSTALLS: reply('installs-active-referrer')})
     for n, fact in enumerate(observer(ready)[0].sessions()):
         facts['sessions-nonce-%d' % n] = fact
+    two = device(**{o.SYSTEMUI_PID: reply('systemui-pids-two')})
+    for n, fact in enumerate(observer(two)[0].users()):
+        facts['users-%d' % n] = fact
+    _, baseline = observer(two)[0].health(DOMAIN, FACTORY_APK)
+    for n, fact in enumerate(observer(two)[0].health(DOMAIN, FACTORY_APK, baseline)[0]):
+        facts['health-%d' % n] = fact
     for label, listing, dump in (('abandoned', (1, '', ''), 'installs-destroyed-ready'),
                                  ('removed', (1, '', ''), 'installs-historical-outcomes'),
                                  ('foreign', reply('listing-failed-signer'), 'installs-foreign-records')):
@@ -102,6 +110,24 @@ def fixture_facts():
         for n, fact in enumerate(observer(scenario)[0].sessions()):
             facts['sessions-%s-%d' % (label, n)] = fact
     return facts
+
+
+DOMAIN = 'platform_app'
+FACTORY_APK = s.file_digest(*reply('digest-factory')[:2], s.FACTORY_PATH)
+DATA_APK = reply('digest-data')[1][:64]
+
+
+def listed(state_ten='RUNNING_UNLOCKED', marker=''):
+    """The source derived user listing with user 10's state and markers changed."""
+    text = reply('users-two')[1]
+    second = text.index('  UserInfo{10:')
+    head, tail = text[:second], text[second:]
+    tail = tail.replace('    State: RUNNING_UNLOCKED\n', '    State: %s\n' % state_ten, 1)
+    tail = tail.replace('isPrimary=false', 'isPrimary=false' + marker, 1)
+    # The started users list the same states, without a user that has none.
+    started = '' if state_ten == '-1' else ', 10=' + state_ten
+    tail = tail.replace(', 10=RUNNING_UNLOCKED]', started + ']', 1)
+    return 0, head + tail, ''
 
 
 READY_ROW = ('sessionId = 1378782103; appPackageName = com.android.systemui; isStaged = true; isReady = true; '
@@ -326,7 +352,7 @@ class RefusalTests(unittest.TestCase):
         unknown = {o.FINGERPRINT: (0, 'garbage\n', ''), o.BOOT_COMPLETED: (0, 'yes\n', ''),
                    o.NEEDS_CHECKPOINT: (0, 'x', ''), o.FACTORY_DIGEST: (0, 'x\n', ''),
                    o.FACTORY_VERSION: (0, 'package:com.android.systemui\n', ''), o.ACTIVE_PATH: (0, 'package:/tmp/x\n', ''),
-                   o.ACTIVE_VERSION: (0, '', ''), o.SYSTEMUI_PID: (0, '1839 1840\n', ''),
+                   o.ACTIVE_VERSION: (0, '', ''), o.SYSTEMUI_PID: (0, '1839\n1840\n', ''),
                    o.LISTING: (1, reply('listing-failed-signer')[1][:-2], ''),
                    o.INSTALLS: (0, reply('installs-finalized-failed')[1][:-1], ''),
                    o.UPTIME: (0, '5432.1 1.0\n', ''), o.BOOT_ID: (0, BOOT + '\n', '')}
@@ -378,6 +404,137 @@ WRITE_TOKENS = {'install', 'uninstall', 'abandon', 'commit', 'reboot', 'setprop'
                 'prepareCheckpoint', 'resetCheckpoint', 'compile', 'am', 'cmd', 'sh', 'su', 'dd', 'touch', 'mkdir'}
 READ_VERBS = ('cat /proc/', 'pidof ', 'pm list ', 'pm path ', 'dumpsys ', 'getprop ', 'sha256sum ',
               'vdc checkpoint supportsCheckpoint', 'vdc checkpoint needsCheckpoint')
+
+
+class UserAndHealthTests(unittest.TestCase):
+    def two(self, **changes):
+        return device(**{o.SYSTEMUI_PID: reply('systemui-pids-two'), **changes})
+
+    def test_users_by_serial(self):
+        observe, shell = observer(device())
+        facts = observe.users()
+        self.assertEqual([(f['kind'], f['classification'], f['user'], f['serial'], f['component']) for f in facts],
+                         [('USER', 'RUNNING_UNLOCKED', 0, 0, ''), ('USER', 'RUNNING_UNLOCKED', 10, 12, '')])
+        self.assertEqual(shell.commands, [o.BOOT_ID, o.UPTIME, o.FRAMEWORK_PID, 'cat /proc/957/stat', o.USERS,
+                                          o.FRAMEWORK_PID, 'cat /proc/957/stat', o.BOOT_ID])
+        for fact in facts:
+            decode_frame(o.encode(fact))
+        gone = observer(device())[0].users(previous=[(0, 0), (11, 14)])
+        self.assertEqual([(f['classification'], f['user'], f['serial']) for f in gone][2:], [('REMOVED', 11, 14)])
+        for state, classification in (('RUNNING_LOCKED', 'RUNNING_LOCKED'), ('RUNNING_UNLOCKING', 'RUNNING_LOCKED'),
+                                      ('BOOTING', 'RUNNING_LOCKED'), ('STOPPING', 'NOT_RUNNING'),
+                                      ('SHUTDOWN', 'NOT_RUNNING'), ('-1', 'NOT_RUNNING')):
+            with self.subTest(state=state):
+                fact = observer(device(**{o.USERS: listed(state)}))[0].users()[1]
+                self.assertEqual(fact['classification'], classification)
+        removing = observer(device(**{o.USERS: listed(marker=' <removing> ')}))[0].users()[1]
+        self.assertEqual(removing['classification'], 'REMOVED')
+
+    def test_a_partial_listing_gives_no_user_at_all(self):
+        text = reply('users-two')[1]
+        for cut in (text[:text.index('\nDevice properties:')], text.replace('    State: RUNNING_UNLOCKED\n', '', 1),
+                    text.replace('serialNo=12 ', 'serialNo=0 '),
+                    text.replace('    State: RUNNING_UNLOCKED', '    State: ?', 1),
+                    listed('RUNNING')[1]):
+            with self.subTest(text=cut[-40:]), self.assertRaises(o.Unclassified):
+                observer(device(**{o.USERS: (0, cut, '')}))[0].users()
+        with self.assertRaises(o.Unclassified):
+            observer(device(**{o.USERS: (255, '', 'Can\'t find service: user\n')}))[0].users()
+
+    def test_one_systemui_process_for_each_user(self):
+        observe, shell = observer(self.two())
+        active = observe.active()
+        self.assertEqual(active['facts']['context'], 'u:r:platform_app:s0:c512,c768')
+        self.assertIn('cat /proc/4721/status', shell.commands)
+        self.assertIn('cat /proc/4721/attr/current', shell.commands)
+        # The system user's process must carry the package's UID, and each user runs one process.
+        for changes in ({o.SYSTEMUI_PID: (0, '4721\n', '')}, {'cat /proc/4721/status': reply('systemui-status-1839')},
+                        {'cat /proc/1839/status': (0, reply('systemui-status-1839')[1].replace('10112', '10113'), '')}):
+            with self.subTest(changes=list(changes)), self.assertRaises(o.Unclassified):
+                observer(self.two(**changes))[0].active()
+        double = self.two(**{'cat /proc/4721/status': (0, reply('systemui-status-4721')[1].replace('1010112', '10112')
+                                                       .replace('Pid:\t10112', 'Pid:\t4721'), '')})
+        with self.assertRaises(o.Unclassified):
+            observer(double)[0].active()
+
+    def probe(self, changes=None, baseline=None, domain=DOMAIN, apk=FACTORY_APK):
+        """One health probe on the two user guest: [(user, classification, criteria)] and the baseline."""
+        facts, following = observer(self.two(**(changes or {})))[0].health(domain, apk, baseline)
+        return [(f['user'], f['classification'], f['facts']['count']) for f in facts], following
+
+    def baseline(self):
+        return self.probe()[1]
+
+    def test_health_for_each_user(self):
+        instance = observer(self.two())[0].clock()[1]
+        first, baseline = self.probe()
+        self.assertEqual(baseline, {(BOOT, instance, 0, 0): 1839, (BOOT, instance, 10, 12): 4721})
+        facts, _ = observer(self.two())[0].health(DOMAIN, FACTORY_APK, baseline)
+        self.assertEqual([(f['kind'], f['classification'], f['user'], f['serial'], f['component'], f['facts'])
+                          for f in facts],
+                         [('HEALTH', 'HELD', 0, 0, o.PACKAGE, {'count': 0x13}),
+                          ('HEALTH', 'HELD', 10, 12, o.PACKAGE, {'count': 0x13})])
+        for fact in facts:
+            decode_frame(o.encode(fact))
+        # The system user's SystemUI is persistent: its process ending is a crash.
+        restarted = {(BOOT, instance, 0, 0): 1700, (BOOT, instance, 10, 12): 4721}
+        self.assertEqual(self.probe(baseline=restarted)[0], [(0, 'CRASH', 0x13), (10, 'HELD', 0x13)])
+        # A baseline of another boot or framework instance is no evidence: it starts a new one.
+        for other in ((BOOT[::-1], instance), (BOOT, instance + 1)):
+            stale = {other + (0, 0): 1700, other + (10, 12): 4700}
+            facts, following = self.probe(baseline=stale)
+            self.assertEqual((facts, following), ([], baseline))
+        self.assertEqual(self.probe(domain='system_app')[0], [(0, 'DEGRADED', 0x11), (10, 'DEGRADED', 0x11)])
+        self.assertEqual(self.probe(apk=DATA_APK)[0], [(0, 'DEGRADED', 0x11), (10, 'DEGRADED', 0x11)])
+        status = reply('systemui-status-4721')[1].replace('1010112', '1010113')
+        other_app = {'cat /proc/4721/status': (0, status, '')}
+        self.assertEqual(self.probe(other_app, baseline)[0], [(0, 'HELD', 0x13), (10, 'DEGRADED', 0x13)])
+        # No SystemUI process at all, read quietly twice, is observed: a miss for every user.
+        none = {o.SYSTEMUI_PID: (1, '', '')}
+        self.assertEqual(self.probe(none)[0], [(0, 'DEGRADED', 0x11), (10, 'INCONCLUSIVE', 0x11)])
+        self.assertEqual(self.probe(none, baseline)[0], [(0, 'CRASH', 0x13), (10, 'INCONCLUSIVE', 0x13)])
+        with self.assertRaises(o.Unclassified):
+            observer(self.two(**none))[0].active()
+        # Only running, unlocked users that Android is not removing get a probe.
+        for state, marker in (('RUNNING_LOCKED', ''), ('RUNNING_UNLOCKING', ''), ('RUNNING_UNLOCKED', ' <removing> ')):
+            with self.subTest(state=state, marker=marker):
+                facts, _ = self.probe({o.USERS: listed(state, marker)}, baseline)
+                self.assertEqual([user for user, _, _ in facts], [0])
+
+    def test_an_unavailable_process_read_is_never_a_crash(self):
+        baseline = self.baseline()
+        quiet = (1, '', '')
+        for value in ((1, '', '/proc: Permission denied\n'), (1, '', 'error: device offline\n'),
+                      [quiet, (0, '1839 4721\n', '')], [quiet, (1, '', 'error: device offline\n')],
+                      [quiet, (0, '1839\n', '')]):
+            with self.subTest(value=value), self.assertRaises(o.Unclassified):
+                observer(self.two(**{o.SYSTEMUI_PID: value}))[0].health(DOMAIN, FACTORY_APK, baseline)
+        observe, shell = observer(self.two(**{o.SYSTEMUI_PID: quiet}))
+        facts, _ = observe.health(DOMAIN, FACTORY_APK, baseline)
+        self.assertEqual([(f['user'], f['classification']) for f in facts], [(0, 'CRASH'), (10, 'INCONCLUSIVE')])
+        self.assertEqual(shell.commands.count(o.SYSTEMUI_PID), 2)
+
+    def test_a_probe_without_a_baseline_holds_nothing(self):
+        # A HELD fact without the crash criterion would read as partial criteria for the whole window,
+        # so the first probe only sets the baseline. A miss it sees is still reported.
+        facts, baseline = self.probe()
+        self.assertEqual((facts, sorted(user for _, _, user, _ in baseline)), ([], [0, 10]))
+        self.assertEqual(self.probe(baseline=baseline)[0], [(0, 'HELD', 0x13), (10, 'HELD', 0x13)])
+        self.assertEqual(self.probe(domain='system_app')[0], [(0, 'DEGRADED', 0x11), (10, 'DEGRADED', 0x11)])
+        self.assertEqual(self.probe({o.SYSTEMUI_PID: reply('systemui-pid')})[0], [(10, 'INCONCLUSIVE', 0x11)])
+
+    def test_another_users_systemui_ending_is_inconclusive(self):
+        # ProcessList marks SystemUI persistent only for the system user, so another user's SystemUI
+        # may be ended to free memory. Its ending or absence cannot show a crash.
+        instance = observer(self.two())[0].clock()[1]
+        baseline = self.baseline()
+        moved = {(BOOT, instance, 0, 0): 1839, (BOOT, instance, 10, 12): 4700}
+        self.assertEqual(self.probe(baseline=moved)[0], [(0, 'HELD', 0x13), (10, 'INCONCLUSIVE', 0x13)])
+        only_system = {o.SYSTEMUI_PID: reply('systemui-pid')}
+        self.assertEqual(self.probe(only_system, baseline)[0], [(0, 'HELD', 0x13), (10, 'INCONCLUSIVE', 0x13)])
+        only_ten = {o.SYSTEMUI_PID: (0, '4721\n', '')}
+        self.assertEqual(self.probe(only_ten)[0], [(0, 'DEGRADED', 0x11)])
+        self.assertEqual(self.probe(only_ten, baseline)[0], [(0, 'CRASH', 0x13), (10, 'HELD', 0x13)])
 
 
 class AllowlistTests(unittest.TestCase):
@@ -438,6 +595,12 @@ class AllowlistTests(unittest.TestCase):
         self.assertIn(stores[0], list(ast.walk(init)))
         others = [node for node in uses if node is not stores[0] and node is not calls[0].func]
         self.assertEqual(others, [], [ast.unparse(node) for node in others])
+        # The constructor's run parameter appears exactly once, as the value assigned to self._run:
+        # never stored a second time, wrapped in a lambda or passed on.
+        loads = [node for node in ast.walk(init) if isinstance(node, ast.Name) and node.id == 'run']
+        self.assertEqual(len(loads), 1, [ast.unparse(node) for node in loads])
+        assignment = next(n for n in ast.walk(init) if isinstance(n, ast.Assign) and stores[0] in n.targets)
+        self.assertIs(assignment.value, loads[0])
         guard = read.body[0]
         self.assertIsInstance(guard, ast.If)
         self.assertEqual(ast.unparse(guard.test), 'not allowed(command)')
@@ -502,7 +665,12 @@ class EncodingTests(unittest.TestCase):
             data = decode_frame(o.encode(fact))
             self.assertEqual(data, encoder.observation(fact))
             kinds[fact['kind']] = data
-        self.assertEqual(sorted(kinds), ['ACTIVE', 'BOOT', 'CHECKPOINT', 'FACTORY', 'LISTING', 'SESSION'])
+        for fact in observe.users() + observe.health(DOMAIN, FACTORY_APK)[0]:
+            data = decode_frame(o.encode(fact))
+            self.assertEqual(data, encoder.observation(fact))
+            kinds[fact['kind']] = data
+        self.assertEqual(sorted(kinds), ['ACTIVE', 'BOOT', 'CHECKPOINT', 'FACTORY', 'HEALTH', 'LISTING', 'SESSION',
+                                         'USER'])
 
 
 if __name__ == '__main__':

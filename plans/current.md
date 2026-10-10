@@ -150,8 +150,10 @@ records, their codec and persistence now store suspension, retirement with its d
 deletion, restoration and a release engine that no production code can reach. Android's package
 settings record the store's boot facts once and defer suspended, retiring and retired accounts at
 boot, which changes behaviour only for those accounts. Production still uses the earlier store
-format. The image that reads the new records only as protective evidence comes after the remaining
-host packages.
+format. The host models agree across 205 lifecycle and rollback layouts. The old formats' lifecycle
+writers are being retired, with their positive cases carried into the lifecycle format and their
+old format refusals checked without losing the read and allocation coverage. The image that reads
+the new records only as protective evidence comes after the remaining host packages.
 
 The [installer durability assessment](2026-09-27-package-installer-durability.md) retains an
 unclean stop failure and a separate Android file comparison. The checked writing descriptor sync
@@ -291,9 +293,12 @@ together or not at all. Building the store settled how a plan names its bundles 
 interrupted publication may be repeated. The host signer and bundle builder sign a variant and its
 restoration in one six operation transaction. Run with the old options they reproduce the earlier
 signed outputs byte for byte. The transaction itself signs without the old v1 scheme, and its
-outputs equal the signing tool's own output for the same inputs. A read only shell observer turns
-the emulator's session listings into records, with forms derived from source still to be
-confirmed on a guest. The test image is chosen: the normal image built at `24bfb6a`, whose factory
+outputs equal the signing tool's own output for the same inputs. The host coordinator now waits
+for each required notice receipt and judges health over probes covering the user's window. Missing
+evidence remains inconclusive, not failure. Its cohort check needs no open ticket. A read only
+shell observer turns the emulator's session listings into records and reads users by serial and
+processes by user, with forms derived from source still to be confirmed on a guest. The test image
+is chosen: the normal image built at `24bfb6a`, whose factory
 SystemUI equals the `985c9a4` baseline byte for byte, so the frozen variants need no rebuild. The
 owner decided seven of the plan's eight decisions, settled five details of them, and allowed the
 emulator trials to use the emulator while the native account work does not need it. The rollback

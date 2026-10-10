@@ -184,6 +184,10 @@ final class AndroidFacade {
     final List<Call> calls = new ArrayList<>();
     final List<String> violations = new ArrayList<>();
     final List<String> notices = new ArrayList<>();
+    /** One receipt for each running user a notice reached: boot, user, serial, ticket and ledger index. */
+    final List<Object[]> receipts = new ArrayList<>();
+    /** Whether SystemUI delivers notices. Otherwise Andrix's own app shows a full screen notice. */
+    boolean systemUiNotices = true;
     DeploymentStore store;
     private long observationCount;
     private int sequence;
@@ -467,6 +471,11 @@ final class AndroidFacade {
                 .component(Fixtures.COMPONENT).digest(active.digest).version(active.version)
                 .number(uidChanged ? Fixtures.UID + 1 : Fixtures.UID).text(Fixtures.CONTEXT)
                 .at(instance, elapsed, wall()).build());
+        for (Object[] r : withUsers ? receipts : List.<Object[]>of()) {
+            if (!r[0].equals(boot)) continue;
+            list.add(fact(route, (Classification) r[5]).component(Fixtures.COMPONENT)
+                    .user((Integer) r[1], (Long) r[2]).receipt((String) r[3], (Integer) r[4]).build());
+        }
         for (User u : withUsers ? users : List.<User>of()) {
             Classification c = u.removed ? Classification.USER_REMOVED
                     : !u.running ? Classification.NOT_RUNNING
@@ -562,6 +571,12 @@ final class AndroidFacade {
         }
 
         @Override
+        public List<Observation> observe(String component) {
+            advance(1);
+            return deviceFacts(route, false);
+        }
+
+        @Override
         public Observation cross(Ticket ticket, Plan plan, Entry entry) {
             advance(1);
             Fault fault = begin(ticket, entry);
@@ -607,7 +622,15 @@ final class AndroidFacade {
                     return null; // The connection drops with the device.
                 case NOTICE:
                     notices.add(boot);
-                    answer = Classification.REPLY_SUCCESS;
+                    // Each running user gets the notice and a receipt. When SystemUI cannot deliver
+                    // it, Andrix's own full screen notice does, and the reply says SystemUI refused.
+                    for (User u : users) {
+                        if (u.removed || !u.running) continue;
+                        Classification shown = systemUiNotices ? Classification.RECEIPT_SYSTEMUI
+                                : Classification.RECEIPT_FULL_SCREEN;
+                        receipts.add(new Object[] {boot, u.id, u.serial, ticket.ticketId, index, shown});
+                    }
+                    answer = systemUiNotices ? Classification.REPLY_SUCCESS : Classification.REPLY_REFUSED;
                     break;
                 default:
                     throw new IllegalStateException("not a device crossing");

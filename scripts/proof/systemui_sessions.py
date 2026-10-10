@@ -904,6 +904,128 @@ def single_pid(code, output):
     return int(match[1])
 
 
+def pids(code, output):
+    """`pidof <name>` for a process that runs once for each running user: one or more distinct PIDs
+    on one line, separated by single spaces, in any order. Source derived: toybox's pidof prints
+    every match on one line. The toybox source is not pinned here."""
+    match = re.fullmatch(r'([1-9][0-9]{0,6}(?: [1-9][0-9]{0,6})*)\n', output)
+    if code != 0 or not match:
+        raise ValueError('No process list of known form')
+    found = [int(pid) for pid in match[1].split(' ')]
+    if len(set(found)) != len(found):
+        raise ValueError('A process listed twice')
+    return found
+
+
+_STATUS_LINE = re.compile(r'([A-Za-z_][A-Za-z0-9_]*):(?:\t(.*))?')
+
+
+def status_uid(code, output, pid):
+    """`/proc/<pid>/status`: the process's UID. Each line is a key, a colon and a tab separated
+    value. Exactly one Pid line names the PID, and exactly one Uid line holds four equal decimal
+    IDs, real, effective, saved and file system. Source derived from the kernel's task_state(),
+    whose source is not pinned here."""
+    if code != 0 or not output.endswith('\n') or len(output) > 65536:
+        raise ValueError('Process status of no known form')
+    seen = {}
+    for line in output[:-1].split('\n'):
+        match = _STATUS_LINE.fullmatch(line)
+        if not match:
+            raise ValueError('Process status of no known form')
+        key, value = match[1], match[2] or ''
+        if key in ('Pid', 'Uid'):
+            if key in seen:
+                raise ValueError('Process status names %s twice' % key)
+            seen[key] = value
+    if seen.get('Pid') != str(pid):
+        raise ValueError('Process status of another process')
+    ids = seen.get('Uid', '').split('\t')
+    if len(ids) != 4 or not all(re.fullmatch(r'0|[1-9][0-9]{0,9}', i) for i in ids) or len(set(ids)) != 1:
+        raise ValueError('Process UID of no known form')
+    return int(ids[0])
+
+
+# The user states that `UserState.stateToString` prints, and -1 for a user with no state.
+USER_STATES = ('BOOTING', 'RUNNING_LOCKED', 'RUNNING_UNLOCKING', 'RUNNING_UNLOCKED', 'STOPPING', 'SHUTDOWN', '-1')
+_USER_HEADER = re.compile(r'  UserInfo\{(0|[1-9][0-9]{0,8}):(.*):([0-9a-f]{1,8})\} serialNo=(0|[1-9][0-9]{0,18}) '
+                          r'isPrimary=(true|false)( parentId=(?:0|[1-9][0-9]{0,8}))?( <removing> )?( <partial>)?'
+                          r'( <pre-created>)?( <converted>)?( <guestToRemove>)?')
+
+
+# `Device properties:` up to `Started users state:`: two restriction lists, each line indented by
+# four spaces, an empty line and, while users are being removed, the recently removed IDs.
+_STARTED = re.compile(r'Device properties:\n  Device policy global restrictions:\n(?:    [^\n]+\n)*'
+                      r'  Guest restrictions:\n(?:    [^\n]+\n)*\n'
+                      r'(?:  Recently removed userIds: \[(?:0|[1-9][0-9]{0,8})(?:, (?:0|[1-9][0-9]{0,8}))*\]\n)?'
+                      r'  Started users state: \[([^\]\n]*)\]\n')
+
+
+@dataclass(frozen=True)
+class AndroidUser:
+    user: int
+    serial: int
+    state: str
+    removing: bool
+    partial: bool
+
+
+def users(code, output):
+    """`dumpsys user`: every user in the users section, with its serial and state, or nothing.
+
+    Source derived from `UserManagerService.dump` and `dumpUserLU`: a current user line, an empty
+    line and `Users:`, then for each user a `UserInfo{id:name:flags}` line with its serial and
+    markers, and its own lines indented by at least four spaces, one of them `    State: `. The
+    section ends with an empty line before `Device properties:`, whose restrictions lead to
+    `Started users state:`. That list comes from the same user states, so every user it names must
+    be in the section with the same state, and every user in the section with a state must be in
+    it. The notice rule is only as complete as this listing, so a listing cut short, a block of no
+    known form, a repeated user or a disagreement refuses the whole read."""
+    if code != 0 or len(output) > 4 * 1024 * 1024:
+        raise ValueError('User listing of no known form')
+    head = re.match(r'Current user: (?:N/A|0|[1-9][0-9]{0,8})\n\nUsers:\n', output)
+    end = output.find('\n\nDevice properties:\n')
+    if not head or end < head.end() - 1:
+        raise ValueError('User listing cut short or of no known form')
+    section = output[head.end():end + 1]
+    found, block = [], None
+    for line in section[:-1].split('\n') if section else []:
+        # A user's name is free text and may hold `} serialNo=` itself. The greedy name still
+        # leaves the line's own suffix, which the dump prints last.
+        header = _USER_HEADER.fullmatch(line)
+        if header:
+            block = {'user': int(header[1]), 'serial': int(header[4]), 'removing': bool(header[7]),
+                     'partial': bool(header[8]), 'states': [], 'types': 0}
+            found.append(block)
+        elif block is not None and line.startswith('    ') and line.strip():
+            if line.startswith('    State: '):
+                block['states'].append(line[len('    State: '):])
+            elif line.startswith('    Type: '):
+                block['types'] += 1
+        else:
+            raise ValueError('A user listing line of no known form')
+    result = []
+    for b in found:
+        if len(b['states']) != 1 or b['states'][0] not in USER_STATES or b['types'] != 1:
+            raise ValueError('A user without one known state')
+        result.append(AndroidUser(b['user'], b['serial'], b['states'][0], b['removing'], b['partial']))
+    if len({u.user for u in result}) != len(result) or len({u.serial for u in result}) != len(result):
+        raise ValueError('A user or serial listed twice')
+    if not result:
+        raise ValueError('No users listed')
+    started = _STARTED.match(output, end + 2)
+    if not started:
+        raise ValueError('User listing without its started users of known form')
+    states = {}
+    for pair in started[1].split(', ') if started[1] else []:
+        match = re.fullmatch(r'(0|[1-9][0-9]{0,8})=([A-Z_]+)', pair)
+        if not match or int(match[1]) in states:
+            raise ValueError('A started user of no known form')
+        states[int(match[1])] = match[2]
+    if states != {u.user: u.state for u in result if u.state != '-1'}:
+        raise ValueError('The users section and the started users disagree')
+    return result
+
+
 def start_ticks(code, output, pid, name):
     """`/proc/<pid>/stat`: the process start time in clock ticks since the boot."""
     match = re.fullmatch(r'([0-9]+) \(([^)]*)\) (.*)\n', output)

@@ -54,6 +54,8 @@ final class World {
     private final Map<String, Selection> lastSelection = new HashMap<>();
     Coordinator coordinator;
     int crashes;
+    /** The longest wait between two rounds during a health window, as an operator's probes would come. */
+    static final long PROBE = 120_000;
     /** How many rounds that write both records pass before the coordinator is lost between them, or -1. */
     int betweenWrites = -1;
     private boolean lostBetweenWrites;
@@ -91,6 +93,9 @@ final class World {
         });
         return c;
     }
+
+    /** Notes a coordinator lost between the two writes by a hook of its own. */
+    void lostBetweenWrites() { lostBetweenWrites = true; }
 
     /** Whether the ticket was seen to reach APPLIED with no recorded cause. */
     boolean appliedWithoutCause(String ticketId) { return appliedWithoutCause.getOrDefault(ticketId, false); }
@@ -156,8 +161,9 @@ final class World {
 
     /**
      * Settles and lets time pass until the ticket closes or the steps run out. Each idle step
-     * lets more time pass, up to ten minutes. With escalation an idle ticket sees a framework
-     * restart after four idle steps and a reboot after eight, as an operator would provide.
+     * lets more time pass, up to ten minutes, or up to PROBE during a health window. With
+     * escalation an idle ticket outside the window sees a framework restart after four idle steps
+     * and a reboot after eight, as an operator would provide.
      * Returns the last ticket value.
      */
     Ticket run(String id, int steps, boolean escalate) {
@@ -173,7 +179,14 @@ final class World {
             Ticket after = ticket(id);
             if (after.state.terminal() || after.state == stop) return after;
             idle = after.equals(before) ? idle + 1 : 0;
-            android.tick(idle == 0 ? 5_000 : Math.min(600_000, 5_000L << Math.min(idle, 7)));
+            long wait = idle == 0 ? 5_000 : Math.min(600_000, 5_000L << Math.min(idle, 7));
+            if (after.state == State.HEALTH_WINDOW) {
+                // The health window is observed, not stuck: probes come at least every PROBE
+                // milliseconds, and the operator forces no restart.
+                android.tick(Math.min(wait, PROBE));
+                continue;
+            }
+            android.tick(wait);
             if (escalate && idle == 4) android.frameworkRestart();
             if (escalate && idle == 8) android.kernelBoot(true);
             if (idle > 12) return after;

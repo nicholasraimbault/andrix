@@ -1,7 +1,7 @@
 {
-  "status": "PREDICTED for D3's read only shell observer, written before its guarded run and before the runs of the new cases and defects: both Python suites pass every case; the Java codec decodes each observation the observer gives from the fixtures, twenty five records of the BOOT, CHECKPOINT, FACTORY, ACTIVE, LISTING and SESSION kinds, encodes each to the same bytes and reads the same fields; and each defect below fails at least the cases listed. Nothing here is a guarded result. One correction followed the first run of the new observer cases: it found 27 cases where 26 were predicted, because a positive control for records of other packages was added, and the new removal cases sit in their own class. The counts and names here are corrected; every other figure is as first predicted. Later, written before the observer phase and the runs of the new defects: the readbacks suite gains one case, a SystemUI record whose installer prints a prefix naming another package, live alone, live as a child and removed, which must refuse the dump; the source rule now collects every import at any depth of the observer and of its parser module, and allows a module's name only as the value of a listed attribute; and four defects guard these. Then, written before the runs of the new defects: every use of the observer's run function, other than the constructor's assignment, must be the one call inside read, and two defects guard this, one that binds it to another name and one that maps it over commands. The case counts and the decoded records do not change.",
-  "cases": {"readbacks": 26, "observer": 27},
-  "decoded": 25,
+  "status": "PREDICTED for D3's read only shell observer, written before its guarded run and before the runs of the new cases and defects: both Python suites pass every case; the Java codec decodes each observation the observer gives from the fixtures, twenty five records of the BOOT, CHECKPOINT, FACTORY, ACTIVE, LISTING and SESSION kinds, encodes each to the same bytes and reads the same fields; and each defect below fails at least the cases listed. Nothing here is a guarded result. One correction followed the first run of the new observer cases: it found 27 cases where 26 were predicted, because a positive control for records of other packages was added, and the new removal cases sit in their own class. The counts and names here are corrected; every other figure is as first predicted. Later, written before the observer phase and the runs of the new defects: the readbacks suite gains one case, a SystemUI record whose installer prints a prefix naming another package, live alone, live as a child and removed, which must refuse the dump; the source rule now collects every import at any depth of the observer and of its parser module, and allows a module's name only as the value of a listed attribute; and four defects guard these. Then, written before the runs of the new defects: every use of the observer's run function, other than the constructor's assignment, must be the one call inside read, and two defects guard this, one that binds it to another name and one that maps it over commands. The case counts and the decoded records do not change. Later still, written before the runs of the new defects: the constructor's run parameter must appear exactly once, as the value assigned to self._run, and two defects guard this, one that stores it a second time and one that wraps it in a lambda. The case counts and the decoded records do not change. Then, written before the observer phase and the runs of the new defects: SystemUI runs once for each running user, so the observer reads every process with its UID and context and keys it by user, and the ACTIVE fact takes the system user's process; `dumpsys user` gives one USER fact for each user by serial, or none when the listing is cut short or of no known form; and the health probe gives one HEALTH fact for each running unlocked user, covering SystemUI's UID and context, the active bytes, and no crash or ANR against an earlier probe. The readbacks suite gains one case and the observer suite four, the Java codec decodes four more records, twenty nine in all, and nine defects guard the new readers. Then, written before their runs: the user listing must agree with its started users, and four defects guard that check and the process parsers: a PID listed twice, unequal UIDs in one status, a status of another process, and started users left unchecked. Then, written before its run: no SystemUI process at all reads as a miss for every unlocked user, not as an unavailable read, and one defect guards it. Last, written before its run: a crash baseline counts only in its own boot and framework instance, and one defect guards that. Then, written before the runs of the new cases and defects: no process is read only from pidof's quiet failure, confirmed by a second read in the same bracket, so any other failure is unavailable and never a crash; a probe that would hold without a baseline gives no fact; another user's SystemUI ending or missing gives INCONCLUSIVE, because only the system user's SystemUI is persistent; and a user's name may hold the serial marker. The readbacks suite gains one case and the observer suite three, and six defects guard these rules, one of them the app ID check of bit 0.",
+  "cases": {"readbacks": 28, "observer": 34},
+  "decoded": 29,
   "mutants_caught_at_least": {
     "unknown-form-accepted": ["InstallsTests.test_controls_fail"],
     "unknown-pair-absorbed": ["InstallsTests.test_an_unknown_pair_after_free_text_is_refused"],
@@ -28,6 +28,30 @@
     "module-bound-to-another-name": ["AllowlistTests.test_source_rule"],
     "parser-imports-subprocess": ["AllowlistTests.test_source_rule"],
     "run-bound-to-another-name": ["AllowlistTests.test_source_rule"],
-    "run-mapped-over-commands": ["AllowlistTests.test_source_rule"]
+    "run-mapped-over-commands": ["AllowlistTests.test_source_rule"],
+    "run-stored-twice": ["AllowlistTests.test_source_rule"],
+    "run-wrapped-in-lambda": ["AllowlistTests.test_source_rule"],
+    "started-users-missing-accepted": ["ActiveAndBootTests.test_users_and_processes"],
+    "unknown-user-state-accepted": ["ActiveAndBootTests.test_users_and_processes",
+                                    "UserAndHealthTests.test_a_partial_listing_gives_no_user_at_all"],
+    "unlocking-user-counted-unlocked": ["UserAndHealthTests.test_users_by_serial"],
+    "removed-user-not-reported": ["UserAndHealthTests.test_users_by_serial"],
+    "second-process-for-one-user-accepted": ["UserAndHealthTests.test_one_systemui_process_for_each_user"],
+    "active-process-uid-unchecked": ["UserAndHealthTests.test_one_systemui_process_for_each_user"],
+    "health-domain-unchecked": ["UserAndHealthTests.test_health_for_each_user"],
+    "health-restart-not-a-crash": ["UserAndHealthTests.test_health_for_each_user", "UserAndHealthTests.test_another_users_systemui_ending_is_inconclusive"],
+    "health-probes-locked-users": ["UserAndHealthTests.test_health_for_each_user"],
+    "duplicate-pid-accepted": ["ActiveAndBootTests.test_users_and_processes"],
+    "status-ids-unequal-accepted": ["ActiveAndBootTests.test_users_and_processes"],
+    "status-of-another-process-accepted": ["ActiveAndBootTests.test_users_and_processes"],
+    "started-users-unchecked": ["ActiveAndBootTests.test_users_and_processes"],
+    "no-systemui-process-unread": ["UserAndHealthTests.test_health_for_each_user", "UserAndHealthTests.test_an_unavailable_process_read_is_never_a_crash"],
+    "health-baseline-of-another-instance": ["UserAndHealthTests.test_health_for_each_user"],
+    "no-process-stderr-ignored": ["UserAndHealthTests.test_an_unavailable_process_read_is_never_a_crash"],
+    "no-process-unconfirmed": ["UserAndHealthTests.test_an_unavailable_process_read_is_never_a_crash"],
+    "held-without-baseline-reported": ["UserAndHealthTests.test_health_for_each_user", "UserAndHealthTests.test_a_probe_without_a_baseline_holds_nothing"],
+    "secondary-ending-read-as-crash": ["UserAndHealthTests.test_health_for_each_user", "UserAndHealthTests.test_another_users_systemui_ending_is_inconclusive"],
+    "health-app-id-unchecked": ["UserAndHealthTests.test_health_for_each_user"],
+    "serial-marker-in-name-refused": ["ActiveAndBootTests.test_a_user_name_may_hold_a_serial_marker"]
   }
 }

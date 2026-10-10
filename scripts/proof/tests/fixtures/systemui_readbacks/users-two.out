@@ -1,0 +1,56 @@
+Current user: 0
+
+Users:
+  UserInfo{0:null:4c13} serialNo=0 isPrimary=true
+    Type: android.os.usertype.full.SYSTEM
+    Flags: 19475 (ADMIN|FULL|INITIALIZED|MAIN|PRIMARY|SYSTEM)
+    State: RUNNING_UNLOCKED
+    Created: <unknown>
+    Last logged in: +8m41s502ms ago
+    Last logged in fingerprint: google/sdk_gphone64_x86_64/emu64xa:16/BP4A.251205.006/2026081300:userdebug/dev-keys
+    Start time: +8m52s117ms ago
+    Unlock time: +8m41s498ms ago
+    Last entered foreground: +8m41s502ms ago
+    Restrictions:
+      none
+    Device policy restrictions:
+      none
+    Effective restrictions:
+      none
+    UserProperties:
+        mPropertiesPresent=0
+        mShowInLauncher=0
+        mStartWithParent=false
+        mShowInSettings=0
+    Ignore errors preparing storage: false
+  UserInfo{10:D5Second:410} serialNo=12 isPrimary=false
+    Type: android.os.usertype.full.SECONDARY
+    Flags: 1040 (FULL|INITIALIZED)
+    State: RUNNING_UNLOCKED
+    Created: +2h14m3s211ms ago
+    Last logged in: +8m41s502ms ago
+    Last logged in fingerprint: google/sdk_gphone64_x86_64/emu64xa:16/BP4A.251205.006/2026081300:userdebug/dev-keys
+    Start time: +8m52s117ms ago
+    Unlock time: +8m41s498ms ago
+    Last entered foreground: <unknown>
+    Restrictions:
+      no_sms
+    Device policy restrictions:
+      none
+    Effective restrictions:
+      no_sms
+    UserProperties:
+        mPropertiesPresent=0
+        mShowInLauncher=0
+        mStartWithParent=false
+        mShowInSettings=0
+    Ignore errors preparing storage: false
+
+Device properties:
+  Device policy global restrictions:
+    none
+  Guest restrictions:
+    no_sms
+    no_outgoing_calls
+
+  Started users state: [0=RUNNING_UNLOCKED, 10=RUNNING_UNLOCKED]

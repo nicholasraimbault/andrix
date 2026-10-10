@@ -471,6 +471,8 @@ Rules:
   is a third, once D7 qualifies that it reads the referrer of every listed session.
 - A new crossing follows only when observation shows that the earlier one had no effect, as for an
   abandon whose session is still live in a later framework instance.
+  NOTICE is the exception. It is safe to repeat while a required user has no observed receipt,
+  within its notice budget. A receipt records delivery, not consent.
 - A ticket's ledger only grows. Each ticket counts the kernel boots it observes from SESSION_INTENT
   on. Its state returns to an earlier one only along four loops:
   - REBOOT_INTENT returns to READY after a lost reboot request. The plan's request limit bounds
@@ -549,6 +551,20 @@ Commit modes:
   factory and the active copy, and a cohort match. ACTIVATE comes before the session is created.
   Creation, write, commit and the reboot then run as one short sequence.
 - **Early commit**, an explicit policy. The owner is told that the change applies at any reboot.
+
+Notice under decision 7:
+
+- Each other running user, identified by serial from a whole user listing, needs an observed receipt
+  of this ticket's notice in the current boot. A successful command reply alone proves no delivery.
+  The declared delay runs from the last required user's first receipt. No consent or acknowledgement
+  from those users is required. Without a whole listing, notice remains owed.
+- A user still without a receipt gets another notice after one declared delay, or at once if that
+  user started after the last notice. Each boot allows the request limit plus one notices, with at
+  most 17 in the ticket's ledger. Exhausting that budget abandons a created session, or holds a
+  ticket without one with an alert. It does not reboot without delivery.
+- The shorter emergency delay still requires an explicit policy and an approved restoration. It
+  does not replace delivery. The host version uses it only when none of the required receipts came
+  through SystemUI. Andrix's full screen route records delivery when SystemUI cannot do so.
 
 Restart scope:
 
@@ -680,6 +696,22 @@ checkpoint, were not inspected, so the rollback behavior must be measured.
 
   Boot completion and a responsive launcher are not enough. A stale base is never healthy. A user
   removed during the window gets REMOVED instead.
+
+  HEALTHY needs every probe in the window to hold every declared criterion, with probes covering
+  the user's span within the maximum gap. The first host version uses a quarter of the window.
+  An explicit maximum gap in the plan record is a follow up before the device coordinator, not a
+  field the current codec implements. This sampling bound is not continuous observation.
+
+  The span starts at the window's start. It starts later only when a whole user listing in the same
+  boot, after the window began and before the first observed unlock, showed that user locked,
+  stopped or absent. It then starts at the latest such listing, not at the first convenient probe.
+  A gap, doubt or missing evidence gives INCONCLUSIVE, never HEALTHY. An unavailable observation
+  never counts as a failure, apart from the owner's explicit boot limit exception.
+
+  The shell process continuity probe cannot tell a secondary user's crash from a kill to free
+  memory. Such process loss stays INCONCLUSIVE until a crash witness qualifies. It gives no
+  HEALTHY claim for that user and triggers no automatic restoration. D5 must qualify a witness
+  before claiming that detection. The device observer's stronger criteria remain D7 work.
 
 ### Rollback limits
 

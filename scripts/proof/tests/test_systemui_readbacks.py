@@ -49,8 +49,14 @@ def parse(name):
         return s.factory_version(code, output)
     if command == 'cat /proc/uptime':
         return s.uptime_ms(code, output)
+    if command == 'pidof com.android.systemui':
+        return s.pids(code, output)
     if command.startswith('pidof '):
         return s.single_pid(code, output)
+    if command.startswith('cat /proc/') and command.endswith('/status'):
+        return s.status_uid(code, output, int(command.split('/')[2]))
+    if command == 'dumpsys user':
+        return s.users(code, output)
     if command.startswith('cat /proc/') and command.endswith('/stat'):
         return s.start_ticks(code, output, int(command.split('/')[2]), 'system_server')
     if command.startswith('cat /proc/') and command.endswith('/attr/current'):
@@ -58,6 +64,15 @@ def parse(name):
     if command == 'getprop sys.boot_completed':
         return s.boot_completed(code, output)
     raise AssertionError('no parser for ' + command)
+
+
+def with_states(text, states):
+    """The user listing with each user's state changed, in its own block and in the started users."""
+    for user, state in states.items():
+        at = text.index('    State: ', text.index('  UserInfo{%d:' % user))
+        text = text[:at] + '    State: ' + state + text[text.index('\n', at):]
+    started = ', '.join('%d=%s' % (u, state) for u, state in sorted(states.items()) if state != '-1')
+    return re.sub(r'  Started users state: \[[^\]\n]*\]\n', '  Started users state: [%s]\n' % started, text)
 
 
 def listing_text(rows, children=()):
@@ -157,7 +172,7 @@ class FormTests(unittest.TestCase):
             text = (FIXTURES / (name + '.out')).read_text() + entry['stderr'] + entry['command']
             self.assertIsNone(re.search(r'/home/|/srv/|/opt/|/tmp/|/usr/|127\.0\.0\.1|adb ', text), name)
         self.assertEqual(sum(e['origin'] == 'captured' for e in FORMS.values()), 26)
-        self.assertEqual(sum(e['origin'] == 'source' for e in FORMS.values()), 17)
+        self.assertEqual(sum(e['origin'] == 'source' for e in FORMS.values()), 22)
 
     def test_every_known_form_is_accepted(self):
         for name in FORMS:
@@ -583,7 +598,7 @@ class ActiveAndBootTests(unittest.TestCase):
         self.assertEqual(parse('uptime'), 5432170)
         self.assertEqual(parse('framework-pid'), 957)
         self.assertEqual(parse('framework-stat'), 14229)
-        self.assertEqual(parse('systemui-pid'), 1839)
+        self.assertEqual(parse('systemui-pid'), [1839])
         self.assertEqual(parse('systemui-context'), 'u:r:platform_app:s0:c512,c768')
         self.assertTrue(parse('boot-completed'))
         self.assertFalse(parse('boot-not-completed'))
@@ -612,6 +627,73 @@ class ActiveAndBootTests(unittest.TestCase):
                     parser(0, text)
         with self.assertRaises(ValueError):
             s.single_pid(1, '957\n')
+
+    def test_users_and_processes(self):
+        self.assertEqual([(u.user, u.serial, u.state, u.removing, u.partial) for u in parse('users-two')],
+                         [(0, 0, 'RUNNING_UNLOCKED', False, False), (10, 12, 'RUNNING_UNLOCKED', False, False)])
+        self.assertEqual(parse('systemui-pids-two'), [1839, 4721])
+        self.assertEqual(s.single_pid(*form('systemui-pid')[:2]), 1839)
+        self.assertEqual((parse('systemui-status-1839'), parse('systemui-status-4721')), (10112, 1010112))
+        self.assertEqual(parse('systemui-context-4721'), 'u:r:platform_app:s0:c522,c768')
+        listing = form('users-two')[1]
+        second = listing.index('  UserInfo{10:')
+        for state in s.USER_STATES:
+            changed = with_states(listing, {0: state, 10: state})
+            self.assertEqual({u.state for u in s.users(0, changed)}, {state})
+        removed = listing.replace('\n\n  Started', '\n\n  Recently removed userIds: [11, 13]\n  Started')
+        self.assertEqual(len(s.users(0, removed)), 2)
+        marked = listing.replace('isPrimary=false', 'isPrimary=false <removing>  <partial>')
+        self.assertEqual([(u.removing, u.partial) for u in s.users(0, marked)], [(False, False), (True, True)])
+        # A listing cut short, or with any line or block of no known form, gives nothing at all.
+        controls = (
+            listing[:listing.index('\nDevice properties:')], listing[:second] + '    Type: x\n',
+            listing.replace('Current user: 0\n', ''), listing.replace('\nUsers:\n', '\nUsers:\n\n', 1),
+            listing.replace('    State: RUNNING_UNLOCKED\n', '    State: RUNNING\n', 1),
+            listing.replace('    State: RUNNING_UNLOCKED\n', '', 1),
+            listing.replace('    State: RUNNING_UNLOCKED\n', '    State: RUNNING_UNLOCKED\n    State: SHUTDOWN\n', 1),
+            listing.replace('    Type: android.os.usertype.full.SECONDARY\n', ''),
+            listing.replace('serialNo=12 ', 'serialNo=0 '), listing.replace('UserInfo{10:', 'UserInfo{0:'),
+            listing.replace('  UserInfo{10:', ' UserInfo{10:'), listing.replace('serialNo=12 ', 'serialNo=x '),
+            listing.replace('isPrimary=false', 'isPrimary=false <unknown>'),
+            listing.replace('    Ignore errors preparing storage: false\n', 'Ignore errors preparing storage: false\n',
+                            1),
+            'Current user: 0\n\nUsers:\n\nDevice properties:\n',
+            # The started users come from the same states, so a disagreement or a missing list refuses.
+            listing.replace('10=RUNNING_UNLOCKED', '10=RUNNING_LOCKED'), listing.replace(', 10=RUNNING_UNLOCKED', ''),
+            listing.replace('10=RUNNING_UNLOCKED]', '10=RUNNING_UNLOCKED, 11=RUNNING_LOCKED]'),
+            listing.replace('0=RUNNING_UNLOCKED, 10', '0=RUNNING_UNLOCKED,10'),
+            listing.replace('0=RUNNING_UNLOCKED, 10=RUNNING_UNLOCKED', '0=RUNNING_UNLOCKED, 0=RUNNING_UNLOCKED'),
+            listing[:listing.index('  Started users state:')],
+            listing.replace('  Guest restrictions:\n', ''), listing.replace('    no_sms\n', 'no_sms\n'),
+            # A state of no known form, even where both places agree.
+            with_states(listing, {0: 'RUNNING', 10: 'RUNNING_UNLOCKED'}))
+        for text in controls:
+            with self.subTest(text=text[-60:]), self.assertRaises(ValueError):
+                s.users(0, text)
+        with self.assertRaises(ValueError):
+            s.users(1, listing)
+        status = form('systemui-status-4721')[1]
+        for text in (status[:-1], status.replace('Pid:\t4721', 'Pid:\t4722'),
+                     status.replace('Uid:\t1010112\t', 'Uid:\t1010113\t'),
+                     status.replace('Uid:\t1010112\t1010112\t1010112\t1010112', 'Uid:\t1010112\t1010112\t1010112'),
+                     status + 'Uid:\t0\t0\t0\t0\n', status + 'Pid:\t4721\n', status.replace('Uid:', 'Uid :'),
+                     status.replace('Pid:\t4721\n', ''), status.replace('Uid:\t1010112', 'Uid:\t-1')):
+            with self.subTest(status=text[-40:]), self.assertRaises(ValueError):
+                s.status_uid(0, text, 4721)
+        for text in ('', '1839 1839\n', '1839  4721\n', '1839\n4721\n', '0839 4721\n', '1839 4721'):
+            with self.subTest(pids=text), self.assertRaises(ValueError):
+                s.pids(0, text)
+        with self.assertRaises(ValueError):
+            s.pids(1, '1839\n')
+
+    def test_a_user_name_may_hold_a_serial_marker(self):
+        # A name is free text. The greedy name leaves the line's own suffix, which the dump prints last.
+        listing = form('users-two')[1]
+        for name in ('x} serialNo=99 isPrimary=true', 'a:b{c}:410} serialNo=1 isPrimary=false', ':', '}'):
+            with self.subTest(name=name):
+                named = listing.replace('UserInfo{10:D5Second:410}', 'UserInfo{10:%s:410}' % name)
+                self.assertEqual([(u.user, u.serial, u.state) for u in s.users(0, named)],
+                                 [(0, 0, 'RUNNING_UNLOCKED'), (10, 12, 'RUNNING_UNLOCKED')])
 
     def test_replies(self):
         self.assertEqual(parse('reply-create-staged'), 2014338406)

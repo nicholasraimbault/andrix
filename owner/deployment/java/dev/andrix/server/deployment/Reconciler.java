@@ -1037,21 +1037,37 @@ public final class Reconciler {
         return result;
     }
 
-    // Judges each user still observed when the window completes. A stale base is never healthy.
+    /**
+     * The plan declares no probe interval. A user is healthy only when full probes leave no part of
+     * the window longer than this share of it unobserved.
+     */
+    static final int WINDOW_PARTS = 4;
+
+    // Judges each user still observed when the window completes. HEALTHY needs the declared
+    // criteria to have held across the whole window for that user: every probe of the user in the
+    // window held every declared criterion, and those probes cover the user's span with no gap
+    // above a quarter of the window. The span runs from the window's start, or from the user's first
+    // observed unlock in the boot when that came later, to the window's declared end. A DEGRADED
+    // probe gives DEGRADED. Any other doubt, a gap, or no probe at all gives INCONCLUSIVE, never a
+    // failure. A stale base is never healthy.
     private static List<Health> judge(Context c, List<Health> outcomes) {
         Plan p = c.plan;
+        long from = c.ticket.windowStart;
+        long end = from + p.healthWindowMillis;
+        long gap = p.healthWindowMillis / WINDOW_PARTS;
         List<Health> result = new ArrayList<>();
         for (Health h : outcomes) {
             if (h.outcome != Outcome.OBSERVING) {
                 result.add(h);
                 continue;
             }
-            boolean held = false, degraded = false, doubt = false;
+            boolean degraded = false, doubt = false;
+            List<Long> held = new ArrayList<>();
             for (Observation o : c.view.of(ObservationKind.HEALTH)) {
-                if (o.user != h.user || o.serial != h.serial || o.elapsed < c.ticket.windowStart) continue;
+                if (o.user != h.user || o.serial != h.serial || o.elapsed < from) continue;
                 switch (o.classification) {
                     case HEALTH_HELD:
-                        if ((o.number & p.criteria) == p.criteria) held = true; else doubt = true;
+                        if ((o.number & p.criteria) == p.criteria) held.add(o.elapsed); else doubt = true;
                         break;
                     case HEALTH_DEGRADED:
                         degraded = true;
@@ -1061,13 +1077,46 @@ public final class Reconciler {
                         break;
                 }
             }
+            // The span starts at the window's start. It starts later only with evidence that the
+            // user was not yet unlocked: a listing of the users after the window began and before
+            // the user's first observed unlock in the boot. The USER reader gives every user or
+            // none, so such a listing shows the user locked, stopped or absent. The span then
+            // starts at the latest such listing. Without one, time before the first observed unlock
+            // was not observed, and the gap leaves the user INCONCLUSIVE.
+            long start = from;
+            long unlocked = firstUnlock(c, h.user, h.serial);
+            if (unlocked > from) {
+                for (Observation o : c.view.of(ObservationKind.USER)) {
+                    if (o.elapsed < unlocked) start = Math.max(start, o.elapsed);
+                }
+            }
             Outcome outcome;
             if (degraded) outcome = Outcome.DEGRADED;
-            else if (held && !doubt && !cohortChanged(c)) outcome = Outcome.HEALTHY;
+            else if (covers(held, start, end, gap) && !doubt && !cohortChanged(c)) outcome = Outcome.HEALTHY;
             else outcome = Outcome.INCONCLUSIVE;
             result.add(new Health(h.user, h.serial, outcome));
         }
         return result;
+    }
+
+    // When a user was first observed unlocked in this boot, or -1.
+    private static long firstUnlock(Context c, int user, long serial) {
+        for (Observation o : c.view.of(ObservationKind.USER)) {
+            if (o.user == user && o.serial == serial && o.classification == Classification.RUNNING_UNLOCKED) {
+                return o.elapsed;
+            }
+        }
+        return -1;
+    }
+
+    // Whether probes at these times, in time order, cover a span with no gap above the bound.
+    private static boolean covers(List<Long> times, long start, long end, long gap) {
+        if (times.isEmpty()) return false;
+        if (times.get(0) - start > gap) return false;
+        for (int i = 1; i < times.size(); i++) {
+            if (times.get(i) - times.get(i - 1) > gap) return false;
+        }
+        return end - times.get(times.size() - 1) <= gap;
     }
 
     private static List<Health> finish(List<Health> outcomes, Outcome open) {
@@ -1116,36 +1165,74 @@ public final class Reconciler {
         return null;
     }
 
-    // Decision 7: other running users get notice and the declared delay first, and cannot block
-    // the change. The holder needs none: the ACTIVATE's actor, or user 0 for the lab operator who
-    // stands in for the owner. Without this boot's user facts the notice is owed.
+    // Decision 7 and the owner's detail of 2026-10-10: other running users get notice and the declared
+    // delay first, and cannot block the change. The notice records a receipt for each user it
+    // reached. The holder needs none: the ACTIVATE's actor, or user 0 for the lab operator who stands
+    // in for the owner. Every other user running in this boot, by its latest USER fact, needs a
+    // receipt in this boot of a NOTICE of this ticket, and the delay runs from the last of those
+    // users' first receipts. Without this boot's user facts the notice is owed and never satisfied.
     private static boolean noticeSatisfied(Context c, Authorization activate) {
+        List<Observation> required = noticeUsers(c, activate);
+        if (required == null) return false;
+        if (required.isEmpty()) return true;
+        long last = -1;
+        boolean delivered = false;
+        for (Observation u : required) {
+            Observation r = firstReceipt(c, u.user, u.serial);
+            if (r == null) return false;
+            last = Math.max(last, r.elapsed);
+            delivered |= r.classification == Classification.RECEIPT_SYSTEMUI;
+        }
+        return c.now.elapsed - last >= noticeDelay(c, delivered);
+    }
+
+    // The other users running in this boot, by the latest USER fact of each user and serial, or null
+    // without any USER fact of this boot.
+    private static List<Observation> noticeUsers(Context c, Authorization activate) {
         List<Observation> users = c.view.of(ObservationKind.USER);
-        boolean others = users.isEmpty();
+        if (users.isEmpty()) return null;
+        List<Observation> latest = new ArrayList<>();
+        for (Observation u : users) { // In time order: a later fact of the same user replaces an earlier one.
+            latest.removeIf(o -> o.user == u.user && o.serial == u.serial);
+            latest.add(u);
+        }
         boolean lab = activate.actorClass == ActorClass.LAB_OPERATOR;
-        for (Observation u : users) {
+        List<Observation> required = new ArrayList<>();
+        for (Observation u : latest) {
             boolean running = u.classification == Classification.RUNNING_UNLOCKED
                     || u.classification == Classification.RUNNING_LOCKED;
             boolean holder = lab ? u.user == 0 : u.user == activate.actorUser && u.serial == activate.actorSerial;
-            if (running && !holder) others = true;
+            if (running && !holder) required.add(u);
         }
-        if (!others) return true;
-        Entry given = null;
-        for (Entry e : c.ticket.ledger) {
-            if (e.crossing == Crossing.NOTICE && e.boot.equals(c.now.boot)) given = e;
+        return required;
+    }
+
+    // A user's first receipt in this boot of a NOTICE that this ticket gave in this boot, or null.
+    private static Observation firstReceipt(Context c, int user, long serial) {
+        Observation first = null;
+        for (Observation r : c.view.of(ObservationKind.RECEIPT)) {
+            if (r.user != user || r.serial != serial || !givenNow(c, r)) continue;
+            if (first == null || r.elapsed < first.elapsed) first = r;
         }
-        return given != null && c.now.elapsed - given.elapsed >= noticeDelay(c, given);
+        return first;
+    }
+
+    // Whether a receipt records a NOTICE of this ticket given in this boot.
+    private static boolean givenNow(Context c, Observation receipt) {
+        Ticket t = c.ticket;
+        if (!receipt.subject.equals(t.ticketId) || receipt.sequence >= t.ledger.size()) return false;
+        Entry e = t.ledger.get(receipt.sequence);
+        return e.crossing == Crossing.NOTICE && e.boot.equals(c.view.boot);
     }
 
     // Decision 7: only a restoration approved in advance may wait the shorter emergency delay, only
-    // under an explicit EMERGENCY_NOTICE policy, and only when its notice could not be delivered.
-    private static long noticeDelay(Context c, Entry notice) {
+    // under an explicit EMERGENCY_NOTICE policy, and only when SystemUI could not deliver the notice:
+    // no required receipt came through SystemUI, so each is Andrix's own full screen notice.
+    private static long noticeDelay(Context c, boolean delivered) {
         Plan p = c.plan;
         if (p.emergencyNoticeMillis >= p.noticeDelayMillis) return p.noticeDelayMillis;
         boolean policy = false;
         for (Authorization a : c.authorizations) policy |= a.effect == Effect.EMERGENCY_NOTICE;
-        Observation reply = c.view.reply(c.ticket.ticketId, c.ticket.indexOf(notice));
-        boolean delivered = reply != null && reply.classification == Classification.REPLY_SUCCESS;
         boolean approved = approvedRestoration(c);
         return policy && approved && !delivered ? p.emergencyNoticeMillis : p.noticeDelayMillis;
     }
@@ -1170,23 +1257,58 @@ public final class Reconciler {
         return false;
     }
 
-    // Gives the notice once per boot, or waits for its delay. The wait is bounded by the
-    // ACTIVATE's expiry.
+    // Gives the notice, or waits for its receipts and its delay. A NOTICE is safe to repeat, so it is
+    // given again when this boot's latest one shows no effect: no reply accepted it and no receipt
+    // records it, as after a loss before its effect or a refusal. A required user without a receipt
+    // gets it again too, at once when the user was not seen running when the latest notice was
+    // given, and otherwise once one declared delay has passed since then. Each boot allows the
+    // request limit plus one NOTICE entries, so repeats in one boot never cost a later boot its
+    // notice, and the ledger's bound holds across boots. The ACTIVATE's expiry bounds every wait.
     private static Step notice(Context c, Ticket.Builder b, Authorization activate, String why) {
         Ticket t = c.ticket;
         Plan p = c.plan;
-        for (Entry e : t.ledger) {
-            if (e.crossing == Crossing.NOTICE && e.boot.equals(c.now.boot)) {
-                return done(c, b, null, null, "notice delay");
-            }
+        int latest = -1;
+        for (int i = 0; i < t.ledger.size(); i++) {
+            Entry e = t.ledger.get(i);
+            if (e.crossing == Crossing.NOTICE && e.boot.equals(c.now.boot)) latest = i;
         }
-        if (t.count(Crossing.NOTICE) >= Math.min(p.requestLimit + 1, Crossing.NOTICE.bound)) {
+        if (latest >= 0 && !noticeAgain(c, activate, latest)) return done(c, b, null, null, "notice delay");
+        int inBoot = 0;
+        for (Entry e : t.ledger) if (e.crossing == Crossing.NOTICE && e.boot.equals(c.now.boot)) ++inBoot;
+        if (inBoot >= p.requestLimit + 1 || t.count(Crossing.NOTICE) >= Crossing.NOTICE.bound) {
             if (created(t)) return abandon(c, b, "notice limit");
             b.set(FLAG_REQUEST_LIMIT);
             return done(c, b, null, null, "notice limit: holding and alerting");
         }
         return issue(c, b, t.state, entry(c, Crossing.NOTICE, activate.authorizationId, NO_ID),
-                why == null ? "notice before the session" : "notice");
+                why == null ? "notice before the session" : latest >= 0 ? "notice again" : "notice");
+    }
+
+    // Whether this boot's latest notice, at a ledger index, is owed again.
+    private static boolean noticeAgain(Context c, Authorization activate, int latest) {
+        Ticket t = c.ticket;
+        Observation reply = c.view.reply(t.ticketId, latest);
+        boolean accepted = reply != null && reply.classification == Classification.REPLY_SUCCESS;
+        boolean recorded = false;
+        for (Observation r : c.view.of(ObservationKind.RECEIPT)) {
+            recorded |= r.subject.equals(t.ticketId) && r.sequence == latest;
+        }
+        if (!accepted && !recorded) return true;
+        List<Observation> required = noticeUsers(c, activate);
+        if (required == null) return false;
+        long given = t.ledger.get(latest).elapsed;
+        boolean waited = c.now.elapsed - given >= c.plan.noticeDelayMillis;
+        for (Observation u : required) {
+            if (firstReceipt(c, u.user, u.serial) != null) continue;
+            boolean seen = false;
+            for (Observation o : c.view.of(ObservationKind.USER)) {
+                seen |= o.user == u.user && o.serial == u.serial && o.elapsed <= given
+                        && (o.classification == Classification.RUNNING_UNLOCKED
+                        || o.classification == Classification.RUNNING_LOCKED);
+            }
+            if (!seen || waited) return true;
+        }
+        return false;
     }
 
     // ---------------------------------------------------------- observations

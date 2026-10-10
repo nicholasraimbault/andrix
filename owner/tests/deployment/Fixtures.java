@@ -125,6 +125,9 @@ final class Fixtures {
             case HEALTH:
                 b.component(COMPONENT).user(0, 0).number(DeploymentRecords.Criterion.ALL);
                 break;
+            case RECEIPT:
+                b.component(COMPONENT).user(0, 0).receipt(id(0x401), 0);
+                break;
             case SIGNER:
                 b.component(COMPONENT).route(Route.HOST).boot(DeploymentRecords.NO_ID).at(-1, 0, TIME);
                 break;

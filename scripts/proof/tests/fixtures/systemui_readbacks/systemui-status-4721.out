@@ -1,0 +1,23 @@
+Name:	ndroid.systemui
+Umask:	0077
+State:	S (sleeping)
+Tgid:	4721
+Ngid:	0
+Pid:	4721
+PPid:	312
+TracerPid:	0
+Uid:	1010112	1010112	1010112	1010112
+Gid:	1010112	1010112	1010112	1010112
+FDSize:	512
+Groups:	1065 3002 3003 9997 1050112
+VmPeak:	17284004 kB
+VmRSS:	  214332 kB
+Threads:	67
+SigQ:	0/31189
+CapEff:	0000000000000000
+Seccomp:	2
+Seccomp_filters:	1
+Speculation_Store_Bypass:	thread vulnerable
+Cpus_allowed_list:	0-3
+voluntary_ctxt_switches:	5113
+nonvoluntary_ctxt_switches:	2208

@@ -114,7 +114,7 @@ OUTCOMES = {'OBSERVING': 0, 'HEALTHY': 1, 'DEGRADED': 2, 'UNHEALTHY': 3, 'INCONC
 CROSSINGS = {'SIGN': (1, 2), 'PUBLISH': (2, 2), 'CREATE': (3, 1), 'WRITE': (4, 1), 'COMMIT': (5, 1),
              'ABANDON': (6, 16), 'REBOOT': (7, 16), 'NOTICE': (8, 17), 'HANDOVER': (9, 4)}
 KINDS = {'BOOT': 1, 'CHECKPOINT': 2, 'FACTORY': 3, 'ACTIVE': 4, 'LISTING': 5, 'SESSION': 6, 'REPLY': 7, 'USER': 8,
-         'HEALTH': 9, 'SIGNER': 10, 'BUNDLE': 11}
+         'HEALTH': 9, 'SIGNER': 10, 'BUNDLE': 11, 'RECEIPT': 12}
 ROUTES = {'SHELL': 1, 'DEVICE': 2, 'HOST': 3}
 CLASSIFICATIONS = {
     'BOOT': ('BOOTING', 'COMPLETED'), 'CHECKPOINT': ('PENDING', 'COMMITTED'), 'FACTORY': ('PRESENT',),
@@ -123,7 +123,8 @@ CLASSIFICATIONS = {
     'REPLY': ('SUCCESS', 'REFUSED', 'READY', 'ACCEPTED', 'PENDING', 'UNRECOGNIZED'),
     'USER': ('RUNNING_UNLOCKED', 'RUNNING_LOCKED', 'NOT_RUNNING', 'REMOVED'),
     'HEALTH': ('HELD', 'DEGRADED', 'CRASH', 'INCONCLUSIVE'),
-    'SIGNER': ('PENDING', 'COMPLETED', 'REFUSED', 'CANNOT_COMPLETE'), 'BUNDLE': ('PUBLISHED', 'ABSENT', 'MISMATCH')}
+    'SIGNER': ('PENDING', 'COMPLETED', 'REFUSED', 'CANNOT_COMPLETE'), 'BUNDLE': ('PUBLISHED', 'ABSENT', 'MISMATCH'),
+    'RECEIPT': ('SYSTEMUI', 'FULL_SCREEN')}
 CHOICES = {'FACTORY': 1, 'PLAN': 2}
 RESPONSIBILITIES = {'REBUILD_WINDOW': 1, 'KEEP_STALE': 2}
 REALIZATIONS = {'UNCHECKED': 1, 'CURRENT': 2, 'STALE_BASE': 3, 'DISPLACED': 4, 'DIVERGED': 5, 'TEMPORARY_FACTORY': 6}
@@ -230,6 +231,8 @@ def observation(o):
     elif kind == 'BUNDLE':
         body += raw(facts['attempt'], 16) + raw(facts['plan'], 16) + raw(facts['publication'], 32)
         body += raw(facts['bundleApk'], 32) + raw(facts['restorationApk'], 32)
+    elif kind == 'RECEIPT':
+        body += raw(facts['ticket'], 16) + struct.pack('<H', facts['index'])
     return record('observation', body)
 
 
@@ -325,11 +328,11 @@ def fact(n, boot, kind, classification, elapsed, **changes):
     o = {'installation': INSTALLATION, 'observation': ident(0x500 + n), 'component': '', 'boot': boot,
          'user': NO_USER, 'serial': NO_SERIAL, 'kind': kind, 'route': 'SHELL', 'instance': -1, 'elapsed': elapsed,
          'wall': TIME + elapsed, 'raw': digest(0x99), 'classification': classification}
-    if kind in ('FACTORY', 'ACTIVE', 'LISTING', 'SESSION', 'REPLY', 'HEALTH', 'SIGNER', 'BUNDLE'):
+    if kind in ('FACTORY', 'ACTIVE', 'LISTING', 'SESSION', 'REPLY', 'HEALTH', 'SIGNER', 'BUNDLE', 'RECEIPT'):
         o['component'] = COMPONENT
     if kind in ('LISTING', 'SESSION', 'REPLY'):
         o['instance'] = 1
-    if kind in ('USER', 'HEALTH'):
+    if kind in ('USER', 'HEALTH', 'RECEIPT'):
         o['user'], o['serial'] = 0, 0
     if kind in ('SIGNER', 'BUNDLE'):
         o.update(route='HOST', boot=ZERO_ID, instance=-1, elapsed=0, wall=TIME)
@@ -445,6 +448,8 @@ def goldens():
         'OBS_BUNDLE': observation(fact(8, ZERO_ID, 'BUNDLE', 'PUBLISHED', 0, facts={
             'attempt': ident(0x9b01), 'plan': ident(0x101), 'publication': digest(0xd7), 'bundleApk': digest(0xa1),
             'restorationApk': digest(0xa2)})),
+        'OBS_RECEIPT': observation(fact(9, boot1, 'RECEIPT', 'FULL_SCREEN', 2400, user=10, serial=12,
+                                        facts={'ticket': ident(0x402), 'index': 7})),
         'SELECTION_FACTORY': selection({'installation': INSTALLATION, 'component': COMPONENT, 'revision': 0,
                                         'choice': 'FACTORY', 'plan': ZERO_ID, 'responsibility': 'REBUILD_WINDOW',
                                         'rebuildWindow': WINDOW, 'realization': 'UNCHECKED', 'checkedBoot': ZERO_ID,
@@ -505,7 +510,8 @@ GOLDEN_NAMES = ('PLAN_LATE_ONE', 'PLAN_EARLY_TWO', 'PLAN_FACTORY', 'PLAN_TEMPORA
                 'AUTH_EMERGENCY',
                 'TICKET_PLANNED', 'TICKET_UNRESOLVED', 'TICKET_WINDOW', 'TICKET_SUPERSEDED', 'TICKET_MAXIMUM',
                 'OBS_BOOT', 'OBS_ACTIVE', 'OBS_LISTING', 'OBS_SESSION_SHELL', 'OBS_REPLY_DEVICE', 'OBS_HEALTH',
-                'OBS_SIGNER', 'OBS_BUNDLE', 'SELECTION_FACTORY', 'SELECTION_STALE', 'SELECTION_TEMPORARY')
+                'OBS_SIGNER', 'OBS_BUNDLE', 'OBS_RECEIPT', 'SELECTION_FACTORY', 'SELECTION_STALE',
+                'SELECTION_TEMPORARY')
 
 # The README's statements this encoder relies on: the frame, the bounds and the crossing bounds.
 README_FACTS = (
@@ -516,6 +522,8 @@ README_FACTS = (
     '4 WRITE (1), 5 COMMIT (1), 6 ABANDON (16), 7 REBOOT (16), 8 NOTICE (17) and 9 HANDOVER (4).',
     '| 11 BUNDLE | component | id attempt, id plan, d32 publication, d32 bundleApk, d32 restorationApk '
     '| 1 PUBLISHED, 2 ABSENT, 3 MISMATCH |',
+    '| 12 RECEIPT | component and user | id ticket, u16 ledger index of the NOTICE it records '
+    '| 1 SYSTEMUI, 2 FULL_SCREEN |',
     'i32   user                  >= 0, or -10000 (USER_NULL) for no user          prefix',
     'They use the frame above with types 6, 7 and 8, version 1, and at most 4,096 bytes.',
     'u8    schemes               bit 0 v2, 1 v3, 2 v4: exactly 7                         strict',
@@ -602,6 +610,10 @@ MACHINE_NAMES = (
     'ready again / other running users get notice and a declared delay',
     'notice / a restoration shortens notice only under an emergency policy',
     'notice / a rebuilt variant, an unlisted repair or a temporary factory plan never shortens notice',
+    'notice / the reboot waits for a receipt from every other running user and the delay from the last',
+    'notice / a notice that shows no effect is given again, and one that took effect is not',
+    'notice / a user still without a receipt after one declared delay gets the notice again',
+    'notice / each boot has its own notice budget',
     'checkpoint / no crossing and no close before the commit',
     'checkpoint / APPLIED only once the checkpoint is observed committed',
     "applied / the bundle's bytes are the APK that its publication bound",
@@ -629,6 +641,8 @@ MACHINE_NAMES = (
     'health / an unavailable observation is inconclusive, never unhealthy',
     'restoration / automatic restoration runs only when the approval listed it',
     'health / probes that miss a declared criterion are inconclusive',
+    'health / the criteria must hold across the whole window',
+    'health / time before a late first unlock counts only after a listing showed the user not unlocked',
     'selection / the choice moves at APPLIED and only then',
     'selection / a move lost between two writes is made at APPLIED or in the health window',
     'selection / an owed move in a step that closes DIVERGED takes the realization from its facts',
@@ -696,6 +710,10 @@ TRANSACTION_NAMES = (
     'decision 3 / automatic restoration takes over at the boot limit',
     'decision 6 / a temporary factory copy keeps the choice until the rebuild lands',
     'decision 7 / other running users get notice and a declared delay before the reboot',
+    'decision 7 / a notice lost before its effect is given again, and the reboot waits for its receipts',
+    'cohort / a check with no ticket open realizes each new boot',
+    "cohort / a closed ticket's round sets no DIVERGED while another bundle is active before APPLIED",
+    "lab / a driver's points act between the two writes, on the shell route only",
     *('faults / sweep at every crossing on the %s route, %s commit' % (route, mode) for route in ('shell', 'device')
       for mode in ('late', 'early')),
     'faults / world events at every round',
@@ -802,6 +820,8 @@ _VERIFY_EACH = ('                String reason = verifier.verify(b);\n'
 _OBSERVATION_END = ('            case BUNDLE:\n                b.subject = in.id();\n                b.plan = in.id();\n'
                     '                b.digest = in.digest();\n                b.bundleApk = in.digest();\n'
                     '                b.restorationApk = in.digest();\n'
+                    '                break;\n            case RECEIPT:\n                b.subject = in.id();\n'
+                    '                b.sequence = in.u16();\n'
                     '                break;\n            default:\n                break;\n        }\n        in.finish();\n')
 _PUBLISH_READ = ('        if (c.view.publication(last.reference, c.plan.planId) != Classification.BUNDLE_ABSENT) '
                  'return null;\n')
@@ -938,7 +958,7 @@ MUTANTS = {
         '            } else if (o.classification == Classification.HEALTH_CRASH\n'
         '                    || o.classification == Classification.HEALTH_INCONCLUSIVE) {\n'),),
         ('machine', 'transactions')),
-    'notice-ignores-other-users': (((RECONCILER, '            if (running && !holder) others = true;\n', ''),),
+    'notice-ignores-other-users': (((RECONCILER, '            if (running && !holder) required.add(u);\n', ''),),
                                    ('machine', 'transactions')),
     'emergency-notice-without-policy': (((RECONCILER,
         '        return policy && approved && !delivered ? p.emergencyNoticeMillis : p.noticeDelayMillis;\n',
@@ -1196,6 +1216,53 @@ MUTANTS = {
         "                return Finish.UNAVAILABLE; // Only a check that fails is final, never the verifier's I/O "
         "error.\n",
         '                return Finish.FAILED;\n'),), ('signing',)),
+    # Decision 7's receipts: every other running user's receipt, the delay from the last one, and a
+    # notice that shows no effect given again. Only SystemUI's failure to deliver shortens the delay.
+    'notice-without-receipts': (((RECONCILER, '            if (r == null) return false;\n',
+                                  '            if (r == null) continue;\n'),), ('machine',)),
+    'notice-delay-from-first-receipt': (((RECONCILER, '            last = Math.max(last, r.elapsed);\n',
+                                          '            last = last < 0 ? r.elapsed : Math.min(last, r.elapsed);\n'),),
+                                        ('machine',)),
+    'notice-never-given-again': (((RECONCILER, '        if (!accepted && !recorded) return true;\n',
+                                   '        if (!accepted && !recorded) return false;\n'),),
+                                 ('machine', 'transactions')),
+    'notice-newcomer-ignored': (((RECONCILER, '            if (!seen || waited) return true;\n',
+                                  '            if (waited) return true;\n'),), ('machine',)),
+    'notice-missed-user-never-again': (((RECONCILER, '            if (!seen || waited) return true;\n',
+                                         '            if (!seen) return true;\n'),), ('machine',)),
+    'notice-budget-across-boots': (((RECONCILER,
+        '        if (inBoot >= p.requestLimit + 1 || t.count(Crossing.NOTICE) >= Crossing.NOTICE.bound) {\n',
+        '        if (t.count(Crossing.NOTICE) >= Math.min(p.requestLimit + 1, Crossing.NOTICE.bound)) {\n'),),
+        ('machine',)),
+    'emergency-notice-after-systemui-delivery': (((RECONCILER,
+        '            delivered |= r.classification == Classification.RECEIPT_SYSTEMUI;\n', ''),), ('machine',)),
+    # Health across the whole window: full probes that cover the user's span.
+    'health-one-probe-suffices': (((RECONCILER,
+        '            else if (covers(held, start, end, gap) && !doubt && !cohortChanged(c)) '
+        'outcome = Outcome.HEALTHY;\n',
+        '            else if (!held.isEmpty() && !doubt && !cohortChanged(c)) outcome = Outcome.HEALTHY;\n'),),
+        ('machine',)),
+    'health-start-uncovered': (((RECONCILER, '        if (times.get(0) - start > gap) return false;\n', ''),),
+                               ('machine',)),
+    'health-gap-inside-ignored': (((RECONCILER,
+        '            if (times.get(i) - times.get(i - 1) > gap) return false;\n', ''),), ('machine',)),
+    'health-end-uncovered': (((RECONCILER, '        return end - times.get(times.size() - 1) <= gap;\n',
+                               '        return true;\n'),), ('machine',)),
+    'health-new-user-from-window-start': (((RECONCILER,
+        '                    if (o.elapsed < unlocked) start = Math.max(start, o.elapsed);\n', ''),), ('machine',)),
+    'health-span-without-evidence': (((RECONCILER,
+        '                    if (o.elapsed < unlocked) start = Math.max(start, o.elapsed);\n',
+        '                    start = unlocked;\n'),), ('machine',)),
+    # The cohort check: its own entry point, and the component's open ticket read from the store.
+    'selection-without-open-ticket': (((COORDINATOR,
+        '            if (t.component.equals(component) && !t.state.terminal()) open = t;\n', ''),), ('transactions',)),
+    'cohort-check-reads-nothing': (((COORDINATOR, '        record(device.observe(component));\n', ''),),
+                                   ('transactions',)),
+    # The lab hook acts on the lab shell route only.
+    'lab-points-on-device-route': (((COORDINATOR, '        if (!labRoute) return false;\n', ''),),
+                                   ('transactions',)),
+    'lab-route-read-at-install': (((COORDINATOR, '        if (!labRoute) return false;\n',
+                                    '        if (device.route() != Route.SHELL) return false;\n'),), ('transactions',)),
     # When the verifier throws, its sidecar copy is read again: unreadable or changed is an I/O
     # failure, the same bytes a check that fails.
     'verifier-sidecar-not-read-again': (((HOST_SIGNER,
@@ -1275,6 +1342,15 @@ REQUIRED_DEFECTS = {
     "a disk error under the verifier's own read of the sidecar read as a check that fails": (
         'verifier-sidecar-not-read-again',),
     'a malformed sidecar read as an I/O failure, so the ticket waits forever': ('verifier-check-failure-read-as-io',),
+    'a notice counted before it was delivered': ('notice-without-receipts', 'notice-never-given-again'),
+    'health judged from probes that leave part of the window unobserved': ('health-one-probe-suffices',
+                                                                           'health-gap-inside-ignored'),
+    "a cohort check that protects only the ticket being rounded": ('selection-without-open-ticket',),
+    'a lab hook that the device route accepts': ('lab-points-on-device-route', 'lab-route-read-at-install'),
+    'a span that starts at a late unlock without a listing that showed the user not unlocked': (
+        'health-span-without-evidence',),
+    'a notice that misses a running user and is never given again': ('notice-missed-user-never-again',),
+    "repeats in one boot that cost a later boot its notice": ('notice-budget-across-boots',),
 }
 
 

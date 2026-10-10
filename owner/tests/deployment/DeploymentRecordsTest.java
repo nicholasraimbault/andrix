@@ -108,6 +108,8 @@ public final class DeploymentRecordsTest {
     private static final String GOLDEN_OBS_SIGNER_SHA256 = "7b6e0563786f4ee0de90009a1c93ab80c625b08ba887c99bcd29a254f7d4e857";
     private static final int GOLDEN_OBS_BUNDLE_BYTES = 313;
     private static final String GOLDEN_OBS_BUNDLE_SHA256 = "e1c772d949efa5177d243daac91836b2e6dec7ec3928cee96339e7b3acaf5ab6";
+    private static final int GOLDEN_OBS_RECEIPT_BYTES = 203;
+    private static final String GOLDEN_OBS_RECEIPT_SHA256 = "4104f9041961055fd7cc0ed69de237a6eaf6425d429ed6189250bf77921b592d";
     private static final int GOLDEN_SELECTION_FACTORY_BYTES = 173;
     private static final String GOLDEN_SELECTION_FACTORY_SHA256 = "4995f27093bbd21aad786b99f73a32db49f0a3f145ea2cbb22aeb5f06f96c13a";
     private static final int GOLDEN_SELECTION_STALE_BYTES = 173;
@@ -134,7 +136,7 @@ public final class DeploymentRecordsTest {
             "PLAN_TEMPORARY", "AUTH_SIGN", "AUTH_ACTIVATE_LAB", "AUTH_EMERGENCY", "TICKET_PLANNED",
             "TICKET_UNRESOLVED", "TICKET_WINDOW", "TICKET_SUPERSEDED", "TICKET_MAXIMUM", "OBS_BOOT", "OBS_ACTIVE",
             "OBS_LISTING", "OBS_SESSION_SHELL", "OBS_REPLY_DEVICE", "OBS_HEALTH", "OBS_SIGNER", "OBS_BUNDLE",
-            "SELECTION_FACTORY", "SELECTION_STALE", "SELECTION_TEMPORARY");
+            "OBS_RECEIPT", "SELECTION_FACTORY", "SELECTION_STALE", "SELECTION_TEMPORARY");
 
     // ------------------------------------------------------------------ golden values
 
@@ -294,6 +296,12 @@ public final class DeploymentRecordsTest {
                 .digest(digest(0xd7)).apks(digest(0xa1), digest(0xa2)).build();
     }
 
+    // User 10's receipt of the NOTICE at index 7 of ticket 0x402, from Andrix's own full screen notice.
+    static Observation obsReceipt() {
+        return Fixtures.fact(9, id(0xb0071), Classification.RECEIPT_FULL_SCREEN, 2400).user(10, 12)
+                .receipt(id(0x402), 7).build();
+    }
+
     static Selection selectionFactory() {
         return new Selection(INSTALLATION, COMPONENT, 0, ChoiceKind.FACTORY, NO_ID, UpdateResponsibility.REBUILD_WINDOW,
                 Fixtures.WINDOW, Realization.UNCHECKED, NO_ID, NO_ID, NO_ID, TIME);
@@ -335,6 +343,7 @@ public final class DeploymentRecordsTest {
         make.put("OBS_HEALTH", () -> DeploymentRecords.encodeObservation(obsHealth()));
         make.put("OBS_SIGNER", () -> DeploymentRecords.encodeObservation(obsSigner()));
         make.put("OBS_BUNDLE", () -> DeploymentRecords.encodeObservation(obsBundle()));
+        make.put("OBS_RECEIPT", () -> DeploymentRecords.encodeObservation(obsReceipt()));
         make.put("SELECTION_FACTORY", () -> DeploymentRecords.encodeSelection(selectionFactory()));
         make.put("SELECTION_STALE", () -> DeploymentRecords.encodeSelection(selectionStale()));
         make.put("SELECTION_TEMPORARY", () -> DeploymentRecords.encodeSelection(selectionTemporary()));
@@ -371,6 +380,7 @@ public final class DeploymentRecordsTest {
         PINS.put("OBS_HEALTH", new Object[] {GOLDEN_OBS_HEALTH_BYTES, GOLDEN_OBS_HEALTH_SHA256});
         PINS.put("OBS_SIGNER", new Object[] {GOLDEN_OBS_SIGNER_BYTES, GOLDEN_OBS_SIGNER_SHA256});
         PINS.put("OBS_BUNDLE", new Object[] {GOLDEN_OBS_BUNDLE_BYTES, GOLDEN_OBS_BUNDLE_SHA256});
+        PINS.put("OBS_RECEIPT", new Object[] {GOLDEN_OBS_RECEIPT_BYTES, GOLDEN_OBS_RECEIPT_SHA256});
         PINS.put("SELECTION_FACTORY", new Object[] {GOLDEN_SELECTION_FACTORY_BYTES, GOLDEN_SELECTION_FACTORY_SHA256});
         PINS.put("SELECTION_STALE", new Object[] {GOLDEN_SELECTION_STALE_BYTES, GOLDEN_SELECTION_STALE_SHA256});
         PINS.put("SELECTION_TEMPORARY", new Object[] {GOLDEN_SELECTION_TEMPORARY_BYTES,
@@ -899,6 +909,18 @@ public final class DeploymentRecordsTest {
                     .reply(id(4), 1, Crossing.CREATE).build()), "create reply without its session");
             check(problems, refusedValue(() -> Fixtures.fact(1, id(9), Classification.REPLY_SUCCESS, 0)
                     .reply(id(4), DeploymentRecords.MAX_LEDGER, Crossing.WRITE).build()), "sequence beyond the ledger");
+            check(problems, refusedValue(() -> Fixtures.fact(1, id(9), Classification.RECEIPT_SYSTEMUI, 0)
+                    .user(DeploymentRecords.NO_USER, -1).build()), "receipt without its user");
+            check(problems, refusedValue(() -> Fixtures.fact(1, id(9), Classification.RECEIPT_SYSTEMUI, 0)
+                    .receipt(NO_ID, 1).build()), "receipt without its ticket");
+            check(problems, refusedValue(() -> Fixtures.fact(1, id(9), Classification.RECEIPT_SYSTEMUI, 0)
+                    .receipt(id(4), DeploymentRecords.MAX_LEDGER).build()), "receipt beyond the ledger");
+            check(problems, refusedValue(() -> Fixtures.fact(1, id(9), Classification.RECEIPT_FULL_SCREEN, 0)
+                    .reply(id(4), 1, Crossing.NOTICE).build()), "receipt with a crossing");
+            check(problems, refusedValue(() -> Fixtures.fact(1, id(9), Classification.RECEIPT_FULL_SCREEN, 0)
+                    .component("").build()), "receipt without its component");
+            check(problems, refusedValue(() -> Fixtures.fact(1, NO_ID, Classification.RECEIPT_SYSTEMUI, 0)
+                    .route(Route.HOST).at(-1, 0, 0).build()), "receipt read on the host");
             check(problems, refusedValue(() -> Fixtures.fact(1, NO_ID, Classification.SIGN_COMPLETED, 0).build()),
                     "signer without its request");
             check(problems, refusedValue(() -> Fixtures.fact(1, NO_ID, Classification.SIGN_COMPLETED, 0)

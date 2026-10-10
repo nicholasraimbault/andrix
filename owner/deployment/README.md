@@ -232,11 +232,16 @@ u8    classification        by kind, see below                                  
 | 9 HEALTH | component and user | u16 criteria covered, nonzero, bits 0..6 | 1 HELD, 2 DEGRADED, 3 CRASH, 4 INCONCLUSIVE |
 | 10 SIGNER | component | id request | 1 PENDING, 2 COMPLETED, 3 REFUSED, 4 CANNOT_COMPLETE |
 | 11 BUNDLE | component | id attempt, id plan, d32 publication, d32 bundleApk, d32 restorationApk | 1 PUBLISHED, 2 ABSENT, 3 MISMATCH |
+| 12 RECEIPT | component and user | id ticket, u16 ledger index of the NOTICE it records | 1 SYSTEMUI, 2 FULL_SCREEN |
 
 The observation's relations:
 
 - The device scope has an empty component and no user. The component scope has a component and
-  no user. The user scope has a user and an empty component. HEALTH has both.
+  no user. The user scope has a user and an empty component. HEALTH and RECEIPT have both.
+- A RECEIPT records that one user was shown one NOTICE: the ticket and the ledger index of that
+  NOTICE, nonzero and below 60. SYSTEMUI means SystemUI delivered it. FULL_SCREEN means SystemUI
+  could not, and Andrix's own app showed a full screen notice instead, as the owner settled on
+  2026-10-10. It carries no crossing and no reference.
 - SIGNER and BUNDLE may be read on the HOST route, and only they. With a zero boot they need
   instance -1 and elapsed 0.
 - A BUNDLE fact is the artifact store's read of the publication record of the plan it names in
@@ -335,8 +340,10 @@ issues the crossing and records the reply as an observation. A lost reply record
   time limit. The proofs of absence are a complete listing in a later framework instance with no
   staged session for the package, on the device route a complete listing in a later instance whose
   sessions all carry a nonce and none the ticket's, and the signer's proof that a request can no
-  longer complete. The only repeated crossings are the reboot request after its time limit and the
-  abandon whose session a later framework instance still shows live.
+  longer complete. The only repeated crossings that need such evidence are the reboot request after
+  its time limit and the abandon whose session a later framework instance still shows live. NOTICE
+  is safe to repeat, so it needs none: it repeats while a required user has no receipt, as the
+  notice rule below says. The plan names this exception explicitly.
 - **Publication.** SIGNED issues PUBLISH with a fresh attempt ID as the entry's reference. The
   ticket moves to PUBLISHED once a BUNDLE fact naming the plan and a PUBLISH attempt of any of the
   plan's tickets reads the plan's publication PUBLISHED, and no attempt read MISMATCH. A plan has
@@ -393,11 +400,20 @@ issues the crossing and records the reply as an observation. A lost reply record
   boot, or the time limit in the current boot, shows. A request that took effect is not counted,
   so a READY_AGAIN holding an unused, unexpired ACTIVATE requests its reboot. The ledger holds at
   most 16 REBOOT entries, and a ticket whose ledger is full abandons instead of requesting again.
-- **Notice.** Other running users get one notice in each boot, at most the request limit plus one
-  in all, and the plan's declared delay, and cannot block the change. The holder needs none: the
-  ACTIVATE's actor, or user 0 for the lab operator who stands in for the owner. Without user facts
-  for the boot the notice is owed. A restoration approved in advance waits only its shorter
-  emergency delay, and only under an EMERGENCY_NOTICE grant when its notice was not delivered.
+- **Notice.** Other running users get notice and the plan's declared delay, and cannot block the
+  change. The holder needs none: the ACTIVATE's actor, or user 0 for the lab operator who stands in
+  for the owner. A notice counts only once delivered. Each other user running in the boot, by its
+  latest USER fact, needs a RECEIPT in that boot of a NOTICE of the ticket, and the delay runs from
+  the last of those users' first receipts. Without user facts for the boot the notice is owed and
+  never satisfied. A NOTICE is safe to repeat, so the ticket gives it again when the boot's latest
+  NOTICE shows no effect, meaning no SUCCESS reply and no receipt, as after a loss before its effect
+  or a refusal. A required user still without a receipt gets it again too: at once when the user
+  was not seen running when the latest NOTICE was given, and otherwise once one declared delay has
+  passed since then. Each boot allows the request limit plus one NOTICE entries, so repeats in one
+  boot never cost a later boot its notice, and the ledger holds at most 17 in all. At the budget a
+  ticket with a session abandons it, and one without holds with the REQUEST_LIMIT alert. A restoration
+  approved in advance waits only its shorter emergency delay, and only under an EMERGENCY_NOTICE
+  grant when SystemUI could not deliver the notice: no required receipt is SYSTEMUI.
   Such a restoration is a VARIANT plan whose repaired plan names it as its `restorationPlan`, whose
   bundle input and versionCode are that plan's restoration, and whose publication binds the APK
   that the repaired plan's publication bound to its restoration role. The coordinator reads the
@@ -431,8 +447,17 @@ issues the crossing and records the reply as an observation. A lost reply record
   change of revision and voids nothing.
 - **Health.** The window starts at APPLIED and restarts after each reboot. Users are bound by
   serial. A crash makes a user UNHEALTHY at once, a removal REMOVED, and a user first seen during
-  the window gets its own outcome. At the window's end a user is HEALTHY only when every probe held
-  with the plan's criteria and the cohort is the plan's. An image change ends the window with the
+  the window gets its own outcome. At the window's end a user is HEALTHY only when the plan's
+  criteria held across the whole window for that user: every probe of the user in the window held
+  every declared criterion, and those probes cover the user's span with no gap above a quarter of
+  the window. The span ends at the window's declared end. It starts at the window's start, unless a
+  listing of the users in the same boot, after the window began and before the user's first
+  observed unlock, shows the user locked, stopped or absent. The span then starts at the latest such
+  listing. The USER reader gives every user or none, which is what lets a listing show absence.
+  Without that evidence, time before the first observed unlock was not observed, and the user ends
+  INCONCLUSIVE. The cohort must also be the plan's. A DEGRADED probe gives DEGRADED, and any other
+  doubt, a gap or missing evidence gives INCONCLUSIVE. The plan record carries no probe interval,
+  so the quarter is version 1's rule. An image change ends the window with the
   outcomes so far, so a stale base is never healthy. An unavailable health observation never
   counts as a failure: it leaves the user observed, and a user without held probes ends
   INCONCLUSIVE. On a failure the window supersedes to the plan's `restorationPlan` only under
@@ -460,8 +485,10 @@ factory copy is active, with no crossing.
 records each observation, runs the cohort check, steps, writes and syncs the step's selection and
 then the stepped ticket, and only then issues the step's crossing. The selection goes first, so a
 coordinator lost between the two writes leaves the choice moved and the ticket one step behind,
-and the next step reads that move as the plan's own. A host fault point sits between the two
-writes. A fact identical to the latest recorded fact about the same thing, in the same boot and
+and the next step reads that move as the plan's own. A fault point sits between the two writes.
+Host tests reach it inside the package. A lab driver outside it installs its own points through
+`labPoints`, which only a coordinator made on the lab shell route accepts. The route is fixed when
+the coordinator is made. The device route refuses them, so production installs none. A fact identical to the latest recorded fact about the same thing, in the same boot and
 framework instance, is not recorded again, so a polling coordinator does not grow the store with
 every round. The same thing is the kind, route, component, user, request, PUBLISH attempt or
 ledger entry, and for a session its ID. The latest such fact is the one with the largest elapsed
@@ -475,8 +502,12 @@ same store resumes by observation.
 
 A round on a terminal ticket reads nothing from the host and takes no step, so it writes no ticket
 and issues nothing. It still observes the device and runs the cohort check, which serve the
-component: with no ticket open, a round on the last closed ticket is how a new boot's realization
-is checked. A host read names the ticket's last PUBLISH attempt. Made for a closed ticket after
+component. `Coordinator.check` is the cohort check's own entry point for a boot with no ticket
+open: it observes the boot, the checkpoint and both copies, records them and writes the
+realization, with no ticket, no host read and no crossing. Either way the check reads the
+component's open ticket from the store, which allows at most one, so a closed ticket's round
+never sets DIVERGED while another ticket's bundle is active before APPLIED. A tickets directory
+that could hide an open ticket leaves the realization as it stands. A host read names the ticket's last PUBLISH attempt. Made for a closed ticket after
 another ticket of the plan published, it would record PUBLISHED for an attempt that had read
 ABSENT, and that disagreement would hold the open ticket with the alert.
 
@@ -772,15 +803,15 @@ archive whose entry runs past its central directory is refused as invalid.
 
 | Suite | Cases | What it shows |
 | --- | --- | --- |
-| `DeploymentRecordsTest` | 52 | 23 goldens, two layouts by hand, every strict code refused by position, informational fields free, every relation, a bundle fact's attempt and plan and its digests set exactly when it read the publication, resealed mutations of every kind refused or canonical, the stable prefix |
-| `TicketMachineTest` | 72 | the exit table equals the plan's, every cycle passes a counted edge, each loop meets its limit, and every rule in single steps, including a second publication only after a read of absence that names the attempt, a read of other bytes held with the alert, the bundle's bytes read from its own publication, and after PUBLISHED a later read of other bytes, or of none for an attempt that read it published, held with the alert, whichever of the two reads was recorded first |
+| `DeploymentRecordsTest` | 53 | 24 goldens, two layouts by hand, every strict code refused by position, informational fields free, every relation, a receipt's ticket, ledger index and user, a bundle fact's attempt and plan and its digests set exactly when it read the publication, resealed mutations of every kind refused or canonical, the stable prefix |
+| `TicketMachineTest` | 78 | the exit table equals the plan's, every cycle passes a counted edge, each loop meets its limit, and every rule in single steps, including a second publication only after a read of absence that names the attempt, a read of other bytes held with the alert, the bundle's bytes read from its own publication, and after PUBLISHED a later read of other bytes, or of none for an attempt that read it published, held with the alert, whichever of the two reads was recorded first, a reboot that waits for every other running user's receipt and the delay from the last, a notice that shows no effect given again, a notice given again to a user still without a receipt after one declared delay, a notice budget for each boot, and health that must cover the whole window, with time before a late first unlock counted only after a listing showed the user not unlocked |
 | `DeploymentStoreTest` | 14 | write once, compare and set, a crash at each write step, presence and footprints, one open ticket, the selection's revision rules |
-| `TransactionTest` | 44 | both routes and both commit modes end to end, decisions 3, 6 and 7 over whole runs, each row of the recovery table, fault sweeps at every crossing, a coordinator lost between the selection and ticket writes, world events at every round, and the invariants of every run |
+| `TransactionTest` | 48 | both routes and both commit modes end to end, decisions 3, 6 and 7 over whole runs, a notice lost before or after its effect, each row of the recovery table, the cohort check with no ticket open, a closed ticket's round while another ticket's bundle activates, a lab driver's points between the two writes, fault sweeps at every crossing, a coordinator lost between the selection and ticket writes, world events at every round, and the invariants of every run |
 | `ArtifactStoreTest` | 22 | 6 goldens, the signing transaction record, strict codes by position, informational times, the stable prefix, resealed mutations refused or canonical, one bundle ID for the same bytes, and publication: together or not at all, bound to the plan's inputs and signer, verified first, a stop at every step, a lost acknowledgement read back, a second publication from the held bundles, a pair from two transactions, a restoration plan publishing the published restoration and only in the variant role, damage as MISMATCH |
 | `SigningTest` | 29 | with a fake apksig: the record written OPEN before the first operation, refusing each callback in turn publishes nothing, a refusal latched although the engine swallows it, an engine that returns its input or discards its operations' results, a fourth key operation, a lost reply resolved by the transaction ID, the proof that a request can no longer complete, a request recorded under its own grant, a staging error, an I/O error of the verifier, a sidecar copy lost or changed under a check that throws, and an unreadable output that give no fact, a sidecar that a check refuses but that reads back the same read as CANNOT_COMPLETE, every scheme and every signer verified, other entries, other input bytes, v1 files and other manifest facts refused, both bundles together or neither, a lost acknowledgement, a second publication from the held bundles, a pair from two transactions, a restoration plan publishing the published restoration, one whole coordinator run to PUBLISHED and a repair plan after it, a later read of a damaged or missing publication that holds the ticket with the alert, a round of a closed ticket that reads nothing after another ticket of its plan published, and the input entry digest's ASCII folding and refusal of a name past the end |
 
 `scripts/proof/component_transaction_records.py` checks every golden against its own encoder,
-written from the tables above, and runs 116 deliberate defects against the suites predicted to catch
+written from the tables above, and runs 133 deliberate defects against the suites predicted to catch
 them. Given the pinned apksigner jar, the sealed SystemUI build, the development platform key and a
 role manifest with its commitment, it also runs `SealedOutputsTest`. That suite reproduces the
 sealed outputs byte for byte with the tool's options, then signs, verifies and publishes the pair in
@@ -935,8 +966,10 @@ owner's decisions. Each item says what D1 does.
   SESSION_INTENT, so the sequence stays short.
 - **How the notice is delivered.** Decision 7 says notice must not depend only on the UI being
   repaired (line 102), and lets a restoration shorten it when SystemUI cannot deliver it (lines 99
-  to 101). Nothing names the other route or how a failed delivery is observed. D1 models the notice
-  as one crossing with a reply and treats any reply but a success as not delivered.
+  to 101). The owner's detail of 2026-10-10 settles the route: when SystemUI cannot deliver the
+  notice, Andrix's own app shows a full screen notice to each running user and records a receipt.
+  The records hold that receipt as a RECEIPT fact for each user, and its classification says
+  whether SystemUI delivered the notice. Only a delivered notice counts.
 - **The temporary factory build.** Decision 6 approves "the new image's own SystemUI, built from
   its factory source" (lines 94 to 95), which is neither the factory copy nor the variant. D1 makes
   it a plan of its own target, installed like a variant, that never moves the choice.
@@ -980,9 +1013,9 @@ These still need a plan amendment or design work before D7, by the review's asse
 - **6, ACTIVATE under early commit.** Real. State under "Commit modes" that both modes need an
   ACTIVATE before COMMIT_INTENT, and that an early commit session whose ACTIVATE expires unused is
   abandoned. This follows from decision 3, but the owner should see it.
-- **15, how the notice is delivered.** Real. D3 or D7 needs a notice route that avoids SystemUI
-  and gives an observable receipt. Ask the owner whether the route changes what other users see.
-  Until then a lost reply counts as undelivered and shortens the delay.
+- **15, how the notice is delivered.** Settled by the owner on 2026-10-10: a full screen notice
+  from Andrix's own app when SystemUI cannot deliver it, with a receipt. The records require a
+  receipt from every other running user. Building that app is D7's, and D5 needs a lab stand in.
 - **20, the restoration's ACTIVATE.** Decision 3's ACTIVATE, granted in advance, expires on the
   restoration plan's own `activateWindow`. A restoration that is needed later than that waits for
   a new grant.
@@ -1030,4 +1063,9 @@ a status change. These items stay open:
 - Automatic restoration under decision 3 supersedes the window to the restoration plan that the
   approval listed. Opening that plan's ticket, and holding image updates for a rebuild window under
   decision 6, are D7's.
-- The notice route that does not depend on SystemUI alone is D3's or D7's question.
+- The notice route that does not depend on SystemUI alone, Andrix's full screen notice and its
+  receipt, is D7's. The lab shell route needs a stand in that records a receipt for each user.
+- **The remaining health sampling field.** The plan states the evidence and span rules above.
+  Version 1 uses a quarter of the window as its maximum probe gap. On a long window that could
+  stretch to hours. Before the device coordinator, the plan record must carry an explicit maximum
+  probe gap. That field is not implemented in the current codec.

@@ -71,6 +71,94 @@ and must be qualified on a guest before the observer relies on them.
 | `installs-foreign-records` | the same | Records of other packages beside the captured finalized SystemUI session: one whose permission map has no known form, a multiple package family with two children (`ParentChildSessionMap.dump`), and a removed family |
 | `installs-unknown-package` | the same | A staged session with no package name |
 | `uptime` | `cat /proc/uptime` | The kernel's format, seconds since the boot and idle seconds, each with two decimals. The kernel source is not pinned here. |
+| `users-two` | `dumpsys user` | `UserManagerService.dump` and `dumpUserLU`, with `UserInfo.toString` and `UserState.stateToString`: the current user, an empty line and `Users:`, then for each user `UserInfo{id:name:flags}` with `serialNo=` and `isPrimary=`, and its own lines indented by four spaces or more, one of them `    State: `. An empty line and `Device properties:` end the section. Here user 0 and a full secondary user 10 with serial 12, both RUNNING_UNLOCKED. The times, fingerprint, restrictions and property lines are illustrative. The parser reads only the section's frame, each user's line, `Type:` and `State:`. |
+| `systemui-pids-two` | `pidof com.android.systemui` | This source derived model has one SystemUI process for each of its two users. Which processes actually run needs a guest capture. Toybox's `pidof` prints every match on one line, separated by spaces. The toybox source is not pinned here. `systemui-pid` is the captured form of one process. |
+| `systemui-status-1839`, `systemui-status-4721` | `cat /proc/<pid>/status` | The kernel's `task_state`: one `Key:` line each, a tab before the value, and `Uid:` with the real, effective, saved and file system IDs. The kernel source is not pinned here, and the values other than `Pid:` and `Uid:` are illustrative. The UIDs are 10112, the captured app ID, for user 0, and 1010112 for user 10, from Android's range of 100000 UIDs for each user. |
+| `systemui-context-4721` | `cat /proc/4721/attr/current` | The captured `systemui-context` with the categories that `levelFrom=user` gives user 10: c522,c768, which is 512 plus the user and 768 plus the user divided by 256. That rule is libselinux's Android code, which is not pinned here. |
+
+## Users, processes and the health probe
+
+`dumpsys user` gives every user or none. The notice rule and the start of each user's health span
+rely on that, so a listing cut short, a user line or state of no known form, a repeated user or
+serial, or a line outside the section's frame refuses the whole read. The section must also agree
+with `Started users state:`, which the same dump prints from the same user states after the
+restriction lists: every user named there with its state, and no other user with a state. A
+user's name is free text and may hold `} serialNo=`. The greedy name leaves the line's own suffix,
+which the dump prints last. States map to the records' USER classifications: RUNNING_UNLOCKED as
+itself; BOOTING, RUNNING_LOCKED and RUNNING_UNLOCKING as RUNNING_LOCKED; STOPPING, SHUTDOWN and
+`-1`, a user with no state, as NOT_RUNNING. A user marked `<removing>`, and a user and serial read
+before that the listing no longer shows, are REMOVED.
+
+The observer accepts SystemUI processes for several users. Which processes run for each user or
+profile still needs guest captures. It reads each process's UID from its status and its SELinux
+context, and keys it by user, the UID divided by 100000. Two processes for one
+user have no known form. The ACTIVE fact takes the system user's process, whose UID must be the
+package's. The health probe reads no SystemUI process at all only from pidof's quiet failure, exit
+status 1 with no output and no error, and only when a second read in the same bracket gives the
+same. Any other failure, such as a refused `/proc` or a lost connection, is an unavailable read,
+which gives no fact and never a crash.
+
+The health probe covers three of the plan's criteria for each running unlocked user. Bit 0,
+SystemUI's UID and context: exactly that user's process, with the package's app ID and the
+expected SELinux domain. The categories are not checked, because their rule is not pinned here.
+Bit 4, the active bytes: the active APK's digest is the expected one. Bit 1, no crash or ANR, only
+against a baseline from an earlier probe of the same boot and framework instance: the user's
+process is still the one the baseline names. A reboot or a framework restart ends every app, so it
+starts a new baseline rather than counting as SystemUI's crash. For the system user, a crash, or
+an ANR that ends the process, gives CRASH. An ANR that does not end the process is not seen. A miss
+of bit 0 or 4 gives DEGRADED, and so does the system user's SystemUI missing, which is observed,
+not unavailable.
+
+Only the system user's SystemUI is persistent. In the pinned `ProcessList.newProcessRecordLocked`,
+a process is marked persistent, with its adjustment capped at the persistent level, only when its
+user is the system user, and `startPersistentApps` starts the persistent apps that
+`getPersistentApplications` gives, which are the system user's. Another user's SystemUI is
+therefore an ordinary process that Android may end to free memory. Its process ending, or missing,
+gives INCONCLUSIVE: the probe cannot tell a crash from such a kill, and an unavailable judgement
+never counts as a failure.
+
+A probe without a baseline gives no HELD fact, only the baseline. A HELD fact that leaves out bit 1
+would read as partial criteria and leave the whole window INCONCLUSIVE. A miss such a probe sees is
+still reported. D5 therefore takes one baseline probe before the window opens, in the
+activation boot and the same framework instance, so the window's first probe already covers bit
+1.
+
+D5's transport must preserve completion, status and both output streams. A timeout, launch error
+or adb failure must never become pidof's quiet exit 1. An unavailable probe must not replace the
+last good baseline in the same boot and framework instance. A changed identity ends that baseline.
+D5 combines the readers into a complete probe for every criterion its plan declares. Separate
+partial HELD facts would leave doubt for the whole window.
+
+## Criteria for D5's vehicle
+
+The UI marker (bit 2) and keyguard unlock with CE authority (bit 3) need the user in the
+foreground. Switching users is a lab action, not a read, so the observer's allowlist cannot hold
+it. D5's vehicle admits and records each switch, then reads. The read forms it is expected to use,
+none of them qualified yet:
+
+- `am get-current-user` before and after each switch.
+  `ActivityManagerShellCommand.runGetCurrentUser` prints the user ID on one line.
+- `dumpsys user`, as above, for RUNNING_UNLOCKED, which shows that CE storage is unlocked.
+- For the keyguard, a window dump that shows whether the keyguard is showing for the foreground
+  user. The window manager's shell sources are not pinned here, so its form is open.
+- For the UI marker, `uiautomator dump` and the marker's text in the hierarchy, as the
+  2026-09-22 trials read the clock. Its form must be captured.
+
+Native work (bit 5) and the recovery route (bit 6) have no reader yet. Until they do, a plan that
+declares those bits gets INCONCLUSIVE, never HEALTHY, from these probes.
+
+Guest checks for D5:
+
+- How often another user's SystemUI ends while that user runs in the background, and whether it
+  restarts on its own.
+- Whether the system user's SystemUI ever restarts without a crash, for example when an overlay
+  changes. Such a restart would read as CRASH.
+- Whether `dumpsys activity exit-info com.android.systemui` (`AppExitInfoTracker`) tells a crash
+  or an ANR from a kill to free memory, for each user. If it does, it can replace process
+  continuity for bit 1, and see an ANR that does not end the process.
+- Whether the pinned build prints anything between the guest restrictions and the started users in
+  `dumpsys user`. The reader admits nothing there, so such a line would refuse every listing.
+- Whether a user's name can hold a line break. The reader would refuse every listing then.
 
 ## Records of other packages
 

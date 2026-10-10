@@ -89,6 +89,69 @@ MUTANTS = {
     'run-mapped-over-commands': (OBSERVER, '    def read(self, command):',
                                  '    def _all(self, commands):\n        return list(map(self._run, commands))\n\n'
                                  '    def read(self, command):', ('observer',)),
+    # The constructor's run parameter itself: stored a second time, or wrapped in a lambda.
+    'run-stored-twice': (OBSERVER, '        self._run = run\n', '        self._run = run\n        self._spare = run\n',
+                         ('observer',)),
+    'run-wrapped-in-lambda': (OBSERVER, '        self._run = run\n',
+                              '        self._run = run\n        self._wrapped = lambda command: run(command)\n',
+                              ('observer',)),
+    # Users by serial: a listing cut short or with an unknown state, a removal or an unlocking user.
+    'started-users-missing-accepted': (SESSIONS, "    if not started:\n        raise ValueError('User listing without its "
+                                                 "started users of known form')\n",
+                                       "    if not started:\n        return result\n", ('readbacks', 'observer')),
+    'unknown-user-state-accepted': (SESSIONS, " or b['states'][0] not in USER_STATES", '', ('readbacks', 'observer')),
+    'unlocking-user-counted-unlocked': (OBSERVER, "'RUNNING_UNLOCKING': 'RUNNING_LOCKED'",
+                                        "'RUNNING_UNLOCKING': 'RUNNING_UNLOCKED'", ('observer',)),
+    'removed-user-not-reported': (OBSERVER, "            if (user, serial) not in shown:\n", "            if False:\n",
+                                  ('observer',)),
+    # One SystemUI process for each user, and the system user's for the ACTIVE fact.
+    'second-process-for-one-user-accepted': (OBSERVER,
+        "            if user in found:\n                raise ValueError('Two SystemUI processes for one user')\n", '',
+        ('observer',)),
+    'active-process-uid-unchecked': (OBSERVER, '            if 0 not in processes or processes[0][1] != uid:\n',
+                                     '            if 0 not in processes:\n', ('observer',)),
+    # The health probe: the app ID, a restarted process and the users probed.
+    'health-domain-unchecked': (OBSERVER, "                        and process[2].split(':')[2] == domain)\n",
+                                "                        and process[2].startswith('u:r:'))\n", ('observer',)),
+    'health-restart-not-a-crash': (OBSERVER,
+        '            ended = process is None or (earlier is not None and process[0] != earlier)\n',
+        '            ended = process is None\n', ('observer',)),
+    'health-baseline-of-another-instance': (OBSERVER,
+        '            earlier = None if baseline is None else baseline.get(key)\n',
+        '            earlier = None if baseline is None else next(\n'
+        '                (v for k, v in baseline.items() if k[2:] == key[2:]), None)\n', ('observer',)),
+    'no-systemui-process-unread': (OBSERVER, '        if absent and quiet_failure(listed):\n', '        if False:\n',
+                                   ('observer',)),
+    # An unavailable process read is never an observation of no process, and so never a crash.
+    'no-process-stderr-ignored': (OBSERVER,
+        "    return (capture.code, capture.stdout, capture.stderr) == (1, '', '')\n",
+        "    return (capture.code, capture.stdout) == (1, '')\n", ('observer',)),
+    'no-process-unconfirmed': (OBSERVER,
+        "            if not quiet_failure(again):\n"
+        "                raise ValueError('The SystemUI process read did not repeat')\n", '', ('observer',)),
+    # The first probe of a window only sets the baseline, and another user's SystemUI ending is no crash.
+    'held-without-baseline-reported': (OBSERVER,
+        '                if earlier is None:\n                    continue\n', '', ('observer',)),
+    'secondary-ending-read-as-crash': (OBSERVER, '            if ended and u.user != 0:\n',
+                                       '            if ended and u.user < 0:\n', ('observer',)),
+    'health-app-id-unchecked': (OBSERVER,
+        '            identity = (process is not None and process[1] == u.user * PER_USER_RANGE + app\n',
+        '            identity = (process is not None and process[1] // PER_USER_RANGE == u.user\n', ('observer',)),
+    'serial-marker-in-name-refused': (SESSIONS, '        if header:\n            block = {',
+                                      "        if header:\n            if line.count('} serialNo=') != 1:\n"
+                                      "                raise ValueError('A user line of no known form')\n"
+                                      '            block = {', ('readbacks', 'observer')),
+    # The process parsers and the started users that the user listing must agree with.
+    'duplicate-pid-accepted': (SESSIONS,
+        "    if len(set(found)) != len(found):\n        raise ValueError('A process listed twice')\n", '',
+        ('readbacks', 'observer')),
+    'status-ids-unequal-accepted': (SESSIONS, ' or len(set(ids)) != 1:', ':', ('readbacks', 'observer')),
+    'status-of-another-process-accepted': (SESSIONS, "    if seen.get('Pid') != str(pid):\n",
+                                           "    if False:\n", ('readbacks', 'observer')),
+    'started-users-unchecked': (SESSIONS, "    if states != {u.user: u.state for u in result if u.state != '-1'}:\n",
+                                "    if False:\n", ('readbacks', 'observer')),
+    'health-probes-locked-users': (OBSERVER, "            if u.removing or u.state != 'RUNNING_UNLOCKED':\n",
+                                   '            if u.removing:\n', ('observer',)),
 }
 DECODE = '''package dev.andrix.server.deployment;
 

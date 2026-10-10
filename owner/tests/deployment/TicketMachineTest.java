@@ -514,6 +514,9 @@ public final class TicketMachineTest {
             Step notice = bed.step();
             check(problems, notice.ticket.state == State.READY_AGAIN && notice.issue != null
                     && notice.issue.crossing == Crossing.NOTICE, "notice " + notice);
+            int given = bed.ticket.indexOf(notice.issue);
+            bed.reply(given, Crossing.NOTICE, Classification.REPLY_SUCCESS, Reference.NONE)
+                    .receipt(10, 12, given, Classification.RECEIPT_SYSTEMUI);
             bed.elapsed += 30_000;
             bed.wall += 30_000;
             bed.committed(FACTORY_APK).user(10, 12, Classification.RUNNING_UNLOCKED);
@@ -541,6 +544,7 @@ public final class TicketMachineTest {
             other.user(0, 0, Classification.RUNNING_UNLOCKED).user(10, 12, Classification.RUNNING_LOCKED);
             Step notice = other.step();
             check(problems, notice.issue != null && notice.issue.crossing == Crossing.NOTICE, "notice " + notice);
+            other.receipt(10, 12, other.ticket.indexOf(notice.issue), Classification.RECEIPT_SYSTEMUI);
             other.elapsed += 60_000;
             other.wall += 60_000;
             other.committed(FACTORY_APK).user(0, 0, Classification.RUNNING_UNLOCKED)
@@ -562,7 +566,9 @@ public final class TicketMachineTest {
                 if (i != 1) bed.grant(Effect.EMERGENCY_NOTICE, id(0x2e0), TIME);
                 Step given = bed.step();
                 Classification reply = i == 0 ? Classification.REPLY_SUCCESS : Classification.REPLY_REFUSED;
-                bed.reply(bed.ticket.indexOf(given.issue), Crossing.NOTICE, reply, Reference.NONE);
+                int index = bed.ticket.indexOf(given.issue);
+                bed.reply(index, Crossing.NOTICE, reply, Reference.NONE).receipt(10, 12, index,
+                        i == 0 ? Classification.RECEIPT_SYSTEMUI : Classification.RECEIPT_FULL_SCREEN);
                 bed.elapsed += 10_000;
                 bed.wall += 10_000;
                 bed.committed(FACTORY_APK).user(10, 12, Classification.RUNNING_UNLOCKED);
@@ -591,8 +597,9 @@ public final class TicketMachineTest {
                 bed.user(10, 12, Classification.RUNNING_UNLOCKED);
                 bed.grant(Effect.EMERGENCY_NOTICE, id(0x2e0), TIME);
                 Step given = bed.step();
-                bed.reply(bed.ticket.indexOf(given.issue), Crossing.NOTICE, Classification.REPLY_REFUSED,
-                        Reference.NONE);
+                int index = bed.ticket.indexOf(given.issue);
+                bed.reply(index, Crossing.NOTICE, Classification.REPLY_REFUSED, Reference.NONE)
+                        .receipt(10, 12, index, Classification.RECEIPT_FULL_SCREEN);
                 bed.elapsed += 10_000;
                 bed.wall += 10_000;
                 bed.committed(FACTORY_APK).user(10, 12, Classification.RUNNING_UNLOCKED);
@@ -606,6 +613,142 @@ public final class TicketMachineTest {
                 refused = true;
             }
             check(problems, refused, "a temporary factory plan with a shorter emergency notice");
+        });
+        cases.run("notice / the reboot waits for a receipt from every other running user and the delay from the last",
+                problems -> {
+            Plan plan = Fixtures.plan(1).notice(60_000, 60_000).build();
+            Bed bed = readyAgain(new Bed(plan).grants());
+            bed.user(10, 12, Classification.RUNNING_UNLOCKED).user(11, 14, Classification.RUNNING_LOCKED);
+            Step notice = bed.step();
+            int given = bed.ticket.indexOf(notice.issue);
+            bed.reply(given, Crossing.NOTICE, Classification.REPLY_SUCCESS, Reference.NONE)
+                    .receipt(10, 12, given, Classification.RECEIPT_SYSTEMUI);
+            bed.elapsed += 30_000;
+            bed.wall += 30_000;
+            bed.committed(FACTORY_APK).user(10, 12, Classification.RUNNING_UNLOCKED)
+                    .user(11, 14, Classification.RUNNING_LOCKED);
+            Step one = bed.step();
+            check(problems, one.issue == null && one.ticket.state == State.READY_AGAIN,
+                    "rebooted or noticed again with one receipt missing " + one);
+            bed.receipt(11, 14, given, Classification.RECEIPT_SYSTEMUI);
+            bed.elapsed += 30_000;
+            bed.wall += 30_000;
+            bed.committed(FACTORY_APK).user(10, 12, Classification.RUNNING_UNLOCKED)
+                    .user(11, 14, Classification.RUNNING_LOCKED);
+            Step early = bed.step();
+            check(problems, early.issue == null && early.ticket.state == State.READY_AGAIN,
+                    "the delay ran from the first receipt " + early);
+            bed.elapsed += 30_000;
+            bed.wall += 30_000;
+            bed.committed(FACTORY_APK).user(10, 12, Classification.RUNNING_UNLOCKED)
+                    .user(11, 14, Classification.RUNNING_LOCKED);
+            check(problems, bed.step().ticket.state == State.REBOOT_INTENT, "the delay from the last receipt");
+            Bed blind = readyAgain(new Bed(plan).grants());
+            blind.obs.removeIf(o -> o.kind == DeploymentRecords.ObservationKind.USER);
+            Step owed = blind.step();
+            int index = blind.ticket.indexOf(owed.issue);
+            blind.reply(index, Crossing.NOTICE, Classification.REPLY_SUCCESS, Reference.NONE);
+            blind.elapsed += 120_000;
+            blind.wall += 120_000;
+            blind.committed(FACTORY_APK);
+            blind.obs.removeIf(o -> o.kind == DeploymentRecords.ObservationKind.USER);
+            Step unknown = blind.step();
+            check(problems, owed.issue != null && owed.issue.crossing == Crossing.NOTICE
+                    && unknown.ticket.state == State.READY_AGAIN, "rebooted without knowing who runs " + unknown);
+        });
+        cases.run("notice / a notice that shows no effect is given again, and one that took effect is not",
+                problems -> {
+            Plan plan = Fixtures.plan(1).notice(60_000, 60_000).build();
+            String[] runs = {"lost before its effect", "refused", "lost after its effect", "accepted", "a newcomer"};
+            for (int i = 0; i < runs.length; i++) {
+                Bed bed = readyAgain(new Bed(plan).grants());
+                bed.user(10, 12, Classification.RUNNING_UNLOCKED);
+                Step first = bed.step();
+                int given = bed.ticket.indexOf(first.issue);
+                if (i == 1) bed.reply(given, Crossing.NOTICE, Classification.REPLY_REFUSED, Reference.NONE);
+                if (i == 2 || i == 4) bed.receipt(10, 12, given, Classification.RECEIPT_SYSTEMUI);
+                if (i == 3 || i == 4) bed.reply(given, Crossing.NOTICE, Classification.REPLY_SUCCESS, Reference.NONE);
+                bed.elapsed += 1_000;
+                bed.wall += 1_000;
+                bed.committed(FACTORY_APK).user(10, 12, Classification.RUNNING_UNLOCKED);
+                if (i == 4) bed.user(11, 14, Classification.RUNNING_UNLOCKED);
+                Step next = bed.step();
+                boolean again = next.issue != null && next.issue.crossing == Crossing.NOTICE;
+                check(problems, again == (i < 2 || i == 4), runs[i] + ": " + next);
+                if (again) {
+                    check(problems, bed.ticket.count(Crossing.NOTICE) == 2 && next.ticket.state == State.READY_AGAIN,
+                            runs[i] + " ledger " + bed.ticket.ledger);
+                }
+            }
+        });
+        cases.run("notice / a user still without a receipt after one declared delay gets the notice again",
+                problems -> {
+            Plan plan = Fixtures.plan(1).notice(60_000, 60_000).build();
+            Bed bed = readyAgain(new Bed(plan).grants());
+            bed.user(10, 12, Classification.RUNNING_UNLOCKED).user(11, 14, Classification.RUNNING_UNLOCKED);
+            Step first = bed.step();
+            int given = bed.ticket.indexOf(first.issue);
+            bed.reply(given, Crossing.NOTICE, Classification.REPLY_SUCCESS, Reference.NONE)
+                    .receipt(10, 12, given, Classification.RECEIPT_SYSTEMUI);
+            List<Step> steps = new ArrayList<>();
+            for (int i = 0; i < 12 && bed.ticket.state == State.READY_AGAIN; i++) {
+                bed.elapsed += 30_000;
+                bed.wall += 30_000;
+                bed.committed(FACTORY_APK).user(10, 12, Classification.RUNNING_UNLOCKED)
+                        .user(11, 14, Classification.RUNNING_UNLOCKED);
+                Step s = bed.step();
+                steps.add(s);
+                if (s.issue != null && s.issue.crossing == Crossing.NOTICE) {
+                    bed.reply(bed.ticket.indexOf(s.issue), Crossing.NOTICE, Classification.REPLY_SUCCESS,
+                            Reference.NONE);
+                }
+            }
+            check(problems, steps.get(0).issue == null, "noticed again before one declared delay " + steps.get(0));
+            check(problems, steps.get(1).issue != null && steps.get(1).issue.crossing == Crossing.NOTICE,
+                    "user 11 never got the notice again " + steps.get(1));
+            Step last = steps.get(steps.size() - 1);
+            check(problems, bed.ticket.count(Crossing.NOTICE) == plan.requestLimit + 1
+                    && last.ticket.state == State.ABANDON_INTENT, "the budget did not end the wait " + last);
+            Bed later = readyAgain(new Bed(plan).grants());
+            later.user(10, 12, Classification.RUNNING_UNLOCKED).user(11, 14, Classification.RUNNING_UNLOCKED);
+            Step again = later.step();
+            int index = later.ticket.indexOf(again.issue);
+            later.reply(index, Crossing.NOTICE, Classification.REPLY_SUCCESS, Reference.NONE)
+                    .receipt(10, 12, index, Classification.RECEIPT_SYSTEMUI);
+            later.elapsed += 60_000;
+            later.wall += 60_000;
+            later.committed(FACTORY_APK).user(10, 12, Classification.RUNNING_UNLOCKED)
+                    .user(11, 14, Classification.RUNNING_UNLOCKED);
+            Step repeat = later.step();
+            later.receipt(11, 14, later.ticket.indexOf(repeat.issue), Classification.RECEIPT_SYSTEMUI);
+            later.elapsed += 60_000;
+            later.wall += 60_000;
+            later.committed(FACTORY_APK).user(10, 12, Classification.RUNNING_UNLOCKED)
+                    .user(11, 14, Classification.RUNNING_UNLOCKED);
+            check(problems, later.step().ticket.state == State.REBOOT_INTENT, "the repeated notice's receipt");
+        });
+        cases.run("notice / each boot has its own notice budget", problems -> {
+            Plan plan = Fixtures.plan(1).notice(60_000, 60_000).build();
+            int budget = plan.requestLimit + 1;
+            Bed fresh = readyAgain(new Bed(plan).grants());
+            fresh.user(10, 12, Classification.RUNNING_UNLOCKED);
+            List<Entry> ledger = new ArrayList<>(fresh.ticket.ledger);
+            for (int i = 0; i < budget; i++) {
+                ledger.add(new Entry(Crossing.NOTICE, B1, 1, 2_000 + i, Bed.ACTIVATE, NO_ID, TIME));
+            }
+            fresh.ticket = fresh.ticket.toBuilder().ledger(ledger).build();
+            Step given = fresh.step();
+            check(problems, given.issue != null && given.issue.crossing == Crossing.NOTICE,
+                    "an earlier boot's notices took this boot's " + given);
+            Bed spent = readyAgain(new Bed(plan).grants());
+            spent.user(10, 12, Classification.RUNNING_UNLOCKED);
+            ledger = new ArrayList<>(spent.ticket.ledger);
+            for (int i = 0; i < budget; i++) {
+                ledger.add(new Entry(Crossing.NOTICE, B2, 1, 2_000 + i, Bed.ACTIVATE, NO_ID, TIME));
+            }
+            spent.ticket = spent.ticket.toBuilder().ledger(ledger).build();
+            Step limit = spent.step();
+            check(problems, limit.ticket.state == State.ABANDON_INTENT, "this boot's budget was not kept " + limit);
         });
         cases.run("checkpoint / no crossing and no close before the commit", problems -> {
             Bed again = Bed.late().grants().at(State.READY_AGAIN, TO_COMMIT)
@@ -1058,7 +1201,12 @@ public final class TicketMachineTest {
             check(problems, mid.ticket.health.equals(List.of(new Health(0, 0, Outcome.OBSERVING), new Health(10, 12,
                     Outcome.UNHEALTHY), new Health(11, 14, Outcome.REMOVED), new Health(12, 16, Outcome.OBSERVING))),
                     "mid window " + mid.ticket.health);
-            bed.elapsed += 600_000;
+            for (int i = 0; i < 3; i++) {
+                bed.elapsed += 140_000;
+                bed.committed(BUNDLE_APK).health(0, 0, Classification.HEALTH_HELD, 0x7f);
+                bed.step();
+            }
+            bed.elapsed += 80_000;
             bed.committed(BUNDLE_APK);
             bed.health(0, 0, Classification.HEALTH_HELD, 0x7f);
             Step end = bed.step();
@@ -1135,6 +1283,84 @@ public final class TicketMachineTest {
             Step s = bed.step();
             check(problems, s.ticket.health.equals(List.of(new Health(0, 0, Outcome.INCONCLUSIVE))), "" + s.ticket.health);
         });
+        cases.run("health / the criteria must hold across the whole window", problems -> {
+            // The window runs from 1000 to 601_000, so no gap may exceed 150_000.
+            check(problems, covered(100_000, 250_000, 400_000, 550_000, 601_000) == Outcome.HEALTHY, "covered");
+            check(problems, covered(601_000) == Outcome.INCONCLUSIVE, "one probe at the end");
+            check(problems, covered(100_000, 250_000, 550_000, 601_000) == Outcome.INCONCLUSIVE, "a gap inside");
+            check(problems, covered(200_000, 340_000, 480_000, 601_000) == Outcome.INCONCLUSIVE, "the start uncovered");
+            check(problems, covered(100_000, 240_000, 380_000) == Outcome.INCONCLUSIVE, "the end uncovered");
+            // A user first unlocked during the window, absent from a listing after the window began,
+            // is judged from that listing.
+            Bed late = Bed.late().grants().at(State.HEALTH_WINDOW, TO_REBOOT);
+            late.ticket = late.ticket.toBuilder().health(List.of(new Health(0, 0, Outcome.OBSERVING))).build();
+            late.elapsed = 200_000;
+            late.committed(BUNDLE_APK);
+            late.step();
+            for (long t : new long[] {300_000, 440_000, 580_000, 601_000}) {
+                late.elapsed = t;
+                late.committed(BUNDLE_APK).user(10, 12, Classification.RUNNING_UNLOCKED)
+                        .health(10, 12, Classification.HEALTH_HELD, 0x7f);
+                late.step();
+            }
+            Health ten = null;
+            for (Health h : late.ticket.health) if (h.user == 10) ten = h;
+            check(problems, late.ticket.state == State.CLOSED_APPLIED && ten != null && ten.outcome == Outcome.HEALTHY,
+                    "a user unlocked during the window " + late.ticket.health);
+        });
+        cases.run("health / time before a late first unlock counts only after a listing showed the user not unlocked",
+                problems -> {
+            // User 0 runs from the window's start, but its reads are unavailable until 300_000.
+            check(problems, lateReads(-1, null) == Outcome.INCONCLUSIVE, "unobserved time judged healthy");
+            check(problems, lateReads(1_000, Classification.RUNNING_UNLOCKED) == Outcome.INCONCLUSIVE,
+                    "an unlock at the start, then nothing until 300_000");
+            check(problems, lateReads(500, Classification.RUNNING_LOCKED) == Outcome.INCONCLUSIVE,
+                    "a listing before the window began counted");
+            check(problems, lateReads(200_000, Classification.RUNNING_LOCKED) == Outcome.HEALTHY,
+                    "a locked listing after the window began, then a covered span");
+            check(problems, lateReads(200_000, Classification.NOT_RUNNING) == Outcome.HEALTHY,
+                    "a stopped listing after the window began, then a covered span");
+        });
+    }
+
+    // A window from 1000 to 601_000 for user 0, read only from 300_000 on with full HELD probes, and
+    // one listing of user 0 earlier when `at` is not negative. Returns user 0's outcome at the close.
+    private static Outcome lateReads(long at, Classification listed) {
+        Bed bed = Bed.late().grants().at(State.HEALTH_WINDOW, TO_REBOOT);
+        bed.ticket = bed.ticket.toBuilder().health(List.of(new Health(0, 0, Outcome.OBSERVING))).build();
+        if (at >= 0) {
+            bed.elapsed = at;
+            bed.user(0, 0, listed);
+        }
+        for (long t : new long[] {300_000, 440_000, 580_000, 601_000}) {
+            bed.elapsed = t;
+            bed.committed(BUNDLE_APK).health(0, 0, Classification.HEALTH_HELD, 0x7f);
+            Step s = bed.step();
+            if (t == 601_000) return s.ticket.state == State.CLOSED_APPLIED ? s.ticket.health.get(0).outcome : null;
+        }
+        return null;
+    }
+
+    // A window from 1000 to 601_000 for user 0, unlocked at its start, with a full HELD probe at each
+    // time. Returns user 0's outcome once the window closes, or null when it did not close.
+    private static Outcome covered(long... probes) {
+        Bed bed = Bed.late().grants().at(State.HEALTH_WINDOW, TO_REBOOT);
+        bed.ticket = bed.ticket.toBuilder().health(List.of(new Health(0, 0, Outcome.OBSERVING))).build();
+        bed.elapsed = 1000;
+        bed.user(0, 0, Classification.RUNNING_UNLOCKED);
+        boolean closing = false;
+        for (long t : probes) {
+            bed.elapsed = t;
+            bed.committed(BUNDLE_APK).health(0, 0, Classification.HEALTH_HELD, 0x7f);
+            closing = t >= 601_000;
+            if (!closing) bed.step();
+        }
+        if (!closing) {
+            bed.elapsed = 601_000;
+            bed.committed(BUNDLE_APK);
+        }
+        Step end = bed.step();
+        return end.ticket.state == State.CLOSED_APPLIED ? end.ticket.health.get(0).outcome : null;
     }
 
     // ------------------------------------------------------------------ selection

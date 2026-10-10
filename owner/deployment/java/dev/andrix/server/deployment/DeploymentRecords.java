@@ -281,7 +281,7 @@ public final class DeploymentRecords {
     /** What an observation records. */
     public enum ObservationKind {
         BOOT(1), CHECKPOINT(2), FACTORY(3), ACTIVE(4), LISTING(5), SESSION(6), REPLY(7), USER(8),
-        HEALTH(9), SIGNER(10), BUNDLE(11);
+        HEALTH(9), SIGNER(10), BUNDLE(11), RECEIPT(12);
         final int code;
         ObservationKind(int code) { this.code = code; }
     }
@@ -317,7 +317,8 @@ public final class DeploymentRecords {
         SIGN_PENDING(ObservationKind.SIGNER, 1), SIGN_COMPLETED(ObservationKind.SIGNER, 2),
         SIGN_REFUSED(ObservationKind.SIGNER, 3), SIGN_CANNOT_COMPLETE(ObservationKind.SIGNER, 4),
         BUNDLE_PUBLISHED(ObservationKind.BUNDLE, 1), BUNDLE_ABSENT(ObservationKind.BUNDLE, 2),
-        BUNDLE_MISMATCH(ObservationKind.BUNDLE, 3);
+        BUNDLE_MISMATCH(ObservationKind.BUNDLE, 3),
+        RECEIPT_SYSTEMUI(ObservationKind.RECEIPT, 1), RECEIPT_FULL_SCREEN(ObservationKind.RECEIPT, 2);
 
         final ObservationKind kind;
         final int code;
@@ -1224,7 +1225,10 @@ public final class DeploymentRecords {
         public final long version;
         /** ACTIVE: the UID. LISTING: the count of the package's sessions. HEALTH: the criteria covered. */
         public final int number;
-        /** REPLY: the ticket. SIGNER: the request ID. BUNDLE: the PUBLISH attempt read after. Else NO_ID. */
+        /**
+         * REPLY and RECEIPT: the ticket. SIGNER: the request ID. BUNDLE: the PUBLISH attempt read after.
+         * Else NO_ID.
+         */
         public final String subject;
         /** BUNDLE: the plan whose publication record was read. Else NO_ID. */
         public final String plan;
@@ -1238,7 +1242,7 @@ public final class DeploymentRecords {
          * the publication names none. Else NO_DIGEST.
          */
         public final String restorationApk;
-        /** REPLY: the ledger index answered. Else 0. */
+        /** REPLY: the ledger index answered. RECEIPT: the index of the NOTICE it records. Else 0. */
         public final int sequence;
         /** REPLY: the crossing answered. Else null. */
         public final Crossing crossing;
@@ -1279,7 +1283,8 @@ public final class DeploymentRecords {
             boolean device = kind == ObservationKind.BOOT || kind == ObservationKind.CHECKPOINT
                     || kind == ObservationKind.USER;
             if (device != component.isEmpty()) throw invalid("a component exactly for component facts");
-            boolean perUser = kind == ObservationKind.USER || kind == ObservationKind.HEALTH;
+            boolean perUser = kind == ObservationKind.USER || kind == ObservationKind.HEALTH
+                    || kind == ObservationKind.RECEIPT;
             if (perUser == (user == NO_USER)) throw invalid("a user exactly for user facts");
             boolean framework = kind == ObservationKind.LISTING || kind == ObservationKind.SESSION;
             if (framework && instance < 0) throw invalid("a framework fact needs its instance");
@@ -1316,7 +1321,7 @@ public final class DeploymentRecords {
                     if (number != 0) throw invalid("number fact of another kind");
             }
             boolean subjectKind = kind == ObservationKind.REPLY || kind == ObservationKind.SIGNER
-                    || kind == ObservationKind.BUNDLE;
+                    || kind == ObservationKind.BUNDLE || kind == ObservationKind.RECEIPT;
             checkId(subject, "subject", !subjectKind);
             if (!subjectKind && !subject.equals(NO_ID)) throw invalid("subject of another kind");
             // A bundle fact names the plan whose record it read, and the APKs of the bundles that the
@@ -1350,6 +1355,10 @@ public final class DeploymentRecords {
                 boolean session = crossing == Crossing.CREATE && classification == Classification.REPLY_SUCCESS;
                 if (session != reference.has(Reference.SESSION)) throw invalid("a session exactly in a create reply");
                 if (!session && reference.presence != 0) throw invalid("a reference outside a create reply");
+            } else if (kind == ObservationKind.RECEIPT) {
+                // The receipt of one NOTICE for one user: the notice's ticket and ledger index.
+                if (sequence < 0 || sequence >= MAX_LEDGER) throw invalid("receipt sequence outside the ledger bound");
+                if (crossing != null || reference.presence != 0) throw invalid("reply fields in a receipt");
             } else {
                 if (sequence != 0 || crossing != null) throw invalid("reply fields of another kind");
                 if (kind == ObservationKind.SESSION) {
@@ -1416,6 +1425,10 @@ public final class DeploymentRecords {
             }
             public Builder reply(String ticket, int index, Crossing c) {
                 subject = ticket; sequence = index; crossing = c; return this;
+            }
+            /** A receipt: the ticket and ledger index of the NOTICE it records. */
+            public Builder receipt(String ticket, int index) {
+                subject = ticket; sequence = index; return this;
             }
             public Builder reference(Reference v) { reference = v; return this; }
 
@@ -1717,6 +1730,10 @@ public final class DeploymentRecords {
                 out.digest(o.bundleApk);
                 out.digest(o.restorationApk);
                 break;
+            case RECEIPT:
+                out.id(o.subject);
+                out.u16(o.sequence);
+                break;
             default:
                 break; // CHECKPOINT and USER carry no further facts.
         }
@@ -1913,6 +1930,10 @@ public final class DeploymentRecords {
                 b.digest = in.digest();
                 b.bundleApk = in.digest();
                 b.restorationApk = in.digest();
+                break;
+            case RECEIPT:
+                b.subject = in.id();
+                b.sequence = in.u16();
                 break;
             default:
                 break;
