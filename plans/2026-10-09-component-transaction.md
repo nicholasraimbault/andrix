@@ -569,7 +569,7 @@ Restart scope:
 | Write | The `pm` reply | The call result |
 | Commit | The `pm` reply, then the listing and the sections of `dumpsys package installs`, by session ID | The call result, then `getSessionInfo` |
 | Abandon | The `pm` reply, then the listing and dumpsys in a later framework instance | The call result, then `getSessionInfo` in a later framework instance |
-| Reboot and boot | Boot ID, fingerprint, factory SystemUI digest, the active package's path, bytes and versionCode, and `vdc` checkpoint state | The same facts through Package Manager, StorageManager's checkpoint query and the kernel |
+| Reboot and boot | Boot ID, fingerprint, factory SystemUI digest, the active package's path, bytes and versionCode, and the checkpoint state through StorageManager | The same facts through Package Manager, StorageManager's checkpoint query and the kernel |
 | Health | Observations for each user through the shell | The coordinator's observations for each user |
 
 - `pm list staged-sessions` prints only the session ID, the package, the staged, ready, applied and
@@ -589,6 +589,13 @@ Restart scope:
   calls `getStagedSessions`. The session API returns the referrer unscrubbed to UIDs below 10000.
 - A complete listing in a later framework instance that shows no staged session for the package at
   all still gives NO_SESSION.
+- The shell user cannot call `vdc`, because vold answers only system and root. The shell route
+  reads the checkpoint state through StorageManager instead: `sm supports-checkpoint`, and a fixed
+  read only helper run as the shell user that calls only `supportsCheckpoint` and `needsCheckpoint`,
+  a query the shell's MOUNT_FORMAT_FILESYSTEMS permission allows. Each reading is bracketed by boot
+  ID and framework identity reads. The property `vold.checkpoint_committed` is recorded only as
+  supplementary data, because vold can set it without a checkpoint flagged mount and does not
+  clear it on reset. This route awaits its guest qualification in D3.
 - The device coordinator creates its own sessions and reads them as their installer UID, which gets
   the referrer unscrubbed. A coordinator outside system, root and shell must also be an allowlisted
   staged installer.
@@ -792,11 +799,13 @@ account work owns the build slot and has first claim on the emulator.
 ### D3. Shell observer
 
 - **Changes.** A read only shell observer for the session listing, the active, finalized and
-  historical dumpsys sections, nonce correlation, active package bytes, `vdc` checkpoint state, boot
-  ID, fingerprint and the cohort check. It extends the existing session parsers. If dumpsys cannot
-  show the referrer, a helper run under the shell UID reads it through `getStagedSessions`.
+  historical dumpsys sections, nonce correlation, active package bytes, the checkpoint state through
+  StorageManager, boot ID, fingerprint and the cohort check.
+  It extends the existing session parsers. If dumpsys cannot show the referrer, a helper run under
+  the shell UID reads it through `getStagedSessions`.
 - **Qualified by.** Parser checks against forms captured on a guest, from
-  `pm list staged-sessions`, `dumpsys package installs` and `vdc`. An inspection of
+  `pm list staged-sessions`, `dumpsys package installs`, `sm supports-checkpoint` and the checkpoint
+  helper. An inspection of
   `SessionParams.dump` in the pinned framework core sources, or the helper's readback instead.
   Output that matches no known form stays unknown, as the current parsers already require. Until
   D3 qualifies, a lost create reply stays UNRESOLVED on the shell route.
@@ -907,8 +916,8 @@ them. Under that:
   release capability. Neither step touches the sources, runners or pins that B1 freezes.
 - D2 signs existing frozen outputs. A new SystemUI build needs the build slot.
 - D3 can be written now, with the pinned framework core sources for `SessionParams.dump`. Its
-  referrer, dumpsys and `vdc` forms need guest captures, so it qualifies on the emulator while the
-  native account work does not need it.
+  referrer, dumpsys and checkpoint forms need guest captures, so it qualifies on the emulator while
+  the native account work does not need it.
 - D4's comparison can run on the host. Its fallback build, and everything from D5 onward, waits for
   the build slot or the emulator. If D4's comparison passes, D5 and D6 need only the emulator,
   except for D6's control with a higher factory version.
