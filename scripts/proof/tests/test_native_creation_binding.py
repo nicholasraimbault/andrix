@@ -250,7 +250,8 @@ class CreationBindingSourceTests(unittest.TestCase):
         self.assertEqual(runner.facade_default((ROOT / runner.FACADE).read_text()), runner.PRODUCTION)
 
     def test_rollback_copy_count_and_controls_are_predicted(self):
-        predictions = json.loads(runner.PREDICTIONS.read_text())['r0_format_guard']
+        # The living layouts' current predictions: the retirement layouts are the lifecycle emitter's.
+        predictions = json.loads(runner.PREDICTIONS.read_text())['p6_checkpoint_1c']
         seed_only = predictions['rollback_seed_only_layouts']
         self.assertEqual(predictions['rollback_copy_layouts'], runner.ROLLBACK_COPY_LAYOUTS)
         self.assertEqual(tuple(predictions['rollback_controls']), runner.ROLLBACK_CONTROLS)
@@ -280,7 +281,7 @@ class CreationBindingSourceTests(unittest.TestCase):
             self.assertEqual(runner.sha(runner.git_bytes(runner.REVISIONS['7845'], path)), digest, name)
         # The current sources under Format.V1 read the current layouts as a legacy guard. The models of
         # the 78456b3 rollback reader read the archived layouts from pinned objects.
-        self.assertEqual(runner.READERS, (('b1-v1', None, 'b1'),))
+        self.assertEqual(runner.READERS, (('b1-v1', None, None),))
         self.assertEqual(runner.LEGACY_ROLLBACK, ('b1-v1',))
         self.assertEqual(runner.ARCHIVED_READERS, (('24bf-v1', runner.ARCHIVE, 'b1'), ('c926', 'c926', 'baseline'),
                                                    ('7845', '7845', 'b1')))
@@ -299,9 +300,14 @@ class CreationBindingSourceTests(unittest.TestCase):
         self.assertEqual(labels['NativeRollbackReaderCheck'], everything)
         self.assertEqual(labels['NativeRollbackSeedingCheck'], everything)
         # Every Format.V1 read by the current sources is legacy: no living class is rollback-reader.
-        for name in ('NativeIdentityVersionGateTest', 'NativeIdentityFutureFormatTest'):
-            self.assertEqual(labels[name], {'legacy'}, name)
-        self.assertEqual(labels['NativePrincipalManagerTest'], {'legacy'})
+        # Their lifecycle entry points, their own runs under Format.V3, are new-format. The version
+        # gate's format refusal control under Format.V2, its own entry point, and the future format's
+        # Format.V2 refusal twins are production.
+        self.assertEqual(labels['NativeIdentityFutureFormatTest'], {'legacy', 'production', 'new-format'})
+        self.assertEqual(labels['NativeIdentityVersionGateTest'], {'legacy', 'production', 'new-format'})
+        self.assertEqual(labels['NativeIdentityPresenceTest'], {'legacy', 'production', 'new-format'})
+        # Its retirement refusals have Format.V2 twins over copies of the same version 1 states.
+        self.assertEqual(labels['NativePrincipalManagerTest'], {'legacy', 'production'})
         self.assertEqual(labels['NativeCreationBindingTest'], {'production', 'legacy'})
         self.assertEqual(labels['NativeCreationHistoryTest'], {'production', 'legacy'})
         for label, _, classes, _ in runner.HARNESS_LABELS:
@@ -326,13 +332,16 @@ class CreationBindingSourceTests(unittest.TestCase):
             self.assertIn('legacy', labels[name], name)
         self.assertEqual(runner.step_labels('b0 c926 focused'), ('archived-baseline',))
         self.assertEqual(runner.step_labels('b0 24bf faults'), ('archived-baseline',))
-        self.assertEqual(runner.step_labels('b0 b1-v1 faults'), ('legacy',))
-        self.assertEqual(runner.step_labels('b1 faults'), ('production',))
+        # The refusals' format twins: b0 b1-v1 refuses again under Format.V2, and b1 faults under
+        # Format.V1, on copies of the refused states.
+        self.assertEqual(runner.step_labels('current header faults'), ('legacy', 'production', 'new-format'))
+        self.assertEqual(runner.step_labels('b1 faults'), ('production', 'legacy', 'new-format'))
         # Every step a guarded run records carries labels of its kind: archived or living.
         steps = ['store classes', 'b1 focused', 'b1 faults', 'presence v2', 'readers', 'rollback',
                  'archived readers', 'archived rollback', 'mutants',
-                 *('b0 %s %s' % (leg, kind) for leg in ('c926', 'd104', '24bf', 'b1-v1')
-                   for kind in ('focused', 'faults'))]
+                 *('b0 %s %s' % (leg, kind) for leg in ('c926', 'd104', '24bf')
+                   for kind in ('focused', 'faults')),
+                 'current header focused', 'current header faults']
         for step in steps:
             archived = step.rsplit(' ', 1)[0] in runner.ARCHIVED_STEP_NAMES or step in runner.ARCHIVED_STEP_NAMES
             allowed = runner.ARCHIVED_RUN_LABELS if archived else runner.LIVING_RUN_LABELS
@@ -369,10 +378,15 @@ class CreationBindingSourceTests(unittest.TestCase):
             self.assertNotRegex(text, r'new PackageManagerService\([^()]*, (?:true|false)\)', path)
             self.assertIn('LEGACY = NativeIdentityStore.Format.V1;', text, path)
         support = (ROOT / runner.PLATFORM / 'NativeHeaderTestSupport.java').read_text()
-        self.assertNotIn('new PackageManagerService(', support)
-        b1_api = (ROOT / runner.PLATFORM / 'native_header_api/b1/NativeHeaderApi.java').read_text()
-        self.assertEqual(b1_api.count('NativeIdentityStore.Format.V1'), 2)
-        self.assertNotIn('Format.V2', runner.strip_java_comments(b1_api))
+        self.assertNotIn('NativeHeaderApi', support)
+        stripped = runner.strip_java_comments(support)
+        self.assertIn('new PackageManagerService(root, initialize, NativeIdentityStore.Format.V1)', stripped)
+        self.assertEqual(stripped.count('new PackageManagerService('), 2)  # V1 facade and earlier twin
+        self.assertIn('new NativeIdentityStore(root.toFile(), NativeIdentityStore.Format.V1)', stripped)
+        self.assertIn('new NativeIdentityPersistence.CreationPlan(snapshot, rows(snapshot))', stripped)
+        self.assertIn('format != NativeIdentityStore.Format.V1 && format != NativeIdentityStore.Format.V2', stripped)
+        with self.assertRaisesRegex(ValueError, 'direct APIs'):
+            runner.test_sources(['NativeHeaderTestSupport'], adapter='b1')
 
     def test_comment_stripping_keeps_literals(self):
         text = 'String a = "// not a comment /* either */"; // gone\nchar c = \'"\'; /* gone\n */ int b;'
@@ -399,7 +413,7 @@ class CreationBindingSourceTests(unittest.TestCase):
         self.assertEqual(set(d104['fault_failures']) | set(d104['fault_controls']),
                          set(runner.ARCHIVED_B0_FAULT_NAMES))
         self.assertEqual((len(runner.FOCUSED_NAMES), len(runner.FAULT_NAMES), len(runner.LAYOUT_NAMES)),
-                         (80, 53, 47))
+                         (80, 63, 38))
 
     def test_class_differences_compare_every_class_file(self):
         first, second = Path(tempfile.mkdtemp()), Path(tempfile.mkdtemp())
@@ -632,10 +646,11 @@ class ArchiveTests(unittest.TestCase):
         rollback = len(runner.ARCHIVED_LAYOUT_NAMES) + len(runner.ARCHIVED_ROLLBACK_CONTROLS) + 1
         self.assertEqual(predicted['archived_rollback'],
                          {target: rollback for target in runner.ARCHIVED_ROLLBACK_READERS})
-        self.assertEqual(predicted['living_readers'],
+        current = json.loads(runner.PREDICTIONS.read_text())['p6_checkpoint_1c']
+        self.assertEqual(current['living_readers'],
                          {target: len(runner.LAYOUT_NAMES) for target, _, _ in runner.READERS})
         living = len(runner.LAYOUT_NAMES) + len(runner.ROLLBACK_CONTROLS) + 1
-        self.assertEqual(predicted['living_rollback'], {target: living for target in runner.LEGACY_ROLLBACK})
+        self.assertEqual(current['living_rollback'], {target: living for target in runner.LEGACY_ROLLBACK})
         self.assertEqual(predicted['relabelled'],
                          {target: runner.READER_LABELS[target] for target, _, _ in runner.READERS})
         # A frozen list that the pinned predictions no longer state is refused.
@@ -731,7 +746,7 @@ class ArchiveTests(unittest.TestCase):
         # Every living function and constant a later package may change, and the B0 runner's code:
         # the archived steps run without them and record the same.
         living_code_broken(self, runner, ('build', 'execute', 'suite', 'outcome', 'with_seams', 'product_sources',
-                                          'store_sources', 'test_sources', 'b0_suite', 'b1_suite', 'r0_forward',
+                                          'store_sources', 'test_sources', 'current_header_suite', 'b1_suite', 'r0_forward',
                                           'copy_layouts', 'rollback_names', 'replace_once', 'strip_java_comments',
                                           'tool_environment'))
         living_code_broken(self, runner.b0, ('passed_checks', 'failed_checks', 'inject'))

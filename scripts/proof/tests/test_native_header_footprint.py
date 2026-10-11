@@ -2,8 +2,8 @@
 """Native header copy compatibility, unselected additions and protected reservation writes on
 the JVM with host facades and host injected write failures. Not Android crash or power loss proof.
 
-The suite runs against the current creation plan sources through the host only B1 NativeHeaderApi
-adapter, in the legacy version 1 format with an explicit signer row for every snapshot record. The
+The current suites use explicit store formats and CreationPlan directly, with one signer row for
+every snapshot record. There is no selectable historical API adapter in their compile set. The
 archived c9264e4 and d104e15 comparisons, with the baseline adapter, are in the guarded
 native_creation_binding runner."""
 from pathlib import Path
@@ -22,7 +22,6 @@ FRAMEWORK = ('NativePrincipalPins', 'NativePrincipalManager', 'NativeIdentityRec
              'NativeIdentityStore', 'NativeIdentityPersistence', 'NativePrincipalRecovery')
 STORE = ROOT / 'owner/platform/framework/NativeIdentityStore.java'
 FACADE = ROOT / 'owner/tests/platform/native_principal_stubs/com/android/server/pm/Settings.java'
-ADAPTER = ROOT / 'owner/tests/platform/native_header_api/b1/NativeHeaderApi.java'
 FOCUSED = 'NativeIdentityHeaderFootprintTest'
 FAULTS = 'NativeHeaderWriteFaultTest'
 STEPS = ('seed-synced', 'backup-renamed', 'backup-published', 'write-started', 'main-synced',
@@ -33,13 +32,13 @@ FOCUSED_NAMES = (
     'store repro / reservation refused before any effect',
     'store repro / direct header write refused', 'store repro / selected header rewrite refused',
     'initializeNew refused', 'ensureFreshSlot refused', 'resumeCreatingDirectory refused',
-    'publishCreatingSlot refused', 'confirmReleasedSlot cannot release an addition',
-    'removeReleasingSlot refused',
-    'CREATING to LIVE waits for reconciliation', 'LIVE to RELEASING waits for reconciliation',
-    'unrelated final omission waits for reconciliation', 'owned retirement header steps refused',
+    'publishCreatingSlot refused', 'V1 confirmReleasedSlot refused before any effect',
+    'V1 removeReleasingSlot refused before any effect',
+    'CREATING to LIVE waits for reconciliation', 'V1 LIVE to RELEASING refused before and after reconciliation',
+    'V1 final omission refused before and after reconciliation', 'V1 owned retirement refused before any effect',
     'exact original B retry', 'original plan with C id2', 'unpublished RETIRING B restated',
-    'interrupted CREATING to LIVE is compatible', 'interrupted LIVE to RELEASING is compatible',
-    'interrupted omission is compatible',
+    'interrupted CREATING to LIVE is compatible', 'V1 interrupted LIVE to RELEASING restores, and its retry refuses',
+    'V1 interrupted omission restores, and its retry refuses',
     'single intact main beside a torn reserve counts', 'single intact reserve beside a torn main counts',
     'disagreeing copies of one addition refuse', 'additions sharing a creation ID refuse',
     'B not substituted by another app ID', 'B not substituted by another creation ID',
@@ -59,16 +58,21 @@ FOCUSED_NAMES = (
     'incompatible copy / backward phase', 'incompatible copy / changed CREATING tuple',
     'incompatible copy / dropped LIVE entry', 'incompatible copy / skipped phase',
     'new entry in the observed range must be a known addition',
-    'restatement must cover every copy counter')
+    'restatement must cover every copy counter',
+    # The release header steps under the lifecycle format, through the release engine's primitives.
+    'V3 confirmReleasedSlot cannot release an addition', 'V3 removeReleasingSlot refused',
+    'V3 LIVE to RELEASING waits for reconciliation', 'V3 unrelated final omission waits for reconciliation',
+    'V3 interrupted LIVE to RELEASING is compatible', 'V3 interrupted omission is compatible')
 FAULT_NAMES = (
     'owned retry keeps B through a failure after startWrite',
     *('legacy owned retry / ' + step for step in STEPS),
     *('new reservation / ' + step for step in STEPS),
-    'prior ordering / publication', 'prior ordering / release marker', 'prior ordering / omission',
-    'prior ordering / confirmation', 'chained protected reservations',
+    'prior ordering / publication', 'V1 release marker refused before any step',
+    'V1 omission refused before any step', 'prior ordering / confirmation', 'chained protected reservations',
     'legacy B with C id2 / C first', 'legacy B with C id2 / B first', 'unpublished RETIRING B',
     'interrupted publication then protected reservation',
-    'foreign preferred backup is refused unchanged')
+    'foreign preferred backup is refused unchanged',
+    'V3 prior ordering / release marker', 'V3 prior ordering / omission')
 # Host only fault seam: anchor, position, indentation, step and record file expression. It is
 # inserted into copies of the store and strict writer sources; production sources never call it.
 STORE_SEAMS = (
@@ -123,18 +127,18 @@ def mutants():
              'new reservation / backup-published', 'chained protected reservations'}),
         'target-for-every-header-write': (
             replace_once(store, PROTECT, '!read.value.equals(next), true);'), facade, (FAULTS,),
-            {'prior ordering / publication', 'prior ordering / release marker', 'prior ordering / omission'}),
+            {'prior ordering / publication', 'V3 prior ordering / release marker', 'V3 prior ordering / omission'}),
         'lost-conservation-fence': (
             replace_once(replace_once(store, WRITER_FENCE, ') {'), CONFIRM_FENCE, ') return false;'),
             facade, (FOCUSED,),
             {'store repro / direct header write refused', 'store repro / selected header rewrite refused',
              'initializeNew refused', 'CREATING to LIVE waits for reconciliation',
-             'unrelated final omission waits for reconciliation'}),
+             'V3 unrelated final omission waits for reconciliation'}),
         'confirmation-unfenced': (
             replace_once(store, CONFIRM_FENCE, ') return false;'), facade, (FOCUSED,),
             {'initializeNew refused', 'ensureFreshSlot refused', 'resumeCreatingDirectory refused',
-             'publishCreatingSlot refused', 'confirmReleasedSlot cannot release an addition',
-             'removeReleasingSlot refused'}),
+             'publishCreatingSlot refused', 'V3 confirmReleasedSlot cannot release an addition',
+             'V3 removeReleasingSlot refused'}),
         'missing-predecessor-acceptance': (
             replace_once(store, ': copy.lastId < selected.lastId ? behind : true;',
                          ': copy.lastId < selected.lastId ? false : true;'), facade, (FOCUSED, FAULTS),
@@ -179,7 +183,8 @@ def mutants():
                                 '                    HeaderEntry known',
                          'if (entry.equals(headerEntry(selected, entry.appId))) continue;\n'
                          '                    HeaderEntry known'), facade, (FOCUSED,),
-            {'interrupted CREATING to LIVE is compatible', 'interrupted LIVE to RELEASING is compatible'}),
+            {'interrupted CREATING to LIVE is compatible',
+             'V1 interrupted LIVE to RELEASING restores, and its retry refuses'}),
     }
 
 
@@ -218,7 +223,7 @@ def build(work, test, store_text, facade_text, framework=None):
                 stubs[relative] = path
     files += list(stubs.values())
     tests = ['NativeHeaderTestSupport', test] + (['NativeHeaderWriteFaults'] if faults else [])
-    files += [ROOT / 'owner/tests/platform' / (name + '.java') for name in tests] + [ADAPTER]
+    files += [ROOT / 'owner/tests/platform' / (name + '.java') for name in tests]
     classes = work / 'classes'
     classes.mkdir()
     return subprocess.run(['javac', '-J-Xmx256m', '--release', '17', '-Xlint:all', '-Werror',
@@ -250,7 +255,7 @@ class NativeHeaderFootprintTests(unittest.TestCase):
         for mode, (_, _, tests, expected) in mutations.items():
             names = set(FOCUSED_NAMES if FOCUSED in tests else ()) | set(FAULT_NAMES if FAULTS in tests else ())
             self.assertTrue(expected and expected <= names, mode)
-        self.assertEqual((len(set(FOCUSED_NAMES)), len(set(FAULT_NAMES))), (53, 27))
+        self.assertEqual((len(set(FOCUSED_NAMES)), len(set(FAULT_NAMES))), (59, 29))
         seen, overlaps = set(), set()
         for directory in ('native_principal_stubs', 'native_principal_xml_stubs'):
             base = ROOT / 'owner/tests/platform' / directory

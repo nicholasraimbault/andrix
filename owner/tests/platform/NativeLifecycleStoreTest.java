@@ -86,6 +86,41 @@ public final class NativeLifecycleStoreTest {
                 + stored(root, V3));
     }
 
+    private static void creationCases() {
+        run("V3 / generic creation writes only ordinary eligible identities under every format", problems -> {
+            for (Format format : Format.values()) {
+                Header empty = format == Format.V1 ? new Header(LINEAGE, 0, List.of())
+                        : Header.newV2(LINEAGE, 0, List.of());
+                NativeIdentityRecords.HeaderEntry entry = format == Format.V1
+                        ? new NativeIdentityRecords.HeaderEntry(A, NativeIdentityRecords.SlotPhase.CREATING,
+                                ID_A, PKG_A)
+                        : new NativeIdentityRecords.HeaderEntry(A, NativeIdentityRecords.SlotPhase.CREATING,
+                                ID_A, PKG_A, new NativeIdentityRecords.CreationBinding(0, SERIAL, SIGNERS));
+                Header creating = format == Format.V1 ? new Header(LINEAGE, ID_A, List.of(entry))
+                        : Header.newV2(LINEAGE, ID_A, List.of(entry));
+                Path root = store(empty);
+                NativeIdentityStore api = open(root, format);
+                check(problems, api.writeHeader(empty, creating) && api.ensureFreshSlot(creating, A),
+                        format + ": healthy reservation refused");
+                Slot marker = new Slot(LINEAGE, A, PKG_A, 1, SIGNERS,
+                        List.of(new UserEntry(ID_A, 0, SERIAL, true)));
+                unchanged(problems, root, format + ": new legacy marker",
+                        () -> api.publishCreatingSlot(creating, marker));
+                unchanged(problems, root, format + ": empty creation",
+                        () -> api.publishCreatingSlot(creating,
+                                new Slot(LINEAGE, A, PKG_A, 1, SIGNERS, List.of())));
+                unchanged(problems, root, format + ": new suspension",
+                        () -> api.publishCreatingSlot(creating, slotA(1, eligible(byUser(SuspensionReason.USER_PAUSED)))));
+                unchanged(problems, root, format + ": new retirement",
+                        () -> api.publishCreatingSlot(creating, slotA(1, retiring(byUserRetirement()))));
+                Slot ordinary = new Slot(LINEAGE, A, PKG_A, 1, SIGNERS,
+                        List.of(new UserEntry(ID_A, 0, SERIAL, false)));
+                check(problems, api.publishCreatingSlot(creating, ordinary), format + ": ordinary creation refused");
+                check(problems, ordinary.equals(api.load().slots.get(A).value), format + ": ordinary body changed");
+            }
+        });
+    }
+
     // ------------------------------------------------------------------ suspend
 
     private static void suspendCases() {
@@ -554,7 +589,30 @@ public final class NativeLifecycleStoreTest {
                 Path damagedA = damaged(torn(ELIGIBLE), torn(ELIGIBLE), null);
                 unchanged(problems, damagedA, "restore of a damaged record", () -> open(damagedA, format).restoreSlot(
                         header(ID_A, live(A)), accountA(), RECOVERY));
-                // The release primitives: a version 1 tombstone keeps the version 1 release's own path.
+                // The version 1 marker and its release, which the earlier formats took before: the
+                // retiring flag, the user drop, the RELEASING and omission header writes, the removal
+                // and the released confirmation. Each is a lifecycle write, refused before any effect.
+                Slot unticketed = new Slot(LINEAGE, A, PKG_A, 2, SIGNERS, List.of());
+                Path marker = layout(ELIGIBLE);
+                unchanged(problems, marker, "the version 1 marker", () -> open(marker, format).updateExistingSlot(
+                        ELIGIBLE, new Slot(LINEAGE, A, PKG_A, 2, SIGNERS, LEGACY.users)));
+                Path marked = layout(LEGACY);
+                unchanged(problems, marked, "the version 1 user drop", () -> open(marked, format).updateExistingSlot(
+                        LEGACY, unticketed));
+                Path dropped = layout(unticketed);
+                unchanged(problems, dropped, "the version 1 RELEASING write", () -> open(dropped, format).writeHeader(
+                        header(ID_A, live(A)), header(ID_A, releasingEntry(A))));
+                Path removing = store(header(ID_A, releasingEntry(A)));
+                slot(removing, unticketed);
+                unchanged(problems, removing, "the version 1 removal", () -> open(removing, format).removeReleasingSlot(
+                        header(ID_A, releasingEntry(A)), A));
+                Path omitting = store(header(ID_A, releasingEntry(A)));
+                unchanged(problems, omitting, "the version 1 omission", () -> open(omitting, format).writeHeader(
+                        header(ID_A, releasingEntry(A)), header(ID_A)));
+                Path omitted = store(header(ID_A));
+                unchanged(problems, omitted, "the version 1 released confirmation", () -> open(omitted, format)
+                        .confirmReleasedSlot(header(ID_A), A));
+                // The release engine's primitives.
                 Path ready = layout(releasableA());
                 unchanged(problems, ready, "the user drop", () -> open(ready, format).dropReleasedUser(releasableA(),
                         ID_A, TICKET_A));
@@ -948,6 +1006,7 @@ public final class NativeLifecycleStoreTest {
     public static void main(String[] args) throws Exception {
         if (!NativeLifecycleStoreTest.class.desiredAssertionStatus()) throw new AssertionError("run with java -ea");
         start(Path.of(args[0]).resolve("lifecycle-store"));
+        creationCases();
         suspendCases();
         liftCases();
         retireCases();

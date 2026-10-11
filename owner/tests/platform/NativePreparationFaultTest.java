@@ -34,24 +34,7 @@ public final class NativePreparationFaultTest {
             var c = pins.prepare(proposal, issuance);
             assert c.record().id == 3 && c.issuance() == issuance;
         }
-        for (int point = 1; point <= 12; point++) {
-            NativePreparationFaults.reset(0);
-            NativePrincipalPins pins = new NativePrincipalPins(4);
-            var a = NativePinTestSupport.prepare(pins, A, 11000, 0, 7);
-            var b = NativePinTestSupport.prepare(pins, B, 11001, 0, 7);
-            pins.beginRetire(a);
-            var before = pins.snapshotForWrite();
-            NativePreparationFaults.reset(point);
-            allocationFailure(() -> pins.finishRetire(a));
-            NativePreparationFaults.reset(0);
-            assert pins.snapshotForWrite().equals(before);
-            assert pins.find(A, 0) == a && pins.find(B, 0) == b;
-            assert a.phase() == NativePrincipalPins.Phase.RETIRING;
-            assert pins.reservedAppIds().equals(Set.of(11000, 11001));
-            pins.finishRetire(a);
-            assert a.phase() == NativePrincipalPins.Phase.RETIRED && pins.find(A, 0) == null;
-        }
-        // The release's end of a pin shares that one index copy, and keeps the same state on failure.
+        // The release end of a pin keeps the index and held state unchanged on a failed copy.
         for (int point = 1; point <= 12; point++) {
             NativePreparationFaults.reset(0);
             NativePrincipalPins pins = new NativePrincipalPins(4);
@@ -67,7 +50,7 @@ public final class NativePreparationFaultTest {
             assert a.phase() == NativePrincipalPins.Phase.RETIRING;
             assert pins.reservedAppIds().equals(Set.of(11000, 11001));
             pins.finishRelease(a);
-            assert a.phase() == NativePrincipalPins.Phase.RETIRED && pins.find(A, 0) == null;
+            assert a.phase() == NativePrincipalPins.Phase.RELEASED && pins.find(A, 0) == null;
         }
     }
     private static void issuedBeforeHandle() {

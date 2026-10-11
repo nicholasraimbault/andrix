@@ -215,9 +215,9 @@ public final class NativeCreationBindingFaultTest {
                 check(problems, (target ? all : OLD).equals(selected), step + ": selected " + selected);
                 holdsSurvive(problems, root, target ? Set.of(A, B, C) : Set.of(), target ? 3 : 0, step);
                 check(problems, manager.commit(a) && manager.commit(b), step + ": pending retries refused");
-                check(problems, manager.beginRetirement(c) && manager.finishRetirementAfterQuiescence(c),
-                        step + ": the RETIRING creation did not retire");
-                check(problems, v2(3, live(A), live(B)).equals(storedOf(root, V2))
+                // Its retirement refuses under the version 2 format before any effect: C stays reserved.
+                check(problems, retirementRefused(root, manager, c), step + ": the RETIRING creation's retirement");
+                check(problems, v2(3, live(A), live(B), boundCreating(C, 3, PKG_C)).equals(storedOf(root, V2))
                         && pm.mSettings.pins.snapshotForWrite().lastId == 3,
                         step + ": result " + storedOf(root, V2));
             });
@@ -228,24 +228,46 @@ public final class NativeCreationBindingFaultTest {
     // their version, until the final step.
     private static void priorOrdering(String name, Header prior, Header next, int appId, Slot body,
             Transition write) {
-        fault("version 2 prior ordering / " + name, problems -> {
+        priorOrdering(V2, "version 2 prior ordering / " + name, prior, next, appId, body, write);
+    }
+
+    private static void priorOrdering(NativeIdentityStore.Format format, String name, Header prior, Header next,
+            int appId, Slot body, Transition write) {
+        fault(name, problems -> {
             for (String step : STEPS) {
                 Path root = layout(null, bytes(prior), bytes(prior));
                 if (body != null) slot(root, appId, body);
-                NativeIdentityStore store = storeOf(root, V2);
+                NativeIdentityStore store = storeOf(root, format);
                 NativeHeaderWriteFaults.arm(step, HEADER);
                 check(problems, !write.run(store) && NativeHeaderWriteFaults.reached(),
                         step + ": no injected failure");
                 NativeHeaderWriteFaults.disarm();
                 boolean last = step.equals("backup-unlinked");
-                Header selected = storedOf(root, V2);
+                Header selected = storedOf(root, format);
                 check(problems, (last ? next : prior).equals(selected) && selected.version == 2,
                         step + ": selected " + selected);
                 if (targetStep(step) && !last) {
                     check(problems, holds(root, "store.bin-backup", prior), step + ": backup is not the prior");
                 }
-                check(problems, write.run(store) && next.equals(storedOf(root, V2)),
+                check(problems, write.run(store) && next.equals(storedOf(root, format)),
                         step + ": retry refused");
+            }
+        });
+    }
+
+    // Under version 2 the release header steps are lifecycle writes: armed at any step, each
+    // refuses before it reaches one, with the store unchanged.
+    private static void refusedBeforeAnyStep(String name, Header prior, int appId, Slot body, Transition write) {
+        fault("version 2 " + name + " refused before any step", problems -> {
+            for (String step : STEPS) {
+                Path root = layout(null, bytes(prior), bytes(prior));
+                if (body != null) slot(root, appId, body);
+                NativeIdentityStore store = storeOf(root, V2);
+                NativeHeaderWriteFaults.arm(step, HEADER);
+                unchanged(problems, root, step + ": " + name, () -> write.run(store));
+                check(problems, !NativeHeaderWriteFaults.reached(), step + ": a write step was reached");
+                NativeHeaderWriteFaults.disarm();
+                check(problems, prior.equals(storedOf(root, V2)), step + ": selected " + storedOf(root, V2));
             }
         });
     }
@@ -256,12 +278,67 @@ public final class NativeCreationBindingFaultTest {
         Header releasingA = v2(1, releasing(A));
         priorOrdering("publication", creatingA, liveA, A, bound(A, PKG_A, 1, false, 1),
                 store -> store.writeHeader(creatingA, liveA));
-        priorOrdering("release marker", liveA, releasingA, A, tombstone(A, PKG_A, 2),
+        refusedBeforeAnyStep("release marker", liveA, A, tombstone(A, PKG_A, 2),
                 store -> store.writeHeader(liveA, releasingA));
-        priorOrdering("omission", releasingA, v2(1), A, null,
-                store -> store.writeHeader(releasingA, v2(1)));
+        refusedBeforeAnyStep("omission", releasingA, A, null, store -> store.writeHeader(releasingA, v2(1)));
         priorOrdering("confirmation", creatingA, creatingA, A, null,
                 store -> store.ensureFreshSlot(creatingA, A));
+        // The release marker and omission under the lifecycle format, through the release engine's
+        // primitives, keep the same prior and version until the final step.
+        NativeIdentityStore.Format lifecycle = NativeIdentityStore.Format.V3;
+        priorOrdering(lifecycle, "V3 prior ordering / release marker", liveA, releasingA, A,
+                ticketed(A, PKG_A, 1, 2), store -> store.markSlotReleasing(liveA, A));
+        priorOrdering(lifecycle, "V3 prior ordering / omission", releasingA, v2(1), A, null,
+                store -> store.omitReleasedSlot(releasingA, A));
+    }
+
+    // The account user's retirement block with every kind outstanding, as the lifecycle writers write it.
+    private static NativeIdentityRecords.Retirement retirementBlock() {
+        List<NativeIdentityRecords.Obligation> outstanding = new java.util.ArrayList<>();
+        for (NativeIdentityRecords.ObligationKind kind : NativeIdentityRecords.ObligationKind.values()) {
+            outstanding.add(new NativeIdentityRecords.Obligation(kind,
+                    NativeIdentityRecords.ObligationState.OUTSTANDING, NativeIdentityRecords.NO_REFERENCE, 0, 0));
+        }
+        return new NativeIdentityRecords.Retirement(NativeIdentityRecords.ActorClass.ACCOUNT_USER, 0, SERIAL,
+                NativeIdentityRecords.NO_REFERENCE, 1_700_000_000_100L, outstanding);
+    }
+
+    // The lifecycle retirement of an unpublished creation publishes its body first. Failed at each
+    // writer step of that body's write, it keeps the hold and the RETIRING pin, and a retry of the same
+    // handle publishes the body and writes the retirement block.
+    private static void lifecycleRetirementPublication() {
+        NativeIdentityStore.Format lifecycle = NativeIdentityStore.Format.V3;
+        for (String step : STEPS) {
+            fault("V3 retirement publication / " + step, problems -> {
+                PackageManagerService pm = livePmOf(lifecycle);
+                Path root = pm.mSettings.root;
+                NativePrincipalManager manager = new NativePrincipalManager(pm);
+                NativePrincipalManager.Handle a = manager.prepare(manager.select(PKG_A, 0));
+                NativeHeaderWriteFaults.arm(step, "record.bin");
+                check(problems, !manager.beginRetirement(a, retirementBlock()) && NativeHeaderWriteFaults.reached()
+                        && manager.phase(a) == NativePrincipalPins.Phase.RETIRING,
+                        step + ": no interrupted retirement");
+                NativeHeaderWriteFaults.disarm();
+                check(problems, loadedOf(root, lifecycle).occupiedAppIds.contains(A)
+                        && pm.mSettings.isNativePrincipalAppIdLPr(A), step + ": the hold was lost");
+                // Only once the complete body is the preferred backup does a reopened registry read
+                // it. Either way it restores the creation PENDING: no block is durable yet.
+                NativeIdentityStore.Source source = step.equals("seed-synced") ? NativeIdentityStore.Source.RESERVATION
+                        : NativeIdentityStore.Source.BODY;
+                NativeIdentityStore.History history = loadedOf(root, lifecycle).history(A);
+                check(problems, history != null && history.source == source && !history.retiring,
+                        step + ": history " + (history == null ? null : history.source));
+                PackageManagerService reopened = reopenOf(root, lifecycle, Map.of());
+                NativePrincipalPins.Pin pin = reopened.mSettings.pins.find(PKG_A, 0);
+                check(problems, pin != null && pin.phase() == NativePrincipalPins.Phase.PENDING
+                        && reopened.mSettings.isNativePrincipalAppIdLPr(A), step + ": reopened " + pin);
+                check(problems, manager.beginRetirement(a, retirementBlock()), step + ": the retry was refused");
+                NativeIdentityStore.ReadResult<Slot> read = loadedOf(root, lifecycle).slots.get(A);
+                check(problems, read != null && read.status == Status.VALID
+                        && read.value.users.get(0).lifecycle.state == NativeIdentityRecords.LifecycleState.RETIRING,
+                        step + ": not retiring " + (read == null ? null : read.value));
+            });
+        }
     }
 
     // A publication an older step left forward, then a protected upgrade beside it.
@@ -301,6 +378,7 @@ public final class NativeCreationBindingFaultTest {
         restatementThenUpgrade();
         pendingAndRetiring();
         priorOrderings();
+        lifecycleRetirementPublication();
         interruptedPublication();
         finish(Os.allClosed());
         System.out.println("Every destructive header step kept every hold and version under host"

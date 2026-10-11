@@ -153,7 +153,7 @@
     ],
     "withphase-downgrade": [
       "V2 / an owned flow writes the golden version 2 bytes",
-      "V2 / publication, marker, release and a later reservation keep version 2",
+      "V2 / publication and a later reservation keep version 2, and the marker refuses",
       "fresh upgrade / seed-synced"
     ],
     "new-incomplete-under-v2": [
@@ -382,33 +382,91 @@
     "plan": "plans/2026-10-02-native-store-v2-normal.md",
     "superseded": "b1_guard_mutants above names the earlier guard's mutants, kept as they were. This guard requires one anchored Format.V2 boot construction instead.",
     "mutant_rules": {
-      "regression-to-v1": ["format", "v1"],
-      "second-construction": ["sites"],
-      "framework-construction": ["sites"],
-      "other-file-section": ["sites"],
-      "value-and-property-selection": ["format", "selector"],
-      "reflective-field-write": ["selector"],
-      "enumset-complement": ["selector"],
-      "enum-version-swap": ["enum"],
-      "construction-outside-boot": ["sites"],
-      "qualified-construction": ["sites"],
-      "constructor-reference": ["sites"],
-      "qualified-constructor-reference": ["sites"],
-      "declaring-class-field": ["selector"],
-      "unicode-escape": ["escape"],
-      "format-alone": ["format"],
-      "v1-alone": ["v1"],
-      "mention-alone": ["mention"],
-      "non-native-unicode-escape": ["escape"],
-      "one-token-v1-patch-beside-native": ["mention", "v1"],
-      "one-token-v1-patch-other-directory": ["mention", "v1"]
+      "regression-to-v1": [
+        "format",
+        "v1"
+      ],
+      "second-construction": [
+        "sites"
+      ],
+      "framework-construction": [
+        "sites"
+      ],
+      "other-file-section": [
+        "sites"
+      ],
+      "value-and-property-selection": [
+        "format",
+        "selector"
+      ],
+      "reflective-field-write": [
+        "selector"
+      ],
+      "enumset-complement": [
+        "selector"
+      ],
+      "enum-version-swap": [
+        "enum"
+      ],
+      "construction-outside-boot": [
+        "sites"
+      ],
+      "qualified-construction": [
+        "sites"
+      ],
+      "constructor-reference": [
+        "sites"
+      ],
+      "qualified-constructor-reference": [
+        "sites"
+      ],
+      "declaring-class-field": [
+        "selector"
+      ],
+      "unicode-escape": [
+        "escape"
+      ],
+      "format-alone": [
+        "format"
+      ],
+      "v1-alone": [
+        "v1"
+      ],
+      "mention-alone": [
+        "mention"
+      ],
+      "non-native-unicode-escape": [
+        "escape"
+      ],
+      "one-token-v1-patch-beside-native": [
+        "mention",
+        "v1"
+      ],
+      "one-token-v1-patch-other-directory": [
+        "mention",
+        "v1"
+      ]
     },
-    "reader_layouts": {"b1-v1": 47, "c926": 47, "7845": 47},
-    "rollback_reader_layouts": {"b1-v1": 47, "7845": 47},
+    "reader_layouts": {
+      "b1-v1": 47,
+      "c926": 47,
+      "7845": 47
+    },
+    "rollback_reader_layouts": {
+      "b1-v1": 47,
+      "7845": 47
+    },
     "rollback_copy_layouts": 43,
-    "rollback_seed_only_layouts": ["fresh-upgrade-seed-synced", "legacy-b-bound-c-seed-synced",
-                                   "pending-retiring-seed-synced", "restated-then-upgraded-seed-synced"],
-    "rollback_controls": ["final-published", "final-reserved"],
+    "rollback_seed_only_layouts": [
+      "fresh-upgrade-seed-synced",
+      "legacy-b-bound-c-seed-synced",
+      "pending-retiring-seed-synced",
+      "restated-then-upgraded-seed-synced"
+    ],
+    "rollback_controls": [
+      "final-published",
+      "final-reserved"
+    ],
     "rollback_control_basis": "Under Format.V2 the published body is BODY history and the bound reservation without a body is RESERVATION history. Both restore a PENDING pin, and the facade's scan admits the mapped package with its recorded signer and serial.",
     "store_class_differences_from_7845": [],
     "unchanged_expectations": "Every earlier B0, B1 and reader expectation stays: the shared support routes the reopened and live facades through the B1 adapter, which keeps them Format.V1, and the manager and writer suites construct Format.V1 explicitly."
@@ -420,19 +478,47 @@
     "rule": "Every archived leg reads only pinned Git objects through the manifest of native_creation_binding.py, assembled with the working tree closed. It runs only archive code: the 24bfb6a helpers it copies, which tests compare with their Git objects, and the archive's own loader, assemblies, phases and checks. It compiles and runs its JVMs in its own work directory without an inherited class path, and is checked against frozen expectations and the pinned 24bfb6a predictions. The source checks refuse any archive function or archive data that uses a living name. So living code and the current sources do not change its inputs or results; only an edit of the archive itself does.",
     "store_class_differences_24bf_7845": [],
     "b0": {
-      "cases": {"focused": 53, "faults": 27},
-      "c926": {"focused_failures": 0, "fault_failures": 0},
-      "d104": {"focused_failures": 41, "fault_failures": 18},
-      "24bf": {"focused_failures": 0, "fault_failures": 0}
+      "cases": {
+        "focused": 53,
+        "faults": 27
+      },
+      "c926": {
+        "focused_failures": 0,
+        "fault_failures": 0
+      },
+      "d104": {
+        "focused_failures": 41,
+        "fault_failures": 18
+      },
+      "24bf": {
+        "focused_failures": 0,
+        "fault_failures": 0
+      }
     },
     "archived_layouts": 47,
     "archived_copy_layouts": 43,
-    "archived_rollback_controls": ["final-published", "final-reserved"],
-    "archived_readers": {"24bf-v1": 47, "c926": 47, "7845": 47},
-    "archived_rollback": {"24bf-v1": 50, "7845": 50},
-    "living_readers": {"b1-v1": 47},
-    "living_rollback": {"b1-v1": 50},
-    "relabelled": {"b1-v1": "legacy"},
+    "archived_rollback_controls": [
+      "final-published",
+      "final-reserved"
+    ],
+    "archived_readers": {
+      "24bf-v1": 47,
+      "c926": 47,
+      "7845": 47
+    },
+    "archived_rollback": {
+      "24bf-v1": 50,
+      "7845": 50
+    },
+    "living_readers": {
+      "b1-v1": 47
+    },
+    "living_rollback": {
+      "b1-v1": 50
+    },
+    "relabelled": {
+      "b1-v1": "legacy"
+    },
     "labels": "Living runs carry production or legacy, archived runs rollback-reader or archived-baseline. Every Format.V1 read by the current sources is legacy: the version gate and future format tests, the last manager case, the b1-v1 reader and its rollback check, and the V1 reader cases of b1 focused and its mutants. In this runner rollback-reader labels only the pinned 24bf-v1 and 7845 readers and their rollback checks; the history and counter admission runners also give it to the Format.V1 runs of the archived 24bfb6a parity side.",
     "unchanged_living": "b0 b1-v1 passes 53 and 27; b1 focused passes 80 and b1 faults 53; presence v2 passes 93; the current emitter writes 47 layouts, 43 with a version 2 copy; 21 B1 mutants are caught and 20 guard mutants trip exactly their rules."
   },
@@ -441,10 +527,102 @@
     "plan": "plans/2026-10-08-native-lifecycle-record.md",
     "format_enum": "The store Format enum becomes V1(1, 1, 1), V2(2, 2, 1) and V3(2, 2, 2): header ceiling, reservation version and slot ceiling. Production still constructs Format.V2 at the one boot read.",
     "new_rule": "v3: no production text names Format.V3, the lifecycle format that B1 builds but does not ship.",
-    "mutant_rules": {"slot-ceiling-raise": ["enum"], "promotion-to-v3": ["format", "v3"], "v3-alone": ["v3"]},
-    "changed_mutants": {"enum-version-swap": "Its anchors follow the constants V1(1, 1, 1) and V2(2, 2, 1). It still trips exactly enum."},
-    "guard_mutants": {"before": 20, "after": 23},
+    "mutant_rules": {
+      "slot-ceiling-raise": [
+        "enum"
+      ],
+      "promotion-to-v3": [
+        "format",
+        "v3"
+      ],
+      "v3-alone": [
+        "v3"
+      ]
+    },
+    "changed_mutants": {
+      "enum-version-swap": "Its anchors follow the constants V1(1, 1, 1) and V2(2, 2, 1). It still trips exactly enum."
+    },
+    "guard_mutants": {
+      "before": 20,
+      "after": 23
+    },
     "labels": "A new-format run label names the Format.V3 cases of the lifecycle record runner, which are not production in B1. The future format test row now also names the stable prefix evidence of slot frames above version 2.",
     "unchanged_living": "b0 b1-v1 passes 53 and 27; b1 focused passes 80 and b1 faults 53; presence v2 passes 93; the current emitter writes 47 layouts, 43 with a version 2 copy; the b1-v1 reader reads 47 and its rollback check passes 50; 21 B1 mutants are caught, none of whose anchors moved. No living case writes a version 2 slot, and every relabeled version 1 body these suites write as a version 2 slot frame fails the version 2 decoder, so their reads are unchanged."
+  },
+  "p6_checkpoint_1c": {
+    "status": "PREDICTED. The binding emitter no longer writes the retirement layouts, a reservation beside a RETIRING pin and the released account, which the lifecycle emitter writes as moved-pending-retiring-<step> and moved-final-released through the lifecycle record's retirement and release. Development runs came before this prediction and are recorded in the notes.",
+    "living_readers": {
+      "b1-v1": 38
+    },
+    "living_rollback": {
+      "b1-v1": 41
+    },
+    "rollback_copy_layouts": 35,
+    "rollback_seed_only_layouts": [
+      "fresh-upgrade-seed-synced",
+      "legacy-b-bound-c-seed-synced",
+      "restated-then-upgraded-seed-synced"
+    ],
+    "rollback_controls": [
+      "final-published",
+      "final-reserved"
+    ],
+    "unchanged_living": "b0 b1-v1 passes 59 and 29; b1 focused passes 80 and b1 faults 63; presence v2 and v3 pass 93; the archived legs keep their pinned 47 layouts, 43 with a version 2 copy."
+  },
+  "p6_checkpoint_1d": {
+    "status": "PREDICTED. The store refuses every lifecycle write under Format.V1 and V2. Development runs came before this prediction and are recorded in the notes.",
+    "presence": {
+      "v2": 94,
+      "v3": 93,
+      "v1_in_the_store_module": 94
+    },
+    "presence_refusal_rows": "Under Format.V1 and V2 each run prints the nine refusal rows after its format: the three release rows and the retiring flag on their healthy layouts, and the five release flows that Format.V3 takes. A Format.V3 run prints none.",
+    "b1": {
+      "focused": 80,
+      "faults": 63,
+      "renamed": {
+        "version 2 prior ordering / release marker": "version 2 release marker refused before any step",
+        "version 2 prior ordering / omission": "version 2 omission refused before any step"
+      }
+    },
+    "b0": {
+      "focused": 59,
+      "faults": 29
+    },
+    "labels": "The version gate's Format.V2 entry point, run by the store module, carries the production label; its Format.V1 main stays legacy and its Format.V3 entry point new-format.",
+    "unchanged_living": "The current emitter writes 38 layouts, 35 with a version 2 copy; the b1-v1 reader reads 38 and its rollback check passes 41; every B1 mutant is caught at least as predicted; the archived legs are unchanged."
+  },
+  "p6_checkpoint_1e": {
+    "status": "PREDICTED. Each retirement refusal of b1 focused, b1 faults and b0 b1-v1 refuses the same account again under Format.V1 and Format.V2 on a copy of the refused state, and each store level refusal of b0 b1-v1 again under Format.V2. Development runs came before this prediction and are recorded in the notes.",
+    "steps": {
+      "b0 b1-v1": [
+        "legacy",
+        "production",
+        "new-format"
+      ],
+      "b1 faults": [
+        "production",
+        "legacy",
+        "new-format"
+      ]
+    },
+    "counts": "Unchanged: b0 59 and 29, b1 focused 80, b1 faults 63, presence v2 94 and v3 93, living layouts 38 with 35 copies, reader 38, rollback 41."
+  },
+  "p6_checkpoint_2": {
+    "status": "PREDICTED. The living B0 leg is retired after porting: current header focused and current header faults run the full suites on direct current APIs, with explicit formats and creation plans and no adapter in any living compile set. Development runs came before this prediction and are recorded in the notes.",
+    "living": "current header focused passes 59 and current header faults 29; b1 focused 80 and b1 faults 63; presence v2 94 and v3 93; the current emitter writes 38 layouts, 35 with a version 2 copy; the b1-v1 reader reads 38 and its rollback check passes 41; every regression module exits 0, and the 12 header mutants are caught at least as predicted.",
+    "archived": "Unchanged: c926 original and adapted pass 53 and 27, d104 fails 41 and 18 as predicted, 24bf adapted passes 53 and 27, all over pinned Git objects.",
+    "steps": {
+      "current header": [
+        "legacy",
+        "production",
+        "new-format"
+      ],
+      "b1 faults": [
+        "production",
+        "legacy",
+        "new-format"
+      ]
+    }
   }
 }

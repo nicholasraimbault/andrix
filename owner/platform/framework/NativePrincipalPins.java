@@ -36,8 +36,8 @@ import java.util.TreeSet;
  * <p>{@link #prepare} pins immediately in {@link Phase#PENDING}. ACTIVE only means a
  * durably reserved identity that may be considered by the real admission authority.
  * RETIRING closes that possibility and is persisted, never silently restored as
- * PENDING. Every held pin remains in {@link #snapshotForWrite}. Only an exact
- * {@link #snapshotWithout} candidate can omit one retiring pin after quiescence.
+ * PENDING. Every held pin remains in {@link #snapshotForWrite}. Only the gated release engine's
+ * durable omission permits the package private finishRelease to end one pin.
  * This is reservation metadata, not installed state or a live execution grant.
  *
  * <p>Caller obligations, which this class cannot check:
@@ -47,8 +47,8 @@ import java.util.TreeSet;
  *     Package Manager/user identity has been revalidated.
  * <li>Begin retirement, durably publish its marker, and only then begin account
  *     removal/quiescence. An uncertain marker write has not authorized removal.
- * <li>After work, manager, API and data obligations are authoritatively retired,
- *     durably write the target-specific omission and call finishRetire.
+ * <li>Retirement itself ends no pin. After the disposition duties are discharged in a later boot,
+ *     the release engine durably omits only that account and the manager calls finishRelease.
  * </ol>
  * Lost writes/replies retain the exact pin. No GC, death, timeout or label releases
  * a reservation. One instance holds one lineage. Repairing a lost counter requires
@@ -76,7 +76,7 @@ public final class NativePrincipalPins {
         /** Irrevocably leaving, still held and persisted until confirmed removal. */
         RETIRING,
         /** Terminal metadata on a stale handle; no longer indexed or reserved. */
-        RETIRED
+        RELEASED
     }
 
     /** Immutable binding as persisted. The constructor validates every field. */
@@ -172,8 +172,8 @@ public final class NativePrincipalPins {
 
     /**
      * Opaque handle owned by one instance. Phase changes accept only this exact current object,
-     * never an ID, an equal record or a handle from another instance. After finishRetire the
-     * handle is stale and reports RETIRED; findId no longer returns it.
+     * never an ID, an equal record or a handle from another instance. After finishRelease the
+     * handle is stale and reports RELEASED; findId no longer returns it.
      */
     public static final class Pin {
         private final NativePrincipalPins owner;
@@ -328,7 +328,7 @@ public final class NativePrincipalPins {
         if (index.ids.containsKey(record.id)) {
             throw new IllegalStateException("Existing native binding requires an exact retry");
         }
-        Snapshot current = snapshotExcept(null);
+        Snapshot current = heldSnapshot();
         List<Record> records = new ArrayList<>(current.records);
         records.add(record); // The core's next ID, never a maximum reconstructed from records.
         return new Preparation(this, preparationEpoch, record,
@@ -432,26 +432,15 @@ public final class NativePrincipalPins {
      * counter is unknown; callers must not serialize a guessed allocation floor.
      */
     public synchronized Snapshot snapshotForWrite() {
-        return snapshotExcept(null);
+        return heldSnapshot();
     }
 
-    /**
-     * Candidate final publication after this exact pin's quiescence. It omits
-     * only that pin, never other RETIRING pins which may still own live work.
-     * Nothing changes in memory until the caller confirms durability and finishes.
-     */
-    public synchronized Snapshot snapshotWithout(Pin pin) {
-        requireCurrent(pin);
-        if (pin.phase != Phase.RETIRING) throw new IllegalStateException("Pin is not retiring");
-        return snapshotExcept(pin);
-    }
 
-    private Snapshot snapshotExcept(Pin omitted) {
+    private Snapshot heldSnapshot() {
         if (!counterKnown) throw new IllegalStateException("Principal ID counter unavailable");
         List<Record> records = new ArrayList<>(index.ids.size());
         Set<Long> retiring = new TreeSet<>();
         for (Pin pin : index.ids.values()) {
-            if (pin == omitted) continue;
             records.add(pin.record);
             if (pin.phase == Phase.RETIRING) retiring.add(pin.record.id);
         }
@@ -492,16 +481,6 @@ public final class NativePrincipalPins {
         preparationEpoch = epoch;
     }
 
-    /**
-     * Removes a RETIRING pin. Its handle becomes stale and its ID stays consumed. The app ID is
-     * released only when no other pin holds it. Call only after authoritative
-     * quiescence and durable publication of snapshotWithout for this exact pin.
-     *
-     * @throws IllegalStateException unless the handle is current, owned here and RETIRING
-     */
-    public synchronized void finishRetire(Pin pin) {
-        endRetiring(pin, "finishRetire");
-    }
 
     /**
      * Ends a RETIRING pin after its release engine's durable omission. Its handle becomes stale
@@ -515,8 +494,7 @@ public final class NativePrincipalPins {
         endRetiring(pin, "finishRelease");
     }
 
-    // The one end of a RETIRING pin, which the old retirement's finish and the release share, so a
-    // single copy of the index carries both: a failure while the copy changes leaves the published
+    // The end of a RETIRING pin uses one index copy. A failure while the copy changes leaves the published
     // index, the pin and its phase as they were. Guarded by this object's monitor.
     private void endRetiring(Pin pin, String operation) {
         requireCurrent(pin);
@@ -527,7 +505,7 @@ public final class NativePrincipalPins {
         next.remove(pin);
         Object epoch = new Object();
         index = next;
-        pin.phase = Phase.RETIRED;
+        pin.phase = Phase.RELEASED;
         preparationEpoch = epoch;
     }
 

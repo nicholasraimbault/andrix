@@ -1,5 +1,5 @@
 {
-  "status": "PREDICTED before any guarded execution of the P6 checkpoint 1a sources. Nothing here is an executed result.",
+  "status": "PREDICTED before any guarded execution of the P6 checkpoint 1b refusal sources. Nothing here is an executed result.",
   "plan": "plans/2026-10-08-native-lifecycle-record.md",
   "package": "B1 P1: the slot version 2 codec, the stable prefix reader and the readers in every format; B1 P2a: the lifecycle store transitions, the suspend, lift, markRetiring and markRetired transactions, the publication refusal and the writer rules; B1 P2b checkpoint 1: the boot facts, the deletion or migration step, confirm disposal and Restore; B1 P2c: Restore's claim and phase fixes and the gated release engine at the persistence level, with its capability, its store primitives and the source rules that keep release unreachable; B1 P3: Settings seeding, boot facts, the retired boot rule and the release finish; B1 P4: the manager's lifecycle operations beside the old ones, their format refusals before any effect, the suspension closure, every activation point's suspension refusal, the gated release with the retired boot rule, and the source rules that keep every new operation without a production caller. B1 P5 checkpoint 1: the pinned inputs of the rollback models of 24bfb6a and 78456b3, and the lifecycle layout emitter with its coverage check. B1 P5 checkpoint 2: the rollback models of 24bfb6a and 78456b3 over every lifecycle layout, B1's readers under Format.V2 and Format.V3, a layout of RELEASING without a directory under a version 2 header, and their controls. B1 P6 checkpoint 1: the rotated swap controls of the rollback models, the reservation's withdrawal under B1's Format.V2 reader, the sealed rollback assembly and the guest codec pin check. B1 P6 checkpoint 1a: the positive halves of the existing formats' retirement and release flows moved to the lifecycle format under the new-format label, and the case map of the old flows.",
   "basis": "Each count is the length of the runner's case lists. Each mutant's catches are traced against the cases it breaks; a defect that another rule also refuses names only the cases that reach it.",
@@ -7,12 +7,12 @@
     "codec": 47,
     "reads": 60,
     "goldens": 9,
-    "mutants": 183,
-    "store": 49,
+    "mutants": 194,
+    "store": 50,
     "transactions": 57,
     "faults": 136,
     "settings": 12,
-    "manager": 29,
+    "manager": 32,
     "layouts": 205
   },
   "reads_by_label": {
@@ -204,10 +204,6 @@
       "V1 / the identity predicate and seeding name a package that only a version 2 slot holds",
       "V2 / the identity predicate and seeding name a package that only a version 2 slot holds"
     ],
-    "publish-past-slot-ceiling": [
-      "V1 / version 2 slot writes refuse before any effect",
-      "V2 / version 2 slot writes refuse before any effect"
-    ],
     "update-past-slot-ceiling": [
       "V1 / version 2 slot writes refuse before any effect",
       "V2 / version 2 slot writes refuse before any effect",
@@ -372,7 +368,6 @@
     ],
     "v3-update-keeps-version-1-rule": [
       "V3 / the generic update refuses every lifecycle change",
-      "V3 / the generic update never drops a user",
       "V3 / the generic update never writes a ticket"
     ],
     "v3-update-changes-lifecycles": [
@@ -383,19 +378,11 @@
     ],
     "lifecycle-format-everywhere": [
       "V1 / every lifecycle transaction refuses before any effect",
-      "V2 / every lifecycle transaction refuses before any effect",
-      "V1 / the version 1 marker and release still work",
-      "V2 / the version 1 marker and release still work"
+      "V2 / every lifecycle transaction refuses before any effect"
     ],
     "lift-under-earlier-formats": [
       "V1 / every lifecycle transaction refuses before any effect",
       "V2 / every lifecycle transaction refuses before any effect"
-    ],
-    "version-1-marker-under-v3": [
-      "V3 / the version 1 marker refuses before any effect"
-    ],
-    "version-1-release-under-v3": [
-      "V3 / the version 1 release refuses before any effect"
     ],
     "publication-admits-suspended": [
       "V3 / publish refuses a suspended binding before any effect"
@@ -886,6 +873,111 @@
     "manager-release-reads-under-the-pms-lock": [
       "V3 / the release body keeps the app ID held until a new instance",
       "V3 / a lost reply after the omission is acknowledged in the instance and freed at the next boot"
+    ],
+    "history-selection-only-guard": [
+      "V3 / a BODY origin republishes after its body was observed missing, then retires"
+    ],
+    "history-always-create-body": [
+      "V3 / a restored reservation refuses retirement before any effect until designated, then retires",
+      "V3 / a cached body missing from the store returns false without a write"
+    ],
+    "history-current-view-origin": [
+      "V3 / a BODY origin republishes after its body was observed missing, then retires"
+    ],
+    "history-current-view-guard": [
+      "V3 / a BODY origin republishes after its body was observed missing, then retires",
+      "V3 / a cached body missing from the store returns false without a write"
+    ],
+    "history-dropped-early-guard": [
+      "V3 / a restored reservation refuses retirement before any effect until designated, then retires",
+      "V3 / a cached body missing from the store returns false without a write"
+    ],
+    "history-persist-ignores-origin": [
+      "V3 / a cached body missing from the store returns false without a write"
+    ],
+    "binding-omit-retiring": [
+      "V3 / a pending reservation and an unpublished retiring creation reserve together"
+    ],
+    "retiring-flag-under-earlier-formats": [
+      "V1 / every transition refuses before any effect",
+      "V2 / every transition refuses before any effect"
+    ],
+    "user-drop-under-earlier-formats": [
+      "V1 / every transition refuses before any effect",
+      "V2 / every transition refuses before any effect"
+    ],
+    "release-header-under-earlier-formats": [
+      "V1 / every transition refuses before any effect",
+      "V2 / every transition refuses before any effect"
+    ],
+    "removal-under-earlier-formats": [
+      "V1 / every transition refuses before any effect",
+      "V2 / every transition refuses before any effect"
+    ],
+    "released-confirmation-under-earlier-formats": [
+      "V1 / every transition refuses before any effect",
+      "V2 / every transition refuses before any effect"
+    ],
+    "creation-lifecycle-guard-removed": [
+      "V3 / generic creation writes only ordinary eligible identities under every format"
+    ],
+    "omitted-record-publication-acknowledged": [
+      "release tombstone / seed-synced",
+      "release tombstone / backup-renamed",
+      "release tombstone / backup-published",
+      "release tombstone / write-started",
+      "release tombstone / main-synced",
+      "release tombstone / reserve-synced",
+      "release tombstone / backup-unlink",
+      "release tombstone / backup-unlinked",
+      "release tombstone confirmation / seed-synced",
+      "release tombstone confirmation / backup-renamed",
+      "release tombstone confirmation / backup-published",
+      "release tombstone confirmation / write-started",
+      "release tombstone confirmation / main-synced",
+      "release tombstone confirmation / reserve-synced",
+      "release tombstone confirmation / backup-unlink",
+      "release tombstone confirmation / backup-unlinked",
+      "release RELEASING / seed-synced",
+      "release RELEASING / backup-renamed",
+      "release RELEASING / backup-published",
+      "release RELEASING / write-started",
+      "release RELEASING / main-synced",
+      "release RELEASING / reserve-synced",
+      "release RELEASING / backup-unlink",
+      "release RELEASING / backup-unlinked",
+      "release RELEASING confirmation / seed-synced",
+      "release RELEASING confirmation / backup-renamed",
+      "release RELEASING confirmation / backup-published",
+      "release RELEASING confirmation / write-started",
+      "release RELEASING confirmation / main-synced",
+      "release RELEASING confirmation / reserve-synced",
+      "release RELEASING confirmation / backup-unlink",
+      "release RELEASING confirmation / backup-unlinked",
+      "release omission / seed-synced",
+      "release omission / backup-renamed",
+      "release omission / backup-published",
+      "release omission / write-started",
+      "release omission / main-synced",
+      "release omission / reserve-synced",
+      "release omission / backup-unlink",
+      "release omission / backup-unlinked",
+      "release completion confirmation / seed-synced",
+      "release completion confirmation / backup-renamed",
+      "release completion confirmation / backup-published",
+      "release completion confirmation / write-started",
+      "release completion confirmation / main-synced",
+      "release completion confirmation / reserve-synced",
+      "release completion confirmation / backup-unlink",
+      "release completion confirmation / backup-unlinked",
+      "release completion / seed-synced",
+      "release completion / backup-renamed",
+      "release completion / backup-published",
+      "release completion / write-started",
+      "release completion / main-synced",
+      "release completion / reserve-synced",
+      "release completion / backup-unlink",
+      "release completion / backup-unlinked"
     ]
   },
   "round_2": {
@@ -921,14 +1013,14 @@
     "not_added": "A mutant that drops the actor serial from the order is the same defect as comparing the grant first: two entries of one class always differ in their grant references, so the same cases catch it and no case can tell them apart."
   },
   "store_by_label": {
-    "new-format": 47,
+    "new-format": 48,
     "legacy": 1,
     "production": 1
   },
   "transactions_by_label": {
-    "new-format": 53,
-    "legacy": 2,
-    "production": 2
+    "new-format": 55,
+    "legacy": 1,
+    "production": 1
   },
   "p2a": {
     "changes": "The store gains the named lifecycle transitions addSuspension, liftSuspension, markSlotRetiring and markSlotRetired with their writer rules, and under Format.V3 its generic update keeps every lifecycle and drops no user. The persistence gains suspend, lift, markRetiring with a Retirement and markRetired, each refused under Format.V1 and V2 before any effect; the version 1 marker and release refuse under Format.V3; publish refuses a suspended binding itself. The read test's Format.V3 marker writer becomes the retire transition, its case names and count unchanged.",
@@ -1211,7 +1303,7 @@
   "manager_by_label": {
     "legacy": 1,
     "production": 1,
-    "new-format": 27
+    "new-format": 30
   },
   "p4_checkpoint_1": {
     "changes": "The manager gains its lifecycle operations beside the old ones: suspend, lift, beginRetirement with a retirement block, confirmRetired, beginDisposition, confirmDisposition and releaseUid, with Handle.released. Each refuses under a format without lifecycle records before any effect, including the closure and the pin change. Suspension closes admission in memory first, through Settings' deferral and a mark on the handle, and keeps it through a refused or uncertain write. Preparation, commit, currentIdentity and the published binding check refuse a suspended account. The pins gain finishRelease. The release rule gains releaseUid and finishRelease, and only the manager's gated release calls the engine, Settings' release finish and finishRelease.",
@@ -1757,5 +1849,352 @@
       "rule": "every old flow is named once by a literal its suite holds; every mapped target is a case the guarded run requires to pass, or an emitted layout"
     },
     "unchanged": "Binding, history, counter and lab: PASS with their counts of P5 checkpoint 2. Lifecycle: every other phase and count as predicted for P6 checkpoint 1, with the manager suite at 29, all passing, and 183 mutants each caught at least as predicted."
+  },
+  "p6_checkpoint_1a_final": {
+    "revision": "The rest of the move before the refusal. The store still accepts the old writes, so every existing case keeps passing. Development runs of each changed suite came before this prediction and are recorded in the notes: the lifecycle transactions passed 60, the header footprint suites 59 and 29, an isolated run of the binding faults' prior orderings and retirement publication passed 14.",
+    "transactions": {
+      "cases": 60,
+      "new_cases": [
+        "V3 / no lifecycle transaction initializes an absent or headerless store",
+        "V3 / lifecycle transactions refuse another lineage and throw on malformed input before any effect",
+        "V3 / release beside an older writer's unreconciled addition writes no release header step"
+      ]
+    },
+    "case_map": {
+      "mapped": 49,
+      "to_move": 2,
+      "to_move_names": [
+        "releasing, cases and ownedSeeds: the lifecycle writer rows",
+        "releasing, matrixCases, unsearchable and the RELEASING and owned retirement cases"
+      ],
+      "rule": "every old flow is named once by a literal its suite holds; every mapped target is a lifecycle case, an emitted layout, or a V3 case of the header footprint suites or the binding faults"
+    },
+    "binding": {
+      "b1_focused": 80,
+      "b1_faults": 63,
+      "b1_faults_added": [
+        "V3 prior ordering / release marker",
+        "V3 prior ordering / omission",
+        "V3 retirement publication / <8 steps>"
+      ],
+      "b0_living": {
+        "focused": 59,
+        "faults": 29
+      },
+      "b0_mutants_now_also_caught_by_v3_arms": {
+        "confirmation-unfenced": [
+          "V3 confirmReleasedSlot cannot release an addition",
+          "V3 removeReleasingSlot refused"
+        ],
+        "target-for-every-header-write": [
+          "V3 prior ordering / release marker",
+          "V3 prior ordering / omission"
+        ],
+        "lost-conservation-fence": [
+          "V3 unrelated final omission waits for reconciliation"
+        ]
+      }
+    },
+    "unchanged": "Lifecycle: PASS, with transactions 60 and manager 29, all passing, and 183 mutants each caught at least as predicted. Binding: PASS with b1 faults 63 and the living b0 leg at 59 and 29. History, counter and lab: PASS, unchanged. Living parity: unchanged."
+  },
+  "p6_checkpoint_1b": {
+    "revision": "Checkpoint 1b, its first part: the two matrices moved and the review's items 2 to 5, before the refusal. The store still accepts the old writes. Development runs came before each prediction write and are recorded in the notes.",
+    "rollback": {
+      "24bf": {
+        "swap_control": {
+          "companion-sibling-package-suspended": "footprint",
+          "companion-sibling-principal-suspended": "reservation",
+          "state-suspended-user": "lost",
+          "companion-reservation-retiring": "withdrawn",
+          "value-tombstone-without-ticket": "admitted",
+          "state-lifted": "retiring",
+          "moved-retirement-publication-write-started": "tombstone",
+          "value-releasing-tombstone-without-ticket": "nothing",
+          "value-legacy-marker": "conflict",
+          "companion-sibling-package-version1": "sibling",
+          "companion-sibling-principal-version1": "sibling-principal"
+        },
+        "swap_control_fails": 11
+      },
+      "7845": {
+        "swap_control": {
+          "companion-sibling-package-suspended": "footprint",
+          "companion-reservation-retiring": "reservation",
+          "state-suspended-user": "lost",
+          "state-disposing": "withdrawn",
+          "value-tombstone-without-ticket": "admitted",
+          "state-lifted": "retiring",
+          "moved-retirement-publication-write-started": "tombstone",
+          "value-releasing-tombstone-without-ticket": "nothing",
+          "value-legacy-marker": "conflict",
+          "companion-sibling-package-version1": "sibling",
+          "companion-sibling-principal-version1": "sibling-principal"
+        },
+        "swap_control_fails": 11
+      },
+      "basis": "sibling and sibling-principal now go to the two conflict layouts, whose expectation lines carry the sibling's real app ID and principal, so the sibling assertions fail on the conflict layout's own reading (no unsupported footprint, no restored sibling) rather than on missing coordinates. Every other swap is unchanged; each model still gives each class once and fails exactly 11."
+    },
+    "case_map": {
+      "mapped": 57,
+      "to_move": 0,
+      "rule": "exact shapes; new-format targets only, codec goldens only beside another target; literals that are the quoted case name or family prefix, the method, or a call"
+    },
+    "manager": {
+      "cases": 31,
+      "renamed": {
+        "V3 / a BODY origin whose body is damaged, or missing under a LIVE entry, retires without a write": "V3 / a BODY origin whose body is damaged, or missing under a LIVE entry, retires without a body write"
+      },
+      "new_cases": [
+        "V3 / a restored retiring account refuses commit and release until it is retired in a retired boot",
+        "V3 / release refuses beside a damaged header, and its repair never patches the counter into live pins"
+      ]
+    },
+    "steps": {
+      "binding presence v3": "93 passed, 0 failed, under the new-format label",
+      "store module future format V3 entry": "119 passed, 0 failed, timeout 120 s, beside the unchanged 391 at 90 s",
+      "store module version gate V3 entry": "passes, its own run"
+    },
+    "unchanged": "Lifecycle: PASS with manager 31 and every other count as for the 1a final, the swap controls failing 11 and 11, and 183 mutants each caught at least as predicted. Binding: PASS with b1 faults 63, the living b0 leg at 59 and 29, presence v2 93 and the new presence v3 93. History, counter and lab: PASS, unchanged. Living parity: unchanged."
+  },
+  "p6_checkpoint_1b_refusal": {
+    "revision": "The first step of the refusal: the old flows that run through the manager now assert, in their own suites, that the lifecycle record's retirement refuses under their format before any effect. The store does not yet refuse the version 1 writes. Development runs came before this prediction and are recorded in the notes.",
+    "refusals": {
+      "with_refusal": 31,
+      "to_write": 26
+    },
+    "mutants": {
+      "cases": 190,
+      "moved_in": [
+        "history-selection-only-guard",
+        "history-always-create-body",
+        "history-current-view-origin",
+        "history-current-view-guard",
+        "history-dropped-early-guard",
+        "history-persist-ignores-origin",
+        "binding-omit-retiring"
+      ]
+    },
+    "history": {
+      "focused": 87,
+      "faults": 40,
+      "mutants": 34,
+      "renamed": "six retirement cases, the holds release case and the two retirement fault families"
+    },
+    "binding": {
+      "focused": 80,
+      "faults": 63,
+      "renamed": "V2 / publication, marker, release and a later reservation keep version 2 -> V2 / publication and a later reservation keep version 2, and the marker refuses"
+    },
+    "counter": {
+      "focused": 35
+    },
+    "unchanged": "Lifecycle: PASS with every count of 1b part one and 190 mutants. Binding: PASS, b1 focused 80 and faults 63, b0 59 and 29, presence v2 and v3 93. History: PASS, focused 87, faults 40, 34 mutants. Counter: PASS, 35. Lab: PASS. Living parity: unchanged.",
+    "persistence": "The persistence suite's nine version 1 flows are each their own refusal: the surviving markRetiring with a retirement block refuses under Format.V1 with every byte of the store unchanged. The module passes with its unchanged group labels."
+  },
+  "p6_checkpoint_1c": {
+    "revision": "The second step of the refusal, without the store's refusal of the version 1 writes, which stays unapplied: the old manager suite's main asserts that the lifecycle record's retirement refuses under Format.V1 before any effect, the probe's living run is retired, and the binding and history emitters no longer write the retirement layouts that the lifecycle emitter writes. Product sources are unchanged. Development runs came before this prediction and are recorded in the notes.",
+    "case_map": {
+      "mapped": 53,
+      "removed": 4,
+      "to_move": 0
+    },
+    "refusals": {
+      "with_refusal": 36,
+      "to_write": 17
+    },
+    "manager": "The principal pins module passes its five tests. Its manager main asserts each of the four old flows' refusal: the format refusal message, every path's bytes and time unchanged and the pin's phase unchanged, for the two published handles, the restored reservation, a version 1 retiring body written as bytes, the handle beside a damaged header and the never published identity.",
+    "history": {
+      "phases": [
+        "candidates",
+        "b2 focused",
+        "b2 faults",
+        "probe",
+        "parity",
+        "living parity",
+        "readers",
+        "archived readers",
+        "mutants",
+        "b1 runner"
+      ],
+      "focused": 87,
+      "faults": 40,
+      "mutants": 34,
+      "layouts": 29,
+      "copy_layouts": 29,
+      "rollback_checks": {
+        "NativeRollbackReaderCheck": 32,
+        "NativeRollbackSeedingCheck": 32
+      },
+      "probe": "The archived probe sides still compile the pinned 24bfb6a probe and pass with the same lines; no step runs the probe on the current sources."
+    },
+    "binding": {
+      "focused": 80,
+      "faults": 63,
+      "layouts": 38,
+      "copy_layouts": 35,
+      "rollback_check": 41,
+      "b0": [
+        59,
+        29
+      ],
+      "presence": {
+        "v2": 93,
+        "v3": 93
+      }
+    },
+    "living_parity": "Unchanged: exactly the 12 predicted differences and no other. No product source changes, and the parity driver reads its own layouts, not the emitters' layouts.",
+    "unchanged": "Lifecycle: PASS with every count of the first refusal step: codec 47, reads 60, store 49, transactions 60, faults 136, settings 12, manager 31, layouts 205 and 190 mutants. Counter: PASS, 35. Lab: PASS.",
+    "store_refusal": "Not applied. Its patch, with the conversions that need it, still fails the presence matrix under Format.V1 and V2 and leaves the version gate's refusal rows masked; the notes name each flow."
+  },
+  "p6_checkpoint_1d": {
+    "revision": "The store's refusal of the version 1 writes, applied with the last conversions. Under Format.V1 and V2 the old manager retirement refuses at its top, the old persistence marker and finish return false, and the store refuses the retiring flag, the user drop, the RELEASING and omission header writes, the removal and the released confirmation before any effect. Every old flow asserts its refusal, so none waits for one. Development runs came before this prediction and are recorded in the notes.",
+    "case_map": {
+      "mapped": 54,
+      "removed": 4,
+      "to_move": 0
+    },
+    "refusals": {
+      "with_refusal": 54,
+      "to_write": 0
+    },
+    "reads": "This runner's read test used the version 1 flag as the earlier formats' update of A. It is now a generation step there, with the flag refused on the same healthy layout, and stays the retire transition under Format.V3: reads 60, names unchanged. The case map lists it.",
+    "counts": "Lifecycle: codec 47, reads 60, goldens 9, store 49, transactions 58, faults 136, settings 12, manager 31, layouts 205 and 193 mutants, each caught at least as predicted. The two version 1 marker and release mutants under Format.V3 became equivalent, because the old marker and finish refuse under every format; five mutants of the earlier formats' lifecycle writes replace them.",
+    "presence": {
+      "V1": 94,
+      "V2": 94,
+      "V3": 93,
+      "refusal_rows": 9,
+      "basis": "Under the earlier formats the three release rows' healthy controls become refusal rows on the same healthy layouts and their unreadable positions keep their read side; the slot update rows take a generation step; the retiring flag adds one refusal row; the five release flows that Format.V3 takes become one refusal row each on the same layout. Format.V3 is unchanged."
+    },
+    "version_gate": "Its main and a new Format.V2 entry point each run the format refusal control: the six lifecycle writes refuse on a healthy layout of the format, which then takes a generation step or a header retry. The gate rows keep their reads; their slot update becomes a generation step, which only the gate refuses, and the unlistable rows add a header retry, which only the guard refuses. lifecycleGate is unchanged.",
+    "store_module": {
+      "future_format_v1": 291,
+      "future_format_v3": 119,
+      "presence_v1": 94
+    },
+    "binding": {
+      "b0": [
+        59,
+        29
+      ],
+      "focused": 80,
+      "faults": 63,
+      "presence": {
+        "v2": 94,
+        "v3": 93
+      },
+      "layouts": 38,
+      "copy_layouts": 35,
+      "rollback_check": 41
+    },
+    "history": {
+      "focused": 87,
+      "faults": 40,
+      "mutants": 34,
+      "layouts": 29,
+      "rollback_checks": 32
+    },
+    "counter": 35,
+    "removed_mutants": [
+      "version-1-marker-under-v3",
+      "version-1-release-under-v3"
+    ],
+    "changed_mutants": {
+      "v3-update-keeps-version-1-rule": "The earlier formats' rule now refuses every user drop, as the lifecycle format's generic update does, so this defect no longer drops a user: 'V3 / the generic update never drops a user' leaves its predicted checks. It still writes a lifecycle change and a ticket through the generic update, which its two other checks catch."
+    },
+    "new_mutants": [
+      "retiring-flag-under-earlier-formats",
+      "user-drop-under-earlier-formats",
+      "release-header-under-earlier-formats",
+      "removal-under-earlier-formats",
+      "released-confirmation-under-earlier-formats"
+    ],
+    "moved_mutants": "Each mutant whose catching cases moved stays caught with the refusal applied: the six history origin mutants and binding-omit-retiring in this runner, omit-retiring in the binding runner, and the header footprint module's confirmation-unfenced, target-for-every-header-write and lost-conservation-fence by their V3 names.",
+    "living_parity": "Unchanged: exactly the 12 predicted differences and no other. The refusal changes only writes, and the parity driver writes its layouts as bytes and runs only boot reads.",
+    "unchanged": "Lab: PASS. Archived legs: unchanged."
+  },
+  "p6_checkpoint_1e": {
+    "revision": "The review's corrections on top of the store refusal. The persistence suite keeps each old flow's reservation, publication and issuance assertions and replaces only its marker and release lines with the refusal. A new lifecycle format manager case retires and releases a healthy account beside a counter that another user's slot blocks, and the counter flow maps to it. The release body case checks every other hold, a bound reservation through the omission and the installed package's protected state. The lifecycle publication sweep reopens after each failed step. The future format's lifecycle entry gains the unknown counter update and the last slot's frame bounds. Capacity's refusal is the full one. Every refusal asserts both earlier formats where both can hold the flow's state. Development runs and the discriminating controls came before this prediction and are recorded in the notes.",
+    "case_map": {
+      "mapped": 54,
+      "removed": 4,
+      "to_move": 0
+    },
+    "refusals": {
+      "with_refusal": 54,
+      "to_write": 0,
+      "one_format": 8
+    },
+    "counts": "Lifecycle: manager 32 (new-format 30), every other count as for 1d, and 193 mutants each caught at least as predicted.",
+    "new_case": "V3 / a healthy account retires and releases beside a counter that another user's slot blocks",
+    "store_module": {
+      "future_format_v1": 291,
+      "future_format_v3": 148,
+      "presence_v1": 94
+    },
+    "binding": "b1 focused 80, b1 faults 63: the V3 retirement publication sweep reopens after each failed step and finds the creation PENDING, its history from the reservation at seed-synced and from the body after. b0 59 and 29. Presence v2 94 and v3 93.",
+    "twins": "The shared retirement refusal helper, the manager suite's, the capacity case's and the persistence suite's each refuse the same account again under Format.V1 and Format.V2 on a copy of the refused state, with the format refusal, every byte, file identity and time of the copy and the twin pin's phase unchanged. Under Format.V1 a version 2 header copy is relabeled as version 1. A twin format that restores no pin for an account without a published body says so, and the flow's other format refusal is its format twin suite's case or, for the eight one format refusals, does not exist. The store level refusals of the header footprint suite, the store suite and the future format matrix run again under Format.V2 over copies of the same version 1 states. Case names and counts are unchanged.",
+    "labels": "b0 b1-v1 adds production, b1 faults and b2 faults add legacy, and the persistence, pins, preparation, store and header footprint modules add production rows for the Format.V2 twins.",
+    "persistence": "The persistence module passes with its unchanged groups; its seven restored methods run their non-lifecycle reservation, publication and issuance assertions under Format.V1, and each refusal has its Format.V2 twin.",
+    "living_parity": "Unchanged: exactly the 12 predicted differences and no other. No product source changes.",
+    "unchanged": "History focused 87 and faults 40, counter 35, lab, readers and rollback as for 1d."
+  },
+  "p6_checkpoint_2": {
+    "revision": "The old path is gone. The manager's one argument beginRetirement, finishRetirementAfterQuiescence, Handle.retired and retirementCommitted, the persistence's old markRetiring and finishRetirement, and the pins' finishRetire and snapshotWithout are deleted. The pin's terminal phase is RELEASED and finishRelease stays package private. The generic creation writer refuses any new user that is not ordinary ELIGIBLE, and any creation that is not exactly one user, before its first effect. The release fault sweep checks after every omission that publishing the released record and restating its old reservation both refuse with the full footprint unchanged. A twin format that restores no pin compares its full footprint. Obsolete declarations fail the release rule even without a caller. The header suites run on direct current APIs and the living adapter is retired. Development runs came before this prediction and are recorded in the notes.",
+    "counts": {
+      "codec": 47,
+      "reads": 60,
+      "goldens": 9,
+      "store": 50,
+      "transactions": 57,
+      "faults": 136,
+      "settings": 12,
+      "manager": 32,
+      "layouts": 205,
+      "mutants": 194
+    },
+    "by_label": {
+      "store": {
+        "new-format": 48,
+        "legacy": 1,
+        "production": 1
+      },
+      "transactions": {
+        "new-format": 55,
+        "legacy": 1,
+        "production": 1
+      }
+    },
+    "new_cases": [
+      "V3 / generic creation writes only ordinary eligible identities under every format",
+      "V3 / obsolete lifecycle writer entry points are absent"
+    ],
+    "removed_cases": [
+      "V3 / the version 1 marker refuses before any effect",
+      "V3 / the version 1 release refuses before any effect"
+    ],
+    "new_mutants": {
+      "creation-lifecycle-guard-removed": "the new store creation case",
+      "omitted-record-publication-acknowledged": "the release fault sweeps after each omission"
+    },
+    "case_map": {
+      "mapped": 54,
+      "removed": 4,
+      "to_move": 0
+    },
+    "refusals": {
+      "with_refusal": 54,
+      "to_write": 0,
+      "one_format": 8
+    },
+    "store_module": {
+      "future_format_v1": 291,
+      "future_format_v3": 148,
+      "presence_v1": 94
+    },
+    "release_rule": "P6_RELEASE_ALLOWANCES is empty. A removed member's name is absent from its class altogether, and the removed overloads are absent in every parameter spelling. Ten declaration controls, for the six removed methods, the two removed Handle fields, a final and throwing spelling of the old overload and the old pin phase, trip the release rule beside one call or reference control per release entry point.",
+    "equivalent_mutants": {
+      "publish-past-slot-ceiling": "The generic creation writer now accepts only one ordinary eligible user, so every slot it accepts is version 1 and the slot ceiling check before it can never refuse anything the user check passes. The check stays as the format rule's statement; the mutant that removes it is equivalent and is removed."
+    }
   }
 }

@@ -24,6 +24,98 @@ public final class NativePreparationAdmissionTest {
         for (NativePrincipalPins.Record record : snapshot.records) rows.put(record.id, SIGNERS);
         return new NativeIdentityPersistence.CreationPlan(snapshot, rows);
     }
+    // The account user's retirement block with every kind outstanding.
+    private static NativeIdentityRecords.Retirement retirementBlock() {
+        List<NativeIdentityRecords.Obligation> outstanding = new ArrayList<>();
+        for (NativeIdentityRecords.ObligationKind kind : NativeIdentityRecords.ObligationKind.values()) {
+            outstanding.add(new NativeIdentityRecords.Obligation(kind,
+                    NativeIdentityRecords.ObligationState.OUTSTANDING, NativeIdentityRecords.NO_REFERENCE, 0, 0));
+        }
+        return new NativeIdentityRecords.Retirement(NativeIdentityRecords.ActorClass.ACCOUNT_USER, 0, 7,
+                NativeIdentityRecords.NO_REFERENCE, 1_700_000_000_100L, outstanding);
+    }
+    // Content and modification time of every path below the store.
+    private static Map<String, String> footprint(java.nio.file.Path root) throws Exception {
+        Map<String, String> result = new java.util.TreeMap<>();
+        try (var walk = Files.walk(root)) {
+            for (java.nio.file.Path path : walk.toList()) {
+                result.put(root.relativize(path).toString(), Files.getLastModifiedTime(path) + " "
+                        + (Files.isRegularFile(path) ? java.util.Base64.getEncoder().encodeToString(
+                        Files.readAllBytes(path)) : "directory"));
+            }
+        }
+        return result;
+    }
+    // Under the version 1 format the lifecycle record's retirement refuses with the format refusal
+    // before any effect: every store byte and time and the pin's phase stay. So does the same
+    // account's under Format.V2 (twinRefused).
+    private static boolean retirementRefused(PackageManagerService pm, NativePrincipalManager manager,
+            NativePrincipalManager.Handle handle) throws Exception {
+        java.nio.file.Path root = pm.mSettings.root;
+        try (var walk = Files.walk(root)) {
+            for (java.nio.file.Path path : walk.toList()) {
+                Files.setLastModifiedTime(path, java.nio.file.attribute.FileTime.fromMillis(86_400_000L));
+            }
+        }
+        Map<String, String> before = footprint(root);
+        NativePrincipalPins.Phase phase = manager.phase(handle);
+        try {
+            manager.beginRetirement(handle, retirementBlock());
+            return false;
+        } catch (IllegalStateException refusal) {
+            if (!"Native lifecycle records need the lifecycle format".equals(refusal.getMessage())
+                    || !footprint(root).equals(before) || manager.phase(handle) != phase) {
+                return false;
+            }
+        }
+        return twinRefused(root, manager.identity(handle));
+    }
+    private static final java.util.function.Function<NativePrincipalPins.Record, NativeIdentityRecords.Retirement>
+            TWIN_BLOCK = record -> retirementBlock();
+    private static int twins;
+
+    // The same account under Format.V2, which reads this version 1 state as it is, reopened over a
+    // copy of the same files: its retirement refuses with the format refusal before any effect, with
+    // every byte and time of the copy and the twin pin's phase unchanged. A published body always
+    // restores its pin there; an account without one restores none, and has no retirement to refuse.
+    private static boolean twinRefused(java.nio.file.Path root, NativePrincipalPins.Record identity) throws Exception {
+        java.nio.file.Path copy = root.resolveSibling(root.getFileName() + "-twin-" + ++twins);
+        java.util.List<java.nio.file.Path> paths;
+        try (var walk = Files.walk(root)) {
+            paths = walk.toList();
+        }
+        for (java.nio.file.Path path : paths) {
+            java.nio.file.Path target = copy.resolve(root.relativize(path).toString());
+            if (Files.isDirectory(path)) Files.createDirectories(target);
+            else Files.copy(path, target);
+        }
+        PackageManagerService production = new PackageManagerService(copy, false, NativeIdentityStore.Format.V2);
+        production.mSettings.restoreAfterPackageSettings();
+        NativePrincipalManager manager = new NativePrincipalManager(production);
+        NativePrincipalManager.Handle handle = manager.find(identity.packageName, identity.userId);
+        if (handle == null) {
+            NativeIdentityStore.ReadResult<NativeIdentityRecords.Slot> body = new NativeIdentityStore(copy.toFile(),
+                    NativeIdentityStore.Format.V2).load().slots.get(identity.appId);
+            System.out.println("twin V2: no pin without a published body of " + identity.packageName);
+            return body == null || body.status != NativeIdentityStore.Status.VALID;
+        }
+        try (var walk = Files.walk(copy)) {
+            for (java.nio.file.Path path : walk.toList()) {
+                Files.setLastModifiedTime(path, java.nio.file.attribute.FileTime.fromMillis(86_400_000L));
+            }
+        }
+        java.util.Map<String, String> before = footprint(copy);
+        NativePrincipalPins.Phase phase = manager.phase(handle);
+        try {
+            manager.beginRetirement(handle, TWIN_BLOCK.apply(identity));
+            return false;
+        } catch (IllegalStateException refusal) {
+            System.out.println("twin V2: refused for " + identity.packageName);
+            return "Native lifecycle records need the lifecycle format".equals(refusal.getMessage())
+                    && footprint(copy).equals(before) && manager.phase(handle) == phase;
+        }
+    }
+
     private static void refused(Runnable operation) {
         try { operation.run(); }
         catch (IllegalArgumentException | IllegalStateException expected) { return; }
@@ -116,8 +208,8 @@ public final class NativePreparationAdmissionTest {
             assert manager.commit(a);
             if (b != null) assert manager.commit(b);
             assert pm.mSettings.mNativeIdentityLoaded.header.value.entries.size() == 64;
-            // A retiring binding still consumes admission capacity.
-            assert manager.beginRetirement(a);
+            // Its retirement refuses under the version 1 format, and the binding keeps its place.
+            assert retirementRefused(pm, manager, a);
             refused(() -> manager.prepare(manager.select(next, 0)));
             assert pm.mSettings.pins.snapshotForWrite().lastId == 64;
         }
@@ -127,7 +219,8 @@ public final class NativePreparationAdmissionTest {
         pm.mSettings.pins.beginRetire(pm.mSettings.pins.findId(manager.identity(a).id));
         var b = manager.prepare(manager.select(B, 0));
         refused(() -> manager.prepare(manager.select("dev.andrix.admissionthird", 0)));
-        assert manager.beginRetirement(a) && manager.commit(b);
+        assert retirementRefused(pm, manager, a);
+        assert manager.commit(b);
         assert pm.mSettings.mNativeIdentityLoaded.header.value.lastId == 64;
     }
     private static void projectionMatchesWriter() throws Exception {

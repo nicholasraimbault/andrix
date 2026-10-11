@@ -43,7 +43,6 @@ TEMPLATE = ROOT / PLATFORM / 'NativeHistoryHarness.java.in'
 HISTORY_STUBS = ROOT / PLATFORM / 'native_history_stubs'
 BODY_INPUTS = {'0018': ROOT / PLATFORM / 'native_history_api/baseline/body-inputs.java.inc',
                'b2': ROOT / PLATFORM / 'native_history_api/b2/body-inputs.java.inc'}
-PROBE = ROOT / PLATFORM / 'BodyOriginRetirementProbe.java'
 # The living parity compiles the pinned 24bfb6a parity driver, so that it and the archived side run
 # one driver. While it does, the working-tree driver keeps those bytes: a package that edits the
 # driver moves the living parity to its edit and predicts each difference.
@@ -54,11 +53,13 @@ STORE_REGRESSION = ROOT / 'scripts/proof/tests/test_native_identity_store.py'
 # The kernel's own limit, 108 bytes with the terminator, is looser.
 SOCKET_LIMIT = 100
 # Every guarded phase in order. A run reports those it completed and those it did not.
-PHASES = ('candidates', 'b2 focused', 'b2 faults', 'probe', 'living probe', 'parity', 'living parity', 'readers',
+PHASES = ('candidates', 'b2 focused', 'b2 faults', 'probe', 'parity', 'living parity', 'readers',
           'archived readers', 'mutants', 'b1 runner')
 # The primary's reviewed read only probe, copied verbatim. Its 0018a1d result is BODY_ORIGIN_BASELINE.
-# The living probe run keeps these bytes until its cases are ported, and the archived probe sides
-# compile the pinned 24bfb6a object, which has them too.
+# The archived probe sides compile the pinned 24bfb6a object, which has these bytes. Its living run is
+# retired: under the earlier formats the retirement it probes refuses before any effect, and its
+# cases run as the lifecycle format's BODY origin cases and the refusals of the history and counter
+# suites.
 PROBE_SHA256 = '34bfaf2c5cb8b62df05bd84e770e4d42b157cc8ad9119ab6a2ee5dbb43ff6e04'
 ARCHIVED_PROBE = b1.ARCHIVED_PLATFORM + 'BodyOriginRetirementProbe.java'
 ARCHIVED_PROBE_MAIN = 'BodyOriginRetirementProbe'
@@ -119,7 +120,7 @@ SETTINGS_24BF_SHA256 = '301cb589989220fb017fa9ab58fd2a36775dc68ec49362e73e15770a
 # adapter. b2-v1 is the current sources under Format.V1. Those sources stop modelling 78456b3 once
 # B1 edits them, so this reader and its facade and seeding rollback checks are legacy guards of
 # the existing format reader.
-READERS = (('b2-v1', None, 'b1'),)
+READERS = (('b2-v1', None, None),)
 LEGACY_ROLLBACK = (('b2-v1', None),)
 # The archived version 1 readers of the layouts the pinned 24bfb6a emitter writes, each over pinned
 # Git objects only: the 24bf-v1 twin of the R0 rollback reader model, 0018a1d, c9264e4 and the
@@ -133,12 +134,13 @@ ROLLBACK_CHECKS = (('NativeRollbackReaderCheck', 'rollback reader'),
                    ('NativeRollbackSeedingCheck', 'rollback seeding'))
 # Every emitted history layout holds a version 2 header copy: each starts from version 2 copies.
 # The rollback checks assert this count. Their controls, the reservation and the rebound body, are
-# read again under the production Format.V2.
-ROLLBACK_COPY_LAYOUTS = 45
+# read again under the production Format.V2. The rebound retirement's layouts are the lifecycle
+# emitter's.
+ROLLBACK_COPY_LAYOUTS = 29
 ROLLBACK_CONTROLS = ('history-rebound', 'history-reserved')
 # The labels of this runner's guarded steps and readers, as the B1 runner's HARNESS_LABELS name them.
-STEP_LABELS = {'b2 focused': ('production', 'legacy'), 'b2 faults': ('production',),
-               'probe': ('archived-baseline',), 'living probe': ('production', 'legacy'),
+STEP_LABELS = {'b2 focused': ('production', 'legacy'), 'b2 faults': ('production', 'legacy'),
+               'probe': ('archived-baseline',),
                'parity': ('archived-baseline', 'rollback-reader'), 'living parity': ('production', 'legacy'),
                'readers': ('production', 'legacy'),
                'archived readers': ('archived-baseline', 'rollback-reader'),
@@ -223,10 +225,10 @@ FOCUSED_NAMES = (
     'body only / no header only binding, current identity or ACTIVE exposure',
     *('retirement / ' + name for name in (
         'a never rebound reservation refuses before any effect',
-        'a cached body missing from the store returns false without a write',
-        'an explicitly rebound reservation publishes and retires',
-        'BODY origin republishes after its body was observed missing',
-        'no durable marker restores PENDING after restart', 'a restored retiring body finishes')),
+        'a cached body missing from the store refuses before any effect',
+        'an explicitly rebound reservation refuses before any effect',
+        'a BODY origin whose body was observed missing refuses before any effect',
+        'a refused retirement restores PENDING after restart', 'a restored retiring body refuses before any effect')),
     'scan / a mapped reservation is scanned with its recorded signers',
     'scan / signer, serial, retiring, mapping and shared negatives',
     'scan / a withdrawn reservation defers its package',
@@ -238,17 +240,16 @@ FOCUSED_NAMES = (
     'seeding / an incomplete data owner enumeration keeps unidentified code',
     'seeding / a reservation seeds as its published body under every data owner',
     'holds / every hold and fence remains',
-    'holds / an exact release keeps its UID hold and keystore fence until a new instance')
+    'holds / a refused retirement keeps the UID hold, keystore fence and history')
 FAULT_KINDS = ('exact header confirmation', 'first body write', 'LIVE completion',
-               'rebound retirement publication', 'rebound retirement marker')
+               'rebound retirement refused before its publication',
+               'rebound retirement refused before its marker')
 FAULT_NAMES = tuple('%s / %s' % (kind, step) for kind in FAULT_KINDS for step in STEPS)
-PROBE_CHECK = 'probe / BODY origin baseline'
 LAYOUT_NAMES = tuple(sorted(
     ['history-reserved', 'history-beside-body', 'history-unknown-counter', 'history-protected-target',
      'history-rebound']
     + ['history-%s-%s' % (kind, step) for kind in (
-        'exact-confirmation', 'first-body', 'live-completion', 'retirement-publication',
-        'retirement-marker') for step in STEPS]))
+        'exact-confirmation', 'first-body', 'live-completion') for step in STEPS]))
 
 STORE = FRAMEWORK_DIR + 'NativeIdentityStore.java'
 PERSISTENCE = FRAMEWORK_DIR + 'NativeIdentityPersistence.java'
@@ -352,28 +353,6 @@ MUTANTS = {
     'scan-allows-retiring': (PERSISTENCE, ((
         '                || currentSerial < 0 || history.appId != candidateAppId || !history.eligible()\n',
         '                || currentSerial < 0 || history.appId != candidateAppId\n'),), ('focused',)),
-    'selection-only-guard': (MANAGER, ((
-        _ORIGIN, '        return handle.selection != null;\n'),), ('focused', 'probe')),
-    'always-create-body': (MANAGER, ((
-        _ORIGIN, '        return handle != null;\n'),), ('focused',)),
-    'current-view-origin': (MANAGER, ((
-        '        NativeIdentityStore.History prior = pm.mSettings.nativePrincipalStoredHistoryLPr(pin.record());\n',
-        '        NativeIdentityStore.History prior =\n'
-        '                pm.mSettings.mNativeIdentityLoaded.history(pin.record().appId);\n'),), ('focused',)),
-    'current-view-guard': (MANAGER, ((
-        '                mayCreateBody = mayCreateBody(handle);\n',
-        '                mayCreateBody = handle.selection != null\n'
-        '                        || pm.mSettings.nativePrincipalBindingLPr(handle.pin.record()) != null;\n'),),
-        ('focused',)),
-    'dropped-early-guard': (MANAGER, ((
-        '                if (!mayCreateBody\n'
-        '                        && pm.mSettings.nativePrincipalBindingLPr(handle.pin.record()) == null) {\n'
-        '                    throw new IllegalStateException(\n'
-        '                            "Restored native reservation needs its designation before retirement");\n'
-        '                }\n', ''),), ('focused',)),
-    'persist-ignores-origin': (MANAGER, ((
-        '            if (!mayCreateBody || issued == null || !persistence.reservePending(issued)) return false;\n',
-        '            if (issued == null || !persistence.reservePending(issued)) return false;\n'),), ('focused',)),
     'current-signers-only': (MANAGER, ((
         '        Handle created = new Handle(this, pin, prior.lineage, prior.signerSha256, prior.source);\n',
         '        Handle created = new Handle(this, pin, prior.lineage,\n'
@@ -738,9 +717,6 @@ def source_checks():
         problems += surface_violations()
     except ValueError as error:
         problems.append('surface: %s' % error)
-    # The living probe run keeps the reviewed bytes until its cases are ported.
-    if sha(PROBE.read_bytes()) != PROBE_SHA256:
-        problems.append('BODY origin probe differs from the reviewed probe')
     # The living parity compiles the pinned 24bfb6a driver, so the working-tree driver keeps its bytes.
     if sha(PARITY_DRIVER.read_bytes()) != b1.ARCHIVE_SHA256[ARCHIVED_PARITY]:
         problems.append('parity driver differs from the pinned 24bfb6a driver that the living parity compiles')
@@ -754,7 +730,7 @@ def source_checks():
     except ValueError as error:
         problems.append('mutant anchors: %s' % error)
     predictions = json.loads(PREDICTIONS.read_text())
-    names = set(FOCUSED_NAMES) | set(FAULT_NAMES) | {PROBE_CHECK}
+    names = set(FOCUSED_NAMES) | set(FAULT_NAMES)
     expected = predictions['b2_mutants_caught_at_least']
     if set(expected) != set(MUTANTS):
         problems.append('mutant predictions do not list every mutant')
@@ -846,8 +822,8 @@ def history_stubs():
 
 
 def worktree_tests(names, adapter=True):
-    files = b1.test_sources(names, adapter='b1' if adapter else None)
-    return files
+    # The old boolean argument selects no API now. All living support is a direct current port.
+    return b1.test_sources(names)
 
 
 def b2_product(settings, override=None):
@@ -868,15 +844,15 @@ def b2_product(settings, override=None):
 
 
 def b2_suite(work, settings, kind, override=None):
+    if kind not in ('focused', 'faults'):
+        # The living probe run is retired. Only the archived sides run the pinned probe.
+        raise ValueError('unknown history suite: %s' % kind)
     product = b2_product(settings, override)
     names = ['NativeHeaderTestSupport', 'NativeBindingTestSupport', 'NativeHistoryTestSupport']
     if kind == 'faults':
         product = b1.with_seams(product)
         names += ['NativeHeaderWriteFaults', 'NativeCreationHistoryFaultTest']
         main = 'NativeCreationHistoryFaultTest'
-    elif kind == 'probe':
-        names = ['NativeHeaderTestSupport', 'NativeBindingTestSupport', 'BodyOriginRetirementProbe']
-        main = 'BodyOriginRetirementProbe'
     else:
         names += ['NativeCreationHistoryTest']
         main = 'NativeCreationHistoryTest'
@@ -906,23 +882,6 @@ def run_parity(work, files):
     if text is not None:
         record['outcomes'] = {'sha256': sha(text.encode()), 'lines': len(text.splitlines())}
     return record, text
-
-
-def probe_outcome(record):
-    if record.get('compile_failure'):
-        return {'error': 'compile failure', 'build': record['build']}
-    run = record['run']
-    lines = [line for line in run['stdout'].splitlines() if line]
-    return {'returncode': run['returncode'], 'lines': lines, 'stderr': run['stderr'],
-            'passed': run['returncode'] == 0 and bool(lines) and lines[-1].startswith(
-                'B1 BODY-origin retirement baseline passed'), 'build': record['build']}
-
-
-def probe_red(result):
-    """Whether one finished probe run failed on its own assertion: exit status 1 with an
-    AssertionError, never a compile failure, crash or other exception."""
-    return ('error' not in result and result['returncode'] == 1
-            and 'java.lang.AssertionError' in result['stderr'])
 
 
 def red_names(result, names):
@@ -1603,14 +1562,6 @@ def qualify(work, pinned, progress):
     archived_probe_phase(work, built, steps, problems, progress)
     progress.done('probe')
 
-    # Living: the same probe on the current sources passes by its own assertions until its cases
-    # are ported. It is compared with nothing.
-    progress.begin('living probe')
-    living = steps['living probe'] = probe_outcome(b2_suite(work / 'probe-b2', settings, 'probe'))
-    if 'error' in living or not living['passed']:
-        problems.append('BODY origin probe fails on the current sources')
-    progress.done('living probe')
-
     # Archived: restoration, seeding and scan outcomes of the pinned 24bfb6a side against 0018a1d's
     # exact Settings text.
     progress.begin('parity')
@@ -1684,7 +1635,7 @@ def qualify(work, pinned, progress):
                      'tests/NativeHistoryHarness.java': harness_source(settings, 'b2').encode(),
                      **b1.test_sources(['NativeHeaderTestSupport', 'NativeBindingTestSupport',
                                         'NativeHistoryTestSupport', *(main for main, _ in ROLLBACK_CHECKS)],
-                                       adapter='b1')}
+                                       adapter=None)}
             built_checker = b1.build(checker, files)
             record = steps['readers']['rollback ' + target] = {'build': built_checker}
             if built_checker['returncode']:
@@ -1718,16 +1669,8 @@ def qualify(work, pinned, progress):
         steps['mutants'][name] = record
         for kind in suites:
             directory = work / 'mutants' / name / kind
-            if kind == 'probe':
-                result = probe_outcome(b2_suite(directory, settings, 'probe', override))
-                record[kind] = result
-                if 'error' in result:
-                    problems.append('mutant %s did not compile; not a red result' % name)
-                elif probe_red(result):
-                    failed.add(PROBE_CHECK)
-                elif not result['passed']:
-                    problems.append('mutant %s probe did not finish by its own assertion; not a red'
-                                    ' result' % name)
+            if kind not in ('focused', 'faults'):
+                problems.append('mutant %s names no living history suite: %s' % (name, kind))
                 continue
             names = FOCUSED_NAMES if kind == 'focused' else FAULT_NAMES
             result = b1.outcome(b2_suite(directory, settings, kind, override), names)

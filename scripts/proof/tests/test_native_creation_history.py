@@ -105,19 +105,21 @@ class CreationHistorySourceTests(unittest.TestCase):
         self.assertEqual(set(sources), set(runner.MUTANTS))
         predictions = json.loads(runner.PREDICTIONS.read_text())
         self.assertIn('PREDICTED', predictions['status'])
-        names = set(runner.FOCUSED_NAMES) | set(runner.FAULT_NAMES) | {runner.PROBE_CHECK}
+        names = set(runner.FOCUSED_NAMES) | set(runner.FAULT_NAMES)
         self.assertEqual(set(predictions['b2_mutants_caught_at_least']), set(runner.MUTANTS))
         for name, expected in predictions['b2_mutants_caught_at_least'].items():
             self.assertTrue(expected and set(expected) <= names, name)
-            if runner.PROBE_CHECK in expected:
-                self.assertIn('probe', runner.MUTANTS[name][2], name)
+            # The living probe run is retired: every mutant runs a living history suite.
+            self.assertTrue(set(runner.MUTANTS[name][2]) <= {'focused', 'faults'}, name)
             if set(expected) & set(runner.FAULT_NAMES):
                 self.assertIn('faults', runner.MUTANTS[name][2], name)
         for name, (path, text, _) in sources.items():
             self.assertNotEqual(text, (runner.ROOT / path).read_text(), name)
         self.assertEqual((len(runner.FOCUSED_NAMES), len(runner.FAULT_NAMES), len(runner.LAYOUT_NAMES)),
-                         (87, 40, 45))
-        self.assertEqual(len(runner.MUTANTS), 40)
+                         (87, 40, 29))
+        # Six retirement origin mutants moved to the lifecycle runner, whose Format.V3 cases catch them now
+        # that these suites' retirements refuse under the production format.
+        self.assertEqual(len(runner.MUTANTS), 34)
 
     def test_every_focused_and_fault_case_is_named_in_its_source(self):
         focused = (runner.ROOT / runner.PLATFORM / 'NativeCreationHistoryTest.java').read_text()
@@ -303,7 +305,7 @@ class CreationHistorySourceTests(unittest.TestCase):
 
     def test_readers_and_labels(self):
         self.assertEqual(runner.label_problems(), [])
-        self.assertEqual(runner.READERS, (('b2-v1', None, 'b1'),))
+        self.assertEqual(runner.READERS, (('b2-v1', None, None),))
         self.assertEqual(runner.LEGACY_ROLLBACK, (('b2-v1', None),))
         self.assertIn((runner.ROLLBACK, runner.ROLLBACK, 'b1'), runner.ARCHIVED_READERS)
         self.assertIn(('24bf-v1', runner.ARCHIVE, 'b1'), runner.ARCHIVED_READERS)
@@ -363,7 +365,8 @@ class CreationHistorySourceTests(unittest.TestCase):
 
     def test_living_readers_and_rollback_checks_are_predicted(self):
         predictions = json.loads(runner.PREDICTIONS.read_text())
-        predicted = predictions['p0_archive']
+        # The living layouts' current predictions: the retirement layouts are the lifecycle emitter's.
+        predicted = predictions['p6_checkpoint_1c']
         self.assertIn('PREDICTED', predicted['status'])
         self.assertEqual(predicted['living_readers'],
                          {target: len(runner.LAYOUT_NAMES) for target, _, _ in runner.READERS})
@@ -383,15 +386,16 @@ class CreationHistorySourceTests(unittest.TestCase):
             self.assertNotIn(old, runner.FOCUSED_NAMES)
             self.assertIn(new, runner.FOCUSED_NAMES)
 
-    def test_living_probe_keeps_the_reviewed_bytes(self):
-        self.assertEqual(runner.sha(runner.PROBE.read_bytes()), runner.PROBE_SHA256)
-        drifted = scratch(self) / 'BodyOriginRetirementProbe.java'
-        drifted.write_bytes(runner.PROBE.read_bytes() + b'\n')
-        with mock.patch.object(runner, 'PROBE', drifted):
-            self.assertIn('BODY origin probe differs from the reviewed probe', runner.source_checks())
-            # The archived probe sides compile the pinned object whatever the working tree holds.
-            self.assertEqual(runner.archived_probe_files(runner.BASE)['tests/BodyOriginRetirementProbe.java'],
-                             runner.b1.pinned_bytes(runner.ARCHIVE, runner.ARCHIVED_PROBE))
+    def test_the_living_probe_run_is_retired(self):
+        with self.assertRaisesRegex(ValueError, 'unknown history suite'):
+            runner.b2_suite(scratch(self), None, 'probe')
+        # Its retirement refuses under the earlier formats, so only the archived sides run the probe,
+        # and they compile the pinned object whatever the working tree holds.
+        self.assertNotIn('living probe', runner.PHASES)
+        self.assertNotIn('living probe', runner.STEP_LABELS)
+        self.assertFalse((ROOT / runner.PLATFORM / 'BodyOriginRetirementProbe.java').exists())
+        self.assertEqual(runner.archived_probe_files(runner.BASE)['tests/BodyOriginRetirementProbe.java'],
+                         runner.b1.pinned_bytes(runner.ARCHIVE, runner.ARCHIVED_PROBE))
 
     def test_rollback_candidate_differs_only_by_the_boot_literal(self):
         # Archived: the 78456b3 candidate against the 24bfb6a candidate, cut with the pinned fragments.
@@ -539,12 +543,11 @@ def living_code_broken(test, module, names):
 
 # The living functions of the B1 runner that the archived legs of every runner must not call.
 B1_LIVING = ('build', 'execute', 'suite', 'outcome', 'with_seams', 'product_sources', 'store_sources',
-             'test_sources', 'b0_suite', 'b1_suite', 'r0_forward', 'copy_layouts', 'rollback_names',
+             'test_sources', 'current_header_suite', 'b1_suite', 'r0_forward', 'copy_layouts', 'rollback_names',
              'replace_once', 'strip_java_comments', 'tool_environment')
 # And this runner's.
 HISTORY_LIVING = ('settings_texts', 'b2_text_checks', 'harness_source', 'history_stubs', 'worktree_tests',
-                  'b2_product', 'b2_suite', 'living_parity_files', 'run_parity', 'probe_outcome', 'probe_red',
-                  'red_names', 'parse_parity', 'parity_differences', 'predicted_parity', 'cut', 'method',
+                  'b2_product', 'b2_suite', 'living_parity_files', 'run_parity', 'red_names', 'parse_parity', 'parity_differences', 'predicted_parity', 'cut', 'method',
                   'candidates', 'candidate_problems', 'mutant_sources')
 
 
@@ -556,7 +559,7 @@ def living_constants_changed(test, work):
     for patcher in (mock.patch.multiple(runner.b1, PRODUCTION='x', RETIRED='y', CONSTRUCTION='z', FRAMEWORK=(),
                                         PLATFORM='x/', FRAMEWORK_DIR='x/', LAYOUT_NAMES=(), ROLLBACK_CONTROLS=(),
                                         ROLLBACK_COPY_LAYOUTS=0, PREDICTIONS=work / 'absent.json', STEPS=()),
-                    mock.patch.multiple(runner, TEMPLATE=body, HISTORY_STUBS=work, PROBE=body, LAYOUT_NAMES=(),
+                    mock.patch.multiple(runner, TEMPLATE=body, HISTORY_STUBS=work, LAYOUT_NAMES=(),
                                         ROLLBACK_COPY_LAYOUTS=0, ROLLBACK_CONTROLS=(), ROLLBACK_CHECKS=(),
                                         PREDICTIONS=work / 'absent.json', SETTINGS='x', PLATFORM='x/',
                                         FRAMEWORK_DIR='x/'),
@@ -661,17 +664,15 @@ class ArchivedHistoryTests(unittest.TestCase):
         built = synthetic_built()
         before = runner.archived_inputs(built)
         work = scratch(self)
-        template, body, probe = work / 'template', work / 'body', work / 'probe'
+        template, body = work / 'template', work / 'body'
         template.write_text('@BODY_INPUTS@\n')
         body.write_text('changed\n')
-        probe.write_bytes(b'changed')
         # A later package may change the living cutting, fragments, harness inputs, R0 literal and
         # predictions: the archived inputs and expectations stay the 24bfb6a ones.
         with mock.patch.object(runner, 'settings_texts', side_effect=AssertionError('living cutting')), \
                 mock.patch.object(runner, 'harness_source', side_effect=AssertionError('living harness')), \
                 mock.patch.object(runner, 'TEMPLATE', template), \
                 mock.patch.dict(runner.BODY_INPUTS, {'b2': body, runner.BASE: body}), \
-                mock.patch.object(runner, 'PROBE', probe), \
                 mock.patch.object(runner, 'PREDICTIONS', work / 'absent.json'), \
                 mock.patch.dict(runner.integration.FRAGMENTS, {name: (row[0], body) for name, row
                                                                in runner.integration.FRAGMENTS.items()}), \
@@ -1010,11 +1011,6 @@ class RunnerRefusalAndEvidenceTests(unittest.TestCase):
                                    ('PASS a\nPASS b\n', 1)):              # exit 1, no failure
             self.assertIsNone(runner.red_names(suite_result(stdout, returncode), names), stdout)
         self.assertIsNone(runner.red_names({'error': 'compile failure', 'build': {}}, names))
-        red = {'returncode': 1, 'stderr': 'Exception in thread "main" java.lang.AssertionError\n'}
-        self.assertTrue(runner.probe_red(red))
-        for other in (dict(red, returncode=137), dict(red, stderr='java.lang.IllegalStateException'),
-                      {'error': 'compile failure'}):
-            self.assertFalse(runner.probe_red(other))
 
     def test_exception_record_decodes_timeout_streams(self):
         record = runner.exception_record(subprocess.TimeoutExpired('java', 5, output=None, stderr=b'\xfe'))

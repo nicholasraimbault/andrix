@@ -20,9 +20,10 @@ import java.util.stream.Collectors;
 
 /**
  * Emits every version 2 layout the host format's actual writer leaves: each interrupted step
- * of a fresh upgrade, of legacy B beside bound C, of pending and RETIRING pins reserved
- * together, of a restatement followed by an upgrade and of a version 2 publication, plus the
- * final reserved, published, legacy and released states. Each layout records its known holds
+ * of a fresh upgrade, of legacy B beside bound C, of a restatement followed by an upgrade and of
+ * a version 2 publication, plus the final reserved, published and legacy states. The retirement
+ * layouts, a reservation beside a RETIRING pin and the released account, are the lifecycle
+ * emitter's, written by the lifecycle record's retirement and release. Each layout records its known holds
  * and whether a header copy or only the unpublished staging seed is version 2. Three more are
  * constructed, not written: R's version 2 binding fails its body while N collides with it by
  * package, principal or both. They also record the CONFLICT status every version 1 reader, like
@@ -103,15 +104,6 @@ public final class NativeCreationBindingLayouts {
             }
             emit("legacy-b-bound-c-" + step, legacy.mSettings.root, target ? Set.of(B, C) : Set.of(B));
 
-            PackageManagerService several = livePmOf(V2);
-            NativePrincipalManager third = new NativePrincipalManager(several);
-            NativePrincipalManager.Handle a = third.prepare(third.select(PKG_A, 0));
-            third.prepare(third.select(PKG_B, 0));
-            third.prepare(third.select(PKG_C, 0));
-            several.mSettings.pins.beginRetire(several.mSettings.pins.find(PKG_C, 0));
-            if (!interrupted(third, a, step)) throw new AssertionError("reservation not interrupted at " + step);
-            emit("pending-retiring-" + step, several.mSettings.root, target ? Set.of(A, B, C) : Set.of());
-
             PackageManagerService restated = livePmOf(V2);
             NativePrincipalManager fourth = new NativePrincipalManager(restated);
             NativePrincipalManager.Handle b = fourth.prepare(fourth.select(PKG_B, 0));
@@ -153,10 +145,6 @@ public final class NativeCreationBindingLayouts {
         legacyReservation(legacy, OLD, PENDING_B);
         if (!sixth.commit(sixth.prepare(sixth.select(PKG_C, 0)))) throw new AssertionError("upgrade refused");
         emit("final-legacy-null", legacy.mSettings.root, Set.of(B, C));
-        if (!fifth.beginRetirement(held) || !fifth.finishRetirementAfterQuiescence(held)) {
-            throw new AssertionError("retirement refused");
-        }
-        emit("final-released", live.mSettings.root, Set.of());
         Set<String> other = Set.of("a0".repeat(32)), signers = Set.of("b1".repeat(32));
         Header bound = v2(2, boundCreating(B, 1, PKG_R, other), live(C));
         Map<String, Slot> siblings = new TreeMap<>();

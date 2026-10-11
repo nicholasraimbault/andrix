@@ -129,11 +129,18 @@ public final class NativeHeaderWriteFaultTest {
     // Phase changes, omissions and confirmations keep their prior as the backup until the end.
     private static void priorOrdering(String name, Header prior, Header next, int appId, Slot body,
             Transition write) {
-        fault("prior ordering / " + name, problems -> {
+        priorOrdering(false, name, prior, next, appId, body, write);
+    }
+
+    // The same ordering under the lifecycle format, whose release engine primitives write the
+    // release header steps.
+    private static void priorOrdering(boolean lifecycle, String name, Header prior, Header next, int appId,
+            Slot body, Transition write) {
+        fault((lifecycle ? "V3 prior ordering / " : "prior ordering / ") + name, problems -> {
             for (String step : STEPS) {
                 Path root = layout(null, bytes(prior), bytes(prior));
                 if (body != null) slot(root, appId, body);
-                NativeIdentityStore store = store(root);
+                NativeIdentityStore store = lifecycle ? lifecycleStore(root) : store(root);
                 NativeHeaderWriteFaults.arm(step, HEADER);
                 check(problems, !write.run(store) && NativeHeaderWriteFaults.reached(),
                         step + ": no injected failure");
@@ -148,18 +155,43 @@ public final class NativeHeaderWriteFaultTest {
         });
     }
 
+    // Under the earlier formats the release header steps are lifecycle writes: armed at any step,
+    // each refuses before it reaches one, with the store unchanged.
+    private static void refusedBeforeAnyStep(String name, Header prior, int appId, Slot body, Transition write) {
+        fault("V1 " + name + " refused before any step", problems -> {
+            for (String step : STEPS) {
+                Path root = layout(null, bytes(prior), bytes(prior));
+                if (body != null) slot(root, appId, body);
+                NativeIdentityStore store = store(root);
+                NativeHeaderWriteFaults.arm(step, HEADER);
+                unchanged(problems, root, step + ": " + name, () -> write.run(store));
+                check(problems, !NativeHeaderWriteFaults.reached(), step + ": a write step was reached");
+                NativeHeaderWriteFaults.disarm();
+                check(problems, prior.equals(stored(root)), step + ": selected " + stored(root));
+            }
+        });
+    }
+
     private static void priorOrderings() {
         Header creatingA = header(1, creating(A, 1, PKG_A));
         Header liveA = header(1, live(A));
         Header releasingA = header(1, releasing(A));
         priorOrdering("publication", creatingA, liveA, A, bound(A, PKG_A, 1, false, 1),
                 store -> store.writeHeader(creatingA, liveA));
-        priorOrdering("release marker", liveA, releasingA, A, tombstone(A, PKG_A, 2),
+        refusedBeforeAnyStep("release marker", liveA, A, tombstone(A, PKG_A, 2),
                 store -> store.writeHeader(liveA, releasingA));
-        priorOrdering("omission", releasingA, header(1), A, null,
-                store -> store.writeHeader(releasingA, header(1)));
+        refusedBeforeAnyStep("omission", releasingA, A, null, store -> store.writeHeader(releasingA, header(1)));
         priorOrdering("confirmation", creatingA, creatingA, A, null,
                 store -> store.ensureFreshSlot(creatingA, A));
+    }
+
+    private static void lifecyclePriorOrderings() {
+        Header liveA = header(1, live(A));
+        Header releasingA = header(1, releasing(A));
+        priorOrdering(true, "release marker", liveA, releasingA, A, ticketed(A, PKG_A, 1, 2),
+                store -> store.markSlotReleasing(liveA, A));
+        priorOrdering(true, "omission", releasingA, header(1), A, null,
+                store -> store.omitReleasedSlot(releasingA, A));
     }
 
     // Protected targets may follow each other before either write finishes.
@@ -220,15 +252,15 @@ public final class NativeHeaderWriteFaultTest {
             NativePrincipalManager manager = new NativePrincipalManager(pm);
             NativePrincipalManager.Handle b = manager.prepare(manager.select(PKG_B, 0));
             legacyReservation(pm, OLD, PENDING_B);
+            // The retirement refuses under the version 1 format before any writer step is reached.
             NativeHeaderWriteFaults.arm("write-started", HEADER);
-            check(problems, !manager.beginRetirement(b) && NativeHeaderWriteFaults.reached()
-                    && manager.phase(b) == NativePrincipalPins.Phase.RETIRING, "interrupted marker");
+            check(problems, retirementRefused(root, manager, b) && !NativeHeaderWriteFaults.reached(),
+                    "the retirement was not refused");
+            NativeHeaderWriteFaults.disarm();
             check(problems, loaded(root).occupiedAppIds.contains(B)
                     && reopen(root, Map.of(PKG_B, B)).mSettings.isNativePrincipalAppIdLPr(B), "B hold lost");
-            check(problems, manager.beginRetirement(b) && manager.finishRetirementAfterQuiescence(b),
-                    "original retirement refused");
-            check(problems, header(1).equals(stored(root))
-                    && pm.mSettings.pins.snapshotForWrite().lastId == 1, "retirement result " + stored(root));
+            check(problems, OLD.equals(stored(root))
+                    && pm.mSettings.pins.snapshotForWrite().lastId == 1, "the selected header " + stored(root));
         });
     }
 
@@ -293,6 +325,7 @@ public final class NativeHeaderWriteFaultTest {
         retiring();
         interruptedPublication();
         foreignBackup();
+        lifecyclePriorOrderings();
         finish(Os.allClosed());
         System.out.println("Every destructive header step kept a durable witness of every hold under"
                 + " host injected failures; Android crash and power loss unqualified");

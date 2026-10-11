@@ -91,15 +91,15 @@ class LifecycleRecordSourceTests(unittest.TestCase):
     def test_case_names_and_counts(self):
         predictions = json.loads(runner.PREDICTIONS.read_text())
         self.assertIn('PREDICTED', predictions['status'])
-        self.assertEqual(predictions['cases'], {'codec': 47, 'reads': 60, 'goldens': 9, 'mutants': 183, 'store': 49,
-                                                'transactions': 57, 'faults': 136, 'settings': 12, 'manager': 29,
+        self.assertEqual(predictions['cases'], {'codec': 47, 'reads': 60, 'goldens': 9, 'mutants': 194, 'store': 50,
+                                                'transactions': 57, 'faults': 136, 'settings': 12, 'manager': 32,
                                                 'layouts': 205})
         self.assertEqual((len(runner.CODEC_NAMES), len(runner.READ_NAMES), len(runner.STORE_NAMES),
                           len(runner.TRANSACTION_NAMES), len(runner.FAULT_NAMES), len(runner.SETTINGS_NAMES),
-                          len(runner.MANAGER_NAMES)), (47, 60, 49, 57, 136, 12, 29))
-        self.assertEqual(predictions['manager_by_label'], {'legacy': 1, 'production': 1, 'new-format': 27})
-        self.assertEqual(predictions['store_by_label'], {'new-format': 47, 'legacy': 1, 'production': 1})
-        self.assertEqual(predictions['transactions_by_label'], {'new-format': 53, 'legacy': 2, 'production': 2})
+                          len(runner.MANAGER_NAMES)), (47, 60, 50, 57, 136, 12, 32))
+        self.assertEqual(predictions['manager_by_label'], {'legacy': 1, 'production': 1, 'new-format': 30})
+        self.assertEqual(predictions['store_by_label'], {'new-format': 48, 'legacy': 1, 'production': 1})
+        self.assertEqual(predictions['transactions_by_label'], {'new-format': 55, 'legacy': 1, 'production': 1})
         # P2b's fault kinds: the two disposition transactions and Restore, with and without an intact copy.
         self.assertEqual(runner.FAULT_KINDS[6:10], ('beginDisposition', 'confirmDisposition', 'restore',
                                                     'restore without an intact copy'))
@@ -132,10 +132,10 @@ class LifecycleRecordSourceTests(unittest.TestCase):
         self.assertEqual(support.count('new NativeIdentityPersistence.ReleaseCapability('), 1)
         # Both release bodies are found, and a declaration is no call.
         code = runner.b1.strip_java_comments(texts[runner.PERSISTENCE])
-        self.assertEqual(len(runner.body_spans(code, runner.RELEASE_BODIES)), 2)
+        self.assertEqual(len(runner.body_spans(code, runner.RELEASE_BODIES)), 1)
         mutants = runner.unreachable_mutants()
         self.assertEqual(sum(rules == {'capability'} for _, rules in mutants.values()), 4)
-        self.assertEqual(sum(rules == {'release'} for _, rules in mutants.values()), len(runner.RELEASE_ENTRY_POINTS))
+        self.assertEqual(sum(rules == {'release'} for _, rules in mutants.values()), len(runner.RELEASE_ENTRY_POINTS) + 10)
         self.assertEqual(sum(rules == {'primitives'} for _, rules in mutants.values()), 4)
         self.assertEqual(sum(rules == {'boot-facts'} for _, rules in mutants.values()), 3)
         self.assertEqual(sum(rules == {'lifecycle'} for _, rules in mutants.values()), 6)
@@ -160,11 +160,11 @@ class LifecycleRecordSourceTests(unittest.TestCase):
             '    private static void requireRetiring(Handle handle) {\n',
             '    private static void requireRetiring(Handle handle) {\n        assert lift(null, null);\n', 1)
         self.assertIn('lifecycle', runner.unreachable_rules(asserted, others))
-        # The old release path keeps exactly its P6 allowances, each a body that exists today.
-        self.assertEqual({entry for entry, _, _ in runner.P6_RELEASE_ALLOWANCES},
-                         {'finishRetirement', 'finishNativeIdentityReleaseLPw', 'finishRetire'})
+        # The obsolete release path has no source allowance.
+        self.assertEqual(runner.P6_RELEASE_ALLOWANCES, ())
         manager = runner.b1.strip_java_comments(texts[runner.MANAGER])
-        self.assertEqual(len(runner.body_spans(manager, (runner.OLD_RELEASE_BODY,))), 1)
+        self.assertNotIn('finishRetirementAfterQuiescence', manager)
+        self.assertEqual(len(runner.body_spans(manager, (runner.RELEASE_BODY,))), 1)
         # Only Settings' boot facts fragment, carried verbatim by the facade, builds boot facts.
         fragment = runner.integration.FRAGMENTS[runner.BOOT_FACTS_FRAGMENT][1].read_text()
         self.assertEqual(fragment.count('NativeIdentityPersistence.bootFacts(loaded)'), 1)
@@ -196,8 +196,14 @@ class LifecycleRecordSourceTests(unittest.TestCase):
         self.assertIn('new-format', runner.b1.LIVING_RUN_LABELS)
         rows = [row for row in runner.b1.HARNESS_LABELS if row[0] == 'new-format']
         # The read test's row, the store, transaction and fault tests' row, the Settings test's row, the
-        # manager test's row, the reader check's row and the layout emitter's row, all of this runner.
-        self.assertEqual([row[1] for row in rows], ['scripts/proof/native_lifecycle_record.py'] * 6)
+        # manager test's row, the reader check's row and the layout emitter's row, all of this runner,
+        # and the named V3 runs of the other harnesses: the presence V3 step and the moved V3 cases of the
+        # binding runner, the header footprint module's V3 cases and the store module's entry points.
+        self.assertEqual([row[1] for row in rows], ['scripts/proof/native_lifecycle_record.py'] * 6 + [
+            'scripts/proof/native_creation_binding.py', 'scripts/proof/native_creation_binding.py',
+            'scripts/proof/tests/test_native_header_footprint.py', 'scripts/proof/tests/test_native_identity_store.py'])
+        for row in rows[6:]:
+            self.assertTrue(set(row[2]) <= set(runner.NEW_FORMAT_HARNESSES[row[1]]), row)
         # The rollback check is the one living source under an archived label.
         self.assertEqual(runner.b1.LIVING_ROLLBACK_CHECKS, (runner.ROLLBACK_CHECK,))
         self.assertEqual([row[0] for row in runner.b1.HARNESS_LABELS if runner.ROLLBACK_CHECK in row[2]],
@@ -247,23 +253,103 @@ class LifecycleRecordSourceTests(unittest.TestCase):
 class LifecycleTransitionSourceTests(unittest.TestCase):
     def test_the_case_map_names_each_old_flow_and_real_lifecycle_cases(self):
         self.assertEqual(runner.case_map_problems(), [])
-        predicted = json.loads(runner.PREDICTIONS.read_text())['p6_checkpoint_1a']['case_map']
-        self.assertEqual((predicted['mapped'], predicted['to_move']),
-                         (len(runner.CASE_MAP), len(runner.CASE_MAP_TO_MOVE)))
-        # Every target is a lifecycle case under the new-format label, or an emitted layout.
+        predicted = json.loads(runner.PREDICTIONS.read_text())['p6_checkpoint_1e']['case_map']
+        self.assertEqual((predicted['mapped'], predicted['removed'], predicted['to_move']),
+                         (len(runner.CASE_MAP), len(runner.CASE_MAP_REMOVED), len(runner.CASE_MAP_TO_MOVE)))
+        # A removed old flow's literal is gone from its suite, and the lifecycle layouts replace it.
+        suite, name, literal, layouts = runner.CASE_MAP_REMOVED[0]
+        with mock.patch.object(runner, 'CASE_MAP_REMOVED', ((suite, name, '"fresh-upgrade-"', layouts),)):
+            self.assertIn('removed old flow still in its suite: %s %s' % (suite, name), runner.case_map_problems())
+        with mock.patch.object(runner, 'CASE_MAP_REMOVED', ((suite, name, literal, ('no-such-layout',)),)):
+            self.assertIn('removed old flow without its lifecycle layouts: %s' % name, runner.case_map_problems())
+        # Every target is a lifecycle case under the new-format label, an emitted layout, or a V3 case
+        # of a living suite of the binding runner, named with its suite.
         for _, _, _, targets in runner.CASE_MAP:
             for target in targets:
-                self.assertTrue(target in runner.LAYOUT_NAMES or runner.case_label(target) == 'new-format', target)
+                suite, _, name = target.partition(': ')
+                self.assertTrue(target in runner.LAYOUT_NAMES or runner.case_label(target) == 'new-format'
+                                or (suite in ('b0 focused', 'b0 faults', 'binding faults') and name.startswith('V3 '))
+                                or (suite in runner.ARM_SUITES and name in runner.ARM_SUITES[suite][1])
+                                or target in runner.V3_STEPS,
+                                target)
+        self.assertIn('b0 focused: V3 removeReleasingSlot refused', runner.case_map_targets())
+        self.assertNotIn('b0 focused: removeReleasingSlot refused', runner.case_map_targets())
         suite, name, literal, targets = runner.CASE_MAP[0]
         with mock.patch.object(runner, 'CASE_MAP', runner.CASE_MAP + ((suite, name, literal, targets),)):
             self.assertIn('old flow named twice in the case map: %s %s' % (suite, name), runner.case_map_problems())
         with mock.patch.object(runner, 'CASE_MAP', ((suite, name, '"no such case"', targets),)):
             self.assertIn('old flow not in its suite: %s %s' % (suite, name), runner.case_map_problems())
         with mock.patch.object(runner, 'CASE_MAP', ((suite, name, literal, ('V3 / no such case',)),)):
-            self.assertIn('case map target is no lifecycle case: %s -> V3 / no such case' % name,
+            self.assertIn('case map target is no new-format case: %s -> V3 / no such case' % name,
                           runner.case_map_problems())
         with mock.patch.object(runner, 'CASE_MAP', ((suite, name, literal, ()),)):
             self.assertIn('case map entry without a lifecycle case: %s' % name, runner.case_map_problems())
+        # Exact shapes, new-format targets only, codec goldens only beside another target, and literals
+        # that name the flow.
+        with mock.patch.object(runner, 'CASE_MAP', ((suite, name, literal),)):
+            self.assertIn('case map entry of the wrong shape: %r' % ((suite, name),), runner.case_map_problems())
+        with mock.patch.object(runner, 'CASE_MAP', ((suite, name, literal, targets[0]),)):
+            self.assertIn('case map entry without a lifecycle case: %s' % name, runner.case_map_problems())
+        earlier = 'V1 / every lifecycle transaction refuses before any effect'
+        with mock.patch.object(runner, 'CASE_MAP', ((suite, name, literal, targets + (earlier,)),)):
+            self.assertIn('case map target is no new-format case: %s -> %s' % (name, earlier),
+                          runner.case_map_problems())
+        with mock.patch.object(runner, 'CASE_MAP', ((suite, name, literal, ('golden / retiring',)),)):
+            self.assertIn('case map entry with codec goldens alone: %s' % name, runner.case_map_problems())
+        codec = 'one encoding / every version 1 value is refused in version 2'
+        with mock.patch.object(runner, 'CASE_MAP', ((suite, name, literal, targets + (codec,)),)):
+            self.assertIn('case map target is no new-format case: %s -> %s' % (name, codec), runner.case_map_problems())
+        self.assertIsNotNone(runner.case_map_literal_problem(name, 'run('))
+        self.assertIsNotNone(runner.case_map_literal_problem(name, '"another case"'))
+        self.assertIsNone(runner.case_map_literal_problem('x / y', '"x / "'))
+        self.assertIsNone(runner.case_map_literal_problem('x', 'void x('))
+        # A call names its flow complete, or cut after a quoted first argument that the name holds.
+        self.assertIsNone(runner.case_map_literal_problem('V1 release marker refused', 'priorOrdering("release marker"'))
+        self.assertIsNone(runner.case_map_literal_problem('x', 'store.removeReleasingSlot(releasing, A)'))
+        self.assertIsNone(runner.case_map_literal_problem('x', 'refused(root, () -> store.removeReleasingSlot(r, A))'))
+        self.assertIsNotNone(runner.case_map_literal_problem('x', 'priorOrdering("release marker"'))
+        self.assertIsNotNone(runner.case_map_literal_problem('main: the retirement', 'check(problems, manager'))
+        self.assertIsNotNone(runner.case_map_literal_problem('x', 'store.removeReleasingSlot(releasing, A'))
+        self.assertIsNotNone(runner.case_map_literal_problem('x', 'store.removeReleasingSlot(a) && b(c)'))
+        self.assertIsNotNone(runner.case_map_literal_problem('x', 'check(problems, store.load().creationReady())'))
+
+    def test_each_old_flow_has_its_refusal_and_none_waits(self):
+        self.assertEqual(runner.refusal_problems(), [])
+        predicted = json.loads(runner.PREDICTIONS.read_text())['p6_checkpoint_1e']['refusals']
+        self.assertEqual((predicted['with_refusal'], predicted['to_write'], predicted['one_format']),
+                         (len(runner.CASE_MAP_REFUSALS), len(runner.REFUSALS_TO_WRITE), len(runner.ONE_FORMAT_REFUSALS)))
+        self.assertEqual(runner.REFUSALS_TO_WRITE, ())
+        # A one format refusal names a mapped flow and its reason.
+        with mock.patch.dict(runner.ONE_FORMAT_REFUSALS, {('NativeCreationHistoryTest', 'no such flow'): 'reason'}):
+            self.assertIn('a one format refusal names no mapped flow or gives no reason', runner.refusal_problems())
+        # The manager suite's main names each refusal by the arguments of its shared check.
+        self.assertIn('manager main: persistedRoot, manager, first', runner.refusal_targets())
+        # The store level refusals run under each earlier format.
+        for format_name in ('V1', 'V2'):
+            self.assertIn('version gate %s: formatRefusals' % format_name, runner.refusal_targets())
+            self.assertIn('presence %s: retiring flag refused on its healthy layout' % format_name,
+                          runner.refusal_targets())
+        flow = next(iter(runner.CASE_MAP_REFUSALS))
+        with mock.patch.dict(runner.CASE_MAP_REFUSALS, {flow: ('binding focused: V2 / no such case',)}):
+            self.assertIn('refusal is no case that runs: %s -> binding focused: V2 / no such case' % flow[1],
+                          runner.refusal_problems())
+        with mock.patch.dict(runner.CASE_MAP_REFUSALS, {flow: ()}):
+            self.assertIn('old flow without a refusal case: %s %s' % flow, runner.refusal_problems())
+        # A refusal runs in its own suite, and the presence and version gate flows under both formats.
+        with mock.patch.dict(runner.CASE_MAP_REFUSALS,
+                             {flow: ('counter: manager / a healthy body retires beside a blocked store',)}):
+            self.assertTrue(any(p.startswith('refusal outside its own suite: ') for p in runner.refusal_problems()))
+        gate = next(key for key in runner.CASE_MAP_REFUSALS if key[0] == 'NativeIdentityVersionGateTest')
+        with mock.patch.dict(runner.CASE_MAP_REFUSALS, {gate: ('version gate V1: formatRefusals',)}):
+            self.assertIn('refusal not under both earlier formats: %s %s' % gate, runner.refusal_problems())
+        # No flow may wait for its refusal, and every flow of the map has one.
+        with mock.patch.object(runner, 'REFUSALS_TO_WRITE', (flow,)):
+            self.assertTrue(any(p.startswith('old flows still waiting for their refusal')
+                                for p in runner.refusal_problems()))
+        refusals = dict(runner.CASE_MAP_REFUSALS)
+        del refusals[flow]
+        with mock.patch.object(runner, 'CASE_MAP_REFUSALS', refusals):
+            self.assertTrue(any(p.startswith('old flows without a refusal') for p in runner.refusal_problems()))
 
     def test_lifecycle_cases_are_named_once_and_labelled_by_format(self):
         self.assertEqual(runner.lifecycle_name_problems(), [])
@@ -334,9 +420,14 @@ class LifecycleTransitionSourceTests(unittest.TestCase):
         # A defect names cases of the suites it runs, and every suite runs some defect.
         used = {suite for _, suites in runner.MUTANTS.values() for suite in suites}
         self.assertEqual(used, set(runner.SUITE_NAMES))
-        p2a = json.loads(runner.PREDICTIONS.read_text())['p2a']['new_mutants']
+        predictions = json.loads(runner.PREDICTIONS.read_text())
+        p2a = predictions['p2a']['new_mutants']
         self.assertEqual(len(p2a), 59)
-        self.assertTrue(set(p2a) <= set(runner.MUTANTS))
+        # The refusal of the version 1 writes under every format made two P2a mutants equivalent.
+        removed = set(predictions['p6_checkpoint_1d']['removed_mutants'])
+        self.assertTrue(set(p2a) - removed <= set(runner.MUTANTS))
+        self.assertFalse(removed & set(runner.MUTANTS))
+        self.assertTrue(set(predictions['p6_checkpoint_1d']['new_mutants']) <= set(runner.MUTANTS))
         with mock.patch.dict(runner.MUTANTS, {'scope-bit-0-written': (runner.MUTANTS['scope-bit-0-written'][0],
                                                                       ('codec',))}):
             self.assertIn('mutant prediction inconsistent: scope-bit-0-written', runner.source_checks())
@@ -504,16 +595,23 @@ class LifecycleLayoutTests(unittest.TestCase):
         # a path read outside the repository, both raise, so nothing escapes the manifest test.
         outside = scratch(self) / 'outside'
         outside.write_bytes(b'x')
+        link = scratch(self) / 'link'
+        link.symlink_to(outside)
         probes = {'raw git show': lambda revision: {'x': runner.b1.subprocess.run(
                       ['git', '-C', str(ROOT), 'show', 'HEAD:' + runner.RECORDS], capture_output=True).stdout},
                   'read outside': lambda revision: {'x': outside.read_bytes()},
-                  'list outside': lambda revision: {'x': bytes(len(os.listdir(outside.parent)))}}
+                  'list outside': lambda revision: {'x': bytes(len(os.listdir(outside.parent)))},
+                  'stat outside': lambda revision: {'x': bytes(os.stat(outside).st_size)},
+                  'exists outside': lambda revision: {'x': bytes(int(outside.exists()))},
+                  'access outside': lambda revision: {'x': bytes(int(os.access(outside, os.R_OK)))},
+                  'readlink outside': lambda revision: {'x': os.fsencode(os.readlink(link))}}
         for name, probe in probes.items():
             with self.subTest(probe=name), mock.patch.object(runner.b1, 'archived_product_sources', probe):
                 with self.assertRaises(runner.b1.WorktreeRead):
                     runner.rollback_model_files('24bf', '')
         # Outside a sealed assembly the same reads are allowed, and the Git reader stays allowed inside.
         self.assertEqual(outside.read_bytes(), b'x')
+        self.assertTrue(os.access(outside, os.R_OK) and os.readlink(link) == str(outside))
         self.assertTrue(runner.b1.sealed(lambda: runner.b1.git_paths(runner.b1.REVISIONS['24bf'], runner.RECORDS))())
         # The manifest test: exactly the pinned paths, the product from the model's revision.
         reads = {revision: sorted(runner.rollback_model_paths(revision)) for revision, _ in runner.ROLLBACK_MODELS}
@@ -623,8 +721,11 @@ class LifecycleModelTests(unittest.TestCase):
         # The swap controls are rotated: each model gives every class once, to a layout of another class.
         for revision, _ in runner.ROLLBACK_MODELS:
             self.assertEqual(sorted(swaps[revision].values()), sorted(runner.ROLLBACK_CLASSES))
-            self.assertEqual(predictions['p6_checkpoint_1']['rollback'][revision]['swap_control_fails'],
+            self.assertEqual(predictions['p6_checkpoint_1b']['rollback'][revision]['swap_control_fails'],
                              len(swaps[revision]))
+            # The sibling classes go to conflict layouts, whose lines carry real sibling coordinates.
+            self.assertEqual({name for name, klass in swaps[revision].items() if klass.startswith('sibling')},
+                             {'companion-sibling-package-version1', 'companion-sibling-principal-version1'})
         repeated = json.loads(json.dumps(swaps))
         repeated['7845']['state-lifted'] = 'footprint'
         self.assertIn('rollback swap control of 7845 does not give each class once',

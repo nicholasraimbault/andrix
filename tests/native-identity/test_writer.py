@@ -3,6 +3,7 @@
 from pathlib import Path
 import base64
 import importlib.util
+import re
 import shutil
 import subprocess
 import tempfile
@@ -20,6 +21,13 @@ class WriterFixtureTests(unittest.TestCase):
                           'initializeNew(', 'NativeIdentityStore(', 'NativeIdentityPersistence(',
                           'Runtime.getRuntime()', 'ProcessBuilder', 'reservePending('):
             self.assertNotIn(forbidden, source)
+        # No surviving lifecycle or release member is called or referenced either.
+        lifecycle = ('suspend', 'lift', 'beginRetirement', 'confirmRetired', 'beginDisposition',
+                     'confirmDisposition', 'releaseUid', 'release', 'finishRelease',
+                     'finishNativeIdentityReleaseLPw', 'removeReleasingSlot', 'confirmReleasedSlot',
+                     'markSlotReleasing', 'omitReleasedSlot', 'dropReleasedUser')
+        names = '|'.join(lifecycle)
+        self.assertIsNone(re.search(r'\b(?:%s)\s*\(|::\s*(?:%s)\b' % (names, names), source))
         self.assertIn('Binder.getCallingUid() != Process.ROOT_UID', source)
         self.assertIn('!Build.IS_DEBUGGABLE', source)
         self.assertIn('.put("execution_authorized", false)', source)

@@ -226,8 +226,9 @@ public final class NativeCreationBindingTest {
             check(problems, manager.commit(b) && sameBytes(root.resolve("store.bin"), GOLDEN_LIVE_B_V1)
                     && sameBytes(root.resolve("store.bin.reservecopy"), GOLDEN_LIVE_B_V1),
                     "publication bytes");
-            check(problems, manager.beginRetirement(b) && manager.finishRetirementAfterQuiescence(b)
-                    && header(1).equals(stored(root)), "retirement " + stored(root));
+            // The retirement refuses under the version 1 format before any effect.
+            check(problems, retirementRefused(root, manager, b)
+                    && sameBytes(root.resolve("store.bin"), GOLDEN_LIVE_B_V1), "retirement " + stored(root));
         });
         run("V2 / an owned flow writes the golden version 2 bytes", problems -> {
             PackageManagerService pm = livePmOf(V2);
@@ -454,9 +455,9 @@ public final class NativeCreationBindingTest {
             check(problems, !commitWithoutPublication(root, manager, a)
                     && all.equals(storedOf(root, V2)), "reservation " + storedOf(root, V2));
             check(problems, manager.commit(a) && manager.commit(b), "pending commits refused");
-            check(problems, manager.beginRetirement(c) && manager.finishRetirementAfterQuiescence(c),
-                    "the RETIRING creation did not retire");
-            check(problems, v2(3, live(A), live(B)).equals(storedOf(root, V2))
+            // Its retirement refuses under the version 2 format before any effect: C stays reserved.
+            check(problems, retirementRefused(root, manager, c), "the RETIRING creation's retirement");
+            check(problems, v2(3, live(A), live(B), boundCreating(C, 3, PKG_C)).equals(storedOf(root, V2))
                     && pm.mSettings.pins.snapshotForWrite().lastId == 3, "result " + storedOf(root, V2));
         });
         run("V2 / a held binding refuses another owned signer row", problems -> {
@@ -1067,14 +1068,10 @@ public final class NativeCreationBindingTest {
                     "P not reserved with its original signers " + storedOf(root, V2));
             Slot qBody = loadedOf(root, V2).slots.get(B).value;
             check(problems, qBody != null && qSigners.equals(qBody.signerSha256), "Q body signers");
-            check(problems, manager.beginRetirement(p), "P's retirement refused");
-            NativeIdentityStore.Loaded marked = loadedOf(root, V2);
-            Slot pBody = marked.slots.get(A).value;
-            check(problems, pBody != null && SIGNERS.equals(pBody.signerSha256)
-                    && pBody.users.get(0).retiring && v2(2, live(A), live(B)).equals(marked.header.value),
-                    "P not marked with its historical binding " + marked.header.value);
-            check(problems, manager.finishRetirementAfterQuiescence(p)
-                    && v2(2, live(B)).equals(storedOf(root, V2)), "P's retirement " + storedOf(root, V2));
+            // P's retirement refuses under the version 2 format before any effect: P stays reserved.
+            check(problems, retirementRefused(root, manager, p)
+                    && v2(2, boundCreating(A, 1, PKG_A), live(B)).equals(storedOf(root, V2)),
+                    "P's retirement " + storedOf(root, V2));
         });
         run("signer mutation / a durable P reservation does not strand Q", problems -> {
             PackageManagerService pm = livePmOf(V2);
@@ -1092,8 +1089,9 @@ public final class NativeCreationBindingTest {
                     "result " + storedOf(root, V2));
             check(problems, throwsType(() -> manager.commit(p), IllegalStateException.class),
                     "P committed with a replaced signer");
-            check(problems, manager.beginRetirement(p) && manager.finishRetirementAfterQuiescence(p)
-                    && v2(2, live(B)).equals(storedOf(root, V2)), "P's retirement " + storedOf(root, V2));
+            check(problems, retirementRefused(root, manager, p)
+                    && v2(2, boundCreating(A, 1, PKG_A), live(B)).equals(storedOf(root, V2)),
+                    "P's retirement " + storedOf(root, V2));
         });
     }
 
@@ -1180,22 +1178,22 @@ public final class NativeCreationBindingTest {
         });
     }
 
-    // Phase changes, markers, omission and a later reservation keep version 2.
+    // A phase change and a later reservation keep version 2, and the retirement refuses there.
     private static void versionPreserved() {
-        run("V2 / publication, marker, release and a later reservation keep version 2", problems -> {
+        run("V2 / publication and a later reservation keep version 2, and the marker refuses", problems -> {
             PackageManagerService pm = livePmOf(V2);
             Path root = pm.mSettings.root;
             NativePrincipalManager manager = new NativePrincipalManager(pm);
             NativePrincipalManager.Handle b = manager.prepare(manager.select(PKG_B, 0));
             check(problems, manager.commit(b) && v2(1, live(B)).equals(storedOf(root, V2)), "publication");
-            check(problems, manager.beginRetirement(b) && v2(1, live(B)).equals(storedOf(root, V2)), "marker");
-            check(problems, manager.finishRetirementAfterQuiescence(b) && v2(1).equals(storedOf(root, V2)),
-                    "release " + storedOf(root, V2));
+            // The marker refuses under the version 2 format before any effect, so nothing is released.
+            check(problems, retirementRefused(root, manager, b) && v2(1, live(B)).equals(storedOf(root, V2)),
+                    "marker " + storedOf(root, V2));
             NativePrincipalManager.Handle c = manager.prepare(manager.select(PKG_C, 0));
             check(problems, !commitWithoutPublication(root, manager, c)
-                    && v2(2, boundCreating(C, 2, PKG_C)).equals(storedOf(root, V2)),
+                    && v2(2, live(B), boundCreating(C, 2, PKG_C)).equals(storedOf(root, V2)),
                     "later reservation " + storedOf(root, V2));
-            check(problems, manager.commit(c) && v2(2, live(C)).equals(storedOf(root, V2)),
+            check(problems, manager.commit(c) && v2(2, live(B), live(C)).equals(storedOf(root, V2)),
                     "later publication " + storedOf(root, V2));
         });
     }

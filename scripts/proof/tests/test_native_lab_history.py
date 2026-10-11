@@ -161,7 +161,17 @@ class LabHistoryRunnerTests(unittest.TestCase):
         for injected in ('rebooted.mSettings.pins.restore(null);', 'rebooted.mSettings.storeHolds.add(APP_ID);',
                          'rebooted.mSettings.persistence.reservePending(null);', 'Files.write(store, new byte[0]);',
                          'rebooted.mSettings.store.initializeNew("0");', 'rebooted.mSettings.mNativeIdentityLoaded = null;',
-                         'Object x = NativeIdentityStore.Format.V1;'):
+                         'Object x = NativeIdentityStore.Format.V1;',
+                         'Object x = NativeIdentityStore.Format.V3;',
+                         'rebooted.manager.releaseUid(null, null);',
+                         'rebooted.mSettings.pins.finishRelease(null);',
+                         'rebooted.manager.suspend(null, null);',
+                         'rebooted.manager.lift(null, null);',
+                         'rebooted.manager.beginDisposition(null);',
+                         'rebooted.manager.confirmDisposition(null, null);',
+                         'rebooted.mSettings.store.omitReleasedSlot(null, 0);',
+                         'rebooted.mSettings.store.dropReleasedUser(null, 0, null);',
+                         'Object f = rebooted.manager :: releaseUid;'):
             changed = text.replace(anchor, anchor + '        ' + injected + '\n', 1)
             self.assertTrue(runner.rehearsal_problems(changed), injected)
         # A mention inside a comment is not an injection.

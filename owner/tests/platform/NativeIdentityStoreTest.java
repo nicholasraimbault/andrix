@@ -33,6 +33,37 @@ public final class NativeIdentityStoreTest {
     private static void write(Path file, byte[] bytes) throws Exception {
         Files.deleteIfExists(file); Files.write(file, bytes);
     }
+    // Every path below root with its bytes.
+    private static java.util.Map<String, String> contents(Path root) throws Exception {
+        java.util.Map<String, String> result = new java.util.TreeMap<>();
+        try (var walk = Files.walk(root)) {
+            for (Path path : walk.toList()) {
+                result.put(root.relativize(path).toString(), Files.isRegularFile(path)
+                        ? java.util.Base64.getEncoder().encodeToString(Files.readAllBytes(path)) : "directory");
+            }
+        }
+        return result;
+    }
+    private static int twins;
+
+    // A lifecycle write under version 1: false, before any effect. So it is under Format.V2, which
+    // reads this version 1 state as it is, over a copy of the same bytes.
+    private static boolean refused(Path root, java.util.function.Predicate<NativeIdentityStore> write)
+            throws Exception {
+        java.util.Map<String, String> before = contents(root);
+        if (write.test(new NativeIdentityStore(root.toFile(), NativeIdentityStore.Format.V1))
+                || !contents(root).equals(before)) {
+            return false;
+        }
+        Path copy = root.resolveSibling(root.getFileName() + "-twin-" + ++twins);
+        for (java.util.Map.Entry<String, String> entry : before.entrySet()) {
+            Path target = copy.resolve(entry.getKey());
+            if (entry.getValue().equals("directory")) Files.createDirectories(target);
+            else Files.write(target, java.util.Base64.getDecoder().decode(entry.getValue()));
+        }
+        return !write.test(new NativeIdentityStore(copy.toFile(), NativeIdentityStore.Format.V2))
+                && contents(copy).equals(before);
+    }
     public static void main(String[] args) throws Exception {
         if (!NativeIdentityStoreTest.class.desiredAssertionStatus()) throw new AssertionError("-ea");
         Path root = Path.of(args[0]).resolve("store");
@@ -93,19 +124,26 @@ public final class NativeIdentityStoreTest {
         write(file, bad);
         assert store.load().bindingUsable(APP); // Intact reserve, no automatic deletion of bad main.
         assert java.util.Arrays.equals(Files.readAllBytes(file), bad);
+        // A version 1 retiring body, which older writers left and this one only reads: the retiring
+        // flag is a lifecycle write, refused before any effect.
         Slot retiring = slot(2, List.of(new UserEntry(1, 0, 7, true)));
+        Slot touched = slot(2, pending.users);
+        assert refused(root, s -> s.updateExistingSlot(pending, retiring));
         // Backup preparation must preserve the valid reserve BEFORE startWrite
         // can rename the corrupt main and remove the only good recovery body.
         Os.failSync = true;
-        assert !store.updateExistingSlot(pending, retiring);
+        assert !store.updateExistingSlot(pending, touched);
         Os.failSync = false;
         assert Files.exists(backup);
         assert NativeIdentityRecords.decodeSlot(Files.readAllBytes(backup)).equals(pending);
         assert store.load().slots.get(APP).value.equals(pending);
-        assert store.updateExistingSlot(pending, retiring);
-        assert store.load().slots.get(APP).value.equals(retiring);
+        assert store.updateExistingSlot(pending, touched);
+        assert store.load().slots.get(APP).value.equals(touched);
         assert !Files.exists(backup);
-        assert !store.updateExistingSlot(retiring, slot(3, List.of(new UserEntry(1, 0, 7, false))));
+        assert refused(root, s -> s.updateExistingSlot(touched, slot(3, retiring.users)));
+        write(file, NativeIdentityRecords.encodeSlot(retiring));
+        write(reserve, NativeIdentityRecords.encodeSlot(retiring));
+        assert refused(root, s -> s.updateExistingSlot(retiring, slot(3, pending.users)));
 
         // Copy conflict is not a positive union. The UID remains occupied.
         write(reserve, NativeIdentityRecords.encodeSlot(pending));
@@ -141,8 +179,10 @@ public final class NativeIdentityStoreTest {
         assert store.confirmExistingSlot(retiring);
         write(file, NativeIdentityRecords.encodeSlot(pending));
         write(reserve, NativeIdentityRecords.encodeSlot(pending));
-        assert store.updateExistingSlot(pending, retiring);
-        assert store.load().slots.get(APP).value.equals(retiring);
+        assert store.updateExistingSlot(pending, touched);
+        assert store.load().slots.get(APP).value.equals(touched);
+        write(file, NativeIdentityRecords.encodeSlot(retiring));
+        write(reserve, NativeIdentityRecords.encodeSlot(retiring));
         assert !store.removeReleasingSlot(new Header(LINEAGE, 1,
                 List.of(entry(APP, SlotPhase.RELEASING))), APP);
         assert !store.initializeNew("1".repeat(32));
@@ -219,25 +259,33 @@ public final class NativeIdentityStoreTest {
         assert store.load().slots.get(10125).status == NativeIdentityStore.Status.DAMAGED;
         Files.delete(root.resolve("slots/10125"));
 
+        // The release's steps are lifecycle writes, each refused before any effect: the user drop
+        // to the tombstone, RELEASING, the removal, the omission and the released confirmation.
+        // The release engine takes them under the lifecycle format alone.
         Slot tombstone = slot(3, List.of());
-        assert store.updateExistingSlot(retiring, tombstone);
-        assert !store.load().bindingUsable(APP);
-        assert !store.updateExistingSlot(tombstone, slot(4, List.of(new UserEntry(1, 0, 7, false))));
+        assert refused(root, s -> s.updateExistingSlot(retiring, tombstone));
+        assert store.load().bindingUsable(APP);
         Header releasing = new Header(LINEAGE, 1, List.of(entry(APP, SlotPhase.RELEASING)));
-        assert store.writeHeader(live, releasing);
-        Path foreign = file.getParent().resolve("not-store-owned");
-        Files.writeString(foreign, "owner data control");
-        assert !store.removeReleasingSlot(releasing, APP);
-        assert Files.exists(foreign) && Files.exists(file);
-        Files.delete(foreign);
-        assert store.removeReleasingSlot(releasing, APP);
-        assert store.removeReleasingSlot(releasing, APP); // Exact filesystem continuation.
-        assert !store.confirmReleasedSlot(releasing, APP); // Still indexed.
-        assert store.load().occupiedAppIds.equals(Set.of(APP)); // Index omission is separate.
+        assert refused(root, s -> s.writeHeader(live, releasing));
         Header released = new Header(LINEAGE, 1, List.of());
-        assert store.writeHeader(releasing, released);
+        assert refused(root, s -> s.writeHeader(live, released));
+        // An older writer's release, written as its bytes: RELEASING beside its tombstone.
+        write(file, NativeIdentityRecords.encodeSlot(tombstone));
+        write(reserve, NativeIdentityRecords.encodeSlot(tombstone));
+        write(header, NativeIdentityRecords.encodeHeader(releasing));
+        write(headerReserve, NativeIdentityRecords.encodeHeader(releasing));
+        assert !store.load().bindingUsable(APP);
+        assert refused(root, s -> s.updateExistingSlot(tombstone, slot(4, pending.users)));
+        assert refused(root, s -> s.removeReleasingSlot(releasing, APP));
+        assert refused(root, s -> s.writeHeader(releasing, released));
+        assert refused(root, s -> s.confirmReleasedSlot(releasing, APP));
+        assert store.load().occupiedAppIds.equals(Set.of(APP)) && Files.exists(file);
+        // Its finished release, as bytes: the slot directory removed and the index omitted.
+        Files.delete(file); Files.delete(reserve); Files.delete(file.getParent());
+        write(header, NativeIdentityRecords.encodeHeader(released));
+        write(headerReserve, NativeIdentityRecords.encodeHeader(released));
         assert store.load().occupiedAppIds.isEmpty() && store.load().header.value.lastId == 1;
-        assert store.confirmReleasedSlot(released, APP);
+        assert refused(root, s -> s.confirmReleasedSlot(released, APP));
         // A released principal ID cannot be smuggled into a new user entry just
         // because it is below the counter. Additions need an issuance proof.
         Header anotherCreating = new Header(LINEAGE, 2, List.of(
@@ -256,19 +304,18 @@ public final class NativeIdentityStoreTest {
         NativeIdentityStore.Loaded incomplete = new NativeIdentityStore.Loaded(good.header,
                 good.slots, good.occupiedAppIds, true, false);
         assert !incomplete.bindingUsable(APP) && !incomplete.creationReady();
-        // A known CREATING entry must first complete to LIVE, even if it was
-        // already marked retiring. Omission there would strand a tombstone.
-        NativeIdentityStore interrupted = new NativeIdentityStore(
-                root.getParent().resolve("creating-retirement-case").toFile(),
+        // The retiring flag refuses under version 1 on a CREATING entry and after it completes to
+        // LIVE alike; the lifecycle format's release completes a CREATING entry to LIVE first.
+        Path interruptedRoot = root.getParent().resolve("creating-retirement-case");
+        NativeIdentityStore interrupted = new NativeIdentityStore(interruptedRoot.toFile(),
                 NativeIdentityStore.Format.V1);
         assert interrupted.initializeNew(LINEAGE);
         assert interrupted.writeHeader(empty, creating);
         assert interrupted.ensureFreshSlot(creating, APP);
         assert interrupted.publishCreatingSlot(creating, pending);
-        assert interrupted.updateExistingSlot(pending, retiring);
-        assert !interrupted.updateExistingSlot(retiring, tombstone);
+        assert refused(interruptedRoot, s -> s.updateExistingSlot(pending, retiring));
         assert interrupted.writeHeader(creating, live);
-        assert interrupted.updateExistingSlot(retiring, tombstone);
+        assert refused(interruptedRoot, s -> s.updateExistingSlot(pending, retiring));
 
         // I/O unavailability is its own fact, neither absence nor parser damage. It withholds
         // writers and creation; only an unreadable header copy withdraws every binding.

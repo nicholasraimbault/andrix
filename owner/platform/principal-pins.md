@@ -37,16 +37,16 @@ Other Android users need the real UserManager deletion/reuse barrier before admi
 | --- | --- |
 | PENDING | The app ID is held immediately. Persistence and current identity still need confirmation. |
 | ACTIVE | The reservation is durably confirmed and the installed subject revalidated. This is not CE, execution or foreground authority. |
-| RETIRING | New activation is closed irreversibly in memory. Its durable marker must be confirmed before destructive retirement proceeds. |
+| RETIRING | New activation is closed irreversibly in memory. Its durable retirement record is written before quiescence starts. Retirement deletes nothing: data deletion is the separate disposition step. |
 | Final omission | Only after actual producer/work/API/key/data retirement and owner disposition may this exact binding be omitted. Other accounts remain held. |
-| RETIRED | Only after checked store release may the memory pin finish. Its old handle cannot target a replacement. |
+| RELEASED | Only after the gated store release may the memory pin finish. Its old handle cannot target a replacement. |
 
 Lost writes or replies keep the original handle and obligations. No GC, death, timeout or label
 releases a reservation. Restored records are PENDING or RETIRING, never ACTIVE.
 
 Counter availability is distinct from binding availability. Independently verified existing
 records can be restored without a usable issuance counter. Existing handles can still be found,
-confirmed or retired through exact slot operations; new issuance and whole counter snapshots
+confirmed through exact slot operations; new issuance and whole counter snapshots
 refuse. Nothing reconstructs the counter from the largest surviving ID. One registry instance
 holds one lineage, and counter repair cannot silently retarget existing handles. A decoded
 principal ID above the selected counter, in any slot copy of that lineage or of a record that is

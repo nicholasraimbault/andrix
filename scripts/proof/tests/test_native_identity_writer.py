@@ -36,6 +36,17 @@ FENCE = 'other staged/tracked/untracked framework changes'
 
 
 class NativeIdentityWriterTests(unittest.TestCase):
+    def test_lifecycle_calls_and_references_are_outside_the_fixture_api(self):
+        text = writer.HELPER.read_text()
+        self.assertEqual(writer.api_problems(text), [])
+        for name in writer.LIFECYCLE_MEMBERS:
+            for addition in ('\nmanager . ' + name + '(null);\n',
+                             '\nmanager :: ' + name + ';\n'):
+                problems = writer.api_problems(text + addition)
+                self.assertTrue(any('API surface' in item or 'lifecycle or release' in item
+                                    for item in problems), (name, problems))
+            self.assertEqual(writer.api_problems(text + '\n// manager::' + name + '(ignored)\n'), [])
+
     def test_exact_bounded_profile(self):
         profile = writer.profile()
         self.assertTrue(profile['lab_only'])

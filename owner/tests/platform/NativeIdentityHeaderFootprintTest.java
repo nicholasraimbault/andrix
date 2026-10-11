@@ -23,14 +23,16 @@ import java.util.TreeMap;
  * copies complete beside a preferred backup that still held the prior header, leaving
  * reservations only an unselected copy lists. Each case isolates one constructed layout in a
  * fresh store. A header conservation refusal comes before that header step's effects, with its
- * bytes, file identities and times unchanged. A multi-step retirement may already have committed
- * its tombstone before the header step refuses; those cases assert that progress explicitly.
+ * bytes, file identities and times unchanged. Under the earlier formats the release steps, the
+ * retiring flag, the user drop, RELEASING, the removal, the omission and the released
+ * confirmation, are lifecycle writes and refuse before any effect, whatever the copies hold; the
+ * V3 cases run those steps through the release engine's primitives beside the same copies.
  * The exact original owner's retry must still succeed, and legitimate interrupted
- * phase changes, omissions and copies that predate a protected reservation stay compatible.
- * Only product surface that predates the correction is used, through the host only
- * NativeHeaderApi adapter, so this also runs against the earlier store, manager and Settings
- * facade as a control. Host facades only: not Android crash, power loss, storage or UID
- * authority qualification.
+ * phase changes and copies that predate a protected reservation stay compatible.
+ * The shared support constructs each store and host facade with an explicit format and passes
+ * each reservation as a CreationPlan. The archived controls compile their own pinned copies of
+ * this suite. Host facades only: not Android crash, power loss, storage or UID authority
+ * qualification.
  */
 public final class NativeIdentityHeaderFootprintTest {
     private static final Header OLD = header(0);
@@ -95,17 +97,26 @@ public final class NativeIdentityHeaderFootprintTest {
             unchanged(problems, root, "publication",
                     () -> store.publishCreatingSlot(creatingA, bound(A, PKG_A, 1, false, 1)));
         });
-        run("confirmReleasedSlot cannot release an addition", problems -> {
+        // The release confirmations are lifecycle writes: under version 1 they refuse first, beside
+        // an unreconciled addition and in a store of one header without one, and under Format.V2 too,
+        // over a copy of the same version 1 state (refusedUnderEarlierFormats).
+        run("V1 confirmReleasedSlot refused before any effect", problems -> {
             Path root = legacy(OLD, PENDING_B);
-            NativeIdentityStore store = store(root);
-            unchanged(problems, root, "release of B", () -> store.confirmReleasedSlot(OLD, B));
+            refusedUnderEarlierFormats(problems, root, "release of B", s -> s.confirmReleasedSlot(OLD, B));
+            Header omittedR = header(1);
+            Path released = layout(null, bytes(omittedR), bytes(omittedR));
+            refusedUnderEarlierFormats(problems, released, "released confirmation",
+                    s -> s.confirmReleasedSlot(omittedR, R));
         });
-        run("removeReleasingSlot refused", problems -> {
+        run("V1 removeReleasingSlot refused before any effect", problems -> {
             Header releasingR = header(1, releasing(R));
             Path root = legacy(releasingR, header(2, releasing(R), creating(B, 2, PKG_B)));
             slot(root, R, tombstone(R, PKG_R, 3));
-            NativeIdentityStore store = store(root);
-            unchanged(problems, root, "removal", () -> store.removeReleasingSlot(releasingR, R));
+            refusedUnderEarlierFormats(problems, root, "removal", s -> s.removeReleasingSlot(releasingR, R));
+            Path single = layout(null, bytes(releasingR), bytes(releasingR));
+            slot(single, R, tombstone(R, PKG_R, 3));
+            refusedUnderEarlierFormats(problems, single, "removal beside one header",
+                    s -> s.removeReleasingSlot(releasingR, R));
         });
     }
 
@@ -123,45 +134,52 @@ public final class NativeIdentityHeaderFootprintTest {
             check(problems, store.writeHeader(next, completed), "completion after reconciliation refused");
             check(problems, completed.equals(stored(root)), "header " + stored(root));
         });
-        run("LIVE to RELEASING waits for reconciliation", problems -> {
+        // The release header steps refuse under version 1 before and after the reconciliation,
+        // which itself still restates the addition.
+        run("V1 LIVE to RELEASING refused before and after reconciliation", problems -> {
             Header prior = header(1, live(A));
             Header next = header(2, live(A), creating(B, 2, PKG_B));
             Path root = legacy(prior, next);
             slot(root, A, tombstone(A, PKG_A, 2));
             NativeIdentityStore store = store(root);
-            unchanged(problems, root, "release marker",
-                    () -> store.writeHeader(prior, header(1, releasing(A))));
+            refusedUnderEarlierFormats(problems, root, "release marker",
+                    s -> s.writeHeader(prior, header(1, releasing(A))));
             check(problems, store.writeHeader(prior, next), "exact reconciliation refused");
             Header marked = header(2, releasing(A), creating(B, 2, PKG_B));
-            check(problems, store.writeHeader(next, marked), "marker after reconciliation refused");
-            check(problems, marked.equals(stored(root)), "header " + stored(root));
+            refusedUnderEarlierFormats(problems, root, "marker after reconciliation",
+                    s -> s.writeHeader(next, marked));
+            check(problems, next.equals(stored(root)), "header " + stored(root));
         });
-        run("unrelated final omission waits for reconciliation", problems -> {
+        run("V1 final omission refused before and after reconciliation", problems -> {
             Header prior = header(1, releasing(A));
             Header next = header(2, releasing(A), creating(B, 2, PKG_B));
             Path root = legacy(prior, next);
             NativeIdentityStore store = store(root);
-            unchanged(problems, root, "omission", () -> store.writeHeader(prior, header(1)));
+            refusedUnderEarlierFormats(problems, root, "omission", s -> s.writeHeader(prior, header(1)));
             check(problems, store.writeHeader(prior, next), "exact reconciliation refused");
             Header omitted = header(2, creating(B, 2, PKG_B));
-            check(problems, store.writeHeader(next, omitted), "omission after reconciliation refused");
-            check(problems, omitted.equals(stored(root)), "header " + stored(root));
+            refusedUnderEarlierFormats(problems, root, "omission after reconciliation",
+                    s -> s.writeHeader(next, omitted));
+            check(problems, next.equals(stored(root)), "header " + stored(root));
         });
-        run("owned retirement header steps refused", problems -> {
-            Path root = legacy(header(1, live(A)), header(2, live(A), creating(B, 2, PKG_B)));
-            slot(root, A, bound(A, PKG_A, 1, true, 2));
-            NativeIdentityPersistence persistence = persistence(root);
-            age(root);
-            Map<String, String> before = headerFootprint(root);
-            check(problems, !persistence.finishRetirement(record(1, PKG_A, A), LINEAGE, SIGNERS),
-                    "retirement acknowledged");
-            check(problems, headerFootprint(root).equals(before), "header copies changed");
-            NativeIdentityStore.ReadResult<Slot> progressed = persistence.load().slots.get(A);
+        // The owned retirement's steps, its user drop to the tombstone, RELEASING and the omission,
+        // each refuse with no tombstone progress.
+        run("V1 owned retirement refused before any effect", problems -> {
+            Header prior = header(1, live(A)), next = header(2, live(A), creating(B, 2, PKG_B));
+            Path root = legacy(prior, next);
+            Slot retiring = bound(A, PKG_A, 1, true, 2);
+            slot(root, A, retiring);
+            NativeIdentityStore store = store(root);
             Slot tombstone = new Slot(LINEAGE, A, PKG_A, 3, SIGNERS, List.of());
-            check(problems, progressed != null && progressed.status == Status.VALID
-                    && tombstone.equals(progressed.value)
-                    && progressed.decodedCopies.stream().allMatch(tombstone::equals),
-                    "owned tombstone progress not retained before header refusal");
+            refusedUnderEarlierFormats(problems, root, "tombstone",
+                    s -> s.updateExistingSlot(retiring, tombstone));
+            check(problems, store.writeHeader(prior, next), "exact reconciliation refused");
+            refusedUnderEarlierFormats(problems, root, "release marker",
+                    s -> s.writeHeader(next, header(2, releasing(A), creating(B, 2, PKG_B))));
+            refusedUnderEarlierFormats(problems, root, "omission",
+                    s -> s.writeHeader(next, header(2, creating(B, 2, PKG_B))));
+            NativeIdentityPersistence persistence = persistence(root);
+            check(problems, retiring.equals(persistence.load().slots.get(A).value), "slot changed");
             check(problems, persistence.load().occupiedAppIds.equals(Set.of(A, B)), "holds changed");
         });
     }
@@ -206,22 +224,25 @@ public final class NativeIdentityHeaderFootprintTest {
             check(problems, persistence(retry).publish(record(1, PKG_A, A), SIGNERS)
                     && liveAC.equals(stored(retry)), "exact completion retry refused");
         });
-        run("interrupted LIVE to RELEASING is compatible", problems -> {
+        // An interrupted release stays compatible, so boot restores its counter, but under version 1
+        // its retry is a lifecycle write and refuses before any effect.
+        run("V1 interrupted LIVE to RELEASING restores, and its retry refuses", problems -> {
             Header liveA = header(1, live(A)), releasingA = header(1, releasing(A));
             Path root = legacy(liveA, releasingA);
             slot(root, A, tombstone(A, PKG_A, 2));
             bootCounter(problems, root, 1);
-            check(problems, store(root).writeHeader(liveA, releasingA),
-                    "exact marker retry refused");
+            refusedUnderEarlierFormats(problems, root, "exact marker retry",
+                    s -> s.writeHeader(liveA, releasingA));
         });
-        run("interrupted omission is compatible", problems -> {
+        run("V1 interrupted omission restores, and its retry refuses", problems -> {
             Header prior = header(2, live(A), releasing(R)), omitted = header(2, live(A));
             Path root = legacy(prior, omitted);
             slot(root, A, bound(A, PKG_A, 1, false, 1));
             bootCounter(problems, root, 2);
-            NativeIdentityStore store = store(root);
-            check(problems, store.writeHeader(prior, omitted) && store.confirmReleasedSlot(omitted, R),
-                    "exact omission retry refused");
+            refusedUnderEarlierFormats(problems, root, "exact omission retry",
+                    s -> s.writeHeader(prior, omitted));
+            refusedUnderEarlierFormats(problems, root, "released confirmation",
+                    s -> s.confirmReleasedSlot(omitted, R));
         });
     }
 
@@ -394,9 +415,9 @@ public final class NativeIdentityHeaderFootprintTest {
             check(problems, manager.identity(c).id == 2 && manager.commit(c), "C refused beside B");
             check(problems, header(2, creating(B, 1, PKG_B), live(C)).equals(stored(root)),
                     "B not restated: " + stored(root));
-            check(problems, manager.beginRetirement(b), "B marker retry refused");
-            check(problems, manager.finishRetirementAfterQuiescence(b), "B release refused");
-            check(problems, header(2, live(C)).equals(stored(root)), "header " + stored(root));
+            // B's retirement refuses under the version 1 format before any effect: B stays reserved.
+            check(problems, retirementRefused(root, manager, b), "B's retirement");
+            check(problems, header(2, creating(B, 1, PKG_B), live(C)).equals(stored(root)), "header " + stored(root));
         });
         run("same manager / C issued first, both restated", problems -> {
             PackageManagerService pm = livePm();
@@ -417,23 +438,15 @@ public final class NativeIdentityHeaderFootprintTest {
             check(problems, manager.commit(b), "B commit refused");
             NativePrincipalManager.Handle c = manager.prepare(manager.select(PKG_C, 0));
             legacyReservation(pm, header(1, live(B)), header(2, live(B), creating(C, 2, PKG_C)));
-            check(problems, manager.beginRetirement(b), "B marker refused");
-            age(root);
-            Map<String, String> before = headerFootprint(root);
-            check(problems, !manager.finishRetirementAfterQuiescence(b), "B released beside C");
-            check(problems, headerFootprint(root).equals(before), "header copies changed");
-            NativeIdentityStore.ReadResult<Slot> progressed = pm.mSettings.persistence.load().slots.get(B);
-            Slot tombstone = new Slot(LINEAGE, B, PKG_B, 3, SIGNERS, List.of());
-            check(problems, progressed != null && progressed.status == Status.VALID
-                    && tombstone.equals(progressed.value)
-                    && progressed.decodedCopies.stream().allMatch(tombstone::equals),
-                    "B tombstone progress not retained before header refusal");
-            check(problems, manager.phase(b) == NativePrincipalPins.Phase.RETIRING
+            // B's retirement refuses under the version 1 format before any effect, beside C's
+            // unreconciled reservation as after it: nothing is released.
+            check(problems, retirementRefused(root, manager, b), "B's retirement beside C");
+            check(problems, manager.phase(b) == NativePrincipalPins.Phase.ACTIVE
                     && pm.mSettings.isNativePrincipalAppIdLPr(C)
                     && pm.mSettings.persistence.load().occupiedAppIds.contains(C), "holds changed");
             check(problems, manager.commit(c), "C retry refused");
-            check(problems, manager.finishRetirementAfterQuiescence(b), "B release refused afterwards");
-            check(problems, header(2, live(C)).equals(stored(root)), "header " + stored(root));
+            check(problems, retirementRefused(root, manager, b), "B's retirement after C");
+            check(problems, header(2, live(B), live(C)).equals(stored(root)), "header " + stored(root));
         });
     }
 
@@ -567,6 +580,62 @@ public final class NativeIdentityHeaderFootprintTest {
         });
     }
 
+    // The release header steps under the lifecycle format, through the release engine's own
+    // primitives, beside an older writer's unreconciled addition: the confirmation fence and the
+    // reconciliation rule are the only refusals left, as the version 1 cases showed them before the
+    // earlier formats stopped writing these steps.
+    private static void lifecycleArms() {
+        run("V3 confirmReleasedSlot cannot release an addition", problems -> {
+            Path root = legacy(OLD, PENDING_B);
+            NativeIdentityStore store = lifecycleStore(root);
+            unchanged(problems, root, "release of B", () -> store.confirmReleasedSlot(OLD, B));
+        });
+        run("V3 removeReleasingSlot refused", problems -> {
+            Header releasingR = header(1, releasing(R));
+            Path root = legacy(releasingR, header(2, releasing(R), creating(B, 2, PKG_B)));
+            slot(root, R, ticketed(R, PKG_R, 1, 3));
+            NativeIdentityStore store = lifecycleStore(root);
+            unchanged(problems, root, "removal", () -> store.removeReleasingSlot(releasingR, R));
+        });
+        run("V3 LIVE to RELEASING waits for reconciliation", problems -> {
+            Header prior = header(1, live(A));
+            Header next = header(2, live(A), creating(B, 2, PKG_B));
+            Path root = legacy(prior, next);
+            slot(root, A, ticketed(A, PKG_A, 1, 2));
+            NativeIdentityStore store = lifecycleStore(root);
+            unchanged(problems, root, "release marker", () -> store.markSlotReleasing(prior, A));
+            check(problems, store.writeHeader(prior, next), "exact reconciliation refused");
+            Header marked = header(2, releasing(A), creating(B, 2, PKG_B));
+            check(problems, store.markSlotReleasing(next, A), "marker after reconciliation refused");
+            check(problems, marked.equals(lifecycleStore(root).load().header.value), "header " + stored(root));
+        });
+        run("V3 unrelated final omission waits for reconciliation", problems -> {
+            Header prior = header(1, releasing(A));
+            Header next = header(2, releasing(A), creating(B, 2, PKG_B));
+            Path root = legacy(prior, next);
+            NativeIdentityStore store = lifecycleStore(root);
+            unchanged(problems, root, "omission", () -> store.omitReleasedSlot(prior, A));
+            check(problems, store.writeHeader(prior, next), "exact reconciliation refused");
+            Header omitted = header(2, creating(B, 2, PKG_B));
+            check(problems, store.omitReleasedSlot(next, A), "omission after reconciliation refused");
+            check(problems, omitted.equals(lifecycleStore(root).load().header.value), "header " + stored(root));
+        });
+        run("V3 interrupted LIVE to RELEASING is compatible", problems -> {
+            Header liveA = header(1, live(A)), releasingA = header(1, releasing(A));
+            Path root = legacy(liveA, releasingA);
+            slot(root, A, ticketed(A, PKG_A, 1, 2));
+            check(problems, lifecycleStore(root).markSlotReleasing(liveA, A), "exact marker retry refused");
+        });
+        run("V3 interrupted omission is compatible", problems -> {
+            Header prior = header(2, live(A), releasing(R)), omitted = header(2, live(A));
+            Path root = legacy(prior, omitted);
+            slot(root, A, bound(A, PKG_A, 1, false, 1));
+            NativeIdentityStore store = lifecycleStore(root);
+            check(problems, store.omitReleasedSlot(prior, R) && store.confirmReleasedSlot(omitted, R),
+                    "exact omission retry refused");
+        });
+    }
+
     public static void main(String[] args) throws Exception {
         if (!NativeIdentityHeaderFootprintTest.class.desiredAssertionStatus()) {
             throw new AssertionError("run with java -ea");
@@ -587,6 +656,7 @@ public final class NativeIdentityHeaderFootprintTest {
         sameManager();
         reopened();
         compatibility();
+        lifecycleArms();
         finish(Os.allClosed());
         System.out.println("Header copy compatibility and unselected additions kept by every header"
                 + " writer and boot restore; Android crash recovery unqualified");

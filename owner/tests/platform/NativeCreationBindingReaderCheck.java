@@ -18,13 +18,14 @@ import java.util.TreeSet;
 /**
  * Reads the emitted version 2 layouts with a version 1 reader: the rollback reader model, the
  * creation plan sources under Format.V1 or the pinned 78456b3 image, or the archived c9264e4
- * sources. Only store, facade and codec surface common to all of them is used, through the host
- * NativeHeaderApi adapter the harness selects. Every layout must stay read only with every known
- * hold, also across the reopened registry. A version 2 header copy also withholds the counter
- * and every binding; a version 2 staging seed alone withholds the counter and creation. A
- * constructed layout may also list the status each reader must give its slots. The bound
- * collision layouts require the CONFLICT outcome of the reviewed c9264e4 reader for both.
- * The layouts are fresh copies, never the emitted originals. Host files only, not Android boot.
+ * sources. Only store, facade and codec surface common to all of them is used. The current reader
+ * takes explicit formats from its support, the archived readers their pinned copies. Every
+ * layout must stay read only with every known hold, also across the reopened registry. A
+ * version 2 header copy also withholds the counter and every binding; a version 2 staging seed
+ * alone withholds the counter and creation. A constructed layout may also list the status each
+ * reader must give its slots. The bound collision layouts require the CONFLICT outcome of the
+ * reviewed c9264e4 reader for both. The layouts are fresh copies, never the emitted originals.
+ * Host files only, not Android boot.
  */
 public final class NativeCreationBindingReaderCheck {
     private static void inspect(Path layout) {

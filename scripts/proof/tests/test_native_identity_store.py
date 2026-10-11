@@ -10,6 +10,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / 'scripts/proof'))
 import native_principal_pins as integration
+import native_creation_binding as b1
 
 
 class NativeIdentityStoreTests(unittest.TestCase):
@@ -46,13 +47,40 @@ class NativeIdentityStoreTests(unittest.TestCase):
                 if name == 'NativeIdentityFutureFormatTest':
                     # Every isolated writer path ran with its healthy control and damaged twin,
                     # over slot frames above version 2 with and without a valid stable prefix.
-                    self.assertIn('391 passed, 0 failed', result.stdout)
+                    self.assertIn('291 passed, 0 failed', result.stdout)
                     self.assertNotIn('FAIL ', result.stdout)
                 if name == 'NativeIdentityPresenceTest':
-                    # Actual unprivileged permissions refused both probes; a bypass fails the run.
+                    # Actual unprivileged permissions refused both probes; a bypass fails the run. Under
+                    # Format.V1 each release step and the retiring flag refuse on their healthy layout.
                     self.assertIn('Unprivileged DAC refused', result.stdout)
-                    self.assertIn('93 passed, 0 failed', result.stdout)
+                    self.assertIn('%d passed, 0 failed' % b1.PRESENCE_PASSED['V1'], result.stdout)
                     self.assertNotIn('FAIL ', result.stdout)
+                    for refusal in b1.PRESENCE_REFUSALS:
+                        self.assertIn('PASS V1 / ' + refusal + '\n', result.stdout)
+                if name == 'NativeIdentityVersionGateTest':
+                    # The format refusal control beside the gate rows: every lifecycle write refuses on a
+                    # healthy version 1 layout, so the gate rows mask nothing.
+                    self.assertIn('PASS V1 / every lifecycle write refused on a healthy layout', result.stdout)
+            # The future format matrix's lifecycle rows under Format.V3: their own entry point, run as
+            # their own step with their own limit, beside the version 1 matrix's.
+            lifecycle = subprocess.run(
+                ['java', '-Xmx256m', '-ea', '-cp', str(work), 'com.android.server.pm.NativeIdentityFutureFormatTest',
+                 str(work), 'V3'], capture_output=True, text=True, timeout=120)
+            self.assertEqual(lifecycle.returncode, 0, lifecycle.stdout + lifecycle.stderr)
+            self.assertIn('148 passed, 0 failed', lifecycle.stdout)
+            self.assertNotIn('FAIL ', lifecycle.stdout)
+            self.assertIn('unqualified', lifecycle.stdout)
+            gate = subprocess.run(
+                ['java', '-Xmx256m', '-ea', '-cp', str(work), 'com.android.server.pm.NativeIdentityVersionGateTest',
+                 str(work), 'V3'], capture_output=True, text=True, timeout=60)
+            self.assertEqual(gate.returncode, 0, gate.stdout + gate.stderr)
+            self.assertIn('Lifecycle format refusal of the release primitives', gate.stdout)
+            # The production format's refusal controls: their own entry point, under the production label.
+            production = subprocess.run(
+                ['java', '-Xmx256m', '-ea', '-cp', str(work), 'com.android.server.pm.NativeIdentityVersionGateTest',
+                 str(work), 'V2'], capture_output=True, text=True, timeout=60)
+            self.assertEqual(production.returncode, 0, production.stdout + production.stderr)
+            self.assertEqual(production.stdout, 'PASS V2 / every lifecycle write refused on a healthy layout\n')
             for name in ['NativeIdentityRecordsTest', 'NativeIdentityVersionGateTest',
                          'NativeIdentityFutureFormatTest', 'NativeIdentityPresenceTest']:
                 negative = subprocess.run(

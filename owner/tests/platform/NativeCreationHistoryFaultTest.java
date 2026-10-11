@@ -144,45 +144,34 @@ public final class NativeCreationHistoryFaultTest {
         }
     }
 
-    // A rebound reservation's retirement publishes its first body before its marker.
+    // A rebound reservation's retirement refuses under the production format before its publication:
+    // no writer step is reached and nothing changes. The lifecycle format's sweep covers the steps.
     private static void retirementPublication() {
         for (String step : STEPS) {
-            fault("rebound retirement publication / " + step, problems -> {
+            fault("rebound retirement refused before its publication / " + step, problems -> {
                 Rebound r = new Rebound();
                 NativeHeaderWriteFaults.arm(step, "record.bin");
-                check(problems, !r.manager.beginRetirement(r.handle) && NativeHeaderWriteFaults.reached()
-                        && r.manager.phase(r.handle) == Phase.RETIRING, "no injected failure");
+                check(problems, retirementRefused(r.root, r.manager, r.handle) && !NativeHeaderWriteFaults.reached()
+                        && r.manager.phase(r.handle) == Phase.PENDING, step + ": the retirement was not refused");
                 NativeHeaderWriteFaults.disarm();
-                check(problems, throwsType(() -> r.manager.finishRetirementAfterQuiescence(r.handle),
-                        IllegalStateException.class), step + ": finish before a marker");
-                reopened(problems, r.root, step.equals("seed-synced") ? Source.RESERVATION : Source.BODY,
-                        Phase.PENDING, step);
-                check(problems, r.manager.beginRetirement(r.handle)
-                        && r.manager.finishRetirementAfterQuiescence(r.handle)
-                        && v2(1).equals(storedOf(r.root, V2)) && r.pm.mSettings.isNativePrincipalAppIdLPr(R),
-                        step + ": retry " + storedOf(r.root, V2));
+                reopened(problems, r.root, Source.RESERVATION, Phase.PENDING, step);
             });
         }
     }
 
-    // A committed rebind's retirement marker. The unmarked prior stays selected until the final
-    // step, so a reopened registry restores PENDING until then and RETIRING after.
+    // A committed rebind's retirement refuses before its marker: the binding stays LIVE and a reopened
+    // registry restores PENDING.
     private static void retirementMarker() {
         for (String step : STEPS) {
-            fault("rebound retirement marker / " + step, problems -> {
+            fault("rebound retirement refused before its marker / " + step, problems -> {
                 Rebound r = new Rebound();
                 check(problems, r.manager.commit(r.handle), "rebind refused");
                 NativeHeaderWriteFaults.arm(step, "record.bin");
-                check(problems, !r.manager.beginRetirement(r.handle) && NativeHeaderWriteFaults.reached()
-                        && r.manager.phase(r.handle) == Phase.RETIRING, "no injected failure");
+                check(problems, retirementRefused(r.root, r.manager, r.handle) && !NativeHeaderWriteFaults.reached(),
+                        step + ": the retirement was not refused");
                 NativeHeaderWriteFaults.disarm();
-                boolean marked = step.equals("backup-unlinked");
                 check(problems, v2(1, live(R)).equals(storedOf(r.root, V2)), step + ": header " + storedOf(r.root, V2));
-                reopened(problems, r.root, Source.BODY, marked ? Phase.RETIRING : Phase.PENDING, step);
-                check(problems, r.manager.beginRetirement(r.handle)
-                        && r.manager.finishRetirementAfterQuiescence(r.handle)
-                        && v2(1).equals(storedOf(r.root, V2)) && r.pm.mSettings.isNativePrincipalAppIdLPr(R),
-                        step + ": retry " + storedOf(r.root, V2));
+                reopened(problems, r.root, Source.BODY, Phase.PENDING, step);
             });
         }
     }

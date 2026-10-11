@@ -1166,14 +1166,14 @@ final class NativeIdentityStore {
     }
 
     /**
-     * The checked header writer. Under a format that writes version 2 slots it turns no entry
-     * RELEASING and omits none: those are the release engine's header writes, which only
-     * markSlotReleasing and omitReleasedSlot make. Under the earlier formats the version 1 release
-     * still makes them here.
+     * The checked header writer. Under every format it turns no entry RELEASING and omits none:
+     * those are the release engine's header writes, which only markSlotReleasing and
+     * omitReleasedSlot make, under the lifecycle format alone. Under the earlier formats they are
+     * lifecycle writes, refused before any effect.
      */
     boolean writeHeader(Header expected, Header next) {
         Objects.requireNonNull(expected); Objects.requireNonNull(next);
-        if (format.slotCeiling >= LIFECYCLE_SLOT_VERSION && releases(expected, next)) return false;
+        if (releases(expected, next)) return false;
         return writeAnyHeader(expected, next);
     }
 
@@ -1345,6 +1345,8 @@ final class NativeIdentityStore {
 
     /** Exact retirement reconciliation only, never a general absence-is-free test. */
     boolean confirmReleasedSlot(Header expected, int appId) {
+        // Release only: a lifecycle write, refused before any effect under the earlier formats.
+        if (format.slotCeiling < LIFECYCLE_SLOT_VERSION) return false;
         if (headerEntry(expected, appId) != null || !absent(slotDirectory(appId))
                 || writeInspectionBlocked(appId) || !confirmHeader(expected)) return false;
         try { syncDirectory(slotRoot); return true; }
@@ -1355,7 +1357,12 @@ final class NativeIdentityStore {
         Objects.requireNonNull(next);
         Objects.requireNonNull(expectedHeader);
         // Before the header confirmation, which writes: no slot above the ceiling is written.
-        if (next.version > format.slotCeiling) return false;
+        if (next.version > format.slotCeiling || next.users.size() != 1) return false;
+        // A new identity is ordinary ELIGIBLE only. Lifecycle changes use their named transitions,
+        // and LEGACY_MARKER comes only from decoding an older body, never from this writer.
+        for (UserEntry user : next.users) {
+            if (!user.lifecycle.isVersion1() || user.retiring) return false;
+        }
         HeaderEntry index = headerEntry(expectedHeader, next.appId);
         if (writeInspectionBlocked(next.appId) || !confirmHeader(expectedHeader) || index == null
                 || !directory(slotDirectory(next.appId))
@@ -1456,16 +1463,18 @@ final class NativeIdentityStore {
                 || read.status != Status.VALID
                 || !(read.value.equals(expected) || read.value.equals(next))) return false;
         if (format.slotCeiling < LIFECYCLE_SLOT_VERSION) {
-            // Retirement is irreversible for every entry that remains present.
+            // The earlier formats write no lifecycle change: no retirement marker and no user drop.
+            // Every user stays, with its identity and its retiring flag.
+            if (next.users.size() != expected.users.size()) return false;
             for (UserEntry prior : expected.users) {
                 boolean retained = false;
                 for (UserEntry current : next.users) {
                     if (prior.userId != current.userId) continue;
                     retained = true;
                     if (prior.id != current.id || prior.userSerial != current.userSerial
-                            || (prior.retiring && !current.retiring)) return false;
+                            || prior.retiring != current.retiring) return false;
                 }
-                if (!retained && !prior.retiring) return false;
+                if (!retained) return false;
             }
         } else if (!lifecyclesKept(expected, next, transition, drop)) {
             return false;
@@ -2040,6 +2049,8 @@ final class NativeIdentityStore {
      * Damaged creation records are deliberately NOT auto-deleted by this slice.
      */
     boolean removeReleasingSlot(Header expected, int appId) {
+        // Release only: a lifecycle write, refused before any effect under the earlier formats.
+        if (format.slotCeiling < LIFECYCLE_SLOT_VERSION) return false;
         HeaderEntry index = headerEntry(expected, appId);
         if (index == null || index.phase != SlotPhase.RELEASING || writeInspectionBlocked(appId)
                 || !confirmHeader(expected)) return false;

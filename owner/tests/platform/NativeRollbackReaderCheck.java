@@ -31,7 +31,8 @@ import java.util.TreeSet;
  * branch unnoticed. It also names control layouts, which are read again under the production
  * Format.V2: there the same bytes give the history, pins and admission that the version 1 reader
  * withholds, so those refusals are effects of the format and not of the fixture. The harness
- * selects the reader's sources and the Format.V1 adapter. Host files only, not Android boot.
+ * selects the reader's sources, and the support opens them under Format.V1. Host files only, not
+ * Android boot.
  */
 public final class NativeRollbackReaderCheck {
     /** The package each held app ID's decoded copies name, mapped once, in app ID order. */
@@ -78,11 +79,11 @@ public final class NativeRollbackReaderCheck {
             Path root = layout.resolve("store");
             boolean copy = versionTwoCopy(layout);
             Set<Integer> holds = holds(layout);
-            NativeIdentityStore.Loaded loaded = NativeHeaderApi.store(root).load();
+            NativeIdentityStore.Loaded loaded = store(root).load();
             Map<String, Integer> packages = mapped(loaded, holds);
             age(root);
             Map<String, String> before = footprint(root);
-            PackageManagerService pm = NativeHeaderApi.pm(root, false);
+            PackageManagerService pm = legacyPm(root, false);
             for (Map.Entry<String, Integer> entry : packages.entrySet()) {
                 pm.mSettings.add(entry.getKey(), entry.getValue());
             }
@@ -132,7 +133,7 @@ public final class NativeRollbackReaderCheck {
         run("rollback reader control / " + layout.getFileName(), problems -> {
             Path root = layout.resolve("store");
             check(problems, versionTwoCopy(layout), "a control must hold a version 2 header copy");
-            Map<String, Integer> packages = mapped(NativeHeaderApi.store(root).load(), holds(layout));
+            Map<String, Integer> packages = mapped(store(root).load(), holds(layout));
             check(problems, !packages.isEmpty(), "no store named package to map");
             age(root);
             Map<String, String> before = footprint(root);

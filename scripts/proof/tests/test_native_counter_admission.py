@@ -292,7 +292,7 @@ class ArchivedCounterTests(unittest.TestCase):
         # The archived phases run without any living function or constant and record the same.
         living_code_broken(self, runner.b1, B1_LIVING)
         living_code_broken(self, runner.b2, ('settings_texts', 'harness_source', 'history_stubs', 'worktree_tests',
-                                             'b2_product', 'red_names', 'probe_outcome', 'candidates'))
+                                             'b2_product', 'red_names', 'candidates'))
         living_code_broken(self, runner, ('suite_files', 'focused', 'mutant_sources', 'candidates'))
         living_constants_changed(self, work)
         with mock.patch.multiple(runner, TEST='x', SUPPORT=(), STORE='x', FACADE='x', FOCUSED_NAMES=(),

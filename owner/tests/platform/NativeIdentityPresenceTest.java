@@ -36,9 +36,14 @@ import java.util.TreeSet;
  * no eligibility or counter from around it. Links and special nodes are refused and never
  * followed. Each case isolates one store and restricts exactly one fixture path with real
  * unprivileged permissions, restoring that path's own mode afterwards. A run uses one store
- * format: the legacy version 1 by default, or the production V2, which repeats every case with
- * version 2 headers whose CREATING entries carry the complete binding of their slot bodies. Host
- * facades only, not Android persistence, SELinux or I/O error qualification.
+ * format: the legacy version 1 by default, the production V2, which repeats every case with
+ * version 2 headers whose CREATING entries carry the complete binding of their slot bodies, or the
+ * lifecycle format V3, which repeats them again with the release engine's omission and the
+ * lifecycle retirement. Under the earlier formats the release steps and the retiring flag are
+ * lifecycle writes: on its healthy layout each refuses before any effect, while the read side of
+ * every restricted and unreadable position stays checked, and the slot update rows take a
+ * generation step without a lifecycle change. Host facades only, not Android persistence, SELinux
+ * or I/O error qualification.
  */
 public final class NativeIdentityPresenceTest {
     private static final String LINEAGE = "e".repeat(32);
@@ -61,6 +66,8 @@ public final class NativeIdentityPresenceTest {
 
     private static final Slot SLOT_A = bound(A, PKG_A, 1, false, 1);
     private static final Slot RETIRING_A = bound(A, PKG_A, 1, true, 2);
+    // A's next generation without a lifecycle change: the only slot update the earlier formats take.
+    private static final Slot TOUCHED_A = bound(A, PKG_A, 1, false, 2);
     private static final Slot SLOT_B = bound(B, PKG_B, 2, false, 1);
     private static final Slot TOMBSTONE_B = new Slot(LINEAGE, B, PKG_B, 3, SIGNERS, List.of());
     private static final Slot SLOT_C = bound(C, PKG_C, 3, false, 1);
@@ -92,15 +99,41 @@ public final class NativeIdentityPresenceTest {
     private static HeaderEntry releasing(int appId) {
         return new HeaderEntry(appId, SlotPhase.RELEASING, 0, "");
     }
-    // Under V2 a CREATING entry carries the complete binding its slot body will have.
+    // Under V2 and V3 a CREATING entry carries the complete binding its slot body will have.
     private static HeaderEntry creating(int appId, long id, String name) {
         return new HeaderEntry(appId, SlotPhase.CREATING, id, name,
-                format == NativeIdentityStore.Format.V2
+                format != NativeIdentityStore.Format.V1
                         ? new NativeIdentityRecords.CreationBinding(0, 7, SIGNERS) : null);
     }
     private static Header header(long lastId, HeaderEntry... entries) {
-        return format == NativeIdentityStore.Format.V2 ? Header.newV2(LINEAGE, lastId, List.of(entries))
+        return format != NativeIdentityStore.Format.V1 ? Header.newV2(LINEAGE, lastId, List.of(entries))
                 : new Header(LINEAGE, lastId, List.of(entries));
+    }
+    // Whether this run's format is one of the earlier ones, which write no lifecycle change.
+    private static boolean earlier() {
+        return format != NativeIdentityStore.Format.V3;
+    }
+    // The release omission of this run's format: the version 1 header write under the earlier formats,
+    // where it refuses, and under Format.V3 the release engine's omission.
+    private static boolean omission(NativeIdentityStore store) {
+        return format == NativeIdentityStore.Format.V3 ? store.omitReleasedSlot(RELEASING_B, B)
+                : store.writeHeader(RELEASING_B, RELEASED_B);
+    }
+    // The slot update of this run's format: under the earlier formats a generation step without a
+    // lifecycle change, and under Format.V3 the lifecycle retirement.
+    private static boolean update(NativeIdentityStore store) {
+        return format == NativeIdentityStore.Format.V3 ? store.markSlotRetiring(SLOT_A, 1, block())
+                : store.updateExistingSlot(SLOT_A, TOUCHED_A);
+    }
+    // The account user's retirement block with every kind outstanding.
+    private static NativeIdentityRecords.Retirement block() {
+        List<NativeIdentityRecords.Obligation> outstanding = new ArrayList<>();
+        for (NativeIdentityRecords.ObligationKind kind : NativeIdentityRecords.ObligationKind.values()) {
+            outstanding.add(new NativeIdentityRecords.Obligation(kind,
+                    NativeIdentityRecords.ObligationState.OUTSTANDING, NativeIdentityRecords.NO_REFERENCE, 0, 0));
+        }
+        return new NativeIdentityRecords.Retirement(NativeIdentityRecords.ActorClass.ACCOUNT_USER, 0, 7,
+                NativeIdentityRecords.NO_REFERENCE, 1_700_000_000_100L, outstanding);
     }
     private static void headers() {
         LIVE_A = header(1, live(A));
@@ -142,7 +175,8 @@ public final class NativeIdentityPresenceTest {
             return frame(TYPE_HEADER, 3, concat(body(NativeIdentityRecords.encodeHeader(
                     header(9, live(A), live(HIDDEN)))), EXTENSION));
         }
-        return frame(TYPE_SLOT, 2, concat(body(NativeIdentityRecords.encodeSlot(
+        // The lifecycle format reads version 2 slots, so its newer slot frame is version 3.
+        return frame(TYPE_SLOT, format.slotCeiling + 1, concat(body(NativeIdentityRecords.encodeSlot(
                 bound(target, PKG_HIDDEN, 9, true, 5))), EXTENSION));
     }
 
@@ -177,17 +211,23 @@ public final class NativeIdentityPresenceTest {
         }
     }
 
-    // One otherwise valid writer call. A null target is the header record.
+    // One otherwise valid writer call. A null target is the header record. A lifecycle call is a
+    // release step, which under the earlier formats refuses on its healthy layout too.
     private static final class Case {
         final String name;
         final Layout layout;
         final Integer target;
         final Action action;
+        final boolean lifecycle;
         Case(String name, Layout layout, Integer target, Action action) {
+            this(name, layout, target, action, false);
+        }
+        Case(String name, Layout layout, Integer target, Action action, boolean lifecycle) {
             this.name = name;
             this.layout = layout;
             this.target = target;
             this.action = action;
+            this.lifecycle = lifecycle;
         }
     }
 
@@ -211,6 +251,12 @@ public final class NativeIdentityPresenceTest {
         @Override public String toString() {
             return "header=" + header + " slots=" + slots + " holds=" + holds + " usable=" + usable
                     + " ready=" + ready + " complete=" + complete;
+        }
+        @Override public boolean equals(Object other) {
+            return other instanceof View && toString().equals(other.toString());
+        }
+        @Override public int hashCode() {
+            return toString().hashCode();
         }
     }
 
@@ -342,31 +388,32 @@ public final class NativeIdentityPresenceTest {
         result.add(new Case("header creation", new Layout(LIVE_A).slot(A, SLOT_A), null,
                 store -> store.writeHeader(LIVE_A, CREATING_B)));
         result.add(new Case("header omission", new Layout(RELEASING_B).slot(A, SLOT_A), null,
-                store -> store.writeHeader(RELEASING_B, RELEASED_B)));
+                store -> omission(store), true));
         result.add(new Case("header released", new Layout(RELEASED_B).slot(A, SLOT_A), null,
-                store -> store.confirmReleasedSlot(RELEASED_B, B)));
+                store -> store.confirmReleasedSlot(RELEASED_B, B), true));
         result.add(new Case("header binding update", new Layout(LIVE_A).slot(A, SLOT_A), null,
-                store -> store.updateExistingSlot(SLOT_A, RETIRING_A)));
+                store -> update(store)));
         // The target slot record under each of its writers.
         result.add(new Case("slot update", new Layout(LIVE_A).slot(A, SLOT_A), A,
-                store -> store.updateExistingSlot(SLOT_A, RETIRING_A)));
+                store -> update(store)));
         result.add(new Case("slot confirm", new Layout(LIVE_A).slot(A, SLOT_A), A,
                 store -> store.confirmExistingSlot(SLOT_A)));
         result.add(new Case("slot removal", new Layout(RELEASING_B).slot(A, SLOT_A)
-                .slot(B, TOMBSTONE_B), B, store -> store.removeReleasingSlot(RELEASING_B, B)));
+                .slot(B, TOMBSTONE_B), B, store -> store.removeReleasingSlot(RELEASING_B, B), true));
         result.add(new Case("slot resume", new Layout(CREATING_C).slot(A, SLOT_A).slot(B, SLOT_B)
                 .empty(C), C, store -> store.resumeCreatingDirectory(CREATING_C, C)));
         result.add(new Case("slot publish", new Layout(CREATING_C).slot(A, SLOT_A).slot(B, SLOT_B)
                 .empty(C), C, store -> store.publishCreatingSlot(CREATING_C, SLOT_C)));
         // Store availability: unknown bytes in unrelated slot B refuse other writers too.
         result.add(new Case("unrelated update", new Layout(LIVE_AB).slot(A, SLOT_A)
-                .slot(B, SLOT_B), B, store -> store.updateExistingSlot(SLOT_A, RETIRING_A)));
+                .slot(B, SLOT_B), B, store -> update(store)));
         result.add(new Case("unrelated creation", new Layout(LIVE_AB).slot(A, SLOT_A)
                 .slot(B, SLOT_B), B, store -> store.writeHeader(LIVE_AB, CREATING_C)));
         return result;
     }
 
     private static View healthy(Case c) {
+        if (c.lifecycle && earlier()) return healthyRefusal(c);
         View[] seen = new View[1];
         run(c.name + " / healthy", problems -> {
             Path root = c.layout.build(fresh().resolve("store"));
@@ -375,6 +422,29 @@ public final class NativeIdentityPresenceTest {
             boolean result = c.action.run(store);
             check(problems, result, "otherwise valid writer refused " + view);
             if (result) seen[0] = view;
+        });
+        return seen[0];
+    }
+
+    // A release step under an earlier format, on its healthy layout: it refuses before any effect,
+    // with every byte, file identity, time and mode and the whole view unchanged. Its unreadable
+    // positions then check the read side against this view.
+    private static View healthyRefusal(Case c) {
+        View[] seen = new View[1];
+        run(format + " / " + c.name + " refused on its healthy layout", problems -> {
+            Path top = fresh();
+            Path root = c.layout.build(top.resolve("store"));
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
+            age(top);
+            Map<String, String> before = footprint(top);
+            View view = new View(store.load());
+            boolean result = c.action.run(store);
+            check(problems, !result, "lifecycle write acknowledged under " + format);
+            check(problems, footprint(top).equals(before), "store footprint changed");
+            check(problems, new View(store.load()).equals(view), "view changed " + new View(store.load()));
+            check(problems, !view.slots.containsValue(Status.UNSUPPORTED) && view.header == Status.VALID
+                    && view.complete, "layout not healthy " + view);
+            if (!result) seen[0] = view;
         });
         return seen[0];
     }
@@ -420,12 +490,69 @@ public final class NativeIdentityPresenceTest {
             View healthy = healthy(c);
             for (At at : At.values()) unreadable(c, healthy, at);
         }
+        if (earlier()) retiringFlag();
+    }
+
+    // The version 1 retiring flag, a lifecycle write the earlier formats refuse on a healthy layout
+    // before any effect. The generation step that follows shows that the layout takes updates.
+    private static void retiringFlag() {
+        run(format + " / retiring flag refused on its healthy layout", problems -> {
+            Path top = fresh();
+            Path root = new Layout(LIVE_A).slot(A, SLOT_A).build(top.resolve("store"));
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
+            age(top);
+            Map<String, String> before = footprint(top);
+            View view = new View(store.load());
+            check(problems, !store.updateExistingSlot(SLOT_A, RETIRING_A), "retiring flag written under " + format);
+            check(problems, footprint(top).equals(before), "store footprint changed");
+            check(problems, new View(store.load()).equals(view), "view changed");
+            check(problems, update(store) && store.load().slots.get(A).value.equals(TOUCHED_A),
+                    "generation step refused");
+        });
+    }
+
+    // A release flow under an earlier format, on the layout where Format.V3 takes it: every step
+    // refuses before any effect, with every byte, file identity, time and mode and the whole view
+    // unchanged.
+    private static void releaseRefused(String name, Layout layout, Action... steps) {
+        releaseRefused(name, layout, null, null, steps);
+    }
+
+    // The same, with each step also called while one fixture path is restricted, as the Format.V3
+    // case restricts it.
+    private static void releaseRefused(String name, Layout layout, String restrict, String mode, Action... steps) {
+        run(format + " / " + name + " refused before any effect", problems -> {
+            Path top = fresh();
+            Path root = layout.build(top.resolve("store"));
+            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
+            age(top);
+            Map<String, String> before = footprint(top);
+            View view = new View(store.load());
+            for (int i = 0; i < steps.length; i++) {
+                Action step = steps[i];
+                check(problems, !step.run(store), "step " + i + " acknowledged under " + format);
+                if (restrict != null) {
+                    check(problems, !restricted(root.resolve(restrict), mode, () -> step.run(store)),
+                            "step " + i + " acknowledged under a restricted path");
+                }
+            }
+            check(problems, footprint(top).equals(before), "store footprint changed");
+            check(problems, new View(store.load()).equals(view), "view changed " + new View(store.load()));
+        });
     }
 
     // One writer call while exactly one fixture path is restricted. It refuses before any
     // effect. Every known hold stays visible and no creation is ready while it is restricted.
     private static void refused(String name, Layout layout, String restrict, String mode,
             Action action, Extra extra) {
+        refused(name, layout, restrict, mode, action, extra, false);
+    }
+
+    // A lifecycle call refuses under the earlier formats whatever the restriction: there it is
+    // first called with nothing restricted, as the format refusal control, so that the restricted
+    // call's refusal is not taken for the restriction's.
+    private static void refused(String name, Layout layout, String restrict, String mode,
+            Action action, Extra extra, boolean lifecycle) {
         run(name, problems -> {
             Path top = fresh();
             Path root = layout.build(top.resolve("store"));
@@ -433,6 +560,10 @@ public final class NativeIdentityPresenceTest {
             View healthy = new View(store.load());
             age(top);
             Map<String, String> before = footprint(top);
+            if (lifecycle && earlier()) {
+                check(problems, !action.run(store) && footprint(top).equals(before)
+                        && new View(store.load()).equals(healthy), "no format refusal under " + format);
+            }
             Path path = root.resolve(restrict);
             View during = restricted(path, mode, () -> new View(store.load()));
             boolean result = restricted(path, mode, () -> action.run(store));
@@ -456,12 +587,12 @@ public final class NativeIdentityPresenceTest {
             }
         };
         refused("unsearchable namespace / RELEASING removal", releasing, "slots", UNSEARCHABLE,
-                store -> store.removeReleasingSlot(RELEASING_B, B), neither);
+                store -> store.removeReleasingSlot(RELEASING_B, B), neither, true);
         refused("unsearchable namespace / RELEASING omission", releasing, "slots", UNSEARCHABLE,
-                store -> store.writeHeader(RELEASING_B, RELEASED_B), neither);
+                store -> omission(store), neither, true);
         refused("unsearchable namespace / release confirmation",
                 new Layout(RELEASED_B).slot(A, SLOT_A).slot(B, TOMBSTONE_B), "slots", UNSEARCHABLE,
-                store -> store.confirmReleasedSlot(RELEASED_B, B), neither);
+                store -> store.confirmReleasedSlot(RELEASED_B, B), neither, true);
         refused("unsearchable namespace / creation directory",
                 new Layout(CREATING_C).slot(A, SLOT_A).slot(B, SLOT_B), "slots", UNSEARCHABLE,
                 store -> store.ensureFreshSlot(CREATING_C, C), NOTHING);
@@ -474,10 +605,10 @@ public final class NativeIdentityPresenceTest {
                     check(problems, status != Status.VALID && status != Status.MISSING,
                             "slot read as " + status);
                     check(problems, during.usable.equals(Set.of(A)), "eligible " + during.usable);
-                });
+                }, true);
         refused("unsearchable slot / unrelated update",
                 new Layout(LIVE_AB).slot(A, SLOT_A).slot(B, SLOT_B), "slots/" + B, UNSEARCHABLE,
-                store -> store.updateExistingSlot(SLOT_A, RETIRING_A), (healthy, during, problems) ->
+                store -> update(store), (healthy, during, problems) ->
                 check(problems, during.usable.equals(Set.of(A)), "eligible " + during.usable));
         run("unsearchable root / not a missing store", problems -> {
             Path top = fresh();
@@ -488,7 +619,7 @@ public final class NativeIdentityPresenceTest {
             View during = restricted(root, UNSEARCHABLE, () -> new View(store.load()));
             boolean initialized = restricted(root, UNSEARCHABLE, () -> store.initializeNew(LINEAGE));
             boolean updated = restricted(root, UNSEARCHABLE,
-                    () -> store.updateExistingSlot(SLOT_A, RETIRING_A));
+                    () -> update(store));
             check(problems, during.header != Status.MISSING && during.header != Status.VALID,
                     "header read as " + during.header);
             check(problems, !during.complete && !during.ready && during.usable.isEmpty(),
@@ -499,15 +630,19 @@ public final class NativeIdentityPresenceTest {
     }
 
     // Write permission refused, stat and read allowed: genuine absence still continues, and
-    // a failed effect is never acknowledged or left partial.
+    // a failed effect is never acknowledged or left partial. Under the earlier formats the release
+    // steps refuse on these layouts before any effect, restricted or not.
     private static void readOnly() {
-        run("read-only namespace / genuine absence continues", problems -> {
+        if (earlier()) {
+            releaseRefused("read-only namespace / genuine absence", new Layout(RELEASING_B).slot(A, SLOT_A),
+                    "slots", READ_ONLY, store -> store.removeReleasingSlot(RELEASING_B, B), store -> omission(store));
+        } else run("read-only namespace / genuine absence continues", problems -> {
             Path root = new Layout(RELEASING_B).slot(A, SLOT_A).build(fresh().resolve("store"));
             NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
             boolean removed = restricted(root.resolve("slots"), READ_ONLY,
                     () -> store.removeReleasingSlot(RELEASING_B, B));
             check(problems, removed, "genuine ENOENT refused under a read-only namespace");
-            check(problems, store.writeHeader(RELEASING_B, RELEASED_B), "omission refused");
+            check(problems, omission(store), "omission refused");
             check(problems, new View(store.load()).holds.equals(Set.of(A)), "holds");
         });
         run("read-only namespace / creation directory refused", problems -> {
@@ -523,7 +658,10 @@ public final class NativeIdentityPresenceTest {
             check(problems, footprint(slots).equals(before), "slot namespace changed");
             check(problems, store.ensureFreshSlot(CREATING_C, C), "writable retry refused");
         });
-        run("read-only slot / removal keeps every copy", problems -> {
+        if (earlier()) {
+            releaseRefused("read-only slot / removal", new Layout(RELEASING_B).slot(A, SLOT_A).slot(B, TOMBSTONE_B),
+                    "slots/" + B, READ_ONLY, store -> store.removeReleasingSlot(RELEASING_B, B));
+        } else run("read-only slot / removal keeps every copy", problems -> {
             Path top = fresh();
             Path root = new Layout(RELEASING_B).slot(A, SLOT_A).slot(B, TOMBSTONE_B)
                     .build(top.resolve("store"));
@@ -539,30 +677,46 @@ public final class NativeIdentityPresenceTest {
         });
     }
 
-    // A real ENOENT: each owned transaction continues after a lost reply.
+    // A real ENOENT: each owned transaction continues after a lost reply. Under the earlier formats
+    // the release flows refuse before any effect on the same layouts.
     private static void genuineAbsence() {
-        run("genuine absence / RELEASING continuation", problems -> {
-            Path root = new Layout(RELEASING_B).slot(A, SLOT_A).build(fresh().resolve("store"));
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
-            check(problems, store.removeReleasingSlot(RELEASING_B, B), "absent directory not continued");
-            check(problems, store.removeReleasingSlot(RELEASING_B, B), "retry not continued");
-            check(problems, store.writeHeader(RELEASING_B, RELEASED_B), "omission refused");
-            check(problems, store.confirmReleasedSlot(RELEASED_B, B), "release not confirmed");
-            View after = new View(store.load());
-            check(problems, after.holds.equals(Set.of(A)) && after.ready, "view " + after);
-        });
-        run("genuine absence / owned retirement", problems -> {
-            Path root = new Layout(RELEASING_B).slot(A, SLOT_A).slot(B, TOMBSTONE_B)
-                    .build(fresh().resolve("store"));
-            NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
-            check(problems, store.removeReleasingSlot(RELEASING_B, B), "tombstone not removed");
-            check(problems, !Files.exists(root.resolve("slots/" + B), LinkOption.NOFOLLOW_LINKS),
-                    "directory remains");
-            check(problems, store.removeReleasingSlot(RELEASING_B, B), "retry not continued");
-            check(problems, store.writeHeader(RELEASING_B, RELEASED_B), "omission refused");
-            check(problems, store.confirmReleasedSlot(RELEASED_B, B), "release not confirmed");
-            check(problems, new View(store.load()).holds.equals(Set.of(A)), "holds");
-        });
+        if (earlier()) {
+            releaseRefused("genuine absence / RELEASING continuation", new Layout(RELEASING_B).slot(A, SLOT_A),
+                    store -> store.removeReleasingSlot(RELEASING_B, B), store -> omission(store),
+                    store -> store.confirmReleasedSlot(RELEASED_B, B));
+            releaseRefused("genuine absence / owned retirement",
+                    new Layout(RELEASING_B).slot(A, SLOT_A).slot(B, TOMBSTONE_B),
+                    store -> store.removeReleasingSlot(RELEASING_B, B), store -> omission(store),
+                    store -> store.confirmReleasedSlot(RELEASED_B, B));
+        } else {
+            run("genuine absence / RELEASING continuation", problems -> {
+                Path root = new Layout(RELEASING_B).slot(A, SLOT_A).build(fresh().resolve("store"));
+                NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
+                check(problems, store.removeReleasingSlot(RELEASING_B, B), "absent directory not continued");
+                check(problems, store.removeReleasingSlot(RELEASING_B, B), "retry not continued");
+                check(problems, omission(store), "omission refused");
+                check(problems, store.confirmReleasedSlot(RELEASED_B, B), "release not confirmed");
+                View after = new View(store.load());
+                check(problems, after.holds.equals(Set.of(A)) && after.ready, "view " + after);
+            });
+            run("genuine absence / owned retirement", problems -> {
+                Path root = new Layout(RELEASING_B).slot(A, SLOT_A).slot(B, TOMBSTONE_B)
+                        .build(fresh().resolve("store"));
+                NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
+                check(problems, store.removeReleasingSlot(RELEASING_B, B), "tombstone not removed");
+                check(problems, !Files.exists(root.resolve("slots/" + B), LinkOption.NOFOLLOW_LINKS),
+                        "directory remains");
+                check(problems, store.removeReleasingSlot(RELEASING_B, B), "retry not continued");
+                check(problems, omission(store), "omission refused");
+                check(problems, store.confirmReleasedSlot(RELEASED_B, B), "release not confirmed");
+                check(problems, new View(store.load()).holds.equals(Set.of(A)), "holds");
+            });
+        }
+        ownedTransactions();
+    }
+
+    // The owned creation and initialization, which no format refuses, continue after a lost reply.
+    private static void ownedTransactions() {
         run("genuine absence / owned creation", problems -> {
             Path root = new Layout(CREATING_C).slot(A, SLOT_A).slot(B, SLOT_B)
                     .build(fresh().resolve("store"));
@@ -596,7 +750,7 @@ public final class NativeIdentityPresenceTest {
             age(top);
             Map<String, String> outside = footprint(top.resolve("foreign"));
             check(problems, !store.removeReleasingSlot(RELEASING_B, B), "removal through a link");
-            check(problems, !store.writeHeader(RELEASING_B, RELEASED_B), "omission beside a link");
+            check(problems, !omission(store), "omission beside a link");
             View view = new View(store.load());
             check(problems, view.holds.contains(B) && view.slots.get(B) == Status.DAMAGED,
                     "view " + view);
@@ -610,7 +764,7 @@ public final class NativeIdentityPresenceTest {
             Path link = Files.createSymbolicLink(root.resolve("slots/" + B), nowhere);
             NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
             check(problems, !store.removeReleasingSlot(RELEASING_B, B), "dangling link read as removed");
-            check(problems, !store.writeHeader(RELEASING_B, RELEASED_B), "omission beside a dangling link");
+            check(problems, !omission(store), "omission beside a dangling link");
             check(problems, Files.isSymbolicLink(link)
                     && !Files.exists(nowhere, LinkOption.NOFOLLOW_LINKS), "link or target changed");
             check(problems, new View(store.load()).holds.contains(B), "hold lost");
@@ -630,7 +784,7 @@ public final class NativeIdentityPresenceTest {
             View view = new View(store.load());
             check(problems, view.slots.get(A) == Status.DAMAGED && !view.usable.contains(A),
                     "read through a link " + view);
-            check(problems, !store.updateExistingSlot(SLOT_A, RETIRING_A), "wrote beside a linked copy");
+            check(problems, !update(store), "wrote beside a linked copy");
             check(problems, footprint(top).equals(before), "store footprint changed");
         });
         run("special seed / never opened", problems -> {
@@ -642,7 +796,7 @@ public final class NativeIdentityPresenceTest {
             Map<String, String> before = footprint(top);
             View view = new View(store.load());
             check(problems, view.usable.contains(A), "a special seed withdrew the binding " + view);
-            check(problems, !store.updateExistingSlot(SLOT_A, RETIRING_A), "wrote through a special seed");
+            check(problems, !update(store), "wrote through a special seed");
             check(problems, footprint(top).equals(before), "store footprint changed");
         });
         run("special slot entry / ordinary damage", problems -> {
@@ -652,7 +806,7 @@ public final class NativeIdentityPresenceTest {
             View view = new View(store.load());
             check(problems, view.holds.contains(SPECIAL) && view.slots.get(SPECIAL) == Status.DAMAGED
                     && !view.ready && view.usable.contains(A), "view " + view);
-            check(problems, store.updateExistingSlot(SLOT_A, RETIRING_A), "unrelated damage froze writers");
+            check(problems, update(store), "unrelated damage froze writers");
         });
         run("file slot entry / refused, never read below", problems -> {
             Path top = fresh();
@@ -662,7 +816,7 @@ public final class NativeIdentityPresenceTest {
             age(top);
             Map<String, String> before = footprint(root.resolve("slots"));
             check(problems, !store.removeReleasingSlot(RELEASING_B, B), "removal through a file entry");
-            check(problems, !store.writeHeader(RELEASING_B, RELEASED_B), "omission beside a file entry");
+            check(problems, !omission(store), "omission beside a file entry");
             View view = new View(store.load());
             check(problems, view.holds.contains(B) && view.slots.get(B) == Status.DAMAGED,
                     "view " + view);
@@ -707,7 +861,7 @@ public final class NativeIdentityPresenceTest {
             check(problems, view.holds.isEmpty() && view.usable.isEmpty() && !view.ready,
                     "followed a linked store " + view);
             check(problems, !store.initializeNew(LINEAGE), "initialized through a link");
-            check(problems, !store.updateExistingSlot(SLOT_A, RETIRING_A), "wrote through a linked store");
+            check(problems, !update(store), "wrote through a linked store");
             check(problems, footprint(top).equals(before), "store footprint changed");
         });
     }
@@ -730,7 +884,10 @@ public final class NativeIdentityPresenceTest {
                 store -> store.resumeCreatingDirectory(CREATING_C, C), NOTHING);
         refused("unreadable torn seed / creation publish", creation, SEED_C, UNREADABLE,
                 store -> store.publishCreatingSlot(CREATING_C, SLOT_C), NOTHING);
-        run("readable torn seed / RELEASING removal", problems -> {
+        if (earlier()) {
+            releaseRefused("readable torn seed / RELEASING removal", removal,
+                    store -> store.removeReleasingSlot(RELEASING_B, B));
+        } else run("readable torn seed / RELEASING removal", problems -> {
             Path root = removal.build(fresh().resolve("store"));
             NativeIdentityStore store = new NativeIdentityStore(root.toFile(), format);
             check(problems, store.removeReleasingSlot(RELEASING_B, B), "torn seed stopped owned removal");
@@ -738,7 +895,7 @@ public final class NativeIdentityPresenceTest {
                     "directory remains");
         });
         refused("unreadable torn seed / RELEASING removal", removal, SEED_B, UNREADABLE,
-                store -> store.removeReleasingSlot(RELEASING_B, B), NOTHING);
+                store -> store.removeReleasingSlot(RELEASING_B, B), NOTHING, true);
     }
 
     // An unreadable index copy may carry holds and a counter nobody can see. Neither a
@@ -790,11 +947,11 @@ public final class NativeIdentityPresenceTest {
 
     public static void main(String[] args) throws Exception {
         if (!NativeIdentityPresenceTest.class.desiredAssertionStatus()) throw new AssertionError("-ea");
-        if (args.length > 2 || (args.length == 2 && !args[1].equals("V1") && !args[1].equals("V2"))) {
-            throw new IllegalArgumentException("usage: directory [V1|V2]");
+        if (args.length > 2 || (args.length == 2 && !args[1].equals("V1") && !args[1].equals("V2")
+                && !args[1].equals("V3"))) {
+            throw new IllegalArgumentException("usage: directory [V1|V2|V3]");
         }
-        format = args.length == 2 && args[1].equals("V2") ? NativeIdentityStore.Format.V2
-                : NativeIdentityStore.Format.V1;
+        format = args.length == 2 ? NativeIdentityStore.Format.valueOf(args[1]) : NativeIdentityStore.Format.V1;
         headers();
         parent = Files.createDirectories(Path.of(args[0]).resolve("presence-" + format));
         requireDac();

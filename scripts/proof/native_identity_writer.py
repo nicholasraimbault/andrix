@@ -44,6 +44,28 @@ def unique(pairs):
     return result
 
 
+# No account lifecycle or release member is part of the bounded writer fixture.
+LIFECYCLE_MEMBERS = ('suspend', 'lift', 'beginRetirement', 'confirmRetired', 'beginDisposition',
+                     'confirmDisposition', 'releaseUid', 'release', 'finishRelease',
+                     'finishNativeIdentityReleaseLPw', 'removeReleasingSlot', 'confirmReleasedSlot',
+                     'markSlotReleasing', 'omitReleasedSlot', 'dropReleasedUser')
+
+def api_problems(text):
+    # Mask comments and quoted data. API calls and references, not label substrings, define escape.
+    token = re.compile(r'/\*.*?\*/|//[^\n]*|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'', re.S)
+    code = token.sub(lambda m: ' ' * len(m.group(0)), text)
+    allowed = {'select', 'find', 'prepare', 'commit', 'identity', 'phase'}
+    calls = set(re.findall(r'\bmanager\s*\.\s*([A-Za-z]\w*)\s*\(', code))
+    references = set(re.findall(r'\bmanager\s*::\s*([A-Za-z]\w*)\b', code))
+    problems = []
+    if calls != allowed or not references <= allowed:
+        problems.append('writer fixture manager API surface drift')
+    names = '|'.join(map(re.escape, LIFECYCLE_MEMBERS))
+    if re.search(r'\b(?:' + names + r')\s*\(|::\s*(?:' + names + r')\b', code):
+        problems.append('writer fixture exposes lifecycle or release')
+    return problems
+
+
 def profile():
     value = json.loads(PROFILE.read_text(), object_pairs_hook=unique,
                        parse_constant=lambda _: (_ for _ in ()).throw(ValueError('non-finite profile value')))
@@ -64,8 +86,9 @@ def profile():
                        'org.json.JSONException', 'org.json.JSONObject'}
     if set(re.findall(r'^import ([^;]+);$', text, re.M)) != allowed_imports:
         raise ValueError('writer fixture import surface drift')
-    if set(re.findall(r'\bmanager\.([A-Za-z]+)\(', text)) != {'select', 'find', 'prepare', 'commit', 'identity', 'phase'}:
-        raise ValueError('writer fixture manager API surface drift')
+    problems = api_problems(text)
+    if problems:
+        raise ValueError(problems[0])
     for forbidden in ('beginRetirement(', 'finishRetirementAfterQuiescence(', 'initializeNew(',
                       'NativeIdentityStore', 'NativeIdentityPersistence', 'reservePending(',
                       'Runtime.getRuntime()', 'ProcessBuilder', 'PackageManagerService',

@@ -151,9 +151,11 @@ deletion, restoration and a release engine that no production code can reach. An
 settings record the store's boot facts once and defer suspended, retiring and retired accounts at
 boot, which changes behaviour only for those accounts. Production still uses the earlier store
 format. The host models agree across 205 lifecycle and rollback layouts. The old formats' lifecycle
-writers are being retired, with their positive cases carried into the lifecycle format and their
-old format refusals checked without losing the read and allocation coverage. The image that reads
-the new records only as protective evidence comes after the remaining host packages.
+writers are retired. Every lifecycle write refuses under them before any effect, their positive
+cases run under the lifecycle format, and the read and allocation coverage is kept. The old
+retirement path, which ended in the UID's release, is gone, and a new identity can only be
+written eligible, never already retiring. The image that reads the new records only as protective
+evidence comes after the remaining host packages.
 
 The [installer durability assessment](2026-09-27-package-installer-durability.md) retains an
 unclean stop failure and a separate Android file comparison. The checked writing descriptor sync

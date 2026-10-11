@@ -1352,7 +1352,7 @@
              return;
          }
 +        // Checked at execution, including callbacks queued before designation.
-+        // Native retirement uses its separately owned exact UID operation.
++        // Only the gated native release clears it, by its exact UID operation.
 +        if (mPm.mSettings.nativeRecoveryView().protectsKeystore(appId)) return;
  
          for (int realUserId : mPm.resolveUserIds(userId)) {

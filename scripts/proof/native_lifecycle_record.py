@@ -307,6 +307,7 @@ READ_NAMES = tuple(name for format_name in ('V1', 'V2', 'V3') for name in read_n
 # The lifecycle store test: the named transitions under Format.V3, then the refusals of the earlier
 # formats. Every name is one literal in its source.
 STORE_NAMES = (
+    'V3 / generic creation writes only ordinary eligible identities under every format',
     'V3 / suspend adds one entry in order and changes nothing else',
     'V3 / suspend refuses scope bit 0 before any effect',
     'V3 / suspend refuses a reason outside the registry before any effect',
@@ -383,8 +384,7 @@ TRANSACTION_NAMES = (
     'V3 / a retired account keeps its entries and restores a RETIRING pin',
     'V3 / publish refuses a suspended binding before any effect',
     'V3 / publish refuses a retiring or retired binding before any effect',
-    'V3 / the version 1 marker refuses before any effect',
-    'V3 / the version 1 release refuses before any effect',
+    'V3 / obsolete lifecycle writer entry points are absent',
     'V3 / every lifecycle transaction needs only an intact binding',
     'V3 / a damaged, foreign or unbound record is never written',
     # P2b: the boot facts, disposition in a retired boot, and Restore.
@@ -419,9 +419,12 @@ TRANSACTION_NAMES = (
     'V3 / continuation refuses a counter that does not cover the account before any effect',
     'V3 / continuation refuses a live binding of the package elsewhere before any effect',
     'V3 / an unticketed tombstone of the version 1 release stays held',
+    # P6: the lifecycle arms of the existing formats' transaction refusals.
+    'V3 / no lifecycle transaction initializes an absent or headerless store',
+    'V3 / lifecycle transactions refuse another lineage and throw on malformed input before any effect',
+    "V3 / release beside an older writer's unreconciled addition writes no release header step",
     *('%s / %s' % (format_name, case) for format_name in ('V1', 'V2')
-      for case in ('every lifecycle transaction refuses before any effect',
-                   'the version 1 marker and release still work')))
+      for case in ('every lifecycle transaction refuses before any effect',)))
 # The fault sweeps: each lifecycle transaction, failed at each writer step of the strict slot writer.
 FAULT_STEPS = ('seed-synced', 'backup-renamed', 'backup-published', 'write-started', 'main-synced',
                'reserve-synced', 'backup-unlink', 'backup-unlinked')
@@ -474,7 +477,10 @@ MANAGER_NAMES = (
     'V3 / a cached body missing from the store returns false without a write',
     'V3 / a BODY origin republishes after its body was observed missing, then retires',
     'V3 / a lost BODY cannot be republished while the counter is blocked',
-    'V3 / a BODY origin whose body is damaged, or missing under a LIVE entry, retires without a write',
+    "V3 / a healthy account retires and releases beside a counter that another user's slot blocks",
+    'V3 / a BODY origin whose body is damaged, or missing under a LIVE entry, retires without a body write',
+    'V3 / a restored retiring account refuses commit and release until it is retired in a retired boot',
+    'V3 / release refuses beside a damaged header, and its repair never patches the counter into live pins',
     'V3 / a retiring account still consumes admission capacity',
     'V3 / a pending reservation and an unpublished retiring creation reserve together')
 
@@ -482,8 +488,10 @@ MANAGER_NAMES = (
 # The flows of the existing formats that retire or release. Each old flow is named by its suite's
 # source, its case name and a literal that its source holds once at least: its case name, its family
 # prefix or its method. Its positive half moves to the lifecycle format under the new-format label:
-# CASE_MAP names the lifecycle cases that carry it, each a case the guarded run requires to pass, or
-# an emitted layout. CASE_MAP_TO_MOVE names the old flows whose lifecycle case is still to be written.
+# CASE_MAP names the cases that carry it, each a case the guarded run requires to pass, or an emitted
+# layout. A target is a lifecycle case, or a V3 case of a living suite of the binding runner named
+# with its suite: the header footprint suites, through the release engine's primitives, and the
+# binding faults. CASE_MAP_TO_MOVE names the old flows whose lifecycle case is still to be written.
 # The refusal side of every old flow joins when the store refuses the old writes.
 _STEPS = ('seed-synced', 'backup-renamed', 'backup-published', 'write-started', 'main-synced', 'reserve-synced',
           'backup-unlink', 'backup-unlinked')
@@ -491,6 +499,68 @@ _RELEASE_SWEEPS = tuple('%s / %s' % (kind, step) for kind in (
     'release tombstone', 'release tombstone confirmation', 'release RELEASING', 'release RELEASING confirmation',
     'release omission', 'release completion confirmation', 'release completion') for step in _STEPS)
 CASE_MAP = (
+    # The header footprint suites, whose version 1 release header steps move to the release engine's
+    # primitives under the lifecycle format, where only the confirmation fence and the reconciliation
+    # rule refuse. Under version 1 each old case now asserts the format refusal.
+    ('NativeIdentityHeaderFootprintTest', 'V1 confirmReleasedSlot refused before any effect',
+     '"V1 confirmReleasedSlot refused before any effect"',
+     ('b0 focused: V3 confirmReleasedSlot cannot release an addition',)),
+    ('NativeIdentityHeaderFootprintTest', 'V1 removeReleasingSlot refused before any effect',
+     '"V1 removeReleasingSlot refused before any effect"', ('b0 focused: V3 removeReleasingSlot refused',)),
+    ('NativeIdentityHeaderFootprintTest', 'V1 LIVE to RELEASING refused before and after reconciliation',
+     '"V1 LIVE to RELEASING refused before and after reconciliation"',
+     ('b0 focused: V3 LIVE to RELEASING waits for reconciliation',)),
+    ('NativeIdentityHeaderFootprintTest', 'V1 final omission refused before and after reconciliation',
+     '"V1 final omission refused before and after reconciliation"',
+     ('b0 focused: V3 unrelated final omission waits for reconciliation',)),
+    ('NativeIdentityHeaderFootprintTest', 'V1 interrupted LIVE to RELEASING restores, and its retry refuses',
+     '"V1 interrupted LIVE to RELEASING restores, and its retry refuses"',
+     ('b0 focused: V3 interrupted LIVE to RELEASING is compatible',)),
+    ('NativeIdentityHeaderFootprintTest', 'V1 interrupted omission restores, and its retry refuses',
+     '"V1 interrupted omission restores, and its retry refuses"',
+     ('b0 focused: V3 interrupted omission is compatible',)),
+    ('NativeIdentityHeaderFootprintTest', 'V1 owned retirement refused before any effect',
+     '"V1 owned retirement refused before any effect"',
+     ("V3 / release beside an older writer's unreconciled addition writes no release header step",)),
+    # The older writer's reservation in these two is the same in every format and stays; their
+    # retirement and release halves move.
+    ('NativeIdentityHeaderFootprintTest', 'same manager / unpublished RETIRING B with C id2, its retirement and'
+     ' release', '"same manager / unpublished RETIRING B with C id2"',
+     ('V3 / a pending reservation and an unpublished retiring creation reserve together',
+      'V3 / publication, retirement, release and a later reservation keep header version 2')),
+    ('NativeIdentityHeaderFootprintTest', 'same manager / B release waits for C, its release',
+     '"same manager / B release waits for C"',
+     ("V3 / release beside an older writer's unreconciled addition writes no release header step",
+      'V3 / an interrupted release continues only in a boot that began with its ticketed tombstone',
+      'V3 / publication, retirement, release and a later reservation keep header version 2')),
+    # The retirement's own publication of an unpublished creation, failed at each writer step.
+    ('NativeHeaderWriteFaultTest', 'unpublished RETIRING B', '"unpublished RETIRING B"',
+     tuple('binding faults: V3 retirement publication / ' + step for step in _STEPS)),
+    ('NativeHeaderWriteFaultTest', 'V1 release marker refused before any step',
+     'refusedBeforeAnyStep("release marker"', ('b0 faults: V3 prior ordering / release marker',)),
+    ('NativeHeaderWriteFaultTest', 'V1 omission refused before any step', 'refusedBeforeAnyStep("omission"',
+     ('b0 faults: V3 prior ordering / omission',)),
+    # The presence matrix's RELEASING and retirement rows, which its V3 step repeats with the release
+    # engine's omission and the lifecycle retirement.
+    ('NativeIdentityPresenceTest', 'releasing, matrixCases, unsearchable and the RELEASING and owned retirement'
+     ' cases', 'store.removeReleasingSlot(RELEASING_B, B)', ('presence: V3',)),
+    # The future format matrix's lifecycle writer rows, whose lifecycle arm is its own entry point.
+    ('NativeIdentityFutureFormatTest', 'releasing, cases and ownedSeeds: the lifecycle writer rows',
+     'store.removeReleasingSlot(releasingB, B)', ('future format: lifecycleMatrix',)),
+    # The lifecycle read test's writer controls, whose update of A was the version 1 flag under the
+    # earlier formats: now a generation step there, with the flag refused on the same healthy layout,
+    # and the retire transition under Format.V3.
+    ('NativeLifecycleReadTest', "healthy controls and slot writes: the version 1 flag as the earlier formats'"
+     ' update', 'store.updateExistingSlot(ELIGIBLE_A, TOUCHED_A)', ('V3 / healthy controls, every writer succeeds',)),
+    # The version gate's release primitive rows, which prove the gate and the availability guard under
+    # the version 1 writers; their lifecycle arm runs the release primitives beside a header above the
+    # lifecycle format's ceiling and beside an unsearchable slot directory.
+    ('NativeIdentityVersionGateTest', 'isolated released and removal: the release primitives beside a version 2'
+     ' header', 'kind.equals("removal")', ('version gate: lifecycleGate',)),
+    ('NativeIdentityVersionGateTest', 'isolated initialization and mixed: the removal beside an unsearchable slot'
+     ' directory', 'store.removeReleasingSlot(releasing, A)', ('version gate: lifecycleGate',)),
+    ('NativeIdentityVersionGateTest', 'main: the slot update, the removal and the released confirmation beside'
+     ' a version 2 header', 'store.updateExistingSlot(a, touched)', ('version gate: lifecycleGate',)),
     # The binding suite.
     ('NativeCreationBindingTest', 'V1 / an owned flow writes the golden version 1 bytes, its retirement part',
      '"V1 / an owned flow writes the golden version 1 bytes"',
@@ -500,8 +570,8 @@ CASE_MAP = (
     ('NativeCreationBindingTest', 'V2 / pending and unpublished RETIRING pins reserve together',
      '"V2 / pending and unpublished RETIRING pins reserve together"',
      ('V3 / a pending reservation and an unpublished retiring creation reserve together',)),
-    ('NativeCreationBindingTest', 'V2 / publication, marker, release and a later reservation keep version 2, its'
-     ' marker and release', '"V2 / publication, marker, release and a later reservation keep version 2"',
+    ('NativeCreationBindingTest', 'V2 / publication and a later reservation keep version 2, and the marker refuses',
+     '"V2 / publication and a later reservation keep version 2, and the marker refuses"',
      ('V3 / publication, retirement, release and a later reservation keep header version 2',)),
     ('NativeCreationBindingTest', 'signer mutation / Q reserves P with its original signers, its retirement and'
      ' release', '"signer mutation / Q reserves P with its original signers"',
@@ -517,45 +587,42 @@ CASE_MAP = (
      '"pending and RETIRING together / "',
      ('V3 / a pending reservation and an unpublished retiring creation reserve together',
       'V3 / publication, retirement, release and a later reservation keep header version 2')),
-    ('NativeCreationBindingFaultTest', 'version 2 prior ordering / release marker', 'priorOrdering("release marker"',
-     tuple('release RELEASING / ' + step for step in _STEPS)),
-    ('NativeCreationBindingFaultTest', 'version 2 prior ordering / omission', 'priorOrdering("omission"',
-     tuple('release omission / ' + step for step in _STEPS)),
-    ('NativeCreationBindingLayouts', 'pending-retiring-<step>', '"pending-retiring-"',
-     tuple('moved-pending-retiring-' + step for step in _STEPS)),
-    ('NativeCreationBindingLayouts', 'final-released', '"final-released"', ('moved-final-released',)),
+    ('NativeCreationBindingFaultTest', 'version 2 release marker refused before any step',
+     'refusedBeforeAnyStep("release marker"',
+     ('binding faults: V3 prior ordering / release marker',) + tuple('release RELEASING / ' + step for step in _STEPS)),
+    ('NativeCreationBindingFaultTest', 'version 2 omission refused before any step', 'refusedBeforeAnyStep("omission"',
+     ('binding faults: V3 prior ordering / omission',) + tuple('release omission / ' + step for step in _STEPS)),
     # The history suite.
     ('NativeCreationHistoryTest', 'retirement / a never rebound reservation refuses before any effect',
      '"retirement / a never rebound reservation refuses before any effect"',
      ('V3 / a restored reservation refuses retirement before any effect until designated, then retires',)),
-    ('NativeCreationHistoryTest', 'retirement / an explicitly rebound reservation publishes and retires',
-     '"retirement / an explicitly rebound reservation publishes and retires"',
+    ('NativeCreationHistoryTest', 'retirement / an explicitly rebound reservation refuses before any effect',
+     '"retirement / an explicitly rebound reservation refuses before any effect"',
      ('V3 / a restored reservation refuses retirement before any effect until designated, then retires',
       'V3 / the release body keeps the app ID held until a new instance')),
-    ('NativeCreationHistoryTest', 'retirement / no durable marker restores PENDING after restart',
-     '"retirement / no durable marker restores PENDING after restart"',
+    ('NativeCreationHistoryTest', 'retirement / a refused retirement restores PENDING after restart',
+     '"retirement / a refused retirement restores PENDING after restart"',
      ('V3 / a retirement without a durable block restores PENDING after a restart',)),
-    ('NativeCreationHistoryTest', 'retirement / a cached body missing from the store returns false without a write',
-     '"retirement / a cached body missing from the store returns false without a write"',
+    ('NativeCreationHistoryTest', 'retirement / a cached body missing from the store refuses before any effect',
+     '"retirement / a cached body missing from the store refuses before any effect"',
      ('V3 / a cached body missing from the store returns false without a write',)),
-    ('NativeCreationHistoryTest', 'retirement / BODY origin republishes after its body was observed missing',
-     '"retirement / BODY origin republishes after its body was observed missing"',
+    ('NativeCreationHistoryTest', 'retirement / a BODY origin whose body was observed missing refuses before any effect',
+     '"retirement / a BODY origin whose body was observed missing refuses before any effect"',
      ('V3 / a BODY origin republishes after its body was observed missing, then retires',
       'V3 / publication, retirement, release and a later reservation keep header version 2')),
-    ('NativeCreationHistoryTest', 'retirement / a restored retiring body finishes',
-     '"retirement / a restored retiring body finishes"',
+    ('NativeCreationHistoryTest', 'retirement / a restored retiring body refuses before any effect',
+     '"retirement / a restored retiring body refuses before any effect"',
      ('V3 / a retired account keeps its entries and restores a RETIRING pin',
       'V3 / disposition and release need an instance that began with the account RETIRED')),
-    ('NativeCreationHistoryTest', 'holds / an exact release keeps its UID hold and keystore fence until a new'
-     ' instance', '"holds / an exact release keeps its UID hold and keystore fence until a new instance"',
+    ('NativeCreationHistoryTest', 'holds / a refused retirement keeps the UID hold, keystore fence and history',
+     '"holds / a refused retirement keeps the UID hold, keystore fence and history"',
      ('V3 / a durable release keeps the app ID held until a new instance',
       'V3 / the release body keeps the app ID held until a new instance')),
-    ('NativeCreationHistoryFaultTest', 'rebound retirement marker / <step>', '"rebound retirement marker / "',
+    ('NativeCreationHistoryFaultTest', 'rebound retirement refused before its publication / <step>',
+     '"rebound retirement refused before its publication / "',
+     tuple('binding faults: V3 retirement publication / ' + step for step in _STEPS)),
+    ('NativeCreationHistoryFaultTest', 'rebound retirement refused before its marker / <step>', '"rebound retirement refused before its marker / "',
      tuple('markRetiring / ' + step for step in _STEPS)),
-    ('NativeCreationHistoryLayouts', 'history-retirement-marker-<step>',
-     'interrupted("history-retirement-marker"', tuple('moved-retirement-block-' + step for step in _STEPS)),
-    ('NativeCreationHistoryLayouts', 'history-retirement-publication-<step>',
-     'interrupted("history-retirement-publication"', tuple('moved-retirement-publication-' + step for step in _STEPS)),
     # The counter suite.
     ('NativeCounterAdmissionTest', 'residual / another lineage above the counter strands a later release',
      '"residual / another lineage above the counter strands a later release"',
@@ -567,18 +634,28 @@ CASE_MAP = (
      'void capacity(', ('V3 / a retiring account still consumes admission capacity',)),
     ('NativeCounterAdmissionTest', 'manager / a healthy body retires beside a blocked store',
      '"manager / a healthy body retires beside a blocked store"',
-     ('V3 / every lifecycle transaction needs only an intact binding',)),
+     ("V3 / a healthy account retires and releases beside a counter that another user's slot blocks",)),
     # The manager and persistence suites, which name no cases: their flows by method or call.
-    ('NativePrincipalManagerTest', 'main: retirement, quiescence and release of two handles, a restored one, a'
-     ' marker and a partial store', 'manager.finishRetirementAfterQuiescence(first)',
+    ('NativePrincipalManagerTest', 'main: the retirement of two published handles refuses before any effect',
+     'retirementRefused(persistedRoot, manager, first)',
      ('V3 / retirement moves the pin and then writes its block',
       'V3 / disposition and release need an instance that began with the account RETIRED',
       'V3 / the release body keeps the app ID held until a new instance',
       'V3 / a lost reply after the omission is acknowledged in the instance and freed at the next boot')),
+    ('NativePrincipalManagerTest', "main: a restored version 1 marker's commit and retirement refuse",
+     'retirementRefused(persistedRoot, markerManager, marker)',
+     ('V3 / a restored retiring account refuses commit and release until it is retired in a retired boot',)),
+    ('NativePrincipalManagerTest', 'main: the retirement beside a damaged header refuses, and its repair never'
+     ' patches the counter into live handles', 'retirementRefused(damaged.mSettings.root, partial, intact)',
+     ('V3 / release refuses beside a damaged header, and its repair never patches the counter into live pins',)),
+    ('NativePrincipalManagerTest', 'main: the retirement of a prepared but never published identity refuses',
+     'retirementRefused(early.mSettings.root, earlyManager, neverActive)',
+     ('V3 / a pending reservation and an unpublished retiring creation reserve together',
+      'V3 / publication, retirement, release and a later reservation keep header version 2')),
     # The store test's version 1 primitives: under the lifecycle format the generic writers refuse
     # these steps, which only the release engine takes.
     ('NativeIdentityStoreTest', 'main: the retiring flag, user drop, RELEASING, removal, omission and released'
-     ' confirmation', 'assert store.removeReleasingSlot(releasing, APP); // Exact filesystem continuation.',
+     ' confirmation refuse before any effect', 'refused(root, s -> s.removeReleasingSlot(releasing, APP))',
      ('V3 / retire writes RETIRING with its block and keeps every entry',
       'V3 / the user drop writes the ticketed tombstone of a releasable account only',
       "V3 / RELEASING needs the release engine's ticketed tombstone",
@@ -587,11 +664,19 @@ CASE_MAP = (
       'V3 / release completes a CREATING entry to LIVE before the key namespace and the tombstone',
       "V3 / a ticket's principal ID is sibling, claim and counter evidence")),
     # The living probe's five modes: missing, present, damaged, LIVE without a body, counter unknown.
-    ('BodyOriginRetirementProbe', 'the living probe run, its five modes', 'Retirement marker is not durably confirmed',
+    ('BodyOriginRetirementProbe', 'the living probe run, its five modes', 'void one(',
      ('V3 / a BODY origin republishes after its body was observed missing, then retires',
       'V3 / retirement moves the pin and then writes its block',
-      'V3 / a BODY origin whose body is damaged, or missing under a LIVE entry, retires without a write',
+      'V3 / a BODY origin whose body is damaged, or missing under a LIVE entry, retires without a body write',
       'V3 / a lost BODY cannot be republished while the counter is blocked')),
+    # These two only assert refusals of the old writes; their lifecycle arms catch the same refusals
+    # under the lifecycle format, where no format refusal answers first.
+    ('NativeIdentityPersistenceTest', 'noInitialization', 'void noInitialization(',
+     ('V3 / no lifecycle transaction initializes an absent or headerless store',)),
+    ('NativeIdentityPersistenceTest', 'refusals', 'void refusals(',
+     ('V3 / lifecycle transactions refuse another lineage and throw on malformed input before any effect',
+      'V3 / a damaged, foreign or unbound record is never written',
+      'V3 / release refuses tickets of another principal and unchecked users before any effect')),
     ('NativeIdentityPersistenceTest', 'retirementMonotonic', 'void retirementMonotonic(',
      ('V3 / markRetiring confirms its own retirement and refuses any other',
       'V3 / retire never moves an account back or changes its block')),
@@ -616,48 +701,378 @@ CASE_MAP = (
      ('V3 / continuation passes only the checked removal and omission',)),
 )
 CASE_MAP_TO_MOVE = (
-    ('NativeIdentityHeaderFootprintTest', 'confirmReleasedSlot cannot release an addition',
-     '"confirmReleasedSlot cannot release an addition"'),
-    ('NativeIdentityHeaderFootprintTest', 'removeReleasingSlot refused', '"removeReleasingSlot refused"'),
-    ('NativeIdentityHeaderFootprintTest', 'owned retirement header steps refused',
-     '"owned retirement header steps refused"'),
-    ('NativeIdentityHeaderFootprintTest', 'interrupted omission is compatible', '"interrupted omission is compatible"'),
-    ('NativeIdentityHeaderFootprintTest', 'same manager / unpublished RETIRING B with C id2',
-     '"same manager / unpublished RETIRING B with C id2"'),
-    ('NativeIdentityHeaderFootprintTest', 'same manager / B release waits for C',
-     '"same manager / B release waits for C"'),
-    ('NativeHeaderWriteFaultTest', 'unpublished RETIRING B', '"unpublished RETIRING B"'),
-    ('NativeHeaderWriteFaultTest', 'prior ordering / release marker', 'priorOrdering("release marker"'),
-    ('NativeHeaderWriteFaultTest', 'prior ordering / omission', 'priorOrdering("omission"'),
-    ('NativeCreationHistoryFaultTest', 'rebound retirement publication / <step>',
-     '"rebound retirement publication / "'),
-    ('NativeIdentityFutureFormatTest', 'releasing, cases and ownedSeeds: the lifecycle writer rows', 'releasing('),
-    ('NativeIdentityPresenceTest', 'releasing, matrixCases, unsearchable and the RELEASING and owned retirement'
-     ' cases', 'releasing('),
+)
+# Old flows removed from their suites, whose literal the source no longer holds, each with the
+# lifecycle layouts that replace it: the binding and history emitters' retirement layouts, which the
+# lifecycle emitter writes through the lifecycle record's retirement and release. No run writes them
+# under an earlier format, so they need no refusal.
+CASE_MAP_REMOVED = (
+    ('NativeCreationBindingLayouts', 'pending-retiring-<step>', '"pending-retiring-"',
+     tuple('moved-pending-retiring-' + step for step in _STEPS)),
+    ('NativeCreationBindingLayouts', 'final-released', '"final-released"', ('moved-final-released',)),
+    ('NativeCreationHistoryLayouts', 'history-retirement-marker-<step>',
+     'interrupted("history-retirement-marker"', tuple('moved-retirement-block-' + step for step in _STEPS)),
+    ('NativeCreationHistoryLayouts', 'history-retirement-publication-<step>',
+     'interrupted("history-retirement-publication"', tuple('moved-retirement-publication-' + step for step in _STEPS)),
 )
 
 
-def case_map_problems():
-    """Every old flow is named once, by a literal its suite's source holds, either with lifecycle cases
-    that exist in the suites the guarded run requires to pass or among the layouts, or among the flows
-    still to move."""
-    problems = []
+# Assertion suites without case names whose lifecycle arm is one method that their main runs: the
+# store module runs the version gate's main.
+ARM_SUITES = {'version gate': ('NativeIdentityVersionGateTest', ('lifecycleGate',)),
+              'future format': ('NativeIdentityFutureFormatTest', ('lifecycleMatrix',))}
+# Steps of the binding runner that repeat a whole living suite under Format.V3.
+V3_STEPS = {'presence: V3': 'presence v3'}
+
+
+def case_map_targets():
+    """Every name a case map entry may target: the new-format lifecycle cases and the layouts, the V3
+    cases of the binding runner's living suites, each named with its suite, and the lifecycle arm of
+    an assertion suite, which its main must define and run."""
     targets = set(LAYOUT_NAMES)
     for _, names in SUITE_NAMES.items():
-        targets.update(names)
+        targets.update(name for name in names if case_label(name) == 'new-format')
+    for suite, names in (('b0 focused', b1.b0.FOCUSED_NAMES), ('b0 faults', b1.b0.FAULT_NAMES),
+                         ('binding focused', b1.FOCUSED_NAMES), ('binding faults', b1.FAULT_NAMES)):
+        targets.update('%s: %s' % (suite, name) for name in names if name.startswith('V3 '))
+    targets.update(name for name, step in V3_STEPS.items() if b1.STEP_LABELS.get(step) == ('new-format',))
+    for suite, (test, methods) in ARM_SUITES.items():
+        source = (ROOT / PLATFORM / (test + '.java')).read_text()
+        main = source[source.find('public static void main('):]
+        targets.update('%s: %s' % (suite, method) for method in methods
+                       if source.count('private static void %s(' % method) == 1 and main.count('%s(' % method) == 1)
+    return targets
+
+
+# The refusal side of the case map: each old flow's own case, rewritten in its suite to assert that
+# the lifecycle record's retirement, the operation that survives, refuses under the old flow's format
+# before any effect, with the whole store footprint and the pin unchanged. Each refusal is named with
+# its suite. The store refuses every lifecycle write under the earlier formats, so the old flows
+# that are store level assert that refusal itself, on a healthy layout of their format.
+# The persistence suite's version 1 flows, each now its own refusal method, which its main runs.
+PERSISTENCE_REFUSALS = ('noInitialization', 'refusals', 'retirementMonotonic', 'headerOnlyDamage',
+                        'creatingEntryCompletesBeforeOmission', 'releaseRefusals', 'markWithUnknownOutcomes',
+                        'releaseWithUnknownOutcomes', 'noSnapshotDerivedDeletion')
+_FLOW_STEPS = ('seed-synced', 'backup-renamed', 'backup-published', 'write-started', 'main-synced', 'reserve-synced',
+               'backup-unlink', 'backup-unlinked')
+CASE_MAP_REFUSALS = {
+    # The store's release steps under version 1, each old case rewritten to its format refusal.
+    **{('NativeIdentityHeaderFootprintTest', name): ('b0 focused: ' + name,) for name in (
+        'V1 confirmReleasedSlot refused before any effect', 'V1 removeReleasingSlot refused before any effect',
+        'V1 LIVE to RELEASING refused before and after reconciliation',
+        'V1 final omission refused before and after reconciliation',
+        'V1 interrupted LIVE to RELEASING restores, and its retry refuses',
+        'V1 interrupted omission restores, and its retry refuses', 'V1 owned retirement refused before any effect')},
+    # The release header steps' fault orderings under each earlier format: the header footprint
+    # faults run them under Format.V1 and the binding faults under Format.V2, each the other's twin.
+    **{('NativeHeaderWriteFaultTest', 'V1 %s refused before any step' % step): (
+        'b0 faults: V1 %s refused before any step' % step, 'binding faults: version 2 %s refused before any step' % step)
+       for step in ('release marker', 'omission')},
+    **{('NativeCreationBindingFaultTest', 'version 2 %s refused before any step' % step): (
+        'binding faults: version 2 %s refused before any step' % step, 'b0 faults: V1 %s refused before any step' % step)
+       for step in ('release marker', 'omission')},
+    # A pending reservation beside an unpublished RETIRING creation: the header footprint suites hold
+    # it under Format.V1 and the binding suites under Format.V2, each the other's twin, since neither
+    # format restores a pin from the other's reservation without a body.
+    ('NativeIdentityHeaderFootprintTest', 'same manager / unpublished RETIRING B with C id2, its retirement and'
+     ' release'): ('b0 focused: same manager / unpublished RETIRING B with C id2',
+                   'binding focused: V2 / pending and unpublished RETIRING pins reserve together'),
+    ('NativeIdentityHeaderFootprintTest', 'same manager / B release waits for C, its release'):
+        ('b0 focused: same manager / B release waits for C',),
+    ('NativeHeaderWriteFaultTest', 'unpublished RETIRING B'): ('b0 faults: unpublished RETIRING B',) + tuple(
+        'binding faults: pending and RETIRING together / ' + step for step in _FLOW_STEPS),
+    ('NativeCreationBindingTest', 'V1 / an owned flow writes the golden version 1 bytes, its retirement part'):
+        ('binding focused: V1 / an owned flow writes the golden version 1 bytes',),
+    ('NativeCreationBindingTest', 'V2 / pending and unpublished RETIRING pins reserve together'):
+        ('binding focused: V2 / pending and unpublished RETIRING pins reserve together', 'b0 focused: same manager / unpublished RETIRING B with C id2'),
+    ('NativeCreationBindingTest', 'V2 / publication and a later reservation keep version 2, and the marker refuses'):
+        ('binding focused: V2 / publication and a later reservation keep version 2, and the marker refuses',),
+    ('NativeCreationBindingTest', 'signer mutation / Q reserves P with its original signers, its retirement and'
+     ' release'): ('binding focused: signer mutation / Q reserves P with its original signers',),
+    ('NativeCreationBindingTest', 'signer mutation / a durable P reservation does not strand Q, its retirement and'
+     ' release'): ('binding focused: signer mutation / a durable P reservation does not strand Q',),
+    ('NativeCreationBindingFaultTest', 'pending and RETIRING together / <step>, its retirement and release'):
+        tuple('binding faults: pending and RETIRING together / ' + step for step in _FLOW_STEPS)
+        + ('b0 faults: unpublished RETIRING B',),
+    **{('NativeCreationHistoryTest', name): ('history focused: ' + name,) for name in (
+        'retirement / a never rebound reservation refuses before any effect',
+        'retirement / an explicitly rebound reservation refuses before any effect',
+        'retirement / a refused retirement restores PENDING after restart',
+        'retirement / a cached body missing from the store refuses before any effect',
+        'retirement / a BODY origin whose body was observed missing refuses before any effect',
+        'retirement / a restored retiring body refuses before any effect',
+        'holds / a refused retirement keeps the UID hold, keystore fence and history')},
+    **{('NativeCreationHistoryFaultTest', family + ' / <step>'): tuple(
+        'history faults: %s / %s' % (family, step) for step in _FLOW_STEPS) for family in (
+        'rebound retirement refused before its publication', 'rebound retirement refused before its marker')},
+    **{('NativeCounterAdmissionTest', name): ('counter: ' + name,) for name in (
+        'residual / another lineage above the counter strands a later release',
+        'manager / a lost BODY cannot be republished while the counter is blocked',
+        'manager / a healthy body retires beside a blocked store')},
+    ('NativePreparationAdmissionTest', 'capacity: a retiring binding still consumes admission capacity'):
+        ('capacity: capacity', 'binding focused: V2 / pending and unpublished RETIRING pins reserve together'),
+    **{('NativeIdentityPersistenceTest', name): ('persistence: ' + name,) for name in PERSISTENCE_REFUSALS},
+    ('NativePrincipalManagerTest', 'main: the retirement of two published handles refuses before any effect'):
+        ('manager main: persistedRoot, manager, first', 'manager main: persistedRoot, manager, second',
+         'manager main: persistedRoot, restored, recovery'),
+    ('NativePrincipalManagerTest', "main: a restored version 1 marker's commit and retirement refuse"):
+        ('manager main: persistedRoot, markerManager, marker',),
+    ('NativePrincipalManagerTest', 'main: the retirement beside a damaged header refuses, and its repair never'
+     ' patches the counter into live handles'): ('manager main: damaged.mSettings.root, partial, intact',),
+    ('NativePrincipalManagerTest', 'main: the retirement of a prepared but never published identity refuses'):
+        ('manager main: early.mSettings.root, earlyManager, neverActive',
+         'binding focused: V2 / pending and unpublished RETIRING pins reserve together'),
+    ('NativeIdentityStoreTest', 'main: the retiring flag, user drop, RELEASING, removal, omission and released'
+     ' confirmation refuse before any effect'): tuple('store main: ' + write for write in (
+        'updateExistingSlot(pending, retiring)', 'updateExistingSlot(retiring, tombstone)',
+        'writeHeader(live, releasing)', 'removeReleasingSlot(releasing, APP)', 'writeHeader(releasing, released)',
+        'confirmReleasedSlot(released, APP)')),
+    # The future format matrix's version 1 release rows, each refused on its healthy layout, and the
+    # removal's own torn seed.
+    ('NativeIdentityFutureFormatTest', 'releasing, cases and ownedSeeds: the lifecycle writer rows'):
+        ('future format: releaseRefusals',
+         'future format: owned torn seed removal refused before any effect under V1 and V2'),
+    # The presence matrix under each earlier format: each release step and the retiring flag refuse on
+    # their healthy layout, and each release flow refuses there before any effect, while the restricted
+    # and unreadable positions keep their read side.
+    ('NativeIdentityPresenceTest', 'releasing, matrixCases, unsearchable and the RELEASING and owned retirement'
+     ' cases'): tuple('presence %s: %s' % (format_name, name) for format_name in ('V1', 'V2')
+                      for name in b1.PRESENCE_REFUSALS),
+    # The version gate's rows keep their reads; the format refusal control shows, under each earlier
+    # format, that every lifecycle write refuses on a healthy layout, so the gate rows mask nothing.
+    **{('NativeIdentityVersionGateTest', name): ('version gate V1: formatRefusals', 'version gate V2: formatRefusals')
+       for name in ('isolated released and removal: the release primitives beside a version 2 header',
+                    'isolated initialization and mixed: the removal beside an unsearchable slot directory',
+                    'main: the slot update, the removal and the released confirmation beside a version 2 header')},
+    ('NativeLifecycleReadTest', "healthy controls and slot writes: the version 1 flag as the earlier formats'"
+     ' update'): ('reads: V1 / healthy controls, every writer succeeds',
+                  'reads: V2 / healthy controls, every writer succeeds'),
+    # The living probe's run is retired: its modes refuse in the history and counter suites.
+    ('BodyOriginRetirementProbe', 'the living probe run, its five modes'): (
+        'history focused: retirement / a BODY origin whose body was observed missing refuses before any effect',
+        'history focused: retirement / a cached body missing from the store refuses before any effect',
+        'counter: manager / a lost BODY cannot be republished while the counter is blocked',
+        'counter: manager / a healthy body retires beside a blocked store'),
+}
+# Where each suite's refusals run: a case of its own suite's run, or of the suite that runs the same
+# flow under the other earlier format, its format twin. The probe has no cases of its own any more;
+# its modes refuse in the history and counter suites. The presence matrix and the version gate run
+# under both earlier formats, so each of their flows needs both. Every other refusal asserts both
+# formats in its case: the shared helpers refuse the same account again under each earlier format on
+# a copy of the state, where that format restores its pin.
+REFUSAL_SUITES = {
+    'NativeIdentityHeaderFootprintTest': ('b0 focused', 'binding focused'),
+    'NativeHeaderWriteFaultTest': ('b0 faults', 'binding faults'),
+    'NativeCreationBindingTest': ('binding focused', 'b0 focused'),
+    'NativeCreationBindingFaultTest': ('binding faults', 'b0 faults'),
+    'NativeCreationHistoryTest': ('history focused',), 'NativeCreationHistoryFaultTest': ('history faults',),
+    'NativeCounterAdmissionTest': ('counter',), 'NativePreparationAdmissionTest': ('capacity', 'binding focused'),
+    'NativeIdentityPersistenceTest': ('persistence',), 'NativePrincipalManagerTest': ('manager main', 'binding focused'),
+    'NativeIdentityStoreTest': ('store main',), 'NativeIdentityFutureFormatTest': ('future format',),
+    'NativeLifecycleReadTest': ('reads',), 'BodyOriginRetirementProbe': ('history focused', 'counter'),
+    'NativeIdentityPresenceTest': ('presence V1', 'presence V2'),
+    'NativeIdentityVersionGateTest': ('version gate V1', 'version gate V2')}
+REFUSALS_UNDER_BOTH_FORMATS = ('NativeIdentityPresenceTest', 'NativeIdentityVersionGateTest')
+# The flows whose refusal can hold under one earlier format only: a restored reservation, or one
+# bound with signer rows, has no pin under Format.V1, which reads no reservation history and carries
+# no binding, so no retirement exists there to refuse. Their cases' Format.V1 twins assert exactly
+# that: no pin, and no write.
+ONE_FORMAT_REFUSALS = {
+    **{('NativeCreationHistoryTest', name): 'a restored reservation restores no pin under Format.V1' for name in (
+        'retirement / a never rebound reservation refuses before any effect',
+        'retirement / an explicitly rebound reservation refuses before any effect',
+        'retirement / a refused retirement restores PENDING after restart',
+        'retirement / a cached body missing from the store refuses before any effect',
+        'retirement / a BODY origin whose body was observed missing refuses before any effect')},
+    ('NativeCreationHistoryFaultTest', 'rebound retirement refused before its publication / <step>'):
+        'a restored reservation restores no pin under Format.V1',
+    **{('NativeCreationBindingTest', name): 'a reservation bound with signer rows restores no pin under Format.V1'
+       for name in ('signer mutation / Q reserves P with its original signers, its retirement and release',
+                    'signer mutation / a durable P reservation does not strand Q, its retirement and release')}}
+# The old flows whose refusal is still to write. The store refuses every lifecycle write under the
+# earlier formats, so none may wait: the rule below requires this to stay empty.
+REFUSALS_TO_WRITE = ()
+
+
+def refusal_targets():
+    """Every name a refusal may be: a case of a living suite of another runner, named with its suite,
+    the capacity method of the preparation admission test, which the preparation module runs, a
+    persistence refusal method that its main runs, a refusal that the manager or store suite's main
+    asserts, the future format matrix's refusal rows, the presence matrix's refusal rows under each
+    earlier format, the version gate's format refusal control under each earlier format, or one of
+    this runner's own read cases under an earlier format."""
+    import native_counter_admission as b3
+    targets = set()
+    for suite, names in (('b0 focused', b1.b0.FOCUSED_NAMES), ('b0 faults', b1.b0.FAULT_NAMES),
+                         ('binding focused', b1.FOCUSED_NAMES), ('binding faults', b1.FAULT_NAMES),
+                         ('history focused', b2.FOCUSED_NAMES), ('history faults', b2.FAULT_NAMES),
+                         ('counter', b3.FOCUSED_NAMES)):
+        targets.update('%s: %s' % (suite, name) for name in names)
+    source = (ROOT / PLATFORM / 'NativePreparationAdmissionTest.java').read_text()
+    if 'private static void capacity(' in source and 'capacity();' in source:
+        targets.add('capacity: capacity')
+    source = (ROOT / PLATFORM / 'NativeIdentityPersistenceTest.java').read_text()
+    targets.update('persistence: ' + name for name in PERSISTENCE_REFUSALS
+                   if source.count('private static void %s(' % name) == 1
+                   and source.count('NativeIdentityPersistenceTest::%s)' % name) == 1)
+    # The manager suite's main asserts each refusal by the shared check, named by its arguments.
+    source = (ROOT / PLATFORM / 'NativePrincipalManagerTest.java').read_text()
+    if source.count('private static boolean retirementRefused(') == 1:
+        main = source[source.find('public static void main('):]
+        targets.update('manager main: ' + found for found in re.findall(r'\bretirementRefused\(([^()]*)\)', main))
+    # The future format matrix's version 1 release refusals, which its main runs.
+    source = (ROOT / PLATFORM / 'NativeIdentityFutureFormatTest.java').read_text()
+    main = source[source.find('public static void main('):]
+    if source.count('private static void releaseRefusals(') == 1 and main.count('releaseRefusals(parent);') == 1:
+        targets.add('future format: releaseRefusals')
+    if source.count('run("owned torn seed removal refused before any effect under V1 and V2"') == 1:
+        targets.add('future format: owned torn seed removal refused before any effect under V1 and V2')
+    # This runner's own read cases under the earlier formats.
+    targets.update('reads: ' + name for name in READ_NAMES if case_label(name) in ('legacy', 'production'))
+    # The presence rows, which the store module checks under Format.V1 and this runner's presence step
+    # under Format.V2.
+    targets.update('presence %s: %s' % (format_name, name) for format_name in ('V1', 'V2')
+                   for name in b1.PRESENCE_REFUSALS)
+    # The version gate's format refusal control, which its main runs under Format.V1 and its Format.V2
+    # entry point under Format.V2.
+    source = (ROOT / PLATFORM / 'NativeIdentityVersionGateTest.java').read_text()
+    main = source[source.find('public static void main('):]
+    if source.count('private static void formatRefusals(') == 1:
+        targets.update('version gate %s: formatRefusals' % format_name for format_name in ('V1', 'V2')
+                       if main.count('formatRefusals(Path.of(args[0]), NativeIdentityStore.Format.%s);'
+                                     % format_name) == 1)
+    # The store suite's main asserts each version 1 lifecycle write refused, named by the write.
+    source = (ROOT / PLATFORM / 'NativeIdentityStoreTest.java').read_text()
+    if source.count('private static boolean refused(') == 1:
+        main = source[source.find('public static void main('):]
+        targets.update('store main: ' + found for found in re.findall(r'assert refused\(\w+, s -> s\.(.*)\);$', main, re.M))
+    return targets
+
+
+def refusal_problems():
+    """Every old flow has its refusal, a case that exists and runs in its own suite, under both earlier
+    formats where its suite runs under both, and no refusal names a flow the map lacks. No flow may
+    still wait for its refusal."""
+    problems = []
+    flows = {(entry[0], entry[1]) for entry in CASE_MAP}
+    targets = refusal_targets()
+    for flow, refusals in CASE_MAP_REFUSALS.items():
+        if flow not in flows:
+            problems.append('refusal of an old flow the case map lacks: %s %s' % flow)
+        if not isinstance(refusals, tuple) or not refusals:
+            problems.append('old flow without a refusal case: %s %s' % flow)
+        for refusal in refusals:
+            if refusal not in targets:
+                problems.append('refusal is no case that runs: %s -> %s' % (flow[1], refusal))
+            if refusal.split(': ', 1)[0] not in REFUSAL_SUITES.get(flow[0], ()):
+                problems.append('refusal outside its own suite: %s -> %s' % (flow[1], refusal))
+        if flow[0] in REFUSALS_UNDER_BOTH_FORMATS and {refusal.split(': ', 1)[0] for refusal in refusals} != set(
+                REFUSAL_SUITES[flow[0]]):
+            problems.append('refusal not under both earlier formats: %s %s' % flow)
+    if REFUSALS_TO_WRITE:
+        problems.append('old flows still waiting for their refusal: %s' % sorted(REFUSALS_TO_WRITE)[:3])
+    if not set(ONE_FORMAT_REFUSALS) <= set(CASE_MAP_REFUSALS) or not all(ONE_FORMAT_REFUSALS.values()):
+        problems.append('a one format refusal names no mapped flow or gives no reason')
+    if set(CASE_MAP_REFUSALS) != flows:
+        problems.append('old flows without a refusal: %s' % sorted(flows - set(CASE_MAP_REFUSALS))[:3])
+    return problems
+
+
+# The literal that names an old flow in its suite's source: the quoted case name or family prefix,
+# which the entry's name begins with; the method that holds the flow; a complete call with its
+# arguments; or a call cut after a quoted first argument that the entry's name holds.
+_QUOTED = re.compile(r'"([^"]+)"')
+_METHOD = re.compile(r'void [A-Za-z][A-Za-z0-9]*\(')
+_CALL = re.compile(r'([A-Za-z_][A-Za-z0-9_.]*)\([^)\s].*')
+_QUOTED_FIRST = re.compile(r'[A-Za-z_][A-Za-z0-9_.]*\("([^"]+)"')
+# Calls that name no flow whatever their arguments: the assertion and run helpers.
+_GENERIC_CALLS = ('check', 'run', 'fault', 'unchanged', 'assertTrue', 'assertEquals')
+
+
+def complete_call(literal):
+    """Whether a call literal closes every parenthesis it opens, and ends with the last."""
+    depth = 0
+    for index, char in enumerate(literal):
+        depth += {'(': 1, ')': -1}.get(char, 0)
+        if depth < 0 or (depth == 0 and char == ')' and index != len(literal) - 1):
+            return False
+    return depth == 0 and literal.endswith(')')
+
+
+def case_map_literal_problem(name, literal):
+    """Why a literal cannot name its old flow, or None."""
+    quoted = _QUOTED.fullmatch(literal)
+    if quoted:
+        return None if name.startswith(quoted.group(1)) else 'its quoted literal is not the case name or prefix'
+    if _METHOD.fullmatch(literal):
+        return None
+    call = _CALL.fullmatch(literal)
+    if not call:
+        return 'its literal is no quoted case name, family prefix, method or call'
+    if call.group(1).rsplit('.', 1)[-1] in _GENERIC_CALLS:
+        return 'its call literal names a generic helper'
+    if complete_call(literal):
+        return None
+    first = _QUOTED_FIRST.fullmatch(literal)
+    if first and first.group(1) in name:
+        return None
+    return 'its call literal is cut short and names no part of the flow'
+
+
+def case_map_problems():
+    """Every old flow is named once, by a literal its suite's source holds, either with new-format cases
+    that exist in the suites the guarded run requires to pass or among the layouts, or among the flows
+    still to move. A mapped entry has exactly four fields and a non-empty tuple of targets; a codec
+    golden counts only beside another target."""
+    problems = []
+    targets = case_map_targets()
     seen = set()
-    for suite, name, literal, *rest in CASE_MAP + CASE_MAP_TO_MOVE:
+    for entry in CASE_MAP + CASE_MAP_TO_MOVE:
+        mapped = entry in CASE_MAP
+        if len(entry) != (4 if mapped else 3) or not all(isinstance(field, str) for field in entry[:3]):
+            problems.append('case map entry of the wrong shape: %r' % (entry[:2],))
+            continue
+        suite, name, literal = entry[:3]
+        if (suite, name) in seen:
+            problems.append('old flow named twice in the case map: %s %s' % (suite, name))
+        seen.add((suite, name))
+        if suite == b2.ARCHIVED_PROBE_MAIN:
+            # No living old probe remains. Its old flow identity comes from the pinned source.
+            original = b1.pinned_bytes(b2.ARCHIVE, b2.ARCHIVED_PROBE).decode()
+            if literal not in original:
+                problems.append('old probe flow not in its pinned suite: %s %s' % (suite, name))
+        else:
+            source = ROOT / PLATFORM / (suite + '.java')
+            if not source.is_file() or literal not in source.read_text():
+                problems.append('old flow not in its suite: %s %s' % (suite, name))
+        why = case_map_literal_problem(name, literal)
+        if why:
+            problems.append('old flow %s %s: %s' % (suite, name, why))
+        if not mapped:
+            continue
+        chosen = entry[3]
+        if not isinstance(chosen, tuple) or not chosen:
+            problems.append('case map entry without a lifecycle case: %s' % name)
+            continue
+        goldens = [target for target in chosen if target in CODEC_NAMES and target.startswith('golden / ')]
+        for target in chosen:
+            if target not in targets or (target in CODEC_NAMES and target not in goldens):
+                problems.append('case map target is no new-format case: %s -> %s' % (name, target))
+        if len(goldens) == len(chosen):
+            problems.append('case map entry with codec goldens alone: %s' % name)
+    for entry in CASE_MAP_REMOVED:
+        if len(entry) != 4 or not all(isinstance(field, str) for field in entry[:3]) or not isinstance(entry[3], tuple):
+            problems.append('removed old flow of the wrong shape: %r' % (entry[:2],))
+            continue
+        suite, name, literal, chosen = entry
         if (suite, name) in seen:
             problems.append('old flow named twice in the case map: %s %s' % (suite, name))
         seen.add((suite, name))
         source = ROOT / PLATFORM / (suite + '.java')
-        if not source.is_file() or literal not in source.read_text():
-            problems.append('old flow not in its suite: %s %s' % (suite, name))
-        for target in (rest[0] if rest else ()):
-            if target not in targets:
-                problems.append('case map target is no lifecycle case: %s -> %s' % (name, target))
-        if rest and not rest[0]:
-            problems.append('case map entry without a lifecycle case: %s' % name)
+        if not source.is_file() or literal in source.read_text():
+            problems.append('removed old flow still in its suite: %s %s' % (suite, name))
+        if not chosen or not set(chosen) <= set(LAYOUT_NAMES):
+            problems.append('removed old flow without its lifecycle layouts: %s' % name)
     return problems
 
 
@@ -1371,7 +1786,7 @@ def swapped(lines, swaps):
 def swap_controls(predictions):
     """Each rollback model's swap control, rotated: every class's assertions applied once, to a layout
     of another class."""
-    return {revision: predictions['p6_checkpoint_1']['rollback'][revision]['swap_control']
+    return {revision: predictions['p6_checkpoint_1b']['rollback'][revision]['swap_control']
             for revision, _ in ROLLBACK_MODELS}
 
 
@@ -1554,8 +1969,6 @@ MUTANTS = {
         '                if (decoded.version > format.slotCeiling) throw new IllegalArgumentException("newer");\n'
         '                return decoded;\n'
         '            }, false);\n'),), ('reads',)),
-    'publish-past-slot-ceiling': (((STORE, '        if (next.version > format.slotCeiling) return false;\n', ''),),
-                                  ('reads',)),
     'update-past-slot-ceiling': (((STORE,
         '        if (expected.version > format.slotCeiling || next.version > format.slotCeiling) return false;\n',
         ''),), ('reads', 'store')),
@@ -1705,6 +2118,18 @@ MUTANTS = {
         '        } else if (prior.state != LifecycleState.ELIGIBLE) {\n'
         '            // The state only moves forward, and a written block never changes.\n'
         '            return null;\n        }\n', '        }\n'),), ('store', 'transactions')),
+    'creation-lifecycle-guard-removed': (((STORE,
+        '        for (UserEntry user : next.users) {\n'
+        '            if (!user.lifecycle.isVersion1() || user.retiring) return false;\n'
+        '        }\n', ''),), ('store',)),
+    'omitted-record-publication-acknowledged': (((PERSISTENCE,
+        '        NativeIdentityStore.Loaded loaded = store.load();\n'
+        '        Slot slot = eligible(loaded, record.appId);\n',
+        '        NativeIdentityStore.Loaded loaded = store.load();\n'
+        '        if (lifecycleFormat() && loaded.header.status == NativeIdentityStore.Status.VALID\n'
+        '                && loaded.header.value.lastId >= record.id\n'
+        '                && loaded.header.value.entries.isEmpty() && loaded.slots.isEmpty()) return true;\n'
+        '        Slot slot = eligible(loaded, record.appId);\n'),), ('faults',)),
     'legacy-marker-created': (((STORE,
         '            if (prior.state != LifecycleState.RETIRING) return null;\n'
         '            if (!prior.retirement.obligations.isEmpty()) return null;\n',
@@ -1770,12 +2195,24 @@ MUTANTS = {
         '        Slot slot = bound(store.load(), record);\n'
         '        if (slot == null || !slot.signerSha256.equals(signers)) return false;\n'
         '        for (Suspension held : slot.users.get(0).lifecycle.suspensions) {\n'),), ('transactions',)),
-    'version-1-marker-under-v3': (((PERSISTENCE,
-        '        Set<String> signers = signers(expectedSigners);\n        if (lifecycleFormat()) return false;\n',
-        '        Set<String> signers = signers(expectedSigners);\n'),), ('transactions',)),
-    'version-1-release-under-v3': (((PERSISTENCE,
-        '        if (record.userId != USER_SYSTEM) return false;\n        if (lifecycleFormat()) return false;\n',
-        '        if (record.userId != USER_SYSTEM) return false;\n'),), ('transactions',)),
+    # The earlier formats' lifecycle writes: the version 1 marker's retiring flag, its release's user
+    # drop, RELEASING and omission header writes, removal and released confirmation.
+    'retiring-flag-under-earlier-formats': (((STORE,
+        '                            || prior.retiring != current.retiring) return false;\n',
+        '                            || (prior.retiring && !current.retiring)) return false;\n'),), ('store',)),
+    'user-drop-under-earlier-formats': (((STORE,
+        '            if (next.users.size() != expected.users.size()) return false;\n', ''),
+        (STORE, '                if (!retained) return false;\n', ''),), ('store',)),
+    'release-header-under-earlier-formats': (((STORE,
+        '        if (releases(expected, next)) return false;\n',
+        '        if (format.slotCeiling >= LIFECYCLE_SLOT_VERSION && releases(expected, next)) return false;\n'),),
+        ('store',)),
+    'removal-under-earlier-formats': (((STORE,
+        '        if (format.slotCeiling < LIFECYCLE_SLOT_VERSION) return false;\n        HeaderEntry index',
+        '        HeaderEntry index'),), ('store',)),
+    'released-confirmation-under-earlier-formats': (((STORE,
+        '        if (format.slotCeiling < LIFECYCLE_SLOT_VERSION) return false;\n        if (headerEntry(expected, appId)',
+        '        if (headerEntry(expected, appId)'),), ('store',)),
     # Publication refuses a suspended binding itself, before the header completes, and not in the
     # shared slot confirmation that retirement and header phase changes also use.
     'publication-admits-suspended': (((PERSISTENCE, _PUBLISH_CHECK, _PUBLISH_RETIRING),), ('transactions',)),
@@ -2023,8 +2460,7 @@ MUTANTS = {
     'releasing-without-ticket-under-v3': (((STORE,
         '                if (format.slotCeiling >= LIFECYCLE_SLOT_VERSION && slot.value.ticket == null) return false;\n',
         ''),), ('store',)),
-    'generic-header-write-releases': (((STORE,
-        '        if (format.slotCeiling >= LIFECYCLE_SLOT_VERSION && releases(expected, next)) return false;\n', ''),),
+    'generic-header-write-releases': (((STORE, '        if (releases(expected, next)) return false;\n', ''),),
         ('store',)),
     # The generic update takes the release engine's drop.
     'generic-update-is-the-drop': (((STORE, '        return writeExistingSlot(expected, next, false, false);\n',
@@ -2086,10 +2522,10 @@ MUTANTS = {
         '            throw new IllegalStateException("Native lifecycle records need the lifecycle format");\n'
         '        }\n', ''),), ('manager',)),
     'manager-retirement-pin-before-the-format': (((MANAGER,
-        '                if (retirement != null) {\n                    lifecycle(handle);\n',
-        '                if (retirement != null) {\n'),
+        '                lifecycle(handle);\n                NativePrincipalPins.Record record = handle.pin.record();\n',
+        '                NativePrincipalPins.Record record = handle.pin.record();\n'),
         (MANAGER, '                pins.beginRetire(handle.pin);\n',
-         '                pins.beginRetire(handle.pin);\n                if (retirement != null) lifecycle(handle);\n')),
+         '                pins.beginRetire(handle.pin);\n                lifecycle(handle);\n')),
         ('manager',)),
     'manager-closure-after-the-write': (((MANAGER,
         '                close(handle);\n            }\n'
@@ -2143,6 +2579,15 @@ MUTANTS = {
         '                pins.finishRelease(handle.pin);\n'),), ('manager',)),
     'manager-release-keeps-the-pin': (((MANAGER, '                pins.finishRelease(handle.pin);\n', ''),),
                                       ('manager',)),
+    # The history runner's retirement origin mutants and the binding runner's omit-retiring, whose
+    # catching cases became refusals under the earlier formats: their V3 cases catch them here.
+    'history-selection-only-guard': (((MANAGER, '        return handle.selection != null\n                || handle.priorSource == NativeIdentityStore.Source.BODY;\n', '        return handle.selection != null;\n'),), ('manager',)),
+    'history-always-create-body': (((MANAGER, '        return handle.selection != null\n                || handle.priorSource == NativeIdentityStore.Source.BODY;\n', '        return handle != null;\n'),), ('manager',)),
+    'history-current-view-origin': (((MANAGER, '        NativeIdentityStore.History prior = pm.mSettings.nativePrincipalStoredHistoryLPr(pin.record());\n', '        NativeIdentityStore.History prior =\n                pm.mSettings.mNativeIdentityLoaded.history(pin.record().appId);\n'),), ('manager',)),
+    'history-current-view-guard': (((MANAGER, '                mayCreateBody = mayCreateBody(handle);\n', '                mayCreateBody = handle.selection != null\n                        || pm.mSettings.nativePrincipalBindingLPr(handle.pin.record()) != null;\n'),), ('manager',)),
+    'history-dropped-early-guard': (((MANAGER, '                if (!mayCreateBody\n                        && pm.mSettings.nativePrincipalBindingLPr(handle.pin.record()) == null) {\n                    throw new IllegalStateException(\n                            "Restored native reservation needs its designation before retirement");\n                }\n', ''),), ('manager',)),
+    'history-persist-ignores-origin': (((MANAGER, '            if (!mayCreateBody || issued == null || !persistence.reservePending(issued)) return false;\n', '            if (issued == null || !persistence.reservePending(issued)) return false;\n'),), ('manager',)),
+    'binding-omit-retiring': (((MANAGER, '            } else if (pin.issuance() instanceof Issuance issuance && issuance.owner == this) {\n', '            } else if (pin.phase() != NativePrincipalPins.Phase.RETIRING\n                    && pin.issuance() instanceof Issuance issuance && issuance.owner == this) {\n'),), ('manager',)),
     # The manager's store reads run with no PMS state lock held: a load moved under it fails the
     # manager suite through the lock seam of its store copy.
     'manager-reads-under-the-pms-lock': (((MANAGER,
@@ -2185,8 +2630,7 @@ RELEASE_ENTRY_POINTS = ('release', 'removeReleasingSlot', 'confirmReleasedSlot',
                         'omitReleasedSlot', 'dropReleasedUser', 'finishNativeIdentityReleaseLPw',
                         'finishRetirementAfterQuiescence', 'finishRetire', 'finishRetirement',
                         'releaseUid', 'finishRelease')
-RELEASE_BODIES = ('    boolean release(NativePrincipalPins.Record record, String expectedLineage,',
-                  '    boolean finishRetirement(NativePrincipalPins.Record record, String expectedLineage,')
+RELEASE_BODIES = ('    boolean release(NativePrincipalPins.Record record, String expectedLineage,',)
 # The store's own release powers behind the named primitives: writeAnyHeader, which makes RELEASING
 # and omission writes, and the drop flag of the existing slot writer. Only the generic header write
 # and the two named header writes call writeAnyHeader, and only dropReleasedUser passes the drop flag,
@@ -2218,12 +2662,10 @@ LIFECYCLE_ALLOWANCES = (
     ('confirmDisposition', MANAGER, '    boolean confirmDisposition(Handle handle,'))
 UNREACHABLE_RULES = ('capability', 'release', 'primitives', 'boot-facts', 'lifecycle')
 NON_NATIVE = FRAMEWORK_DIR + 'CeStorageAccessTracker.java'
-# The old release path stays reachable until P6 retires it. Each allowance names an entry point, the
-# production text and the one body there that may call it today. P6 removes every allowance.
-OLD_RELEASE_BODY = '    public boolean finishRetirementAfterQuiescence(Handle handle) {'
-P6_RELEASE_ALLOWANCES = (('finishRetirement', MANAGER, OLD_RELEASE_BODY),
-                         ('finishNativeIdentityReleaseLPw', MANAGER, OLD_RELEASE_BODY),
-                         ('finishRetire', MANAGER, OLD_RELEASE_BODY))
+# No old release path has a production allowance. The names remain forbidden call targets so a
+# reintroduced caller is caught by the same release rule.
+P6_RELEASE_ALLOWANCES = ()
+PINS = FRAMEWORK_DIR + 'NativePrincipalPins.java'
 # The manager's gated release, which stays: the one body that calls the release engine, Settings'
 # release finish and the pins' finishRelease, in the plan's order. Nothing in production calls it.
 RELEASE_BODY = '    boolean releaseUid(Handle handle, NativeIdentityPersistence.ReleaseCapability capability) {'
@@ -2280,8 +2722,27 @@ def unreachable_violations(texts, others):
                 for found in re.finditer(pattern, code):
                     problems.append('capability: %s holds a %s of the release capability: %s'
                                     % (name, what, ' '.join(found.group(0).split())))
+    # The removed old path: a removed member's name is absent from its class altogether, declared,
+    # called or referenced, and the removed overloads are absent in every spelling of their parameters.
+    # A legitimate lifecycle fact named retired, such as the boot facts', is not banned.
+    record = r'(?:final\s+)?(?:NativePrincipalPins\s*\.\s*)?Record\s+\w+'
+    obsolete = {
+        MANAGER: ((r'\bbeginRetirement\s*\(\s*(?:final\s+)?(?:NativePrincipalManager\s*\.\s*)?Handle\s+\w+\s*\)',
+                   'beginRetirement(Handle)'),
+                  (r'\bfinishRetirementAfterQuiescence\b', 'finishRetirementAfterQuiescence'),
+                  (r'\bretirementCommitted\b', 'Handle.retirementCommitted'),
+                  (r'\bboolean\s+retired\s*[;=]', 'Handle.retired')),
+        PERSISTENCE: ((r'\bmarkRetiring\s*\(\s*' + record + r'\s*,\s*(?:final\s+)?(?:java\s*\.\s*util\s*\.\s*)?Set\s*<\s*'
+                       r'String\s*>\s+\w+\s*\)', 'markRetiring without block'),
+                      (r'\bfinishRetirement\b', 'finishRetirement')),
+        PINS: ((r'\bsnapshotWithout\b', 'snapshotWithout'), (r'\bfinishRetire\b', 'finishRetire'),
+               (r'\bRETIRED\b', 'the pin phase RETIRED')),
+    }
     for name, raw in texts.items():
         code = b1.strip_java_comments(raw)
+        for pattern, entry in obsolete.get(name, ()):
+            if re.search(pattern, code):
+                problems.append('release: %s declares obsolete lifecycle entry %s' % (name, entry))
         allowed = body_spans(code, RELEASE_BODIES) if name == PERSISTENCE else []
         if name == PERSISTENCE and len(allowed) != len(RELEASE_BODIES):
             problems.append('release: the release bodies of %s are not each found once' % name)
@@ -2440,14 +2901,39 @@ def unreachable_mutants():
         return production, other
 
     tracker = 'public final class CeStorageAccessTracker {\n'
-    manager = '    public boolean finishRetirementAfterQuiescence(Handle handle) {\n'
+    manager = '    NativePrincipalManager(PackageManagerService pm) {\n'
     restore = '        return store.restoreSlot(loaded.header.value, account, hold);\n'
     confirm = '    boolean confirmExistingSlot(Slot expected) {\n'
-    publish = '        return store.confirmExistingSlot(slot);\n    }\n\n    /**\n     * Durably marks'
+    publish = '    boolean publish(NativePrincipalPins.Record record, Set<String> expectedSigners) {\n'
     store_main = '    public static void main(String[] args) throws Exception {\n'
     released = '        if (headerEntry(expected, appId) != null || !absent(slotDirectory(appId))\n'
     generic = '        return writeExistingSlot(expected, next, false, false);\n'
     return {
+        'obsolete-manager-retirement-declared': (changed((MANAGER, manager,
+            '    public boolean beginRetirement(Handle handle) { return false; }\n' + manager)), {'release'}),
+        'obsolete-manager-finish-declared': (changed((MANAGER, manager,
+            '    public boolean finishRetirementAfterQuiescence(Handle handle) { return false; }\n' + manager)), {'release'}),
+        'obsolete-persistence-marker-declared': (changed((PERSISTENCE, publish,
+            '    boolean markRetiring(NativePrincipalPins.Record record, Set<String> expectedSigners) { return false; }\n'
+            + publish)), {'release'}),
+        'obsolete-persistence-finish-declared': (changed((PERSISTENCE, publish,
+            '    boolean finishRetirement(NativePrincipalPins.Record record, String lineage, Set<String> signers) { return false; }\n'
+            + publish)), {'release'}),
+        'obsolete-pins-omission-declared': (changed((PINS, '    public synchronized Snapshot snapshotForWrite() {\n',
+            '    public synchronized Snapshot snapshotWithout(Pin pin) { return snapshotForWrite(); }\n'
+            '    public synchronized Snapshot snapshotForWrite() {\n')), {'release'}),
+        'obsolete-handle-flag-declared': (changed((MANAGER, manager,
+            '    private boolean retirementCommitted;\n' + manager)), {'release'}),
+        'obsolete-handle-retired-declared': (changed((MANAGER, manager,
+            '    private boolean retired;\n' + manager)), {'release'}),
+        'obsolete-final-handle-retirement-declared': (changed((MANAGER, manager,
+            '    boolean beginRetirement(final Handle handle) throws java.io.IOException { return false; }\n'
+            + manager)), {'release'}),
+        'obsolete-pin-phase-declared': (changed((PINS, '        RELEASED\n', '        RELEASED,\n        RETIRED\n')),
+                                        {'release'}),
+        'obsolete-pins-finish-declared': (changed((PINS, '    public synchronized Snapshot snapshotForWrite() {\n',
+            '    public synchronized void finishRetire(Pin pin) {}\n'
+            '    public synchronized Snapshot snapshotForWrite() {\n')), {'release'}),
         'capability-in-settings': (changed((settings, None,
             '\n        NativeIdentityPersistence.ReleaseCapability capability =\n'
             '                new NativeIdentityPersistence.ReleaseCapability(uid -> true);\n')), {'capability'}),
@@ -2481,7 +2967,7 @@ def unreachable_mutants():
         'released-slot-confirmed-from-restore': (changed((PERSISTENCE, restore,
             '        store.confirmReleasedSlot(loaded.header.value, record.appId);\n' + restore)), {'release'}),
         'releasing-written-from-publish': (changed((PERSISTENCE, publish,
-            '        store.markSlotReleasing(loaded.header.value, record.appId);\n' + publish)), {'release'}),
+            publish + '        store.markSlotReleasing(null, record.appId);\n')), {'release'}),
         'omission-inside-the-store': (changed((STORE, confirm,
             confirm + '        omitReleasedSlot(null, expected.appId);\n')), {'release'}),
         'any-header-write-elsewhere': (changed((STORE, released,
@@ -2503,28 +2989,27 @@ def unreachable_mutants():
             '    private static final java.util.function.BiConsumer<NativePrincipalPins, NativePrincipalPins.Pin>\n'
             '            FINISH = NativePrincipalPins::finishRetire;\n\n' + manager)), {'release'}),
         'old-store-release-called-from-publish': (changed((PERSISTENCE, publish,
-            '        finishRetirement(record, null, null);\n' + publish)), {'release'}),
+            publish + '        finishRetirement(record, null, null);\n')), {'release'}),
         'drop-referenced-from-manager': (changed((MANAGER, manager,
             '    private static final Object DROP = (Object) (java.util.function.Predicate<NativeIdentityStore>)\n'
             '            store -> store.dropReleasedUser(null, 0, null);\n\n' + manager)), {'release'}),
         'manager-release-called-from-settings': (changed((settings, None,
             '\n        new NativePrincipalManager(null).releaseUid(null, null);\n')), {'release'}),
-        'pins-release-in-the-old-finish': (changed((MANAGER, '                pins.finishRetire(handle.pin);\n',
-            '                pins.finishRelease(handle.pin);\n')), {'release'}),
+        'pins-release-from-the-constructor': (changed((MANAGER, manager,
+            manager + '        new NativePrincipalPins(1).finishRelease(null);\n')), {'release'}),
         'suspension-called-from-settings': (changed((settings, None,
             '\n        new NativePrincipalManager(null).suspend(null, null);\n')), {'lifecycle'}),
-        'retirement-begun-from-the-old-finish': (changed((MANAGER, '                if (handle.retired) return true;\n',
-            '                if (handle.retired) return beginRetirement(handle);\n')), {'lifecycle'}),
+        'retirement-begun-from-the-constructor': (changed((MANAGER, manager,
+            manager + '        beginRetirement(null, null);\n')), {'lifecycle'}),
         'lift-called-from-publish': (changed((PERSISTENCE, publish,
-            '        lift(record, expectedSigners, null);\n' + publish)), {'lifecycle'}),
+            publish + '        lift(record, expectedSigners, null);\n')), {'lifecycle'}),
         'retired-marked-from-manager': (changed((MANAGER, manager,
             '    private static final java.util.function.Function<NativeIdentityPersistence, Object> MARK =\n'
             '            persistence -> persistence.markRetired(null, null, null);\n\n' + manager)), {'lifecycle'}),
         'retiring-marked-from-settings': (changed((settings, None,
             '\n        mNativeIdentityPersistence.markRetiring(null, null, null);\n')), {'lifecycle'}),
-        'suspension-asserted-in-the-old-finish': (changed((MANAGER, '                if (handle.retired) return true;\n',
-            '                assert suspend(handle, null) != null;\n'
-            '                if (handle.retired) return true;\n')), {'lifecycle'}),
+        'suspension-asserted-in-the-constructor': (changed((MANAGER, manager,
+            manager + '        assert suspend(null, null) != null;\n')), {'lifecycle'}),
     }
 
 
@@ -2636,6 +3121,18 @@ def lifecycle_name_problems():
     return problems
 
 
+# The other runs that carry new-format cases, and their classes: the V3 cases moved beside the old
+# flows of the header footprint suites and the binding faults, the presence matrix's V3 step, and the
+# lifecycle entry points of the future format matrix and the version gate.
+NEW_FORMAT_HARNESSES = {
+    'scripts/proof/native_creation_binding.py': ('NativeIdentityPresenceTest', 'NativeIdentityHeaderFootprintTest',
+                                                 'NativeHeaderWriteFaultTest', 'NativeCreationBindingFaultTest'),
+    'scripts/proof/tests/test_native_header_footprint.py': ('NativeIdentityHeaderFootprintTest',
+                                                            'NativeHeaderWriteFaultTest'),
+    'scripts/proof/tests/test_native_identity_store.py': ('NativeIdentityFutureFormatTest',
+                                                          'NativeIdentityVersionGateTest')}
+
+
 def label_problems():
     """Every step but the pinned one is living and carries living labels, and the pinned step only
     archived ones. This runner's harness rows name its tests, and the new-format label names only cases
@@ -2662,7 +3159,9 @@ def label_problems():
                 ROLLBACK_CHECK, READER_CHECK}):
         problems.append('harness labels of this runner differ: %s' % labelled)
     if {row[0] for row in b1.HARNESS_LABELS if row[0] == 'new-format'} != {'new-format'} or any(
-            row[1] != 'scripts/proof/native_lifecycle_record.py' for row in b1.HARNESS_LABELS if row[0] == 'new-format'):
+            row[1] != 'scripts/proof/native_lifecycle_record.py'
+            and not set(row[2]) <= set(NEW_FORMAT_HARNESSES.get(row[1], ()))
+            for row in b1.HARNESS_LABELS if row[0] == 'new-format'):
         problems.append('the new-format label names another harness')
     if b1.LIVING_ROLLBACK_CHECKS != (ROLLBACK_CHECK,):
         problems.append('the living rollback check exception names %s' % (b1.LIVING_ROLLBACK_CHECKS,))
@@ -2743,9 +3242,15 @@ def source_checks():
     problems += model_prediction_problems(predictions['p5_checkpoint_2'], swap_controls(predictions))
     problems += registration_guard_problems()
     problems += case_map_problems()
-    case_map = predictions['p6_checkpoint_1a']['case_map']
-    if (case_map['mapped'], case_map['to_move']) != (len(CASE_MAP), len(CASE_MAP_TO_MOVE)):
+    problems += refusal_problems()
+    case_map = predictions['p6_checkpoint_1e']['case_map']
+    if (case_map['mapped'], case_map['removed'], case_map['to_move']) != (
+            len(CASE_MAP), len(CASE_MAP_REMOVED), len(CASE_MAP_TO_MOVE)):
         problems.append('predicted case map differs from the case map')
+    refusals = predictions['p6_checkpoint_1e']['refusals']
+    if (refusals['with_refusal'], refusals['to_write'], refusals['one_format']) != (
+            len(CASE_MAP_REFUSALS), len(REFUSALS_TO_WRITE), len(ONE_FORMAT_REFUSALS)):
+        problems.append('predicted refusals differ from the refusal map')
     by_label = {suite: {} for suite in ('store', 'transactions', 'manager')}
     for suite in by_label:
         for name in SUITE_NAMES[suite]:
@@ -2899,11 +3404,11 @@ def rollback_files(pinned_half):
 
 def reader_files(settings):
     """The reader check's compile set: the current product, the history stubs, the candidate's harness
-    and the current test supports with the B1 adapter."""
+    and the current test supports, which construct their formats directly."""
     files = b1.product_sources()
     files.update(b2.history_stubs())
     files['tests/NativeHistoryHarness.java'] = b2.harness_source(settings, 'b2').encode()
-    files.update(b1.test_sources(list(READER_SUPPORT) + [READER_CHECK], adapter='b1'))
+    files.update(b1.test_sources(list(READER_SUPPORT) + [READER_CHECK], adapter=None))
     return files
 
 

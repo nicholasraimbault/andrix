@@ -62,6 +62,8 @@ public final class NativeLifecycleReadTest {
             SuspensionReason.SUSPECTED_COMPROMISE.code, 1_700_000_000_000L, null);
     private static final Slot ELIGIBLE_A = body(A, PKG_A, 1, 1, Lifecycle.version1(false));
     private static final Slot RETIRING_A = body(A, PKG_A, 1, 2, Lifecycle.version1(true));
+    // A's next generation without a lifecycle change: the update the earlier formats still take.
+    private static final Slot TOUCHED_A = body(A, PKG_A, 1, 2, Lifecycle.version1(false));
     private static final Slot SUSPENDED_A = body(A, PKG_A, 1, 2,
             new Lifecycle(LifecycleState.ELIGIBLE, List.of(BY_USER), null));
     private static final Slot RETIRED_A = body(A, PKG_A, 1, 3, new Lifecycle(LifecycleState.RETIRED, List.of(),
@@ -418,17 +420,17 @@ public final class NativeLifecycleReadTest {
     private static final Retirement RETIREMENT = new Retirement(ActorClass.ACCOUNT_USER, 0, SERIAL, ZERO,
             1_700_000_000_002L, outstandingInventory());
 
-    // Each writer of an otherwise valid layout: header retry, confirmation and marker of A, and
-    // confirmation of an unrelated sibling. A's marker is the version 1 flag through the generic
-    // update under the earlier formats, and the retire transition under Format.V3, where the
-    // generic update changes no lifecycle.
+    // Each writer of an otherwise valid layout: header retry, confirmation and update of A, and
+    // confirmation of an unrelated sibling. A's update is the retire transition under Format.V3, where
+    // the generic update changes no lifecycle, and a generation step under the earlier formats, which
+    // refuse the version 1 flag as a lifecycle write.
     private static Map<String, Write> writers(Format format) {
-        Write marker = ceilingTwo(format) ? store -> store.markSlotRetiring(ELIGIBLE_A, 1, RETIREMENT)
-                : store -> store.updateExistingSlot(ELIGIBLE_A, RETIRING_A);
+        Write update = ceilingTwo(format) ? store -> store.markSlotRetiring(ELIGIBLE_A, 1, RETIREMENT)
+                : store -> store.updateExistingSlot(ELIGIBLE_A, TOUCHED_A);
         return Map.of(
                 "header retry", store -> store.writeHeader(header(2, live(A), live(B)), header(2, live(A), live(B))),
                 "confirm A", store -> store.confirmExistingSlot(ELIGIBLE_A),
-                "mark A retiring", marker,
+                "update A", update,
                 "confirm sibling", store -> store.confirmExistingSlot(body(B, PKG_B, 2, 1, Lifecycle.version1(false))));
     }
 
@@ -454,6 +456,13 @@ public final class NativeLifecycleReadTest {
                 Path root = older("none", null);
                 check(problems, load(root, format).bindingUsable(A), "control not usable");
                 check(problems, writer.getValue().run(open(root, format)), writer.getKey() + " refused");
+            }
+            if (!ceilingTwo(format)) {
+                // The version 1 flag on the same healthy layout: a lifecycle write, refused first.
+                Path root = older("none", null);
+                Map<String, String> before = footprint(root);
+                check(problems, !open(root, format).updateExistingSlot(ELIGIBLE_A, RETIRING_A), "retiring flag written");
+                check(problems, footprint(root).equals(before), "the refused flag changed the store");
             }
         });
         for (String kind : List.of("valid", "broken")) {
@@ -535,7 +544,7 @@ public final class NativeLifecycleReadTest {
             check(problems, !open(update, format).updateExistingSlot(ELIGIBLE_A, SUSPENDED_A), "version 2 written");
             check(problems, !open(update, format).confirmExistingSlot(SUSPENDED_A), "version 2 confirmed");
             check(problems, footprint(update).equals(before), "update changed the store");
-            check(problems, open(update, format).updateExistingSlot(ELIGIBLE_A, RETIRING_A), "control update");
+            check(problems, open(update, format).updateExistingSlot(ELIGIBLE_A, TOUCHED_A), "control update");
         });
     }
 

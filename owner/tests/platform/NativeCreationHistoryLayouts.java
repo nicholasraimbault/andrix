@@ -20,8 +20,9 @@ import java.util.stream.Collectors;
  * Emits the version 2 layouts a restored reservation and its explicit rebind leave under the
  * host format's actual writer: the reservation itself, beside a body, beside an unselected
  * addition and as a protected target, the completed rebind, and each interrupted step of its
- * exact header confirmation, first body write, completion to LIVE and rebound retirement
- * publication and marker. Each records its known holds and whether a header copy or only the
+ * exact header confirmation, first body write and completion to LIVE. The rebound retirement's
+ * publication and block are the lifecycle emitter's, written by the lifecycle record's
+ * retirement. Each records its known holds and whether a header copy or only the
  * staging seed is version 2. A separately compiled version 1 reader checks them with other
  * sources: every layout must stay read only with every hold, no counter and no history. The
  * harness inserts the existing fault seam into copies of the store and strict writer sources.
@@ -122,10 +123,6 @@ public final class NativeCreationHistoryLayouts {
                     (owner, handle) -> owner.commit(handle));
             interrupted("history-live-completion", step, "store.bin", false, true,
                     (owner, handle) -> owner.commit(handle));
-            interrupted("history-retirement-publication", step, "record.bin", false, false,
-                    (owner, handle) -> owner.beginRetirement(handle));
-            interrupted("history-retirement-marker", step, "record.bin", true, false,
-                    (owner, handle) -> owner.beginRetirement(handle));
         }
         System.out.println(emitted + " version 2 history layouts emitted; Android storage unqualified");
     }

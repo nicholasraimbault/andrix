@@ -185,9 +185,9 @@
       "lab_only": false,
       "method": "/usr/bin/patch --batch --forward --fuzz=0 --no-backup-if-mismatch -p1",
       "profile": "patches/grapheneos-2026081300/native-principal-pins.json",
-      "profile_sha256": "8413d5303c7702e23a3bff0faf6e763de9001e996adbb18a03ca037363646916",
+      "profile_sha256": "f944b5b61ba7283c48efc405dfb37b236de3963f866369c3ea2f48b9012871df",
       "patch": "patches/grapheneos-2026081300/native-principal-pins.patch",
-      "patch_sha256": "6f5ab48de7c60438b203be173fea8c6591b5a8fed97c69c1886befc36ca314a4",
+      "patch_sha256": "d97f4080f84773cb44693aaf0d6dd920b21af346ff851b7c05d3d69fff957ca8",
       "applies": true,
       "class": "moved",
       "files": [
@@ -267,8 +267,8 @@
           "base_sha256": "e2a204f325e99013ba300238eed58f4741cacceba34c4d5df58f54d7e1aba5ca",
           "target_sha256": "e2a204f325e99013ba300238eed58f4741cacceba34c4d5df58f54d7e1aba5ca",
           "offsets": [],
-          "pinned_candidate_sha256": "6e97cf887ca71a04dce2ef74f1d7318b82dbc1b4551c44c0669691d6cefc99a7",
-          "candidate_sha256": "6e97cf887ca71a04dce2ef74f1d7318b82dbc1b4551c44c0669691d6cefc99a7"
+          "pinned_candidate_sha256": "6c2974085783500fdf9b1342f85ca57c35ebf0d66c6ca6daf1aac61bb1152680",
+          "candidate_sha256": "6c2974085783500fdf9b1342f85ca57c35ebf0d66c6ca6daf1aac61bb1152680"
         },
         {
           "path": "services/core/java/com/android/server/pm/StorageEventHelper.java",
@@ -665,10 +665,10 @@
   "generated": {
     "tool": "scripts/proof/grapheneos_carry.py",
     "tool_sha256": "88926c90154252066f49e26bd3ba62d499df6664a2118fb091242aa60d4c743d",
-    "at": "2026-10-09T21:07:18Z"
+    "at": "2026-10-11T18:06:04Z"
   },
   "seal": {
     "algorithm": "sha256 over canonical JSON of every other field",
-    "sha256": "dc3a8e5ec9abb2e5c5e079ee1dd0e0cba16a36434e68e18c13db25514092ed4d"
+    "sha256": "b9ad2e8b1a92efc88aac838c527837205241e863dd185c017faa1d7b6847c7d3"
   }
 }

@@ -20,15 +20,10 @@ import java.util.Set;
 import java.util.TreeMap;
 
 /**
- * Shared host fixtures of the header footprint tests: values, direct store layouts, exact file
- * footprints and a reopened host Package Manager facade. It uses only store, manager and
- * facade surface that predates the header footprint correction, so the same tests also run
- * against earlier sources as controls. Store and facade construction, projection and
- * reservation go through the host only NativeHeaderApi adapter that the harness selects for the
- * sources under test, so the facade's own default format never applies here. Each reservation
- * carries an explicit signer row for every snapshot record, as the owned manager supplies for
- * its own issuances, so a creation plan source sees the same B0 equivalent case. Host files
- * only, not Android persistence.
+ * Current host fixtures of the header fence tests: values, raw layouts, full file footprints and
+ * explicit store and Package Manager formats. Reservations use CreationPlan with one signer row
+ * per record. No historical API adapter is in the living assembly. Pinned older fixtures remain
+ * separate controls. These files qualify host behavior, not Android persistence.
  */
 final class NativeHeaderTestSupport {
     static final String LINEAGE = "0123456789abcdef0123456789abcdef";
@@ -100,6 +95,160 @@ final class NativeHeaderTestSupport {
     static Slot tombstone(int appId, String name, long generation) {
         return new Slot(LINEAGE, appId, name, generation, SIGNERS, List.of());
     }
+    // The release engine's ticketed tombstone of principal id, as the lifecycle format writes it.
+    static Slot ticketed(int appId, String name, long id, long generation) {
+        return new Slot(LINEAGE, appId, name, generation, SIGNERS, List.of(),
+                new NativeIdentityRecords.ReleaseTicket(id, 0, SERIAL, "7".repeat(32)));
+    }
+    static NativeIdentityStore lifecycleStore(Path root) {
+        return new NativeIdentityStore(root.toFile(), NativeIdentityStore.Format.V3);
+    }
+    // The account user's retirement block with every kind outstanding, as the lifecycle writers write it.
+    static NativeIdentityRecords.Retirement retirementBlock() {
+        List<NativeIdentityRecords.Obligation> outstanding = new java.util.ArrayList<>();
+        for (NativeIdentityRecords.ObligationKind kind : NativeIdentityRecords.ObligationKind.values()) {
+            outstanding.add(new NativeIdentityRecords.Obligation(kind,
+                    NativeIdentityRecords.ObligationState.OUTSTANDING, NativeIdentityRecords.NO_REFERENCE, 0, 0));
+        }
+        return new NativeIdentityRecords.Retirement(NativeIdentityRecords.ActorClass.ACCOUNT_USER, 0, SERIAL,
+                NativeIdentityRecords.NO_REFERENCE, 1_700_000_000_100L, outstanding);
+    }
+    static final String FORMAT_REFUSAL = "Native lifecycle records need the lifecycle format";
+    // The earlier formats, each of which refuses every lifecycle write.
+    static final List<NativeIdentityStore.Format> EARLIER =
+            List.of(NativeIdentityStore.Format.V1, NativeIdentityStore.Format.V2);
+    private static int twins;
+
+    // Retirement under an earlier format: the lifecycle record's retirement, the one that survives,
+    // refuses with the format refusal before any effect, with every byte, file identity and time of the
+    // store and the pin's phase unchanged. So does the same account's under each earlier format, on a
+    // copy of this state (twinsRefused).
+    static boolean retirementRefused(Path root, NativePrincipalManager manager, NativePrincipalManager.Handle handle)
+            throws Exception {
+        age(root);
+        Map<String, String> before = footprint(root);
+        NativePrincipalPins.Phase phase = manager.phase(handle);
+        NativePrincipalPins.Record identity = manager.identity(handle);
+        try {
+            manager.beginRetirement(handle, retirementBlock());
+            return false;
+        } catch (IllegalStateException refused) {
+            if (!FORMAT_REFUSAL.equals(refused.getMessage()) || !footprint(root).equals(before)
+                    || manager.phase(handle) != phase) {
+                return false;
+            }
+        }
+        return twinsRefused(root, identity);
+    }
+
+    interface StoreWrite { boolean run(NativeIdentityStore store) throws Exception; }
+
+    // A lifecycle write under the earlier formats: on this version 1 state it refuses before any
+    // effect, with every byte, file identity and time unchanged, and so it does under Format.V2, which
+    // reads the same state as it is, on a copy of its bytes.
+    static void refusedUnderEarlierFormats(List<String> problems, Path root, String what, StoreWrite write)
+            throws Exception {
+        Path copy = twin(root, NativeIdentityStore.Format.V2);
+        unchanged(problems, root, what, () -> write.run(store(root)));
+        age(copy);
+        Map<String, String> before = footprint(copy);
+        check(problems, !write.run(new NativeIdentityStore(copy.toFile(), earlier(NativeIdentityStore.Format.V2))),
+                what + " acknowledged under Format.V2");
+        check(problems, footprint(copy).equals(before), what + " changed the Format.V2 twin");
+    }
+
+    // A copy of this state for a twin under an earlier format. Version 1 reads no version 2 header,
+    // so under Format.V1 each version 2 header copy is relabeled as version 1, its creation bindings
+    // dropped: the state a version 1 writer would have left. Slot bodies stay as they are.
+    private static NativeIdentityStore.Format earlier(NativeIdentityStore.Format format) {
+        if (format != NativeIdentityStore.Format.V1 && format != NativeIdentityStore.Format.V2) {
+            throw new IllegalArgumentException("refusal twins are earlier formats only");
+        }
+        return format;
+    }
+
+    static Path twin(Path root, NativeIdentityStore.Format format) throws Exception {
+        Path copy = root.resolveSibling(root.getFileName() + "-twin" + ++twins + "-" + format);
+        List<Path> paths;
+        try (var walk = Files.walk(root)) {
+            paths = walk.toList();
+        }
+        for (Path path : paths) {
+            Path target = copy.resolve(root.relativize(path).toString());
+            if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) Files.createDirectories(target);
+            else if (Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) Files.copy(path, target);
+            else throw new AssertionError("a refusal twin copies files and directories only: " + path);
+        }
+        if (format == NativeIdentityStore.Format.V1) {
+            for (String name : List.of("store.bin", "store.bin.reservecopy", "store.bin-backup", "store.bin-seed")) {
+                Path file = copy.resolve(name);
+                if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) continue;
+                Header header;
+                try {
+                    header = NativeIdentityRecords.decodeHeader(Files.readAllBytes(file));
+                } catch (RuntimeException damage) {
+                    continue;
+                }
+                if (header.version == 1) continue;
+                List<HeaderEntry> entries = new ArrayList<>();
+                for (HeaderEntry entry : header.entries) {
+                    entries.add(new HeaderEntry(entry.appId, entry.phase, entry.creationId, entry.creationPackage));
+                }
+                Files.write(file, NativeIdentityRecords.encodeHeader(
+                        new Header(header.lineage, header.lastId, entries)));
+            }
+        }
+        return copy;
+    }
+
+    // The same account under each earlier format, reopened on a copy of this state: where that format
+    // restores its pin, its retirement refuses with the format refusal before any effect, with every
+    // byte, file identity and time of the copy and the twin pin's phase unchanged. An account that has
+    // no published body restores no pin under a format that reads no history for it, such as a
+    // reservation under Format.V1: no retirement exists there to refuse, and the twin says so. One
+    // with a published body always restores its pin.
+    static boolean twinsRefused(Path root, NativePrincipalPins.Record identity) throws Exception {
+        for (NativeIdentityStore.Format format : EARLIER) {
+            Path copy = twin(root, format);
+            age(copy);
+            Map<String, String> beforeRestore = footprint(copy);
+            PackageManagerService pm = new PackageManagerService(copy, false, earlier(format));
+            pm.mSettings.restoreAfterPackageSettings();
+            NativePrincipalManager manager = new NativePrincipalManager(pm);
+            NativePrincipalManager.Handle handle = manager.find(identity.packageName, identity.userId);
+            if (handle == null) {
+                NativeIdentityStore.ReadResult<Slot> body =
+                        new NativeIdentityStore(copy.toFile(), earlier(format)).load().slots.get(identity.appId);
+                if (body != null && body.status == NativeIdentityStore.Status.VALID) {
+                    System.out.println("twin " + format + ": no pin beside a published body of "
+                            + identity.packageName);
+                    return false;
+                }
+                if (!footprint(copy).equals(beforeRestore)) {
+                    System.out.println("twin " + format + ": no pin but store changed for " + identity.packageName);
+                    return false;
+                }
+                System.out.println("twin " + format + ": no pin and no store write for " + identity.packageName);
+                continue;
+            }
+            age(copy);
+            Map<String, String> before = footprint(copy);
+            NativePrincipalPins.Phase phase = manager.phase(handle);
+            try {
+                manager.beginRetirement(handle, retirementBlock());
+                System.out.println("twin " + format + ": retirement accepted for " + identity.packageName);
+                return false;
+            } catch (IllegalStateException refused) {
+                if (!FORMAT_REFUSAL.equals(refused.getMessage()) || !footprint(copy).equals(before)
+                        || manager.phase(handle) != phase) {
+                    System.out.println("twin " + format + ": not refused before any effect: " + refused.getMessage());
+                    return false;
+                }
+            }
+            System.out.println("twin " + format + ": refused for " + identity.packageName);
+        }
+        return true;
+    }
     static NativePrincipalPins.Record record(long id, String name, int appId) {
         return new NativePrincipalPins.Record(id, name, appId, 0, SERIAL);
     }
@@ -111,11 +260,13 @@ final class NativeHeaderTestSupport {
     }
     static Header project(NativeIdentityPersistence persistence, NativeIdentityStore.Loaded loaded,
             NativePrincipalPins.Snapshot snapshot) {
-        return NativeHeaderApi.project(persistence, loaded, snapshot, rows(snapshot));
+        return persistence.projectReservation(loaded,
+                new NativeIdentityPersistence.CreationPlan(snapshot, rows(snapshot)));
     }
     static boolean reserve(NativeIdentityPersistence persistence,
             NativePrincipalPins.Snapshot snapshot) {
-        return NativeHeaderApi.reserve(persistence, snapshot, rows(snapshot));
+        return persistence.reservePending(
+                new NativeIdentityPersistence.CreationPlan(snapshot, rows(snapshot)));
     }
     static byte[] bytes(Header header) { return NativeIdentityRecords.encodeHeader(header); }
 
@@ -152,7 +303,11 @@ final class NativeHeaderTestSupport {
         Files.write(directory.resolve("record.bin.reservecopy"), NativeIdentityRecords.encodeSlot(body));
     }
     static NativeIdentityStore store(Path root) {
-        return NativeHeaderApi.store(root);
+        return new NativeIdentityStore(root.toFile(), NativeIdentityStore.Format.V1);
+    }
+    // The host facade under Format.V1, which these fixtures write, never the facade's default.
+    static PackageManagerService legacyPm(Path root, boolean initialize) {
+        return new PackageManagerService(root, initialize, NativeIdentityStore.Format.V1);
     }
     static NativeIdentityPersistence persistence(Path root) {
         return new NativeIdentityPersistence(store(root));
@@ -214,7 +369,7 @@ final class NativeHeaderTestSupport {
 
     // A new PMS over the same files: ordinary package settings first, then the store restore.
     static PackageManagerService reopen(Path root, Map<String, Integer> packages) {
-        PackageManagerService pm = NativeHeaderApi.pm(root, false);
+        PackageManagerService pm = legacyPm(root, false);
         for (Map.Entry<String, Integer> entry : packages.entrySet()) {
             pm.mSettings.add(entry.getKey(), entry.getValue());
         }
@@ -236,7 +391,7 @@ final class NativeHeaderTestSupport {
     }
     // A live PMS over a new store, with the subject packages installed.
     static PackageManagerService livePm() throws Exception {
-        PackageManagerService pm = NativeHeaderApi.pm(fresh(), true);
+        PackageManagerService pm = legacyPm(fresh(), true);
         pm.mSettings.add(PKG_B, B);
         pm.mSettings.add(PKG_C, C);
         pm.mSettings.add(PKG_A, A);

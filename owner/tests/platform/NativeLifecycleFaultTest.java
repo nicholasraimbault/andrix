@@ -172,6 +172,13 @@ public final class NativeLifecycleFaultTest {
                     }
                     check(problems, releasePhase(root).equals("omitted")
                             && load(root, V3).header.value.entries.isEmpty(), "the retry left " + releasePhase(root));
+                    NativeIdentityPersistence afterRelease = persistence(root, V3);
+                    unchanged(problems, root, "released identity publication",
+                            () -> afterRelease.publish(RECORD_A, SIGNERS));
+                    NativePrincipalPins.Snapshot old = new NativePrincipalPins.Snapshot(ID_A, List.of(RECORD_A));
+                    unchanged(problems, root, "released reservation restatement",
+                            () -> afterRelease.reservePending(new NativeIdentityPersistence.CreationPlan(old,
+                                    java.util.Map.of(ID_A, SIGNERS))));
                 } finally {
                     NativeHeaderWriteFaults.disarm();
                 }

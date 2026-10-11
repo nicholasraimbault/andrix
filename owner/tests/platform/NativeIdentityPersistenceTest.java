@@ -78,11 +78,12 @@ public final class NativeIdentityPersistenceTest {
 
     // Target retiring with a durable marker, plus an intact unrelated slot, an unrelated slot
     // whose body cannot be decoded and a stale reservation that never got a directory.
+
+    // The core's retiring target and the unrelated slots beside it.
     private static final class Retiring {
         final NativePrincipalPins pins = new NativePrincipalPins(8);
         Pin pin;
         Record record;
-        Header released;
         Map<String, String> unrelated;
     }
 
@@ -143,14 +144,14 @@ public final class NativeIdentityPersistenceTest {
         assert !p.load().enumerationComplete && !p.load().creationReady();
         assert !p.reservePending(plan(pins.snapshotForWrite()));
         assert !p.publish(r, SIGNERS) && p.binding(r) == null;
-        assert !p.markRetiring(r, SIGNERS) && !p.finishRetirement(r, LINEAGE, SIGNERS);
+        assert !p.markRetiring(r, SIGNERS, block(r));
         assert !Files.exists(env.root) && env.store.pendingInitializationNames().isEmpty();
         // A present but headerless layout is not a fresh lineage either.
         Files.createDirectories(env.root.resolve("slots"));
         Map<String, String> before = tree(env.root);
         assert p.load().header.status == NativeIdentityStore.Status.MISSING;
         assert !p.reservePending(plan(pins.snapshotForWrite())) && !p.publish(r, SIGNERS);
-        assert !p.markRetiring(r, SIGNERS) && !p.finishRetirement(r, LINEAGE, SIGNERS);
+        assert !p.markRetiring(r, SIGNERS, block(r));
         assert tree(env.root).equals(before) && env.store.pendingInitializationNames().isEmpty();
     }
 
@@ -257,21 +258,17 @@ public final class NativeIdentityPersistenceTest {
         // Existing bindings refuse every other principal, subject or signer set.
         for (Record bad : List.of(wrongPackage, wrongId, otherUser, otherApp, wrongSerial)) {
             assert p.binding(bad) == null && !p.publish(bad, SIGNERS);
-            assert !p.markRetiring(bad, SIGNERS) && !p.finishRetirement(bad, LINEAGE, SIGNERS);
+            assert !p.markRetiring(bad, SIGNERS, block(bad));
         }
-        assert !p.publish(r, OTHER_SIGNERS) && !p.markRetiring(r, OTHER_SIGNERS);
+        assert !p.publish(r, OTHER_SIGNERS) && !p.markRetiring(r, OTHER_SIGNERS, block(r));
         assert !p.publish(r, Set.of("b".repeat(64)));
-        assert !p.finishRetirement(r, LINEAGE, SIGNERS); // Not retiring.
-        assert !p.finishRetirement(r, OTHER_LINEAGE, SIGNERS);
         assert tree(env.root).equals(published);
 
         // Malformed input throws before any effect.
         invalid(() -> p.publish(r, Set.of()));
-        invalid(() -> p.markRetiring(r, Set.of("A".repeat(64))));
-        invalid(() -> p.finishRetirement(r, "not a lineage", SIGNERS));
-        invalid(() -> p.finishRetirement(r, LINEAGE.toUpperCase(), SIGNERS));
+        invalid(() -> p.markRetiring(r, Set.of("A".repeat(64)), block(r)));
         missing(() -> p.publish(null, SIGNERS));
-        missing(() -> p.markRetiring(r, null));
+        missing(() -> p.markRetiring(r, null, block(r)));
         missing(() -> p.binding(null));
         missing(() -> p.reservePending(null));
         Set<String> withNull = new HashSet<>();
@@ -304,6 +301,8 @@ public final class NativeIdentityPersistenceTest {
         assert p.publish(next.record(), SIGNERS);
     }
 
+    // The reservation and publication of this flow stay; its marker and release refuse under the
+    // version 1 format before any effect. Its positive half runs under the lifecycle format.
     private static void retirementMonotonic() throws Exception {
         Env env = new Env("retiring", true);
         NativeIdentityPersistence p = env.persistence;
@@ -312,35 +311,30 @@ public final class NativeIdentityPersistenceTest {
         Record r = pin.record();
         assert p.reservePending(plan(pins.snapshotForWrite())) && p.publish(r, SIGNERS);
         pins.commit(pin);
-        pins.beginRetire(pin); // The core closes admission, then the marker becomes durable.
-        assert p.markRetiring(r, SIGNERS);
-        Slot marked = body(r, 2, true);
-        assert p.binding(r).equals(marked); // Data for a RETIRING restore, never active.
-        assert !p.publish(r, SIGNERS); // Never committed again.
-        assert p.markRetiring(r, SIGNERS) && p.binding(r).equals(marked); // Confirmed only.
-        assert !env.store.updateExistingSlot(marked, body(r, 3, false));
+        pins.beginRetire(pin); // The core closes admission; the marker then refuses.
+        retirementRefused(env, r);
+        assert p.binding(r).equals(body(r, 1, false));
         assert p.reservePending(plan(pins.snapshotForWrite())); // Its LIVE entry is not reallocated.
-        assert env.header().equals(header(1, live(APP))) && p.binding(r).equals(marked);
+        assert env.header().equals(header(1, live(APP))) && p.binding(r).equals(body(r, 1, false));
 
-        // Retirement can begin before the first publication. It still needs an
-        // exact durable reservation and marker; advancing past that ID without
-        // reserving it would permanently strand the owned retirement.
+        // Retirement can begin before the first publication. A RETIRING pin is reserved
+        // exactly; advancing past that ID without reserving it would strand the account.
         Pin never = NativePinTestSupport.prepare(pins, PKG_B, APP_B, 0, SERIAL);
         pins.beginRetire(never);
         Pin pending = NativePinTestSupport.prepare(pins, PKG_C, APP_C, 0, SERIAL);
         assert p.reservePending(plan(pins.snapshotForWrite()));
         assert env.header().equals(header(3, live(APP), creating(APP_B, 2, PKG_B),
                 creating(APP_C, 3, PKG_C)));
-        assert !p.markRetiring(never.record(), SIGNERS);
+        retirementRefused(env, never.record());
         assert p.publish(never.record(), SIGNERS);
         assert never.phase() == Phase.RETIRING; // Publication is not activation.
-        assert p.markRetiring(never.record(), SIGNERS);
-        assert p.finishRetirement(never.record(), LINEAGE, SIGNERS);
-        pins.finishRetire(never);
-        assert !Files.exists(env.slot(APP_B));
+        retirementRefused(env, never.record());
+        assert Files.exists(env.slot(APP_B)) && p.binding(never.record()).equals(body(never.record(), 1, false));
         assert p.publish(pending.record(), SIGNERS);
     }
 
+    // Intact bindings confirm beside damaged header copies and new issuance needs the counter; the
+    // marker and release refuse under the version 1 format before any effect.
     private static void headerOnlyDamage() throws Exception {
         Env env = new Env("header-damage", true);
         NativeIdentityPersistence p = env.persistence;
@@ -365,14 +359,12 @@ public final class NativeIdentityPersistenceTest {
         assert loaded.header.status == NativeIdentityStore.Status.DAMAGED
                 && loaded.creationBlocked;
         assert loaded.bindingUsable(APP) && loaded.bindingUsable(APP_B);
-        // Intact existing bindings confirm without the counter, and markers can be written.
+        // Intact existing bindings confirm without the counter.
         assert p.publish(r, SIGNERS) && p.publish(rb, SIGNERS);
         pins.commit(peer);
         pins.beginRetire(pin);
-        assert p.markRetiring(r, SIGNERS) && p.binding(r).equals(body(r, 2, true));
-        // Final release stays held. No index, counter or header is invented.
-        assert !p.finishRetirement(r, LINEAGE, SIGNERS);
-        assert p.binding(r).equals(body(r, 2, true)) && p.load().occupiedAppIds.contains(APP);
+        retirementRefused(env, r);
+        assert p.binding(r).equals(body(r, 1, false)) && p.load().occupiedAppIds.contains(APP);
         // New issuance needs the counter.
         Pin fresh = NativePinTestSupport.prepare(pins, PKG_C, APP_C, 0, SERIAL);
         assert !p.reservePending(plan(pins.snapshotForWrite())) && !p.publish(fresh.record(), SIGNERS);
@@ -382,15 +374,16 @@ public final class NativeIdentityPersistenceTest {
         assert !Files.exists(Path.of(main + "-backup"));
         assert env.store.pendingInitializationNames().isEmpty();
 
-        // With its header copies recovered, the same exact retirement continues.
+        // With its header copies recovered, the retirement still refuses, and B completes.
         write(main, good);
         write(reserve, good);
-        assert p.finishRetirement(r, LINEAGE, SIGNERS);
-        pins.finishRetire(pin);
-        assert env.header().equals(header(2, creating(APP_B, 2, PKG_B)));
-        assert p.publish(rb, SIGNERS) && env.header().equals(header(2, live(APP_B)));
+        retirementRefused(env, r);
+        assert env.header().equals(header(2, live(APP), creating(APP_B, 2, PKG_B)));
+        assert p.publish(rb, SIGNERS) && env.header().equals(header(2, live(APP), live(APP_B)));
     }
 
+    // A creation retired before its publication was confirmed: under the version 1 format its
+    // marker, user drop and release refuse before any effect, and the CREATING entry stays.
     private static void creatingEntryCompletesBeforeOmission() throws Exception {
         Env env = new Env("creating-retirement", true);
         NativeIdentityPersistence p = env.persistence;
@@ -402,14 +395,17 @@ public final class NativeIdentityPersistenceTest {
         assert env.store.resumeCreatingDirectory(creatingHeader, APP);
         assert env.store.publishCreatingSlot(creatingHeader, body(r, 1, false));
         pins.beginRetire(pin); // Retired before its publication was ever confirmed.
-        assert p.markRetiring(r, SIGNERS) && env.header().equals(creatingHeader);
-        // Omission under CREATING would strand a tombstone. The store refuses it directly.
-        assert !env.store.updateExistingSlot(body(r, 2, true), tombstone(r, 3));
-        assert p.finishRetirement(r, LINEAGE, SIGNERS);
-        assert env.header().equals(header(1)) && !Files.exists(env.slot(APP));
-        pins.finishRetire(pin);
+        retirementRefused(env, r);
+        assert env.header().equals(creatingHeader);
+        // The user drop under CREATING would strand a tombstone; the store refuses it directly.
+        Map<String, String> before = tree(env.root);
+        assert !env.store.updateExistingSlot(body(r, 1, false), tombstone(r, 2));
+        assert tree(env.root).equals(before);
+        assert env.header().equals(creatingHeader) && p.binding(r).equals(body(r, 1, false));
     }
 
+    // Nothing is deleted from an incomplete snapshot; the marker and release of the damaged, stale
+    // and new accounts refuse under the version 1 format before any effect.
     private static void noSnapshotDerivedDeletion() throws Exception {
         Env env = new Env("preserve", true);
         NativeIdentityPersistence p = env.persistence;
@@ -442,25 +438,25 @@ public final class NativeIdentityPersistenceTest {
         assert p.reservePending(plan(new Snapshot(0, List.of()))) && env.header().equals(expected);
         assert slots(env, APP_C, APP_D).equals(others) && !Files.exists(env.slot(APP_E));
         // The damaged account stays unavailable and held. The stale reservation has no
-        // generic CREATING abort or marker.
+        // generic CREATING abort. Neither takes a marker.
         assert p.binding(d.record()) == null && !p.publish(d.record(), SIGNERS);
-        assert !p.markRetiring(d.record(), SIGNERS);
-        assert !p.finishRetirement(d.record(), LINEAGE, SIGNERS);
-        assert p.binding(e.record()) == null && !p.markRetiring(e.record(), SIGNERS);
-        assert !p.finishRetirement(e.record(), LINEAGE, SIGNERS);
+        retirementRefused(env, d.record());
+        assert p.binding(e.record()) == null;
+        retirementRefused(env, e.record());
         assert env.header().equals(expected) && slots(env, APP_C, APP_D).equals(others);
 
         assert p.publish(r, SIGNERS);
         core.commit(pin);
         core.beginRetire(pin);
-        assert p.markRetiring(r, SIGNERS) && p.finishRetirement(r, LINEAGE, SIGNERS);
-        core.finishRetire(pin);
-        assert env.header().equals(header(4, live(APP_C), live(APP_D),
+        retirementRefused(env, r);
+        assert env.header().equals(header(4, live(APP), live(APP_C), live(APP_D),
                 creating(APP_E, 3, PKG_E)));
         assert slots(env, APP_C, APP_D).equals(others) && !Files.exists(env.slot(APP_E));
-        assert p.load().occupiedAppIds.equals(Set.of(APP_C, APP_D, APP_E));
+        assert p.load().occupiedAppIds.equals(Set.of(APP, APP_C, APP_D, APP_E));
     }
 
+    // Under the version 1 format no subject releases: the marker, the user drop, RELEASING and the
+    // release of every subject refuse before any effect, and an unknown file is never deleted.
     private static void releaseRefusals() throws Exception {
         Env env = new Env("release-refusals", true);
         NativeIdentityPersistence p = env.persistence;
@@ -473,50 +469,32 @@ public final class NativeIdentityPersistenceTest {
         pins.commit(pin);
         pins.commit(peer);
         pins.beginRetire(pin);
-        assert p.markRetiring(r, SIGNERS);
-        Map<String, String> marked = tree(env.root);
-        // Another principal, package, serial, user, lineage or signer set never releases.
-        assert !p.finishRetirement(new Record(2, PKG, APP, 0, SERIAL), LINEAGE, SIGNERS);
-        assert !p.finishRetirement(new Record(1, PKG_C, APP, 0, SERIAL), LINEAGE, SIGNERS);
-        assert !p.finishRetirement(new Record(1, PKG, APP, 0, SERIAL + 1), LINEAGE, SIGNERS);
-        assert !p.finishRetirement(new Record(1, PKG, APP, 10, SERIAL), LINEAGE, SIGNERS);
-        assert !p.finishRetirement(r, OTHER_LINEAGE, SIGNERS);
-        assert !p.finishRetirement(r, LINEAGE, OTHER_SIGNERS);
-        assert !p.finishRetirement(rb, LINEAGE, SIGNERS); // Live and not retiring.
-        assert tree(env.root).equals(marked);
-
-        // A lost reply after the tombstone: only this exact subject continues.
-        assert env.store.updateExistingSlot(body(r, 2, true), tombstone(r, 3));
-        Map<String, String> omitted = tree(env.root);
-        assert p.binding(r) == null;
-        assert !p.finishRetirement(r, LINEAGE, OTHER_SIGNERS);
-        assert !p.finishRetirement(r, OTHER_LINEAGE, SIGNERS);
-        assert !p.finishRetirement(new Record(1, PKG_C, APP, 0, SERIAL), LINEAGE, SIGNERS);
-        assert !p.finishRetirement(new Record(3, PKG, APP, 0, SERIAL), LINEAGE, SIGNERS);
-        assert tree(env.root).equals(omitted);
-        // An unknown file in a RELEASING slot is never deleted.
-        Header releasingHeader = header(2, releasing(APP), live(APP_B));
-        assert env.store.writeHeader(header(2, live(APP), live(APP_B)), releasingHeader);
+        retirementRefused(env, r);
+        Map<String, String> held = tree(env.root);
+        // Another principal, package, serial or signer set refuses too, as does the live peer. Another
+        // user's block is outside the writer rules, refused before the format check.
+        for (Record other : List.of(new Record(2, PKG, APP, 0, SERIAL), new Record(1, PKG_C, APP, 0, SERIAL),
+                new Record(1, PKG, APP, 0, SERIAL + 1), rb)) {
+            retirementRefused(env, other);
+        }
+        assert !p.markRetiring(r, OTHER_SIGNERS, block(r));
+        Record otherUser = new Record(1, PKG, APP, 10, SERIAL);
+        try {
+            assert !p.markRetiring(otherUser, SIGNERS, block(otherUser));
+        } catch (IllegalArgumentException outsideTheWriterRules) {
+            // Refused before any effect, as the format refusal is.
+        }
+        assert tree(env.root).equals(held);
+        // The user drop and the RELEASING write refuse in the store itself.
+        assert !env.store.updateExistingSlot(body(r, 1, false), tombstone(r, 2));
+        assert !env.store.writeHeader(header(2, live(APP), live(APP_B)), header(2, releasing(APP), live(APP_B)));
+        assert tree(env.root).equals(held);
+        // An unknown file in the slot is never deleted.
         Path foreign = env.slot(APP).resolve("owner-data");
         Files.writeString(foreign, "not store owned");
-        assert !p.finishRetirement(r, LINEAGE, SIGNERS);
+        retirementRefused(env, r);
         assert Files.exists(foreign) && Files.exists(env.slot(APP).resolve("record.bin"));
-        assert env.header().equals(releasingHeader);
-        Files.delete(foreign);
-        assert p.finishRetirement(r, LINEAGE, SIGNERS);
-        Header released = header(2, live(APP_B));
-        assert env.header().equals(released) && !Files.exists(env.slot(APP));
-        // Absent state continues only in this lineage and within the issued counter, and
-        // never while this package or ID is live in another slot.
-        assert p.finishRetirement(r, LINEAGE, SIGNERS);
-        assert !p.finishRetirement(r, OTHER_LINEAGE, SIGNERS);
-        assert !p.finishRetirement(new Record(3, PKG, APP, 0, SERIAL), LINEAGE, SIGNERS);
-        assert !p.finishRetirement(new Record(1, PKG_B, APP, 0, SERIAL), LINEAGE, SIGNERS);
-        assert !p.finishRetirement(new Record(2, PKG, APP, 0, SERIAL), LINEAGE, SIGNERS);
-        pins.finishRetire(pin);
-        // Never a new operation: the released record is not reserved or published again.
-        assert !p.reservePending(plan(new Snapshot(2, List.of(r, rb))));
-        assert !p.publish(r, SIGNERS) && env.header().equals(released);
+        assert env.header().equals(header(2, live(APP), live(APP_B)));
     }
 
     private static void creationDirectoryGuards() throws Exception {
@@ -620,70 +598,52 @@ public final class NativeIdentityPersistenceTest {
         }
     }
 
+    // Under the version 1 format the marker refuses before its first sync, so no failure point
+    // is reached and a restarted store reads the same unmarked body.
     private static void markWithUnknownOutcomes() throws Exception {
-        Set<String> states = new TreeSet<>();
-        for (int k = 1; ; ++k) {
-            assert k < LIMIT;
-            Env env = new Env("mark-" + k, true);
-            NativePrincipalPins pins = new NativePrincipalPins(8);
-            Pin pin = NativePinTestSupport.prepare(pins, PKG, APP, 0, SERIAL);
-            Record r = pin.record();
-            assert env.persistence.reservePending(plan(pins.snapshotForWrite()));
-            assert env.persistence.publish(r, SIGNERS);
-            pins.commit(pin);
-            pins.beginRetire(pin);
-            Os.syncCalls = 0;
-            Os.failSyncAt = k;
-            boolean result = env.persistence.markRetiring(r, SIGNERS);
+        Env env = new Env("mark", true);
+        NativePrincipalPins pins = new NativePrincipalPins(8);
+        Pin pin = NativePinTestSupport.prepare(pins, PKG, APP, 0, SERIAL);
+        Record r = pin.record();
+        assert env.persistence.reservePending(plan(pins.snapshotForWrite()));
+        assert env.persistence.publish(r, SIGNERS);
+        pins.commit(pin);
+        pins.beginRetire(pin);
+        Os.syncCalls = 0;
+        Os.failSyncAt = 1;
+        try {
+            retirementRefused(env, r);
+        } finally {
             Os.failSyncAt = 0;
-            if (result) {
-                assert states.equals(Set.of("unmarked", "marked")) : states;
-                assert env.persistence.binding(r).equals(body(r, 2, true));
-                break;
-            }
-            // An unacknowledged marker authorizes nothing. The same call continues it.
-            Slot seen = env.persistence.binding(r);
-            assert seen.equals(body(r, 1, false)) || seen.equals(body(r, 2, true)) : "k=" + k;
-            states.add(seen.users.get(0).retiring ? "marked" : "unmarked");
-            assert env.restarted().markRetiring(r, SIGNERS) : "k=" + k;
-            assert env.persistence.binding(r).equals(body(r, 2, true)); // Never generation 3.
         }
+        assert Os.syncCalls == 0;
+        assert env.persistence.binding(r).equals(body(r, 1, false));
+        assert env.restarted().binding(r).equals(body(r, 1, false));
     }
 
+    // Under the version 1 format the release refuses before its first sync: the principal ID stays
+    // consumed, the core pin held and every unrelated slot unchanged.
     private static void releaseWithUnknownOutcomes() throws Exception {
-        Set<String> states = new TreeSet<>();
-        for (int k = 1; ; ++k) {
-            assert k < LIMIT;
-            Env env = new Env("release-" + k, true);
-            Retiring f = retiring(env);
-            Os.syncCalls = 0;
-            Os.failSyncAt = k;
-            boolean result = env.persistence.finishRetirement(f.record, LINEAGE, SIGNERS);
+        Env env = new Env("release", true);
+        Retiring f = retiring(env);
+        Os.syncCalls = 0;
+        Os.failSyncAt = 1;
+        try {
+            retirementRefused(env, f.record);
+        } finally {
             Os.failSyncAt = 0;
-            if (result) {
-                assert states.equals(Set.of("retiring", "tombstone", "releasing",
-                        "directory-removed", "index-removed")) : states;
-                released(env, f);
-                break;
-            }
-            String state = releaseState(env, f.record);
-            states.add(state);
-            // Every uncertain step keeps the principal ID consumed and the core pin held.
-            // Only a lost acknowledgement of the last step leaves the store without the app
-            // ID, and the core still holds it until a later true result.
-            assert env.header().lastId == 4 && f.pin.phase() == Phase.RETIRING;
-            assert f.pins.isAppIdPinned(APP);
-            assert env.persistence.load().occupiedAppIds.contains(APP)
-                    == !state.equals("index-removed") : "k=" + k;
-            Slot bound = env.persistence.binding(f.record);
-            assert bound == null || bound.equals(body(f.record, 2, true)) : "k=" + k;
-            assert unrelated(env).equals(f.unrelated) : "k=" + k;
-            assert env.restarted().finishRetirement(f.record, LINEAGE, SIGNERS)
-                    : "k=" + k + " " + state;
-            released(env, f);
         }
+        assert Os.syncCalls == 0;
+        assert env.header().lastId == 4 && f.pin.phase() == Phase.RETIRING;
+        assert f.pins.isAppIdPinned(APP);
+        assert env.persistence.load().occupiedAppIds.contains(APP);
+        assert env.persistence.binding(f.record).equals(body(f.record, 1, false));
+        assert unrelated(env).equals(f.unrelated);
+        assert env.restarted().binding(f.record).equals(body(f.record, 1, false));
     }
 
+    // Target retiring in the core, plus an intact unrelated slot, an unrelated slot whose body
+    // cannot be decoded and a stale reservation that never got a directory. Its marker refuses.
     private static Retiring retiring(Env env) throws Exception {
         Retiring f = new Retiring();
         NativeIdentityPersistence p = env.persistence;
@@ -701,37 +661,9 @@ public final class NativeIdentityPersistenceTest {
         write(body, new byte[] {1, 2, 3});
         write(Path.of(body + ".reservecopy"), new byte[] {4, 5, 6});
         f.pins.beginRetire(f.pin);
-        assert p.markRetiring(f.record, SIGNERS);
-        f.released = header(4, live(APP_C), live(APP_D), creating(APP_E, 4, PKG_E));
+        retirementRefused(env, f.record);
         f.unrelated = unrelated(env);
         return f;
-    }
-
-    private static void released(Env env, Retiring f) throws Exception {
-        NativeIdentityPersistence p = env.persistence;
-        assert env.header().equals(f.released) && !Files.exists(env.slot(APP));
-        assert unrelated(env).equals(f.unrelated);
-        assert p.binding(f.record) == null && !p.load().occupiedAppIds.contains(APP);
-        // Exact continuation of this retirement only.
-        assert p.finishRetirement(f.record, LINEAGE, SIGNERS);
-        assert !p.finishRetirement(f.record, OTHER_LINEAGE, SIGNERS);
-        f.pins.finishRetire(f.pin); // Only now does the core allocator barrier move.
-        assert !f.pins.isAppIdPinned(APP);
-        // The released ID and its old reservation are never republished.
-        assert !p.publish(f.record, SIGNERS) && env.header().equals(f.released);
-    }
-
-    private static String releaseState(Env env, Record r) {
-        NativeIdentityStore.Loaded loaded = env.store.load();
-        HeaderEntry entry = find(loaded.header.value, r.appId);
-        boolean directory = Files.exists(env.slot(r.appId), LinkOption.NOFOLLOW_LINKS);
-        if (entry == null) {
-            assert !directory;
-            return "index-removed";
-        }
-        if (entry.phase == SlotPhase.RELEASING) return directory ? "releasing" : "directory-removed";
-        assert entry.phase == SlotPhase.LIVE && directory;
-        return loaded.slots.get(r.appId).value.users.isEmpty() ? "tombstone" : "retiring";
     }
 
     private static Map<String, String> unrelated(Env env) throws Exception {
@@ -798,6 +730,38 @@ public final class NativeIdentityPersistenceTest {
 
     private static Slot tombstone(Record r, long generation) {
         return new Slot(LINEAGE, r.appId, r.packageName, generation, SIGNERS, List.of());
+    }
+
+    // The retirement block of this user and serial's account user, every kind outstanding.
+    private static NativeIdentityRecords.Retirement block(Record r) {
+        List<NativeIdentityRecords.Obligation> outstanding = new java.util.ArrayList<>();
+        for (NativeIdentityRecords.ObligationKind kind : NativeIdentityRecords.ObligationKind.values()) {
+            outstanding.add(new NativeIdentityRecords.Obligation(kind,
+                    NativeIdentityRecords.ObligationState.OUTSTANDING, NativeIdentityRecords.NO_REFERENCE, 0, 0));
+        }
+        return new NativeIdentityRecords.Retirement(NativeIdentityRecords.ActorClass.ACCOUNT_USER, r.userId,
+                r.userSerial, NativeIdentityRecords.NO_REFERENCE, 1_700_000_000_100L, outstanding);
+    }
+
+    private static int twins;
+
+    // Under the version 1 format the lifecycle record's retirement, the transaction that survives,
+    // refuses before any effect: every byte of the store stays. So does it under Format.V2, which
+    // reads this version 1 state as it is, over a copy of the same bytes.
+    private static void retirementRefused(Env env, Record r) throws Exception {
+        Map<String, String> before = tree(env.root);
+        assert !env.persistence.markRetiring(r, SIGNERS, block(r));
+        assert tree(env.root).equals(before);
+        Path copy = env.root.resolveSibling("store-twin-" + ++twins);
+        for (Map.Entry<String, String> entry : before.entrySet()) {
+            Path target = copy.resolve(entry.getKey());
+            if (entry.getValue().equals("/")) Files.createDirectories(target);
+            else Files.write(target, Base64.getDecoder().decode(entry.getValue()));
+        }
+        NativeIdentityPersistence production = new NativeIdentityPersistence(
+                new NativeIdentityStore(copy.toFile(), NativeIdentityStore.Format.V2));
+        assert !production.markRetiring(r, SIGNERS, block(r));
+        assert tree(copy).equals(before);
     }
 
     private static void write(Path file, byte[] bytes) throws Exception {

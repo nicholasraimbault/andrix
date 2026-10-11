@@ -619,7 +619,7 @@ def suite_files(settings, names, override=None):
         files['stubs/com/android/server/pm/Settings.java'] = override[FACADE].encode()
     files.update(b2.history_stubs())
     files['tests/NativeHistoryHarness.java'] = b2.harness_source(settings, 'b2').encode()
-    files.update(b1.test_sources(list(SUPPORT) + list(names), adapter='b1'))
+    files.update(b1.test_sources(list(SUPPORT) + list(names), adapter=None))
     return files
 
 

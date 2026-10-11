@@ -80,7 +80,7 @@ public final class NativePrincipalPinsTest {
 
     private static void retire(NativePrincipalPins pins, Pin pin) {
         pins.beginRetire(pin);
-        pins.finishRetire(pin);
+        pins.finishRelease(pin);
     }
 
     private static void phaseTransitions() {
@@ -94,35 +94,35 @@ public final class NativePrincipalPinsTest {
         assert pins.snapshotForWrite().equals(new Snapshot(1, List.of(pin.record())));
         assert pin.toString().contains("PENDING");
         assert pins.snapshotForWrite().toString().contains(APP);
-        refused(() -> pins.finishRetire(pin)); // Only RETIRING can finish.
+        refused(() -> pins.finishRelease(pin)); // Only RETIRING can finish.
         pins.commit(pin);
         assert pin.phase() == Phase.ACTIVE;
         pins.commit(pin); // The same ACTIVE handle again changes nothing.
         assert pin.phase() == Phase.ACTIVE;
-        refused(() -> pins.finishRetire(pin));
+        refused(() -> pins.finishRelease(pin));
         assert pins.snapshotForWrite().equals(new Snapshot(1, List.of(pin.record())));
         pins.beginRetire(pin);
         assert pin.phase() == Phase.RETIRING;
         pins.beginRetire(pin); // The same handle again changes nothing.
         refused(() -> pins.commit(pin)); // Irrevocable, no revival.
         assert pin.phase() == Phase.RETIRING;
-        pins.finishRetire(pin);
+        pins.finishRelease(pin);
         // The handle is terminal and no longer names a live pin.
-        assert pin.phase() == Phase.RETIRED;
+        assert pin.phase() == Phase.RELEASED;
         assert pins.find(APP, 0) == null && pins.findId(1) == null;
         assert !pins.isPackagePinned(APP) && !pins.isAppIdPinned(10123);
         refused(() -> pins.commit(pin));
         refused(() -> pins.beginRetire(pin));
-        refused(() -> pins.finishRetire(pin));
-        assert pin.phase() == Phase.RETIRED;
+        refused(() -> pins.finishRelease(pin));
+        assert pin.phase() == Phase.RELEASED;
 
         // PENDING can retire without ever becoming ACTIVE.
         Pin pending = NativePinTestSupport.prepare(pins, APP, 10123, 0, 0);
         assert pending != pin && pending.record().id == 2;
         pins.beginRetire(pending);
         refused(() -> pins.commit(pending));
-        pins.finishRetire(pending);
-        assert pending.phase() == Phase.RETIRED && pins.findId(2) == null;
+        pins.finishRelease(pending);
+        assert pending.phase() == Phase.RELEASED && pins.findId(2) == null;
         assert pins.snapshotForWrite().equals(new Snapshot(2, List.of()));
     }
 
@@ -150,7 +150,7 @@ public final class NativePrincipalPinsTest {
         refused(() -> NativePinTestSupport.prepare(pins, APP, 10123, 10, 10)); // Nor can a new incarnation of user 10.
         Pin tertiary = NativePinTestSupport.prepare(pins, APP, 10123, 11, 12); // Other users are unaffected.
         assert tertiary.record().id == 3;
-        pins.finishRetire(secondary);
+        pins.finishRelease(secondary);
         Pin recreated = NativePinTestSupport.prepare(pins, APP, 10123, 10, 10);
         assert recreated.record().id == 4 && recreated.phase() == Phase.PENDING;
 
@@ -223,7 +223,7 @@ public final class NativePrincipalPinsTest {
         missing(() -> pins.isPackagePinned(null));
         missing(() -> pins.commit(null));
         missing(() -> pins.beginRetire(null));
-        missing(() -> pins.finishRetire(null));
+        missing(() -> pins.finishRelease(null));
         missing(() -> new NativePrincipalPins(4).restore(null));
     }
 
@@ -237,7 +237,7 @@ public final class NativePrincipalPinsTest {
         assert NativePinTestSupport.prepare(pins, APP, 10001, 0, 0) == a; // An exact retry needs no capacity.
         pins.beginRetire(a);
         refused(() -> NativePinTestSupport.prepare(pins, THIRD, 10003, 0, 0)); // RETIRING still counts.
-        pins.finishRetire(a);
+        pins.finishRelease(a);
         assert NativePinTestSupport.prepare(pins, THIRD, 10003, 0, 0).record().id == 3;
         refused(() -> NativePinTestSupport.prepare(pins, FOURTH, 10004, 0, 0));
 
@@ -271,9 +271,9 @@ public final class NativePrincipalPinsTest {
         refused(() -> first.commit(theirs));
         refused(() -> first.beginRetire(theirs));
         second.beginRetire(theirs);
-        refused(() -> first.finishRetire(theirs));
+        refused(() -> first.finishRelease(theirs));
         assert state(first, mine).equals(before) && theirs.phase() == Phase.RETIRING;
-        second.finishRetire(theirs);
+        second.finishRelease(theirs);
         refused(() -> first.commit(theirs));
         assert state(first, mine).equals(before);
 
@@ -283,8 +283,8 @@ public final class NativePrincipalPinsTest {
         assert current != mine && current.record().id == 2;
         refused(() -> first.commit(mine));
         refused(() -> first.beginRetire(mine));
-        refused(() -> first.finishRetire(mine));
-        assert current.phase() == Phase.PENDING && mine.phase() == Phase.RETIRED;
+        refused(() -> first.finishRelease(mine));
+        assert current.phase() == Phase.PENDING && mine.phase() == Phase.RELEASED;
         assert first.find(APP, 0) == current && first.findId(1) == null;
         assert first.findId(2) == current;
     }
@@ -354,9 +354,7 @@ public final class NativePrincipalPinsTest {
         Pin leaving = NativePinTestSupport.prepare(pins, APP, 10123, 0, 0);
         Pin otherRetiring = NativePinTestSupport.prepare(pins, OTHER, 10200, 0, 0);
         Pin pending = NativePinTestSupport.prepare(pins, THIRD, 10300, 0, 0);
-        refused(() -> pins.snapshotWithout(leaving));
         pins.commit(leaving);
-        refused(() -> pins.snapshotWithout(leaving));
         pins.beginRetire(leaving);
         pins.beginRetire(otherRetiring);
         Snapshot marked = pins.snapshotForWrite();
@@ -371,7 +369,10 @@ public final class NativePrincipalPinsTest {
             refused(() -> NativePinTestSupport.prepare(afterMarker, name, pin.record().appId, 0, 0));
         }
         assert afterMarker.find(THIRD, 0).phase() == Phase.PENDING;
-        Snapshot omission = pins.snapshotWithout(leaving);
+        // Expected memory state after the release engine confirmed its durable omission.
+        // Pins expose no method that proposes omitting a still held record.
+        Snapshot omission = new Snapshot(marked.lastId,
+                List.of(otherRetiring.record(), pending.record()), Set.of(otherRetiring.record().id));
         assert omission.records.equals(List.of(otherRetiring.record(), pending.record()));
         assert omission.retiringIds.equals(Set.of(otherRetiring.record().id));
         assert pins.snapshotForWrite().equals(marked); // Candidate did not change held state.
@@ -383,12 +384,9 @@ public final class NativePrincipalPinsTest {
         assert afterFinalWrite.find(OTHER, 0).phase() == Phase.RETIRING;
         assert afterFinalWrite.isAppIdPinned(10200);
         refused(() -> afterFinalWrite.commit(afterFinalWrite.find(OTHER, 0)));
-        pins.finishRetire(leaving);
+        pins.finishRelease(leaving);
         assert pins.snapshotForWrite().equals(omission);
         assert NativePinTestSupport.prepare(pins, FOURTH, 10123, 0, 0).record().id == 4;
-        refused(() -> pins.snapshotWithout(leaving));
-        refused(() -> pins.snapshotWithout(afterFinalWrite.find(OTHER, 0)));
-        missing(() -> pins.snapshotWithout(null));
     }
 
     private static void reservedAppIdsBarrier() {
@@ -417,9 +415,9 @@ public final class NativePrincipalPinsTest {
                 List.of(owner.record(), secondary.record(), other.record(), low.record()),
                 Set.of(owner.record().id, other.record().id)));
         // An app ID leaves only with the last pin that holds it.
-        pins.finishRetire(owner);
+        pins.finishRelease(owner);
         assert pins.reservedAppIds().equals(Set.of(10050, 10123, 10200)); // Held for user 10.
-        pins.finishRetire(other);
+        pins.finishRelease(other);
         assert pins.reservedAppIds().equals(Set.of(10050, 10123));
         retire(pins, secondary);
         assert pins.reservedAppIds().equals(Set.of(10050));
@@ -470,9 +468,9 @@ public final class NativePrincipalPinsTest {
         Pin second = NativePinTestSupport.prepare(pins, APP, 10123, 0, 0);
         assert second.record().id == 2 && pins.findId(1) == null; // A released ID is not reused.
         pins.beginRetire(second);
-        Snapshot empty = pins.snapshotWithout(second);
+        Snapshot empty = new Snapshot(2, List.of());
         assert empty.equals(new Snapshot(2, List.of()));
-        pins.finishRetire(second);
+        pins.finishRelease(second);
         assert pins.snapshotForWrite().equals(empty);
 
         NativePrincipalPins rebooted = new NativePrincipalPins(4);
@@ -549,11 +547,20 @@ public final class NativePrincipalPinsTest {
     private static void closedSurface() {
         Set<String> methods = publicMethods(NativePrincipalPins.class);
         assert methods.equals(Set.of("find", "findId", "isPackagePinned",
-                "isAppIdPinned", "reservedAppIds", "snapshotForWrite", "snapshotWithout", "commit", "beginRetire",
-                "finishRetire", "restore", "restoreBindingsWithoutCounter", "hasKnownCounter")) : methods;
+                "isAppIdPinned", "reservedAppIds", "snapshotForWrite", "commit", "beginRetire",
+                "restore", "restoreBindingsWithoutCounter", "hasKnownCounter")) : methods;
+        try {
+            Method end = NativePrincipalPins.class.getDeclaredMethod("finishRelease", Pin.class);
+            int access = end.getModifiers();
+            assert !Modifier.isPublic(access) && !Modifier.isProtected(access) && !Modifier.isPrivate(access);
+            assert Modifier.isSynchronized(access) && end.getReturnType() == void.class;
+        } catch (ReflectiveOperationException missing) { throw new AssertionError(missing); }
+        for (Method method : NativePrincipalPins.class.getDeclaredMethods()) {
+            assert !method.getName().equals("finishRetire") && !method.getName().equals("snapshotWithout");
+        }
         assert publicMethods(Pin.class).equals(Set.of("record", "phase", "toString"));
         assert Arrays.asList(Phase.values())
-                .equals(List.of(Phase.PENDING, Phase.ACTIVE, Phase.RETIRING, Phase.RETIRED));
+                .equals(List.of(Phase.PENDING, Phase.ACTIVE, Phase.RETIRING, Phase.RELEASED));
         assert Pin.class.getConstructors().length == 0; // Only an instance creates handles.
         assert NativePrincipalPins.class.getFields().length == 0;
         for (Class<?> type : List.of(NativePrincipalPins.class, Pin.class, Record.class,
@@ -575,14 +582,14 @@ public final class NativePrincipalPinsTest {
         pins.commit(pin);
         pins.beginRetire(pin);
         Snapshot marker = pins.snapshotForWrite();
-        Snapshot omission = pins.snapshotWithout(pin);
+        Snapshot omission = new Snapshot(marker.lastId, List.of());
         // Either write can be lost. The pin stays RETIRING and reserved.
         pins.beginRetire(pin);
         assert pins.snapshotForWrite().equals(marker) && pin.phase() == Phase.RETIRING;
-        assert pins.snapshotWithout(pin).equals(omission);
         assert pins.findId(1) == pin && pins.isAppIdPinned(10123);
-        pins.finishRetire(pin);
+        pins.finishRelease(pin);
         assert !pins.isAppIdPinned(10123);
+        assert pins.snapshotForWrite().equals(omission);
     }
 
     private static long prepareAndDrop(NativePrincipalPins pins) {
@@ -765,14 +772,14 @@ public final class NativePrincipalPinsTest {
         assert racing.snapshotForWrite().equals(new Snapshot(1, List.of(contested.record()), Set.of(1L)));
         List<Boolean> finished = race(RACERS, index -> {
             try {
-                racing.finishRetire(contested);
+                racing.finishRelease(contested);
                 return Boolean.TRUE;
             } catch (IllegalStateException stale) {
                 return Boolean.FALSE;
             }
         });
         assert Collections.frequency(finished, Boolean.TRUE) == 1;
-        assert contested.phase() == Phase.RETIRED && racing.findId(1) == null;
+        assert contested.phase() == Phase.RELEASED && racing.findId(1) == null;
         assert racing.reservedAppIds().isEmpty();
 
         // Exact retries racing one retirement see the old pin, then refusals, then one new pin.
@@ -810,7 +817,7 @@ public final class NativePrincipalPinsTest {
         assert current != old && current.record().id == 2 && current.phase() == Phase.PENDING;
         assert replacements.isEmpty()
                 || (replacements.size() == 1 && replacements.contains(current));
-        assert old.phase() == Phase.RETIRED && cycle.findId(1) == null;
+        assert old.phase() == Phase.RELEASED && cycle.findId(1) == null;
         assert cycle.reservedAppIds().equals(Set.of(10123));
         assert cycle.snapshotForWrite().equals(new Snapshot(2, List.of(current.record())));
     }
@@ -828,7 +835,6 @@ public final class NativePrincipalPinsTest {
         assert NativePinTestSupport.prepare(pins, APP, 10123, 0, 7) == first;
         assert pins.reservedAppIds().equals(Set.of(10123, 10124));
         refused(pins::snapshotForWrite);
-        refused(() -> pins.snapshotWithout(last));
         refused(() -> NativePinTestSupport.prepare(pins, "dev.andrix.new", 10125, 0, 9));
         refused(() -> NativePinTestSupport.prepare(pins, "dev.andrix.other", 10124, 0, 8));
         refused(() -> pins.commit(last));
@@ -837,7 +843,7 @@ public final class NativePrincipalPinsTest {
         pins.commit(first);
         assert first.phase() == Phase.ACTIVE;
         pins.beginRetire(first);
-        pins.finishRetire(first); pins.finishRetire(last);
+        pins.finishRelease(first); pins.finishRelease(last);
         assert pins.reservedAppIds().isEmpty() && !pins.hasKnownCounter();
         refused(() -> NativePinTestSupport.prepare(pins, APP, 10123, 0, 7));
         refused(pins::snapshotForWrite);

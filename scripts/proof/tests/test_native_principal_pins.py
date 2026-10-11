@@ -61,12 +61,12 @@ class NativePrincipalPinsTests(unittest.TestCase):
 
     def test_retirement_and_publication_are_separate_gates(self):
         manager = (ROOT / 'owner/platform/framework/NativePrincipalManager.java').read_text()
-        self.assertIn('beginRetirement(Handle handle)', manager)
-        self.assertIn('finishRetirementAfterQuiescence(Handle handle)', manager)
-        self.assertIn('if (!handle.retirementCommitted)', manager)
-        self.assertIn('persistence.finishRetirement(handle.pin.record(), handle.lineage', manager)
-        self.assertLess(manager.index('persistence.finishRetirement('),
-                        manager.index('pins.finishRetire(handle.pin)'))
+        self.assertNotIn('beginRetirement(Handle handle)', manager)
+        self.assertNotIn('finishRetirementAfterQuiescence', manager)
+        self.assertNotIn('retirementCommitted', manager)
+        self.assertNotIn('persistence.finishRetirement(', manager)
+        self.assertNotIn('pins.finishRetire(', manager)
+        self.assertIn('beginRetirement(Handle handle, NativeIdentityRecords.Retirement retirement)', manager)
         # The gated release: the engine with this instance's boot facts, then, after its acknowledged
         # omission, Settings' release finish with the read taken after the engine, the pin's end and
         # the hold refresh.

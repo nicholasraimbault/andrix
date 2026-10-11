@@ -240,7 +240,7 @@ final class NativeLifecycleSettingsTest {
                 // The release body as the manager runs it: the release finish, the pin's end and the
                 // hold refresh, in the same Settings instance.
                 booted.finishRelease(RECORD_A, load(root, V3));
-                if (pin != null) booted.pins().finishRetire(pin);
+                if (pin != null) booted.pins().finishRelease(pin);
                 booted.refresh();
                 NativePrincipalRecovery view = booted.view();
                 check(problems, booted.held(A) && !booted.pins().isAppIdPinned(A), copy + ": the hold");

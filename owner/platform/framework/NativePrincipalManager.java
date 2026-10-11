@@ -58,7 +58,6 @@ public final class NativePrincipalManager {
     public static final class Handle {
         private final NativePrincipalManager owner;
         private final NativePrincipalPins.Pin pin;
-        private boolean retirementCommitted;
         private Selection selection; // Current service incarnation's designation binding.
         private final String lineage;
         private final Set<String> storedSignerSha256;
@@ -66,7 +65,6 @@ public final class NativePrincipalManager {
         // under the PMS lock when this handle was made and never changed. Null for an issuance
         // this manager owns, which keeps its original selection instead.
         private final NativeIdentityStore.Source priorSource;
-        private boolean retired; // Guarded by the Package Manager mutation lock.
         // The lifecycle record's handle state, guarded by the Package Manager mutation lock.
         // Suspended: this instance closed the account's admission in memory, which nothing reopens
         // before a new instance. Released: the release engine's omission is durable and the pin
@@ -102,7 +100,7 @@ public final class NativePrincipalManager {
     }
 
     private final PackageManagerService pm;
-    // Exact prepare/find retries share a handle. Retired and released handles are removed
+    // Exact prepare/find retries share a handle. Released handles are removed
     // here, while any caller still holding one can reconcile its own result.
     private final IdentityHashMap<NativePrincipalPins.Pin, Handle> handles = new IdentityHashMap<>();
 
@@ -304,41 +302,19 @@ public final class NativePrincipalManager {
         }
     }
 
-    /**
-     * Close new admission and durably mark retirement BEFORE the account
-     * authority starts destructive removal/quiescence. False retains this exact
-     * retiring pin but does not authorize the removal transaction to advance.
-     * Restored retiring pins cannot be committed as active again.
-     *
-     * A pin restored from a header reservation, whose view had no eligible
-     * published body, and never explicitly rebound has no designation to create
-     * a body. Unless the cached view already holds its published body, this
-     * throws IllegalStateException before any pin or store effect. Creating that
-     * body is a separate cancellation join. If the cached body is gone from the
-     * fresh store, this returns false without a write; the pin may already be
-     * RETIRING, and no marker is committed.
-     */
-    public boolean beginRetirement(Handle handle) {
-        return retire(handle, null);
-    }
 
-    // The retirement body of both paths: the version 1 marker, with no block, and the lifecycle
-    // record's retirement block, which refuses under a format without lifecycle records and for a
-    // block no writer writes before the pin change. Each publishes a pending creation first when the
-    // handle may create its own body.
+    // The lifecycle retirement body refuses unsupported formats and blocks before the pin change.
+    // A handle that may create its own body publishes its pending creation first.
     private boolean retire(Handle handle, NativeIdentityRecords.Retirement retirement) {
         try (PackageManagerTracedLock ignored = pm.mInstallLock.acquireLock()) {
             final NativeIdentityPersistence persistence;
             final NativeIdentityPersistence.CreationPlan issued;
             final boolean mayCreateBody;
             synchronized (pm.mLock) {
-                if (retirement != null) {
-                    lifecycle(handle);
-                    NativePrincipalPins.Record record = handle.pin.record();
-                    if (!NativeIdentityStore.writableRetirement(record.userId, record.userSerial,
-                            retirement)) {
-                        throw new IllegalArgumentException("Retirement outside the writer rules");
-                    }
+                lifecycle(handle);
+                NativePrincipalPins.Record record = handle.pin.record();
+                if (!NativeIdentityStore.writableRetirement(record.userId, record.userSerial, retirement)) {
+                    throw new IllegalArgumentException("Retirement outside the writer rules");
                 }
                 NativePrincipalPins pins = checked(handle);
                 mayCreateBody = mayCreateBody(handle);
@@ -354,63 +330,17 @@ public final class NativePrincipalManager {
             }
             boolean present = persistence.binding(handle.pin.record()) != null;
             if (!present) present = persistBinding(handle, persistence, issued, mayCreateBody);
-            boolean durable = present && (retirement == null
-                    ? persistence.markRetiring(handle.pin.record(), handle.storedSignerSha256)
-                    : persistence.markRetiring(handle.pin.record(), handle.storedSignerSha256,
-                    retirement));
+            boolean durable = present && persistence.markRetiring(handle.pin.record(),
+                    handle.storedSignerSha256, retirement);
             NativeIdentityStore.Loaded observed = persistence.load();
             synchronized (pm.mLock) {
                 pm.mSettings.observeNativeIdentityStoreLPw(observed);
                 checked(handle);
-                // Only the version 1 marker admits the old release, which the lifecycle record's
-                // retirement never does: its release needs the durable RETIRED record.
-                if (durable && retirement == null) handle.retirementCommitted = true;
                 return durable;
             }
         }
     }
 
-    /**
-     * Called only AFTER beginRetirement is durably confirmed and the trusted
-     * account authority has confirmed exact work/manager/API retirement and the
-     * owner's data/removal policy. PMS does not infer that from Binder death,
-     * a PID lookup, a timeout or a caller boolean. No public transport or
-     * automatic close/finalizer exposes this operation.
-     *
-     * The slot transaction omits ONLY this quiesced reservation. Other retiring pins
-     * may still own work and remain durable. False retains the original pin and
-     * still blocks reuse. Retry this same handle to reconcile an unknown result.
-     */
-    public boolean finishRetirementAfterQuiescence(Handle handle) {
-        try (PackageManagerTracedLock ignored = pm.mInstallLock.acquireLock()) {
-            final NativeIdentityPersistence persistence;
-            synchronized (pm.mLock) {
-                if (handle == null || handle.owner != this) {
-                    throw new IllegalArgumentException("Foreign native principal handle");
-                }
-                if (handle.retired) return true;
-                checked(handle);
-                if (!handle.retirementCommitted) {
-                    throw new IllegalStateException("Retirement marker is not durably confirmed");
-                }
-                persistence = pm.mSettings.nativeIdentityPersistenceLPr();
-            }
-            boolean durable = persistence.finishRetirement(handle.pin.record(), handle.lineage,
-                    handle.storedSignerSha256);
-            NativeIdentityStore.Loaded observed = persistence.load();
-            synchronized (pm.mLock) {
-                pm.mSettings.observeNativeIdentityStoreLPw(observed);
-                NativePrincipalPins pins = checked(handle);
-                if (!durable) return false;
-                pm.mSettings.finishNativeIdentityReleaseLPw(handle.pin.record(), observed);
-                pins.finishRetire(handle.pin);
-                pm.mSettings.refreshNativePrincipalAppIdsLPw();
-                handle.retired = true;
-                handles.remove(handle.pin);
-                return true;
-            }
-        }
-    }
 
     /*
      * The lifecycle record's operations. No production caller exists: the account authority, the

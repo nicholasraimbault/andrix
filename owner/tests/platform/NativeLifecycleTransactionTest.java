@@ -29,6 +29,7 @@ import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -403,26 +404,21 @@ public final class NativeLifecycleTransactionTest {
                         () -> persistence(root, V3).publish(RECORD_A, SIGNERS));
             }
         });
-        run("V3 / the version 1 marker refuses before any effect", problems -> {
-            for (Slot durable : List.of(ELIGIBLE, slotA(2, eligible(USER)), slotA(2, retiring(byUserRetirement())),
-                    LEGACY, slotA(2, retired(discharged(byUserRetirement(), receipts()))))) {
-                Path root = layout(durable);
-                unchanged(problems, root, "the marker over " + durable,
-                        () -> persistence(root, V3).markRetiring(RECORD_A, SIGNERS));
+        run("V3 / obsolete lifecycle writer entry points are absent", problems -> {
+            for (java.lang.reflect.Method method : NativeIdentityPersistence.class.getDeclaredMethods()) {
+                check(problems, !method.getName().equals("finishRetirement")
+                        && !(method.getName().equals("markRetiring") && method.getParameterCount() == 2),
+                        "old persistence entry point " + method);
             }
-        });
-        run("V3 / the version 1 release refuses before any effect", problems -> {
-            Slot ready = slotA(3, retired(allDischarged(byUserRetirement())));
-            Path live = layout(ready);
-            unchanged(problems, live, "release under LIVE", () -> persistence(live, V3).finishRetirement(RECORD_A,
-                    LINEAGE, SIGNERS));
-            Path creating = store(creatingA());
-            slot(creating, slotA(1, retired(allDischarged(byUserRetirement()))));
-            unchanged(problems, creating, "release under CREATING", () -> persistence(creating, V3).finishRetirement(
-                    RECORD_A, LINEAGE, SIGNERS));
-            Path released = store(header(ID_A));
-            unchanged(problems, released, "release confirmation", () -> persistence(released, V3).finishRetirement(
-                    RECORD_A, LINEAGE, SIGNERS));
+            for (java.lang.reflect.Method method : NativePrincipalManager.class.getDeclaredMethods()) {
+                check(problems, !method.getName().equals("finishRetirementAfterQuiescence")
+                        && !(method.getName().equals("beginRetirement") && method.getParameterCount() == 1),
+                        "old manager entry point " + method);
+            }
+            for (java.lang.reflect.Method method : NativePrincipalPins.class.getDeclaredMethods()) {
+                check(problems, !method.getName().equals("finishRetire")
+                        && !method.getName().equals("snapshotWithout"), "old pins entry point " + method);
+            }
         });
     }
 
@@ -1016,6 +1012,91 @@ public final class NativeLifecycleTransactionTest {
         });
     }
 
+    // ------------------------------------------------------------------ the existing formats' refusals, moved
+
+    private static void movedCases() {
+        // The lifecycle arm of the version 1 transactions' refusal without an initialized store.
+        run("V3 / no lifecycle transaction initializes an absent or headerless store", problems -> {
+            Path absent = fresh();
+            Path headerless = fresh();
+            Files.createDirectories(headerless.resolve("slots"));
+            NativeIdentityPersistence.BootFacts facts = facts(layout(slotA(3, retired(retiredBlock()))));
+            for (Path root : List.of(absent, headerless)) {
+                NativeIdentityPersistence persistence = persistence(root, V3);
+                Map<String, Write> writes = new java.util.LinkedHashMap<>();
+                writes.put("lift", () -> persistence.lift(RECORD_A, SIGNERS, USER));
+                writes.put("markRetiring", () -> persistence.markRetiring(RECORD_A, SIGNERS, byUserRetirement()));
+                writes.put("markRetired", () -> persistence.markRetired(RECORD_A, SIGNERS, receipts()));
+                writes.put("beginDisposition", () -> persistence.beginDisposition(RECORD_A, SIGNERS, facts));
+                writes.put("confirmDisposition", () -> persistence.confirmDisposition(RECORD_A, SIGNERS,
+                        disposals(ObligationKind.HOME), facts));
+                writes.put("restore", () -> persistence.restore(RECORD_A, LINEAGE, SIGNERS, RECOVERY));
+                writes.put("release", () -> persistence.release(RECORD_A, LINEAGE, SIGNERS, TICKET_A,
+                        capability(new Keys()), facts));
+                for (Map.Entry<String, Write> write : writes.entrySet()) {
+                    if (root == absent) {
+                        check(problems, !write.getValue().run() && !Files.exists(absent),
+                                "absent: " + write.getKey() + " acknowledged or created the store");
+                    } else {
+                        unchanged(problems, root, "headerless: " + write.getKey(), write.getValue());
+                    }
+                }
+                SuspensionResult suspended = persistence.suspend(RECORD_A, SIGNERS, USER);
+                check(problems, suspended != SuspensionResult.SUSPENDED
+                        && (root != absent || !Files.exists(absent)), "suspend gave " + suspended);
+            }
+        });
+        // The lifecycle arm of the version 1 transactions' refusal of another lineage and of malformed
+        // input. Another principal, subject or signer set is the damaged, foreign or unbound case.
+        run("V3 / lifecycle transactions refuse another lineage and throw on malformed input before any effect",
+                problems -> {
+            Path ready = layout(releasableA());
+            NativeIdentityPersistence persistence = persistence(ready, V3);
+            Keys keys = new Keys();
+            unchanged(problems, ready, "release of another lineage", () -> persistence.release(RECORD_A,
+                    "1".repeat(32), SIGNERS, TICKET_A, capability(keys), facts(ready)));
+            invalid(problems, ready, "release with a malformed lineage", () -> persistence.release(RECORD_A,
+                    "not a lineage", SIGNERS, TICKET_A, capability(keys), facts(ready)));
+            invalid(problems, ready, "release with an upper case lineage", () -> persistence.release(RECORD_A,
+                    LINEAGE.toUpperCase(), SIGNERS, TICKET_A, capability(keys), facts(ready)));
+            invalid(problems, ready, "release with a malformed signer", () -> persistence.release(RECORD_A,
+                    LINEAGE, Set.of("A".repeat(64)), TICKET_A, capability(keys), facts(ready)));
+            Path eligible = layout(ELIGIBLE);
+            invalid(problems, eligible, "markRetiring with a malformed signer", () -> persistence(eligible, V3)
+                    .markRetiring(RECORD_A, Set.of("A".repeat(64)), byUserRetirement()));
+            invalid(problems, eligible, "markRetiring with no signer", () -> persistence(eligible, V3)
+                    .markRetiring(RECORD_A, Set.of(), byUserRetirement()));
+            check(problems, keys.cleared.isEmpty(), "the keys were cleared");
+        });
+        // The lifecycle arm of the version 1 release's refused header steps beside an older writer's
+        // unreconciled addition: the release engine writes no release header step either.
+        run("V3 / release beside an older writer's unreconciled addition writes no release header step",
+                problems -> {
+            Header prior = header(ID_A, live(A));
+            Header next = header(ID_B, live(A), new HeaderEntry(B, NativeIdentityRecords.SlotPhase.CREATING, ID_B, PKG_B));
+            Path root = store(next);
+            Files.write(root.resolve("store.bin-backup"), NativeIdentityRecords.encodeHeader(prior));
+            slot(root, releasableA());
+            Map<String, byte[]> copies = new java.util.TreeMap<>();
+            for (String name : List.of("store.bin", "store.bin.reservecopy", "store.bin-backup")) {
+                copies.put(name, Files.readAllBytes(root.resolve(name)));
+            }
+            Keys keys = new Keys();
+            boolean released = persistence(root, V3).release(RECORD_A, LINEAGE, SIGNERS, TICKET_A, capability(keys),
+                    facts(root));
+            boolean kept = true;
+            for (Map.Entry<String, byte[]> copy : copies.entrySet()) {
+                kept &= java.util.Arrays.equals(copy.getValue(), Files.readAllBytes(root.resolve(copy.getKey())));
+            }
+            check(problems, !released && kept, "released " + released + ", header copies kept " + kept);
+            // As the version 1 release kept its tombstone before the refused header step, the engine
+            // keeps its progress for the continuation: the key namespace cleared and the ticketed
+            // tombstone written.
+            check(problems, keys.cleared.equals(List.of(A)) && releasePhase(root).equals("tombstone")
+                    && tombstoneA().equals(stored(root, V3)), "progress " + keys.cleared + " " + stored(root, V3));
+        });
+    }
+
     // ------------------------------------------------------------------ earlier formats
 
     private static void earlierCases() {
@@ -1058,17 +1139,6 @@ public final class NativeLifecycleTransactionTest {
                         .release(RECORD_A, LINEAGE, SIGNERS, TICKET_A, capability(keys), facts(tombstoned)));
                 check(problems, keys.cleared.isEmpty(), "the keys were cleared");
             });
-            run(format + " / the version 1 marker and release still work", problems -> {
-                Path root = layout(ELIGIBLE);
-                NativeIdentityPersistence persistence = persistence(root, format);
-                check(problems, persistence.markRetiring(RECORD_A, SIGNERS), "the marker was refused");
-                check(problems, LEGACY.equals(new Slot(LINEAGE, A, PKG_A, 1, SIGNERS, stored(root, format).users))
-                        && stored(root, format).generation == 2, "marked " + stored(root, format));
-                check(problems, persistence.markRetiring(RECORD_A, SIGNERS), "the marker's confirmation was refused");
-                check(problems, persistence.finishRetirement(RECORD_A, LINEAGE, SIGNERS), "the release was refused");
-                check(problems, header(ID_A).equals(load(root, format).header.value)
-                        && !Files.exists(root.resolve("slots/" + A)), "released " + load(root, format).header.value);
-            });
         }
     }
 
@@ -1086,6 +1156,7 @@ public final class NativeLifecycleTransactionTest {
         bootFactCases();
         restoreCases();
         releaseCases();
+        movedCases();
         earlierCases();
         finish(Os.allClosed());
         System.out.println("Lifecycle transactions kept the record's rules and refusals; Android unqualified");

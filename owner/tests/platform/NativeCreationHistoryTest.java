@@ -777,25 +777,20 @@ public final class NativeCreationHistoryTest {
         });
     }
 
-    // Retirement keeps B1 behavior for owned, rebound and body restored handles. A reservation
-    // never rebound refuses before any effect; a cached body missing from the store writes nothing.
+    // Retirement refuses under the production format before any effect, for owned, rebound and body
+    // restored handles alike: the lifecycle record's retirement needs the lifecycle format, and the
+    // version 1 marker and release no longer exist there. Their positive halves run under Format.V3.
     private static void retirement() {
         run("retirement / a never rebound reservation refuses before any effect", problems -> {
             Path root = reserved();
             PackageManagerService pm = boot(root, V2, Map.of(PKG_R, R));
             NativePrincipalManager manager = new NativePrincipalManager(pm);
             NativePrincipalManager.Handle r = manager.find(PKG_R, 0);
-            age(root);
-            Map<String, String> before = footprint(root);
-            check(problems, throwsType(() -> manager.beginRetirement(r), IllegalStateException.class)
-                    && manager.phase(r) == Phase.PENDING && footprint(root).equals(before),
-                    "retirement created a first body");
-            check(problems, throwsType(() -> manager.finishRetirementAfterQuiescence(r),
-                    IllegalStateException.class) && footprint(root).equals(before)
-                    && pm.mSettings.isNativePrincipalAppIdLPr(R), "finish");
+            check(problems, retirementRefused(root, manager, r) && manager.phase(r) == Phase.PENDING
+                    && pm.mSettings.isNativePrincipalAppIdLPr(R), "retirement");
             check(problems, reopenedPhase(root, V2, PKG_R) == Phase.PENDING, "reopened phase");
         });
-        run("retirement / a cached body missing from the store returns false without a write", problems -> {
+        run("retirement / a cached body missing from the store refuses before any effect", problems -> {
             Path root = reserved();
             PackageManagerService pm = boot(root, V2, Map.of(PKG_R, R));
             NativePrincipalManager manager = new NativePrincipalManager(pm);
@@ -808,90 +803,48 @@ public final class NativeCreationHistoryTest {
             check(problems, pm.mSettings.nativePrincipalBindingLPr(recordR()) != null && stored != null
                     && stored.source == Source.RESERVATION, "cached view " + stored);
             removeDirectory(root.resolve("slots/" + R));
-            age(root);
-            Map<String, String> before = footprint(root);
-            check(problems, !manager.beginRetirement(r) && manager.phase(r) == Phase.RETIRING
-                    && footprint(root).equals(before), "a missing body was recreated");
-            // That call observed the fresh store, so the cached view no longer holds the body. A
-            // second call takes the early origin guard before any pin or store effect.
-            check(problems, pm.mSettings.nativePrincipalBindingLPr(recordR()) == null
-                    && pm.mSettings.nativePrincipalStoredHistoryLPr(recordR()) == stored, "observed view");
-            String guard = thrown(() -> manager.beginRetirement(r));
-            check(problems, guard.equals("IllegalStateException: Restored native reservation needs its"
-                    + " designation before retirement") && manager.phase(r) == Phase.RETIRING
-                    && footprint(root).equals(before), "second retirement: " + guard);
-            String finish = thrown(() -> manager.finishRetirementAfterQuiescence(r));
-            check(problems, finish.equals("IllegalStateException: Retirement marker is not durably"
-                    + " confirmed") && footprint(root).equals(before), "finish: " + finish);
-            String commit = thrown(() -> manager.commit(r));
-            check(problems, commit.equals("IllegalStateException: Restored pin needs an explicit"
-                    + " designation binding") && footprint(root).equals(before), "commit: " + commit);
-            String prepare = thrown(() -> manager.prepare(manager.select(PKG_R, 0)));
-            check(problems, prepare.equals("IllegalStateException: retiring pin must finish first: "
-                    + recordR()) && manager.phase(r) == Phase.RETIRING && manager.find(PKG_R, 0) == r
-                    && footprint(root).equals(before), "prepare: " + prepare);
+            check(problems, retirementRefused(root, manager, r) && manager.phase(r) == Phase.PENDING
+                    && pm.mSettings.nativePrincipalStoredHistoryLPr(recordR()) == stored, "retirement");
             check(problems, reopenedPhase(root, V2, PKG_R) == Phase.PENDING
                     && loadedOf(root, V2).history(R).source == Source.RESERVATION, "reopened");
         });
-        run("retirement / an explicitly rebound reservation publishes and retires", problems -> {
+        run("retirement / an explicitly rebound reservation refuses before any effect", problems -> {
             Path root = reserved();
             PackageManagerService pm = boot(root, V2, Map.of(PKG_R, R));
             NativePrincipalManager manager = new NativePrincipalManager(pm);
             NativePrincipalManager.Handle r = manager.prepare(manager.select(PKG_R, 0));
-            check(problems, manager.beginRetirement(r) && manager.phase(r) == Phase.RETIRING, "marker refused");
-            NativeIdentityStore.Loaded marked = loadedOf(root, V2);
-            Slot marker = marked.slots.get(R).value;
-            check(problems, marker != null && marker.generation == 2 && marker.signerSha256.equals(SIGNERS)
-                    && marker.users.get(0).retiring && v2(1, live(R)).equals(marked.header.value),
-                    "marked " + marked.header.value);
-            check(problems, reopenedPhase(root, V2, PKG_R) == Phase.RETIRING, "reopened phase");
-            // The durable omission keeps R held in this Settings instance, and a new one frees it.
-            check(problems, manager.finishRetirementAfterQuiescence(r) && v2(1).equals(storedOf(root, V2))
-                    && pm.mSettings.isNativePrincipalAppIdLPr(R), "release " + storedOf(root, V2));
-            check(problems, !boot(root, V2, Map.of(PKG_R, R)).mSettings.isNativePrincipalAppIdLPr(R),
-                    "a new instance kept the released hold");
+            check(problems, retirementRefused(root, manager, r) && manager.phase(r) == Phase.PENDING, "retirement");
+            reservedR(problems, loadedOf(root, V2), "after the refusal");
+            check(problems, reopenedPhase(root, V2, PKG_R) == Phase.PENDING, "reopened phase");
         });
-        run("retirement / BODY origin republishes after its body was observed missing", problems -> {
+        run("retirement / a BODY origin whose body was observed missing refuses before any effect", problems -> {
             Path root = pairLayout(v2(1, boundCreating(A, 1, PKG_A)));
             slot(root, A, BODY_A);
             PackageManagerService pm = boot(root, V2, Map.of(PKG_A, A));
             removeDirectory(root.resolve("slots/" + A));
             observe(pm);
-            History current = loadedOf(root, V2).history(A);
-            check(problems, current != null && current.source == Source.RESERVATION
-                    && pm.mSettings.nativePrincipalBindingLPr(record(1, PKG_A, A)) == null, "fixture view");
             NativePrincipalManager manager = new NativePrincipalManager(pm);
-            // Made after the missing body was observed: the origin is the stored BODY history.
             NativePrincipalManager.Handle a = manager.find(PKG_A, 0);
-            check(problems, manager.beginRetirement(a), "BODY origin refused");
-            NativeIdentityStore.Loaded marked = loadedOf(root, V2);
-            Slot marker = marked.slots.get(A).value;
-            check(problems, v2(1, live(A)).equals(marked.header.value) && marker != null
-                    && marker.generation == 2 && marker.users.get(0).retiring
-                    && marker.signerSha256.equals(SIGNERS), "marked " + marked.header.value);
-            check(problems, manager.finishRetirementAfterQuiescence(a) && v2(1).equals(storedOf(root, V2)),
-                    "finish " + storedOf(root, V2));
+            check(problems, retirementRefused(root, manager, a) && !Files.exists(root.resolve("slots/" + A))
+                    && v2(1, boundCreating(A, 1, PKG_A)).equals(storedOf(root, V2)), "retirement " + storedOf(root, V2));
         });
-        run("retirement / no durable marker restores PENDING after restart", problems -> {
+        run("retirement / a refused retirement restores PENDING after restart", problems -> {
             Path root = reserved();
             PackageManagerService pm = boot(root, V2, Map.of(PKG_R, R));
             NativePrincipalManager manager = new NativePrincipalManager(pm);
             NativePrincipalManager.Handle r = manager.prepare(manager.select(PKG_R, 0));
-            check(problems, !restricted(root.resolve("slots"), READ_ONLY, () -> manager.beginRetirement(r))
-                    && manager.phase(r) == Phase.RETIRING, "a marker without a body");
+            check(problems, retirementRefused(root, manager, r), "retirement");
             reservedR(problems, loadedOf(root, V2), "after the refusal");
             check(problems, reopenedPhase(root, V2, PKG_R) == Phase.PENDING, "restored phase");
-            check(problems, throwsType(() -> manager.finishRetirementAfterQuiescence(r),
-                    IllegalStateException.class), "finish");
         });
-        run("retirement / a restored retiring body finishes", problems -> {
+        run("retirement / a restored retiring body refuses before any effect", problems -> {
             Path root = pairLayout(v2(1, live(A)));
             slot(root, A, bound(A, PKG_A, 1, true, 2));
             PackageManagerService pm = boot(root, V2, Map.of(PKG_A, A));
             NativePrincipalManager manager = new NativePrincipalManager(pm);
             NativePrincipalManager.Handle a = manager.find(PKG_A, 0);
-            check(problems, manager.phase(a) == Phase.RETIRING && manager.beginRetirement(a)
-                    && manager.finishRetirementAfterQuiescence(a) && v2(1).equals(storedOf(root, V2)),
+            check(problems, manager.phase(a) == Phase.RETIRING && retirementRefused(root, manager, a)
+                    && v2(1, live(A)).equals(storedOf(root, V2)) && pm.mSettings.isNativePrincipalAppIdLPr(A),
                     "retirement " + storedOf(root, V2));
         });
     }
@@ -1084,7 +1037,7 @@ public final class NativeCreationHistoryTest {
             int fresh = pm.mSettings.ids.acquireAndRegisterNewAppId(new PackageSetting("dev.andrix.fresh"));
             check(problems, fresh >= 10000 && !held.contains(fresh), "allocated a held ID " + fresh);
         });
-        run("holds / an exact release keeps its UID hold and keystore fence until a new instance", problems -> {
+        run("holds / a refused retirement keeps the UID hold, keystore fence and history", problems -> {
             Path root = pairLayout(BESIDE_A);
             slot(root, A, BODY_A);
             PackageManagerService pm = boot(root, V2, Map.of(PKG_A, A, PKG_R, R, PKG_C, C));
@@ -1094,38 +1047,18 @@ public final class NativeCreationHistoryTest {
             // adapted Settings refresh publishes it.
             manager.prepare(manager.select(PKG_C, 0));
             check(problems, fenced(pm.mSettings.mNativeRecoveryView, C), "a new hold is not in the recovery view");
-            check(problems, manager.commit(r) && manager.beginRetirement(r)
-                    && fenced(pm.mSettings.mNativeRecoveryView, R) && pm.mSettings.isNativePrincipalAppIdLPr(R),
-                    "before the release");
-            NativePrincipalPins.Record released = manager.identity(r);
-            check(problems, pm.mSettings.nativePrincipalStoredHistoryLPr(released) != null, "no remembered history");
-            check(problems, manager.finishRetirementAfterQuiescence(r)
-                    && v2(3, boundCreating(C, 3, PKG_C), live(A)).equals(storedOf(root, V2)),
-                    "release " + storedOf(root, V2));
-            // The durable omission keeps R in this instance's held set: the refresh after the
-            // release still publishes it to the allocator and the recovery view, so the key fence
-            // holds and preparation refuses. Only the remembered history is forgotten.
+            check(problems, manager.commit(r), "commit");
+            NativePrincipalPins.Record record = manager.identity(r);
+            check(problems, retirementRefused(root, manager, r), "retirement");
+            // The refusal releases nothing: R stays held and fenced with its history in this instance,
+            // and a new instance keeps it too.
             NativePrincipalRecovery view = pm.mSettings.mNativeRecoveryView;
             check(problems, pm.mSettings.isNativePrincipalAppIdLPr(R) && fenced(view, R)
-                    && !pm.mSettings.pins.reservedAppIds().contains(R)
-                    && pm.mSettings.nativePrincipalStoredHistoryLPr(released) == null,
-                    "the released hold, keystore fence or history");
-            check(problems, throwsType(() -> manager.prepare(manager.select(PKG_R, 0)), IllegalStateException.class),
-                    "preparation of the released app ID");
-            // A new Settings instance frees R.
+                    && pm.mSettings.pins.reservedAppIds().contains(R)
+                    && pm.mSettings.nativePrincipalStoredHistoryLPr(record) != null, "the hold, fence or history");
             PackageManagerService fresh = boot(root, V2, Map.of(PKG_A, A, PKG_R, R, PKG_C, C));
-            check(problems, !fresh.mSettings.isNativePrincipalAppIdLPr(R)
-                    && !fresh.mSettings.mNativeRecoveryView.holdsAppId(R)
-                    && fenced(fresh.mSettings.mNativeRecoveryView, A), "a new instance kept the released hold");
-            check(problems, pm.mSettings.isNativePrincipalAppIdLPr(A) && fenced(view, A)
-                    && pm.mSettings.pins.reservedAppIds().equals(Set.of(A, C)), "another hold was lifted");
-            // Only the native identity is released. This claims nothing about the package's APK
-            // or data: it stays installed at its app ID, and the names and code paths the view
-            // protects stay until a separately owned maintenance rebuilds the view.
-            PackageSetting installed = pm.mSettings.getPackageLPr(PKG_R);
-            check(problems, installed != null && installed.getAppId() == R
-                    && pm.mSettings.getSettingLPr(R) == installed && view.protectsName(PKG_R)
-                    && view.keepsCodePath(CODE_R), "installed or protected state changed");
+            check(problems, fresh.mSettings.isNativePrincipalAppIdLPr(R)
+                    && fenced(fresh.mSettings.mNativeRecoveryView, R), "a new instance dropped the hold");
         });
     }
 

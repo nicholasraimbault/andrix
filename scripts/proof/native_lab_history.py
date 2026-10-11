@@ -78,7 +78,7 @@ UNCHANGED = {
     'patches/grapheneos-2026081300/native-identity-writer.patch':
         '2ede775d3e67610457b294870854310d38d97ff873bec2f70fe08646253a328b',
     'scripts/proof/native_identity_writer.py':
-        'fc12beb83e0f4706af87f7ec9cfb893e3fe61f90d05d24f97b29189337054032',
+        '2b07bf249088fae729a7c2047176e4cb518c20a237c95ef8f52b9f27c0909fe0',
     'tests/native-identity/writer_observe.py': 'd9663ba6a880f970c8914a035989e3159cc0ab7ce10e54904ab073cc4f2115e1'}
 # Host facade and fixture calls that would inject state instead of observing the actual writer.
 INJECTIONS = ('restoreBindingsWithoutCounter', '.restore(', 'rememberNative', 'mNativeRememberedBindings',
@@ -240,7 +240,14 @@ def rehearsal_problems(text):
     for its own facade boots."""
     code = b1.strip_java_comments(text)
     problems = ['rehearsal injects state: ' + item for item in INJECTIONS if item in code]
-    if (code.count(b1.PRODUCTION) != 2 or 'Format.V1' in code
+    members = ('suspend', 'lift', 'beginRetirement', 'confirmRetired', 'beginDisposition',
+               'confirmDisposition', 'releaseUid', 'release', 'finishRelease',
+               'finishNativeIdentityReleaseLPw', 'removeReleasingSlot', 'confirmReleasedSlot',
+               'markSlotReleasing', 'omitReleasedSlot', 'dropReleasedUser')
+    for member in members:
+        if re.search(r'\b' + re.escape(member) + r'\s*\(|::\s*' + re.escape(member) + r'\b', code):
+            problems.append('rehearsal exposes lifecycle or release: ' + member)
+    if (code.count(b1.PRODUCTION) != 2 or re.search(r'\bFormat\s*\.\s*V[13]\b', code)
             or b1.boot_literal() != b1.PRODUCTION):
         problems.append('rehearsal format selection')
     return problems

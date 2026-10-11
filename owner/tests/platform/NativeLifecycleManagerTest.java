@@ -40,6 +40,10 @@ final class NativeLifecycleManagerTest {
     private static final Set<String> INSTALLED = NativePrincipalManager.signerDigests(
             new PackageSetting(PKG_A).getSigningDetails());
     private static final NativePrincipalPins.Record RECORD = new NativePrincipalPins.Record(ID_A, PKG_A, A, 0, SERIAL);
+    // A third installed package, for the issuance and reservation beside A.
+    private static final String PKG_C = "dev.andrix.lifecyclec";
+    private static final int C = 10202;
+    private static final String ISSUANCE_REFUSED = "Native identity issuance requires recovery";
 
     interface Call { void run() throws Exception; }
 
@@ -50,9 +54,16 @@ final class NativeLifecycleManagerTest {
         final NativePrincipalManager manager;
 
         Booted(Path root, Format format, boolean mapped) {
+            this(root, format, mapped ? Map.of(PKG_A, A) : Map.of());
+        }
+
+        /** An instance with these packages installed: their settings precede the store restore. */
+        Booted(Path root, Format format, Map<String, Integer> packages) {
             this.root = root;
             pm = new PackageManagerService(root, false, format);
-            if (mapped) pm.mSettings.add(PKG_A, A);
+            for (Map.Entry<String, Integer> entry : new java.util.TreeMap<>(packages).entrySet()) {
+                pm.mSettings.add(entry.getKey(), entry.getValue());
+            }
             pm.mSettings.restoreAfterPackageSettings();
             manager = new NativePrincipalManager(pm);
             Os.forbiddenMonitor = pm.mLock;
@@ -324,9 +335,6 @@ final class NativeLifecycleManagerTest {
                     && byUserRetirement().equals(durable.retirement), "no durable retirement block");
             check(problems, manager.phase(handle) == NativePrincipalPins.Phase.RETIRING, "the pin is not retiring");
             check(problems, manager.beginRetirement(handle, byUserRetirement()), "the retry was not confirmed");
-            // The old release never follows the lifecycle record's retirement.
-            check(problems, refusal(() -> manager.finishRetirementAfterQuiescence(handle)) != null,
-                    "the old release followed");
             check(problems, manager.confirmRetired(handle, RECEIPTS), "not retired");
             durable = lifecycle(root);
             check(problems, durable != null && durable.state == NativeIdentityRecords.LifecycleState.RETIRED
@@ -409,15 +417,45 @@ final class NativeLifecycleManagerTest {
                     "release in a retired boot");
         });
         run("V3 / the release body keeps the app ID held until a new instance", problems -> {
-            Path root = layout(releasable());
-            Booted booted = new Booted(root, V3, false);
+            // Beside A: B's LIVE account and C's durable bound reservation, which has no body yet.
+            Path root = store(NativeIdentityRecords.Header.newV2(LINEAGE, ID_B + 1, List.of(live(A), live(B),
+                    new NativeIdentityRecords.HeaderEntry(C, NativeIdentityRecords.SlotPhase.CREATING, ID_B + 1, PKG_C,
+                            new NativeIdentityRecords.CreationBinding(0, SERIAL, INSTALLED)))));
+            slot(root, releasable());
+            slot(root, slotB(1, eligible()));
+            Booted booted = new Booted(root, V3, Map.of(PKG_A, A, PKG_B, B, PKG_C, C));
             NativePrincipalManager manager = booted.manager;
             NativePrincipalManager.Handle handle = booted.handle();
             Keys keys = new Keys();
             check(problems, handle != null && manager.releaseUid(handle, capability(keys)) && omitted(root),
                     "not released");
             check(problems, keys.cleared.equals(List.of(A)), "keys cleared " + keys.cleared);
+            // The omission keeps every other entry: B LIVE and C's bound reservation.
+            NativeIdentityRecords.Header after = load(root, V3).header.value;
+            NativeIdentityRecords.HeaderEntry entryB = null, entryC = null;
+            for (NativeIdentityRecords.HeaderEntry entry : after.entries) {
+                if (entry.appId == B) entryB = entry;
+                if (entry.appId == C) entryC = entry;
+            }
+            check(problems, after.entries.size() == 2 && entryB != null
+                    && entryB.phase == NativeIdentityRecords.SlotPhase.LIVE && entryC != null
+                    && entryC.phase == NativeIdentityRecords.SlotPhase.CREATING && entryC.creationId == ID_B + 1
+                    && PKG_C.equals(entryC.creationPackage) && entryC.creationBinding != null, "header " + after.entries);
             heldUntilANewInstance(problems, booted, handle);
+            // Every other hold stays, B's and C's, with its key and data fences.
+            NativePrincipalRecovery view = booted.view();
+            check(problems, booted.pm.mSettings.isNativePrincipalAppIdLPr(B)
+                    && booted.pm.mSettings.isNativePrincipalAppIdLPr(C) && view.protectsKeystore(B)
+                    && view.protectsKeystore(C) && booted.pm.mSettings.pins.reservedAppIds().equals(Set.of(B, C)),
+                    "another hold was lifted");
+            // Only the native identity is released. A's package stays installed at its app ID, and
+            // the name and code path the view protects stay until a separately owned maintenance
+            // rebuilds the view.
+            PackageSetting installed = booted.pm.mSettings.getPackageLPr(PKG_A);
+            check(problems, installed != null && installed.getAppId() == A
+                    && booted.pm.mSettings.getSettingLPr(A) == installed && view.protectsName(PKG_A)
+                    && view.keepsCodePath(new java.io.File("/data/app/~~host/" + PKG_A + "-1")),
+                    "installed or protected state changed");
             // A retry of the released handle acknowledges it again, with no effect.
             age(root);
             Map<String, String> before = footprint(root);
@@ -538,6 +576,15 @@ final class NativeLifecycleManagerTest {
                         new NativeIdentityRecords.CreationBinding(0, SERIAL, INSTALLED)))));
     }
 
+    /** The header record's files that exist: main, reserve, backup and staging seed. */
+    static java.util.Set<String> headerFiles(Path root) {
+        java.util.Set<String> files = new java.util.TreeSet<>();
+        for (String name : List.of("store.bin", "store.bin.reservecopy", "store.bin-backup", "store.bin-seed")) {
+            if (Files.exists(root.resolve(name), java.nio.file.LinkOption.NOFOLLOW_LINKS)) files.add(name);
+        }
+        return files;
+    }
+
     /** Removes one slot directory and its files, as a lost directory leaves the store. */
     static void removeSlot(Path root, int appId) throws Exception {
         Path directory = root.resolve("slots/" + appId);
@@ -545,6 +592,34 @@ final class NativeLifecycleManagerTest {
             for (Path file : files.toList()) Files.delete(file);
         }
         Files.delete(directory);
+    }
+
+    /** count LIVE holds below A, and A, B and a third package mapped: the last places of admission. */
+    static PackageManagerService admissionFixture(int count, String third) throws Exception {
+        List<NativeIdentityRecords.HeaderEntry> held = new java.util.ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            held.add(new NativeIdentityRecords.HeaderEntry(10000 + i, NativeIdentityRecords.SlotPhase.LIVE, 0, ""));
+        }
+        Path root = store(NativeIdentityRecords.Header.newV2(LINEAGE, count, held));
+        PackageManagerService pm = new PackageManagerService(root, false, V3);
+        pm.mSettings.add(PKG_A, A);
+        pm.mSettings.add(PKG_B, B);
+        pm.mSettings.add(third, 10202);
+        pm.mSettings.restoreAfterPackageSettings();
+        Os.forbiddenMonitor = pm.mLock;
+        return pm;
+    }
+
+    /** Runs call with the store's slot directory read only, as real unprivileged permissions refuse. */
+    static boolean withSlotsReadOnly(Path root, java.util.concurrent.Callable<Boolean> call) throws Exception {
+        Path slots = root.resolve("slots");
+        java.util.Set<java.nio.file.attribute.PosixFilePermission> original = Files.getPosixFilePermissions(slots);
+        Files.setPosixFilePermissions(slots, java.nio.file.attribute.PosixFilePermissions.fromString("r-x------"));
+        try {
+            return call.call();
+        } finally {
+            Files.setPosixFilePermissions(slots, original);
+        }
     }
 
     private static void movedCases() {
@@ -577,8 +652,13 @@ final class NativeLifecycleManagerTest {
             NativePrincipalManager later = new NativePrincipalManager(pm);
             Os.forbiddenMonitor = pm.mLock;
             NativePrincipalManager.Handle b = later.prepare(later.select(PKG_B, 0));
-            check(problems, b != null && later.commit(b) && headerIs(root, ID_B, B, live),
-                    "later reservation and publication " + selectedHeader(root));
+            // The reservation is durable before the publication: a bound CREATING entry.
+            check(problems, b != null && !withSlotsReadOnly(root, () -> later.commit(b))
+                    && headerIs(root, ID_B, B, NativeIdentityRecords.SlotPhase.CREATING)
+                    && selectedHeader(root).entries.get(0).creationBinding != null,
+                    "later reservation " + selectedHeader(root));
+            check(problems, later.commit(b) && headerIs(root, ID_B, B, live),
+                    "later publication " + selectedHeader(root));
         });
         // The positive halves of a never rebound and an explicitly rebound reservation's retirement.
         run("V3 / a restored reservation refuses retirement before any effect until designated, then retires",
@@ -606,17 +686,11 @@ final class NativeLifecycleManagerTest {
             Booted booted = new Booted(root, V3, true);
             NativePrincipalManager.Handle handle = booted.handle();
             check(problems, booted.designate() == handle, "not designated");
-            Path slots = root.resolve("slots");
-            java.util.Set<java.nio.file.attribute.PosixFilePermission> original = Files.getPosixFilePermissions(slots);
-            boolean durable;
-            Files.setPosixFilePermissions(slots, java.nio.file.attribute.PosixFilePermissions.fromString("r-x------"));
-            try {
-                durable = booted.manager.beginRetirement(handle, byUserRetirement());
-            } finally {
-                Files.setPosixFilePermissions(slots, original);
-            }
+            NativeIdentityRecords.Header reserved = selectedHeader(root);
+            boolean durable = withSlotsReadOnly(root, () -> booted.manager.beginRetirement(handle, byUserRetirement()));
             check(problems, !durable && booted.manager.phase(handle) == NativePrincipalPins.Phase.RETIRING
                     && stored(root, V3) == null, "a block without a body");
+            check(problems, reserved != null && reserved.equals(selectedHeader(root)), "the reservation changed");
             Booted next = new Booted(root, V3, true);
             check(problems, next.manager.phase(next.handle()) == NativePrincipalPins.Phase.PENDING, "restored phase");
         });
@@ -652,11 +726,31 @@ final class NativeLifecycleManagerTest {
             removeSlot(root, A);
             age(root);
             Map<String, String> before = footprint(root);
+            NativeIdentityStore.History stored = booted.pm.mSettings.nativePrincipalStoredHistoryLPr(RECORD);
+            check(problems, stored != null && stored.source == NativeIdentityStore.Source.RESERVATION,
+                    "cached " + stored);
             check(problems, !booted.manager.beginRetirement(handle, byUserRetirement())
                     && booted.manager.phase(handle) == NativePrincipalPins.Phase.RETIRING
                     && footprint(root).equals(before), "a missing body was recreated");
+            // That call observed the fresh store: the cached body is gone, the stored history stays, and
+            // a second call takes the origin guard before any pin or store effect.
+            check(problems, booted.pm.mSettings.nativePrincipalBindingLPr(RECORD) == null
+                    && booted.pm.mSettings.nativePrincipalStoredHistoryLPr(RECORD) == stored, "observed view");
+            check(problems, "Restored native reservation needs its designation before retirement".equals(
+                    refusal(() -> booted.manager.beginRetirement(handle, byUserRetirement())))
+                    && footprint(root).equals(before), "second retirement");
+            check(problems, refusal(() -> booted.manager.commit(handle)) != null && footprint(root).equals(before),
+                    "commit of the undesignated retiring handle");
+            check(problems, refusal(() -> booted.manager.prepare(booted.manager.select(PKG_A, 0))) != null
+                    && booted.manager.phase(handle) == NativePrincipalPins.Phase.RETIRING
+                    && booted.manager.find(PKG_A, 0) == handle && footprint(root).equals(before),
+                    "prepare of a retiring pin");
             Booted next = new Booted(root, V3, true);
-            check(problems, next.manager.phase(next.handle()) == NativePrincipalPins.Phase.PENDING, "reopened phase");
+            NativeIdentityStore.Loaded reopened = load(root, V3);
+            check(problems, next.manager.phase(next.handle()) == NativePrincipalPins.Phase.PENDING
+                    && reopened.history(A) != null
+                    && reopened.history(A).source == NativeIdentityStore.Source.RESERVATION,
+                    "reopened");
         });
         // The positive half of a BODY origin's retirement after its body was observed missing.
         run("V3 / a BODY origin republishes after its body was observed missing, then retires", problems -> {
@@ -705,8 +799,42 @@ final class NativeLifecycleManagerTest {
             check(problems, footprint(root).equals(before) && !Files.exists(root.resolve("slots/" + A)),
                     "a store write occurred");
         });
+        // The positive half of the counter suite's healthy retirement beside a blocked store: user 1's
+        // slot B names principal 2, above the counter, so issuance stays refused throughout. A still
+        // retires, and once releasable it releases in a retired boot, with B's bytes and hold kept.
+        run("V3 / a healthy account retires and releases beside a counter that another user's slot blocks",
+                problems -> {
+            Path root = store(header(ID_A, live(A), live(B)));
+            slot(root, account(1, eligible()));
+            slot(root, new Slot(LINEAGE, B, PKG_B, 1, SIGNERS, List.of(new UserEntry(ID_B, 1, SERIAL, eligible()))));
+            age(root);
+            // The footprint below B's slot directory: its copies, their identities and times.
+            Path slotB = root.resolve("slots/" + B).resolve("record.bin");
+            Map<String, String> held = footprint(slotB);
+            Map<String, Integer> packages = Map.of(PKG_A, A, PKG_B, B, PKG_C, C);
+            Booted booted = new Booted(root, V3, packages);
+            NativePrincipalManager manager = booted.manager;
+            check(problems, !booted.pm.mSettings.pins.hasKnownCounter()
+                    && ISSUANCE_REFUSED.equals(refusal(() -> manager.prepare(manager.select(PKG_C, 0)))),
+                    "C issued beside the blocked counter");
+            NativePrincipalManager.Handle handle = booted.handle();
+            check(problems, handle != null && manager.beginRetirement(handle, byUserRetirement())
+                    && manager.confirmRetired(handle, RECEIPTS) && lifecycle(root) != null
+                    && lifecycle(root).state == NativeIdentityRecords.LifecycleState.RETIRED, "A did not retire");
+            // Every disposition kind's owner has answered: A is releasable, and a new instance begins
+            // with it RETIRED.
+            slot(root, releasable());
+            Booted next = new Booted(root, V3, packages);
+            NativePrincipalManager.Handle again = next.handle();
+            check(problems, again != null && next.manager.beginDisposition(again)
+                    && next.manager.releaseUid(again, capability(new Keys())) && omitted(root), "A did not release");
+            check(problems, footprint(slotB).equals(held), "B's bytes changed");
+            check(problems, next.pm.mSettings.isNativePrincipalAppIdLPr(B), "B's hold was lifted");
+            check(problems, ISSUANCE_REFUSED.equals(refusal(() -> next.manager.prepare(next.manager.select(PKG_C, 0))))
+                    && next.pm.mSettings.pins.find(PKG_C, 0) == null, "C issued after A's release");
+        });
         // The positive half of the probe's damaged and LIVE without a body modes.
-        run("V3 / a BODY origin whose body is damaged, or missing under a LIVE entry, retires without a write",
+        run("V3 / a BODY origin whose body is damaged, or missing under a LIVE entry, retires without a body write",
                 problems -> {
             for (String mode : List.of("damaged", "live-missing")) {
                 boolean damaged = mode.equals("damaged");
@@ -717,6 +845,7 @@ final class NativeLifecycleManagerTest {
                 Booted booted = new Booted(root, V3, true);
                 NativePrincipalManager.Handle handle = booted.handle();
                 NativeIdentityRecords.Header held = selectedHeader(root);
+                java.util.Set<String> files = headerFiles(root);
                 Path directory = root.resolve("slots/" + A);
                 if (damaged) {
                     Files.write(directory.resolve("record.bin"), new byte[] {1, 2, 3});
@@ -730,35 +859,99 @@ final class NativeLifecycleManagerTest {
                 // As the probe observes: the header is unchanged, a damaged body keeps its bytes and a
                 // missing directory stays missing.
                 check(problems, held != null && held.equals(selectedHeader(root)), mode + ": the header changed");
+                check(problems, headerFiles(root).equals(files), mode + ": header files " + headerFiles(root));
                 check(problems, damaged ? java.util.Arrays.equals(Files.readAllBytes(directory.resolve("record.bin")),
                         new byte[] {1, 2, 3}) : !Files.exists(directory), mode + ": the body was written");
             }
         });
-        // The positive half of the capacity rule's retiring binding.
-        run("V3 / a retiring account still consumes admission capacity", problems -> {
-            List<NativeIdentityRecords.HeaderEntry> held = new java.util.ArrayList<>();
-            for (int i = 0; i < 62; i++) {
-                held.add(new NativeIdentityRecords.HeaderEntry(10000 + i, NativeIdentityRecords.SlotPhase.LIVE, 0, ""));
-            }
-            Path root = store(NativeIdentityRecords.Header.newV2(LINEAGE, 62, held));
-            String third = "dev.andrix.lifecyclec";
+        // The restored marker's sub-flow of the manager suite: a restored retiring account refuses commit
+        // and release, confirms its retirement, and releases only in a boot that began with it RETIRED.
+        run("V3 / a restored retiring account refuses commit and release until it is retired in a retired boot",
+                problems -> {
+            Path root = layout(account(2, retiring(byUserRetirement())));
+            Booted booted = new Booted(root, V3, true);
+            NativePrincipalManager.Handle handle = booted.handle();
+            check(problems, handle != null && booted.manager.phase(handle) == NativePrincipalPins.Phase.RETIRING,
+                    "not restored retiring");
+            age(root);
+            Map<String, String> before = footprint(root);
+            check(problems, refusal(() -> booted.manager.commit(handle)) != null && footprint(root).equals(before),
+                    "commit of a retiring account");
+            Keys keys = new Keys();
+            unchanged(problems, root, "release of a retiring account", () ->
+                    booted.manager.releaseUid(handle, capability(keys)));
+            check(problems, keys.cleared.isEmpty(), "the refused release cleared keys");
+            check(problems, booted.manager.beginRetirement(handle, byUserRetirement())
+                    && booted.manager.confirmRetired(handle, RECEIPTS), "retirement retry or confirmation");
+            Booted next = new Booted(root, V3, true);
+            NativePrincipalManager.Handle again = next.handle();
+            check(problems, next.manager.beginDisposition(again)
+                    && next.manager.confirmDisposition(again, disposals(dispositionKinds()))
+                    && next.manager.releaseUid(again, capability(new Keys())) && omitted(root),
+                    "release in a retired boot");
+        });
+        // The damaged header's sub-flow: release refuses beside a damaged header and keeps the hold; a
+        // repair never patches the counter into this instance's live pins; a new instance releases.
+        run("V3 / release refuses beside a damaged header, and its repair never patches the counter into live pins",
+                problems -> {
+            Path root = layout(releasable());
+            byte[] saved = Files.readAllBytes(root.resolve("store.bin"));
+            Files.write(root.resolve("store.bin"), new byte[] {1});
+            Files.write(root.resolve("store.bin.reservecopy"), new byte[] {2});
             PackageManagerService pm = new PackageManagerService(root, false, V3);
             pm.mSettings.add(PKG_A, A);
             pm.mSettings.add(PKG_B, B);
-            pm.mSettings.add(third, 10202);
             pm.mSettings.restoreAfterPackageSettings();
             Os.forbiddenMonitor = pm.mLock;
             NativePrincipalManager manager = new NativePrincipalManager(pm);
+            NativePrincipalManager.Handle handle = manager.find(PKG_A, 0);
+            check(problems, handle != null && !pm.mSettings.pins.hasKnownCounter(), "the damaged header's boot");
+            if (handle != null) {
+                Keys keys = new Keys();
+                unchanged(problems, root, "release beside a damaged header", () ->
+                        manager.releaseUid(handle, capability(keys)));
+                check(problems, keys.cleared.isEmpty() && pm.mSettings.isNativePrincipalAppIdLPr(A), "the hold");
+            }
+            Files.write(root.resolve("store.bin"), saved);
+            Files.write(root.resolve("store.bin.reservecopy"), saved);
+            check(problems, !pm.mSettings.pins.hasKnownCounter()
+                    && refusal(() -> manager.prepare(manager.select(PKG_B, 0))) != null,
+                    "the repair patched the counter into live pins");
+            Booted next = new Booted(root, V3, false);
+            check(problems, next.manager.releaseUid(next.handle(), capability(new Keys())) && omitted(root),
+                    "release after the repair");
+        });
+        // The positive half of the capacity rule's retiring binding.
+        run("V3 / a retiring account still consumes admission capacity", problems -> {
+            String third = "dev.andrix.lifecyclec";
+            for (int count : List.of(62, 63)) {
+                PackageManagerService pm = admissionFixture(count, third);
+                Path root = pm.mSettings.root;
+                NativePrincipalManager manager = new NativePrincipalManager(pm);
+                NativePrincipalManager.Handle a = manager.prepare(manager.select(PKG_A, 0));
+                NativePrincipalManager.Handle b = count == 62 ? manager.prepare(manager.select(PKG_B, 0)) : null;
+                String next = count == 62 ? third : PKG_B;
+                check(problems, a != null && manager.commit(a) && (b == null || manager.commit(b))
+                        && selectedHeader(root) != null && selectedHeader(root).entries.size() == 64,
+                        count + ": the last places");
+                check(problems, refusal(() -> manager.prepare(manager.select(next, 0))) != null, count + ": a 65th");
+                check(problems, manager.beginRetirement(a, byUserRetirement())
+                        && lifecycle(root).state == NativeIdentityRecords.LifecycleState.RETIRING,
+                        count + ": retiring");
+                check(problems, refusal(() -> manager.prepare(manager.select(next, 0))) != null
+                        && selectedHeader(root).lastId == 64, count + ": the retiring account freed its place");
+            }
+            // An unpublished RETIRING pin holds its place too, and its retirement publishes it.
+            PackageManagerService pm = admissionFixture(62, third);
+            Path root = pm.mSettings.root;
+            NativePrincipalManager manager = new NativePrincipalManager(pm);
             NativePrincipalManager.Handle a = manager.prepare(manager.select(PKG_A, 0));
+            pm.mSettings.pins.beginRetire(pm.mSettings.pins.find(PKG_A, 0));
             NativePrincipalManager.Handle b = manager.prepare(manager.select(PKG_B, 0));
-            check(problems, a != null && b != null && manager.commit(a) && manager.commit(b)
-                    && selectedHeader(root) != null && selectedHeader(root).entries.size() == 64,
-                    "the last two places");
-            check(problems, refusal(() -> manager.prepare(manager.select(third, 0))) != null, "a 65th admitted");
-            check(problems, manager.beginRetirement(a, byUserRetirement())
-                    && lifecycle(root).state == NativeIdentityRecords.LifecycleState.RETIRING, "not retiring");
-            check(problems, refusal(() -> manager.prepare(manager.select(third, 0))) != null
-                    && selectedHeader(root).lastId == 64, "the retiring account freed its place");
+            check(problems, a != null && b != null && refusal(() -> manager.prepare(manager.select(third, 0))) != null,
+                    "the unpublished RETIRING pin gave up its place");
+            check(problems, manager.beginRetirement(a, byUserRetirement()) && manager.commit(b)
+                    && selectedHeader(root).lastId == 64, "the unpublished retirement or B " + selectedHeader(root));
         });
         // The positive half of pending and unpublished RETIRING pins reserving together.
         run("V3 / a pending reservation and an unpublished retiring creation reserve together", problems -> {

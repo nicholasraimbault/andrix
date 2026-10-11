@@ -292,9 +292,10 @@ public final class NativeCounterAdmissionTest {
             NativePrincipalManager manager = new NativePrincipalManager(pm);
             NativePrincipalManager.Handle q = manager.prepare(manager.select(PKG_C, 0));
             check(problems, manager.identity(q).id == 2 && manager.commit(q), "Q beside the foreign copy");
-            check(problems, manager.beginRetirement(q) && !manager.finishRetirementAfterQuiescence(q)
-                    && manager.phase(q) == Phase.RETIRING && pm.mSettings.isNativePrincipalAppIdLPr(C),
-                    "the documented residual changed");
+            // Q's retirement refuses under the version 1 format before any effect, so nothing is
+            // released and the residual stays a held ID.
+            check(problems, retirementRefused(root, manager, q) && manager.phase(q) == Phase.ACTIVE
+                    && pm.mSettings.isNativePrincipalAppIdLPr(C), "the documented residual changed");
         });
     }
 
@@ -681,12 +682,11 @@ public final class NativeCounterAdmissionTest {
             NativePrincipalManager.Handle a = manager.prepare(manager.select(PKG_A, 0));
             check(problems, manager.identity(a).equals(record(1, PKG_A, A)) && manager.commit(a)
                     && manager.phase(a) == Phase.ACTIVE, "A's rebind refused");
-            // Synthetic quiescence: the host has no native work to stop.
-            check(problems, manager.beginRetirement(a) && manager.finishRetirementAfterQuiescence(a),
-                    "A's retirement refused");
-            check(problems, header(1, live(B)).equals(stored(root))
-                    && !Files.exists(root.resolve("slots/" + A), LinkOption.NOFOLLOW_LINKS),
-                    "A's release " + stored(root));
+            // A's retirement refuses under the version 1 format before any effect: A stays published.
+            check(problems, retirementRefused(root, manager, a), "A's retirement");
+            check(problems, header(1, live(A), live(B)).equals(stored(root))
+                    && Files.exists(root.resolve("slots/" + A), LinkOption.NOFOLLOW_LINKS),
+                    "A's binding " + stored(root));
             check(problems, footprint(root.resolve("slots/" + B)).equals(held)
                     && pm.mSettings.isNativePrincipalAppIdLPr(B)
                     && loaded(root).slots.get(B).status == Status.UNSUPPORTED, "N's hold or data changed");
@@ -708,14 +708,11 @@ public final class NativeCounterAdmissionTest {
                 Files.delete(directory.resolve("record.bin.reservecopy"));
                 Files.delete(directory);
                 observe(pm);
-                age(root);
-                Map<String, String> before = footprint(root);
-                check(problems, !manager.beginRetirement(a) && manager.phase(a) == Phase.RETIRING,
-                        format + " lost BODY was republished");
-                check(problems, footprint(root).equals(before) && !Files.exists(directory)
-                        && held.equals(storedOf(root, format)), format + " a store write occurred");
-                check(problems, "Retirement marker is not durably confirmed".equals(refusal(
-                        () -> manager.finishRetirementAfterQuiescence(a))), format + " removal authorized");
+                // The counter stays blocked, and the retirement refuses under this format before any
+                // effect: nothing is republished.
+                check(problems, !pm.mSettings.pins.hasKnownCounter(), format + " the blocked counter was restored");
+                check(problems, retirementRefused(root, manager, a) && !Files.exists(directory)
+                        && held.equals(storedOf(root, format)), format + " lost BODY was republished");
             }
         });
         run("manager / a live registry refuses after observing a higher copy", problems -> {
