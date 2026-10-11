@@ -1,0 +1,208 @@
+{
+ "cases": {
+  "BridgeTest": 13,
+  "ProtocolTest": 6,
+  "test_capture_ledger": 10,
+  "test_lab_bridge": 20,
+  "test_lab_broker": 58,
+  "test_lab_crossings": 11,
+  "test_lab_protocol": 8,
+  "test_shell_transport": 23
+ },
+ "mutants_caught_at_least": {
+  "activation-window-not-sent": [
+   "test_lab_bridge.BridgeEndToEnd.test_a_ticket_closes_applied_from_observation_alone"
+  ],
+  "buffered-stream-accepted": [
+   "test_lab_broker.StreamAndReapTests.test_a_buffered_generation_stream_is_refused_before_any_read"
+  ],
+  "cell-acts-again": [
+   "test_lab_broker.FaultTests.test_a_point_cell_halts_once",
+   "test_lab_broker.FaultTests.test_a_dropped_reply_runs_once_and_is_escrowed_never_given"
+  ],
+  "clock-read-before-the-confirmation": [
+   "test_lab_broker.GateTests.test_a_grant_that_expires_during_the_confirmation_launches_nothing",
+   "test_lab_bridge.BridgeEndToEnd.test_a_grant_that_expires_during_the_confirmation_never_commits"
+  ],
+  "cross-halt-ignored": [
+   "BridgeTest.cross / replies bind, lose or halt, and a session crossing names its whole reference",
+   "test_lab_bridge.BridgeEndToEnd.test_a_loss_before_create_ends_in_no_session",
+   "test_lab_bridge.BridgeEndToEnd.test_a_loss_after_commit_resumes_by_observation"
+  ],
+  "cross-stop-read-as-lost": [
+   "BridgeTest.cross / replies bind, lose or halt, and a session crossing names its whole reference"
+  ],
+  "deadline-from-the-gate-end": [
+   "test_lab_broker.GateTests.test_a_launch_is_refused_once_its_grant_may_have_expired_in_transit"
+  ],
+  "device-route-taken": [
+   "BridgeTest.device / frames are decoded strictly and checked against the round"
+  ],
+  "drain-forgets-quarantined-captures": [
+   "test_lab_broker.ReopenTests.test_a_drain_survives_a_crash_after_its_quarantine"
+  ],
+  "drain-skipped": [
+   "test_lab_broker.ReopenTests.test_an_interrupted_capture_is_quarantined_drained_and_never_repeated"
+  ],
+  "dropped-reply-delivered": [
+   "test_lab_broker.FaultTests.test_a_dropped_reply_runs_once_and_is_escrowed_never_given"
+  ],
+  "earlier-framework-fact-taken": [
+   "BridgeTest.device / frames are decoded strictly and checked against the round"
+  ],
+  "eof-read-as-exit": [
+   "test_shell_transport.DecoderTests.test_an_end_before_exit_leaves_the_status_unknown",
+   "test_shell_transport.ShellTests.test_an_adb_error_message_with_a_closed_stream_is_not_exit_1"
+  ],
+  "exit-length-unchecked": [
+   "test_shell_transport.DecoderTests.test_a_second_or_malformed_exit_is_malformed"
+  ],
+  "fact-boot-unchecked": [
+   "BridgeTest.device / frames are decoded strictly and checked against the round"
+  ],
+  "fence-only-before-the-feature-query": [
+   "test_lab_broker.FenceDuringFeaturesTests.test_a_fence_that_trips_during_the_feature_query_stops_the_next_command"
+  ],
+  "fence-skipped": [
+   "test_lab_broker.FenceTests.test_the_stop_fence_comes_before_every_read_and_latches",
+   "test_lab_broker.FenceTests.test_the_lease_and_the_deadline_are_fences"
+  ],
+  "grant-expiry-unchecked": [
+   "test_lab_broker.GateTests.test_an_activation_grant_is_judged_again_at_launch",
+   "test_lab_broker.GateTests.test_the_launch_deadline_follows_the_reconcilers_rule",
+   "test_lab_broker.GateTests.test_a_grant_that_expires_during_the_confirmation_launches_nothing"
+  ],
+  "hello-without-config": [
+   "BridgeTest.hello / binds the configuration, and a stopped broker ends the generation"
+  ],
+  "host-begin-skipped": [
+   "BridgeTest.host / BEGIN before the effect, END after, and the broker's cells decide",
+   "test_lab_bridge.BridgeEndToEnd.test_a_ticket_closes_applied_from_observation_alone",
+   "test_lab_bridge.BridgeEndToEnd.test_host_losses_resolve_by_reading_never_by_signing_again"
+  ],
+  "host-query-unfenced": [
+   "BridgeTest.host / BEGIN before the effect, END after, and the broker's cells decide"
+  ],
+  "host-withheld-delivered": [
+   "BridgeTest.host / BEGIN before the effect, END after, and the broker's cells decide"
+  ],
+  "intent-after-launch": [
+   "test_lab_broker.IntentTests.test_every_command_finds_its_intent_in_the_ledger_first"
+  ],
+  "interrupted-read-as-not-launched": [
+   "test_lab_broker.ReopenTests.test_an_interrupted_capture_is_quarantined_drained_and_never_repeated"
+  ],
+  "java-session-by-id-alone": [
+   "ProtocolTest.protocol / cross relations"
+  ],
+  "launch-deadline-not-given-to-the-transport": [
+   "test_lab_broker.GateTests.test_a_launch_is_refused_once_its_grant_may_have_expired_in_transit"
+  ],
+  "launch-deadline-unchecked": [
+   "test_lab_broker.GateTests.test_a_launch_is_refused_once_its_grant_may_have_expired_in_transit"
+  ],
+  "ledger-gap-accepted": [
+   "test_capture_ledger.LedgerTests.test_damage_refuses_reopening"
+  ],
+  "ledger-incomplete-middle-accepted": [
+   "test_capture_ledger.LedgerTests.test_an_incomplete_entry_before_other_entries_is_damage"
+  ],
+  "ledger-overwrites": [
+   "test_capture_ledger.LedgerTests.test_the_intent_is_synced_before_the_command_and_the_result_last"
+  ],
+  "loss-before-launches": [
+   "test_lab_broker.FaultTests.test_a_loss_before_the_effect_launches_nothing_and_is_consumed_before_the_halt"
+  ],
+  "lost-generation-left-running": [
+   "test_lab_broker.ReopenTests.test_a_lost_generation_process_is_ended_before_another_is_served"
+  ],
+  "lost-read-as-quiet-1": [
+   "test_lab_broker.GroupTests.test_a_lost_read_never_reads_as_no_framework"
+  ],
+  "partial-payload-dropped": [
+   "test_shell_transport.DecoderTests.test_received_partial_payload_is_kept_without_completion",
+   "test_shell_transport.ShellTests.test_a_timeout_inside_a_packet_keeps_its_received_payload"
+  ],
+  "point-halt-ignored": [
+   "BridgeTest.points / BETWEEN_WRITES asks the broker once and halts on its order",
+   "test_lab_bridge.BridgeEndToEnd.test_a_loss_between_the_selection_and_ticket_writes_moves_the_choice_once"
+  ],
+  "preflight-instance-ignored": [
+   "test_lab_broker.CrossingTests.test_preflight_refuses_a_changed_boot_or_framework"
+  ],
+  "protocol-session-by-id-alone": [
+   "test_lab_protocol.ProtocolTests.test_cross_relations"
+  ],
+  "protocol-trailing-accepted": [
+   "test_lab_protocol.ProtocolTests.test_the_frame_is_checked_first"
+  ],
+  "reap-unbounded": [
+   "test_lab_broker.StreamAndReapTests.test_a_generation_whose_kill_does_not_take_stays_open"
+  ],
+  "reboot-deadline-not-given-to-the-transport": [
+   "test_lab_broker.GateTests.test_a_launch_is_refused_once_its_grant_may_have_expired_in_transit"
+  ],
+  "reference-by-id-alone": [
+   "test_lab_broker.CrossingTests.test_session_crossings_confirm_the_exact_reference_first"
+  ],
+  "replay-allowed": [
+   "test_lab_broker.CrossingTests.test_an_entry_is_crossed_once",
+   "test_lab_broker.FaultTests.test_a_loss_between_the_write_members_never_writes_the_second",
+   "test_lab_broker.ReopenTests.test_an_interrupted_capture_is_quarantined_drained_and_never_repeated"
+  ],
+  "reply-index-unchecked": [
+   "BridgeTest.cross / a reply to another crossing is refused"
+  ],
+  "reply-transfer-unbounded": [
+   "test_lab_broker.TransferTests.test_a_reply_that_cannot_be_delivered_cannot_outlast_its_bound"
+  ],
+  "request-transfer-unbounded": [
+   "test_lab_broker.TransferTests.test_a_partial_request_cannot_outlast_its_bound"
+  ],
+  "second-exit-accepted": [
+   "test_shell_transport.DecoderTests.test_a_second_or_malformed_exit_is_malformed",
+   "test_shell_transport.ShellTests.test_malformed_and_overflowing_streams"
+  ],
+  "second-member-after-halt": [
+   "test_lab_broker.FaultTests.test_a_loss_between_the_write_members_never_writes_the_second"
+  ],
+  "service-send-failure-read-as-not-launched": [
+   "test_shell_transport.ShellTests.test_a_service_send_failure_is_an_unknown_launch"
+  ],
+  "shell2-not-required": [
+   "test_lab_broker.FeatureTests.test_a_device_without_shell_protocol_v2_stops_everything"
+  ],
+  "sources-not-reverified": [
+   "test_lab_broker.GateTests.test_changed_sources_stop_before_any_crossing"
+  ],
+  "stop-not-latched": [
+   "test_lab_broker.FenceTests.test_the_stop_fence_comes_before_every_read_and_latches",
+   "test_lab_broker.FenceTests.test_the_lease_and_the_deadline_are_fences"
+  ],
+  "stored-ticket-unchecked": [
+   "BridgeTest.cross / only the stored ticket's last entry is sent, with its exact fields"
+  ],
+  "stream-unbounded": [
+   "test_shell_transport.DecoderTests.test_streams_above_their_bounds_overflow_without_waiting_for_the_payload",
+   "test_shell_transport.ShellTests.test_malformed_and_overflowing_streams"
+  ],
+  "target-read-once": [
+   "test_lab_broker.GateTests.test_the_native_target_scope_is_read_again_at_every_crossing"
+  ],
+  "target-unknown-rounds": [
+   "BridgeTest.bridge / each generation reads the store, and another store or target is refused"
+  ],
+  "transport-failure-read-as-exit-1": [
+   "test_shell_transport.ShellTests.test_a_transport_failure_is_never_a_remote_status",
+   "test_shell_transport.ShellTests.test_a_refused_service_unknown_status_and_no_connection"
+  ],
+  "transport-sends-past-the-launch-deadline": [
+   "test_shell_transport.ShellTests.test_a_launch_deadline_that_passes_during_setup_sends_nothing"
+  ],
+  "write-not-revalidated": [
+   "test_lab_broker.GateTests.test_write_is_revalidated_after_staging_and_before_each_member",
+   "test_lab_broker.GateTests.test_a_change_between_the_members_never_writes_the_second"
+  ]
+ },
+ "status": "PREDICTED before each run; the runner compares every count and defect"
+}
