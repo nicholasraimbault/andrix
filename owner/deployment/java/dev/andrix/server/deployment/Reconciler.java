@@ -619,7 +619,8 @@ public final class Reconciler {
             b.reference(merge(t.reference, reply.reference));
             return to(c, b.clear(FLAG_UNRESOLVED), State.SESSION_BOUND, "create reply with its reference");
         }
-        // The device route finds the session by nonce.
+        // A route that reads the referrer finds the session by its nonce: the device route, and the
+        // shell route where the session dump prints it. A missing nonce proves nothing here.
         for (Observation s : c.view.of(ObservationKind.SESSION)) {
             if (s.reference.has(Reference.NONCE) && s.reference.nonce.equals(t.reference.nonce)
                     && complete(s.reference)) {

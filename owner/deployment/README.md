@@ -539,7 +539,11 @@ On the device the same discipline needs these differences:
 - The rename relies on the single coordinator's serialization, because a plain rename replaces an
   existing target. On f2fs the rename's durability is an open question of the plan.
 - The device coordinator reads its sessions as their installer UID, so its references carry the
-  nonce. The host's shell route reads no referrer until D3 qualifies one.
+  nonce. The shell route reads the referrer from the active session dump, which D3 observed
+  printing it on its lab image, so a listed session is found by its nonce there too. Only the
+  device route's own listing may count a missing nonce as absence. On the shell route an unknown
+  create stays unresolved until a complete listing in a later framework instance shows no staged
+  session for the package.
 - A process crash is not power loss. The host fault points simulate crashes between the write
   protocol's steps only.
 
@@ -565,8 +569,10 @@ source other than the store names `unsynced`.
   the new factory copy's, or which lacks verity or the factory signer.
 - The shell route reads the listing joined with dumpsys by session ID, with createdMillis, the stage
   directory and the installer UID, and dumpsys's history of sessions removed in the same framework
-  instance. It never reads the referrer. The device route reads `getStagedSessions` as the
-  installer, with the referrer and without the stage directory, and sees no destroyed session.
+  instance. This model never reads the referrer, the conservative case: a shell session is bound
+  by the create reply or proved absent by a later listing. The device route reads
+  `getStagedSessions` as the installer, with the referrer and without the stage directory, and sees
+  no destroyed session.
 - Faults are injected by crossing: a lost reply, a refusal, a crash of the coordinator before or
   after the effect, a framework restart or an unclean stop after it, an unrecognized reply, and no
   effect at all. Every crossing first checks that the store holds its entry.
@@ -1056,9 +1062,10 @@ a status change. These items stay open:
 
 ## Questions for later steps
 
-- Whether `SessionParams.dump` prints the referrer is D3's question. Until then a lost create reply
-  stays UNRESOLVED on the shell route unless a later framework instance lists no staged session for
-  the package.
+- D3 observed the active session dump printing the referrer on its lab image, and the shell
+  observer reads its nonce, so a listed session binds by it. That form is qualified on that image
+  only. A missing nonce never proves absence on the shell route: a lost create reply stays
+  UNRESOLVED there unless a later framework instance lists no staged session for the package.
 - A ticket that held with an alert waits for the owner. No product route for that exists yet.
 - Automatic restoration under decision 3 supersedes the window to the restoration plan that the
   approval listed. Opening that plan's ticket, and holding image updates for a rebuild window under
