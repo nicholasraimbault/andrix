@@ -76,6 +76,93 @@ class SettingsFaultTests(unittest.TestCase):
         self.assertTrue(report['removed_keysets_still_referenced'])
         self.assertEqual(ET.fromstring(output).find('package/proper-signing-keyset').get('identifier'), '17')
 
+    def keyset_source(self, subject_refs, peer_refs, keysets, keys=('4', '5'), counters=('9', '21')):
+        """Settings with keyset references on A (the subject) and B (the peer), the given keysets
+        (ID -> key IDs), the public keys and the issue counters."""
+        refs = lambda items: ''.join('<%s identifier="%s"/>' % item for item in items)
+        sets = ''.join('<keyset identifier="%s">%s</keyset>' % (k, ''.join('<key-id identifier="%s"/>' % m for m in members))
+                       for k, members in keysets.items())
+        return (f'<packages version="fixture"><package name="{A}" userId="10123">{refs(subject_refs)}'
+                '<sigs count="1"><cert index="0" key="aabb"/></sigs></package>'
+                f'<package name="{B}" userId="10124">{refs(peer_refs)}<sigs count="1"><cert index="0"/></sigs></package>'
+                '<keyset-settings version="1"><keys>'
+                + ''.join('<public-key identifier="%s" value="k%s"/>' % (k, k) for k in keys)
+                + f'</keys><keysets>{sets}</keysets><lastIssuedKeyId value="{counters[0]}"/>'
+                f'<lastIssuedKeySetId value="{counters[1]}"/></keyset-settings></packages>').encode()
+
+    def keyset_state(self, output):
+        settings = ET.fromstring(output).find('keyset-settings')
+        return ({k.get('identifier'): [m.get('identifier') for m in k.findall('key-id')] for k in settings.findall('keysets/keyset')},
+                sorted(k.get('identifier') for k in settings.findall('keys/public-key')),
+                (settings.find('lastIssuedKeyId').get('value'), settings.find('lastIssuedKeySetId').get('value')))
+
+    def test_an_unreferenced_keyset_and_its_own_key_go_as_android_removes_them(self):
+        source = self.keyset_source([('proper-signing-keyset', '17')], [('proper-signing-keyset', '18')],
+                                    {'17': ['4'], '18': ['5']})
+        with self.assertRaisesRegex(ValueError, 'orphan'):
+            fault.remove_package(source, A, 10123)
+        output, report = fault.remove_package(source, A, 10123, orphaned_keysets='remove-as-android')
+        self.assertEqual(self.keyset_state(output), ({'18': ['5']}, ['5'], ('9', '21')))
+        self.assertEqual((report['removed_unreferenced_keysets'], report['removed_unreferenced_public_keys']), (['17'], ['4']))
+        self.assertFalse(report['removed_keysets_still_referenced'])
+        self.assertFalse(any(p.get('name') == A for p in ET.fromstring(output).findall('package')))
+
+    def test_a_key_another_keyset_holds_stays(self):
+        source = self.keyset_source([('proper-signing-keyset', '17')], [('proper-signing-keyset', '18')],
+                                    {'17': ['4'], '18': ['4', '5']})
+        output, report = fault.remove_package(source, A, 10123, orphaned_keysets='remove-as-android')
+        self.assertEqual(self.keyset_state(output), ({'18': ['4', '5']}, ['4', '5'], ('9', '21')))
+        self.assertEqual((report['removed_unreferenced_keysets'], report['removed_unreferenced_public_keys']), (['17'], []))
+
+    def test_a_keyset_the_peer_counts_stays_in_either_mode(self):
+        source = self.keyset_source([('proper-signing-keyset', '17')], [('proper-signing-keyset', '17')], {'17': ['4']},
+                                    keys=('4',))
+        default, _ = fault.remove_package(source, A, 10123)
+        removing, report = fault.remove_package(source, A, 10123, orphaned_keysets='remove-as-android')
+        self.assertEqual(default, removing)
+        self.assertEqual(self.keyset_state(removing), ({'17': ['4']}, ['4'], ('9', '21')))
+        self.assertEqual(report['removed_unreferenced_keysets'], [])
+
+    def test_a_defined_keyset_alias_goes_with_the_signing_keyset(self):
+        source = self.keyset_source([('proper-signing-keyset', '17'), ('defined-keyset', '19'), ('upgrade-keyset', '19')],
+                                    [('proper-signing-keyset', '18')], {'17': ['4'], '18': ['5'], '19': ['4']})
+        output, report = fault.remove_package(source, A, 10123, orphaned_keysets='remove-as-android')
+        self.assertEqual(self.keyset_state(output), ({'18': ['5']}, ['5'], ('9', '21')))
+        self.assertEqual((report['removed_unreferenced_keysets'], report['removed_unreferenced_public_keys']), (['17', '19'], ['4']))
+
+    def test_unsafe_keyset_states_are_refused_in_removal_mode(self):
+        cases = {
+            'a keyset no package references already':
+                self.keyset_source([('proper-signing-keyset', '17')], [('proper-signing-keyset', '18')],
+                                   {'17': ['4'], '18': ['5'], '20': ['5']}),
+            'an upgrade keyset of the peer that would go':
+                self.keyset_source([('proper-signing-keyset', '17')], [('proper-signing-keyset', '18'), ('upgrade-keyset', '17')],
+                                   {'17': ['4'], '18': ['5']}),
+            'a removed keyset without its definition':
+                self.keyset_source([('proper-signing-keyset', '17')], [('proper-signing-keyset', '18')], {'18': ['5']}),
+        }
+        for label, source in cases.items():
+            with self.subTest(label), self.assertRaises(ValueError):
+                fault.remove_package(source, A, 10123, orphaned_keysets='remove-as-android')
+        with self.assertRaisesRegex(ValueError, 'refused or removed'):
+            fault.remove_package(cases['a keyset no package references already'], A, 10123, orphaned_keysets='drop')
+
+    def test_a_peer_naming_the_keyset_only_as_an_upgrade_is_refused_in_either_mode(self):
+        # Package Manager does not count upgrade references, so the keyset would go and the peer's
+        # upgrade reference would dangle; the earlier count, which included upgrades, accepted this.
+        source = self.keyset_source([('proper-signing-keyset', '17')], [('proper-signing-keyset', '18'), ('upgrade-keyset', '17')],
+                                    {'17': ['4'], '18': ['5']})
+        for mode in ('refuse', 'remove-as-android'):
+            with self.subTest(mode), self.assertRaisesRegex(ValueError, 'upgrade keyset that would go'):
+                fault.remove_package(source, A, 10123, orphaned_keysets=mode)
+
+    def test_keyset_removal_is_deterministic(self):
+        source = self.keyset_source([('proper-signing-keyset', '17')], [('proper-signing-keyset', '18')],
+                                    {'17': ['4'], '18': ['5']})
+        first, _ = fault.remove_package(source, A, 10123, orphaned_keysets='remove-as-android')
+        second, _ = fault.remove_package(source, A, 10123, orphaned_keysets='remove-as-android')
+        self.assertEqual(first, second)
+
     def test_equivalent_xml_control_preserves_all_semantics(self):
         before = self.source()
         rewritten = fault.rewrite_equivalent(before)
