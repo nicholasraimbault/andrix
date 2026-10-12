@@ -29,7 +29,8 @@ Detailed operating records, local configuration, credentials and raw captures re
 ## Current implementation
 
 The owner endorsed the consolidated direction and resumed bounded implementation. The
-[deliberate decision audit](2026-09-25-deliberate-decision-audit.md) covers the accepted architecture
+[deliberate decision audit](2026-09-25-deliberate-decision-audit.md) covers the accepted
+architecture
 and all 18 evidence areas through 58 grouped decisions, with selected source checks and one bounded
 host reproduction. It is not whole platform or phone clearance.
 
@@ -161,8 +162,18 @@ controls of the guest layouts are qualified on the host, from the generator's ow
 that reads the new records only as protective evidence is now built and inspected. Its code and
 partitions differ from the previous image only as predicted, apart from one inert class the shrinker
 generated, once a missed build rule was modelled: the shrinker keeps `values` and `valueOf` of every
-enum it keeps. An independent assessment found no blocking issue. No guest has booted it yet.
-Disposable emulator guests that stage each lifecycle layout come next.
+enum it keeps. An independent assessment found no blocking issue. The image then ran in five
+disposable emulator guests, each from a fresh baseline, staging the lifecycle layouts and reading
+them cold, with each prediction written before its run and each phase judged only from its raw
+evidence. Admitted, deferred and parked packages behaved as designed. A deferred package kept its
+setting, code and data, each boot logged exactly one ownership refusal for it, and its update,
+clear and uninstall were refused. ART treats a deferred package as not installed and removed its
+compiled code; the APK and data stay, and that cache regenerates. Two checks of the evidence itself
+were corrected and independently reviewed during the runs: a fresh guest's first phase now inherits
+the first boot's settings warnings, and an ambiguous record of the host stop is read from its raw
+capture. The settings loss trial did not run. Its fixture correctly refuses to remove the test
+package's setting, because that package alone holds its signing key set, which removing the setting
+alone would orphan. Settings loss, and allocation after it, remain to be observed.
 
 The [installer durability assessment](2026-09-27-package-installer-durability.md) retains an
 unclean stop failure and a separate Android file comparison. The checked writing descriptor sync
@@ -174,7 +185,8 @@ normal Android Allow, Back and denial controls, independent command use after th
 closed, and peer attribution refusals. A Settings revoke withdrew the live grant and triggered a
 cached app kill, but the grant returned after a cold boot without another controller grant input.
 A separately sampled withdrawal stayed denied through a later cold boot. The original failure's
-cause remains open, so general revocation durability is not qualified. No production broker, permission defaults or native execution are selected by these trials.
+cause remains open, so general revocation durability is not qualified. No production broker,
+permission defaults or native execution are selected by these trials.
 
 ## Current milestone
 
@@ -189,7 +201,8 @@ for review, not newly accepted architecture or runtime qualification.
 
 They refine the [composition assessment](2026-09-23-composition-architecture-assessment.md),
 which separates owner intent, resolved inputs, exact artifacts, compatibility, authorization
-and observed deployment. The [source mechanism comparison](2026-09-24-integration-mechanism-assessment.md)
+and observed deployment. The [source mechanism
+comparison](2026-09-24-integration-mechanism-assessment.md)
 now distinguishes principal representation, API binding and execution lifetime, and maps
 separate package, privilege, image and APEX trust checks. It proposes a recognized ordinary
 principal reference case, followed by location and mobile policy tests. These are source
@@ -248,7 +261,8 @@ required before activation. No product selects the new entry yet.
 
 The [Package Manager native reservation component](../owner/platform/principal-pins.md) now
 adds persistent identity pins, allocator fencing, exact handles and durable retirement markers
-initially inside Android's own settings. Normal uninstall, replacement and clear data paths are fenced
+initially inside Android's own settings. Normal uninstall, replacement and clear data paths are
+fenced
 against live reservations. JVM/component checks passed and the actual Android `services.core`
 module compiled. This is not a device runtime pass, an owner designation interface or a manager
 factory. Complete settings loss/corruption, older readers and the native boot/recovery barrier
@@ -262,7 +276,8 @@ so the affected native account can stay unavailable without stopping the phone. 
 [storage component](2026-09-25-native-identity-store.md) is now module compiled. Its
 [PMS consumer](2026-09-26-native-store-pms-consumer.md) is implemented and its
 [bounded reader/quarantine path](2026-09-26-native-identity-boot-recovery.md) has disposable Android
-observations. This is not production designation, writer crash recovery or complete native account qualification. Unsupported OS data reuse is outside the supported migration path;
+observations. This is not production designation, writer crash recovery or complete native account
+qualification. Unsupported OS data reuse is outside the supported migration path;
 total destruction of every authority copy is a disaster case, not a reason to block ordinary
 integration. No fixed UID range, permanent nonreuse policy or catastrophic recovery default was
 silently selected.
@@ -313,7 +328,10 @@ host rebuilds its jar byte for byte. The test image is chosen: the normal image 
 whose factory SystemUI equals the `985c9a4` baseline byte for byte, so the frozen variants need no
 rebuild. The owner decided seven of the plan's eight decisions, settled five details of them, and
 allowed the emulator trials to use the emulator while the native account work does not need it.
-The rollback
+The lab driver's core is integrated: it sets up the deployment store from the guest's own baseline
+and runs the coordinator's generations through the bridge with the real host signer. A plan binds
+only facts that the driver's last generation read whole, and the broker's admission binds the host
+configuration as well as the bridge's. Its fault matrix and guest vehicle come next. The rollback
 target waits for qualified candidate floor images, before the device coordinator.
 
 ## Product checkpoint
