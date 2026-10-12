@@ -158,7 +158,11 @@ written eligible, never already retiring. The privileged diagnostic now names ev
 package under a new schema, which the observers require for the image's guests, and carries a
 dormant schema for the lifecycle format so a later stage stays one operand away. Two healthy
 controls of the guest layouts are qualified on the host, from the generator's own bytes. The image
-that reads the new records only as protective evidence comes next.
+that reads the new records only as protective evidence is now built and inspected. Its code and
+partitions differ from the previous image only as predicted, apart from one inert class the shrinker
+generated, once a missed build rule was modelled: the shrinker keeps `values` and `valueOf` of every
+enum it keeps. An independent assessment found no blocking issue. No guest has booted it yet.
+Disposable emulator guests that stage each lifecycle layout come next.
 
 The [installer durability assessment](2026-09-27-package-installer-durability.md) retains an
 unclean stop failure and a separate Android file comparison. The checked writing descriptor sync
