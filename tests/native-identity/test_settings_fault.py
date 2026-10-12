@@ -79,7 +79,8 @@ class SettingsFaultTests(unittest.TestCase):
     def keyset_source(self, subject_refs, peer_refs, keysets, keys=('4', '5'), counters=('9', '21')):
         """Settings with keyset references on A (the subject) and B (the peer), the given keysets
         (ID -> key IDs), the public keys and the issue counters."""
-        refs = lambda items: ''.join('<%s identifier="%s"/>' % item for item in items)
+        refs = lambda items: ''.join(('<%s alias="alias%s" identifier="%s"/>' % (tag, key, key)) if tag == 'defined-keyset'
+                                     else '<%s identifier="%s"/>' % (tag, key) for tag, key in items)
         sets = ''.join('<keyset identifier="%s">%s</keyset>' % (k, ''.join('<key-id identifier="%s"/>' % m for m in members))
                        for k, members in keysets.items())
         return (f'<packages version="fixture"><package name="{A}" userId="10123">{refs(subject_refs)}'
@@ -156,6 +157,32 @@ class SettingsFaultTests(unittest.TestCase):
             with self.subTest(mode), self.assertRaisesRegex(ValueError, 'upgrade keyset that would go'):
                 fault.remove_package(source, A, 10123, orphaned_keysets=mode)
 
+    def test_an_unreferenced_keyset_already_in_the_capture_is_refused_in_either_mode(self):
+        # The target's keyset stays shared, so the removal orphans nothing, but keyset 20 has no
+        # package reference already: Package Manager would report and remove it on its next read.
+        source = self.keyset_source([('proper-signing-keyset', '17')], [('proper-signing-keyset', '17')],
+                                    {'17': ['4'], '20': ['5']})
+        for mode in ('refuse', 'remove-as-android'):
+            with self.subTest(mode), self.assertRaisesRegex(ValueError, 'already holds a keyset no package references'):
+                fault.remove_package(source, A, 10123, orphaned_keysets=mode)
+
+    def test_keyset_references_outside_package_rows_are_refused(self):
+        base = self.keyset_source([('proper-signing-keyset', '17')], [('proper-signing-keyset', '18')],
+                                  {'17': ['4'], '18': ['5']})
+        for container in ('shared-user', 'updated-package', 'unknown-element'):
+            source = base.replace(b'<keyset-settings', ('<%s name="x"><proper-signing-keyset identifier="18"/></%s><keyset-settings'
+                                                        % (container, container)).encode(), 1)
+            for mode in ('refuse', 'remove-as-android'):
+                with self.subTest(container=container, mode=mode), self.assertRaisesRegex(ValueError, 'outside a package row'):
+                    fault.remove_package(source, A, 10123, orphaned_keysets=mode)
+
+    def test_a_row_removed_with_its_own_keysets_is_not_restored(self):
+        source = self.keyset_source([('proper-signing-keyset', '17')], [('proper-signing-keyset', '18')],
+                                    {'17': ['4'], '18': ['5']})
+        current, _ = fault.remove_package(source, A, 10123, orphaned_keysets='remove-as-android')
+        with self.assertRaisesRegex(ValueError, 'original signing keyset is missing or changed'):
+            fault.restore_package(current, source, A, 10123)
+
     def test_keyset_removal_is_deterministic(self):
         source = self.keyset_source([('proper-signing-keyset', '17')], [('proper-signing-keyset', '18')],
                                     {'17': ['4'], '18': ['5']})
@@ -201,8 +228,12 @@ class SettingsFaultTests(unittest.TestCase):
         with self.assertRaises(ValueError): fault.restore_package(current, original, A, 10128)
 
     def test_inverse_requires_original_keyset_contents(self):
-        source = self.source().replace(b'<sigs count="1">',
-                b'<proper-signing-keyset identifier="17"/><sigs count="1">')
+        # The keyset reference goes on the three package rows only: Package Manager's writer puts
+        # none on a shared user record, and remove_package refuses one there.
+        source = self.source()
+        for uid in (10123, 10124, 10125):
+            source = source.replace(b'userId="%d"><sigs count="1">' % uid,
+                                    b'userId="%d"><proper-signing-keyset identifier="17"/><sigs count="1">' % uid)
         source = source.replace(b'</keys></keyset-settings>',
                 b'</keys><keysets><keyset identifier="17"><key-id identifier="4"/></keyset></keysets></keyset-settings>')
         current, _ = fault.remove_package(source, A, 10123)

@@ -183,17 +183,36 @@ def restore_package(current_data, original_data, package, app_id):
 COUNTED_KEYSET_TAGS = ('proper-signing-keyset', 'defined-keyset')
 
 
+KEYSET_REFERENCE_TAGS = ('proper-signing-keyset', 'defined-keyset', 'upgrade-keyset')
+
+
 def _counted_keyset_references(root, skip=None):
-    """keyset ID -> the references Package Manager counts, from every element but keyset-settings
-    and `skip`."""
+    """keyset ID -> the references Package Manager counts: the proper signing and defined keysets of
+    each top level package row (Settings.readPackageLPw), but `skip`."""
     counts = {}
     for child in root:
-        if child is skip or child.tag == 'keyset-settings':
+        if child is skip or child.tag != 'package':
             continue
         for node in child.iter():
             if node.tag in COUNTED_KEYSET_TAGS:
                 counts[node.get('identifier')] = counts.get(node.get('identifier'), 0) + 1
     return counts
+
+
+def _check_keyset_shape(root):
+    """Refuses settings that Package Manager's writer does not produce for keysets: a keyset reference
+    anywhere but in a top level package row, or a defined keyset that no package row counts (which
+    Package Manager reports as a terrible failure and removes when it reads its settings)."""
+    for child in root:
+        if child.tag in ('package', 'keyset-settings'):
+            continue
+        if any(node.tag in KEYSET_REFERENCE_TAGS for node in child.iter()):
+            raise ValueError('a keyset reference outside a package row')
+    settings = root.find('keyset-settings')
+    defined = {k.get('identifier') for k in settings.findall('keysets/keyset')} if settings is not None else set()
+    counts = _counted_keyset_references(root)
+    if any(counts.get(k, 0) == 0 for k in defined):
+        raise ValueError('the capture already holds a keyset no package references')
 
 
 def _remove_unreferenced_keysets(root, candidates):
@@ -224,10 +243,13 @@ def _remove_unreferenced_keysets(root, candidates):
 
 
 def remove_package(data, package, app_id, orphaned_keysets='refuse'):
-    """The settings without one captured fixture package's row and app ID. A row whose signing or
-    defined keyset no other package references is refused by default; with orphaned_keysets set to
+    """The settings without one captured fixture package's row and app ID. Only the keyset shapes
+    Package Manager's writer leaves are admitted, in either mode: every keyset reference in a top
+    level package row, and every defined keyset counted by one. A row whose signing or defined
+    keyset no other package row counts is refused by default; with orphaned_keysets set to
     'remove-as-android', such keysets and the public keys only they hold are removed with the row,
-    exactly as Package Manager's own removal of a package does, and nothing else changes."""
+    as Package Manager's own removal of a package does, and nothing else changes. A row removed
+    with its own keysets cannot be put back by restore_package, which needs them."""
     if orphaned_keysets not in ('refuse', 'remove-as-android'):
         raise ValueError('orphaned keysets are refused or removed as Android removes them')
     if (type(data) is not bytes or not 0 < len(data) <= MAX_BYTES
@@ -241,6 +263,8 @@ def remove_package(data, package, app_id, orphaned_keysets='refuse'):
     targets = [child for child in root if child.tag == 'package' and child.get('name') == package]
     if len(targets) != 1 or targets[0].get('userId') != str(app_id) or targets[0].get('sharedUserId') is not None:
         raise ValueError('exact fixture package/app ID not found')
+    # In either mode: the keysets as Package Manager's writer leaves them, before anything is removed.
+    _check_keyset_shape(root)
     reference_tags = {'proper-signing-keyset', 'defined-keyset', 'upgrade-keyset'}
     removed_keysets = {node.get('identifier') for node in targets[0].iter() if node.tag in reference_tags}
     remaining_keysets = {node.get('identifier') for child in root if child is not targets[0]
@@ -264,11 +288,6 @@ def remove_package(data, package, app_id, orphaned_keysets='refuse'):
         raise ValueError('removal would orphan signing keysets; use a narrower fixture')
     if orphans:
         _keysets(root)
-        settings = root.find('keyset-settings')
-        defined = {k.get('identifier') for k in settings.findall('keysets/keyset')} if settings is not None else set()
-        before = _counted_keyset_references(root)
-        if any(before.get(k, 0) == 0 for k in defined):
-            raise ValueError('the capture already holds a keyset no package references')
     certificates = {id(cert): key for cert, key in decode_certificates(root)}
     root.remove(targets[0])
     gone_keysets, gone_keys = _remove_unreferenced_keysets(root, candidates) if orphans else ([], [])
