@@ -10,10 +10,14 @@ the accepted coordinator against one disposable guest through the shell route. I
 - **The bridge**, in Java. It runs inside one coordinator process and implements the coordinator's
   `Device` through the broker. Ticket decisions stay in the accepted `Reconciler`.
 
-Everything here is host code with host tests. It runs no emulator, starts no guest, installs nothing
-and signs nothing. A passing suite qualifies the protocol, the ledger and the broker's rules on the
-host. It does not qualify any Android form, delivery route, health criterion or activation. The lab
-driver, the notice and health fixtures, the admission and the closure are later packages.
+Everything here is host code with host tests. It runs no emulator, starts no guest and installs
+nothing. Only the lab driver's suite signs, and only when it is given the public development
+platform key that Android source trees carry and the two built inputs: it signs them for a simulated
+guest, never for a device. A passing suite qualifies the protocol, the ledger, the broker's rules and
+the driver's guards on the host. It does not qualify any Android form, delivery route, health
+criterion or activation. The lab driver's core is here: the store's setup from the guest's own
+baseline and the coordinator processes with the real host. Its matrix and guest vehicle, the notice
+and health fixtures, the admission and the closure are later packages.
 
 ## Files
 
@@ -26,6 +30,9 @@ driver, the notice and health fixtures, the admission and the closure are later 
 | `lab_crossings.py` | The typed crossing commands and their reply forms |
 | `lab_readers.py` | The injectable reader adapter and its adapter for the public shell observer |
 | `source_manifest.py` | The exact source manifest a broker is admitted with |
+| `lab_driver.py` | The lab driver: the store's setup, the baseline check, the plan from it, the generations, and the published variant staged for WRITE |
+| `driver/` | Java: `LabDriverMain`, the driver's coordinator process and store setup, and `LabHost`, the real host signer, artifact store and bundle builder |
+| `driver-tests/` | Java: `DriverTest`, unit checks of the driver's baseline, selection, host configuration and approval guards |
 | `sim_android.py`, `labtest.py` | Host test support: a small simulated guest and a client |
 | `test_*.py` | The host suites |
 
@@ -277,6 +284,41 @@ commands through the broker's `run`, which fences, records and returns each whol
 classifies its own exact forms as SUCCESS, REFUSED or UNRECOGNIZED. A SUCCESS says that the fixture
 accepted the request, never that a user saw the notice: receipts come from later observation.
 
+## Lab driver
+
+The driver decides no ticket: the accepted reconciler does, inside each generation, and the broker
+owns every guest command. `init` writes the store with the factory choice at revision 0 and the
+bridge's version 2 configuration, whose last line names the lab host configuration's SHA-256, before
+the broker's admission binds that configuration's digest; the admission so binds the host
+configuration as well. The first generation is the cohort check of the guest as it is. A check that
+completes establishes T0, the boot the selection then records as checked, and any later generation
+ends it. `plan` makes the immutable plan from T0's own facts while T0 stands. It is refused when the
+store holds facts of any other boot, since nothing in the records orders boots and wall time is
+informational; when T0's facts are missing, disagree, or show a pending checkpoint or a data copy;
+and when the selection is not the factory choice found current. The signing inputs' entry digests and version codes come from the input
+APKs themselves. The plan carries the design's starting values: late commit, report and wait, all
+users, a 15 minute health window, 2 minute notice delays, request limit 3, a 5 minute reboot timeout,
+a 24 hour ACTIVATE window and a 10 minute verification wait, with the boot limit the driver gives.
+Its lab operator grants are SIGN for both inputs, STAGE and ACTIVATE; each later attempt gets a fresh
+STAGE.
+
+The driver rounds a ticket one generation at a time until its PUBLISH has run, reads the plan's
+publication back through the artifact store, and pins the published variant's two members for the
+broker's WRITE before any later round can need them; then it settles. While the plan has no
+publication at all, for instance after a PUBLISH lost before its effect, it keeps rounding, and the
+coordinator publishes again. A publication that is there but mismatched or unreadable, or any failed
+export, stops the driver before another round, so no session is created without pinned members. A
+deliberately halted generation is followed by a new one on the same store, which continues by
+observation; a generation that failed, was stopped or killed, or was lost stops the driver.
+
+`LabHost` signs with the development platform key that public Android source trees carry, for a
+disposable lab guest only, through apksig without v1. Its configuration names every file it uses with
+its SHA-256, and a generation is given the configuration and its digest, which the admission pins.
+It refuses a host configuration that the bridge configuration does not name, and a configured SDK
+range other than the inputs' declared range. Its approval callback allows a key operation only for a
+transaction of the store's installation and component, of an admitted plan, for the configured role
+and SDK range, within the transaction's declared operations.
+
 ## Reader adapter
 
 `lab_readers.py` defines what the broker calls. A reader has an allowlist of fixed read only
@@ -297,6 +339,12 @@ python3 -B -m unittest discover -s tests/component-lab -p 'test_*.py'
 
 These are host checks only. They use a simulated guest and a fake adb server, so they qualify no
 guest form, Android behavior, power loss or activation.
+
+The driver suite needs the pinned apksigner jar, a directory with the public `platform.pk8` and
+`platform.x509.pem`, and a directory with the built `built-A.apk` and `built-R.apk`. The lab runner
+takes them as `--apksig-jar`, `--platform-keys` and `--signing-inputs`, checks the jar by its digest,
+builds the deployment package, the bridge, the apksig engine and the driver against it, and runs the
+driver suite and its defects. Without them the driver phase is NOT_RUN and the run is partial.
 
 ## Limits
 

@@ -1,17 +1,26 @@
 {
  "cases": {
-  "BridgeTest": 13,
+  "BridgeTest": 14,
+  "DriverTest": 26,
   "ProtocolTest": 6,
   "test_capture_ledger": 10,
   "test_lab_bridge": 20,
   "test_lab_broker": 58,
   "test_lab_crossings": 11,
+  "test_lab_driver": 19,
   "test_lab_protocol": 8,
   "test_shell_transport": 23
  },
  "mutants_caught_at_least": {
   "activation-window-not-sent": [
    "test_lab_bridge.BridgeEndToEnd.test_a_ticket_closes_applied_from_observation_alone"
+  ],
+  "admitted-config-unchecked": [
+   "DriverTest.admission / only the bridge configuration the admission binds is read",
+   "test_lab_driver.DriverEndToEnd.test_a_bridge_configuration_the_admission_does_not_bind_is_refused_before_any_record"
+  ],
+  "approval-any-plan": [
+   "DriverTest.approval / a plan the configuration does not admit is refused"
   ],
   "buffered-stream-accepted": [
    "test_lab_broker.StreamAndReapTests.test_a_buffered_generation_stream_is_refused_before_any_read"
@@ -20,9 +29,18 @@
    "test_lab_broker.FaultTests.test_a_point_cell_halts_once",
    "test_lab_broker.FaultTests.test_a_dropped_reply_runs_once_and_is_escrowed_never_given"
   ],
+  "checked-not-t0": [
+   "DriverTest.baseline / a selection checked in another boot than T0 is refused"
+  ],
+  "checkpoint-not-required": [
+   "DriverTest.baseline / T0 without a committed checkpoint is refused"
+  ],
   "clock-read-before-the-confirmation": [
    "test_lab_broker.GateTests.test_a_grant_that_expires_during_the_confirmation_launches_nothing",
    "test_lab_bridge.BridgeEndToEnd.test_a_grant_that_expires_during_the_confirmation_never_commits"
+  ],
+  "config-host-unchecked": [
+   "BridgeTest.config / version 2 names the host configuration's digest, every line checked"
   ],
   "cross-halt-ignored": [
    "BridgeTest.cross / replies bind, lose or halt, and a session crossing names its whole reference",
@@ -31,6 +49,10 @@
   ],
   "cross-stop-read-as-lost": [
    "BridgeTest.cross / replies bind, lose or halt, and a session crossing names its whole reference"
+  ],
+  "data-copy-accepted": [
+   "DriverTest.baseline / a data copy with the factory bytes is refused",
+   "test_lab_driver.DriverEndToEnd.test_a_data_copy_with_the_factory_bytes_is_refused_at_the_baseline"
   ],
   "deadline-from-the-gate-end": [
    "test_lab_broker.GateTests.test_a_launch_is_refused_once_its_grant_may_have_expired_in_transit"
@@ -50,6 +72,9 @@
   "earlier-framework-fact-taken": [
    "BridgeTest.device / frames are decoded strictly and checked against the round"
   ],
+  "empty-read-counted": [
+   "test_lab_driver.DriverEndToEnd.test_an_empty_baseline_read_establishes_no_t0"
+  ],
   "eof-read-as-exit": [
    "test_shell_transport.DecoderTests.test_an_end_before_exit_leaves_the_status_unknown",
    "test_shell_transport.ShellTests.test_an_adb_error_message_with_a_closed_stream_is_not_exit_1"
@@ -67,6 +92,9 @@
    "test_lab_broker.FenceTests.test_the_stop_fence_comes_before_every_read_and_latches",
    "test_lab_broker.FenceTests.test_the_lease_and_the_deadline_are_fences"
   ],
+  "generation-failure-continued": [
+   "test_lab_driver.DriverEndToEnd.test_a_failed_generation_stops_the_driver"
+  ],
   "grant-expiry-unchecked": [
    "test_lab_broker.GateTests.test_an_activation_grant_is_judged_again_at_launch",
    "test_lab_broker.GateTests.test_the_launch_deadline_follows_the_reconcilers_rule",
@@ -79,6 +107,18 @@
    "BridgeTest.host / BEGIN before the effect, END after, and the broker's cells decide",
    "test_lab_bridge.BridgeEndToEnd.test_a_ticket_closes_applied_from_observation_alone",
    "test_lab_bridge.BridgeEndToEnd.test_host_losses_resolve_by_reading_never_by_signing_again"
+  ],
+  "host-binding-unchecked": [
+   "test_lab_driver.DriverEndToEnd.test_a_host_configuration_the_bridge_configuration_does_not_bind_is_refused",
+   "DriverTest.host binding / only the host configuration the bridge configuration binds"
+  ],
+  "host-clock-only": [
+   "test_lab_driver.DriverEndToEnd.test_a_ticket_closes_applied_with_the_real_signer_and_publication"
+  ],
+  "host-digest-unchecked": [
+   "test_lab_driver.DriverEndToEnd.test_a_host_configuration_other_than_its_admitted_digest_refuses_every_generation",
+   "DriverTest.host pins / a pinned file changed after its configuration is refused",
+   "DriverTest.host pins / a configuration other than its given digest is refused"
   ],
   "host-query-unfenced": [
    "BridgeTest.host / BEGIN before the effect, END after, and the broker's cells decide"
@@ -119,9 +159,23 @@
   "lost-read-as-quiet-1": [
    "test_lab_broker.GroupTests.test_a_lost_read_never_reads_as_no_framework"
   ],
+  "not-published-is-failure": [
+   "test_lab_driver.DriverEndToEnd.test_a_publication_lost_before_its_effect_waits_then_stages_the_republication"
+  ],
+  "other-boots-accepted": [
+   "DriverTest.baseline / facts of another boot are refused, whatever the wall times",
+   "DriverTest.baseline / a later incomplete check's facts are refused",
+   "test_lab_driver.DriverEndToEnd.test_a_store_with_facts_of_another_boot_gives_no_plan_whatever_the_wall_times"
+  ],
   "partial-payload-dropped": [
    "test_shell_transport.DecoderTests.test_received_partial_payload_is_kept_without_completion",
    "test_shell_transport.ShellTests.test_a_timeout_inside_a_packet_keeps_its_received_payload"
+  ],
+  "pending-checkpoint-accepted": [
+   "DriverTest.baseline / a pending checkpoint in T0 is refused"
+  ],
+  "plan-not-admitted": [
+   "test_lab_driver.DriverEndToEnd.test_a_plan_the_host_configuration_does_not_name_is_refused"
   ],
   "point-halt-ignored": [
    "BridgeTest.points / BETWEEN_WRITES asks the broker once and halts on its order",
@@ -135,6 +189,9 @@
   ],
   "protocol-trailing-accepted": [
    "test_lab_protocol.ProtocolTests.test_the_frame_is_checked_first"
+  ],
+  "publication-not-pinned": [
+   "test_lab_driver.DriverEndToEnd.test_a_ticket_closes_applied_with_the_real_signer_and_publication"
   ],
   "reap-unbounded": [
    "test_lab_broker.StreamAndReapTests.test_a_generation_whose_kill_does_not_take_stays_open"
@@ -159,6 +216,9 @@
   "request-transfer-unbounded": [
    "test_lab_broker.TransferTests.test_a_partial_request_cannot_outlast_its_bound"
   ],
+  "sdk-range-unchecked": [
+   "test_lab_driver.DriverEndToEnd.test_a_configured_sdk_range_other_than_the_inputs_declared_range_is_refused"
+  ],
   "second-exit-accepted": [
    "test_shell_transport.DecoderTests.test_a_second_or_malformed_exit_is_malformed",
    "test_shell_transport.ShellTests.test_malformed_and_overflowing_streams"
@@ -166,14 +226,23 @@
   "second-member-after-halt": [
    "test_lab_broker.FaultTests.test_a_loss_between_the_write_members_never_writes_the_second"
   ],
+  "selection-not-current-accepted": [
+   "DriverTest.selection / a plan only from the factory choice found current at revision 0"
+  ],
   "service-send-failure-read-as-not-launched": [
    "test_shell_transport.ShellTests.test_a_service_send_failure_is_an_unknown_launch"
+  ],
+  "settles-before-staging": [
+   "test_lab_driver.DriverEndToEnd.test_a_ticket_closes_applied_with_the_real_signer_and_publication"
   ],
   "shell2-not-required": [
    "test_lab_broker.FeatureTests.test_a_device_without_shell_protocol_v2_stops_everything"
   ],
   "sources-not-reverified": [
    "test_lab_broker.GateTests.test_changed_sources_stop_before_any_crossing"
+  ],
+  "staging-failure-swallowed": [
+   "test_lab_driver.DriverEndToEnd.test_a_failed_publication_export_stops_before_any_session"
   ],
   "stop-not-latched": [
    "test_lab_broker.FenceTests.test_the_stop_fence_comes_before_every_read_and_latches",
@@ -185,6 +254,12 @@
   "stream-unbounded": [
    "test_shell_transport.DecoderTests.test_streams_above_their_bounds_overflow_without_waiting_for_the_payload",
    "test_shell_transport.ShellTests.test_malformed_and_overflowing_streams"
+  ],
+  "t0-kept-across-generations": [
+   "test_lab_driver.DriverEndToEnd.test_a_plan_binds_only_a_complete_check_that_is_the_last_generation"
+  ],
+  "t0-without-own-reads": [
+   "test_lab_driver.DriverEndToEnd.test_a_check_that_read_nothing_establishes_no_t0"
   ],
   "target-read-once": [
    "test_lab_broker.GateTests.test_the_native_target_scope_is_read_again_at_every_crossing"

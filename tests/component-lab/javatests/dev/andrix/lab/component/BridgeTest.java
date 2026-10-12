@@ -138,6 +138,28 @@ public final class BridgeTest {
             }
         });
 
+        cases.run("config / version 2 names the host configuration's digest, every line checked", problems -> {
+            String host = "5e".repeat(32);
+            byte[] good = LabConfig.encode(LabFixtures.INSTALLATION, LabFixtures.COMPONENT, LabFixtures.COORDINATOR,
+                    LabFixtures.TRUST, MANIFEST, Paths.get("/lab/store"), host);
+            LabConfig config = LabConfig.parse(good);
+            LabCases.check(problems, host.equals(config.host) && config.digest.equals(LabProtocol.sha256Hex(good)),
+                    "the host digest and the file's digest");
+            byte[] first = LabConfig.encode(LabFixtures.INSTALLATION, LabFixtures.COMPONENT, LabFixtures.COORDINATOR,
+                    LabFixtures.TRUST, MANIFEST, Paths.get("/lab/store"));
+            LabCases.check(problems, LabConfig.parse(first).host == null, "version 1 names no host");
+            String text = new String(good, java.nio.charset.StandardCharsets.US_ASCII);
+            List<String> bad = Arrays.asList(text.replace("\nhost " + host, ""), text.replace("host " + host, "host " + host.toUpperCase()),
+                    text.replace("host " + host, "host " + host.substring(2)), text.replace("host " + host, "host " + "00".repeat(32)),
+                    text.replace("andrix-lab-bridge 2", "andrix-lab-bridge 1"), text + "extra 1\n",
+                    text.replace("store /lab/store\nhost " + host, "host " + host + "\nstore /lab/store"));
+            for (String b : bad) {
+                LabCases.check(problems, throwsType(IllegalArgumentException.class,
+                        () -> LabConfig.parse(b.getBytes(java.nio.charset.StandardCharsets.US_ASCII))),
+                        "a version 2 configuration of another form was read");
+            }
+        });
+
         cases.run("channel / a reply must answer its request", problems -> {
             FakeBroker broker = new FakeBroker(MANIFEST);
             List<Function<Message, LabProtocol.Builder>> wrong = Arrays.asList(

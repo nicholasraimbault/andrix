@@ -12,15 +12,19 @@ phases are NOT_RUN. `--allow-unguarded` runs them anyway for development and mar
 UNGUARDED, never PASS. The Java phase compiles the deployment package with the bridge and its tests,
 runs the bridge's suites, and compares the protocol goldens of both codecs byte for byte. The bridge
 phase runs the end to end suite: the accepted coordinator through the bridge against the broker on a
-simulated guest, one JVM per generation. The defect phase copies this directory into a scratch tree,
+simulated guest, one JVM per generation. The driver phase, given the pinned apksigner jar, the public
+development platform key and the two built inputs, builds the lab driver against the jar and runs its
+unit suite and its end to end suite with the real host signer. The defect phase copies this directory into a scratch tree,
 applies one defect at a time, rebuilds when the defect is in Java, and runs the suites predicted to
 catch it; each must fail at least its predicted cases. Every JVM has a capped heap, metaspace and
 code cache, the serial collector and one client JIT compiler thread.
 
-Host evidence only: a simulated guest, a fake adb server and a scripted host, not Android."""
+Host evidence only: a simulated guest, a fake adb server, a scripted host for the bridge suites and,
+in the driver phase, the real host signer with the public development key; not Android."""
 from pathlib import Path
 import argparse
 import ast
+import hashlib
 import json
 import os
 import re
@@ -34,6 +38,15 @@ REPO = HERE.parents[1]
 PREDICTIONS = HERE / 'predictions.json'
 SUITES = ('test_lab_protocol', 'test_shell_transport', 'test_capture_ledger', 'test_lab_crossings', 'test_lab_broker')
 BRIDGE_SUITE = 'test_lab_bridge'
+# The lab driver's end to end suite: the real host signer over apksig, so it needs the pinned
+# apksigner jar, the public development platform key and the two built signing inputs.
+DRIVER_SUITE = 'test_lab_driver'
+DRIVER_JAVA = 'driver/dev/andrix/lab/component/'
+DRIVER_TESTS = 'driver-tests/dev/andrix/lab/component/'
+DRIVER_JAVA_SUITES = ('DriverTest',)
+APKSIG_ENGINE = 'owner/deployment/apksig/dev/andrix/server/deployment/ApksigEngine.java'
+APKSIG_SERVICE = 'owner/deployment/apksig/META-INF/services/com.android.apksig.kms.KmsSignerEngineProvider'
+PINNED_APKSIGNER_JAR = '6b96559764325d085a6bad6be109cc3053791d63826f84dc0e74032db136a196'
 JAVA_SUITES = ('ProtocolTest', 'BridgeTest')
 JAVA_PACKAGE = 'dev.andrix.lab.component'
 JAVA_MAIN = 'java/dev/andrix/lab/component/'
@@ -207,6 +220,9 @@ MUTANTS = {
 # Each Java defect: the file under this directory, its exact old and new text, and the suites run
 # against it after a rebuild. A suite is a Java suite or the end to end Python suite.
 JAVA_MUTANTS = {
+    'config-host-unchecked': (JAVA_MAIN + 'LabConfig.java',
+                              '        if (values.length > 6) LabProtocol.checkHex(values[6], 32, "host", false);\n', '',
+                              ('BridgeTest',)),
     'activation-window-not-sent': (JAVA_MAIN + 'ShellDevice.java',
                                    '        long window = activated ? plan.activateWindowMillis : 0;\n',
                                    '        long window = activated ? 1 : 0;\n', (BRIDGE_SUITE,)),
@@ -276,7 +292,7 @@ def java_case_names(text):
 def case_names(tree=HERE):
     """Each suite's case IDs, from its source."""
     names = {}
-    for suite in SUITES + (BRIDGE_SUITE,):
+    for suite in SUITES + (BRIDGE_SUITE, DRIVER_SUITE):
         parsed = ast.parse((tree / (suite + '.py')).read_text())
         found = []
         for node in parsed.body:
@@ -287,6 +303,8 @@ def case_names(tree=HERE):
         names[suite] = found
     for suite in JAVA_SUITES:
         names[suite] = java_case_names((tree / JAVA_TESTS / (suite + '.java')).read_text())
+    for suite in DRIVER_JAVA_SUITES:
+        names[suite] = java_case_names((tree / DRIVER_TESTS / (suite + '.java')).read_text())
     return names
 
 
@@ -302,13 +320,14 @@ def source_problems(predictions):
         if len(set(found)) != len(found):
             problems.append('a case named twice in %s' % suite)
     caught = predictions.get('mutants_caught_at_least', {})
-    defects = dict(MUTANTS, **JAVA_MUTANTS)
-    if set(caught) != set(defects) or len(defects) != len(MUTANTS) + len(JAVA_MUTANTS):
+    defects = dict(MUTANTS, **JAVA_MUTANTS, **DRIVER_MUTANTS)
+    if set(caught) != set(defects) or len(defects) != len(MUTANTS) + len(JAVA_MUTANTS) + len(DRIVER_MUTANTS):
         problems.append('the defect predictions do not list every defect once')
     for name, (file, old, new, suites) in defects.items():
         if (HERE / file).read_text().count(old) != 1:
             problems.append('the anchor of %s is not in %s once' % (name, file))
-        allowed = {(suite + '.' + case) if suite in JAVA_SUITES else case for suite in suites for case in names[suite]}
+        allowed = {(suite + '.' + case) if suite in JAVA_SUITES + DRIVER_JAVA_SUITES else case
+                   for suite in suites for case in names[suite]}
         if not caught.get(name) or not set(caught.get(name, ())) <= allowed:
             problems.append('the prediction of %s names no case of its suites' % name)
     for path in HERE.rglob('*'):
@@ -334,6 +353,61 @@ def tool(name, jdk):
         path = Path(jdk) / name
         return str(path) if path.is_file() else None
     return shutil.which(name)
+
+# Deliberate defects of the lab driver, each run against the driver suite (a Java one rebuilt with the jar).
+DRIVER_MUTANTS = {
+    'host-digest-unchecked': (DRIVER_JAVA + 'LabHost.java',
+                              '        if (!LabProtocol.sha256Hex(data).equals(sha256)) throw new IOException(what + " differs from '
+                              'its admitted digest");\n', '', (DRIVER_SUITE, 'DriverTest')),
+    'host-binding-unchecked': (DRIVER_JAVA + 'LabHost.java', '        if (lab.host == null || !lab.host.equals(config.digest)) {\n',
+                               '        if (false) {\n', (DRIVER_SUITE, 'DriverTest')),
+    'sdk-range-unchecked': (DRIVER_JAVA + 'LabHost.java', '            if (f.minSdk != config.sdkMin || max != config.sdkMax) {\n',
+                            '            if (false) {\n', (DRIVER_SUITE,)),
+    'approval-any-plan': (DRIVER_JAVA + 'LabHost.java', ' && config.plans.contains(t.plan)\n', '\n', ('DriverTest',)),
+    'plan-not-admitted': (DRIVER_JAVA + 'LabDriverMain.java',
+                          '        need(hc.plans.contains(planId), "the host configuration does not admit this plan");\n', '',
+                          (DRIVER_SUITE,)),
+    'admitted-config-unchecked': (DRIVER_JAVA + 'LabDriverMain.java',
+                                  '        need(lab.digest.equals(admittedDigest), "the bridge configuration is not the one the '
+                                  'admission binds");\n', '', ('DriverTest', DRIVER_SUITE)),
+    'other-boots-accepted': (DRIVER_JAVA + 'LabDriverMain.java',
+                             '        need(others.isEmpty(), "the store holds facts of another boot, so the baseline\'s boot is not '
+                             'established: " + others);\n', '', ('DriverTest', DRIVER_SUITE)),
+    'checked-not-t0': (DRIVER_JAVA + 'LabDriverMain.java',
+                       '        need(checked.equals(t0), "the selection\'s checked boot is not the boot the driver\'s check '
+                       'established");\n', '', ('DriverTest',)),
+    'selection-not-current-accepted': (DRIVER_JAVA + 'LabDriverMain.java',
+                                       '        return s.choice == ChoiceKind.FACTORY && s.revision == 0 && s.realization == '
+                                       'Realization.CURRENT;\n', '        return true;\n', ('DriverTest',)),
+    'checkpoint-not-required': (DRIVER_JAVA + 'LabDriverMain.java',
+                                '        need(committed, "no committed checkpoint is observed in the baseline boot");\n', '',
+                                ('DriverTest',)),
+    'pending-checkpoint-accepted': (DRIVER_JAVA + 'LabDriverMain.java',
+                                    '                    throw new IllegalStateException("the baseline boot has a pending checkpoint");\n',
+                                    '                    break;\n', ('DriverTest',)),
+    'data-copy-accepted': (DRIVER_JAVA + 'LabDriverMain.java',
+                           '                    if (o.component.equals(component)) throw new IllegalStateException("a data copy is active at '
+                           'the baseline");\n', '', ('DriverTest', DRIVER_SUITE)),
+    'publication-not-pinned': ('lab_driver.py', '        self.broker.pin_artifacts(plan, members)\n', '', (DRIVER_SUITE,)),
+    'settles-before-staging': ('lab_driver.py', "            if plan in self.staged:\n                self.advance('settle', ticket, "
+                               "str(rounds))\n            else:\n                self.advance('round', ticket)\n",
+                               "            self.advance('settle', ticket, str(rounds))\n", (DRIVER_SUITE,)),
+    'staging-failure-swallowed': ('lab_driver.py', '                members = self.stage_publication(plan)\n',
+                                  '                try:\n                    members = self.stage_publication(plan)\n'
+                                  '                except DriverError:\n                    members = None\n', (DRIVER_SUITE,)),
+    'not-published-is-failure': ('lab_driver.py', 'accept=(0, NOT_PUBLISHED)', 'accept=(0,)', (DRIVER_SUITE,)),
+    'generation-failure-continued': ('lab_driver.py', "        if summary['status'] not in CONTINUING:\n",
+                                     "        if False:\n", (DRIVER_SUITE,)),
+    't0-without-own-reads': ('lab_driver.py', "        boot = self.read_boot(summary['generation'])\n",
+                             "        boot = self.selection()['checked']\n", (DRIVER_SUITE,)),
+    'empty-read-counted': ('lab_driver.py', "            if not any(o['kind'] == kind and o['classification'] in classifications "
+                           "for o in facts):\n", "            if False:\n", (DRIVER_SUITE,)),
+    't0-kept-across-generations': ('lab_driver.py',
+                                   '        self.t0 = None  # A plan binds only the boot of a check that is the last generation.\n',
+                                   '', (DRIVER_SUITE,)),
+    'host-clock-only': ('lab_driver.py', '        self.clock = clock or (lambda: time.time_ns() // 1_000_000)\n',
+                        '        self.clock = lambda: time.time_ns() // 1_000_000\n', (DRIVER_SUITE,)),
+}
 
 
 def tool_environment(extra=None):
@@ -370,12 +444,16 @@ def run_java(java, classes, suite, args, work, timeout=600):
             'failed': sorted(set(re.findall(r'^FAIL (.+?): ', done.stdout, re.M))), 'output': done.stdout[-4000:]}
 
 
-def run_suite(tree, suite, java=None, classes=None, timeout=900):
-    """One Python suite of a tree in its own interpreter. The end to end suite gets the JDK and classes."""
+def run_suite(tree, suite, java=None, classes=None, timeout=900, driver=None):
+    """One Python suite of a tree in its own interpreter. The end to end suite gets the JDK and classes;
+    the driver suite its classpath, the platform keys and the signing inputs."""
     lab = tree / 'tests' / 'component-lab'
     extra = {'PYTHONPATH': str(lab)}
     if java and classes:
         extra.update(ANDRIX_LAB_JAVA=java, ANDRIX_LAB_CLASSES=str(classes))
+    if java and driver:
+        extra.update(ANDRIX_LAB_JAVA=java, ANDRIX_LAB_DRIVER_CLASSPATH=driver['classpath'],
+                     ANDRIX_LAB_PLATFORM_KEYS=driver['keys'], ANDRIX_LAB_SIGNING_INPUTS=driver['inputs'])
     try:
         done = subprocess.run([sys.executable, '-B', '-m', 'unittest', '-v', suite], cwd=lab,
                               env=tool_environment(extra), capture_output=True, text=True, timeout=timeout)
@@ -438,9 +516,75 @@ def java_phase(report, names, java, javac, work, suites=True):
     return problems, classes
 
 
-def mutant_phase(report, predictions, chosen, java, javac, base_classes, work):
+def build_driver(tree, out, javac, jar):
+    """Compiles the deployment package, the bridge, the apksig engine and the driver from a tree against
+    the pinned apksigner jar, with the engine's service file. Returns (classpath or None, output)."""
+    lab = tree / 'tests' / 'component-lab'
+    sources = sorted(str(p) for p in (REPO / DEPLOYMENT).glob('*.java')) + [str(REPO / APKSIG_ENGINE)]
+    sources += sorted(str(p) for p in (lab / JAVA_MAIN).glob('*.java'))
+    sources += sorted(str(p) for p in (lab / DRIVER_JAVA).glob('*.java'))
+    sources += sorted(str(p) for p in (lab / DRIVER_TESTS).glob('*.java'))
+    classes = out / 'classes'
+    (classes / 'META-INF' / 'services').mkdir(parents=True)
+    shutil.copyfile(REPO / APKSIG_SERVICE, classes / 'META-INF' / 'services' / Path(APKSIG_SERVICE).name)
+    done = subprocess.run([javac, '-J-Xmx384m', *('-J' + o for o in JVM_LIMITS), '--release', '17', '-Xlint:all', '-Werror',
+                           '-implicit:none', '-proc:none', '-cp', str(jar), '-d', str(classes), *sources],
+                          capture_output=True, text=True, timeout=600, env=tool_environment())
+    return ('%s:%s' % (classes, jar)) if done.returncode == 0 else None, (done.stdout + done.stderr)[-4000:]
+
+
+def signing_inputs(args):
+    """The driver phase's inputs, or the reason it cannot run: the pinned jar by its digest, the key
+    directory and the input directory."""
+    given = (args.apksig_jar, args.platform_keys, args.signing_inputs)
+    if not any(given):
+        return None, 'no apksigner jar, platform keys or signing inputs given'
+    if not all(given):
+        return None, 'some driver inputs given, not all'
+    jar = Path(args.apksig_jar).resolve()
+    try:
+        data = jar.read_bytes()
+    except OSError as error:
+        return None, 'the apksigner jar cannot be read: %s' % error
+    if hashlib.sha256(data).hexdigest() != PINNED_APKSIGNER_JAR:
+        return None, 'not the pinned apksigner jar'
+    keys, inputs = Path(args.platform_keys).resolve(), Path(args.signing_inputs).resolve()
+    if not all((keys / n).is_file() for n in ('platform.pk8', 'platform.x509.pem')) or not all(
+            (inputs / n).is_file() for n in ('built-A.apk', 'built-R.apk')):
+        return None, 'the key or input directory lacks its files'
+    return {'jar': str(jar), 'keys': str(keys), 'inputs': str(inputs)}, None
+
+
+def driver_phase(report, names, java, javac, work, signing, suites=True):
+    """Builds the driver against the pinned jar, then runs its unit suite and its end to end suite."""
+    classpath, output = build_driver(REPO, work / 'driver', javac, signing['jar'])
+    report['driver_build'] = {'ok': classpath is not None, 'output': output}
+    if classpath is None:
+        return ['the driver build failed'], None
+    if not suites:
+        return [], classpath
     problems, results = [], {}
-    defects = dict(MUTANTS, **JAVA_MUTANTS)
+    for suite in DRIVER_JAVA_SUITES:
+        runs = work / ('driver-runs-' + suite)
+        runs.mkdir()
+        run = run_java(java, classpath, suite, [str(runs)], work)
+        results[suite] = {'passed': len(run['passed']), 'failed': run['failed'], 'returncode': run['returncode']}
+        if run['returncode'] != 0 or run['failed'] or sorted(run['passed']) != sorted(names[suite]):
+            problems.append('%s: %d passed of %d, failed %s' % (suite, len(run['passed']), len(names[suite]),
+                                                                 run['failed'] or run['output'][-400:]))
+    run = run_suite(REPO, DRIVER_SUITE, java, driver=dict(signing, classpath=classpath))
+    results[DRIVER_SUITE] = {'passed': len(run['passed']), 'failed': run['failed'], 'skipped': len(run['skipped']),
+                             'returncode': run['returncode']}
+    if run['returncode'] != 0 or run['failed'] or sorted(run['passed']) != sorted(names[DRIVER_SUITE]):
+        problems.append('%s: %d passed of %d, failed %s' % (DRIVER_SUITE, len(run['passed']), len(names[DRIVER_SUITE]),
+                                                             run['failed'] or run['output'][-400:]))
+    report['driver'] = results
+    return problems, classpath
+
+
+def mutant_phase(report, predictions, chosen, java, javac, base_classes, work, signing=None, driver_classpath=None):
+    problems, results = [], {}
+    defects = dict(MUTANTS, **JAVA_MUTANTS, **DRIVER_MUTANTS)
     for name, (file, old, new, suites) in defects.items():
         if name not in chosen:
             continue
@@ -456,6 +600,17 @@ def mutant_phase(report, predictions, chosen, java, javac, base_classes, work):
             classes, output = build(tree, tree / 'build', javac) if javac else (None, 'no compiler')
             if classes is None:
                 note = 'the defect does not compile: ' + output[-300:]
+        driver = None
+        if name in DRIVER_MUTANTS:
+            if signing is None or not javac:
+                note = 'no driver phase: not run'
+            elif file.startswith(DRIVER_JAVA):
+                classpath, output = build_driver(tree, tree / 'driver-build', javac, signing['jar'])
+                if classpath is None:
+                    note = 'the defect does not compile: ' + output[-300:]
+                driver = dict(signing, classpath=classpath)
+            else:
+                driver = dict(signing, classpath=driver_classpath)
         needs_jvm = any(s in JAVA_SUITES or s == BRIDGE_SUITE for s in suites)
         if needs_jvm and classes is None and note is None:
             note = 'no JVM phase: not run'
@@ -467,6 +622,12 @@ def mutant_phase(report, predictions, chosen, java, javac, base_classes, work):
                 runs.mkdir()
                 args = [str(runs)] if suite == 'BridgeTest' else []
                 failed |= set(suite + '.' + case for case in run_java(java, classes, suite, args, tree)['failed'])
+            elif suite in DRIVER_JAVA_SUITES:
+                runs = tree / ('runs-' + suite)
+                runs.mkdir()
+                failed |= set(suite + '.' + case for case in run_java(java, driver['classpath'], suite, [str(runs)], tree)['failed'])
+            elif suite == DRIVER_SUITE:
+                failed |= set(run_suite(tree, suite, java, driver=driver)['failed'])
             else:
                 failed |= set(run_suite(tree, suite, java, classes)['failed'])
         expected = set(predictions['mutants_caught_at_least'][name])
@@ -489,6 +650,9 @@ def main(argv=None):
     parser.add_argument('--mutant', action='append', help='only these defects, for a chunked run')
     parser.add_argument('--jdk', help='a JDK bin directory instead of PATH')
     parser.add_argument('--allow-unguarded', action='store_true', help='development only; the report is UNGUARDED')
+    parser.add_argument('--apksig-jar', help='the pinned apksigner jar, for the driver phase')
+    parser.add_argument('--platform-keys', help='a directory with the public platform.pk8 and platform.x509.pem')
+    parser.add_argument('--signing-inputs', help='a directory with the built built-A.apk and built-R.apk')
     parser.add_argument('--report')
     args = parser.parse_args(argv)
     predictions = json.loads(PREDICTIONS.read_text())
@@ -506,24 +670,35 @@ def main(argv=None):
         unguarded = bool(jvm and guard is not None)
         with tempfile.TemporaryDirectory() as directory:
             work = Path(directory)
-            classes = None
+            classes, driver_classpath, signing = None, None, None
             if jvm:
                 problems, classes = java_phase(report, names, java, javac, work, not args.skip_java_suites)
                 report['problems'] += problems
+                signing, reason = signing_inputs(args)
+                if signing is None:
+                    report['driver'] = 'NOT_RUN: ' + reason
+                else:
+                    # A chunked defect run still builds the driver, so its defects run against it.
+                    problems, driver_classpath = driver_phase(report, names, java, javac, work, signing,
+                                                              not args.skip_java_suites)
+                    report['problems'] += problems
             elif not args.no_java:
                 report['java'] = 'NOT_RUN: ' + (guard or 'no JDK on PATH')
             if not args.no_mutants:
-                chosen = set(args.mutant) if args.mutant else set(MUTANTS) | set(JAVA_MUTANTS)
-                unknown = chosen - set(MUTANTS) - set(JAVA_MUTANTS)
+                chosen = set(args.mutant) if args.mutant else set(MUTANTS) | set(JAVA_MUTANTS) | set(DRIVER_MUTANTS)
+                unknown = chosen - set(MUTANTS) - set(JAVA_MUTANTS) - set(DRIVER_MUTANTS)
                 if unknown:
                     report['problems'].append('unknown defects %s' % sorted(unknown))
                 if not jvm:
                     chosen &= set(MUTANTS)
+                if signing is None:
+                    chosen -= set(DRIVER_MUTANTS)
                 report['problems'] += mutant_phase(report, predictions, chosen, java if jvm else None,
-                                                   javac if jvm else None, classes, work)
+                                                   javac if jvm else None, classes, work, signing, driver_classpath)
     ran_java = isinstance(report.get('java'), dict)
+    ran_driver = isinstance(report.get('driver'), dict)
     partial = (args.source_checks_only or args.skip_python or args.skip_java_suites or args.no_mutants
-               or bool(args.mutant) or not ran_java)
+               or bool(args.mutant) or not ran_java or not ran_driver)
     if report['problems']:
         report['status'] = 'FAIL'
     elif unguarded:
@@ -534,7 +709,7 @@ def main(argv=None):
     if args.report:
         Path(args.report).write_text(text + '\n')
     summary = {'status': report['status'], 'guard': report['guard'], 'python': report.get('python'),
-               'java': report.get('java'), 'mutants': len(report.get('mutants', {}))}
+               'java': report.get('java'), 'driver': report.get('driver'), 'mutants': len(report.get('mutants', {}))}
     print(text if report['problems'] else json.dumps(summary, sort_keys=True))
     return 0 if not report['problems'] else 1
 
