@@ -126,6 +126,83 @@ class ObservationTests(unittest.TestCase):
                     text.replace('\tpackage\t', '\tempty\t')):
             with self.assertRaises(ValueError): observe.parse_reservations(bad)
 
+    def test_schema_two_names_every_deferred_package_and_schema_three_its_slots(self):
+        b64 = lambda name: base64.b64encode(name.encode()).decode()
+        scalars = ('live_settings=true\nauthority=not-reported\ncounter_known=true\ncached_header=VALID\n'
+                   'cached_enumeration_complete=true\ncreation_ready=true\nallocator_search_start=10000\n'
+                   'unidentified_code=false\n')
+        names = sorted(['dev.b', 'Z', 'café', 'line\nbreak', 'smile\U0001F600'], key=lambda n: n.encode('utf-16-be'))
+        hold = 'hold=10123\tVALID\ttrue\tpackage\t' + b64(PACKAGE) + '\n'
+        two = ('andrix-native-identities-v2\n' + scalars + 'deferred_count=%d\n' % len(names) + hold
+               + ''.join('deferred=' + b64(name) + '\n' for name in names))
+        value = observe.parse_reservations(two, schema=2)
+        self.assertEqual((value['schema_version'], value['deferred_names']), (2, names))
+        self.assertEqual(set(value['fields']), set(observe.SCALARS))
+        self.assertEqual(value['holds'][10123]['mapping'], PACKAGE)
+        empty = 'andrix-native-identities-v2\n' + scalars + 'deferred_count=0\n'
+        self.assertEqual(observe.parse_reservations(empty)['deferred_names'], [])
+        three = ('andrix-native-identities-v3\n' + scalars + 'deferred_count=0\nslot_count=2\n'
+                 + hold + 'hold=10124\tDAMAGED\tfalse\tempty\t\n'
+                 + 'slot=10123\t2\tELIGIBLE\ttrue\nslot=10124\tnot-reported\tnot-reported\tnot-reported\n')
+        value = observe.parse_reservations(three, schema=3)
+        self.assertEqual(value['slots'][10123], {'version': '2', 'lifecycle': 'ELIGIBLE', 'suspended': 'true'})
+        # A version 1 dump is read exactly as before and never stands for a deferred set.
+        one = ('andrix-native-identities-v1\n' + scalars + hold)
+        self.assertEqual(set(observe.parse_reservations(one)), {'fields', 'holds'})
+        for bad, required in ((one, 2), (three, 2), (two, 3)):
+            with self.assertRaises(ValueError):
+                observe.parse_reservations(bad, schema=required)
+        refused = [
+            one.replace(hold, 'deferred_count=0\n' + hold),                      # a new field under version 1
+            'andrix-native-identities-v2\nlive_settings=false\n',               # not live
+            'andrix-native-identities-v3\nobserver_available=false\n',          # unavailable
+            'andrix-native-identities-v2\nlive_settings=false\nhold=x\n',      # a record after an arm
+            two.replace('deferred_count=%d' % len(names), 'deferred_count=%d' % (len(names) - 1)),
+            two.replace('deferred_count=%d' % len(names), 'deferred_count=05'),
+            two.replace('deferred=' + b64(names[0]) + '\n', ''),                # a missing name
+            two + 'deferred=' + b64(names[-1]) + '\n',                            # a repeated name, count aside
+            two.replace('deferred=' + b64(names[1]), 'deferred=' + b64(names[1]).rstrip('=')),
+            two.replace('deferred=' + b64(names[0]), 'deferred=ZGV2LmI_'),        # the URL safe alphabet
+            two.replace('deferred=' + b64(names[0]), 'deferred=' + b64(names[0]) + '===='),  # extra padding
+            two.replace('deferred=' + b64(names[0]), 'deferred=' + base64.b64encode(b'\xff').decode()),
+            two.replace('deferred=' + b64(names[0]), 'deferred='),
+            two.replace('deferred=' + b64(names[0]), 'deferred=' + b64('x' * 256)),
+            two[:-1],                                                               # no last line end
+            two.replace('\n', '\r\n'),
+            two.replace('counter_known=true\ncached_header=VALID', 'cached_header=VALID\ncounter_known=true'),
+            two.replace(hold, hold + 'unknown=1\n'),
+            two + 'hold=10200\tVALID\ttrue\tpackage\t' + b64('dev.c') + '\n',
+            two.replace(hold, 'hold=10124\tVALID\ttrue\tpackage\t' + b64('dev.c') + '\n' + hold),
+            three.replace('slot_count=2', 'slot_count=1'),
+            three.replace('slot=10124\tnot-reported\tnot-reported\tnot-reported', 'slot=10124\t2\tnot-reported\tfalse'),
+            three.replace('slot=10123\t2\tELIGIBLE\ttrue', 'slot=10123\t2\tTOMBSTONE\ttrue'),
+            three.replace('slot=10123\t2', 'slot=10124\t2'),
+        ]
+        # A first line that only another line break ends, followed by an unavailable record, is not
+        # a header; nor is any byte outside printable ASCII, tab and LF.
+        live = 'andrix-native-identities-v2\n' + scalars + 'deferred_count=0\n'
+        for separator in ('\v', '\f', '\x1c', '\x1d', '\x1e', '\x85', '\u2028', '\u2029', '\r'):
+            refused.append(live.replace('andrix-native-identities-v2\n',
+                                        'andrix-native-identities-v2' + separator + 'observer_available=false\n', 1))
+            refused.append(live.replace('creation_ready=true', 'creation_ready=true' + separator))
+        refused.append(live.replace('andrix-native-identities-v2', 'andrix-native-identities-v2 ', 1))
+        # Schema 3 reports positive lifecycle state only for a VALID hold.
+        refused.append(three.replace('slot=10124\tnot-reported\tnot-reported\tnot-reported', 'slot=10124\t2\tELIGIBLE\ttrue'))
+        for bad in refused:
+            with self.subTest(bad=bad[-60:]), self.assertRaises(ValueError):
+                observe.parse_reservations(bad)
+        self.assertEqual(observe.parse_reservations(live)['deferred_names'], [])
+        # The order of the names is Java String order, by UTF-16 code units, not code points.
+        swapped = sorted(['\uFFFD', '\U0001F600'], key=lambda n: n.encode('utf-16-be'))
+        self.assertEqual(swapped, ['\U0001F600', '\uFFFD'])
+        java = ('andrix-native-identities-v2\n' + scalars + 'deferred_count=2\n'
+                + ''.join('deferred=' + b64(name) + '\n' for name in swapped))
+        self.assertEqual(observe.parse_reservations(java)['deferred_names'], swapped)
+        reversed_ = ('andrix-native-identities-v2\n' + scalars + 'deferred_count=2\n'
+                     + ''.join('deferred=' + b64(name) + '\n' for name in reversed(swapped)))
+        with self.assertRaises(ValueError):
+            observe.parse_reservations(reversed_)
+
     @unittest.skipUnless(shutil.which('openssl'), 'OpenSSL required for independent public verification')
     def test_real_signature_and_changed_challenge(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -69,6 +69,31 @@ Its bounded output describes cached store state, allocator holds and cursor only
 reads private terminal contents nor reports a live work, CE or execution lease. The instrumented
 APK has no authority to change those holds.
 
+### Diagnostic schemas
+
+The first line names the schema, and `observe.parse_reservations` dispatches on it. Every line ends
+with LF and every rendered byte is ASCII.
+
+- `andrix-native-identities-v1` is the historical form: eight scalars and the hold rows. Its parser
+  is unchanged, and it names no deferred set. It is never read as an empty one.
+- `andrix-native-identities-v2` is the current form. It has the eight scalars in their order, then
+  `deferred_count=N`, then one `hold=` row per held app ID in increasing order, then one
+  `deferred=` line per deferred package name in Java String order. A deferred line holds one
+  standard padded Base64 token of the name's UTF-8 bytes, with no tab columns. A name is nonempty,
+  well formed, at most 255 UTF-16 code units and at most 1020 bytes. There are at most 100000
+  names and at most 8 MiB of output. The producer renders the complete set or nothing.
+- `andrix-native-identities-v3` adds `slot_count=N` after `deferred_count`. It then adds one
+  `slot=<appId>\t<version>\t<lifecycle>\t<suspended>` row per hold, in the same order after the hold
+  rows and before the deferred lines. Positive state comes only from a selected VALID body of user 0
+  alone, or `TOMBSTONE` for a body with no user. Anything else reports `not-reported` in all three
+  columns. Only the lifecycle format's slot ceiling selects this schema, and no production text
+  constructs that format.
+
+Two envelopes carry no records: `live_settings=false` for a Settings instance without live pins,
+and `observer_available=false` when a name, a count or the output exceeds its bounds. The parser
+refuses both as unavailable evidence. A caller that relies on the deferred names passes the schema
+it requires; B1 phase assessments require schema 2 through `lab_history_observe.assess_dump`.
+
 ## Header copy reader inputs
 
 `HeaderFootprintFixture.java` generates a fresh host directory with the actual record codec:

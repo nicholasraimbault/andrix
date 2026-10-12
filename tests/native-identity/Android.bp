@@ -24,3 +24,17 @@ android_test {
     manifest: "peer/AndroidManifest.xml",
     test_suites: ["general-tests"],
 }
+
+// The guest allocator probe: an ordinary package whose installation only allocates an app ID. A
+// manifest only APK with no code, built apart from the observers and none of their sources.
+android_test_helper_app {
+    name: "AndrixNativeIdentityAllocationProbe",
+    manifest: "allocator/AndroidManifest.xml",
+    sdk_version: "current",
+    min_sdk_version: "37",
+    target_sdk_version: "37",
+    certificate: "testkey",
+    optimize: { enabled: false },
+    dex_preopt: { enabled: false },
+    test_suites: ["general-tests"],
+}

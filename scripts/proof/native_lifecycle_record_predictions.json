@@ -7,13 +7,14 @@
     "codec": 47,
     "reads": 60,
     "goldens": 9,
-    "mutants": 194,
+    "mutants": 206,
     "store": 50,
     "transactions": 57,
     "faults": 136,
     "settings": 12,
     "manager": 32,
-    "layouts": 205
+    "layouts": 205,
+    "dump": 20
   },
   "reads_by_label": {
     "legacy": 20,
@@ -773,7 +774,8 @@
     ],
     "seeding-ignores-retired-accounts": [
       "V2 / a version 1 retiring body is deferred at seeding",
-      "V3 / a retiring account is deferred at seeding"
+      "V3 / a retiring account is deferred at seeding",
+      "v2 / a retiring mapped body is deferred and named once"
     ],
     "seeding-ignores-suspended-accounts": [
       "V3 / a suspended account is deferred at seeding"
@@ -978,6 +980,48 @@
       "release completion / reserve-synced",
       "release completion / backup-unlink",
       "release completion / backup-unlinked"
+    ],
+    "dump-names-dropped": [
+      "v2 / a retiring mapped body is deferred and named once",
+      "v2 / every deferred name in Java String order, padded Base64, never raw"
+    ],
+    "dump-raw-names": [
+      "v2 / a retiring mapped body is deferred and named once",
+      "v2 / every deferred name in Java String order, padded Base64, never raw"
+    ],
+    "dump-count-of-a-prefix": [
+      "v2 / every deferred name in Java String order, padded Base64, never raw",
+      "v2 / more than 100000 names or 8 MiB of output give only the unavailable envelope"
+    ],
+    "dump-malformed-name-substituted": [
+      "v2 / a malformed deferred name gives only the unavailable envelope"
+    ],
+    "dump-output-unbounded": [
+      "v2 / more than 100000 names or 8 MiB of output give only the unavailable envelope"
+    ],
+    "dump-count-unbounded": [
+      "v2 / more than 100000 names or 8 MiB of output give only the unavailable envelope"
+    ],
+    "dump-schema-3-everywhere": [
+      "v2 / an eligible mapped body has no deferred name and the hold row as before",
+      "v2 / the existing formats never report schema 3 rows, whatever the bodies hold"
+    ],
+    "dump-tombstone-as-eligible": [
+      "v3 / an empty body is a tombstone, and a version 1 body reports version 1"
+    ],
+    "dump-suspensions-inverted": [
+      "v3 / the lifecycle format reports each held slot's version, lifecycle and suspensions"
+    ],
+    "dump-without-the-live-check": [
+      "v2 / a Settings without live pins gives only the not live envelope"
+    ],
+    "deferred-names-hidden": [
+      "v2 / a retiring mapped body is deferred and named once",
+      "v2 / every deferred name in Java String order, padded Base64, never raw",
+      "parity / the candidate's own Settings text gives the facade's report"
+    ],
+    "dump-protected-names-printed": [
+      "v2 / a protected name that is not deferred is never printed"
     ]
   },
   "round_2": {
@@ -2192,9 +2236,32 @@
       "future_format_v3": 148,
       "presence_v1": 94
     },
-    "release_rule": "P6_RELEASE_ALLOWANCES is empty. A removed member's name is absent from its class altogether, and the removed overloads are absent in every parameter spelling. Ten declaration controls, for the six removed methods, the two removed Handle fields, a final and throwing spelling of the old overload and the old pin phase, trip the release rule beside one call or reference control per release entry point.",
+    "release_rule": "P6_RELEASE_ALLOWANCES is empty. A removed method's name is absent from its class altogether, declared, called or referenced. Declarations of the removed overloads, Handle fields and pin phase are refused in the spellings the rule names: any annotations, final, and any qualification of the Handle, Record, Set and String types, and a boolean named retired alone or in a list. Every rule reads the compiler's translation of unicode escapes (Character.digit digits and the backslash before an escape included), refuses code outside printable ASCII so that names compare exactly, and reads syntax in a structure view where comments, literal contents (text blocks included, a line comment ending at a CR or LF) and annotations (balanced, nested ones included) are blank, and in a value view that blanks each annotation's @ and name but keeps its arguments, so class literals in annotation values count and no annotation name reads as a call; quoted text that spells a call counts like the call, its arguments read from its own text, and lifecycle facts named retired stay legitimate. It is a lexical guard; the transaction suite's reflection check refuses the old methods by name and parameter count too. Calls and references are read with any explicit type arguments, constructions of the capability in every syntactic form and its name in any literal, and method bodies are bounded in the structure view. Seventeen declaration controls trip the release rule beside one call or reference control per release entry point, three calls behind escapes or a text block, two references with type arguments (one annotated), a call after a quoted brace in the allowed body and two texts with code outside printable ASCII, two class literal controls in annotations trip the capability rule, a quoted writer call with a true drop flag trips the primitive rule, and three controls trip nothing: quoted names with LifecycleState.RETIRED, a quoted writer call with a false drop flag, and annotations named after covered methods.",
     "equivalent_mutants": {
       "publish-past-slot-ceiling": "The generic creation writer now accepts only one ordinary eligible user, so every slot it accepts is version 1 and the slot ceiling check before it can never refuse anything the user check passes. The check stays as the format rule's statement; the mutant that removes it is equivalent and is removed."
     }
+  },
+  "p7_dump": {
+    "status": "PREDICTED before its first guarded run. The dump suite runs the shared diagnostic fragment in the facade and the candidate Settings text in its harness.",
+    "cases": 20,
+    "mutants": 206,
+    "new_mutants": [
+      "deferred-names-hidden",
+      "dump-count-of-a-prefix",
+      "dump-count-unbounded",
+      "dump-malformed-name-substituted",
+      "dump-names-dropped",
+      "dump-output-unbounded",
+      "dump-protected-names-printed",
+      "dump-raw-names",
+      "dump-schema-3-everywhere",
+      "dump-suspensions-inverted",
+      "dump-tombstone-as-eligible",
+      "dump-without-the-live-check"
+    ],
+    "extended_mutant": {
+      "seeding-ignores-retired-accounts": "v2 / a retiring mapped body is deferred and named once"
+    },
+    "guest_controls": "G9 and G10 are exact host controls: the guest generator's creating header and its v2-beside-unrelated-body layout through the actual codec, the subject mapped at 10148, and the facade's schema 2 dump and scan rule under Format.V2. G9 predicts A MISSING and pinned, counter known, creation ready, no deferral, unidentified false, admitted; G10 predicts A VALID and pinned, B UNSUPPORTED and unmapped, counter unknown, creation not ready, unidentified true, no deferral, admitted, and its sibling discriminator conflicts and defers the subject."
   }
 }

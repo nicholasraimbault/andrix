@@ -92,6 +92,12 @@ final class NativePrincipalRecovery {
     boolean defersName(String packageName) {
         return packageName != null && deferredNames.contains(packageName);
     }
+
+    /**
+     * Every deferred name, immutable and in Java String order, for the privileged diagnostic. It
+     * reads the view as it stands: no scan, refresh or mutation, and no authority over any name.
+     */
+    Set<String> deferredPackageNames() { return deferredNames; }
     boolean hasUnidentifiedCode() { return unidentifiedCode && hasHolds(); }
     boolean hasUnresolvedHolds() {
         return hasHolds() && (unidentifiedCode || !deferredNames.isEmpty());

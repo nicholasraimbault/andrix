@@ -61,6 +61,9 @@ MANAGER = FRAMEWORK_DIR + 'NativePrincipalManager.java'
 FACADE = b1.FACADE
 CODEC_TEST = 'NativeLifecycleCodecTest'
 READ_TEST = 'NativeLifecycleReadTest'
+# The privileged diagnostic in the facade and in the candidate's own Settings text in its harness.
+DUMP_TEST = 'NativeIdentityDumpTest'
+GUEST_GENERATOR = 'tests/native-identity/lab-history/LabHistoryStore.java'
 STORE_TEST = 'NativeLifecycleStoreTest'
 TRANSACTION_TEST = 'NativeLifecycleTransactionTest'
 FAULT_TEST = 'NativeLifecycleFaultTest'
@@ -76,7 +79,7 @@ HARNESS = 'harness'
 # A mutant target naming a Settings fragment: the defect is in the fragment text, so it is applied to
 # the facade and to the harness, which both carry that text verbatim, and both copies run it.
 FRAGMENT = 'fragment:'
-PHASES = ('candidate', 'codec', 'reads', 'store', 'transactions', 'faults', 'settings', 'manager', 'pinned',
+PHASES = ('candidate', 'codec', 'reads', 'dump', 'store', 'transactions', 'faults', 'settings', 'manager', 'pinned',
           'layouts', 'rollback', 'readers', 'mutants')
 # Every step but the pinned one is living. The read, store and transaction tests run each store format
 # under its own label: Format.V1 is legacy, Format.V2 production and Format.V3 the new format, which B1
@@ -84,6 +87,7 @@ PHASES = ('candidate', 'codec', 'reads', 'store', 'transactions', 'faults', 'set
 # assembles and compiles the rollback models' inputs from pinned Git objects only, under the rollback
 # reader label.
 STEP_LABELS = {'codec': ('production',), 'reads': ('production', 'legacy', 'new-format'),
+               'dump': ('production', 'legacy', 'new-format'),
                'store': ('production', 'legacy', 'new-format'),
                'transactions': ('production', 'legacy', 'new-format'), 'faults': ('new-format',),
                'settings': ('production', 'new-format'), 'manager': ('production', 'legacy', 'new-format'),
@@ -303,6 +307,46 @@ def read_names(format_name):
 
 
 READ_NAMES = tuple(name for format_name in ('V1', 'V2', 'V3') for name in read_names(format_name))
+# The diagnostic's cases: schema 2 under the existing formats, schema 3 under the lifecycle format,
+# and the parity of the facade's renderer with the candidate's own.
+DUMP_NAMES = (
+    'v2 / an eligible mapped body has no deferred name and the hold row as before',
+    'v2 / a retiring mapped body is deferred and named once',
+    'v2 / every deferred name in Java String order, padded Base64, never raw',
+    'v2 / a malformed deferred name gives only the unavailable envelope',
+    'v2 / more than 100000 names or 8 MiB of output give only the unavailable envelope',
+    'v2 / a Settings without live pins gives only the not live envelope',
+    'v2 / a missing store is not complete, cannot create and holds nothing',
+    'v2 / an empty valid store holds nothing and can create',
+    'v2 / each mapping kind and slot status names its hold',
+    'v2 / a supported body beside its own unsupported sibling conflicts and is deferred',
+    'v2 / an unrelated unsupported body leaves the supported account pinned and undeferred',
+    "v2 / the dump follows the restoration's replacement of the live pins",
+    'v2 / a protected name that is not deferred is never printed',
+    "g9 / the subject's bound reservation alone is restored, pinned and admitted",
+    "g10 / another package's unsupported body leaves the subject restored, pinned and admitted",
+    "v3 / the lifecycle format reports each held slot's version, lifecycle and suspensions",
+    'v3 / an empty body is a tombstone, and a version 1 body reports version 1',
+    'v3 / damaged and missing records report nothing',
+    'v2 / the existing formats never report schema 3 rows, whatever the bodies hold',
+    "parity / the candidate's own Settings text gives the facade's report",
+)
+# Each case's run labels: by its prefix, with the cases that also run Format.V1 named. Schema 2 cases
+# run the production format, schema 3 cases the lifecycle format, and the parity case all three.
+DUMP_LABELS = {'v2': ('production',), 'v3': ('new-format',), 'parity': ('legacy', 'production', 'new-format'),
+               'g9': ('production',), 'g10': ('production',)}
+DUMP_CASE_LABELS = {'v2 / the existing formats never report schema 3 rows, whatever the bodies hold':
+                    ('legacy', 'production'),
+                    'v2 / a Settings without live pins gives only the not live envelope': ('production', 'new-format')}
+
+
+def dump_labels(name):
+    return DUMP_CASE_LABELS.get(name, DUMP_LABELS[name.split(' / ', 1)[0]])
+# The reports the dump test writes, which the independent observer reads: each available one parses
+# under its schema and each unavailable one is refused.
+DUMP_FILES = ('v2-eligible', 'v2-names', 'v2-retiring', 'v2-unavailable-256', 'v2-unavailable-5',
+              'v2-unavailable-not-live-V2', 'v2-unavailable-not-live-V3', 'v3-not-reported', 'v3-slots',
+              'v3-tombstone')
 
 # The lifecycle store test: the named transitions under Format.V3, then the refusals of the earlier
 # formats. Every name is one literal in its source.
@@ -1986,10 +2030,38 @@ MUTANTS = {
     # Settings: the identity predicate in the facade and the candidate, and the seeding names.
     'identity-ignores-prefixes': (((FRAGMENT + 'identity', _IDENTITY_PREFIX, ''),), ('reads',)),
     'seeding-ignores-prefixes': (((FRAGMENT + 'recovery-seeding', _SEEDING_PREFIX, ''),), ('reads',)),
+    # The diagnostic: each defect is in the shared fragment, so both renderers carry it, or in the
+    # recovery view's one query.
+    'dump-names-dropped': (((FRAGMENT + 'diagnostic-dump', '            text.append("deferred=").append(android.util.Base64.encodeToString(bytes, '
+        'android.util.Base64.NO_WRAP))\n                    .append(\'\\n\');\n', ''),), ('dump',)),
+    'dump-raw-names': (((FRAGMENT + 'diagnostic-dump', 'android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP))\n'
+        '                    .append(\'\\n\');\n', 'name)\n                    .append(\'\\n\');\n'),), ('dump',)),
+    'dump-count-of-a-prefix': (((FRAGMENT + 'diagnostic-dump', 'text.append("deferred_count=").append(deferred.size())',
+        'text.append("deferred_count=").append(Math.min(deferred.size(), 1))'),), ('dump',)),
+    'dump-malformed-name-substituted': (((FRAGMENT + 'diagnostic-dump', '            } else if (Character.isSurrogate(c)) {\n                return null;\n',
+        '            } else if (Character.isSurrogate(c)) {\n'
+        '                return "invalid".getBytes(java.nio.charset.StandardCharsets.UTF_8);\n'),), ('dump',)),
+    'dump-output-unbounded': (((FRAGMENT + 'diagnostic-dump', '            if (text.length() > 8 * 1024 * 1024) return unavailable;\n        }\n'
+        '        if (text.length() > 8 * 1024 * 1024) return unavailable;\n', '        }\n'),), ('dump',)),
+    'dump-count-unbounded': (((FRAGMENT + 'diagnostic-dump', '        if (deferred.size() > 100000) return unavailable;\n', ''),), ('dump',)),
+    'dump-schema-3-everywhere': (((FRAGMENT + 'diagnostic-dump', '        boolean lifecycle = nativeIdentitySlotCeilingLPr() >= 2;\n',
+        '        boolean lifecycle = true;\n'),), ('dump',)),
+    'dump-tombstone-as-eligible': (((FRAGMENT + 'diagnostic-dump', '                    state = "TOMBSTONE";\n',
+        '                    state = "ELIGIBLE";\n'),), ('dump',)),
+    'dump-suspensions-inverted': (((FRAGMENT + 'diagnostic-dump', '                    suspended = String.valueOf(!life.suspensions.isEmpty());\n',
+        '                    suspended = String.valueOf(life.suspensions.isEmpty());\n'),), ('dump',)),
+    'dump-without-the-live-check': (((FRAGMENT + 'diagnostic-dump', '        if (!nativeIdentityDumpAvailableLPr()) return '
+        '"andrix-native-identities-v2\\nlive_settings=false\\n";\n', ''),), ('dump',)),
+    'dump-protected-names-printed': (((FRAMEWORK_DIR + 'NativePrincipalRecovery.java',
+        '    Set<String> deferredPackageNames() { return deferredNames; }\n',
+        '    Set<String> deferredPackageNames() { return protectedNames; }\n'),), ('dump',)),
+    'deferred-names-hidden': (((FRAMEWORK_DIR + 'NativePrincipalRecovery.java',
+        '    Set<String> deferredPackageNames() { return deferredNames; }\n',
+        '    Set<String> deferredPackageNames() { return Set.of(); }\n'),), ('dump',)),
     # Settings fragments, each run by the facade and the harness alike.
     'seeding-ignores-retired-accounts': (((FRAGMENT + 'recovery-seeding', _SEEDING_LIFECYCLE,
                                            '                        || !history.suspensions.isEmpty()) {\n'),),
-                                         ('settings',)),
+                                         ('settings', 'dump')),
     'seeding-ignores-suspended-accounts': (((FRAGMENT + 'recovery-seeding', _SEEDING_LIFECYCLE,
                                              '                        || history.retiring) {\n'),), ('settings',)),
     'boot-facts-from-the-cached-view': (((FRAGMENT + 'retired-boot', '        return mNativeBootFacts;\n',
@@ -2613,10 +2685,12 @@ MUTANTS = {
 # construction. No production text constructs it, references its constructor, takes its class
 # literal or names it in a string. Among every other Java text only the release engine's named
 # tests construct it, and the manager's lifecycle test, which drives the manager's gated release.
-CAPABILITY_USES = (('construction', r'\bnew\s+(?:[\w$]+\s*\.\s*)*ReleaseCapability\s*\('),
-                   ('constructor reference', r'\bReleaseCapability\s*::\s*new\b'),
-                   ('class literal', r'\bReleaseCapability\s*\.\s*class\b'),
-                   ('name string', r'"(?:[^"\\\n]|\\.)*ReleaseCapability(?:[^"\\\n]|\\.)*"'))
+# The uses of the release capability that make or find one, in every syntactic form: an instance
+# creation and a constructor reference with any type arguments, annotations and qualification, and a
+# class literal, arrays included. Its name inside any literal, a text block included, is refused too.
+CAPABILITY_USES = (('construction', b1.java_creation('ReleaseCapability')),
+                   ('constructor reference', b1.java_constructor_reference('ReleaseCapability')),
+                   ('class literal', b1.java_class_literal('ReleaseCapability')))
 CAPABILITY_TESTS = tuple(PLATFORM + name + '.java' for name in (SUPPORT, TRANSACTION_TEST, FAULT_TEST, MANAGER_TEST))
 # The release entry points: the persistence release and the store primitives that only release uses,
 # which remove a releasing slot, confirm a released slot, write RELEASING, write the omission and drop
@@ -2685,9 +2759,33 @@ def other_java_texts(production):
     return texts
 
 
+def views(text):
+    """(kept, masked, structure) views of translated Java text: comments blank; then literal contents
+    blank too; then annotations blank too. Offsets agree across the three."""
+    return b1.java_code_view(text), b1.java_code_view(text, False), b1.java_structure_view(text)
+
+
+def syntax_matches(text_views, pattern):
+    """The matches of a pattern as syntax and as quoted text. Syntax is read in the structure view, where
+    annotations are blank so annotated types and type arguments cannot hide a form, and in the value
+    view, the literal blanked view with each annotation's @ and name blank but its argument list kept,
+    so annotation values such as class literals count while an annotation's own name never reads as a
+    call; a match found in both counts once. Quoted text is read in the literal retaining view where the
+    match begins inside a literal: quoted text that spells a call or a reference counts like one, since a
+    live entry point's name could serve reflection. Each match's string is the view it came from, so its
+    arguments are read there."""
+    kept, masked, structure = text_views
+    found = {m.start(): m for m in re.finditer(pattern, structure)}
+    for m in re.finditer(pattern, b1.java_annotation_values(masked)):
+        found.setdefault(m.start(), m)
+    quoted = [m for m in re.finditer(pattern, kept) if masked[m.start()] != kept[m.start()]]
+    return sorted(list(found.values()) + quoted, key=lambda m: m.start())
+
+
 def body_spans(code, heads):
-    """The offsets of each named method's body in comment free text, from its opening brace through
-    the brace that closes it. A head that does not occur exactly once gives no span."""
+    """The offsets of each named method's body in a structure view, from its opening brace through
+    the brace that closes it. Literal data is blank there, so no quoted brace counts. A head that does
+    not occur exactly once gives no span."""
     spans = []
     for head in heads:
         if code.count(head) != 1:
@@ -2711,52 +2809,89 @@ def unreachable_violations(texts, others):
     release engine's named tests. release: a production text calls or references a release entry
     point outside the release bodies of the persistence. primitives: the store calls writeAnyHeader,
     or passes writeExistingSlot's drop flag, outside the bodies that may. A declaration is no call.
-    Comments are not code."""
+    Comments are not code, and unicode escapes are translated first, as the compiler does; a text
+    whose escapes do not translate does not compile and is refused, as is a text with code outside
+    printable ASCII, so that every name compares exactly. Syntax is read in the structure view, where
+    literal contents and annotations are blank; quoted text that spells a call counts like the call."""
     problems = []
+
+    def translated(group):
+        result = {}
+        for name, raw in group.items():
+            try:
+                result[name] = b1.java_unicode_escapes(raw)
+            except ValueError as error:
+                problems.append('release: %s holds an escape the compiler refuses: %s' % (name, error))
+                result[name] = raw
+            outside = b1.java_code_outside_ascii(result[name])
+            if outside:
+                problems.append('release: %s holds code outside printable ASCII: %s'
+                                % (name, ' '.join('U+%04X' % ord(c) for c in outside)))
+        return result
+    texts, others = translated(texts), translated(others)
     for group, names in ((texts, None), (others, CAPABILITY_TESTS)):
         for name, raw in group.items():
             if names is not None and name in names:
                 continue
-            code = b1.strip_java_comments(raw)
+            code, masked, structure = views(raw)
+            # Syntax only, in both views: the masked view stands in for the literal retaining one, so no
+            # quoted match is taken here; a quoted name is the name string rule below.
             for what, pattern in CAPABILITY_USES:
-                for found in re.finditer(pattern, code):
+                for found in syntax_matches((masked, masked, structure), pattern):
                     problems.append('capability: %s holds a %s of the release capability: %s'
                                     % (name, what, ' '.join(found.group(0).split())))
-    # The removed old path: a removed member's name is absent from its class altogether, declared,
-    # called or referenced, and the removed overloads are absent in every spelling of their parameters.
-    # A legitimate lifecycle fact named retired, such as the boot facts', is not banned.
-    record = r'(?:final\s+)?(?:NativePrincipalPins\s*\.\s*)?Record\s+\w+'
+            # The two views differ only inside literals, so a name the masked view blanks is quoted.
+            for found in re.finditer(r'ReleaseCapability', code):
+                if masked[found.start():found.end()] != found.group(0):
+                    problems.append('capability: %s holds a name string of the release capability' % name)
+    # The removed old path stays removed. Each removed method's name is absent from its class
+    # altogether, declared, called or referenced. The removed overloads, Handle fields and pin phase
+    # are refused in these spellings: any annotations, final, and any qualification of the Handle,
+    # Record, Set and String types; a boolean named retired alone or in a list. Quoted data is masked
+    # first: a removed member cannot be reached by its quoted name, while the call rules keep quoted
+    # text, where a live entry point's name could serve reflection. Lifecycle facts named retired, such
+    # as the boot facts' or LifecycleState.RETIRED, stay legitimate. This is a lexical guard, not a
+    # Java parser; the transaction suite's reflection check refuses the old methods by name and
+    # parameter count as well.
+    qualified = r'(?:[\w$]+\s*\.\s*)*'
+    modifiers = r'(?:(?:@[\w$.]+(?:\s*\([^()]*\))?|final)\s+)*'
+    handle = modifiers + qualified + r'Handle\s+\w+'
+    record = modifiers + qualified + r'Record\s+\w+'
+    names = modifiers + qualified + r'Set\s*<\s*' + qualified + r'String\s*>\s+\w+'
     obsolete = {
-        MANAGER: ((r'\bbeginRetirement\s*\(\s*(?:final\s+)?(?:NativePrincipalManager\s*\.\s*)?Handle\s+\w+\s*\)',
-                   'beginRetirement(Handle)'),
+        MANAGER: ((r'\bbeginRetirement\s*\(\s*' + handle + r'\s*\)', 'beginRetirement(Handle)'),
                   (r'\bfinishRetirementAfterQuiescence\b', 'finishRetirementAfterQuiescence'),
                   (r'\bretirementCommitted\b', 'Handle.retirementCommitted'),
-                  (r'\bboolean\s+retired\s*[;=]', 'Handle.retired')),
-        PERSISTENCE: ((r'\bmarkRetiring\s*\(\s*' + record + r'\s*,\s*(?:final\s+)?(?:java\s*\.\s*util\s*\.\s*)?Set\s*<\s*'
-                       r'String\s*>\s+\w+\s*\)', 'markRetiring without block'),
+                  (r'\bboolean\s+(?:\w+\s*(?:=[^,;]*)?,\s*)*retired\s*[;=,]', 'Handle.retired')),
+        PERSISTENCE: ((r'\bmarkRetiring\s*\(\s*' + record + r'\s*,\s*' + names + r'\s*\)',
+                       'markRetiring without block'),
                       (r'\bfinishRetirement\b', 'finishRetirement')),
         PINS: ((r'\bsnapshotWithout\b', 'snapshotWithout'), (r'\bfinishRetire\b', 'finishRetire'),
-               (r'\bRETIRED\b', 'the pin phase RETIRED')),
+               (r'\bPhase\s*\.\s*RETIRED\b', 'the pin phase RETIRED')),
     }
     for name, raw in texts.items():
-        code = b1.strip_java_comments(raw)
+        code, masked, structure = views(raw)
         for pattern, entry in obsolete.get(name, ()):
-            if re.search(pattern, code):
+            if re.search(pattern, structure):
                 problems.append('release: %s declares obsolete lifecycle entry %s' % (name, entry))
-        allowed = body_spans(code, RELEASE_BODIES) if name == PERSISTENCE else []
+        if name == PINS:
+            phases = re.search(r'\benum\s+Phase\s*\{([^}]*)\}', structure)
+            if phases is None or re.search(r'\bRETIRED\b', phases.group(1)):
+                problems.append('release: %s declares obsolete lifecycle entry the pin phase RETIRED' % name)
+        allowed = body_spans(structure, RELEASE_BODIES) if name == PERSISTENCE else []
         if name == PERSISTENCE and len(allowed) != len(RELEASE_BODIES):
             problems.append('release: the release bodies of %s are not each found once' % name)
         for entry in RELEASE_ENTRY_POINTS:
             spans = list(allowed)
             for allowed_entry, holder, body in P6_RELEASE_ALLOWANCES + RELEASE_ALLOWANCES:
                 if allowed_entry == entry and holder == name:
-                    found_body = body_spans(code, (body,))
+                    found_body = body_spans(structure, (body,))
                     if not found_body:
                         problems.append('release: the allowed body of %s in %s is not found once' % (entry, name))
                     spans += found_body
-            pattern = r'(?:\.\s*|::\s*|(?<![\w$.:]))%s\b(?=\s*\()|::\s*%s\b' % (entry, entry)
-            for found in re.finditer(pattern, code):
-                line = code[code.rfind('\n', 0, found.start()) + 1:found.start()]
+            pattern = b1.java_call_or_reference(entry)
+            for found in syntax_matches((code, masked, structure), pattern):
+                line = structure[structure.rfind('\n', 0, found.start()) + 1:found.start()]
                 if re.fullmatch(r'\s*(?:(?:public|protected|private|static|final|synchronized)\s+)*'
                                 r'(?:boolean|void)\s+', line):
                     continue  # Its declaration.
@@ -2779,18 +2914,18 @@ def lifecycle_violations(texts):
                    r'(?:(?:public|protected|private|static|final|synchronized)\s+)*'
                    r'[\w$.]+(?:<[^;(){}]*>)?\s+')
     for name, raw in texts.items():
-        code = b1.strip_java_comments(raw)
+        code, masked, structure = views(raw)
         for entry in LIFECYCLE_ENTRY_POINTS:
             spans = []
             for allowed_entry, holder, body in LIFECYCLE_ALLOWANCES:
                 if allowed_entry == entry and holder == name:
-                    found_body = body_spans(code, (body,))
+                    found_body = body_spans(structure, (body,))
                     if not found_body:
                         problems.append('lifecycle: the allowed body of %s in %s is not found once' % (entry, name))
                     spans += found_body
-            pattern = r'(?:\.\s*|::\s*|(?<![\w$.:]))%s\b(?=\s*\()|::\s*%s\b' % (entry, entry)
-            for found in re.finditer(pattern, code):
-                line = code[code.rfind('\n', 0, found.start()) + 1:found.start()]
+            pattern = b1.java_call_or_reference(entry)
+            for found in syntax_matches((code, masked, structure), pattern):
+                line = structure[structure.rfind('\n', 0, found.start()) + 1:found.start()]
                 if re.fullmatch(declaration, line):
                     continue  # Its declaration.
                 if any(start <= found.start() < end for start, end in spans):
@@ -2805,22 +2940,22 @@ def boot_facts_violations(texts, others):
     Java text anywhere but that fragment in the host facade and the release engine's named tests. The
     Settings section and the facade each hold the fragment once. A declaration is no call. Comments
     are not code."""
-    fragment = b1.strip_java_comments(integration.FRAGMENTS[BOOT_FACTS_FRAGMENT][1].read_text())
+    fragment = b1.java_code_view(integration.FRAGMENTS[BOOT_FACTS_FRAGMENT][1].read_text())
     problems = []
     for group, holders in ((texts, (b1.SETTINGS_SECTION,)), (others, (FACADE,))):
         for name in holders:
-            if b1.strip_java_comments(group.get(name, '')).count(fragment) != 1:
+            if b1.java_code_view(group.get(name, '')).count(fragment) != 1:
                 problems.append('boot-facts: %s does not hold the boot facts fragment once' % name)
         for name, raw in group.items():
             if group is others and name in BOOT_FACTS_TESTS:
                 continue
-            code = b1.strip_java_comments(raw)
+            code, masked, structure = views(raw)
             allowed = []
             if name in holders and code.count(fragment) == 1:
                 start = code.index(fragment)
                 allowed.append((start, start + len(fragment)))
-            for found in re.finditer(r'(?:\.\s*|::\s*|(?<![\w$.:]))bootFacts\b(?=\s*\()|::\s*bootFacts\b', code):
-                line = code[code.rfind('\n', 0, found.start()) + 1:found.start()]
+            for found in syntax_matches((code, masked, structure), b1.java_call_or_reference('bootFacts')):
+                line = structure[structure.rfind('\n', 0, found.start()) + 1:found.start()]
                 if name == PERSISTENCE and re.fullmatch(r'\s*static\s+BootFacts\s+', line):
                     continue  # Its declaration.
                 if any(start <= found.start() < end for start, end in allowed):
@@ -2853,26 +2988,30 @@ def primitive_violations(store):
     may make it: writeAnyHeader outside the generic and the two named header writes, and a drop flag
     other than the literal false outside dropReleasedUser. A method reference of either writer is
     refused anywhere in the store, because no body that may use them takes one."""
-    code = b1.strip_java_comments(store)
+    code, masked, structure = views(store)
+    text_views = (code, masked, structure)
     problems = []
-    any_header, drop = body_spans(code, ANY_HEADER_CALLERS), body_spans(code, DROP_CALLERS)
+    any_header, drop = body_spans(structure, ANY_HEADER_CALLERS), body_spans(structure, DROP_CALLERS)
     if len(any_header) != len(ANY_HEADER_CALLERS) or len(drop) != len(DROP_CALLERS):
         problems.append('primitives: the bodies that may use the release powers are not each found once')
-    for found in re.finditer(r'(?<![\w$])writeAnyHeader\s*\(', code):
-        line = code[code.rfind('\n', 0, found.start()) + 1:found.start()]
+    for found in syntax_matches(text_views, b1.BEFORE_NAME + r'writeAnyHeader' + b1.AFTER_NAME + r'\s*\('):
+        line = structure[structure.rfind('\n', 0, found.start()) + 1:found.start()]
         if re.fullmatch(r'\s*private\s+boolean\s+', line):
             continue  # Its declaration.
         if not any(start <= found.start() < end for start, end in any_header):
             problems.append('primitives: writeAnyHeader is called outside the header writes that may')
-    for found in re.finditer(r'(?<![\w$])writeExistingSlot\s*\(', code):
-        line = code[code.rfind('\n', 0, found.start()) + 1:found.start()]
+    for found in syntax_matches(text_views, b1.BEFORE_NAME + r'writeExistingSlot' + b1.AFTER_NAME + r'\s*\('):
+        line = structure[structure.rfind('\n', 0, found.start()) + 1:found.start()]
         if re.fullmatch(r'\s*private\s+boolean\s+', line):
             continue
-        arguments = call_arguments(code, found.end() - 1)
+        # The arguments are read where the match was found: in the structure view no quoted parenthesis
+        # or comma counts; a quoted call's own text holds its arguments.
+        arguments = call_arguments(structure if found.string is not code else code, found.end() - 1)
         if (len(arguments) != 4 or arguments[3] != 'false') and not any(
                 start <= found.start() < end for start, end in drop):
             problems.append('primitives: writeExistingSlot passes the drop flag outside dropReleasedUser')
-    for found in re.finditer(r'::\s*(writeAnyHeader|writeExistingSlot)\b', code):
+    reference = r'::\s*(?:%s\s*)?(writeAnyHeader|writeExistingSlot)%s' % (b1.JAVA_TYPE_ARGUMENTS, b1.AFTER_NAME)
+    for found in syntax_matches(text_views, reference):
         problems.append('primitives: %s is referenced as a method' % found.group(1))
     return problems
 
@@ -2902,6 +3041,8 @@ def unreachable_mutants():
 
     tracker = 'public final class CeStorageAccessTracker {\n'
     manager = '    NativePrincipalManager(PackageManagerService pm) {\n'
+    release_body = RELEASE_BODY + '\n'
+    lifecycle_head = '    // The checks every lifecycle operation makes first, under the PMS lock and before any effect:\n'
     restore = '        return store.restoreSlot(loaded.header.value, account, hold);\n'
     confirm = '    boolean confirmExistingSlot(Slot expected) {\n'
     publish = '    boolean publish(NativePrincipalPins.Record record, Set<String> expectedSigners) {\n'
@@ -2931,6 +3072,52 @@ def unreachable_mutants():
             + manager)), {'release'}),
         'obsolete-pin-phase-declared': (changed((PINS, '        RELEASED\n', '        RELEASED,\n        RETIRED\n')),
                                         {'release'}),
+        'obsolete-qualified-handle-retirement-declared': (changed((MANAGER, manager,
+            '    boolean beginRetirement(@Deprecated final com.android.server.pm.NativePrincipalManager.Handle h)\n'
+            '            throws java.io.IOException { return false; }\n\n' + manager)), {'release'}),
+        'obsolete-qualified-marker-declared': (changed((PERSISTENCE, publish,
+            '    boolean markRetiring(final com.android.server.pm.NativePrincipalPins.Record r,\n'
+            '            final java.util.Set<java.lang.String> s) throws java.io.IOException { return false; }\n\n'
+            + publish)), {'release'}),
+        'obsolete-field-behind-an-escaped-backslash-and-a-unicode-quote': (changed((MANAGER, manager,
+            '    private String s = "\\u005c\\\\u0022; boolean retired; //";\n' + manager)), {'release'}),
+        'pins-release-after-a-text-block-closing-on-a-comment-mark': (changed((MANAGER, manager,
+            '    private static void textBlockProbe() {\n        String note = """\n            "\n'
+            '            //"""; new NativePrincipalPins(1).finishRelease(null);\n    }\n\n' + manager)), {'release'}),
+        'pins-release-referenced-with-type-arguments': (changed((MANAGER, manager,
+            manager + '        java.util.function.Consumer<Object> reference = new NativePrincipalPins(1)::<String>finishRelease;\n')),
+            {'release'}),
+        'pins-release-after-a-literal-brace-in-the-allowed-body': (changed((MANAGER, release_body,
+            release_body + '        String data = "{";\n'), (MANAGER, lifecycle_head,
+            '    private static void releaseProbe() {\n        new NativePrincipalPins(1).finishRelease(null);\n    }\n\n'
+            + lifecycle_head)), {'release'}),
+        'pins-release-referenced-with-annotated-type-arguments': (changed((MANAGER, manager,
+            manager + '        java.util.function.Consumer<Object> reference =\n'
+                      '                new NativePrincipalPins(1)::<@P7Mark("(") String>finishRelease;\n')), {'release'}),
+        'pins-release-with-an-ignorable-character': (changed((MANAGER, manager,
+            manager + '        new NativePrincipalPins(1).finish\u200cRelease(null);\n')), {'release'}),
+        'a-longer-non-ascii-name-is-code-outside-ascii': (changed((MANAGER, manager,
+            manager + '        Object reference = new Peer()::finishRelease\u20ac;\n')), {'release'}),
+        'pins-release-behind-fullwidth-escape-digits': (changed((MANAGER, manager,
+            manager + '        new NativePrincipalPins(1).finishRelease\\u\uff10\uff10\uff12\uff18null);\n')), {'release'}),
+        'obsolete-field-behind-a-unicode-quote': (changed((MANAGER, manager,
+            '    private static final String NOTE = "abc\\u0022; boolean retired; //";\n' + manager)), {'release'}),
+        'obsolete-field-after-a-text-block-with-a-quote-and-a-comment-mark': (changed((MANAGER, manager,
+            '    private static final String MASK_NOTE = """\n        "\n        //""";\n'
+            '    boolean retired;\n' + manager)), {'release'}),
+        'obsolete-field-after-an-escaped-text-block': (changed((MANAGER, manager,
+            '    private static final String MASK_NOTE = """\n        \\"""\n        """;\n'
+            '    private boolean retired;\n' + manager)), {'release'}),
+        'obsolete-handle-flags-declared-together': (changed((MANAGER, manager,
+            '    private boolean revoked, retired;\n' + manager)), {'release'}),
+        'quoted-and-lifecycle-retired-text-allowed': (changed((MANAGER, manager,
+            '    private static final String NOTE = "finishRetirementAfterQuiescence boolean retired; "\n'
+            '            + "retirementCommitted";\n' + manager),
+            (PINS, '    public synchronized Snapshot snapshotForWrite() {\n',
+             '    private static final String OLD = "Phase.RETIRED finishRetire snapshotWithout";\n'
+             '    private static final char MARK = \'"\';\n'
+             '    private static final Object LAST = NativeIdentityRecords.LifecycleState.RETIRED;\n'
+             '    public synchronized Snapshot snapshotForWrite() {\n')), set()),
         'obsolete-pins-finish-declared': (changed((PINS, '    public synchronized Snapshot snapshotForWrite() {\n',
             '    public synchronized void finishRetire(Pin pin) {}\n'
             '    public synchronized Snapshot snapshotForWrite() {\n')), {'release'}),
@@ -2939,6 +3126,30 @@ def unreachable_mutants():
             '                new NativeIdentityPersistence.ReleaseCapability(uid -> true);\n')), {'capability'}),
         'capability-name-in-framework': (changed((NON_NATIVE, tracker, tracker
             + '    private static final String RELEASE = "NativeIdentityPersistence$ReleaseCapability";\n')),
+            {'capability'}),
+        'capability-after-a-unicode-carriage-return': (changed((store_test, store_main, store_main
+            + '        // a comment\\u000d Object authority = new NativeIdentityPersistence.ReleaseCapability(uid -> true);\n')),
+            {'capability'}),
+        'capability-creation-with-type-arguments-and-annotations': (changed((store_test, store_main, store_main
+            + '        Object authority = new <String> @A NativeIdentityPersistence.@B(x = {1}) ReleaseCapability(null);\n')),
+            {'capability'}),
+        'capability-constructor-reference-with-type-arguments': (changed((store_test, store_main, store_main
+            + '        java.util.function.Function<Object, Object> maker = NativeIdentityPersistence.ReleaseCapability'
+              ':: <String> new;\n')), {'capability'}),
+        'capability-name-in-a-text-block': (changed((MANAGER, manager,
+            '    private static final String NOTE = """\n            NativeIdentityPersistence$ReleaseCapability\n'
+            '            """;\n\n' + manager)), {'capability'}),
+        'capability-creation-with-an-annotation-holding-a-parenthesis': (changed((store_test, store_main, store_main
+            + '        Object authority = new NativeIdentityPersistence.@P7Mark("(") ReleaseCapability(uid -> true);\n')),
+            {'capability'}),
+        'capability-constructor-reference-with-annotated-type-arguments': (changed((store_test, store_main, store_main
+            + '        Object maker = NativeIdentityPersistence.ReleaseCapability::<@P7Mark("(") String>new;\n')),
+            {'capability'}),
+        'capability-class-literal-in-an-annotation': (changed((store_test, store_main, store_main
+            + '        @P7ClassTag(NativeIdentityPersistence.ReleaseCapability.class) Object tagged = null;\n')),
+            {'capability'}),
+        'capability-class-literal-in-a-type-annotation': (changed((store_test, store_main, store_main
+            + '        Object cast = (@P7ClassTag(NativeIdentityPersistence.ReleaseCapability.class) Object) null;\n')),
             {'capability'}),
         'capability-in-another-test': (changed((store_test, store_main, store_main
             + '        java.util.function.Function<NativeIdentityPersistence.ReleaseCapability.KeyNamespace,\n'
@@ -2954,6 +3165,9 @@ def unreachable_mutants():
         'boot-facts-again-in-settings': (changed((settings, None,
             '\n        NativeIdentityPersistence.BootFacts again =\n'
             '                NativeIdentityPersistence.bootFacts(mNativeIdentityLoaded);\n')), {'boot-facts'}),
+        'boot-facts-referenced-with-type-arguments': (changed((MANAGER, manager,
+            '    static final java.util.function.Function<Object, Object> FACTS = NativeIdentityPersistence::<String>bootFacts;\n\n'
+            + manager)), {'boot-facts'}),
         'boot-facts-referenced-in-another-test': (changed((store_test, store_main, store_main
             + '        java.util.function.Function<NativeIdentityStore.Loaded, NativeIdentityPersistence.BootFacts> facts =\n'
             '                NativeIdentityPersistence::bootFacts;\n')), {'boot-facts'}),
@@ -2997,6 +3211,8 @@ def unreachable_mutants():
             '\n        new NativePrincipalManager(null).releaseUid(null, null);\n')), {'release'}),
         'pins-release-from-the-constructor': (changed((MANAGER, manager,
             manager + '        new NativePrincipalPins(1).finishRelease(null);\n')), {'release'}),
+        'pins-release-behind-a-unicode-parenthesis': (changed((MANAGER, manager,
+            manager + '        new NativePrincipalPins(1).finishRelease\\u0028null);\n')), {'release'}),
         'suspension-called-from-settings': (changed((settings, None,
             '\n        new NativePrincipalManager(null).suspend(null, null);\n')), {'lifecycle'}),
         'retirement-begun-from-the-constructor': (changed((MANAGER, manager,
@@ -3006,10 +3222,27 @@ def unreachable_mutants():
         'retired-marked-from-manager': (changed((MANAGER, manager,
             '    private static final java.util.function.Function<NativeIdentityPersistence, Object> MARK =\n'
             '            persistence -> persistence.markRetired(null, null, null);\n\n' + manager)), {'lifecycle'}),
+        'quoted-writer-call-with-a-false-drop-flag': (changed((STORE, confirm,
+            '    private static final String NOTE = "writeExistingSlot(expected, next, false, false)";\n\n' + confirm)), set()),
+        'annotations-named-after-covered-methods-allowed': (changed((MANAGER, manager,
+            '    @interface finishRelease { int value(); }\n'
+            '    @interface lift { int value(); }\n'
+            '    @interface bootFacts { int value(); }\n'
+            '    @finishRelease(1) @lift(2) @ bootFacts (3)\n'
+            '    private static void harmlessAnnotations() {}\n' + manager)), set()),
+        'quoted-writer-call-with-a-true-drop-flag': (changed((STORE, confirm,
+            '    private static final String NOTE = "writeExistingSlot(expected, next, false, true)";\n\n' + confirm)),
+            {'primitives'}),
+        'store-writer-referenced-with-type-arguments': (changed((STORE, confirm,
+            '    private java.util.function.BiPredicate<Header, Header> writerReference() {\n'
+            '        return this::<String>writeAnyHeader;\n    }\n\n' + confirm)), {'primitives'}),
         'retiring-marked-from-settings': (changed((settings, None,
             '\n        mNativeIdentityPersistence.markRetiring(null, null, null);\n')), {'lifecycle'}),
         'suspension-asserted-in-the-constructor': (changed((MANAGER, manager,
             manager + '        assert suspend(null, null) != null;\n')), {'lifecycle'}),
+        'lift-referenced-with-type-arguments-from-settings': (changed((settings, None,
+            '\n        java.util.function.BiFunction<Object, Object, Object> lift =\n'
+            '                mNativePrincipalManager::<String>lift;\n')), {'lifecycle'}),
     }
 
 
@@ -3083,7 +3316,8 @@ def mutant_texts():
 
 
 # The case names of each suite that runs deliberate defects.
-SUITE_NAMES = {'codec': CODEC_NAMES, 'reads': READ_NAMES, 'store': STORE_NAMES, 'transactions': TRANSACTION_NAMES,
+SUITE_NAMES = {'codec': CODEC_NAMES, 'reads': READ_NAMES, 'dump': DUMP_NAMES, 'store': STORE_NAMES,
+               'transactions': TRANSACTION_NAMES,
                'settings': SETTINGS_NAMES, 'manager': MANAGER_NAMES,
                'faults': FAULT_NAMES}
 # The lifecycle suites of P2a, and the manager's, which runs over the Settings facade: each one's test
@@ -3149,14 +3383,15 @@ def label_problems():
             labelled.setdefault(name, set()).add(label)
     every = set(FORMAT_LABELS.values())
     if (labelled.get(CODEC_TEST) != {'production'} or labelled.get(READ_TEST) != every
+            or labelled.get(DUMP_TEST) != every
             or labelled.get(STORE_TEST) != every or labelled.get(TRANSACTION_TEST) != every
             or labelled.get(FAULT_TEST) != {'new-format'}
             or labelled.get(SETTINGS_TEST) != {'production', 'new-format'}
             or labelled.get(MANAGER_TEST) != every or labelled.get(LAYOUTS) != {'new-format'}
             or labelled.get(ROLLBACK_CHECK) != {'rollback-reader'}
             or labelled.get(READER_CHECK) != {'production', 'new-format'} or set(labelled) != {
-                CODEC_TEST, READ_TEST, STORE_TEST, TRANSACTION_TEST, FAULT_TEST, SETTINGS_TEST, MANAGER_TEST, LAYOUTS,
-                ROLLBACK_CHECK, READER_CHECK}):
+                CODEC_TEST, READ_TEST, DUMP_TEST, STORE_TEST, TRANSACTION_TEST, FAULT_TEST, SETTINGS_TEST, MANAGER_TEST,
+                LAYOUTS, ROLLBACK_CHECK, READER_CHECK}):
         problems.append('harness labels of this runner differ: %s' % labelled)
     if {row[0] for row in b1.HARNESS_LABELS if row[0] == 'new-format'} != {'new-format'} or any(
             row[1] != 'scripts/proof/native_lifecycle_record.py'
@@ -3230,9 +3465,9 @@ def source_checks():
         if not checks or not set(checks) <= allowed or not set(suites) <= set(SUITE_NAMES):
             problems.append('mutant prediction inconsistent: ' + name)
     counts = predictions['cases']
-    if (counts['codec'], counts['reads'], counts['goldens'], counts['mutants'], counts['store'],
+    if (counts['codec'], counts['reads'], counts['dump'], counts['goldens'], counts['mutants'], counts['store'],
             counts['transactions'], counts['faults'], counts['settings'], counts['manager'], counts['layouts']) != (
-            len(CODEC_NAMES), len(READ_NAMES), len(GOLDEN_NAMES), len(MUTANTS), len(STORE_NAMES),
+            len(CODEC_NAMES), len(READ_NAMES), len(DUMP_NAMES), len(GOLDEN_NAMES), len(MUTANTS), len(STORE_NAMES),
             len(TRANSACTION_NAMES), len(FAULT_NAMES), len(SETTINGS_NAMES), len(MANAGER_NAMES), len(LAYOUT_NAMES)):
         problems.append('predicted counts differ from the case lists')
     layouts = predictions['p5_checkpoint_2']['layouts']
@@ -3339,6 +3574,47 @@ def codec_suite(work, texts=None):
 def read_suite(work, settings, texts=None, harness=()):
     return run_suite(work, read_files(settings, texts, harness), READ_TEST, [str(work / 'reads-state')],
                      READ_NAMES)
+
+
+def dump_files(settings, texts=None, harness=()):
+    """The diagnostic's compile set: the read compile set, its facade and the candidate's harness,
+    with the dump test and the lifecycle support in place of the read test."""
+    files = read_files(settings, texts, harness)
+    del files['tests/%s.java' % READ_TEST]
+    for name in (SUPPORT, DUMP_TEST):
+        files['tests/%s.java' % name] = (ROOT / PLATFORM / (name + '.java')).read_bytes()
+    # The guest generator, whose layouts the exact host controls of G9 and G10 read.
+    files['tests/LabHistoryStore.java'] = (ROOT / GUEST_GENERATOR).read_bytes()
+    return files
+
+
+def dump_observer_problems(directory, step):
+    """The independent observer over every report the dump test wrote: an available report parses
+    under its own schema, and an unavailable one is refused, never read as an empty set."""
+    sys.path.insert(0, str(ROOT / 'tests' / 'native-identity'))
+    import observe
+    problems, observed = [], {}
+    paths = sorted(directory.glob('*.txt')) if directory.is_dir() else []
+    for path in paths:
+        name = path.stem
+        try:
+            value = observe.parse_reservations(path.read_bytes().decode('ascii'), schema=2 if name.startswith('v2') else 3)
+            observed[name] = {'schema': value['schema_version'], 'deferred': len(value['deferred_names']),
+                              'holds': len(value['holds'])}
+            if 'unavailable' in name:
+                problems.append('the observer accepted an unavailable report: ' + name)
+        except ValueError as error:
+            observed[name] = {'refused': str(error)}
+            if 'unavailable' not in name:
+                problems.append('the observer refused the report %s: %s' % (name, error))
+    step['observer'] = observed
+    if tuple(sorted(observed)) != DUMP_FILES:
+        problems.append('the dump reports differ from the predicted: %s' % sorted(observed))
+    return problems
+
+
+def dump_suite(work, settings, texts=None, harness=()):
+    return run_suite(work, dump_files(settings, texts, harness), DUMP_TEST, [str(work / 'dump-state')], DUMP_NAMES)
 
 
 def settings_suite(work, settings, texts=None, harness=()):
@@ -3658,6 +3934,19 @@ def qualify(work, pinned, report):
             problems.append('read suite ran without assertions')
     report['completed_phases'].append('reads')
 
+    result, record = dump_suite(work / 'dump', settings)
+    steps['dump'] = result
+    steps['dump']['labels'] = {name: list(dump_labels(name)) for name in DUMP_NAMES}
+    if red_names(result, DUMP_NAMES) != set() or 'unqualified' not in record.get('run', {}).get('stdout', ''):
+        problems.append('dump suite')
+    else:
+        refused = b1.execute(work / 'dump', DUMP_TEST, [str(work / 'dump' / 'no-assertions')],
+                             assertions=False, timeout=120)
+        if not refused['returncode'] or '-ea' not in refused['stderr']:
+            problems.append('dump suite ran without assertions')
+        problems += dump_observer_problems(work / 'dump' / 'dump-state' / 'dumps', steps['dump'])
+    report['completed_phases'].append('dump')
+
     def lifecycle_phase(suite):
         test, names = LIFECYCLE_SUITES[suite]
         result, record = lifecycle_suite(work / suite, suite)
@@ -3712,6 +4001,8 @@ def qualify(work, pinned, report):
                 (result, _), _ = codec_suite(directory, texts)
             elif suite == 'reads':
                 result, _ = read_suite(directory, settings, texts, harness)
+            elif suite == 'dump':
+                result, _ = dump_suite(directory, settings, texts, harness)
             elif suite == 'settings':
                 result, _ = settings_suite(directory, settings, texts, harness)
             else:

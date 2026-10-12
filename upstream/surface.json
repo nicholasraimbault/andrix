@@ -39,6 +39,7 @@
     {"project": "frameworks/base", "path": "core/java/android/content/pm/UserInfo.java", "reason": "native principal host stub"},
     {"project": "frameworks/base", "path": "core/java/android/content/pm/SigningDetails.java", "reason": "native principal host stub"},
     {"project": "frameworks/base", "path": "core/java/android/content/pm/Signature.java", "reason": "native principal host stub"},
+    {"project": "frameworks/base", "path": "core/java/android/util/Base64.java", "reason": "native principal host stub of the diagnostic name encoding"},
     {"project": "frameworks/base", "path": "core/java/android/util/Log.java", "reason": "native principal host stub"},
     {"project": "frameworks/base", "path": "core/java/android/util/Slog.java", "reason": "native principal host stub"},
     {"project": "frameworks/base", "path": "packages/SystemUI", "reason": "SystemUI component fixture (systemui_fixture.py). An owner variant installed as a data update would shadow factory fixes"},

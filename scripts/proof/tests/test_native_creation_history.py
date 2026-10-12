@@ -40,6 +40,10 @@ def synthetic_settings(fragments=None, side=None):
     lifecycle = 'boot-facts' in fragments
     boot = '        recordNativeBootFactsLPw(loaded);\n' if lifecycle else ''
     queries = fragments['boot-facts'] + '\n' + fragments['retired-boot'] + '\n' if lifecycle else ''
+    # The diagnostic of a current candidate, with the availability query it calls.
+    diagnostic = ('\n' + fragments['diagnostic-dump'] + '\n    boolean nativeIdentityDumpAvailableLPr() {\n'
+                  '        return mNativePrincipalPins != null && mNativeIdentityLoaded != null;\n    }\n'
+                  if 'diagnostic-dump' in fragments else '')
     observe = (fragments['observation'] + '\n' + fragments['release-finish'] + '\n' if lifecycle else
                '    void observeNativeIdentityStoreLPw(NativeIdentityStore.Loaded loaded) {\n'
                '        mNativeIdentityLoaded = loaded;\n'
@@ -63,7 +67,7 @@ def synthetic_settings(fragments=None, side=None):
             '    }\n\n'
             '    boolean isNativePrincipalAppIdLPr(int appId) {\n'
             '        return mNativeStoreAppIds.contains(appId) || nativePrincipalPinsLPr().isAppIdPinned(appId);\n'
-            '    }\n\n' + fragments['identity'] + '\n' + fragments['path-safety']
+            '    }\n\n' + fragments['identity'] + '\n' + fragments['path-safety'] + diagnostic
             + '\n' + observe + refresh +
             '        java.util.Set<Integer> held = new java.util.TreeSet<>(mNativeStoreAppIds);\n'
             '        held.addAll(nativePrincipalPinsLPr().reservedAppIds());\n'

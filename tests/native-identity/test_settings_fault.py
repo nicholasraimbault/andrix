@@ -137,5 +137,57 @@ class SettingsFaultTests(unittest.TestCase):
         with self.assertRaises(ValueError): fault.decode_certificates(root)
 
 
+
+S = 'dev.andrix.proof.principalclosed'
+
+
+class SubjectTests(unittest.TestCase):
+    """The lifecycle record's fixed subject, installed between the two observers and the first writer
+    of a certificate that the peer shares."""
+
+    def source(self):
+        return (f'<packages version="fixture"><package name="{A}" userId="10147">'
+                '<sigs count="1"><cert index="0" key="aabb"/></sigs></package>'
+                f'<package name="{S}" userId="10148"><sigs count="1"><cert index="1" key="874c"/></sigs>'
+                '<perms><item name="test.permission" granted="false"/></perms></package>'
+                f'<package name="{B}" userId="10149"><sigs count="1"><cert index="1"/></sigs></package>'
+                '<keyset-settings version="1"><keys><public-key identifier="4" value="fixture"/>'
+                '</keys></keyset-settings></packages>').encode()
+
+    def test_only_the_subject_joins_the_two_observers(self):
+        self.assertEqual(fault.ALLOWED, {A, B, S})
+        for package in ('dev.andrix.proof.lifecycleother', 'dev.andrix.proof.uidallocation', 'ordinary.other'):
+            with self.subTest(package=package), self.assertRaises(ValueError):
+                fault.remove_package(self.source().replace(S.encode(), package.encode()), package, 10148)
+
+    def test_the_subject_row_alone_is_removed_and_the_peer_keeps_its_signer(self):
+        output, report = fault.remove_package(self.source(), S, 10148)
+        root = ET.fromstring(output)
+        self.assertEqual([p.get('name') for p in root.findall('package')], [A, B])
+        self.assertEqual(next(p for p in root.findall('package') if p.get('name') == B).find('sigs/cert').get('key'),
+                         '874c')
+        self.assertEqual([key for _, key in fault.decode_certificates(root)], ['aabb', '874c'])
+        self.assertEqual((report['removed_package'], report['app_id'], report['identity_authority']), (S, 10148, False))
+        rewritten = fault.rewrite_equivalent(self.source())
+        self.assertEqual(fault.semantic(ET.fromstring(self.source())), fault.semantic(ET.fromstring(rewritten)))
+
+    def test_wrong_rows_and_unsafe_removals_are_refused(self):
+        removed, _ = fault.remove_package(self.source(), S, 10148)
+        keyset = self.source().replace(f'name="{S}" userId="10148">'.encode(),
+                                       f'name="{S}" userId="10148"><proper-signing-keyset identifier="17"/>'.encode())
+        for data, uid in ((self.source(), 10147), (self.source(), 10149),
+                          (self.source().replace(b'userId="10148"', b'sharedUserId="10148"'), 10148),
+                          (removed, 10148), (keyset, 10148),
+                          (self.source().replace(b'index="1" key="874c"', b'index="1"'), 10148)):
+            with self.subTest(uid=uid), self.assertRaises(ValueError):
+                fault.remove_package(data, S, uid)
+
+    def test_naive_deletion_of_the_subject_breaks_the_peer_certificate(self):
+        root = ET.fromstring(self.source())
+        root.remove(next(p for p in root.findall('package') if p.get('name') == S))
+        with self.assertRaises(ValueError):
+            fault.decode_certificates(root)
+
+
 if __name__ == '__main__':
     unittest.main()

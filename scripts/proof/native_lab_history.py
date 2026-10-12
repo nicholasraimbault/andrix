@@ -171,8 +171,9 @@ def lifecycle_goldens(mode, lineage='00112233445566778899aabbccddeeff', app_id=1
                       subject='dev.andrix.proof.principalclosed', other=OTHER):
     """The files of one lifecycle guest layout, by path relative to the store, from the documented
     layouts alone: the plan's version 2 slot with one ELIGIBLE user suspended by that user for
-    USER_PAUSED, code 1, at the fixed time, and the version 1 body and headers as above. A test oracle
-    for the actual codec only; it never produces lab input."""
+    USER_PAUSED, code 1, at the fixed time, and the version 1 body and headers as above. The healthy
+    controls are the eligible version 1 subject alone and, beside it, another package's version 2 slot
+    under another principal. A test oracle for the actual codec only; it never produces lab input."""
     signers = struct.pack('<H', 1) + bytes.fromhex(signer)
     head = bytes.fromhex(lineage)
 
@@ -198,12 +199,17 @@ def lifecycle_goldens(mode, lineage='00112233445566778899aabbccddeeff', app_id=1
         store, slots = header(1, 1, [live]), {app_id: version_1_body(app_id, subject, 1, True)}
     elif mode == 'v2-slot':
         store, slots = header(1, 1, [live]), {app_id: suspended(app_id, subject, 1)}
+    elif mode == 'eligible-v1':
+        store, slots = header(1, 1, [live]), {app_id: version_1_body(app_id, subject, 1, False)}
     elif mode == 'v2-beside-reservation':
         store = header(2, 2, [(app_id, 1, 1, subject, True), (other_app_id, 2, 0, '', False)])
         slots = {other_app_id: suspended(other_app_id, other, 2)}
     elif mode == 'v2-beside-sibling':
         store = header(1, 2, [live, (other_app_id, 2, 0, '', False)])
         slots = {app_id: version_1_body(app_id, subject, 1, False), other_app_id: suspended(other_app_id, subject, 2)}
+    elif mode == 'v2-beside-unrelated-body':
+        store = header(1, 2, [live, (other_app_id, 2, 0, '', False)])
+        slots = {app_id: version_1_body(app_id, subject, 1, False), other_app_id: suspended(other_app_id, other, 2)}
     else:
         raise ValueError('lifecycle guest mode')
     files = {'store.bin': store, 'store.bin.reservecopy': store}

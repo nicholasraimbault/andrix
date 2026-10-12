@@ -91,9 +91,14 @@ class LifecycleRecordSourceTests(unittest.TestCase):
     def test_case_names_and_counts(self):
         predictions = json.loads(runner.PREDICTIONS.read_text())
         self.assertIn('PREDICTED', predictions['status'])
-        self.assertEqual(predictions['cases'], {'codec': 47, 'reads': 60, 'goldens': 9, 'mutants': 194, 'store': 50,
-                                                'transactions': 57, 'faults': 136, 'settings': 12, 'manager': 32,
-                                                'layouts': 205})
+        self.assertEqual(predictions['cases'], {'codec': 47, 'reads': 60, 'dump': 20, 'goldens': 9, 'mutants': 206,
+                                                'store': 50, 'transactions': 57, 'faults': 136, 'settings': 12,
+                                                'manager': 32, 'layouts': 205})
+        self.assertEqual(len(runner.DUMP_NAMES), 20)
+        self.assertEqual({name.split(' / ', 1)[0] for name in runner.DUMP_NAMES}, set(runner.DUMP_LABELS))
+        self.assertTrue(set(runner.DUMP_CASE_LABELS) <= set(runner.DUMP_NAMES))
+        self.assertEqual({label for name in runner.DUMP_NAMES for label in runner.dump_labels(name)},
+                         set(runner.STEP_LABELS['dump']))
         self.assertEqual((len(runner.CODEC_NAMES), len(runner.READ_NAMES), len(runner.STORE_NAMES),
                           len(runner.TRANSACTION_NAMES), len(runner.FAULT_NAMES), len(runner.SETTINGS_NAMES),
                           len(runner.MANAGER_NAMES)), (47, 60, 50, 57, 136, 12, 32))
@@ -134,11 +139,15 @@ class LifecycleRecordSourceTests(unittest.TestCase):
         code = runner.b1.strip_java_comments(texts[runner.PERSISTENCE])
         self.assertEqual(len(runner.body_spans(code, runner.RELEASE_BODIES)), 1)
         mutants = runner.unreachable_mutants()
-        self.assertEqual(sum(rules == {'capability'} for _, rules in mutants.values()), 4)
-        self.assertEqual(sum(rules == {'release'} for _, rules in mutants.values()), len(runner.RELEASE_ENTRY_POINTS) + 10)
-        self.assertEqual(sum(rules == {'primitives'} for _, rules in mutants.values()), 4)
-        self.assertEqual(sum(rules == {'boot-facts'} for _, rules in mutants.values()), 3)
-        self.assertEqual(sum(rules == {'lifecycle'} for _, rules in mutants.values()), 6)
+        self.assertEqual(sum(rules == {'capability'} for _, rules in mutants.values()), 12)
+        self.assertEqual(sum(rules == {'release'} for _, rules in mutants.values()), len(runner.RELEASE_ENTRY_POINTS) + 25)
+        self.assertEqual(sum(rules == {'primitives'} for _, rules in mutants.values()), 6)
+        self.assertEqual(sum(rules == {'boot-facts'} for _, rules in mutants.values()), 4)
+        self.assertEqual(sum(rules == {'lifecycle'} for _, rules in mutants.values()), 7)
+        # Quoted names and the lifecycle state RETIRED trip nothing.
+        self.assertEqual([name for name, (_, rules) in mutants.items() if not rules],
+                         ['quoted-and-lifecycle-retired-text-allowed', 'quoted-writer-call-with-a-false-drop-flag',
+                          'annotations-named-after-covered-methods-allowed'])
         for name, ((production, other), rules) in mutants.items():
             self.assertEqual(runner.unreachable_rules(production, other), rules, name)
         # A release body that is not found refuses every call in it.
@@ -154,6 +163,14 @@ class LifecycleRecordSourceTests(unittest.TestCase):
         self.assertEqual(len(runner.body_spans(manager_code(texts), (runner.RELEASE_BODY,))), 1)
         self.assertEqual(len(runner.body_spans(manager_code(texts),
                                                tuple(body for _, _, body in runner.LIFECYCLE_ALLOWANCES))), 6)
+        # A longer non ASCII name is refused as code outside ASCII, never read as a covered call.
+        peer = dict(texts)
+        peer[runner.MANAGER] = peer[runner.MANAGER].replace(
+            '    NativePrincipalManager(PackageManagerService pm) {\n',
+            '    NativePrincipalManager(PackageManagerService pm) {\n        Object r = new Peer()::finishRelease\u20ac;\n', 1)
+        found = runner.unreachable_violations(peer, others)
+        self.assertTrue(any('outside printable ASCII' in p for p in found), found)
+        self.assertFalse(any('finishRelease outside' in p for p in found), found)
         # An assert statement is no declaration: its call is refused like any other.
         asserted = dict(texts)
         asserted[runner.MANAGER] = asserted[runner.MANAGER].replace(
@@ -180,8 +197,8 @@ class LifecycleRecordSourceTests(unittest.TestCase):
                 self.assertTrue(changed or harness)
                 for path, text in changed.items():
                     self.assertNotEqual(text, (ROOT / path).read_text())
-                self.assertTrue(set(suites) <= {'codec', 'reads', 'store', 'transactions', 'faults', 'settings',
-                                                'manager'})
+                self.assertTrue(set(suites) <= {'codec', 'reads', 'dump', 'store', 'transactions', 'faults',
+                                                'settings', 'manager'})
         predictions = json.loads(runner.PREDICTIONS.read_text())['mutants_caught_at_least']
         self.assertEqual(set(predictions), set(runner.MUTANTS))
         # A drifted anchor is refused.
@@ -195,14 +212,15 @@ class LifecycleRecordSourceTests(unittest.TestCase):
         self.assertEqual(runner.label_problems(), [])
         self.assertIn('new-format', runner.b1.LIVING_RUN_LABELS)
         rows = [row for row in runner.b1.HARNESS_LABELS if row[0] == 'new-format']
-        # The read test's row, the store, transaction and fault tests' row, the Settings test's row, the
-        # manager test's row, the reader check's row and the layout emitter's row, all of this runner,
+        # The read test's row, the diagnostic test's row, the store, transaction and fault tests' row, the
+        # Settings test's row, the manager test's row, the reader check's row and the layout emitter's
+        # row, all of this runner,
         # and the named V3 runs of the other harnesses: the presence V3 step and the moved V3 cases of the
         # binding runner, the header footprint module's V3 cases and the store module's entry points.
-        self.assertEqual([row[1] for row in rows], ['scripts/proof/native_lifecycle_record.py'] * 6 + [
+        self.assertEqual([row[1] for row in rows], ['scripts/proof/native_lifecycle_record.py'] * 7 + [
             'scripts/proof/native_creation_binding.py', 'scripts/proof/native_creation_binding.py',
             'scripts/proof/tests/test_native_header_footprint.py', 'scripts/proof/tests/test_native_identity_store.py'])
-        for row in rows[6:]:
+        for row in rows[7:]:
             self.assertTrue(set(row[2]) <= set(runner.NEW_FORMAT_HARNESSES[row[1]]), row)
         # The rollback check is the one living source under an archived label.
         self.assertEqual(runner.b1.LIVING_ROLLBACK_CHECKS, (runner.ROLLBACK_CHECK,))
@@ -353,7 +371,7 @@ class LifecycleTransitionSourceTests(unittest.TestCase):
 
     def test_lifecycle_cases_are_named_once_and_labelled_by_format(self):
         self.assertEqual(runner.lifecycle_name_problems(), [])
-        self.assertEqual(runner.PHASES, ('candidate', 'codec', 'reads', 'store', 'transactions', 'faults',
+        self.assertEqual(runner.PHASES, ('candidate', 'codec', 'reads', 'dump', 'store', 'transactions', 'faults',
                                          'settings', 'manager', 'pinned', 'layouts', 'rollback', 'readers', 'mutants'))
         self.assertEqual({runner.case_label(name) for name in runner.MANAGER_NAMES},
                          {'legacy', 'production', 'new-format'})
@@ -404,6 +422,7 @@ class LifecycleTransitionSourceTests(unittest.TestCase):
                     labelled.setdefault(name, set()).add(label)
         every = {'production', 'legacy', 'new-format'}
         self.assertEqual(labelled, {runner.CODEC_TEST: {'production'}, runner.READ_TEST: every,
+                                    runner.DUMP_TEST: every,
                                     runner.STORE_TEST: every, runner.TRANSACTION_TEST: every,
                                     runner.FAULT_TEST: {'new-format'},
                                     runner.SETTINGS_TEST: {'production', 'new-format'},

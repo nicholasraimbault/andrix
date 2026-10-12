@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Pure checks of the header only false commit observers. The actual fixture transcripts and
 store snapshots are assessed by scripts/proof/native_lab_history.py in its guarded JVM phase."""
+import base64
 import hashlib
 import importlib.util
 import json
@@ -377,7 +378,7 @@ class LifecycleLayoutTests(unittest.TestCase):
         header = b'header'
         one = {'store.bin': header, 'store.bin.reservecopy': header, 'slots/10148/record.bin': b'slot',
                'slots/10148/record.bin.reservecopy': b'slot'}
-        for mode in ('retiring-v1', 'v2-slot'):
+        for mode in ('retiring-v1', 'v2-slot', 'eligible-v1'):
             generation = observe.load_lifecycle_generation(self.manifest(mode, one))
             assessed = observe.assess_store(self.store(one), mode, generation=generation)
             self.assertEqual(assessed['directories'], ['', 'slots', 'slots/10148'])
@@ -385,6 +386,9 @@ class LifecycleLayoutTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 observe.assess_store(self.store(one), 'v2-beside-sibling', generation=generation)
         both = dict(one, **{'slots/10149/record.bin': b'other', 'slots/10149/record.bin.reservecopy': b'other'})
+        unrelated = observe.load_lifecycle_generation(self.manifest('v2-beside-unrelated-body', both, other=10149))
+        self.assertEqual(observe.assess_store(self.store(both), 'v2-beside-unrelated-body',
+                                              generation=unrelated)['phase'], 'v2-beside-unrelated-body')
         generation = observe.load_lifecycle_generation(self.manifest('v2-beside-sibling', both, other=10149))
         self.assertEqual(observe.assess_store(self.store(both), 'v2-beside-sibling', generation=generation)['phase'],
                          'v2-beside-sibling')
@@ -404,9 +408,68 @@ class LifecycleLayoutTests(unittest.TestCase):
         for bad in (text.replace('"v2-slot"', '"v3-slot"'), text.replace('"authority":false', '"authority":true'),
                     text.replace('"other_app_id":null', '"other_app_id":10149'), text + ' ',
                     self.manifest('v2-beside-reservation', one, other=10149),
-                    self.manifest('v2-beside-sibling', one, other=10148)):
+                    self.manifest('v2-beside-sibling', one, other=10148),
+                    self.manifest('eligible-v1', one, other=10149),
+                    self.manifest('v2-beside-unrelated-body', one, other=10149)):
             with self.assertRaises(ValueError):
                 observe.load_lifecycle_generation(bad)
+
+
+
+class DumpTests(unittest.TestCase):
+    """The raw dump of a B1 phase against its exact prediction: schema 2 only, exact holds and names, and
+    every unavailable form kept as unavailable evidence."""
+
+    SCALARS = ('live_settings=true\nauthority=not-reported\ncounter_known=true\ncached_header=VALID\n'
+               'cached_enumeration_complete=true\ncreation_ready=true\nallocator_search_start=10150\n'
+               'unidentified_code=false\n')
+
+    def text(self, names=(observe.SUBJECT,), schema=2, holds=None):
+        b64 = lambda name: base64.b64encode(name.encode()).decode()
+        holds = holds if holds is not None else 'hold=10148\tVALID\ttrue\tpackage\t%s\n' % b64(observe.SUBJECT)
+        if schema == 1:
+            return 'andrix-native-identities-v1\n' + self.SCALARS + holds
+        return ('andrix-native-identities-v2\n' + self.SCALARS + 'deferred_count=%d\n' % len(names) + holds
+                + ''.join('deferred=%s\n' % b64(name) for name in sorted(names, key=lambda n: n.encode('utf-16-be'))))
+
+    def expected(self, deferred=(observe.SUBJECT,)):
+        return {'fields': {'counter_known': 'true', 'creation_ready': 'true', 'unidentified_code': 'false',
+                           'cached_header': 'VALID', 'cached_enumeration_complete': 'true'},
+                'holds': {'10148': ['VALID', True, 'package', observe.SUBJECT]}, 'deferred': list(deferred)}
+
+    def test_a_phase_matches_only_its_exact_prediction(self):
+        assessed = observe.assess_dump(self.text(), self.expected())
+        self.assertTrue(assessed['available'] and assessed['matches'], assessed)
+        self.assertEqual((assessed['schema_version'], assessed['deferred_names']), (2, [observe.SUBJECT]))
+        self.assertFalse(assessed['authority'])
+        # Exact sets: a missing or extra name, another hold or another field is not the prediction.
+        for text, expected in ((self.text(names=()), self.expected()),
+                               (self.text(names=(observe.SUBJECT, 'dev.andrix.extra')), self.expected()),
+                               (self.text(holds=''), self.expected()),
+                               (self.text(), dict(self.expected(), fields={'creation_ready': 'false'})),
+                               (self.text(), dict(self.expected(), fields={'deferred_count': '1'}))):
+            assessed = observe.assess_dump(text, expected)
+            self.assertTrue(assessed['available'])
+            self.assertFalse(assessed['matches'], expected)
+            self.assertTrue(assessed['problems'])
+
+    def test_a_version_1_or_unavailable_dump_is_unavailable_evidence(self):
+        empty = self.text(names=())
+        separated = [empty.replace('andrix-native-identities-v2\n',
+                                   'andrix-native-identities-v2' + separator + 'observer_available=false\n', 1)
+                     for separator in ('\v', '\f', '\x1c', '\x1d', '\x1e', '\x85', '\u2028', '\u2029')]
+        for text in (*separated, self.text(schema=1), 'andrix-native-identities-v2\nlive_settings=false\n',
+                     'andrix-native-identities-v2\nobserver_available=false\n',
+                     'andrix-native-identities-v3\nobserver_available=false\n', '', 'Permission Denial\n',
+                     self.text().replace('deferred_count=1', 'deferred_count=2')):
+            assessed = observe.assess_dump(text, self.expected())
+            self.assertFalse(assessed['available'], text)
+            self.assertFalse(assessed['matches'])
+            self.assertEqual((assessed['raw'], assessed['authority']), (text, False))
+            self.assertTrue(assessed['error'])
+        for bad in ((b'bytes', self.expected()), (self.text(), {'fields': {}}), (self.text(), None)):
+            with self.assertRaises(ValueError):
+                observe.assess_dump(*bad)
 
 
 if __name__ == '__main__':

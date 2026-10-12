@@ -28,9 +28,11 @@ class NativeRecoveryBootTests(unittest.TestCase):
     def test_fragment_source_profile(self):
         profile = integration.profile()
         # Eight boot and cleanup fragments, the four B2 history fragments: restoration, stored
-        # histories, the scan rule and recovery seeding, and the five lifecycle fragments: the boot
-        # facts, the retired boot queries, the deferral, the observation and the release finish.
-        self.assertEqual(len(profile['fragments']), 17)
+        # histories, the scan rule and recovery seeding, the five lifecycle fragments: the boot
+        # facts, the retired boot queries, the deferral, the observation and the release finish, and
+        # the diagnostic dump.
+        self.assertEqual(len(profile['fragments']), 18)
+        self.assertEqual(profile['fragments'][-1]['name'], 'diagnostic-dump')
         source = boot_source()
         self.assertNotIn('@IDENTITY_PREDICATE@', source)
         self.assertIn('claimInstallingPackageLocked', source)

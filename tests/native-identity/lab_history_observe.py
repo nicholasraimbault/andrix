@@ -21,6 +21,9 @@ _SPEC = importlib.util.spec_from_file_location('lab_history_writer_observe',
                                                Path(__file__).with_name('writer_observe.py'))
 writer = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(writer)
+_DUMP_SPEC = importlib.util.spec_from_file_location('lab_history_dump_observe', Path(__file__).with_name('observe.py'))
+dump = importlib.util.module_from_spec(_DUMP_SPEC)
+_DUMP_SPEC.loader.exec_module(dump)
 
 SUBJECT = writer.SUBJECT
 FIXTURE_SIGNER = '874cedf46661e33d62b711b266c96e629d1f64007e55350a59a167c9c23183d3'
@@ -35,8 +38,13 @@ GENERATION_KEYS = ('version', 'mode', 'format', 'lab_input_only', 'authority', '
 PREDICTION_KEYS = ('version', 'mode', 'format', 'prediction_only', 'authority', 'subject',
                    'signer_sha256', 'lineage', 'app_id', 'user_id', 'user_serial', 'principal_id', 'files')
 # The lifecycle guest layouts: the store each guest row of the lifecycle record's image starts from,
-# with the keys of the generator's manifest. The companions use a second app ID.
-LIFECYCLE_MODES = ('retiring-v1', 'v2-slot', 'v2-beside-reservation', 'v2-beside-sibling')
+# with the keys of the generator's manifest. The companions use a second app ID. eligible-v1 and
+# v2-beside-unrelated-body are the healthy controls of the retiring and sibling layouts.
+SINGLE_MODES = ('retiring-v1', 'v2-slot', 'eligible-v1')
+COMPANION_MODES = ('v2-beside-reservation', 'v2-beside-sibling', 'v2-beside-unrelated-body')
+LIFECYCLE_MODES = SINGLE_MODES + COMPANION_MODES
+# The schema a B1 phase's raw dump must have. A version 1 dump names no deferred set.
+DUMP_SCHEMA = 2
 LIFECYCLE_KEYS = ('version', 'mode', 'lab_input_only', 'authority', 'subject', 'lineage', 'app_id', 'other_app_id',
                   'user_id', 'user_serial', 'files')
 # Fields an in scope reply contributes to an UNKNOWN envelope, exactly as reported.
@@ -175,7 +183,7 @@ def load_lifecycle_generation(text):
     """The generator's manifest of one lifecycle guest layout, exactly: its mode, values and the SHA-256
     and length of every file, by path relative to the store. Lab input only, never authority."""
     value = _strict_json(text)
-    companion = type(value) is dict and value.get('mode') in LIFECYCLE_MODES[2:]
+    companion = type(value) is dict and value.get('mode') in COMPANION_MODES
     if (type(value) is not dict or tuple(value) != LIFECYCLE_KEYS or type(value['version']) is not int
             or value['version'] != 1 or value['mode'] not in LIFECYCLE_MODES or value['lab_input_only'] is not True
             or value['authority'] is not False or value['subject'] != SUBJECT or not _hex(value['lineage'], 32)
@@ -187,7 +195,7 @@ def load_lifecycle_generation(text):
             or not 0 <= value['user_serial'] < 1 << 63 or type(value['files']) is not dict
             or text != json.dumps(value, separators=(',', ':'))):
         raise ValueError('lifecycle generation manifest')
-    slots = {str(value['app_id'])} if value['mode'] in LIFECYCLE_MODES[:2] else (
+    slots = {str(value['app_id'])} if value['mode'] in SINGLE_MODES else (
         {str(value['other_app_id'])} if value['mode'] == 'v2-beside-reservation'
         else {str(value['app_id']), str(value['other_app_id'])})
     names = set(HEADERS) | {'slots/%s/%s' % (slot, name) for slot in slots for name in ('record.bin',
@@ -307,3 +315,36 @@ def assess_store(snapshot, phase, *, generation=None, prediction=None):
         raise ValueError('store directories differ from the %s phase' % phase)
     return {'phase': phase, 'files': {name: _sha(data) for name, data in sorted(files.items())},
             'directories': sorted(directories), 'authority': False}
+
+
+def assess_dump(text, expected):
+    """One raw native identity dump of a B1 phase against that phase's exact prediction.
+
+    The dump must have schema 2: a historical version 1 dump names no deferred set, so it is refused
+    here, never read as an empty one. Either unavailable form, a malformed record or another schema
+    is unavailable evidence, kept with its raw text and error and never a success. expected holds the
+    predicted scalar fields, the exact holds by app ID with their cached slot status, memory pin,
+    mapping kind and mapping name, and the exact deferred names. Required holds and deferred names
+    are exact sets, not minimum subsets. Cached metadata only: no lease, admission or authority."""
+    if type(text) is not str or type(expected) is not dict or set(expected) != {'fields', 'holds', 'deferred'}:
+        raise ValueError('a raw dump text and its phase prediction required')
+    try:
+        value = dump.parse_reservations(text, schema=DUMP_SCHEMA)
+    except ValueError as error:
+        return {'available': False, 'raw_sha256': _sha(text.encode('utf-8', 'surrogateescape')), 'raw': text,
+                'error': str(error), 'matches': False, 'authority': False}
+    problems = []
+    for key, want in sorted(expected['fields'].items()):
+        if key not in dump.SCALARS or value['fields'][key] != want:
+            problems.append('field %s is %r, not %r' % (key, value['fields'].get(key), want))
+    holds = {app_id: (hold['cached_slot'], hold['memory_pin'], hold['mapping_kind'], hold['mapping'])
+             for app_id, hold in value['holds'].items()}
+    want_holds = {int(app_id): tuple(hold) for app_id, hold in expected['holds'].items()}
+    if holds != want_holds:
+        problems.append('holds %r, not %r' % (sorted(holds.items()), sorted(want_holds.items())))
+    if sorted(value['deferred_names']) != sorted(expected['deferred']):
+        problems.append('deferred names %r, not %r' % (value['deferred_names'], sorted(expected['deferred'])))
+    return {'available': True, 'raw_sha256': _sha(text.encode('ascii')), 'schema_version': value['schema_version'],
+            'fields': value['fields'], 'holds': {str(k): list(v) for k, v in sorted(holds.items())},
+            'deferred_names': value['deferred_names'], 'matches': not problems, 'problems': problems,
+            'authority': False}

@@ -20,6 +20,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import unicodedata
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts/proof'))
@@ -493,6 +494,13 @@ HARNESS_LABELS = (
     ('new-format', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleReadTest',),
      'the Format.V3 reads of version 2 slots as positive state, the discrimination controls, and its'
      ' version 2 slot writes, which B1 builds but does not ship'),
+    ('production', 'scripts/proof/native_lifecycle_record.py', ('NativeIdentityDumpTest',),
+     'the schema 2 diagnostic under Format.V2 in the facade and in the candidate Settings text, with its'
+     ' deferred names, bounds and unavailable envelopes'),
+    ('legacy', 'scripts/proof/native_lifecycle_record.py', ('NativeIdentityDumpTest',),
+     'the same diagnostic under Format.V1'),
+    ('new-format', 'scripts/proof/native_lifecycle_record.py', ('NativeIdentityDumpTest',),
+     'the dormant schema 3 diagnostic under Format.V3, which B1 builds but does not ship'),
     ('production', 'scripts/proof/native_lifecycle_record.py',
      ('NativeLifecycleStoreTest', 'NativeLifecycleTransactionTest'),
      'the Format.V2 refusals of every lifecycle store transition and transaction, disposition, Restore and the'
@@ -881,29 +889,238 @@ def resource_guard(cgroup_root=Path('/sys/fs/cgroup'), membership=Path('/proc/se
 
 # ---------------------------------------------------------------- pure source checks
 
-def strip_java_comments(text):
-    """Java text with comments blanked, string and character literals kept."""
-    result, i, n = [], 0, len(text)
-    while i < n:
-        c = text[i]
-        if text.startswith('//', i):
-            end = text.find('\n', i)
-            i = n if end < 0 else end
-        elif text.startswith('/*', i):
-            end = text.find('*/', i + 2)
-            end = n - 2 if end < 0 else end
-            result.append(' ' * (end + 2 - i))
-            i = end + 2
-        elif c in '"\'':
-            j = i + 1
-            while j < n and text[j] != c:
-                j += 2 if text[j] == '\\' else 1
-            result.append(text[i:j + 1])
-            i = j + 1
+def java_digit16(unit):
+    """Character.digit(unit, 16) for one UTF-16 code unit, as the compiler's unicode reader asks it:
+    ASCII and fullwidth Latin hexadecimal letters and every Unicode decimal digit. A supplementary
+    character is two code units in Java, neither of them a digit."""
+    code = ord(unit)
+    if code > 0xFFFF:
+        return -1
+    if 0x30 <= code <= 0x39:
+        return code - 0x30
+    if 0x41 <= code <= 0x46 or 0x61 <= code <= 0x66:
+        return (code | 0x20) - 0x61 + 10
+    if 0xFF21 <= code <= 0xFF26 or 0xFF41 <= code <= 0xFF46:
+        return (code - 0xFF21 if code <= 0xFF26 else code - 0xFF41) + 10
+    value = unicodedata.decimal(unit, -1)
+    return value if 0 <= value <= 9 else -1
+
+
+@functools.lru_cache(maxsize=4096)
+def java_unicode_escapes(text):
+    """The text as the compiler reads it, by the rules of javac's UnicodeReader: a backslash may
+    begin an escape unless it follows a backslash that no escape produced; one or more u follow it,
+    then four digits as Character.digit reads them. A broken escape, which javac refuses, raises
+    ValueError."""
+    out, position, end = [], 0, len(text)
+    was_backslash = was_escape = False
+    while position < end:
+        unit = text[position]
+        if unit == '\\' and (not was_backslash or was_escape):
+            index = position + 1
+            while index < end and text[index] == 'u':
+                index += 1
+            if index == position + 1:
+                was_escape, was_backslash = False, not was_backslash
+                out.append(unit)
+                position += 1
+                continue
+            code = 0
+            for _ in range(4):
+                code = (code << 4) | (java_digit16(text[index]) if index < end else -1)
+                if code < 0:
+                    raise ValueError('a broken unicode escape at offset %d' % position)
+                index += 1
+            character = chr(code)
+            was_escape, was_backslash = True, character == '\\' and not was_backslash
+            out.append(character)
+            position = index
         else:
-            result.append(c)
-            i += 1
-    return ''.join(result)
+            was_backslash = was_escape = False
+            out.append(unit)
+            position += 1
+    return ''.join(out)
+
+
+@functools.lru_cache(maxsize=4096)
+def java_code_view(text, keep_literals=True):
+    """Java text as code, in one lexical pass: comments blanked, a line comment ending at a CR or LF
+    as in Java, and the contents of string, text block and character literals kept or blanked. A text
+    block ends at the first triple quote that no backslash escapes. Lengths and line breaks are kept.
+    Read text whose unicode escapes are translated."""
+    out, at, end = [], 0, len(text)
+
+    def blank(part):
+        return re.sub(r'[^\r\n]', ' ', part)
+    literal = (lambda part: part) if keep_literals else blank
+    while at < end:
+        if text.startswith('//', at):
+            stop = at
+            while stop < end and text[stop] not in '\r\n':
+                stop += 1
+            out.append(blank(text[at:stop]))
+            at = stop
+        elif text.startswith('/*', at):
+            stop = text.find('*/', at + 2)
+            stop = end if stop < 0 else stop + 2
+            out.append(blank(text[at:stop]))
+            at = stop
+        elif text.startswith('"""', at):
+            close = at + 3
+            while close < end and not text.startswith('"""', close):
+                close += 2 if text[close] == '\\' else 1
+            close = min(close, end)
+            out.append('"""' + literal(text[at + 3:close]))
+            if close < end:
+                out.append('"""')
+            at = close + 3
+        elif text[at] in '"\'':
+            quote, scan = text[at], at + 1
+            while scan < end and text[scan] not in (quote, '\r', '\n'):
+                scan += 2 if text[scan] == '\\' else 1
+            scan = min(scan, end)
+            out.append(quote + literal(text[at + 1:scan]))
+            if scan < end and text[scan] == quote:
+                out.append(quote)
+                scan += 1
+            at = scan
+        else:
+            out.append(text[at])
+            at += 1
+    return ''.join(out)
+
+
+# The identifier characters the guards read. Code outside comments and literals must be printable
+# ASCII (java_code_outside_ascii), so these are exactly Java's identifier characters there, and a
+# name compares exactly: no ignorable character can join it and no other letter can extend it.
+JAVA_PART = r'[A-Za-z0-9_$\u0080-\U0010ffff]'
+# Any other character could be part of a Java name, so it bounds no name: the guards never read
+# finishRelease in a longer non ASCII name, and the ASCII rule refuses such code anyway.
+BEFORE_NAME = r'(?<![A-Za-z0-9_$\u0080-\U0010ffff])'
+AFTER_NAME = r'(?![A-Za-z0-9_$\u0080-\U0010ffff])'
+# Explicit type arguments, nested ones included, which an invocation, a method or constructor
+# reference and an instance creation may carry (JLS 15.9, 15.12, 15.13). A non-generic method or
+# constructor ignores them, so they can stand before any name. Read in the structure view, where
+# annotations are blank, so no parenthesis can occur inside them.
+JAVA_TYPE_ARGUMENTS = r'<[^;(){}]*>'
+
+
+def java_code_outside_ascii(text):
+    """The characters of translated Java text, outside comments and literals, that are neither
+    printable ASCII nor whitespace: none of the guarded sources has one."""
+    return sorted({c for c in java_code_view(text, False) if not (' ' <= c <= '~' or c in '\t\n\r\f')})
+
+
+_ANNOTATION_NAME = re.compile(r'[A-Za-z_$][A-Za-z0-9_$]*(?:\s*\.\s*[A-Za-z_$][A-Za-z0-9_$]*)*')
+
+
+@functools.lru_cache(maxsize=4096)
+def _annotations_blanked(view, whole):
+    """A literal blanked view with each annotation blanked: whole, as @, its qualified name and its
+    balanced argument list, or only its @ and qualified name, the argument list kept. Literal contents
+    are already blank, so no parenthesis in data can unbalance it. @interface stays."""
+    out = list(view)
+    at, end = 0, len(view)
+    while True:
+        at = view.find('@', at)
+        if at < 0:
+            break
+        index = at + 1
+        while index < end and view[index] in ' \t\r\n\f':
+            index += 1
+        name = _ANNOTATION_NAME.match(view, index)
+        if name is None or name.group(0) == 'interface':
+            at += 1
+            continue
+        stop = name.end()
+        if whole:
+            after = stop
+            while after < end and view[after] in ' \t\r\n\f':
+                after += 1
+            if after < end and view[after] == '(':
+                depth, scan = 0, after
+                while scan < end:
+                    depth += {'(': 1, ')': -1}.get(view[scan], 0)
+                    scan += 1
+                    if depth == 0:
+                        break
+                if depth == 0:
+                    stop = scan
+        for index in range(at, stop):
+            if out[index] not in '\r\n':
+                out[index] = ' '
+        at = stop
+    return ''.join(out)
+
+
+@functools.lru_cache(maxsize=4096)
+def java_structure_view(text):
+    """Translated Java text with comments, literal contents and annotations blanked, lengths and line
+    breaks kept: the view the syntactic rules read. An annotation is @, its qualified name and its
+    balanced argument list, nested annotations and array values included; literal contents are blank
+    first, so no parenthesis in data can unbalance it. An annotation type declaration's @interface
+    stays."""
+    return _annotations_blanked(java_code_view(text, False), True)
+
+
+def java_annotation_values(view):
+    """A literal blanked view with each annotation's @ and qualified name blanked and its argument list
+    kept, nested annotations' names blank too: annotation element values, such as class literals, stay
+    readable while no annotation name reads as a call. Lengths and line breaks kept."""
+    return _annotations_blanked(view, False)
+
+
+def java_creation(name):
+    """A pattern for an instance creation of the class with this simple name, in the structure view:
+    new, any explicit type arguments and qualification, the name, any type arguments, then the
+    argument list. It starts at new."""
+    return ((BEFORE_NAME + r'new' + AFTER_NAME + r'\s*(?:%s\s*)?(?:[A-Za-z_$][A-Za-z0-9_$]*\s*\.\s*)*' + BEFORE_NAME
+             + r'%s\s*(?:%s\s*)?\(') % (JAVA_TYPE_ARGUMENTS, name, JAVA_TYPE_ARGUMENTS))
+
+
+def java_constructor_reference(name):
+    """A pattern for a constructor reference of the class with this simple name, type arguments
+    included, in the structure view."""
+    return BEFORE_NAME + r'%s\s*(?:%s\s*)?::\s*(?:%s\s*)?new' % (name, JAVA_TYPE_ARGUMENTS, JAVA_TYPE_ARGUMENTS) + AFTER_NAME
+
+
+def java_class_literal(name):
+    """A pattern for a class literal of the class with this simple name, arrays included."""
+    return BEFORE_NAME + name + r'\s*(?:\[\s*\]\s*)*\.\s*class' + AFTER_NAME
+
+
+def java_call_or_reference(name):
+    """A pattern for a call of the method with this name, qualified or not and with any explicit type
+    arguments, or a method reference to it. A declaration matches too; callers tell it apart."""
+    return (r'(?:\.\s*(?:%s\s*)?|::\s*(?:%s\s*)?|(?<![A-Za-z0-9_$.:\u0080-\U0010ffff]))%s%s(?=\s*\()|::\s*(?:%s\s*)?%s%s'
+            % (JAVA_TYPE_ARGUMENTS, JAVA_TYPE_ARGUMENTS, name, AFTER_NAME, JAVA_TYPE_ARGUMENTS, name, AFTER_NAME))
+
+
+def living_views(text):
+    """(kept, masked, structure) views of a living Java text after the compiler's escape translation;
+    a text holding a broken escape is read untranslated, since it does not compile."""
+    try:
+        text = java_unicode_escapes(text)
+    except ValueError:
+        pass
+    return java_code_view(text), java_code_view(text, False), java_structure_view(text)
+
+
+def living_code(text):
+    """A living guard's view of a Java text: unicode escapes translated as the compiler does, then
+    comments blanked with literals kept. A text holding a broken escape is read untranslated; it does
+    not compile, and the format guard refuses any escape in a production text."""
+    try:
+        text = java_unicode_escapes(text)
+    except ValueError:
+        pass
+    return java_code_view(text)
+
+
+def strip_java_comments(text):
+    """Java text with comments blanked, string, text block and character literals kept: the living
+    code view, java_code_view. Unicode escapes are read as written; living_code translates them."""
+    return java_code_view(text)
 
 
 def added_java(patch_text):
@@ -953,12 +1170,15 @@ SELECTORS = (r'\bFormat\s*\.\s*valueOf\b', r'\bFormat\s*\.\s*values\s*\(', r'\bE
 NATIVE_SELECTORS = SELECTORS + (r'SystemProperties', r'\bSettings\.Global\b', r'java\.lang\.reflect',
                                 r'\.forName\(', r'\.getDeclared', r'setAccessible\(', r'\bEnumSet\b',
                                 r'\bMethodHandle', r'\bVarHandle', r'\bUnsafe\b', r'\bgetField',
-                                r'\bgetDeclaringClass\b')
+                                r'\bgetDeclaringClass\b', r'\.getMethods?\b', r'\.getConstructors?\b',
+                                r'\.newInstance\b')
 # A store construction: direct, by simple or qualified name, or a constructor reference.
-CONSTRUCTIONS = (r'\bnew\s+(?:[\w$]+\s*\.\s*)*NativeIdentityStore\s*\(', r'\bNativeIdentityStore\s*::\s*new\b')
-# A Java unicode escape. Java decodes it before comments and literals, so it could hide code from
-# the comment stripper and every pattern here. No production text carries one.
-UNICODE_ESCAPE = r'\\+u+[0-9A-Fa-f]{4}'
+CONSTRUCTIONS = (java_creation('NativeIdentityStore'), java_constructor_reference('NativeIdentityStore'))
+# A Java unicode escape introducer, whatever digits follow: the compiler decodes escapes before
+# comments and literals, and reads their digits as Character.digit does, fullwidth ones included. No
+# production text carries one, so every backslash followed by u is refused, as is code outside
+# printable ASCII.
+UNICODE_ESCAPE = r'\\+u+'
 # The guard's rules, by the name each violation starts with.
 FORMAT_RULES = ('sites', 'format', 'v1', 'v3', 'mention', 'selector', 'enum', 'escape')
 HUNK = re.compile(r'@@ -[0-9]+(?:,([0-9]+))? \+[0-9]+(?:,([0-9]+))? @@')
@@ -1083,9 +1303,13 @@ def format_violations(texts):
     NativeIdentityStore. selector: no value, property, settings, reflection or enum selection,
     with the wider set in the native sources. enum: the store's Format enum is exactly its three
     closed versions with their header and slot ceilings. escape: no production text carries a Java
-    unicode escape, which could hide code from every other rule. Comments are not code."""
+    unicode escape, which could hide code from every other rule, or code outside printable ASCII.
+    Comments are not code. Constructions are read in the structure view, where literal contents and
+    annotations are blank."""
     problems = []
-    code = {name: strip_java_comments(raw) for name, raw in texts.items()}
+    views = {name: living_views(raw) for name, raw in texts.items()}
+    code = {name: kept for name, (kept, _, _) in views.items()}
+    structure = {name: shaped for name, (_, _, shaped) in views.items()}
     boot = boot_site(code.get(SETTINGS_SECTION))
     if boot is None:
         problems.append('sites: no anchored boot construction in readNativeIdentityStoreForBoot of '
@@ -1097,7 +1321,7 @@ def format_violations(texts):
     for name, text in code.items():
         here = name == SETTINGS_SECTION
         for pattern in CONSTRUCTIONS:
-            for found in re.finditer(pattern, text):
+            for found in re.finditer(pattern, structure[name]):
                 if not (here and found.start() == construction):
                     problems.append('sites: %s constructs a store outside the boot read: %s'
                                     % (name, ' '.join(found.group(0).split())))
@@ -1121,6 +1345,10 @@ def format_violations(texts):
         # Java decodes them first.
         for found in re.finditer(UNICODE_ESCAPE, texts[name]):
             problems.append('escape: %s carries the unicode escape %s' % (name, found.group(0)))
+        outside = java_code_outside_ascii(views[name][0])
+        if outside:
+            problems.append('escape: %s carries code outside printable ASCII: %s'
+                            % (name, ' '.join('U+%04X' % ord(c) for c in outside)))
     if boot is not None and not code[SETTINGS_SECTION].startswith(PRODUCTION + ');', boot):
         problems.append('format: the boot construction passes %s, not %s'
                         % (boot_argument(code[SETTINGS_SECTION], boot), PRODUCTION))
@@ -1140,7 +1368,7 @@ def format_rules(texts):
 def boot_literal(texts=None):
     """The format argument of the anchored boot construction in the native patch, or None."""
     texts = production_texts() if texts is None else texts
-    code = strip_java_comments(texts.get(SETTINGS_SECTION, ''))
+    code = living_code(texts.get(SETTINGS_SECTION, ''))
     boot = boot_site(code)
     return None if boot is None else boot_argument(code, boot)
 
@@ -1180,10 +1408,10 @@ def surface_violations():
     """The B1 production surface: no Snapshot overload beside plans, one fixed format, and the
     encoder's own byte measure. The format guard pins the Format enum itself."""
     problems = []
-    store = strip_java_comments((ROOT / STORE).read_text())
-    persistence = strip_java_comments((ROOT / PERSISTENCE).read_text())
-    records = strip_java_comments((ROOT / FRAMEWORK_DIR / 'NativeIdentityRecords.java').read_text())
-    manager = strip_java_comments((ROOT / MANAGER).read_text())
+    store = living_code((ROOT / STORE).read_text())
+    persistence = living_code((ROOT / PERSISTENCE).read_text())
+    records = living_code((ROOT / FRAMEWORK_DIR / 'NativeIdentityRecords.java').read_text())
+    manager = living_code((ROOT / MANAGER).read_text())
     if re.search(r'reservePending\s*\(\s*NativePrincipalPins\s*\.\s*Snapshot', persistence):
         problems.append('reservePending keeps a Snapshot overload')
     if re.search(r'projectReservation\s*\([^)]*Snapshot', persistence):
@@ -1309,14 +1537,39 @@ def guard_mutants():
         'qualified-constructor-reference': (
             changed((persistence, anchor, REFERENCE % 'com.android.server.pm.' + anchor)), {'sites'}),
         'declaring-class-field': (changed((persistence, anchor, DECLARING_FIELD + anchor)), {'selector'}),
-        'unicode-escape': (changed((persistence, anchor, HIDDEN + anchor)), {'escape'}),
+        # Every rule reads the compiler's translation, so the construction the escape hides trips the
+        # site and format rules beside the escape rule.
+        'unicode-escape': (changed((persistence, anchor, HIDDEN + anchor)), {'escape', 'sites', 'v1'}),
         'format-alone': (changed((settings, boot, CONSTRUCTION + 'productionFormat());\n')), {'format'}),
         'v1-alone': (changed((persistence, anchor, RETIRED_NAME + anchor)), {'v1'}),
         'mention-alone': (changed((NON_NATIVE, 'public final class CeStorageAccessTracker {\n',
                                    'public final class CeStorageAccessTracker {\n' + MENTION)), {'mention'}),
+        'harmless-unicode-escape': (changed((persistence, anchor, '    // caf\\u00e9\n' + anchor)), {'escape'}),
+        'unicode-carriage-return-escape': (changed((persistence, anchor, HIDDEN.replace('\\u000a', '\\u000d')
+                                                    + anchor)), {'escape', 'sites', 'v1'}),
+        'creation-with-type-arguments': (changed((persistence, anchor, QUALIFIED.replace(
+            'new com.android.server.pm.NativeIdentityStore(', 'new <String> NativeIdentityStore(') + anchor)), {'sites'}),
+        'annotated-qualified-creation': (changed((persistence, anchor, QUALIFIED.replace(
+            'new com.android.server.pm.NativeIdentityStore(', 'new @A com.android.server.pm.@B(x = {1}) NativeIdentityStore(')
+            + anchor)), {'sites'}),
+        'annotated-creation-holding-a-parenthesis': (changed((persistence, anchor, QUALIFIED.replace(
+            'new com.android.server.pm.NativeIdentityStore(', 'new @P7Mark("(") NativeIdentityStore(') + anchor)), {'sites'}),
+        'nested-annotation-creation': (changed((persistence, anchor, QUALIFIED.replace(
+            'new com.android.server.pm.NativeIdentityStore(', 'new @P7Outer(@P7Middle(@P7Inner(1))) NativeIdentityStore(')
+            + anchor)), {'sites'}),
+        'code-outside-ascii': (changed((persistence, anchor, '    private static final int MARK\u200c = 0;\n\n' + anchor)),
+                               {'escape'}),
+        'computed-method-lookup': (changed((persistence, anchor,
+            '    static Object lookup() throws ReflectiveOperationException {\n'
+            '        return NativePrincipalPins.class.getMethod("finish" + "Release", NativePrincipalPins.Pin.class);\n'
+            '    }\n\n' + anchor)), {'selector'}),
+        'constructor-reference-with-type-arguments': (
+            changed((persistence, anchor, (REFERENCE % '').replace('::new', ':: <String> new') + anchor)), {'sites'}),
+        'fullwidth-unicode-escape': (changed((persistence, anchor, HIDDEN.replace('\\u000a', '\\u\uff10\uff10\uff10\uff41')
+                                              + anchor)), {'escape', 'sites', 'v1'}),
         'non-native-unicode-escape': (changed((NON_NATIVE, 'public final class CeStorageAccessTracker {\n',
                                                'public final class CeStorageAccessTracker {\n' + HIDDEN)),
-                                      {'escape'}),
+                                      {'escape', 'mention', 'sites', 'v1'}),
     }
     for name, path in ONE_TOKEN_PATHS.items():
         patched = dict(texts)

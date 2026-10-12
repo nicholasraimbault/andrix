@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- A manifest only ordinary package for the guest allocator probe. It has no code, component,
+     shared UID, instrumentation, permission, exported authority or backup, and is never in
+     PRODUCT_PACKAGES. Installing it only allocates an ordinary app ID. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.andrix.proof.uidallocation" android:versionCode="1" android:versionName="1">
+    <uses-sdk android:minSdkVersion="37" android:targetSdkVersion="37" />
+    <application android:label="Andrix allocator probe" android:hasCode="false" android:debuggable="false"
+        android:allowBackup="false" android:testOnly="true" />
+</manifest>

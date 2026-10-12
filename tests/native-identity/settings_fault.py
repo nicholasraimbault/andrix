@@ -12,7 +12,9 @@ import re
 import xml.etree.ElementTree as ET
 
 MAX_BYTES = 16 * 1024 * 1024
-ALLOWED = {'dev.andrix.proof.uidstore', 'dev.andrix.proof.uidstorepeer'}
+# The two ordinary key observers and the lifecycle record's fixed subject, whose settings row the
+# mapping loss guest removes. No other package.
+ALLOWED = {'dev.andrix.proof.uidstore', 'dev.andrix.proof.uidstorepeer', 'dev.andrix.proof.principalclosed'}
 
 
 def decode_certificates(root):

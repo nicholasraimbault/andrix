@@ -61,6 +61,24 @@ invalid identifiers refuse with explicit checks, also without Java assertions. T
 PackageSetting, UID allocation, user data, key file, initializer or publication here, and the
 output is lab input or prediction only.
 
+The lifecycle guest modes write one store layout each, through the actual codec, with its manifest:
+
+- `retiring-v1`: a version 1 header and the subject's version 1 retiring body.
+- `v2-slot`: a version 1 header and the subject's version 2 body, eligible and paused by its user.
+- `eligible-v1`: a version 1 header and the subject's eligible version 1 body. It is the healthy
+  control of the retiring layout, scanned or with its code withheld.
+- `v2-beside-reservation`: a version 2 header with the subject's bound reservation, and another
+  package's version 2 body at a second app ID.
+- `v2-beside-sibling`: a version 1 header, the subject's eligible version 1 body and, at a second
+  app ID, a version 2 body naming the subject under another principal.
+- `v2-beside-unrelated-body`: the sibling layout, except that the version 2 body names
+  `dev.andrix.proof.lifecycleother` under another principal. It is the sibling's healthy control.
+
+The first three take `OUTPUT LINEAGE APP_ID USER_SERIAL` and the last three add `OTHER_APP_ID`
+before the serial. The runner compares every file of every mode byte for byte with an independent
+layout oracle. `lab_history_observe.assess_store` reads a staged copy against the manifest, and
+`assess_dump` reads a phase's raw dump against its exact prediction.
+
 ## Host rehearsal
 
 `NativeWriterLabRehearsal.java` drives the unchanged `NativePrincipalWriterFixture`, the real

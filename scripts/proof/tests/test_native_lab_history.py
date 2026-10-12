@@ -695,7 +695,11 @@ class GuestInputTests(unittest.TestCase):
                              sorted({app_id, *slots}), mode)
             if mode == 'retiring-v1':
                 self.assertEqual((slots[app_id]['version'], slots[app_id]['users'][0]['legacy']), (1, True))
-            if mode in ('v2-slot', 'v2-beside-reservation', 'v2-beside-sibling'):
+            if mode in ('eligible-v1', 'v2-beside-sibling', 'v2-beside-unrelated-body'):
+                self.assertEqual((slots[app_id]['version'], slots[app_id]['users'][0]['legacy'],
+                                  slots[app_id]['package']), (1, False, runner.observer().SUBJECT), mode)
+                self.assertEqual(header['version'], 1, mode)
+            if mode in ('v2-slot', 'v2-beside-reservation', 'v2-beside-sibling', 'v2-beside-unrelated-body'):
                 newer = slots[app_id if mode == 'v2-slot' else other_app_id]
                 user = newer['users'][0]
                 self.assertEqual((newer['version'], user['state'], [entry['class'] for entry in user['entries']]),
@@ -707,6 +711,17 @@ class GuestInputTests(unittest.TestCase):
                 self.assertEqual((slots[app_id]['package'], slots[other_app_id]['package']),
                                  (runner.observer().SUBJECT,) * 2)
                 self.assertNotEqual(slots[app_id]['users'][0]['principal'], slots[other_app_id]['users'][0]['principal'])
+            if mode == 'v2-beside-unrelated-body':
+                # The sibling layout, except that the unsupported body is another package's.
+                self.assertEqual((slots[app_id]['package'], slots[other_app_id]['package']),
+                                 (runner.observer().SUBJECT, runner.OTHER))
+                self.assertNotEqual(slots[app_id]['users'][0]['principal'], slots[other_app_id]['users'][0]['principal'])
+                sibling = runner.lifecycle_goldens('v2-beside-sibling', lineage, app_id, other_app_id, serial)
+                self.assertEqual({name: data for name, data in files.items() if str(other_app_id) not in name},
+                                 {name: data for name, data in sibling.items() if str(other_app_id) not in name})
+            if mode == 'eligible-v1':
+                self.assertEqual(sorted(files), sorted(runner.lifecycle_goldens('retiring-v1', lineage, app_id,
+                                                                                other_app_id, serial)))
 
 
 if __name__ == '__main__':

@@ -6,5 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 final class SharedUserSetting extends SettingBase {
  final List<PackageStateInternal> states=new ArrayList<>();
+ String name;
  List<PackageStateInternal> getPackageStates(){return states;}
+ String getName(){return name;}
 }

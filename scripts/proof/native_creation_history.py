@@ -422,6 +422,14 @@ def method(text, start):
     return text[first:text.index('\n    }\n', first) + len('\n    }\n')]
 
 
+def methods_through(text, first, last):
+    """From one method's first line through the closing brace of a later method."""
+    start, closing = text.find(first), method(text, last)
+    if text.count(first) != 1 or start < 0 or text.index(closing) < start:
+        raise ValueError('Settings method span drift: ' + first.strip()[:70])
+    return text[start:text.index(closing) + len(closing)]
+
+
 APPLY_START = '    void applyNativeIdentityStoreLPw(NativeIdentityStore.Loaded loaded) {\n'
 BOOT_FACTS_START = '    private void recordNativeBootFactsLPw(NativeIdentityStore.Loaded loaded) {\n'
 QUERIES_START = '    NativeIdentityPersistence.BootFacts nativeBootFactsLPr() {\n'
@@ -433,6 +441,9 @@ BOOT_ORDER = ('NativeIdentityPersistence.restoration(loaded.histories());',
               'observeNativeIdentityStoreLPw(loaded);', 'seedNativeRecoveryLPw();',
               'recordNativeBootFactsLPw(loaded);')
 BINDING_START = '    NativeIdentityRecords.Slot nativePrincipalBindingLPr(NativePrincipalPins.Record record) {\n'
+# The privileged diagnostic and its name check, both of the shared diagnostic fragment.
+DIAGNOSTIC_START = '    String nativeIdentityDumpLPr() {\n'
+DIAGNOSTIC_NAME_START = '    private static byte[] nativeDiagnosticNameBytes(String name) {\n'
 REMEMBERED_FIELD = re.compile(r'    private final java\.util\.Map<Long, [A-Za-z.]+> mNativeRememberedBindings =\n'
                               r'            new java\.util\.HashMap<>\(\);\n')
 
@@ -441,7 +452,8 @@ def settings_texts(settings):
     """Every history text the harness takes from one candidate Settings, by placeholder: its whole
     boot restoration method and restore inputs, the observation, remembered binding field and
     remembering it calls, the hold refresh, the app ID hold, scan rule, recovery seeding, boot
-    facts, retired boot queries and release finish, all cut from it, and the shared identity and
+    facts, retired boot queries and release finish, the creation readiness query, and the diagnostic
+    dump with its availability query and name check, all cut from it, and the shared identity and
     path safety fragments that it must contain exactly once. The restore capacity fragment must
     occur once, inside the restoration method."""
     fragments = {name: path.read_text() for name, (_, path) in integration.FRAGMENTS.items()}
@@ -475,6 +487,9 @@ def settings_texts(settings):
         'RETIRED_BOOT': cut(settings, QUERIES_START,
                             '\n    boolean nativeScanSubjectAllowedLPr(PackageSetting candidate) {\n'),
         'RELEASE_FINISH': method(settings, RELEASE_FINISH_START),
+        'CREATION_READY': method(settings, '    boolean nativePrincipalCreationReadyLPr() {\n'),
+        'DIAGNOSTIC_AVAILABLE': method(settings, '    boolean nativeIdentityDumpAvailableLPr() {\n'),
+        'DIAGNOSTIC': methods_through(settings, DIAGNOSTIC_START, DIAGNOSTIC_NAME_START),
     }
 
 
@@ -489,7 +504,8 @@ def b2_text_checks(settings):
     if settings.count(fragments['stored-history']) != 1 or fragments['stored-history'] not in texts['STORED']:
         problems.append('candidate lacks the stored history fragment where the harness cuts it')
     for tag, name in (('BOOT_FACTS', 'boot-facts'), ('RETIRED_BOOT', 'retired-boot'),
-                      ('RELEASE_FINISH', 'release-finish'), ('OBSERVE', 'observation')):
+                      ('RELEASE_FINISH', 'release-finish'), ('OBSERVE', 'observation'),
+                      ('DIAGNOSTIC', 'diagnostic-dump')):
         if settings.count(fragments[name]) != 1 or not fragments[name].endswith(texts[tag]):
             problems.append('candidate %s is not the end of fragment %s' % (tag, name))
     if texts['APPLY'].count('recordNativeBootFactsLPw(loaded);') != 1:

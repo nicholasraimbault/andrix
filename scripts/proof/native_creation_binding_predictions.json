@@ -624,5 +624,60 @@
         "new-format"
       ]
     }
+  },
+  "p7_guard_reading": {
+    "status": "PREDICTED before the guarded run of P7 candidate f. Nothing here is an executed result.",
+    "basis": "Every rule of the production format guard reads the compiler's translation of unicode escapes (javac's UnicodeReader rules: Character.digit digits, several u and the backslash before an escape) through one lexical view of comments, literals and text blocks that ends a line comment at a CR or LF. The escape rule refuses every backslash followed by u in a production text. A store construction is read in every syntactic form, in a structure view where literal contents and annotations (balanced, nested ones included) are blank: explicit type arguments, type annotations and qualification, and a constructor reference with type arguments. Code outside printable ASCII is refused, so names compare exactly. Native sources also refuse method and constructor lookup by name. The two escape mutants hide a V1 store construction behind an escaped line break, so the site and format rules now see it too; a harmless escape trips the escape rule alone, and neither fullwidth escape digits nor an escaped carriage return hide anything.",
+    "guard_mutants": {
+      "before": 23,
+      "after": 33
+    },
+    "mutant_rules": {
+      "unicode-escape": [
+        "escape",
+        "sites",
+        "v1"
+      ],
+      "non-native-unicode-escape": [
+        "escape",
+        "mention",
+        "sites",
+        "v1"
+      ],
+      "harmless-unicode-escape": [
+        "escape"
+      ],
+      "fullwidth-unicode-escape": [
+        "escape",
+        "sites",
+        "v1"
+      ],
+      "unicode-carriage-return-escape": [
+        "escape",
+        "sites",
+        "v1"
+      ],
+      "creation-with-type-arguments": [
+        "sites"
+      ],
+      "annotated-qualified-creation": [
+        "sites"
+      ],
+      "constructor-reference-with-type-arguments": [
+        "sites"
+      ],
+      "annotated-creation-holding-a-parenthesis": [
+        "sites"
+      ],
+      "nested-annotation-creation": [
+        "sites"
+      ],
+      "code-outside-ascii": [
+        "escape"
+      ],
+      "computed-method-lookup": [
+        "selector"
+      ]
+    }
   }
 }

@@ -2,7 +2,7 @@
   "version": 1,
   "project": "frameworks/base",
   "head": "aab06a8bd44c4c2b58eeec780fde83baa9d43a40",
-  "patch_sha256": "d97f4080f84773cb44693aaf0d6dd920b21af346ff851b7c05d3d69fff957ca8",
+  "patch_sha256": "59300e3d12a59dcb33acadc104894fd4b015e9fcc14bf456a09a07aee015a04e",
   "files": [
     {
       "path": "services/core/java/com/android/server/pm/AppIdSettingMap.java",
@@ -12,7 +12,7 @@
     {
       "path": "services/core/java/com/android/server/pm/Settings.java",
       "upstream_sha256": "bff2de579d206a39be81ef0b798df8f6e845d2f28efbbcd63554ccffbddae5a1",
-      "candidate_sha256": "2456c7395c97b838d5f0853d850e16d58d995b082cdad14ee5068b5f3263bcf4"
+      "candidate_sha256": "4d851032afedd43ddadacdbc026ac62e0ea22c218a8fb0c8f59a70d67a452eeb"
     },
     {
       "path": "services/core/java/com/android/server/pm/PackageManagerService.java",
@@ -84,7 +84,7 @@
     {
       "path": "services/core/java/com/android/server/pm/NativePrincipalRecovery.java",
       "source": "owner/platform/framework/NativePrincipalRecovery.java",
-      "sha256": "08ed1d161a632362fd02912abfb2b927b6ad1ee18c78deab0fe0f9129711b88e"
+      "sha256": "e6370a2bc822c78602c97b3a04803916184095a6dc796d1360a48b47791fbda8"
     }
   ],
   "scope": "Internal PMS native-principal reservation component, not a public designation/launch API or runtime qualification",
@@ -208,6 +208,12 @@
       "path": "services/core/java/com/android/server/pm/Settings.java",
       "source": "owner/tests/platform/native_recovery_fragments/release-finish.java.inc",
       "sha256": "bd8d21c0189304e5cb31d086ef7881cb46f3e5293079d242366dd03584e29eec"
+    },
+    {
+      "name": "diagnostic-dump",
+      "path": "services/core/java/com/android/server/pm/Settings.java",
+      "source": "owner/tests/platform/native_recovery_fragments/diagnostic-dump.java.inc",
+      "sha256": "17a8d470177321e79918c057a96fe6084cc9041ad124db334abda1417bd50f03"
     }
   ]
 }

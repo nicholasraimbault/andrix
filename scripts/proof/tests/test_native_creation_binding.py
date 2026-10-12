@@ -128,6 +128,21 @@ class CreationBindingSourceTests(unittest.TestCase):
         self.assertIn('Production constructs Format.V2 once', store.replace('\n * ', ' '))
         self.assertEqual(runner.enum_definition(runner.strip_java_comments(store)), runner.FORMAT_ENUM)
 
+    def test_the_structure_view_blanks_annotations_and_literal_data(self):
+        text = ('@A(x = "(", y = @B(@C(1))) class T { String s = "{"; Object o = new @P("(") X<@Q(1 < 2) Y>(); }\n'
+                '@interface P7Mark { String value(); }\n')
+        view = runner.java_structure_view(text)
+        self.assertEqual(len(view), len(text))
+        self.assertEqual(view.count('\n'), text.count('\n'))
+        self.assertNotIn('@', view.split('\n')[0])
+        self.assertEqual(view.count('{'), 2)
+        self.assertRegex(view, runner.java_creation('X'))
+        self.assertIn('@interface P7Mark', view)
+        # The value view blanks only each annotation's @ and name: its arguments stay, nested names go.
+        values = runner.java_annotation_values(runner.java_code_view('@A(X.class) @ p.B (@C(1)) @interface D {}', False))
+        self.assertEqual(values, '  (X.class)' + ' ' * 7 + '(  (1)) @interface D {}')
+        self.assertEqual(runner.java_code_outside_ascii('int a\u200cb; String s = "\u00e9";'), ['\u200c'])
+
     def test_each_guard_mutant_trips_exactly_its_rules(self):
         mutants = runner.guard_mutants()
         self.assertEqual(set(mutants), {
@@ -135,14 +150,21 @@ class CreationBindingSourceTests(unittest.TestCase):
             'value-and-property-selection', 'reflective-field-write', 'enumset-complement',
             'enum-version-swap', 'construction-outside-boot', 'qualified-construction', 'constructor-reference',
             'qualified-constructor-reference', 'declaring-class-field', 'unicode-escape', 'format-alone',
-            'v1-alone', 'mention-alone', 'non-native-unicode-escape', *runner.ONE_TOKEN_PATHS,
+            'v1-alone', 'mention-alone', 'non-native-unicode-escape', 'harmless-unicode-escape',
+            'fullwidth-unicode-escape', 'unicode-carriage-return-escape', 'creation-with-type-arguments',
+            'annotated-qualified-creation', 'constructor-reference-with-type-arguments',
+            'annotated-creation-holding-a-parenthesis', 'nested-annotation-creation', 'code-outside-ascii',
+            'computed-method-lookup', *runner.ONE_TOKEN_PATHS,
             'slot-ceiling-raise', 'promotion-to-v3', 'v3-alone'})
         # The R0 guard's mutants as R0 predicted them, and the three P1 adds for the slot ceiling and
         # the lifecycle format.
         recorded = json.loads(runner.PREDICTIONS.read_text())
+        # P7 reads every rule through the compiler's escape translation and one lexical view, which
+        # widens the two escape mutants' rules, and reads constructions in every syntactic form.
         predictions = {**recorded['r0_format_guard']['mutant_rules'],
-                       **recorded['p1_lifecycle_record']['mutant_rules']}
-        self.assertEqual(len(mutants), recorded['p1_lifecycle_record']['guard_mutants']['after'])
+                       **recorded['p1_lifecycle_record']['mutant_rules'],
+                       **recorded['p7_guard_reading']['mutant_rules']}
+        self.assertEqual(len(mutants), recorded['p7_guard_reading']['guard_mutants']['after'])
         self.assertEqual(set(predictions), set(mutants))
         # Every rule is tripped alone by at least one mutant, so none is only ever a bystander.
         alone = {next(iter(rules)) for _, rules in mutants.values() if len(rules) == 1}

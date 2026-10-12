@@ -50,9 +50,13 @@ public final class LabHistoryStore {
     static final String CREATING = "v2-creating-header.bin";
     static final String LIVE = "v2-live-header.bin";
     static final String BODY = "v2-slot-body.bin";
-    /** The lifecycle guest layouts, by mode. */
-    public static final Set<String> LIFECYCLE_MODES = Set.of("retiring-v1", "v2-slot", "v2-beside-reservation",
-            "v2-beside-sibling");
+    /**
+     * The lifecycle guest layouts, by mode: three of the subject alone and three with a second app
+     * ID. eligible-v1 is the healthy control of the retiring layout, and v2-beside-unrelated-body the
+     * control of the sibling layout, whose unsupported body names another package and principal.
+     */
+    public static final Set<String> LIFECYCLE_MODES = Set.of("retiring-v1", "v2-slot", "eligible-v1",
+            "v2-beside-reservation", "v2-beside-sibling", "v2-beside-unrelated-body");
     /** The other account's package in the reservation companion. */
     public static final String OTHER = "dev.andrix.proof.lifecycleother";
     /** USER_PAUSED in the suspension reason registry. */
@@ -163,16 +167,23 @@ public final class LabHistoryStore {
         NativeIdentityRecords.Header header;
         switch (mode) {
             case "retiring-v1" -> slots.put(appId, retiringBody(lineage, appId, serial, signers));
+            case "eligible-v1" -> slots.put(appId,
+                    NativeIdentityRecords.decodeSlot(body(lineage, appId, serial, signers)));
             case "v2-slot" -> slots.put(appId, suspended(lineage, appId, SUBJECT, FIRST_ID, serial, signers));
             case "v2-beside-reservation" -> {
                 entries.put(appId, new NativeIdentityRecords.HeaderEntry(appId, NativeIdentityRecords.SlotPhase.CREATING,
                         FIRST_ID, SUBJECT, new NativeIdentityRecords.CreationBinding(USER, serial, signers)));
                 slots.put(otherAppId, suspended(lineage, otherAppId, OTHER, FIRST_ID + 1, serial, signers));
             }
-            default -> {
+            case "v2-beside-sibling" -> {
                 slots.put(appId, NativeIdentityRecords.decodeSlot(body(lineage, appId, serial, signers)));
                 slots.put(otherAppId, suspended(lineage, otherAppId, SUBJECT, FIRST_ID + 1, serial, signers));
             }
+            case "v2-beside-unrelated-body" -> {
+                slots.put(appId, NativeIdentityRecords.decodeSlot(body(lineage, appId, serial, signers)));
+                slots.put(otherAppId, suspended(lineage, otherAppId, OTHER, FIRST_ID + 1, serial, signers));
+            }
+            default -> throw new IllegalArgumentException("lifecycle mode");
         }
         for (int id : slots.keySet()) {
             entries.putIfAbsent(id, new NativeIdentityRecords.HeaderEntry(id, NativeIdentityRecords.SlotPhase.LIVE, 0, ""));
@@ -316,8 +327,9 @@ public final class LabHistoryStore {
 
     /**
      * Command line: {@code empty-v1 OUTPUT}, {@code predict-v2 OUTPUT LINEAGE APP_ID USER_SERIAL 1},
-     * {@code retiring-v1|v2-slot OUTPUT LINEAGE APP_ID USER_SERIAL} or
-     * {@code v2-beside-reservation|v2-beside-sibling OUTPUT LINEAGE APP_ID OTHER_APP_ID USER_SERIAL}.
+     * {@code retiring-v1|v2-slot|eligible-v1 OUTPUT LINEAGE APP_ID USER_SERIAL} or
+     * {@code v2-beside-reservation|v2-beside-sibling|v2-beside-unrelated-body OUTPUT LINEAGE APP_ID
+     * OTHER_APP_ID USER_SERIAL}.
      * Every argument is validated with explicit checks before any file is created, also when Java
      * assertions are disabled. Any other mode refuses.
      */
@@ -332,14 +344,15 @@ public final class LabHistoryStore {
             long id = principal(args[5]);
             Path output = fresh(args[1]);
             System.out.println(predict(output, lineage, appId, serial, id, Set.of(FIXTURE_SIGNER)));
-        } else if (args.length == 5 && ("retiring-v1".equals(args[0]) || "v2-slot".equals(args[0]))) {
+        } else if (args.length == 5 && ("retiring-v1".equals(args[0]) || "v2-slot".equals(args[0])
+                || "eligible-v1".equals(args[0]))) {
             String lineage = lineage(args[2]);
             int appId = appId(args[3]);
             long serial = serial(args[4]);
             Path output = fresh(args[1]);
             System.out.println(generateLifecycle(output, args[0], lineage, appId, appId, serial));
         } else if (args.length == 6 && ("v2-beside-reservation".equals(args[0])
-                || "v2-beside-sibling".equals(args[0]))) {
+                || "v2-beside-sibling".equals(args[0]) || "v2-beside-unrelated-body".equals(args[0]))) {
             String lineage = lineage(args[2]);
             int appId = appId(args[3]);
             int otherAppId = appId(args[4]);
@@ -349,8 +362,9 @@ public final class LabHistoryStore {
             System.out.println(generateLifecycle(output, args[0], lineage, appId, otherAppId, serial));
         } else {
             throw new IllegalArgumentException("usage: empty-v1 OUTPUT | predict-v2 OUTPUT LINEAGE APP_ID USER_SERIAL 1"
-                    + " | retiring-v1|v2-slot OUTPUT LINEAGE APP_ID USER_SERIAL"
-                    + " | v2-beside-reservation|v2-beside-sibling OUTPUT LINEAGE APP_ID OTHER_APP_ID USER_SERIAL");
+                    + " | retiring-v1|v2-slot|eligible-v1 OUTPUT LINEAGE APP_ID USER_SERIAL"
+                    + " | v2-beside-reservation|v2-beside-sibling|v2-beside-unrelated-body OUTPUT LINEAGE APP_ID"
+                    + " OTHER_APP_ID USER_SERIAL");
         }
     }
 

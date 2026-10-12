@@ -185,9 +185,9 @@
       "lab_only": false,
       "method": "/usr/bin/patch --batch --forward --fuzz=0 --no-backup-if-mismatch -p1",
       "profile": "patches/grapheneos-2026081300/native-principal-pins.json",
-      "profile_sha256": "f944b5b61ba7283c48efc405dfb37b236de3963f866369c3ea2f48b9012871df",
+      "profile_sha256": "37e180b0b4bf7576aee23be6d7298c4c1af9e1037688523be56c20d59547d8f2",
       "patch": "patches/grapheneos-2026081300/native-principal-pins.patch",
-      "patch_sha256": "d97f4080f84773cb44693aaf0d6dd920b21af346ff851b7c05d3d69fff957ca8",
+      "patch_sha256": "59300e3d12a59dcb33acadc104894fd4b015e9fcc14bf456a09a07aee015a04e",
       "applies": true,
       "class": "moved",
       "files": [
@@ -206,8 +206,8 @@
           "base_sha256": "bff2de579d206a39be81ef0b798df8f6e845d2f28efbbcd63554ccffbddae5a1",
           "target_sha256": "bff2de579d206a39be81ef0b798df8f6e845d2f28efbbcd63554ccffbddae5a1",
           "offsets": [],
-          "pinned_candidate_sha256": "2456c7395c97b838d5f0853d850e16d58d995b082cdad14ee5068b5f3263bcf4",
-          "candidate_sha256": "2456c7395c97b838d5f0853d850e16d58d995b082cdad14ee5068b5f3263bcf4"
+          "pinned_candidate_sha256": "4d851032afedd43ddadacdbc026ac62e0ea22c218a8fb0c8f59a70d67a452eeb",
+          "candidate_sha256": "4d851032afedd43ddadacdbc026ac62e0ea22c218a8fb0c8f59a70d67a452eeb"
         },
         {
           "path": "services/core/java/com/android/server/pm/PackageManagerService.java",
@@ -317,7 +317,8 @@
         {"name": "fragment retired-boot", "path": "services/core/java/com/android/server/pm/Settings.java", "result": "pass"},
         {"name": "fragment deferral", "path": "services/core/java/com/android/server/pm/Settings.java", "result": "pass"},
         {"name": "fragment observation", "path": "services/core/java/com/android/server/pm/Settings.java", "result": "pass"},
-        {"name": "fragment release-finish", "path": "services/core/java/com/android/server/pm/Settings.java", "result": "pass"}
+        {"name": "fragment release-finish", "path": "services/core/java/com/android/server/pm/Settings.java", "result": "pass"},
+        {"name": "fragment diagnostic-dump", "path": "services/core/java/com/android/server/pm/Settings.java", "result": "pass"}
       ],
       "added": [
         {"path": "services/core/java/com/android/server/pm/NativePrincipalPins.java", "upstream": "absent"},
@@ -508,6 +509,7 @@
     {"project": "frameworks/base", "path": "core/java/android/content/pm/UserInfo.java", "list": "paths", "class": "identical", "base_object": "8b26f521ee1377e8929209a8d5e436e754595224", "target_object": "8b26f521ee1377e8929209a8d5e436e754595224"},
     {"project": "frameworks/base", "path": "core/java/android/content/pm/SigningDetails.java", "list": "paths", "class": "identical", "base_object": "6b0c1ddbd6addc7284ee0fd2abb7893a259a4051", "target_object": "6b0c1ddbd6addc7284ee0fd2abb7893a259a4051"},
     {"project": "frameworks/base", "path": "core/java/android/content/pm/Signature.java", "list": "paths", "class": "identical", "base_object": "3e032872c5e221ed35a3d70ee663aaa4ee6fd310", "target_object": "3e032872c5e221ed35a3d70ee663aaa4ee6fd310"},
+    {"project": "frameworks/base", "path": "core/java/android/util/Base64.java", "list": "paths", "class": "identical", "base_object": "99151c27e415da4039ba2636ea828edb7439a305", "target_object": "99151c27e415da4039ba2636ea828edb7439a305"},
     {"project": "frameworks/base", "path": "core/java/android/util/Log.java", "list": "paths", "class": "identical", "base_object": "0965a8c59234c8519cdbaec7b9ea6f8e8c5f09c0", "target_object": "0965a8c59234c8519cdbaec7b9ea6f8e8c5f09c0"},
     {"project": "frameworks/base", "path": "core/java/android/util/Slog.java", "list": "paths", "class": "identical", "base_object": "b2017a5fa868ac3e27947cc348a6de09f453ea97", "target_object": "b2017a5fa868ac3e27947cc348a6de09f453ea97"},
     {"project": "frameworks/base", "path": "packages/SystemUI", "list": "paths", "class": "changed", "base_object": "d0ed96e0008ae7e2cde22054671dfacfe430665a", "target_object": "c4a2605a0ca0e03ca41720cf5627e5ad7149327d", "upstream_commits": [{"commit": "abbaf3d90511", "subject": "secure paste: support selection toolbar paste actions"}, {"commit": "69ba7a8b12e0", "subject": "SystemUi UsbDialog: fix label vulnerability", "change_id": "Ied6847d3c9761a976ddbb85bf7618c48793b4069"}, {"commit": "eb26382a52c9", "subject": "Hide media on smartspace view when setting is disabled", "change_id": "I8f589018521b281bb3fd28539f4099d28fdbd691"}, {"commit": "3b916f63124b", "subject": "Update host visibility whenever lockscreen state changes", "change_id": "If1f6535574bfb3840705ab751976e61cadab01d6"}, {"commit": "0b1b65abc952", "subject": "Validate caller in SlicePermissionActivity to prevent spoofing.", "change_id": "I49822e9f7eb2d29278d1266ae2fd51fc154744db"}, {"commit": "3889d1f73d5d", "subject": "SystemUI: respect lockscreen media setting on always-on display"}]},
@@ -665,10 +667,10 @@
   "generated": {
     "tool": "scripts/proof/grapheneos_carry.py",
     "tool_sha256": "88926c90154252066f49e26bd3ba62d499df6664a2118fb091242aa60d4c743d",
-    "at": "2026-10-11T18:06:04Z"
+    "at": "2026-10-11T20:13:34Z"
   },
   "seal": {
     "algorithm": "sha256 over canonical JSON of every other field",
-    "sha256": "b9ad2e8b1a92efc88aac838c527837205241e863dd185c017faa1d7b6847c7d3"
+    "sha256": "96eac405c33cf399bad4a9d1b03109ac904904a0bda5fa59197543a92aa872ee"
   }
 }

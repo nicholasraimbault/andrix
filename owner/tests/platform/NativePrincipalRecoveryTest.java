@@ -57,6 +57,20 @@ public final class NativePrincipalRecoveryTest {
         assert released.keepsCodePath(new File("/data/app/opaque"));
         assert unknown.holdsAppId(10123);
 
+        // The diagnostic's query: the deferred names exactly, immutable and in Java String order, never
+        // the protected ones, and unchanged by later views.
+        assert empty.deferredPackageNames().isEmpty() && named.deferredPackageNames().isEmpty();
+        NativePrincipalRecovery several = deferred.defer("dev.andrix.b", null).defer("Z", null).defer("caf\u00e9", null);
+        assert List.copyOf(several.deferredPackageNames()).equals(
+                List.of("Z", "caf\u00e9", "dev.andrix.account", "dev.andrix.b"));
+        assert deferred.deferredPackageNames().equals(Set.of("dev.andrix.account"));
+        assert released.deferredPackageNames().equals(Set.of("dev.andrix.account"));
+        try {
+            several.deferredPackageNames().add("dev.andrix.added");
+            throw new AssertionError("The deferred names are mutable");
+        } catch (UnsupportedOperationException expected) {
+        }
+        assert !several.deferredPackageNames().contains("dev.andrix.added");
         for (int id : new int[]{-1, 0, 9999, 20000, Integer.MAX_VALUE}) {
             invalid(() -> held.withHolds(Set.of(id)));
         }
