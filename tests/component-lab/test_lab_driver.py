@@ -281,10 +281,15 @@ class DriverEndToEnd(unittest.TestCase):
             w.driver.plan(PLAN, TICKET, 4)
 
     def test_an_ordinary_repeated_check_establishes_t0(self):
+        # The repeated check reads the same facts, which the store keeps once: T0 rests on the
+        # ledger's record of this generation's reads, not on newly stored observations.
         w = self.world()
         w.driver.check()
+        observations = w.store / 'observations'
+        before = sorted(p.name for p in observations.iterdir())
         w.sim.tick(1000)
         w.driver.check()
+        self.assertEqual(sorted(p.name for p in observations.iterdir()), before)
         self.assertEqual(w.driver.plan(PLAN, TICKET, 4)['boot'], w.sim.boot)
 
     def test_a_bridge_configuration_the_admission_does_not_bind_is_refused_before_any_record(self):
