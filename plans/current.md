@@ -331,8 +331,14 @@ allowed the emulator trials to use the emulator while the native account work do
 The lab driver's core is integrated: it sets up the deployment store from the guest's own baseline
 and runs the coordinator's generations through the bridge with the real host signer. A plan binds
 only facts that the driver's last generation read whole, and the broker's admission binds the host
-configuration as well as the bridge's. Its fault matrix and guest vehicle come next. The rollback
-target waits for qualified candidate floor images, before the device coordinator.
+configuration as well as the bridge's. The driver now runs the cohort refusal and the preactivation
+loss cells, from a lost signing or publication to a lost commit, each compared with its prediction
+from the store's and the broker's own records. The broker launches only the crossings its admission
+names. It restarts the framework only when one whole session listing shows nothing committed,
+settles each restart within a hard bound, keeps every record a crossing relies on before the launch,
+reads the native target scope as its own group, and makes its ledger durable again at each opening.
+The first guest of the fault matrix, one boot that never commits or reboots, comes next. The
+rollback target waits for qualified candidate floor images, before the device coordinator.
 
 ## Product checkpoint
 
