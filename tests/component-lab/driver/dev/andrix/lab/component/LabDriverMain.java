@@ -29,6 +29,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.TreeSet;
 
@@ -41,10 +42,14 @@ import java.util.TreeSet;
  *                                                                 configuration binding the host; prints its digest
  * selection CONFIG                                               the component's selection: choice, revision, realization, checked boot
  * plan CONFIG PLAN TICKET BOOT_LIMIT NOW_MS T0                    the immutable plan from the T0 boot's facts, its grants and first ticket
- * ticket CONFIG PLAN TICKET NOW_MS [activate]                    the plan's next attempt, with a fresh STAGE grant (and ACTIVATE)
+ * contradict CONFIG PLAN TICKET BOOT_LIMIT NOW_MS T0              the cohort refusal control: as plan, its cohort's factory copy changed
+ * ticket CONFIG PLAN TICKET NOW_MS [sign] [activate]             the plan's next attempt, with a fresh STAGE grant, and a fresh
+ *                                                                 SIGN for both inputs or ACTIVATE when asked
  * published CONFIG PLAN OUTDIR                                   the published variant's two members, written for the broker to
  *                                                                 pin; exit 3, writing nothing, while there is no publication yet
  * inspect CONFIG TICKET                                          one line of key=value facts
+ * tickets CONFIG PLAN                                            the plan's tickets in attempt order, one line each:
+ *                                                                 ticket=ID attempt=N state=STATE
  * CONFIG check | round T | settle T N | cancel T | report T     a generation
  * </pre>
  *
@@ -83,7 +88,13 @@ public final class LabDriverMain {
                 init(args);
                 break;
             case "plan":
-                plan(args);
+                plan(args, false);
+                break;
+            case "contradict":
+                plan(args, true);
+                break;
+            case "tickets":
+                tickets(args);
                 break;
             case "selection":
                 selection(args);
@@ -220,6 +231,12 @@ public final class LabDriverMain {
         return new Baseline(t0, fingerprints.first(), active.digest, active.version, active.number, active.text);
     }
 
+    /** The digest with its last hexadecimal digit changed: a factory copy no guest fact names. */
+    static String otherDigest(String digest) {
+        char last = digest.charAt(digest.length() - 1);
+        return digest.substring(0, digest.length() - 1) + (last == '0' ? '1' : '0');
+    }
+
     /** The selection a plan is made from: the factory choice, found current, at revision 0. */
     static boolean factoryCurrent(Selection s) {
         return s.choice == ChoiceKind.FACTORY && s.revision == 0 && s.realization == Realization.CURRENT;
@@ -232,8 +249,13 @@ public final class LabDriverMain {
                 GrantScope.NONE, freshId(random), at);
     }
 
-    private static void plan(String[] args) throws IOException {
-        need(args.length == 7, "plan CONFIG PLAN TICKET BOOT_LIMIT NOW_MS T0");
+    /**
+     * The immutable plan from T0's facts, its grants and its first ticket. As the lab's cohort refusal
+     * control ({@code contradict}), the plan's cohort names a factory copy T0's facts contradict, one
+     * digit changed, so that its ticket must close before any crossing.
+     */
+    private static void plan(String[] args, boolean contradict) throws IOException {
+        need(args.length == 7, (contradict ? "contradict" : "plan") + " CONFIG PLAN TICKET BOOT_LIMIT NOW_MS T0");
         LabProtocol.checkHex(args[6], 16, "T0 boot", false);
         LabConfig lab = admitted(args[1]);
         LabHost host = LabHost.fromProperties();
@@ -261,7 +283,8 @@ public final class LabDriverMain {
         Plan plan = new Plan.Builder().installation(lab.installation).planId(planId).component(lab.component)
                 .bundle(ApkEntries.digest(variant), variantFacts.versionCode).signer(hc.role.certificate)
                 .restoration(ApkEntries.digest(restoration), restorationFacts.versionCode).signing(1)
-                .cohort(base.fingerprint, base.apk, base.version).base(base.apk, base.version, base.uid, base.context)
+                .cohort(base.fingerprint, contradict ? otherDigest(base.apk) : base.apk, base.version)
+                .base(base.apk, base.version, base.uid, base.context)
                 .selectionRevision(selection.value.revision).trustPolicy(lab.trustPolicy).healthWindow(HEALTH_WINDOW)
                 .notice(NOTICE_DELAY, NOTICE_DELAY).limits(bootLimit, REBOOT_TIME, REQUEST_LIMIT, ACTIVATE_WINDOW,
                         VERIFICATION_WAIT).createdAt(now).build();
@@ -286,7 +309,9 @@ public final class LabDriverMain {
     }
 
     private static void ticket(String[] args) throws IOException {
-        need(args.length == 5 || (args.length == 6 && args[5].equals("activate")), "ticket CONFIG PLAN TICKET NOW_MS [activate]");
+        List<String> options = Arrays.asList(args).subList(Math.min(5, args.length), args.length);
+        need(args.length >= 5 && new java.util.HashSet<>(options).size() == options.size()
+                && List.of("sign", "activate").containsAll(options), "ticket CONFIG PLAN TICKET NOW_MS [sign] [activate]");
         LabConfig lab = admitted(args[1]);
         DeploymentStore store = new DeploymentStore(lab.store, lab.installation);
         DeploymentStore.Read<Plan> plan = store.plan(args[2]);
@@ -294,7 +319,12 @@ public final class LabDriverMain {
         long now = time(args[4]);
         SecureRandom random = new SecureRandom();
         need(store.addAuthorization(grant(random, lab, plan.value.planId, Effect.STAGE, 0, now)), "the STAGE grant was not written");
-        if (args.length == 6) {
+        // A SIGN grant serves one signing transaction; an attempt that must sign again needs its own.
+        if (options.contains("sign")) {
+            int inputs = DeploymentRecords.INPUT_VARIANT | DeploymentRecords.INPUT_RESTORATION;
+            need(store.addAuthorization(grant(random, lab, plan.value.planId, Effect.SIGN, inputs, now)), "the SIGN grant was not written");
+        }
+        if (options.contains("activate")) {
             need(store.addAuthorization(grant(random, lab, plan.value.planId, Effect.ACTIVATE, 0, now)),
                     "the ACTIVATE grant was not written");
         }
@@ -365,6 +395,19 @@ public final class LabDriverMain {
                 + t.bootCount + " ledger=" + String.join(",", ledger) + " session=" + t.reference.sessionId + " health="
                 + health + " choice=" + s.choice.name() + " plan=" + s.planId + " revision=" + s.revision + " realization="
                 + s.realization.name() + " observations=" + store.observations().values.size());
+    }
+
+    /** The plan's tickets as the store holds them, in attempt order: ID, attempt and state. */
+    private static void tickets(String[] args) throws IOException {
+        need(args.length == 3, "tickets CONFIG PLAN");
+        LabConfig lab = admitted(args[1]);
+        DeploymentStore store = new DeploymentStore(lab.store, lab.installation);
+        need(store.plan(args[2]).found == Found.RECORD, "the plan cannot be read");
+        List<Ticket> tickets = new ArrayList<>(store.ticketsOf(args[2]));
+        tickets.sort(java.util.Comparator.comparingInt(t -> t.attempt));
+        for (Ticket t : tickets) {
+            System.out.println("ticket=" + t.ticketId + " attempt=" + t.attempt + " state=" + t.state.name());
+        }
     }
 
     private static String freshId(SecureRandom random) {

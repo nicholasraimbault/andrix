@@ -15,6 +15,7 @@ import re
 
 import lab_crossings
 import lab_readers
+import lab_target
 import shell_transport
 
 PACKAGE = 'com.android.systemui'
@@ -58,6 +59,8 @@ class SimAndroid:
         self.factory = (FACTORY_APK, FACTORY_VERSION)
         self.active = ('FACTORY_COPY', FACTORY_APK, FACTORY_VERSION)
         self.sessions = {}
+        # The native identity diagnostic's whole reply: the fresh form unless a test changes it.
+        self.native_dump = (0, lab_target.FRESH_FORM.encode(), b'')
         self.users = [(0, 0, 'RUNNING_UNLOCKED')]
         # Receipts a test fixture says users gave: dicts of user, serial, ticket, index and route.
         self.receipts = []
@@ -148,6 +151,17 @@ class SimAndroid:
             # receipt follows from it.
             self.calls.append(('NOTICE',))
             return result(command, 0, b'notice requested\n')
+        if command == 'logcat -b all -d':
+            self.calls.append(('logcat',))
+            return result(command, 0, b'--------- beginning of main\n')
+        if command == lab_target.COMMAND:
+            code, stdout, stderr = self.native_dump
+            return result(command, code, stdout, stderr)
+        if command == 'am restart':
+            # The framework restarts in the same boot: a later instance; uncommitted sessions are kept.
+            self.calls.append(('am restart', self.boot))
+            self.framework_restart()
+            return result(command, 0)
         if command == 'pidof system_server':
             return result(command, 0, b'937\n') if self.framework else result(command, 1)
         if command in SIM_READS:
@@ -241,7 +255,9 @@ class SimTransport:
     def push(self, data, path, mode, mtime, timeout):
         return self.sim.push(data, path, mode, mtime, timeout)
 
-    def features(self, timeout):
+    def features(self, timeout, may_send=None):
+        if may_send is not None and not may_send():
+            return shell_transport.FeaturesResult('launch-deadline', (), None, 'the launch deadline passed before the request')
         self.sim.calls.append(('features',))
         if self.sim.features is None:
             return shell_transport.FeaturesResult('unknown', (), None, 'scripted loss')
@@ -254,17 +270,26 @@ class SimTransport:
 class SimReader(lab_readers.ReaderAdapter):
     """Facts from the simulated guest, through the broker's run function."""
 
-    def __init__(self, installation, component=PACKAGE, ids=None, receipts=False):
+    def __init__(self, installation, component=PACKAGE, ids=None, receipts=False, target=False):
         self.installation, self.component = installation, component
-        # A receipt reader is admitted only when a test asks for one.
+        # A receipt reader is admitted only when a test asks for one; the target reader likewise.
         self.receipts_admitted = receipts
+        self.target_admitted = target
         self._run = None
         self._captures = []
         self._count = 0
         self._ids = ids
 
     def allowed(self, command):
-        return command in SIM_READS
+        return command in SIM_READS or (self.target_admitted and command == lab_target.COMMAND)
+
+    def target(self):
+        if self._run is None:
+            raise lab_readers.Unavailable('no group is open')
+        code, stdout, stderr = self._run(lab_target.COMMAND)
+        self._captures.append((lab_target.COMMAND, code, stdout.encode('utf-8', 'surrogateescape'),
+                               stderr.encode('utf-8', 'surrogateescape')))
+        return lab_target.scope(code, stdout, stderr)
 
     def bind(self, run):
         self._run, self._captures = run, []

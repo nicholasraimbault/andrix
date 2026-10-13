@@ -25,6 +25,8 @@ issues no crossing. The observer's partial health probe is not exposed: health c
 later package."""
 import hashlib
 
+import lab_target
+
 
 class Unavailable(Exception):
     """A read that did not complete whole: no fact."""
@@ -54,6 +56,9 @@ class ReaderAdapter:
     component = None
     # Whether a receipt reader is admitted. The full screen notice fixture is a later package.
     receipts_admitted = False
+    # Whether the native target scope is read through this reader (lab_target). The broker then
+    # reads it as its own recorded group at HELLO and at every crossing's gate.
+    target_admitted = False
 
     def allowed(self, command):
         """Whether a command is one of the reader's fixed read only forms."""
@@ -89,13 +94,18 @@ class ReaderAdapter:
         """RECEIPT facts of a ticket's notices. Called only when `receipts_admitted`."""
         raise NotImplementedError
 
+    def target(self):
+        """The native target scope one whole read shows (lab_target.scope). Called only when
+        `target_admitted`."""
+        raise NotImplementedError
+
 
 class ObserverAdapter(ReaderAdapter):
     """The public shell observer behind the reader interface. `observer` is the observer module,
     `checkpoint` a callable that reads the checkpoint through the observer, or None."""
 
     def __init__(self, observer, installation, component, checkpoint=None, checkpoint_allowed=None,
-                 new_id=None, wall=None):
+                 new_id=None, wall=None, target=False):
         self._module = observer
         self.installation, self.component = installation, component
         self._run_now = None
@@ -108,9 +118,11 @@ class ObserverAdapter(ReaderAdapter):
         self._observer = observer.ShellObserver(self._run, installation, component, **options)
         self._checkpoint = checkpoint
         self._checkpoint_allowed = checkpoint_allowed or (lambda command: False)
+        self.target_admitted = bool(target)
 
     def allowed(self, command):
-        return bool(self._module.allowed(command) or self._checkpoint_allowed(command))
+        return bool(self._module.allowed(command) or self._checkpoint_allowed(command)
+                    or (self.target_admitted and command == lab_target.COMMAND))
 
     def bind(self, run):
         self._run_now = run
@@ -138,6 +150,11 @@ class ObserverAdapter(ReaderAdapter):
             if len(pidof) < 2 or any((code, out, err) != (1, '', '') for _, code, out, err in pidof):
                 raise Unclassified('no framework was not read from a confirmed quiet failure')
         return boot, instance, elapsed, wall
+
+    def target(self):
+        if not self.target_admitted:
+            raise Unavailable('no target reader is admitted')
+        return lab_target.scope(*self._run(lab_target.COMMAND))
 
     def boot(self):
         return [self._call(self._observer.boot)]

@@ -1,15 +1,15 @@
 {
  "cases": {
   "BridgeTest": 14,
-  "DriverTest": 26,
+  "DriverTest": 27,
   "ProtocolTest": 6,
-  "test_capture_ledger": 10,
+  "test_capture_ledger": 14,
   "test_lab_bridge": 20,
-  "test_lab_broker": 58,
+  "test_lab_broker": 103,
   "test_lab_crossings": 11,
-  "test_lab_driver": 19,
+  "test_lab_driver": 35,
   "test_lab_protocol": 8,
-  "test_shell_transport": 23
+  "test_shell_transport": 24
  },
  "mutants_caught_at_least": {
   "activation-window-not-sent": [
@@ -21,6 +21,30 @@
   ],
   "approval-any-plan": [
    "DriverTest.approval / a plan the configuration does not admit is refused"
+  ],
+  "attempt-before-terminal": [
+   "test_lab_driver.DriverEndToEnd.test_an_attempt_begins_only_after_the_previous_ticket_is_terminal"
+  ],
+  "attempt-faults-not-admitted": [
+   "test_lab_driver.DriverEndToEnd.test_the_loss_cells_run_in_order_to_their_predicted_ends"
+  ],
+  "bound-fraction-started": [
+   "test_lab_broker.LabActionTests.test_a_fraction_of_a_second_left_starts_no_command"
+  ],
+  "bound-launch-gate-missing": [
+   "test_lab_broker.LabActionTests.test_expiry_while_the_intent_is_synced_launches_nothing",
+   "test_lab_broker.LabActionTests.test_expiry_during_device_selection_launches_nothing"
+  ],
+  "bound-timeout-fixed-at-intent": [
+   "test_lab_broker.LabActionTests.test_the_transport_is_given_only_what_the_bound_has_left"
+  ],
+  "broker-name-unsynced-at-opening": [
+   "test_lab_broker.BrokerDirectoryTests.test_the_brokers_name_is_synced_when_made_and_at_every_opening",
+   "test_lab_broker.BrokerDirectoryTests.test_a_failed_sync_of_the_brokers_name_refuses_the_opening_until_it_completes"
+  ],
+  "broker-name-unsynced-when-made": [
+   "test_lab_broker.BrokerDirectoryTests.test_the_brokers_name_is_synced_when_made_and_at_every_opening",
+   "test_lab_broker.BrokerDirectoryTests.test_a_failed_sync_when_the_broker_is_made_leaves_nothing_to_open"
   ],
   "buffered-stream-accepted": [
    "test_lab_broker.StreamAndReapTests.test_a_buffered_generation_stream_is_refused_before_any_read"
@@ -39,8 +63,14 @@
    "test_lab_broker.GateTests.test_a_grant_that_expires_during_the_confirmation_launches_nothing",
    "test_lab_bridge.BridgeEndToEnd.test_a_grant_that_expires_during_the_confirmation_never_commits"
   ],
+  "cohort-control-not-contradicted": [
+   "test_lab_driver.DriverEndToEnd.test_the_loss_cells_run_in_order_to_their_predicted_ends"
+  ],
   "config-host-unchecked": [
    "BridgeTest.config / version 2 names the host configuration's digest, every line checked"
+  ],
+  "controller-read-during-generation": [
+   "test_lab_broker.ControllerTests.test_controller_reads_are_recorded_groups_between_generations"
   ],
   "cross-halt-ignored": [
    "BridgeTest.cross / replies bind, lose or halt, and a session crossing names its whole reference",
@@ -59,6 +89,9 @@
   ],
   "device-route-taken": [
    "BridgeTest.device / frames are decoded strictly and checked against the round"
+  ],
+  "diagnostic-of-any-name": [
+   "test_lab_broker.ControllerTests.test_a_diagnostic_is_a_fixed_fenced_capture"
   ],
   "drain-forgets-quarantined-captures": [
    "test_lab_broker.ReopenTests.test_a_drain_survives_a_crash_after_its_quarantine"
@@ -79,11 +112,29 @@
    "test_shell_transport.DecoderTests.test_an_end_before_exit_leaves_the_status_unknown",
    "test_shell_transport.ShellTests.test_an_adb_error_message_with_a_closed_stream_is_not_exit_1"
   ],
+  "existing-record-unsynced": [
+   "test_lab_broker.GuestAdmissionTests.test_retained_record_names_are_made_durable"
+  ],
   "exit-length-unchecked": [
    "test_shell_transport.DecoderTests.test_a_second_or_malformed_exit_is_malformed"
   ],
   "fact-boot-unchecked": [
    "BridgeTest.device / frames are decoded strictly and checked against the round"
+  ],
+  "faults-acted-not-compared": [
+   "test_lab_driver.DriverEndToEnd.test_a_fault_that_never_acts_stops_the_driver"
+  ],
+  "feature-gate-not-passed": [
+   "test_lab_broker.LabActionTests.test_a_fresh_brokers_feature_query_is_refused_by_the_transport_once_the_bound_passes"
+  ],
+  "feature-query-timeout-uncut": [
+   "test_lab_broker.LabActionTests.test_a_fresh_brokers_feature_query_is_given_only_what_the_bound_has_left"
+  ],
+  "feature-query-unbounded": [
+   "test_lab_broker.LabActionTests.test_a_fresh_brokers_feature_query_keeps_the_bound"
+  ],
+  "features-send-ungated": [
+   "test_shell_transport.OtherServiceTests.test_a_features_request_is_not_sent_once_its_deadline_passed"
   ],
   "fence-only-before-the-feature-query": [
    "test_lab_broker.FenceDuringFeaturesTests.test_a_fence_that_trips_during_the_feature_query_stops_the_next_command"
@@ -108,6 +159,9 @@
    "test_lab_bridge.BridgeEndToEnd.test_a_ticket_closes_applied_from_observation_alone",
    "test_lab_bridge.BridgeEndToEnd.test_host_losses_resolve_by_reading_never_by_signing_again"
   ],
+  "host-begin-untimed": [
+   "test_lab_broker.FaultTests.test_host_records_carry_the_brokers_times"
+  ],
   "host-binding-unchecked": [
    "test_lab_driver.DriverEndToEnd.test_a_host_configuration_the_bridge_configuration_does_not_bind_is_refused",
    "DriverTest.host binding / only the host configuration the bridge configuration binds"
@@ -126,6 +180,9 @@
   "host-withheld-delivered": [
    "BridgeTest.host / BEGIN before the effect, END after, and the broker's cells decide"
   ],
+  "incomplete-listing-accepted": [
+   "test_lab_broker.LabActionTests.test_an_incomplete_listing_never_admits_a_restart"
+  ],
   "intent-after-launch": [
    "test_lab_broker.IntentTests.test_every_command_finds_its_intent_in_the_ledger_first"
   ],
@@ -141,6 +198,19 @@
   "launch-deadline-unchecked": [
    "test_lab_broker.GateTests.test_a_launch_is_refused_once_its_grant_may_have_expired_in_transit"
   ],
+  "launch-fence-skipped": [
+   "test_lab_broker.GuestAdmissionTests.test_the_admitted_launch_set_is_a_fence_whatever_the_faults"
+  ],
+  "ledger-entries-unsynced-at-opening": [
+   "test_capture_ledger.LedgerTests.test_reopening_syncs_every_file_and_directory_again",
+   "test_capture_ledger.LedgerTests.test_a_failed_final_directory_sync_refuses_reopening_until_it_completes",
+   "test_lab_broker.BrokerDirectoryTests.test_a_failed_ledger_entry_sync_refuses_the_opening_until_it_completes"
+  ],
+  "ledger-files-unsynced-at-opening": [
+   "test_capture_ledger.LedgerTests.test_reopening_syncs_every_file_and_directory_again",
+   "test_capture_ledger.LedgerTests.test_a_failed_file_sync_refuses_reopening_until_it_completes",
+   "test_lab_broker.BrokerDirectoryTests.test_a_failed_ledger_file_sync_refuses_the_opening_until_it_completes"
+  ],
   "ledger-gap-accepted": [
    "test_capture_ledger.LedgerTests.test_damage_refuses_reopening"
   ],
@@ -149,6 +219,9 @@
   ],
   "ledger-overwrites": [
    "test_capture_ledger.LedgerTests.test_the_intent_is_synced_before_the_command_and_the_result_last"
+  ],
+  "ledger-write-failure-not-latched": [
+   "test_capture_ledger.LedgerTests.test_a_failed_write_latches_the_ledger_in_its_process"
   ],
   "loss-before-launches": [
    "test_lab_broker.FaultTests.test_a_loss_before_the_effect_launches_nothing_and_is_consumed_before_the_halt"
@@ -181,8 +254,14 @@
    "BridgeTest.points / BETWEEN_WRITES asks the broker once and halts on its order",
    "test_lab_bridge.BridgeEndToEnd.test_a_loss_between_the_selection_and_ticket_writes_moves_the_choice_once"
   ],
+  "prediction-not-compared": [
+   "test_lab_driver.DriverEndToEnd.test_a_prediction_the_records_do_not_meet_stops_the_driver"
+  ],
   "preflight-instance-ignored": [
    "test_lab_broker.CrossingTests.test_preflight_refuses_a_changed_boot_or_framework"
+  ],
+  "process-ended-untimed": [
+   "test_lab_broker.FaultTests.test_host_records_carry_the_brokers_times"
   ],
   "protocol-session-by-id-alone": [
    "test_lab_protocol.ProtocolTests.test_cross_relations"
@@ -198,6 +277,9 @@
   ],
   "reboot-deadline-not-given-to-the-transport": [
    "test_lab_broker.GateTests.test_a_launch_is_refused_once_its_grant_may_have_expired_in_transit"
+  ],
+  "records-root-unsynced": [
+   "test_lab_broker.GuestAdmissionTests.test_retained_record_names_are_made_durable"
   ],
   "reference-by-id-alone": [
    "test_lab_broker.CrossingTests.test_session_crossings_confirm_the_exact_reference_first"
@@ -216,6 +298,47 @@
   "request-transfer-unbounded": [
    "test_lab_broker.TransferTests.test_a_partial_request_cannot_outlast_its_bound"
   ],
+  "restart-beside-a-committed-wait": [
+   "test_lab_driver.RestartDecisionTests.test_a_committed_session_or_unknown_commitment_is_another_wait"
+  ],
+  "restart-beside-a-pending-checkpoint": [
+   "test_lab_driver.RestartDecisionTests.test_a_pending_checkpoint_is_another_wait"
+  ],
+  "restart-beside-committed-session": [
+   "test_lab_broker.LabActionTests.test_a_framework_restart_is_refused_beside_a_committed_session"
+  ],
+  "restart-beside-unknown-commitment": [
+   "test_lab_broker.LabActionTests.test_a_framework_restart_is_refused_beside_a_committed_session"
+  ],
+  "restart-checkpoint-not-renewed": [
+   "test_lab_driver.DriverEndToEnd.test_a_restart_without_a_renewed_checkpoint_read_stops_the_driver",
+   "test_lab_driver.DriverEndToEnd.test_a_ticket_round_after_a_restart_must_read_the_checkpoint_again"
+  ],
+  "restart-during-generation": [
+   "test_lab_broker.LabActionTests.test_a_framework_restart_runs_only_between_generations_and_is_recorded"
+  ],
+  "restart-effect-unverified": [
+   "test_lab_driver.DriverEndToEnd.test_a_generation_of_another_boot_after_a_settled_restart_stops_the_driver"
+  ],
+  "restart-limit-unchecked": [
+   "test_lab_broker.LabActionTests.test_the_restart_limit_is_enforced_before_the_command"
+  ],
+  "restart-not-admitted": [
+   "test_lab_broker.LabActionTests.test_a_framework_restart_is_refused_unless_the_admission_names_it"
+  ],
+  "restart-settle-listing-unchecked": [
+   "test_lab_broker.LabActionTests.test_a_later_instance_settles_only_with_a_whole_listing"
+  ],
+  "restart-settle-other-boot-accepted": [
+   "test_lab_broker.LabActionTests.test_a_poll_of_another_boot_refuses_the_restart"
+  ],
+  "restart-settle-skipped": [
+   "test_lab_broker.LabActionTests.test_the_restart_waits_for_a_later_instance_with_a_whole_listing",
+   "test_lab_broker.LabActionTests.test_a_restart_that_never_settles_is_refused_after_its_record"
+  ],
+  "retention-single-write": [
+   "test_lab_broker.GuestAdmissionTests.test_a_short_write_is_completed_before_the_record_is_kept"
+  ],
   "sdk-range-unchecked": [
    "test_lab_driver.DriverEndToEnd.test_a_configured_sdk_range_other_than_the_inputs_declared_range_is_refused"
   ],
@@ -231,6 +354,12 @@
   ],
   "service-send-failure-read-as-not-launched": [
    "test_shell_transport.ShellTests.test_a_service_send_failure_is_an_unknown_launch"
+  ],
+  "settle-late-poll-accepted": [
+   "test_lab_broker.LabActionTests.test_a_slow_successful_poll_that_ends_after_the_bound_settles_nothing"
+  ],
+  "settle-sessions-after-the-bound": [
+   "test_lab_broker.LabActionTests.test_the_bound_passing_between_a_polls_groups_starts_no_listing"
   ],
   "settles-before-staging": [
    "test_lab_driver.DriverEndToEnd.test_a_ticket_closes_applied_with_the_real_signer_and_publication"
@@ -248,6 +377,9 @@
    "test_lab_broker.FenceTests.test_the_stop_fence_comes_before_every_read_and_latches",
    "test_lab_broker.FenceTests.test_the_lease_and_the_deadline_are_fences"
   ],
+  "stored-records-unchecked": [
+   "test_lab_broker.GuestAdmissionTests.test_a_crossing_whose_stored_records_differ_launches_nothing"
+  ],
   "stored-ticket-unchecked": [
    "BridgeTest.cross / only the stored ticket's last entry is sent, with its exact fields"
   ],
@@ -261,8 +393,18 @@
   "t0-without-own-reads": [
    "test_lab_driver.DriverEndToEnd.test_a_check_that_read_nothing_establishes_no_t0"
   ],
+  "target-form-loosened": [
+   "test_lab_broker.TargetReadTests.test_any_other_reply_reads_unknown_and_launches_nothing"
+  ],
+  "target-not-read-at-the-gate": [
+   "test_lab_broker.TargetReadTests.test_any_other_reply_reads_unknown_and_launches_nothing",
+   "test_lab_broker.TargetReadTests.test_the_fresh_form_is_read_and_recorded_at_hello_and_at_every_crossing_gate"
+  ],
   "target-read-once": [
    "test_lab_broker.GateTests.test_the_native_target_scope_is_read_again_at_every_crossing"
+  ],
+  "target-read-widens-the-admission": [
+   "test_lab_broker.TargetReadTests.test_the_admission_still_bounds_the_read"
   ],
   "target-unknown-rounds": [
    "BridgeTest.bridge / each generation reads the store, and another store or target is refused"
@@ -273,6 +415,10 @@
   ],
   "transport-sends-past-the-launch-deadline": [
    "test_shell_transport.ShellTests.test_a_launch_deadline_that_passes_during_setup_sends_nothing"
+  ],
+  "unreadable-features-unlisted": [
+   "test_lab_broker.FeatureTests.test_unreadable_features_launch_nothing_and_are_asked_again",
+   "test_lab_broker.LabActionTests.test_a_fresh_brokers_feature_query_is_refused_by_the_transport_once_the_bound_passes"
   ],
   "write-not-revalidated": [
    "test_lab_broker.GateTests.test_write_is_revalidated_after_staging_and_before_each_member",

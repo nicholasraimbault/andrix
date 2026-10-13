@@ -91,9 +91,10 @@ class Harness:
     """A broker over a simulated guest, and a client for one generation."""
 
     def __init__(self, directory=None, sim=None, cells=(), pins=True, notice=None, processes=None, sync=False,
-                 target=None, source_root=None, **changes):
+                 target=None, source_root=None, target_read=False, **changes):
         self._temp = None
         self.target = target
+        self.target_read = target_read
         self.source_root = source_root or REPO
         if directory is None:
             self._temp = tempfile.TemporaryDirectory()
@@ -129,10 +130,11 @@ class Harness:
 
     def open(self):
         self.broker = lab_broker.Broker.open(self.root, self.source_root, sim_android.SimTransport(self.sim),
-                                             sim_android.SimReader(INSTALLATION), notice=self.notice,
+                                             sim_android.SimReader(INSTALLATION, target=self.target_read), notice=self.notice,
                                              wall=self.clock.wall_ns, monotonic=self.clock.monotonic_ns,
                                              sleep=self.clock.sleep, ids=lambda n: os.urandom(n),
-                                             processes=self.processes, sync=self.sync, target=self.target)
+                                             processes=self.processes, sync=self.sync, target=self.target,
+                                             target_read=self.target_read)
         return self.broker
 
     def reopen(self):
@@ -180,7 +182,8 @@ class Harness:
                          boot=boot or self.sim.boot, ticket=ticket, plan=plan, state=6 if scope == 'TICKET' else 0)
 
     def cross(self, crossing, index, occurrence=1, native=None, entry_boot=None, entry_instance=None, ticket=TICKET,
-              plan=PLAN, attempt=1, bundle_apk=None, entry_elapsed=1000, granted_at=None, window=None):
+              plan=PLAN, attempt=1, bundle_apk=None, entry_elapsed=1000, granted_at=None, window=None,
+              ticket_digest='11' * 32, plan_digest='22' * 32):
         granted = crossing in proto.GRANTED
         activated = crossing in proto.ACTIVATED
         if granted_at is None:
@@ -193,7 +196,7 @@ class Harness:
             native = (proto.NONCE, 0, 0, '', 0, NONCE) if crossing == 'CREATE' else self.bound()
         if bundle_apk is None:
             bundle_apk = hashlib.sha256(self.apk).hexdigest() if crossing == 'WRITE' else proto.ZERO_DIGEST
-        return self.call('CROSS', ticket=ticket, ticket_digest='11' * 32, plan=plan, plan_digest='22' * 32,
+        return self.call('CROSS', ticket=ticket, ticket_digest=ticket_digest, plan=plan, plan_digest=plan_digest,
                          attempt=attempt, component=sim_android.PACKAGE, index=index,
                          crossing=proto.CROSSINGS[crossing][0], occurrence=occurrence,
                          entry_boot=entry_boot or self.sim.boot,

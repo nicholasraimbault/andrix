@@ -269,8 +269,8 @@ class PushResult:
 
 @dataclass(frozen=True)
 class FeaturesResult:
-    """The device's feature list through the server. `status` is ok, failed (FAIL), connect-failed
-    or unknown."""
+    """The device's feature list through the server. `status` is ok, failed (FAIL), connect-failed,
+    launch-deadline (nothing sent) or unknown."""
     status: str
     features: tuple
     fail_message: object
@@ -417,13 +417,17 @@ class AdbClient:
 
     # ------------------------------------------------ services
 
-    def features(self, timeout):
+    def features(self, timeout, may_send=None):
+        """The device's features through the server. may_send, when given, is asked once more right
+        before the request is sent: a deadline that has passed by then sends nothing."""
         deadline = self._monotonic() + int(timeout * 1e9)
         try:
             sock = self._connect(self._remaining(deadline))
         except (OSError, _Timeout) as error:
             return FeaturesResult('connect-failed', (), None, str(error) or type(error).__name__)
         try:
+            if may_send is not None and not may_send():
+                return FeaturesResult('launch-deadline', (), None, 'the launch deadline passed before the request')
             self._send(sock, deadline, 'host-serial:%s:features' % self.serial)
             status, message = self._status(sock, deadline)
             if status == 'FAIL':

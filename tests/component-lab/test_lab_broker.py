@@ -11,11 +11,13 @@ import threading
 import unittest
 import unittest.mock
 
+import capture_ledger
 import labtest
 from labtest import GRANT, NONCE, PLAN, TICKET, Harness, read_observation
 import lab_broker
 import lab_protocol as proto
 import lab_readers
+import lab_target
 import sim_android
 import source_manifest
 
@@ -169,6 +171,10 @@ class FeatureTests(Base):
         h = self.harness()
         h.sim.features = None
         self.assertEqual(h.clock_read()['status'], STATUS['UNAVAILABLE'])
+        # The unreadable query is the group's own capture.
+        query = h.entries('capture')[-1]
+        self.assertEqual(query.content['intent']['operation'], 'features')
+        self.assertEqual(h.entries('group')[-1].content['captures'], [query.number])
         reply = h.cross('CREATE', 2)
         self.assertEqual(reply['status'], STATUS['NO_REPLY'])
         self.assertIn('nothing launched', reply['reason'])
@@ -178,6 +184,101 @@ class FeatureTests(Base):
         self.assertEqual(h.clock_read()['status'], STATUS['OK'])
         self.assertEqual([c[0] for c in h.sim.calls], ['features', 'features', 'features'])
         self.assertEqual(h.entries('stop'), [])
+
+
+class BrokerDirectoryTests(unittest.TestCase):
+    """The broker directory's own name is made durable when it is made and at every opening."""
+
+    def traced(self, fail=None):
+        """os.fsync, recording the path each synced descriptor names, raising EIO for `fail`."""
+        real, synced = os.fsync, []
+
+        def fsync(fd):
+            target = os.readlink('/proc/self/fd/%d' % fd)
+            synced.append(target)
+            if fail is not None and target == str(fail):
+                raise OSError(5, 'injected')
+            return real(fd)
+        return synced, unittest.mock.patch.object(lab_broker.os, 'fsync', side_effect=fsync)
+
+    def directory(self):
+        path = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, path, True)
+        return path
+
+    def test_the_brokers_name_is_synced_when_made_and_at_every_opening(self):
+        directory = self.directory()
+        synced, patch = self.traced()
+        with patch:
+            lab_broker.Broker.initialize(directory / 'made', labtest.admission(directory), labtest.manifest_bytes())
+        self.assertIn(str(directory), synced)
+        h = Harness(directory=directory)
+        self.addCleanup(h.close)
+        synced, patch = self.traced()
+        with patch:
+            h.reopen()
+        self.assertIn(str(directory), synced)
+        self.assertIn(str(h.root), synced)
+
+    def test_a_failed_sync_of_the_brokers_name_refuses_the_opening_until_it_completes(self):
+        directory = self.directory()
+        h = Harness(directory=directory)
+        self.addCleanup(h.close)
+        h.broker.close()
+        opened = len([e for e in capture_ledger.scan(h.root / 'ledger') if e.kind == 'open'])
+        _, patch = self.traced(fail=directory)
+        with patch, self.assertRaisesRegex(lab_broker.BrokerError, 'cannot be made durable'):
+            h.open()
+        self.assertEqual(len([e for e in capture_ledger.scan(h.root / 'ledger') if e.kind == 'open']), opened)
+        h.open()
+        self.assertEqual(len([e for e in capture_ledger.scan(h.root / 'ledger') if e.kind == 'open']), opened + 1)
+
+    def test_a_failed_ledger_entry_sync_refuses_the_opening_until_it_completes(self):
+        directory = self.directory()
+        h = Harness(directory=directory, sync=True)
+        self.addCleanup(h.close)
+        h.broker.close()
+        entry = sorted(p for p in (h.root / 'ledger').iterdir() if p.is_dir())[-1]
+        opened = len([e for e in capture_ledger.scan(h.root / 'ledger') if e.kind == 'open'])
+        real = capture_ledger.Ledger._sync_dir
+
+        def failing(ledger, path):
+            if Path(path) == entry:
+                raise OSError(5, 'injected')
+            return real(ledger, path)
+        with unittest.mock.patch.object(capture_ledger.Ledger, '_sync_dir', failing):
+            for _ in range(2):
+                with self.assertRaisesRegex(lab_broker.BrokerError, 'the ledger cannot be made durable'):
+                    h.open()
+        self.assertEqual(len([e for e in capture_ledger.scan(h.root / 'ledger') if e.kind == 'open']), opened)
+        h.open()
+        self.assertEqual(len([e for e in capture_ledger.scan(h.root / 'ledger') if e.kind == 'open']), opened + 1)
+
+    def test_a_failed_ledger_file_sync_refuses_the_opening_until_it_completes(self):
+        directory = self.directory()
+        h = Harness(directory=directory, sync=True)
+        self.addCleanup(h.close)
+        h.broker.close()
+        entry = sorted(p for p in (h.root / 'ledger').iterdir() if p.is_dir())[-1]
+        real = capture_ledger.Ledger._sync_file
+
+        def failing(ledger, path):
+            if Path(path) == entry / 'record.json':
+                raise OSError(5, 'injected')
+            return real(ledger, path)
+        with unittest.mock.patch.object(capture_ledger.Ledger, '_sync_file', failing):
+            for _ in range(2):
+                with self.assertRaisesRegex(lab_broker.BrokerError, 'the ledger cannot be made durable'):
+                    h.open()
+        h.open()
+        self.assertEqual(h.broker.ledger.last.kind, 'open')
+
+    def test_a_failed_sync_when_the_broker_is_made_leaves_nothing_to_open(self):
+        directory = self.directory()
+        _, patch = self.traced(fail=directory)
+        with patch, self.assertRaises(OSError):
+            lab_broker.Broker.initialize(directory / 'made', labtest.admission(directory), labtest.manifest_bytes())
+        self.assertEqual(os.listdir(directory / 'made'), [])
 
 
 class FenceTests(Base):
@@ -255,6 +356,672 @@ class FenceDuringFeaturesTests(Base):
                 self.assertEqual(h.cross('CREATE', 2)['status'], STATUS['STOPPED'])
                 self.assertEqual(len(h.entries('capture')), 1)
                 self.assertEqual(self.mutations(h), [])
+
+
+def guest_admission(store='/nonexistent-store', limit=10, launches=('CREATE', 'WRITE', 'ABANDON')):
+    """A version 2 admission as a guest's: the restart action with its limit, a launch set and the
+    deployment store whose records crossings name."""
+    return {'version': 2, 'lab_actions': {'framework-restart': limit}, 'launches': list(launches), 'store': str(store)}
+
+
+class LabActionTests(Base):
+    RESTART = guest_admission(launches=proto.DEVICE_CROSSINGS)
+
+    def test_the_admission_names_its_lab_actions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lab_broker.check_admission(labtest.admission(directory, **self.RESTART))
+            lab_broker.check_admission(labtest.admission(directory, **dict(self.RESTART, lab_actions={}, launches=[])))
+            bad = [{'version': 2}, dict(self.RESTART, lab_actions=['framework-restart']),
+                   dict(self.RESTART, lab_actions={'reboot': 1}), dict(self.RESTART, lab_actions={'framework-restart': 0}),
+                   dict(self.RESTART, lab_actions={'framework-restart': 101}),
+                   dict(self.RESTART, lab_actions={'framework-restart': True}), dict(self.RESTART, launches=['LAUNCH']),
+                   dict(self.RESTART, launches=['CREATE', 'CREATE']), dict(self.RESTART, launches='CREATE'),
+                   dict(self.RESTART, store='relative/store'), dict(self.RESTART, store=None),
+                   dict(self.RESTART, version=1), dict(self.RESTART, version=3)]
+            for changes in bad:
+                with self.subTest(changes=changes), self.assertRaises(lab_broker.BrokerError):
+                    lab_broker.check_admission(labtest.admission(directory, **changes))
+
+    def test_a_framework_restart_is_refused_unless_the_admission_names_it(self):
+        h = Harness()
+        self.addCleanup(h.close)
+        with self.assertRaisesRegex(lab_broker.BrokerError, 'not an admitted lab action'):
+            h.broker.framework_restart('a later framework instance')
+        self.assertEqual((h.entries('lab-action'), h.entries('capture')), ([], []))
+
+    def test_a_framework_restart_runs_only_between_generations_and_is_recorded(self):
+        h = Harness(**self.RESTART)
+        self.addCleanup(h.close)
+        instance, boot = h.sim.instance, h.sim.boot
+        h.begin()
+        with self.assertRaisesRegex(lab_broker.BrokerError, 'between generations'):
+            h.broker.framework_restart('a later framework instance')
+        h.end(0)
+        with self.assertRaisesRegex(lab_broker.BrokerError, 'reason'):
+            h.broker.framework_restart(' ')
+        summary = h.broker.framework_restart('a later framework instance for the gone proof')
+        self.assertEqual((summary['launch'], summary['completion'], summary['exit']), ('launched', 'exited', 0))
+        self.assertEqual((h.sim.boot, h.sim.instance > instance), (boot, True))
+        self.assertEqual([c for c in h.sim.calls if c[0] == 'am restart'], [('am restart', boot)])
+        actions = [e.content for e in h.entries('lab-action')]
+        self.assertEqual([(a['action'], a['phase']) for a in actions], [('framework-restart', 'BEGIN'), ('framework-restart', 'END')])
+        self.assertEqual(actions[1]['begin'], actions[0]['number'])
+        captures = [e for e in h.entries('capture') if e.content['intent']['command'] == 'am restart']
+        self.assertEqual([(c.content['intent']['operation'], c.content['intent']['lab_action']) for c in captures],
+                         [('lab-action', actions[0]['number'])])
+        self.assertEqual(actions[1]['capture'], captures[0].number)
+
+    def test_a_framework_restart_is_refused_beside_a_committed_session(self):
+        for state in ('READY', 'VERIFYING', 'LIVE_NOT_READY'):
+            with self.subTest(state):
+                h = Harness(**self.RESTART)
+                self.addCleanup(h.close)
+                h.sim.sessions[7001] = sim_android.Session(7001, 4321, '88' * 16, state=state, instance=h.sim.instance)
+                with self.assertRaisesRegex(lab_broker.BrokerError, 'committed'):
+                    h.broker.framework_restart('a later framework instance')
+                self.assertEqual([c for c in h.sim.calls if c[0] == 'am restart'], [])
+                actions = [e.content for e in h.entries('lab-action')]
+                self.assertEqual([(a['phase'], a.get('refused')) for a in actions],
+                                 [('BEGIN', None), ('END', 'a session of the component is committed or of unknown commitment')])
+                groups = [e.content for e in h.entries('group') if e.content.get('purpose') == 'lab-action-precondition']
+                self.assertEqual([(g['reader'], g['status'], g['emitted']) for g in groups],
+                                 [('clock', 'facts', False), ('sessions', 'facts', False)])
+        h = Harness(**self.RESTART)
+        self.addCleanup(h.close)
+        h.sim.sessions[7002] = sim_android.Session(7002, 4321, '88' * 16, state='SEALED', instance=h.sim.instance)
+        self.assertEqual(h.broker.framework_restart('a sealed session cannot activate')['exit'], 0)
+
+    def test_a_framework_restart_needs_a_whole_listing(self):
+        h = Harness(**self.RESTART)
+        self.addCleanup(h.close)
+        h.sim.scripts['sim:sessions'] = ['before']
+        with self.assertRaisesRegex(lab_broker.BrokerError, 'session listing is unavailable'):
+            h.broker.framework_restart('a later framework instance')
+        self.assertEqual([c for c in h.sim.calls if c[0] == 'am restart'], [])
+        h.sim.framework = False
+        with self.assertRaisesRegex(lab_broker.BrokerError, 'refused'):
+            h.broker.framework_restart('a later framework instance')
+        self.assertEqual([c for c in h.sim.calls if c[0] == 'am restart'], [])
+
+    def restart_that_goes_down(self, h, back_after=None, new_boot=False):
+        """`am restart` takes the framework down; it comes back after `back_after` clock reads, as a
+        later instance of the same boot, or never; or the guest boots again at the first poll."""
+        reads = {'clock': 0, 'down': False}
+
+        def restart(command):
+            h.sim.calls.append(('am restart', h.sim.boot))
+            h.sim.framework, reads['down'] = False, True
+            return sim_android.result(command, 0)
+
+        def poll(command):
+            if command != 'sim:clock' or not reads['down']:
+                return
+            reads['clock'] += 1
+            if new_boot:
+                h.sim.reboot()
+                reads['down'] = False
+            elif back_after is not None and reads['clock'] == back_after:
+                h.sim.framework = True
+                h.sim.framework_restart()
+                reads['down'] = False
+        h.sim.scripts['am restart'] = [restart]
+        h.sim.hooks.append(poll)
+
+    def settle_groups(self, h):
+        return [e.content['reader'] for e in h.entries('group') if e.content.get('purpose') == 'lab-action-settle']
+
+    def test_the_restart_waits_for_a_later_instance_with_a_whole_listing(self):
+        h = Harness(**self.RESTART)
+        self.addCleanup(h.close)
+        instance = h.sim.instance
+        self.restart_that_goes_down(h, back_after=3)
+        summary = h.broker.framework_restart('a later framework instance')
+        self.assertEqual(summary['polls'], 3)
+        self.assertEqual((summary['before']['instance'], summary['settled']['instance'] > instance), (instance, True))
+        self.assertEqual(self.settle_groups(h), ['clock', 'clock', 'clock', 'sessions'])
+        end = h.entries('lab-action')[-1].content
+        self.assertEqual((end['phase'], end.get('refused'), end['settled']), ('END', None, summary['settled']))
+        self.assertEqual(h.clock.slept.count(lab_broker.RESTART_POLL_S), 2)
+
+    def test_a_restart_that_never_settles_is_refused_after_its_record(self):
+        h = Harness(**self.RESTART)
+        self.addCleanup(h.close)
+        self.restart_that_goes_down(h)
+        with self.assertRaisesRegex(lab_broker.BrokerError, 'did not settle'):
+            h.broker.framework_restart('a later framework instance that does not come')
+        end = h.entries('lab-action')[-1].content
+        self.assertEqual((end['phase'], end['settled']), ('END', None))
+        self.assertIn('within', end['refused'])
+        self.assertEqual(end['polls'], lab_broker.RESTART_SETTLE_S // lab_broker.RESTART_POLL_S)
+        self.assertEqual(end['settle']['deadline_monotonic_ns'] - end['settle']['started_monotonic_ns'],
+                         lab_broker.RESTART_SETTLE_S * 1_000_000_000)
+        self.assertNotIn('sessions', self.settle_groups(h))
+
+    def test_a_later_instance_settles_only_with_a_whole_listing(self):
+        h = Harness(**self.RESTART)
+        self.addCleanup(h.close)
+        sessions, restarted = h.broker.reader.sessions, {'polls': 0}
+
+        def listing():
+            # In the later instance, the first listing reads but is not whole, and the second does
+            # not complete; only the third is a whole listing.
+            facts = sessions()
+            if restarted['polls']:
+                restarted['polls'] += 1
+                if restarted['polls'] == 2:
+                    for fact in facts:
+                        if fact['kind'] == 'LISTING':
+                            fact['classification'] = 'INCOMPLETE'
+                elif restarted['polls'] == 3:
+                    raise lab_readers.Unavailable('the listing did not complete')
+            return facts
+
+        def restart(command):
+            h.sim.calls.append(('am restart', h.sim.boot))
+            h.sim.framework_restart()
+            restarted['polls'] = 1
+            return sim_android.result(command, 0)
+        h.broker.reader.sessions = listing
+        h.sim.scripts['am restart'] = [restart]
+        summary = h.broker.framework_restart('a later framework instance')
+        self.assertEqual(summary['polls'], 3)
+        self.assertEqual(self.settle_groups(h), ['clock', 'sessions'] * 3)
+
+    def slow_commands(self, h, seconds, incomplete_listings=0):
+        """After `am restart` every guest command takes `seconds` of host time, the framework is back at
+        once, and the first `incomplete_listings` listings in the later instance are not whole. Records
+        each command's timeout."""
+        state = {'restarted': False, 'listings': 0, 'timeouts': []}
+        sessions = h.broker.reader.sessions
+
+        def listing():
+            facts = sessions()
+            if state['restarted']:
+                state['listings'] += 1
+                if state['listings'] <= incomplete_listings:
+                    for fact in facts:
+                        if fact['kind'] == 'LISTING':
+                            fact['classification'] = 'INCOMPLETE'
+            return facts
+
+        def restart(command):
+            h.sim.calls.append(('am restart', h.sim.boot))
+            h.sim.framework_restart()
+            state['restarted'] = True
+            return sim_android.result(command, 0)
+        shell = h.broker.transport.shell
+
+        def timed(command, timeout, stdout_max, stderr_max, **extra):
+            # The command launches now and takes `seconds`: the time passes after the launch.
+            result = shell(command, timeout, stdout_max, stderr_max, **extra)
+            if state['restarted'] and command in ('sim:clock', 'sim:sessions'):
+                state['timeouts'].append((command, timeout))
+                h.clock.mono += seconds * 1_000_000_000
+            return result
+        h.broker.reader.sessions = listing
+        h.broker.transport.shell = timed
+        h.sim.scripts['am restart'] = [restart]
+        return state
+
+    def test_a_slow_successful_poll_that_ends_after_the_bound_settles_nothing(self):
+        h = Harness(**self.RESTART)
+        self.addCleanup(h.close)
+        # Each command takes 29 s, within its 30 s limit; the fifth poll's listing is the first whole
+        # one, and it ends 310 s after the bound began.
+        state = self.slow_commands(h, 29, incomplete_listings=4)
+        with self.assertRaisesRegex(lab_broker.BrokerError, 'ended after the 300 s bound'):
+            h.broker.framework_restart('a later framework instance')
+        end = h.entries('lab-action')[-1].content
+        self.assertEqual((end['settled'], end['polls']), (None, 5))
+        # The last command's timeout was cut to the time the bound had left.
+        self.assertEqual(state['timeouts'][-1], ('sim:sessions', 19))
+
+    def test_the_bound_passing_between_a_polls_groups_starts_no_listing(self):
+        h = Harness(**self.RESTART)
+        self.addCleanup(h.close)
+        self.slow_commands(h, 301)
+        with self.assertRaisesRegex(lab_broker.BrokerError, 'did not settle'):
+            h.broker.framework_restart('a later framework instance')
+        polls = h.entries('lab-action')[-1].content['settle']['polls']
+        self.assertEqual([(p['clock'] is not None, p['sessions']) for p in polls], [(True, None)])
+
+    # ------------------------------------------------ a bound reaches each command's launch
+
+    def bounded_clock(self, h, seconds_left):
+        return h.broker._group('clock', h.broker.reader.clock, {'request': None, 'generation': None, 'purpose': 'test'},
+                               None, emitted=False, deadline_ns=h.clock.mono + int(seconds_left * 1_000_000_000))
+
+    def test_a_fraction_of_a_second_left_starts_no_command(self):
+        h = Harness(**self.RESTART)
+        self.addCleanup(h.close)
+        before = len(h.entries('capture'))
+        group = self.bounded_clock(h, 0.5)
+        self.assertEqual((group.status, len(h.entries('capture'))), ('unavailable', before))
+
+    def test_expiry_while_the_intent_is_synced_launches_nothing(self):
+        h = Harness(**self.RESTART)
+        self.addCleanup(h.close)
+        h.broker.controller_read(['clock'], 'warm up')  # the feature query comes first
+        begin = h.broker.ledger.begin_capture
+
+        def slow(intent):
+            entry = begin(intent)
+            h.clock.mono += 2_000_000_000
+            return entry
+        h.broker.ledger.begin_capture = slow
+        group = self.bounded_clock(h, 1.5)
+        result = h.entries('capture')[-1].content['result']
+        self.assertEqual((group.status, result['launch'], result['transport']), ('unavailable', 'not-launched', 'not-sent'))
+        self.assertEqual(h.entries('group')[-1].content['captures'], [h.entries('capture')[-1].number])
+
+    def test_a_fresh_brokers_feature_query_keeps_the_bound(self):
+        h = Harness(**self.RESTART)
+        self.addCleanup(h.close)
+        begin = h.broker.ledger.begin_capture
+
+        def slow(intent):
+            entry = begin(intent)
+            if intent['operation'] == 'features':
+                h.clock.mono += 2_000_000_000
+            return entry
+        h.broker.ledger.begin_capture = slow
+        group = self.bounded_clock(h, 1.5)
+        last = h.entries('capture')[-1]
+        self.assertEqual((last.content['intent']['operation'], last.content['result']['transport']), ('features', 'not-sent'))
+        self.assertEqual((group.status, h.sim.calls), ('unavailable', []))
+        self.assertEqual(h.entries('group')[-1].content['captures'], [last.number])
+
+    def test_a_fresh_brokers_feature_query_is_given_only_what_the_bound_has_left(self):
+        h = Harness(**self.RESTART)
+        self.addCleanup(h.close)
+        begin, features, seen = h.broker.ledger.begin_capture, h.broker.transport.features, []
+
+        def slow(intent):
+            entry = begin(intent)
+            h.clock.mono += 700_000_000
+            return entry
+
+        def recorded(timeout, **extra):
+            seen.append(timeout)
+            return features(timeout, **extra)
+        h.broker.ledger.begin_capture, h.broker.transport.features = slow, recorded
+        self.assertEqual(self.bounded_clock(h, 10).status, 'facts')
+        self.assertTrue(seen and abs(seen[0] - 9.3) < 1e-6, seen)
+
+    def test_a_fresh_brokers_feature_query_is_refused_by_the_transport_once_the_bound_passes(self):
+        h = Harness(**self.RESTART)
+        self.addCleanup(h.close)
+        features = h.broker.transport.features
+
+        def late(timeout, **extra):
+            # The handoff to the transport takes longer than the bound has left.
+            h.clock.mono += 2_000_000_000
+            return features(timeout, **extra)
+        h.broker.transport.features = late
+        group = self.bounded_clock(h, 1.5)
+        last = h.entries('capture')[-1]
+        self.assertEqual(last.content['intent']['operation'], 'features')
+        self.assertEqual(last.content['result']['status'], 'launch-deadline')
+        self.assertEqual((group.status, h.sim.calls), ('unavailable', []))
+        self.assertEqual(h.entries('group')[-1].content['captures'], [last.number])
+
+    def test_expiry_during_device_selection_launches_nothing(self):
+        h = Harness(**self.RESTART)
+        self.addCleanup(h.close)
+        h.broker.controller_read(['clock'], 'warm up')
+        h.sim.hooks.append(lambda command: command == 'sim:clock' and setattr(h.clock, 'mono', h.clock.mono + 2_000_000_000))
+        group = self.bounded_clock(h, 1.5)
+        result = h.entries('capture')[-1].content['result']
+        self.assertEqual((group.status, result['launch'], result['transport']), ('unavailable', 'not-launched', 'launch-deadline'))
+
+    def test_the_transport_is_given_only_what_the_bound_has_left(self):
+        h = Harness(**self.RESTART)
+        self.addCleanup(h.close)
+        h.broker.controller_read(['clock'], 'warm up')
+        begin, shell, seen = h.broker.ledger.begin_capture, h.broker.transport.shell, []
+
+        def slow(intent):
+            entry = begin(intent)
+            h.clock.mono += 700_000_000
+            return entry
+
+        def recorded(command, timeout, stdout_max, stderr_max, **extra):
+            seen.append(timeout)
+            return shell(command, timeout, stdout_max, stderr_max, **extra)
+        h.broker.ledger.begin_capture, h.broker.transport.shell = slow, recorded
+        self.assertEqual(self.bounded_clock(h, 10).status, 'facts')
+        self.assertTrue(seen and abs(seen[-1] - 9.3) < 1e-6, seen)
+
+    def test_a_poll_of_another_boot_refuses_the_restart(self):
+        h = Harness(**self.RESTART)
+        self.addCleanup(h.close)
+        self.restart_that_goes_down(h, new_boot=True)
+        with self.assertRaisesRegex(lab_broker.BrokerError, 'did not settle'):
+            h.broker.framework_restart('a later framework instance')
+        self.assertEqual(h.entries('lab-action')[-1].content['refused'], 'a poll read another boot')
+
+    def test_the_restart_limit_is_enforced_before_the_command(self):
+        h = Harness(**guest_admission(limit=1))
+        self.addCleanup(h.close)
+        h.broker.framework_restart('the first restart')
+        with self.assertRaisesRegex(lab_broker.BrokerError, 'limit of 1'):
+            h.broker.framework_restart('a second restart')
+        self.assertEqual(len([c for c in h.sim.calls if c[0] == 'am restart']), 1)
+        self.assertEqual(h.entries('lab-action')[-1].content['refused'], 'the admitted limit of 1 framework restarts is reached')
+
+    def test_an_incomplete_listing_never_admits_a_restart(self):
+        h = Harness(**self.RESTART)
+        self.addCleanup(h.close)
+        sessions = h.broker.reader.sessions
+
+        def incomplete():
+            facts = sessions()
+            for fact in facts:
+                if fact['kind'] == 'LISTING':
+                    fact['classification'] = 'INCOMPLETE'
+            return facts
+        h.broker.reader.sessions = incomplete
+        with self.assertRaisesRegex(lab_broker.BrokerError, 'not whole'):
+            h.broker.framework_restart('a later framework instance')
+        self.assertEqual([c for c in h.sim.calls if c[0] == 'am restart'], [])
+
+    def test_a_stopped_broker_runs_no_lab_action(self):
+        h = Harness(**self.RESTART)
+        self.addCleanup(h.close)
+        Path(h.admission['fences']['stop_file']).write_text('stop\n')
+        with self.assertRaises(lab_broker.Stopped):
+            h.broker.framework_restart('a later framework instance')
+        self.assertEqual(([c for c in h.sim.calls if c[0] == 'am restart'], h.entries('lab-action')), ([], []))
+
+
+class GuestAdmissionTests(Base):
+    """A version 2 admission's launch fence and the records each crossing names."""
+
+    def store(self, h, ticket=b'ticket record', plan=b'plan record'):
+        root = h.directory / 'store'
+        for directory, name, data in (('tickets', TICKET, ticket), ('plans', PLAN, plan),
+                                      ('selections', sim_android.PACKAGE, b'selection record'),
+                                      ('authorizations', labtest.GRANT, b'grant record')):
+            (root / directory).mkdir(parents=True, exist_ok=True)
+            (root / directory / (name + '.rec')).write_bytes(data)
+        return root
+
+    def harness_with_store(self, launches=('CREATE', 'WRITE', 'ABANDON'), cells=()):
+        directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, directory, True)
+        store = Path(directory) / 'store'
+        h = Harness(directory=directory, **guest_admission(store=store, launches=launches))
+        self.addCleanup(h.close)
+        self.store(h)
+        if cells:
+            h.broker.admit_faults(list(cells))
+        h.begin()
+        self.assertEqual(h.hello()['status'], STATUS['OK'])
+        digests = {'ticket_digest': hashlib.sha256(b'ticket record').hexdigest(),
+                   'plan_digest': hashlib.sha256(b'plan record').hexdigest()}
+        return h, digests
+
+    def test_the_records_a_crossing_names_are_kept_by_digest(self):
+        h, digests = self.harness_with_store()
+        self.assertEqual(h.cross('CREATE', 2, **digests)['status'], STATUS['OK'])
+        crossing = h.entries('crossing')[-1].content
+        # CREATE carries its STAGE grant, so the grant is kept too.
+        kept = {name: hashlib.sha256(data).hexdigest() for name, data in
+                (('ticket', b'ticket record'), ('plan', b'plan record'), ('selection', b'selection record'),
+                 ('grant', b'grant record'))}
+        self.assertEqual(crossing['records'], kept)
+        for digest, data in ((kept['ticket'], b'ticket record'), (kept['plan'], b'plan record')):
+            self.assertEqual((h.root / 'records' / digest).read_bytes(), data)
+
+    def test_a_crossing_whose_stored_records_differ_launches_nothing(self):
+        h, digests = self.harness_with_store(cells=[cell('drop', crossing='CREATE', occurrence=1)])
+        reply = h.cross('CREATE', 2, **dict(digests, ticket_digest='33' * 32))
+        self.assertEqual(reply['status'], STATUS['NO_REPLY'])
+        self.assertIn('not the record the crossing names', reply['reason'])
+        self.assertEqual(self.mutations(h), [])
+        # No cell was consumed by the refused crossing.
+        self.assertEqual(h.broker.consumed, set())
+        (h.directory / 'store' / 'plans' / (PLAN + '.rec')).unlink()
+        reply = h.cross('CREATE', 3, **digests)
+        self.assertIn('cannot be read whole', reply['reason'])
+        self.assertEqual(self.mutations(h), [])
+
+    def test_the_admitted_launch_set_is_a_fence_whatever_the_faults(self):
+        h, digests = self.harness_with_store()
+        native = self.created_with(h, digests)
+        for crossing, index in (('COMMIT', 4), ('REBOOT', 5)):
+            with self.subTest(crossing=crossing):
+                calls = len(self.mutations(h))
+                extra = {} if crossing == 'REBOOT' else {'native': native}
+                reply = h.cross(crossing, index, **dict(digests, **extra))
+                self.assertEqual(reply['status'], STATUS['NO_REPLY'])
+                self.assertIn('not admitted to launch', reply['reason'])
+                self.assertEqual(len(self.mutations(h)), calls)
+
+    def test_a_loss_before_cell_still_halts_a_crossing_outside_the_launch_set(self):
+        h, digests = self.harness_with_store(cells=[cell('m0', mode='loss-before', crossing='COMMIT', occurrence=1)])
+        native = self.created_with(h, digests)
+        reply = h.cross('COMMIT', 4, native=native, **digests)
+        self.assertEqual(reply['status'], STATUS['HALT'])
+        self.assertEqual(h.entries('fault')[-1].content['cell'], 'm0')
+
+    def test_cells_that_need_a_launch_outside_the_set_are_refused_at_admission(self):
+        h, _ = self.harness_with_store()
+        for mode in ('loss-after', 'drop-reply'):
+            with self.subTest(mode=mode), self.assertRaisesRegex(lab_broker.BrokerError, 'may not launch'):
+                h.broker.admit_faults([cell('c-' + mode, mode=mode, crossing='COMMIT', occurrence=1)])
+
+    def test_a_short_write_is_completed_before_the_record_is_kept(self):
+        h, digests = self.harness_with_store()
+        real = os.write
+        short = {'done': False}
+
+        def write(fd, data):
+            # The first write of a retained record's temporary file writes only half.
+            if not short['done'] and '/records/.' in os.readlink('/proc/self/fd/%d' % fd):
+                short['done'] = True
+                return real(fd, bytes(data)[:len(data) // 2])
+            return real(fd, data)
+        with unittest.mock.patch.object(lab_broker.os, 'write', side_effect=write):
+            reply = h.cross('CREATE', 2, **digests)
+        self.assertTrue(short['done'])
+        self.assertEqual(reply['status'], STATUS['OK'])
+        for digest in h.entries('crossing')[-1].content['records'].values():
+            self.assertEqual(hashlib.sha256((h.root / 'records' / digest).read_bytes()).hexdigest(), digest)
+
+    def test_a_record_that_cannot_be_kept_whole_launches_nothing(self):
+        h, digests = self.harness_with_store(cells=[cell('drop', crossing='CREATE', occurrence=1)])
+        real = os.write
+
+        def write(fd, data):
+            if '/records/.' in os.readlink('/proc/self/fd/%d' % fd):
+                return 0
+            return real(fd, data)
+        with unittest.mock.patch.object(lab_broker.os, 'write', side_effect=write):
+            reply = h.cross('CREATE', 2, **digests)
+        self.assertEqual(reply['status'], STATUS['NO_REPLY'])
+        self.assertIn('cannot be retained', reply['reason'])
+        self.assertEqual((self.mutations(h), h.broker.consumed), ([], set()))
+        # Nothing is left under any record's name.
+        self.assertEqual([p.name for p in (h.root / 'records').iterdir() if not p.name.startswith('.')], [])
+
+    def test_retained_record_names_are_made_durable(self):
+        h, digests = self.harness_with_store()
+        real, synced = os.fsync, []
+
+        def fsync(fd):
+            target = os.readlink('/proc/self/fd/%d' % fd)
+            if target in (str(h.root), str(h.root / 'records')):
+                synced.append(target)
+            return real(fd)
+        with unittest.mock.patch.object(lab_broker.os, 'fsync', side_effect=fsync):
+            self.assertEqual(h.cross('CREATE', 2, **digests)['status'], STATUS['OK'])
+            first = list(synced)
+            self.assertIn(str(h.root), first)
+            self.assertIn(str(h.root / 'records'), first)
+            # The same records named again: the directory is synced again, never skipped.
+            synced.clear()
+            self.assertEqual(h.cross('WRITE', 3, native=h.bound(), **digests)['status'], STATUS['OK'])
+            self.assertIn(str(h.root / 'records'), synced)
+
+    def test_a_failed_directory_sync_launches_nothing_and_is_completed_later(self):
+        h, digests = self.harness_with_store()
+        real = os.fsync
+
+        def failing(fd):
+            if os.readlink('/proc/self/fd/%d' % fd) == str(h.root / 'records'):
+                raise OSError(5, 'injected')
+            return real(fd)
+        with unittest.mock.patch.object(lab_broker.os, 'fsync', side_effect=failing):
+            reply = h.cross('CREATE', 2, **digests)
+        self.assertEqual(reply['status'], STATUS['NO_REPLY'])
+        self.assertIn('cannot be retained', reply['reason'])
+        self.assertEqual(self.mutations(h), [])
+        synced = []
+
+        def counting(fd):
+            if os.readlink('/proc/self/fd/%d' % fd) == str(h.root / 'records'):
+                synced.append(fd)
+            return real(fd)
+        with unittest.mock.patch.object(lab_broker.os, 'fsync', side_effect=counting):
+            self.assertEqual(h.cross('CREATE', 3, **digests)['status'], STATUS['OK'])
+        self.assertTrue(synced)
+
+    def created_with(self, h, digests):
+        reply = h.cross('CREATE', 2, **digests)
+        self.assertEqual(reply['status'], STATUS['OK'])
+        return h.bound()
+
+
+class ControllerTests(Base):
+    """Reads and diagnostics the controller asks between generations."""
+
+    def test_controller_reads_are_recorded_groups_between_generations(self):
+        h = Harness()
+        self.addCleanup(h.close)
+        groups = h.broker.controller_read(['clock', 'sessions', 'checkpoint'], 'baseline listing')
+        self.assertEqual([g.status for g in groups], ['facts', 'facts', 'facts'])
+        listing = [f for f in groups[1].facts if f['kind'] == 'LISTING']
+        self.assertEqual([f['classification'] for f in listing], ['NONE_FOR_PACKAGE'])
+        recorded = [e.content for e in h.entries('group') if e.content['purpose'] == 'controller: baseline listing']
+        self.assertEqual([(g['reader'], g['emitted']) for g in recorded],
+                         [('clock', False), ('sessions', False), ('checkpoint', False)])
+        for names, purpose in ((['reboot'], 'x'), ([], 'x'), (['clock'], ' '), (['target'], 'x')):
+            with self.subTest(names=names, purpose=purpose), self.assertRaises(lab_broker.BrokerError):
+                h.broker.controller_read(names, purpose)
+        h.begin()
+        with self.assertRaisesRegex(lab_broker.BrokerError, 'between generations'):
+            h.broker.controller_read(['clock'], 'during a generation')
+
+    def test_a_diagnostic_is_a_fixed_fenced_capture(self):
+        h = Harness()
+        self.addCleanup(h.close)
+        number, result = h.broker.diagnostic('logcat')
+        capture = next(e for e in h.entries('capture') if e.number == number).content
+        self.assertEqual((capture['intent']['operation'], capture['intent']['command']), ('diagnostic', 'logcat -b all -d'))
+        self.assertEqual(result.exit, 0)
+        with self.assertRaisesRegex(lab_broker.BrokerError, 'no known name'):
+            h.broker.diagnostic('bugreport')
+        Path(h.admission['fences']['stop_file']).write_text('stop\n')
+        with self.assertRaises(lab_broker.Stopped):
+            h.broker.diagnostic('logcat')
+        self.assertEqual(len([c for c in h.sim.calls if c[0] == 'logcat']), 1)
+
+
+class TargetReadTests(Base):
+    """The native target scope read from the guest as the broker's own recorded group."""
+
+    def target_groups(self, h):
+        return [e.content for e in h.entries('group') if e.content['reader'] == 'target']
+
+    def test_the_fresh_form_is_read_and_recorded_at_hello_and_at_every_crossing_gate(self):
+        h = self.harness(target_read=True)
+        groups = self.target_groups(h)
+        self.assertEqual([(g['purpose'], g['status'], g['emitted'], g['reading']) for g in groups],
+                         [('target', 'facts', False, {'scope': 'ESTABLISHED_EMPTY'})])
+        commands = [e.content['intent']['command'] for e in h.entries('capture') if e.number in groups[0]['captures']]
+        self.assertEqual(commands, [lab_target.COMMAND])
+        self.assertTrue(h.entries('open')[0].content['target_read'])
+        native = self.created(h)
+        self.assertEqual(h.cross('WRITE', 3, native=native)['status'], STATUS['OK'])
+        # HELLO, CREATE's gate, and WRITE's gate before its push and again before each member.
+        self.assertEqual(len(self.target_groups(h)), 5)
+        # Every launched mutation follows a target read made since the mutation before it; the
+        # WRITE's two staging pushes share the gate read before them.
+        read_since, mutations = False, 0
+        for entry in h.broker.ledger.entries:
+            if entry.kind == 'group' and entry.content['reader'] == 'target':
+                read_since = entry.content['reading'] == {'scope': 'ESTABLISHED_EMPTY'}
+            elif entry.kind == 'capture' and entry.content['intent']['operation'] in ('mutation', 'push'):
+                self.assertTrue(read_since, entry.content['intent'].get('command'))
+                if entry.content['intent']['operation'] == 'mutation':
+                    read_since, mutations = False, mutations + 1
+        self.assertEqual(mutations, 3)
+
+    def test_any_other_reply_reads_unknown_and_launches_nothing(self):
+        fresh = lab_target.FRESH_FORM.encode()
+        replies = {
+            'another value': (0, fresh.replace(b'counter_known=false', b'counter_known=true'), b''),
+            'a hold': (0, fresh + b'hold=10147\tPINNED\ttrue\tpackage\tdev.andrix.proof\n', b''),
+            'another schema': (0, fresh.replace(b'-v1\n', b'-v2\n'), b''),
+            'error output': (0, fresh, b'warning\n'),
+            'a nonzero exit': (1, fresh, b''),
+            'a missing line end': (0, fresh[:-1], b''),
+        }
+        for label, reply in replies.items():
+            with self.subTest(reply=label):
+                h = Harness(target_read=True)
+                self.addCleanup(h.close)
+                h.begin()
+                self.assertEqual(h.hello()['status'], STATUS['OK'])
+                h.sim.native_dump = reply
+                calls = len(self.mutations(h))
+                outcome = h.cross('CREATE', 2)
+                self.assertEqual(outcome['status'], STATUS['NO_REPLY'])
+                self.assertIn('not established empty', outcome['reason'])
+                self.assertEqual(len(self.mutations(h)), calls)
+                self.assertEqual(self.target_groups(h)[-1]['reading'], {'scope': 'UNKNOWN'})
+
+    def test_hello_reports_unknown_for_another_form_and_never_held(self):
+        h = Harness(target_read=True)
+        self.addCleanup(h.close)
+        h.sim.native_dump = (0, lab_target.FRESH_FORM.encode() + b'hold=10147\tPINNED\ttrue\tpackage\tx\n', b'')
+        h.begin()
+        reply = h.hello()
+        self.assertEqual((reply['status'], reply['target']), (STATUS['OK'], proto.TARGETS['UNKNOWN']))
+
+    def test_an_unavailable_read_is_unknown(self):
+        h = Harness(target_read=True)
+        self.addCleanup(h.close)
+        h.sim.scripts[lab_target.COMMAND] = ['before']
+        h.begin()
+        reply = h.hello()
+        self.assertEqual((reply['status'], reply['target']), (STATUS['OK'], proto.TARGETS['UNKNOWN']))
+        self.assertEqual(self.target_groups(h)[0]['status'], 'unavailable')
+
+    def test_the_admission_still_bounds_the_read(self):
+        for admitted in ('HELD', 'UNKNOWN'):
+            with self.subTest(admitted=admitted):
+                h = Harness(target_read=True, target_scope=admitted)
+                self.addCleanup(h.close)
+                h.begin()
+                self.assertEqual(h.hello()['target'], proto.TARGETS[admitted])
+
+    def test_a_target_read_needs_the_readers_target_and_no_host_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / 'broker'
+            admission = labtest.admission(directory)
+            lab_broker.Broker.initialize(root, admission, labtest.manifest_bytes())
+            sim = sim_android.SimAndroid()
+            for reader, target in ((sim_android.SimReader(labtest.INSTALLATION), None),
+                                   (sim_android.SimReader(labtest.INSTALLATION, target=True), lambda: 'ESTABLISHED_EMPTY')):
+                with self.assertRaisesRegex(lab_broker.BrokerError, 'target read'):
+                    lab_broker.Broker.open(root, labtest.REPO, sim_android.SimTransport(sim), reader,
+                                           target=target, target_read=True)
+
+    def test_the_fresh_form_is_the_sealed_capture(self):
+        self.assertEqual(hashlib.sha256(lab_target.FRESH_FORM.encode()).hexdigest(), lab_target.FRESH_FORM_SHA256)
+        self.assertEqual(len(lab_target.FRESH_FORM.encode()), 220)
 
 
 class GroupTests(Base):
@@ -834,6 +1601,27 @@ class FaultTests(Base):
         self.assertEqual(host(1, 'PUBLISH', 2, 2)['status'], STATUS['OK'])
         self.assertEqual(host(2, 'PUBLISH', 2, 2, 2)['status'], STATUS['HALT'])
         self.assertEqual(h.entries('escrow')[0].content['reply_sha256'], 'ab' * 32)
+
+    def test_host_records_carry_the_brokers_times(self):
+        h = self.harness()
+
+        def host(phase, crossing, index, occurrence, outcome=0, reply=proto.ZERO_DIGEST):
+            return h.call('HOST', phase=phase, crossing=proto.HOST_CROSSINGS[crossing], ticket=TICKET, plan=PLAN,
+                          attempt=1, index=index, occurrence=occurrence, reference='9b' * 16, outcome=outcome,
+                          reply=reply)
+        h.clock.wall, h.clock.mono = h.clock.wall + 7_000_000_000, h.clock.mono + 7_000_000_000
+        begun = (h.clock.wall, h.clock.mono)
+        self.assertEqual(host(1, 'PUBLISH', 1, 1)['status'], STATUS['OK'])
+        h.clock.wall, h.clock.mono = h.clock.wall + 2_000_000_000, h.clock.mono + 2_000_000_000
+        self.assertEqual(host(2, 'PUBLISH', 1, 1, 1, 'ab' * 32)['status'], STATUS['OK'])
+        self.assertEqual(host(1, 'SIGN', 0, 1)['status'], STATUS['OK'])
+        h.clock.wall, h.clock.mono = h.clock.wall + 1_000_000_000, h.clock.mono + 1_000_000_000
+        h.end(0)
+        records = [e.content for e in h.entries('host')]
+        self.assertEqual([(r['phase'], r.get('outcome'), r['wall_ns'], r['monotonic_ns']) for r in records],
+                         [('BEGIN', None) + begun, ('END', 'REPLY', begun[0] + 2_000_000_000, begun[1] + 2_000_000_000),
+                          ('BEGIN', None, begun[0] + 2_000_000_000, begun[1] + 2_000_000_000),
+                          ('END', 'PROCESS_ENDED', begun[0] + 3_000_000_000, begun[1] + 3_000_000_000)])
 
     def test_admission_refuses_malformed_or_repeated_cells(self):
         h = self.harness(cells=[cell('one', crossing='CREATE', occurrence=1)])

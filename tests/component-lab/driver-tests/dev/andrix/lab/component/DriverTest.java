@@ -355,6 +355,13 @@ public final class DriverTest {
             check(!host.allows(transaction(PLAN, CERTIFICATE, KEY, 37, 37), 1, INSTALLATION, COMPONENT)
                     && !host.allows(transaction(PLAN, CERTIFICATE, KEY, 36, 65535), 1, INSTALLATION, COMPONENT), "another range");
         });
+        cases.run("contradict / the cohort's factory copy differs from T0's in its last digit only", () -> {
+            for (String digest : List.of(FACTORY, "a0".repeat(32), "1".repeat(64))) {
+                String other = LabDriverMain.otherDigest(digest);
+                check(!other.equals(digest) && other.length() == digest.length()
+                        && other.substring(0, 63).equals(digest.substring(0, 63)), "one digit changed: " + digest);
+            }
+        });
         cases.run("approval / another installation or component is refused", () -> {
             LabHost host = new Host("scope", PLAN, "37 65535").open();
             Transaction t = transaction(PLAN, CERTIFICATE, KEY, 37, 65535);

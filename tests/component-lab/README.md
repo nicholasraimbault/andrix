@@ -16,8 +16,9 @@ platform key that Android source trees carry and the two built inputs: it signs 
 guest, never for a device. A passing suite qualifies the protocol, the ledger, the broker's rules
 and the driver's guards on the host. It does not qualify any Android form, delivery route, health
 criterion or activation. The lab driver's core is here: the store's setup from the guest's own
-baseline and the coordinator processes with the real host. Its matrix and guest vehicle, the notice
-and health fixtures, the admission and the closure are later packages.
+baseline and the coordinator processes with the real host, and the design's loss cells as one
+sequence of attempts. The guest vehicle, the notice and health fixtures, the admission and the
+closure are later packages.
 
 ## Files
 
@@ -29,8 +30,10 @@ and health fixtures, the admission and the closure are later packages.
 | `lab_broker.py` | The broker: admission, lock, fences, generations, groups, crossings, fault cells |
 | `lab_crossings.py` | The typed crossing commands and their reply forms |
 | `lab_readers.py` | The injectable reader adapter and its adapter for the public shell observer |
+| `lab_target.py` | The native target scope read: the selected image's exact fresh form of Package Manager's native identity diagnostic |
 | `source_manifest.py` | The exact source manifest a broker is admitted with |
-| `lab_driver.py` | The lab driver: the store's setup, the baseline check, the plan from it, the generations, and the published variant staged for WRITE |
+| `lab_driver.py` | The lab driver: the store's setup, the baseline check, the plan from it, the generations, the published variant staged for WRITE, and the cell sequence's attempts |
+| `cells.py` | The loss cells as one ordered sequence of attempts on one plan, each with its faults and prediction |
 | `driver/` | Java: `LabDriverMain`, the driver's coordinator process and store setup, and `LabHost`, the real host signer, artifact store and bundle builder |
 | `driver-tests/` | Java: `DriverTest`, unit checks of the driver's baseline, selection, host configuration and approval guards |
 | `sim_android.py`, `labtest.py` | Host test support: a small simulated guest and a client |
@@ -139,13 +142,14 @@ to protocol 1 or a PTY.
   the stream stops inside a stdout or stderr packet, the payload bytes already received stay in
   that stream and the result names the stream. The bytes of a cut header stay as residual. Neither
   completes anything.
-- **Launch and transport status.** A result records whether the command was launched (the
-  service's OKAY), not launched, or unknown (the service request's transmission began, and no
-  status came back or the transmission failed part way), the
-  transport's status (ok, closed, timeout, I/O error, protocol fault, connect, transport or service
-  failure with the server's FAIL message), the completion, the EXIT value received and the two
-  streams unchanged. A transport error is never a remote exit status, so an adb error never becomes
-  a quiet remote 1.
+- **Launch and transport status.** A result records whether the command was launched (the service's
+  OKAY), not launched, or unknown (the service request's transmission began, and no status came back
+  or the transmission failed part way), the transport's status (ok, closed, timeout, I/O error,
+  protocol fault, connect, transport or service failure with the server's FAIL message), the
+  completion, the EXIT value received and the two streams unchanged. A transport error is never a
+  remote exit status, so an adb error never becomes a quiet remote 1. A launch deadline, when the
+  caller gives one, is asked once more right before the service request, and before the feature
+  query's request: a deadline passed by then sends nothing, and the command is not launched.
 - **Reboot.** The service `reboot:`. It has no shell protocol and no exit status. Its
   acknowledgement is accepted (OKAY), refused (FAIL) or none, then how the stream ended and any
   message. A new boot ID, read later, resolves the request.
@@ -171,51 +175,100 @@ before the command is launched, and the result is written last. Each JSON file r
 number and kind. Nothing is ever rewritten or removed.
 
 The kinds are `open`, `generation`, `generation-end`, `capture`, `group`, `crossing`, `outcome`,
-`fault`, `escrow`, `host`, `quarantine`, `stop`, `faults`, `artifacts` and `report`.
+`fault`, `escrow`, `host`, `quarantine`, `stop`, `faults`, `artifacts`, `report` and `lab-action`.
 
 Reopening checks the marker, each name and kind, the numbering, each entry's files and each complete
-capture's stream digests. One writer writes one entry at a time, so only the last entry can be
-incomplete after a crash. A reopening broker writes a quarantine record for it before anything else:
-`launched: false` when no whole intent exists, because a command starts only after its intent is
-synced, and `launched: "unknown"` for an intent without a result. A crash during that reopening can
-leave a run of quarantine entries, which the next reopening completes. The wait for a command whose
-effect is unknown comes from every capture with an intent and no result, quarantined or not, so a
-reopening lost before or during its wait leaves the same wait to the next one. Any other incomplete
-entry, a gap, an unknown name, a link, an extra file or other stream bytes refuse the reopening.
+capture's stream digests, then syncs every file it holds, every entry's directory and its own again
+before anything relies on the history: an entry that reads whole may still have had a file or
+directory sync fail, and a sync that fails refuses the reopening. A loss the kernel already reported
+to an earlier sync can go unreported to a later one, and nothing read from user space shows it. So a
+writer never writes on after a failed write or sync: the ledger refuses every later write in that
+process, and no command can launch without its durable intent. One writer writes one entry at a
+time, so only the last entry can be incomplete after a crash. A reopening broker writes a quarantine
+record for it before anything else: `launched: false` when no whole intent exists, because a command
+starts only after its intent is synced, and `launched: "unknown"` for an intent without a result. A
+crash during that reopening can leave a run of quarantine entries, which the next reopening
+completes. The wait for a command whose effect is unknown comes from every capture with an intent
+and no result, quarantined or not, so a reopening lost before or during its wait leaves the same
+wait to the next one. Any other incomplete entry, a gap, an unknown name, a link, an extra file or
+other stream bytes refuse the reopening.
 
 ## Broker
 
 A broker directory holds `admission.json` and `manifest.json`, both written once, the ledger, and
-the generations' diagnostics.
+the generations' diagnostics. Creating it syncs the directory that holds its name, and every opening
+syncs that directory and the broker's own again before anything relies on the durable history, so a
+barrier an interrupted creation or an earlier failed sync never reached is never skipped.
 
 - **Admission.** The installation, component, coordinator, trust policy digest, source manifest
-  digest, the digest of the bridge's configuration file, the device serial, the native target
-  scope, the guest staging directory, the fences and the limits. A HELLO must repeat the
-  installation, coordinator, configuration digest, component and trust policy exactly. Every
+  digest, the digest of the bridge's configuration file, the device serial, the native target scope,
+  the guest staging directory, the fences and the limits. Version 2, for a guest, adds the lab
+  actions with their limits, the crossings the broker may launch and the deployment store (see A
+  guest's admission below); version 1 admits no lab action and every crossing. A HELLO must repeat
+  the installation, coordinator, configuration digest, component and trust policy exactly. Every
   request must carry the admitted manifest digest.
-- **Sources.** Opening verifies every file the manifest lists, each a regular file reached without
-  a link, with its exact digest and size. Any difference refuses the opening.
+- **Sources.** Opening verifies every file the manifest lists, each a regular file reached without a
+  link, with its exact digest and size. Any difference refuses the opening.
 - **Shell protocol v2.** Before its first guest command, each broker reads the device's features
-  through the server, as a recorded capture. A definite answer without `shell_v2` latches a stop.
-  An answer that cannot be read launches nothing, and is asked again before the next command.
+  through the server, as a recorded capture. A definite answer without `shell_v2` latches a stop. An
+  answer that cannot be read launches nothing, and is asked again before the next command.
 - **Fences.** Before every guest command, reads and the feature query included, right before its
   intent: the stop latch, the stop file, the lease file's token and the runtime deadline. A tripped
   fence is latched in the ledger with its reason. From then on every request that needs the guest is
   answered STOPPED, HELLO included, in this broker and every later one on the same ledger. A command
   already running finishes within its own bound.
 - **Groups.** Each reader call is one group: its captures, its raw digest and the facts it gave are
-  recorded together. A read whose remote completion was not observed whole raises Unavailable, so
-  a transport failure never reaches a parser as an exit status. Every fact must be of the reader's
-  kinds, of the admitted installation and route, of the right component scope, of the round's
-  boot, and carry its group's raw digest. The uptime and the framework instance never go back
-  within a boot. A group of another boot ends the observation.
-- **Target scope.** The admission states whether the native target scope was positively
-  established empty. An injected target reader, when the controller gives one, is read again at
-  HELLO and at every crossing's gate; a reader that fails or names no known scope reads UNKNOWN.
-  Unless the scope is established empty, no crossing but the abandon of the ticket's own exact
-  session is launched. The broker does not establish the scope itself.
-- **Sources.** Before every crossing the admitted sources are verified again. A difference latches
-  a stop.
+  recorded together. A read whose remote completion was not observed whole raises Unavailable, so a
+  transport failure never reaches a parser as an exit status. Every fact must be of the reader's
+  kinds, of the admitted installation and route, of the right component scope, of the round's boot,
+  and carry its group's raw digest. The uptime and the framework instance never go back within a
+  boot. A group of another boot ends the observation.
+- **Target scope.** The admission states whether the native target scope was positively established
+  empty. The scope is read again at HELLO and at every crossing's gate (WRITE's before its staging
+  pushes and before each member), except the abandon of the ticket's own exact session, which needs
+  no empty scope. On a guest, the reader's admitted target reader reads Package Manager's native
+  identity diagnostic as the broker's own recorded group (`lab_target.py`): only the selected
+  image's exact fresh form, with the native store missing and no hold, reads ESTABLISHED_EMPTY, and
+  anything else, a failed read included, reads UNKNOWN, never HELD. The read only narrows the
+  admission: an admitted scope that is not established empty stands. On the host, a test may instead
+  inject a callable. Unless the scope is established empty, no crossing but that abandon is
+  launched.
+- **Sources.** Before every crossing the admitted sources are verified again. A difference latches a
+  stop.
+- **Lab actions.** The one lab action is the framework restart, `am restart`, which the controller
+  asks for between generations with a reason, never a generation. It is refused unless the admission
+  names it, while a generation is open, after a stop, without a reason, and once the admitted number
+  of restart commands has been asked (each capture intent counts, launched or not). After its BEGIN
+  record the broker reads the clock and the session listing as its own groups, never given to a
+  coordinator: unless the listing is whole (one LISTING fact of a complete classification) and of
+  the clock's running framework instance, and no session of the component is VERIFYING, READY or
+  LIVE_NOT_READY, so that no session committed or of unknown commitment could activate, it records
+  the refusal and launches nothing. The command's exit proves nothing: Android returns at once and
+  brings system_server back later. So after the command's capture the broker polls, every 5 seconds
+  within one hard bound of 300, each poll a clock group and, when that clock shows a later instance
+  of the same boot, a session listing group, until one poll shows the same boot, a larger framework
+  instance than its precondition read and a whole listing of that instance. A poll command is
+  admitted only with at least one second of the bound left, then may run on what is left of it; the
+  bound is also its launch deadline, refused after its durable intent and again by the transport
+  right before the service request; the transport is given only what the bound has left at the call;
+  sleeps are cut to the time left; and a poll that ends after the bound settles nothing. The END
+  record names the precondition's instance, the polls and the settling poll; a poll of another boot,
+  or no such poll within the bound, ends the action refused.
+- **Controller reads and diagnostics.** Between generations the controller may also ask reader
+  groups (clock, boot, checkpoint, factory, active, sessions and, when admitted, the target),
+  recorded as the broker's own groups, and one fixed diagnostic, `logcat -b all -d`, captured like
+  any command with its own output bound. Both are fenced, and neither runs during a generation.
+- **A guest's admission.** Version 2 names the device crossings the broker may launch at all: any
+  other crossing is answered NO_REPLY with nothing launched, whatever the fault schedule holds, and
+  a fault cell that needs a launch on such a crossing is refused at admission (a loss before the
+  effect needs none). It also names the deployment store: before each crossing the broker reopens
+  the ticket and plan records the crossing names, which must hash to the digests it carries, and its
+  grant and the component's selection, keeps each under its SHA-256 in the broker's records, and
+  names them in the crossing record. A record is written whole to a fresh temporary name, synced,
+  read back, renamed into place and read again, with the broker root and the records directory
+  synced each time, and again whenever a name is found already there, so a sync an earlier call
+  could not finish is never skipped. A crossing whose records cannot be kept or differ launches
+  nothing and consumes no fault cell.
 
 ### Crossings
 
@@ -273,11 +326,13 @@ cell before anything acts, so a cell acts at most once, across reopenings too.
   answers HALT. The second member is never written, then or after a reopening.
 - **halt.** At the coordinator's BETWEEN_WRITES point, a fault record, then HALT.
 
-A HOST BEGIN is recorded before the bridge calls the host signer or publisher, and its END after.
-A second BEGIN or END for one ledger entry is refused. A generation that ends during a host call
-has its call recorded as ended with its process, so a later generation's query never runs while the
-old call could still complete. That a command was not launched is recorded for the closure only. It
-never becomes an observation, so it can never serve as proof that the guest has no session.
+A HOST BEGIN is recorded before the bridge calls the host signer or publisher, and its END after,
+each with the broker's own wall and monotonic times as it handles them: they bracket the host
+effect, and say nothing of when the bridge sent its request. A second BEGIN or END for one ledger
+entry is refused. A generation that ends during a host call has its call recorded as ended with its
+process, so a later generation's query never runs while the old call could still complete. That a
+command was not launched is recorded for the closure only. It never becomes an observation, so it
+can never serve as proof that the guest has no session.
 
 A notice route has `allowed(command)` and `notice(run, ticket, index, plan)`. It runs its fixed
 commands through the broker's `run`, which fences, records and returns each whole shell result, and
@@ -322,6 +377,28 @@ SDK range other than the inputs' declared range. Its approval callback allows a 
 for a transaction of the store's installation and component, of an admitted plan, for the configured
 role and SDK range, within the transaction's declared operations.
 
+The design's loss cells run as one ordered sequence of attempts on one plan (`cells.py`). First the
+cohort refusal: right after a complete check, `contradict` makes a second plan as `plan` does, its
+cohort's factory copy changed by one digit, and its ticket must close VOID with cause VOID_BASE
+before any crossing. Then each attempt: the store must hold exactly the plan's earlier attempts,
+each terminal (attempt 1 is the plan's own first ticket, still PLANNED), as `tickets` lists them;
+the broker admits the attempt's faults before its first generation; `ticket` makes the attempt's
+ticket, with a fresh SIGN grant for both inputs when nothing is published yet and the attempt must
+sign again; and the driver advances it until it is terminal. When a generation leaves the ticket's
+state, flags, crossings and session unchanged in SESSION_INTENT, COMMIT_INTENT or ABANDON_INTENT,
+the driver asks the broker's framework restart only if that generation's own last reads show a wait
+a later framework instance resolves: a clock reading, a COMMITTED checkpoint, and one whole listing
+of the clock's instance with no session committed or of unknown commitment. A pending checkpoint, an
+unavailable read or a committed session is another wait, and the driver waits instead. After a
+restart the next generation's own clock reads must show the later instance the broker's settle wait
+found, of the same boot, and it must read the checkpoint again, or the driver stops. The attempt's
+records are then compared with its prediction: the ticket's end, cause and crossings from the store,
+and from the broker's ledger since the attempt began the native commands launched, the host calls
+whose END records a reply, the restarts asked and each admitted fault's action. These are launch and
+request counts; the closure judges the effects. Any difference stops the driver. After `init`, every
+generation, `plan` and `ticket` the driver also keeps a numbered snapshot of the store's records
+with their SHA-256, since the store replaces a ticket's record with its successor.
+
 ## Reader adapter
 
 `lab_readers.py` defines what the broker calls. A reader has an allowlist of fixed read only
@@ -355,5 +432,11 @@ partial.
 - The shell v2, reboot and push forms are source derived, and need a guest check before mutation.
 - No refusal form of any crossing is qualified, so no reply reads REFUSED.
 - No notice route, receipt reader, health composition or crash witness exists here.
-- The native target scope is an admitted decision. The broker does not establish it.
+- The framework restart is source derived. Whether `am restart` gives a later instance in the same
+  boot within the settle bound and keeps uncommitted sessions, as the simulated guest does, needs a
+  guest check before any cell relies on it; the 300 second bound is a proposal, not a measurement.
+  The cell sequence's predictions come from the design's cell table and hold on the simulated guest;
+  no Android form is qualified by them.
+- The native target scope's fresh form is the one captured on the selected producer image. It
+  establishes nothing on another image, and no guest of this package has read it yet.
 - A process crash is not power loss, and directory times are not durability evidence.

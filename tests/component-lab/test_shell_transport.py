@@ -343,6 +343,12 @@ class OtherServiceTests(unittest.TestCase):
         self.assertEqual(server.received, ['host-serial:127.0.0.1:6520:features'])
         self.assertEqual((result.status, result.features), ('ok', ('cmd', 'shell_v2', 'stat_v2')))
 
+    def test_a_features_request_is_not_sent_once_its_deadline_passed(self):
+        server = FakeServer(lambda sock, server: None)
+        result = client(server).features(5, may_send=lambda: False)
+        self.assertEqual(server.received, [])
+        self.assertEqual((result.status, result.features), ('launch-deadline', ()))
+
     def test_a_features_send_failure_is_unknown(self):
         sock = ScriptedSocket(b'', fail_on=b'host-serial:', failure=BrokenPipeError('broken pipe'))
         result = st.AdbClient('sim', lambda timeout: sock).features(5)

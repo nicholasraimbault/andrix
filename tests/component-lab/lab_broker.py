@@ -35,6 +35,7 @@ import os
 from pathlib import Path
 import select
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -64,13 +65,39 @@ TARGET_SCOPES = ('ESTABLISHED_EMPTY', 'HELD', 'UNKNOWN')
 LIMIT_KEYS = ('read_timeout_s', 'mutation_timeout_s', 'commit_timeout_s', 'push_timeout_s', 'reboot_timeout_s',
               'read_stdout_max', 'read_stderr_max', 'reply_stdout_max', 'reply_stderr_max', 'generation_idle_s',
               'drain_grace_s', 'exit_grace_s')
+# Lab actions the broker runs between generations when the admission names them, each with its
+# launch limit, at most LAB_ACTION_LIMIT.
+LAB_ACTIONS = ('framework-restart',)
+LAB_ACTION_LIMIT = 100
+FRAMEWORK_RESTART = 'am restart'
+# A framework restart runs only beside sessions positively uncommitted: OPEN and SEALED live ones,
+# or terminal ones. A committed live session (VERIFYING, READY) could activate, and one whose
+# commitment the reader does not state (LIVE_NOT_READY) is refused too.
+RESTART_BLOCKING = ('VERIFYING', 'LIVE_NOT_READY', 'READY')
+# A session listing is whole only when its LISTING fact says so.
+COMPLETE_LISTINGS = ('NONE_FOR_PACKAGE', 'SESSIONS_FOR_PACKAGE')
+# Fixed diagnostic reads the controller may ask between generations, and their output bound.
+DIAGNOSTICS = {'logcat': 'logcat -b all -d'}
+DIAGNOSTIC_STDOUT_MAX = 64 << 20
+DIAGNOSTIC_TIMEOUT_S = 120
+# Reader groups the controller may ask between generations.
+CONTROLLER_READS = ('clock', 'boot', 'checkpoint', 'factory', 'active', 'sessions', 'target')
+# The deployment store's record directories and file suffix, as DeploymentStore writes them.
+STORE_SUFFIX = '.rec'
+RECORDS = 'records'
+# After `am restart` the broker waits for the later framework instance: a poll every
+# RESTART_POLL_S seconds, at most RESTART_SETTLE_S seconds.
+RESTART_POLL_S = 5
+RESTART_SETTLE_S = 300
+# Within a bound, a command starts only when at least this much of the bound remains.
+BOUND_COMMAND_MIN_S = 1.0
 CELL_KEYS = {'cross': ('plan', 'attempt', 'crossing', 'occurrence'), 'host': ('plan', 'attempt', 'crossing', 'occurrence'),
              'point': ('plan', 'attempt', 'point')}
 CELL_MODES = {'cross': ('loss-before', 'loss-after', 'drop-reply', 'loss-between-members'),
               'host': ('loss-before', 'loss-after', 'drop-reply'), 'point': ('halt',)}
 LIVE = ('OPEN', 'SEALED', 'VERIFYING', 'LIVE_NOT_READY', 'READY')
 GROUP_KINDS = {'boot': ('BOOT',), 'checkpoint': ('CHECKPOINT',), 'factory': ('FACTORY',), 'active': ('ACTIVE',),
-               'sessions': ('LISTING', 'SESSION'), 'users': ('USER',), 'receipts': ('RECEIPT',)}
+               'sessions': ('LISTING', 'SESSION'), 'users': ('USER',), 'receipts': ('RECEIPT',), 'target': ()}
 DEVICE_KINDS = ('BOOT', 'CHECKPOINT', 'USER')
 MEMBER_MODE = 0o644
 
@@ -99,9 +126,19 @@ class Group:
         return self.status == 'facts'
 
 
+def _sync_directory(path):
+    """Syncs one directory, so the names it holds are durable."""
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 class _NotLaunched(readers.Unavailable):
-    """A command was refused before it was sent: the device's features could not be read, or an
-    activation grant may have expired before its launch. Nothing was launched."""
+    """A command was refused before it was sent: the device's features could not be read, or its
+    launch deadline (an activation grant's end, or a bound) passed before its launch. Nothing was
+    launched. A refusal after the command's intent names its capture and command."""
 
 
 class _TransferBound(Exception):
@@ -118,6 +155,38 @@ def _hex(value, width):
     return isinstance(value, str) and len(value) == 2 * width and all(c in '0123456789abcdef' for c in value)
 
 
+def _whole_listing(facts, instance):
+    """Whether a session group's facts are one whole listing of the framework instance: exactly one
+    LISTING fact, of a complete classification, and every fact of that instance."""
+    listings = [f for f in facts if f['kind'] == 'LISTING']
+    return (len(listings) == 1 and listings[0]['classification'] in COMPLETE_LISTINGS
+            and all(f['instance'] == instance for f in facts))
+
+
+def _regular_bytes(path, limit=16 << 20):
+    """The bytes of a regular file opened without following a link, or None."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except OSError:
+        return None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > limit:
+            return None
+        chunks, size = [], 0
+        while True:
+            chunk = os.read(fd, 1 << 20)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            size += len(chunk)
+            if size > limit:
+                return None
+        return b''.join(chunks)
+    finally:
+        os.close(fd)
+
+
 def check_admission(value):
     """The admitted configuration, every field checked."""
     try:
@@ -129,8 +198,25 @@ def check_admission(value):
 def _check_admission(value):
     expected = {'version', 'installation', 'component', 'coordinator', 'trust', 'manifest', 'config', 'serial',
                 'target_scope', 'device_dir', 'fences', 'limits'}
-    if not isinstance(value, dict) or set(value) != expected or value['version'] != 1:
-        raise BrokerError('not a version 1 admission')
+    # Version 2 adds, for a guest: the lab actions the broker may run between generations, each with
+    # its launch limit; the device crossings it may launch at all; and the deployment store whose
+    # records each crossing names, which the broker retains.
+    if isinstance(value, dict) and value.get('version') == 2:
+        expected = expected | {'lab_actions', 'launches', 'store'}
+    if not isinstance(value, dict) or set(value) != expected or value['version'] not in (1, 2):
+        raise BrokerError('not a version 1 or 2 admission')
+    if value['version'] == 2:
+        actions = value['lab_actions']
+        if (not isinstance(actions, dict) or any(action not in LAB_ACTIONS for action in actions)
+                or any(type(limit) is not int or not 1 <= limit <= LAB_ACTION_LIMIT for limit in actions.values())):
+            raise BrokerError('admission lab actions are known names, each with a launch limit of 1 to %d'
+                              % LAB_ACTION_LIMIT)
+        launches = value['launches']
+        if (not isinstance(launches, list) or len(set(launches)) != len(launches)
+                or any(name not in proto.DEVICE_CROSSINGS for name in launches)):
+            raise BrokerError('admission launches are device crossings, each once')
+        if not isinstance(value['store'], str) or not value['store'].startswith('/'):
+            raise BrokerError('admission store is an absolute path')
     for name, width in (('installation', 16), ('coordinator', 16), ('trust', 32), ('manifest', 32), ('config', 32)):
         if not _hex(value[name], width) or value[name] == '00' * width:
             raise BrokerError('admission %s is not a nonzero digest' % name)
@@ -254,6 +340,9 @@ class Broker:
         source_manifest.parse(manifest_bytes)
         root = Path(root)
         root.mkdir(mode=0o700)
+        # The broker directory's own name lives in a directory the broker did not make: synced now,
+        # and again at every opening.
+        _sync_directory(root.parent)
         for name, data in ((ADMISSION, ledgers.encode_json(admission)), (MANIFEST, bytes(manifest_bytes))):
             fd = os.open(root / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
             try:
@@ -271,14 +360,20 @@ class Broker:
 
     @classmethod
     def open(cls, root, source_root, transport, reader, notice=None, wall=time.time_ns, monotonic=time.monotonic_ns,
-             sleep=time.sleep, ids=os.urandom, processes=None, sync=True, target=None):
-        """Opens a broker directory. `target`, when given, is called at HELLO and at every crossing's
-        gate and returns the native target scope as it stands: ESTABLISHED_EMPTY, HELD or UNKNOWN.
-        Without it the admitted scope stands. A target that cannot be read is UNKNOWN."""
+             sleep=time.sleep, ids=os.urandom, processes=None, sync=True, target=None, target_read=False):
+        """Opens a broker directory. The native target scope is read at HELLO and at every crossing's
+        gate. With `target_read`, the reader's admitted target reader reads it from the guest as the
+        broker's own recorded group, and the scope is established empty only when both the admission
+        and that read say so. Otherwise `target`, when given, is a host callable that returns the
+        scope as it stands (ESTABLISHED_EMPTY, HELD or UNKNOWN), and without either the admitted scope
+        stands. A target that cannot be read is UNKNOWN."""
+        if target_read and (target is not None or not getattr(reader, 'target_admitted', False)):
+            raise BrokerError("a target read needs the reader's admitted target reader and no host target")
         self = object.__new__(cls)
         self.root = Path(root)
         self.transport, self.reader, self.notice = transport, reader, notice
         self._target = target
+        self._target_read = bool(target_read)
         self._source_root = Path(source_root)
         self._wall, self._monotonic, self._sleep, self._ids = wall, monotonic, sleep, ids
         self.processes = processes or ProcessControl()
@@ -302,6 +397,14 @@ class Broker:
             self._lock = None
 
     def _open(self, source_root, sync):
+        # Every opening syncs the directory holding the broker's name, and the broker's own, before
+        # anything relies on the durable history, so a barrier that an interrupted initialization or
+        # an earlier failed sync never reached is never skipped.
+        try:
+            _sync_directory(self.root.parent)
+            _sync_directory(self.root)
+        except OSError as error:
+            raise BrokerError('the broker directory cannot be made durable: %s' % error) from error
         raw = (self.root / ADMISSION).read_bytes()
         self.admission = check_admission(json.loads(raw.decode('ascii')))
         if ledgers.encode_json(self.admission) != raw:
@@ -316,11 +419,15 @@ class Broker:
         if self.reader.installation != self.admission['installation'] or self.reader.component != self.admission['component']:
             raise BrokerError('the reader serves another installation or component')
         self.limits = self.admission['limits']
+        self._launches = (frozenset(self.admission['launches']) if self.admission['version'] == 2
+                          else frozenset(proto.DEVICE_CROSSINGS))
         self.fences = Fences(self.admission['fences'], self._wall)
         try:
             self.ledger = ledgers.Ledger.open(self.root / LEDGER, sync=sync)
         except ledgers.LedgerDamaged as error:
             raise BrokerError('the ledger is damaged: %s' % error) from error
+        except OSError as error:
+            raise BrokerError('the ledger cannot be made durable: %s' % error) from error
         # Every capture whose effect is unknown bounds the wait, quarantined or not, so a reopening
         # that is itself lost before or during its wait leaves the same obligation to the next one.
         drain = self._outstanding_drain()
@@ -337,6 +444,7 @@ class Broker:
             # A command whose effect is unknown may still run on the guest within its bound.
             self._sleep((drain - self._wall()) / 1e9)
         self.ledger.record('open', {'pid': os.getpid(), 'manifest': self.admission['manifest'],
+                                    'target_read': self._target_read,
                                     'quarantined': quarantined, 'drained_until_wall_ns': drain,
                                     'wall_ns': self._wall()})
 
@@ -427,7 +535,8 @@ class Broker:
             if key not in self.host_ended:
                 self.ledger.record('host', {'phase': 'END', 'ticket': key[0], 'index': key[1], 'begin': number,
                                             'outcome': 'LOST', 'reply': None, 'cell': None,
-                                            'reason': 'the broker was lost during the host call'})
+                                            'reason': 'the broker was lost during the host call',
+                                            'wall_ns': self._wall(), 'monotonic_ns': self._monotonic()})
                 self.host_ended.add(key)
         if g is not None:
             self.ledger.record('generation-end', {'generation': g['generation'], 'status': 'LOST', 'exit': None,
@@ -485,10 +594,206 @@ class Broker:
                     raise BrokerError('only WRITE has two members')
             if on == 'host' and (cell['crossing'] not in proto.HOST_CROSSINGS or cell['occurrence'] not in (1, 2)):
                 raise BrokerError('a host cell names SIGN or PUBLISH and an occurrence')
+            if on == 'cross' and cell['crossing'] not in self._launches and cell['mode'] != 'loss-before':
+                raise BrokerError('a cell that needs a launch, on a crossing this guest may not launch')
             known.add(cell['cell'])
             checked.append(dict(cell))
         self.ledger.record('faults', {'cells': checked})
         self.cells.extend(checked)
+
+    def framework_restart(self, reason):
+        """Asks Android for a later framework instance in the same boot, with `am restart`, between
+        generations. Refused unless the admission names it, while a generation is open, after a stop
+        or without a reason; then, after its BEGIN record, unless the broker's own clock read and
+        complete session listing, in one framework instance, show no committed session of the
+        component that could still activate. The command's exit proves nothing: after it the broker
+        polls, each time a clock group and, when that clock shows a later instance of the same boot, a
+        session listing group, until one poll shows the same boot, a larger framework instance than the
+        precondition's and a whole listing of that instance, or the settle bound passes. Records the action around the command's capture and the polls, and
+        returns the summary; a restart that does not settle is refused after its END record. A later
+        generation's own clock reads must still show the later instance."""
+        if 'framework-restart' not in self.admission.get('lab_actions', {}):
+            raise BrokerError('the framework restart is not an admitted lab action')
+        if self.open_generation is not None:
+            raise BrokerError('a lab action runs only between generations')
+        if not isinstance(reason, str) or not reason.strip():
+            raise BrokerError('a lab action names its reason')
+        self._fence()
+        begin = self.ledger.record('lab-action', {'action': 'framework-restart', 'phase': 'BEGIN', 'reason': reason})
+        context = {'request': None, 'generation': None, 'purpose': 'lab-action', 'lab_action': begin}
+        refused, before = self._restart_refusal(dict(context, purpose='lab-action-precondition'))
+        launched = sum(1 for e in self.ledger.entries if e.kind == 'capture'
+                       and e.content['intent'].get('operation') == 'lab-action'
+                       and e.content['intent'].get('command') == FRAMEWORK_RESTART)
+        if refused is None and launched >= self.admission['lab_actions']['framework-restart']:
+            refused, before = 'the admitted limit of %d framework restarts is reached' % launched, None
+        if refused is not None:
+            self.ledger.record('lab-action', {'action': 'framework-restart', 'phase': 'END', 'begin': begin,
+                                              'refused': refused})
+            raise BrokerError('the framework restart is refused: %s' % refused)
+        number, result = self._shell('lab-action', FRAMEWORK_RESTART, context, self.limits['mutation_timeout_s'],
+                                     int(self.limits['reply_stdout_max']), int(self.limits['reply_stderr_max']))
+        summary = {'capture': number, 'launch': result.launch, 'completion': result.completion, 'exit': result.exit,
+                   'before': {'boot': before[0], 'instance': before[1]}}
+        settled, settle, why = self._restart_settle(dict(context, purpose='lab-action-settle'), before)
+        summary.update(settled=settled, polls=len(settle['polls']), settle=settle)
+        if settled is None:
+            self.ledger.record('lab-action', dict(summary, action='framework-restart', phase='END', begin=begin,
+                                                  refused=why))
+            raise BrokerError('the framework restart did not settle: %s' % why)
+        self.ledger.record('lab-action', dict(summary, action='framework-restart', phase='END', begin=begin))
+        return summary
+
+    def _restart_settle(self, context, before):
+        """Polls within one hard monotonic bound until a clock group shows the same boot and a larger
+        framework instance than `before` and a session listing group right after it is whole in that
+        instance. No poll command starts once the bound has passed, each command's timeout and each
+        sleep are cut to the time remaining, and a poll that ends after the bound settles nothing.
+        Returns (the two group numbers and the instance, or None; the record of the bound and its
+        polls; why not)."""
+        boot, instance = before
+        started = self._monotonic()
+        deadline = started + RESTART_SETTLE_S * 1_000_000_000
+        record = {'started_monotonic_ns': started, 'deadline_monotonic_ns': deadline, 'polls': []}
+        why = 'no later framework instance with a whole listing within %d s' % RESTART_SETTLE_S
+        while self._monotonic() < deadline:
+            poll = {'clock': None, 'sessions': None}
+            record['polls'].append(poll)
+            clock = self._clock_group(context, emitted=False, deadline_ns=deadline)
+            poll['clock'] = clock.number
+            if clock.ok and clock.reading['boot'] != boot:
+                poll['ended_monotonic_ns'] = self._monotonic()
+                return None, record, 'a poll read another boot'
+            if clock.ok and clock.reading['instance'] > instance and self._monotonic() < deadline:
+                later = clock.reading['instance']
+                group = self._group('sessions', self.reader.sessions, context, boot, emitted=False, deadline_ns=deadline)
+                poll['sessions'] = group.number
+                poll['ended_monotonic_ns'] = self._monotonic()
+                if group.ok and _whole_listing(group.facts, later):
+                    if poll['ended_monotonic_ns'] > deadline:
+                        return None, record, 'the settling poll ended after the %d s bound' % RESTART_SETTLE_S
+                    return {'clock': clock.number, 'sessions': group.number, 'instance': later}, record, None
+            poll.setdefault('ended_monotonic_ns', self._monotonic())
+            remaining = (deadline - self._monotonic()) / 1_000_000_000
+            if remaining <= 0:
+                break
+            self._sleep(min(RESTART_POLL_S, remaining))
+        return None, record, why
+
+    def _restart_refusal(self, context):
+        """(None, (boot, instance)) when a clock read and a complete session listing of the same
+        framework instance show no committed session of the component that could activate, else
+        (why not, None)."""
+        clock = self._clock_group(context, emitted=False)
+        if not clock.ok:
+            return 'the clock read is unavailable (%s)' % clock.reason, None
+        boot, instance = clock.reading['boot'], clock.reading['instance']
+        if instance < 0:
+            return 'no framework instance is running', None
+        group = self._group('sessions', self.reader.sessions, context, boot, emitted=False)
+        if not group.ok:
+            return 'the session listing is unavailable (%s)' % group.reason, None
+        if not _whole_listing(group.facts, instance):
+            return "the session listing is not whole in the clock's framework instance", None
+        if any(f['kind'] == 'SESSION' and f['classification'] in RESTART_BLOCKING for f in group.facts):
+            return 'a session of the component is committed or of unknown commitment', None
+        return None, (boot, instance)
+
+    def controller_read(self, names, purpose):
+        """Reader groups the controller asks between generations, in the order named, recorded as the
+        broker's own groups and never given to a coordinator: clock, boot, checkpoint, factory, active,
+        sessions and, when admitted, target. Each group after a clock group is checked against that
+        clock's boot. Returns the groups."""
+        if self.open_generation is not None:
+            raise BrokerError('a controller read runs only between generations')
+        if (not isinstance(names, (list, tuple)) or not names or any(name not in CONTROLLER_READS for name in names)
+                or not isinstance(purpose, str) or not purpose.strip()):
+            raise BrokerError('a controller read names known groups and its purpose')
+        if 'target' in names and not self._target_read:
+            raise BrokerError('no target reader is admitted')
+        self._fence()
+        context = {'request': None, 'generation': None, 'purpose': 'controller: ' + purpose}
+        groups, boot = [], None
+        for name in names:
+            if name == 'clock':
+                group = self._clock_group(context, emitted=False)
+                boot = group.reading['boot'] if group.ok else boot
+            elif name == 'target':
+                group = self._group('target', self.reader.target, context, None, emitted=False)
+            else:
+                group = self._group(name, getattr(self.reader, name), context, boot, emitted=False)
+            groups.append(group)
+        return groups
+
+    def diagnostic(self, name):
+        """One fixed diagnostic read between generations, fenced and captured like any command, with
+        its own output bound. Returns the capture's number and result."""
+        if self.open_generation is not None:
+            raise BrokerError('a diagnostic runs only between generations')
+        if name not in DIAGNOSTICS:
+            raise BrokerError('a diagnostic of no known name')
+        context = {'request': None, 'generation': None, 'purpose': 'diagnostic', 'diagnostic': name}
+        return self._shell('diagnostic', DIAGNOSTICS[name], context, DIAGNOSTIC_TIMEOUT_S, DIAGNOSTIC_STDOUT_MAX,
+                           int(self.limits['read_stderr_max']))
+
+    def _retain_records(self, m):
+        """The exact store records a crossing names, kept by digest in the broker's records: the ticket
+        and the plan, whose bytes must hash to the digests the crossing carries, its grant, and the
+        component's selection as they stand. Returns (digests by name, or why the crossing is refused)."""
+        store = Path(self.admission['store'])
+        names = [('ticket', 'tickets', m['ticket']), ('plan', 'plans', m['plan']),
+                 ('selection', 'selections', self.admission['component'])]
+        if m['grant'] != proto.ZERO_ID:
+            names.append(('grant', 'authorizations', m['grant']))
+        found = {}
+        for label, directory, ident in names:
+            data = _regular_bytes(store / directory / (ident + STORE_SUFFIX))
+            if data is None:
+                return found, 'the stored %s cannot be read whole' % label
+            digest = hashlib.sha256(data).hexdigest()
+            if label in ('ticket', 'plan') and digest != m[label + '_digest']:
+                return found, 'the stored %s is not the record the crossing names' % label
+            self._keep(digest, data)
+            found[label] = digest
+        return found, None
+
+    def _keep(self, digest, data):
+        """Keeps one record under its digest, or checks the one already there. A new one is written
+        whole to a fresh temporary name, synced, read back and compared, and only then renamed into
+        place, so a short or failed write never leaves bytes under the record's name."""
+        if hashlib.sha256(data).hexdigest() != digest:
+            raise BrokerError('a record does not hash to the digest it is kept under')
+        directory = self.root / RECORDS
+        path = directory / digest
+        if not os.path.lexists(directory):
+            directory.mkdir(mode=0o700)
+        # The broker root holds the records directory's name: synced every time, so a sync that an
+        # earlier call could not finish is never skipped.
+        _sync_directory(self.root)
+        if os.path.lexists(path):
+            if _regular_bytes(path) != data:
+                raise BrokerError('a retained record differs from its digest')
+            # A name found here may come from a rename whose directory sync never ran: sync it now.
+            _sync_directory(directory)
+            return
+        temporary = directory / ('.%s.%s' % (digest, os.urandom(8).hex()))
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+        try:
+            view = memoryview(data)
+            while view:
+                written = os.write(fd, view)
+                if written <= 0:
+                    raise BrokerError('a retained record could not be written whole')
+                view = view[written:]
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        if _regular_bytes(temporary) != data:
+            raise BrokerError('a retained record did not read back whole')
+        os.rename(temporary, path)
+        _sync_directory(directory)
+        if _regular_bytes(path) != data:
+            raise BrokerError('a retained record differs after it was kept')
 
     def pin_artifacts(self, plan, members):
         """Pins one plan's bundle members: each member's host path, SHA-256 and size. The guest
@@ -511,9 +816,15 @@ class Broker:
         self.ledger.record('artifacts', {'plan': plan, 'members': pinned})
         self.pinned[plan] = pinned
 
-    def _target_scope(self):
+    def _target_scope(self, context):
         """The native target scope as it stands now. A target that cannot be read, or reads as no
-        known scope, is UNKNOWN: never established."""
+        known scope, is UNKNOWN: never established. A recorded target read can only narrow the
+        admitted scope: an admission that is not established empty stands whatever the read says."""
+        if self._target_read:
+            group = self._group('target', self.reader.target, dict(context, purpose='target'), None, emitted=False)
+            read = group.reading['scope'] if group.ok else 'UNKNOWN'
+            admitted = self.admission['target_scope']
+            return read if admitted == 'ESTABLISHED_EMPTY' else admitted
         if self._target is None:
             return self.admission['target_scope']
         try:
@@ -545,29 +856,39 @@ class Broker:
             self.stop(reason)
             raise Stopped(reason)
 
-    def _require_shell2(self, context):
+    def _require_shell2(self, context, bound_ns=None):
         """Once in each broker's lifetime, before its first guest command: the device must offer
         shell protocol v2. A definite answer without it latches a stop. An answer that cannot be read
-        launches nothing and is asked again before the next command."""
+        launches nothing and is asked again before the next command. Under the first command's launch
+        deadline, `bound_ns`, the query is refused once that has passed, after its durable intent too,
+        and is given only what is left of it."""
         if self._shell2:
             return
         command = 'host-serial:%s:features' % self.admission['serial']
         timeout = self.limits['read_timeout_s']
-        _, result = self._record_command('features', command, context, lambda: self.transport.features(timeout),
-                                         timeout)
+        gate = self._may_send(bound_ns)
+        extra = {} if gate is None else {'may_send': gate}
+
+        def call():
+            allowed = timeout if bound_ns is None else min(timeout, max(0.0, (bound_ns - self._monotonic()) / 1_000_000_000))
+            return self.transport.features(allowed, **extra)
+        number, result = self._record_command('features', command, context, call, timeout, bound_ns)
         if result.status == 'ok' and shell_transport.FEATURE_SHELL2 in result.features:
             self._shell2 = True
             return
         if result.status == 'ok':
             self.stop('the device does not offer shell protocol v2')
             raise Stopped(self.stopped)
-        raise _NotLaunched('the device features could not be read: %s' % result.status)
+        error = _NotLaunched('the device features could not be read: %s' % result.status)
+        error.capture, error.command = number, command
+        raise error
 
     def _capture(self, operation, command, context, call, timeout, not_after_ns=None):
         """One guest command: the shell protocol check, then the fences, the intent synced, the call,
-        then its streams and result. A launch bound to an activation grant names the host monotonic
-        instant from which it is refused."""
-        self._require_shell2(context)
+        then its streams and result. A launch with a deadline (an activation grant's end, or a bound)
+        names the host monotonic instant from which it is refused; the feature query before a broker's
+        first command keeps that deadline too."""
+        self._require_shell2(context, not_after_ns)
         return self._record_command(operation, command, context, call, timeout, not_after_ns)
 
     def _record_command(self, operation, command, context, call, timeout, not_after_ns=None):
@@ -579,10 +900,10 @@ class Broker:
         if not_after_ns is not None:
             intent['not_after_monotonic_ns'] = not_after_ns
         entry = self.ledger.begin_capture(intent)
-        # The final launch gate, once the intent is durable: a launch whose activation grant may have
-        # expired since the gate's clock reading sends nothing.
+        # The final launch gate, once the intent is durable: a launch whose deadline has passed since
+        # the gate's clock reading (an activation grant that may have expired, or a bound) sends nothing.
         if not_after_ns is not None and self._monotonic() >= not_after_ns:
-            self._not_sent(entry, 'the activation grant may have expired before the launch')
+            self._not_sent(entry, command, 'the activation grant may have expired before the launch, or its bound passed')
         try:
             result = call()
         except Exception as error:  # A transport defect still ends the capture with a result.
@@ -593,17 +914,22 @@ class Broker:
             raise
         stdout, stderr = result.streams()
         self.ledger.finish_capture(entry, stdout, stderr, dict(result.summary(), ended_monotonic_ns=self._monotonic()))
-        if not_after_ns is not None and result.launch == 'not-launched' and result.transport == 'launch-deadline':
-            raise _NotLaunched('the activation grant may have expired before the service request')
+        if (not_after_ns is not None and getattr(result, 'launch', None) == 'not-launched'
+                and getattr(result, 'transport', None) == 'launch-deadline'):
+            error = _NotLaunched('the activation grant may have expired before the service request, or its bound passed')
+            error.capture, error.command = entry.number, command
+            raise error
         return entry.number, result
 
-    def _not_sent(self, entry, reason):
+    def _not_sent(self, entry, command, reason):
         """Ends a capture whose command was never sent, then refuses its launch."""
         self.ledger.finish_capture(entry, b'', b'', {'launch': 'not-launched', 'transport': 'not-sent',
                                                      'completion': 'not-started', 'exit': None, 'error': reason,
                                                      'ended_wall_ns': self._wall(),
                                                      'ended_monotonic_ns': self._monotonic()})
-        raise _NotLaunched(reason)
+        error = _NotLaunched(reason)
+        error.capture, error.command = entry.number, command
+        raise error
 
     def _may_send(self, not_after_ns):
         """The transport's last question before a launch's service request, or None without a deadline:
@@ -612,25 +938,49 @@ class Broker:
             return None
         return lambda: self._monotonic() < not_after_ns
 
-    def _shell(self, operation, command, context, timeout, stdout_max, stderr_max, not_after_ns=None):
+    def _shell(self, operation, command, context, timeout, stdout_max, stderr_max, not_after_ns=None, bound_ns=None):
+        """One shell command. With `bound_ns`, the transport's timeout is what is left of that bound at
+        the moment of the call, never more than `timeout`."""
         gate = self._may_send(not_after_ns)
         extra = {} if gate is None else {'may_send': gate}
-        return self._capture(operation, command, context,
-                             lambda: self.transport.shell(command, timeout, stdout_max, stderr_max, **extra), timeout,
-                             not_after_ns)
+
+        def call():
+            allowed = timeout if bound_ns is None else min(timeout, max(0.0, (bound_ns - self._monotonic()) / 1_000_000_000))
+            return self.transport.shell(command, allowed, stdout_max, stderr_max, **extra)
+        return self._capture(operation, command, context, call, timeout, not_after_ns)
 
     # ------------------------------------------------ groups of reads
 
-    def _group(self, name, call, context, expect_boot, emitted=True):
-        """One reader call as one group, recorded with its captures, raw digest and facts."""
+    def _group(self, name, call, context, expect_boot, emitted=True, deadline_ns=None):
+        """One reader call as one group, recorded with its captures, raw digest and facts. With
+        `deadline_ns`, a host monotonic instant, a command is admitted only with at least
+        BOUND_COMMAND_MIN_S of it left; the deadline is then each command's launch deadline (a fresh
+        broker's feature query included), refused after its durable intent and by the transport right
+        before its request, and each command is given only what is left of it."""
         captures = []
 
         def run(command):
             if not self.reader.allowed(command):
                 raise readers.Unclassified('a command outside the reader allowlist: %r' % command)
-            number, result = self._shell('read', command, dict(context, group=name),
-                                         self.limits['read_timeout_s'], int(self.limits['read_stdout_max']),
-                                         int(self.limits['read_stderr_max']))
+            timeout = self.limits['read_timeout_s']
+            if deadline_ns is not None:
+                remaining = (deadline_ns - self._monotonic()) / 1_000_000_000
+                if remaining < BOUND_COMMAND_MIN_S:
+                    raise readers.Unavailable('too little of the bound remains for another command')
+                timeout = min(timeout, remaining)
+            try:
+                # Within a bound, the deadline is also the command's launch deadline: refused after the
+                # durable intent and by the transport right before the service request, and the
+                # transport's own timeout is what the bound has left when it is called.
+                number, result = self._shell('read', command, dict(context, group=name),
+                                             timeout, int(self.limits['read_stdout_max']),
+                                             int(self.limits['read_stderr_max']), not_after_ns=deadline_ns,
+                                             bound_ns=deadline_ns)
+            except _NotLaunched as error:
+                # A refused capture is the group's: its own command, the feature query included.
+                if getattr(error, 'capture', None) is not None:
+                    captures.append((error.capture, getattr(error, 'command', command), None, b'', b''))
+                raise
             if not result.completed or result.overflow is not None:
                 captures.append((number, command, None, result.stdout, result.stderr))
                 raise readers.Unavailable('capture %d did not complete: %s' % (number, result.completion))
@@ -644,6 +994,8 @@ class Broker:
             value = call()
             if name == 'clock':
                 reading = {'boot': value[0], 'instance': value[1], 'elapsed': value[2], 'wall': value[3]}
+            elif name == 'target':
+                reading = {'scope': value}
             else:
                 facts = list(value)
         except Stopped as error:
@@ -658,11 +1010,13 @@ class Broker:
         if status == 'facts':
             if name == 'clock':
                 problem = self._reading_problem(reading, expect_boot)
+            elif name == 'target':
+                problem = None if reading['scope'] in TARGET_SCOPES else 'a target scope of no known name'
             else:
                 problem = self._facts_problem(name, facts, raw, expect_boot)
             if problem is not None:
                 status, reason, frames = 'refused', problem, []
-            elif name != 'clock':
+            elif name not in ('clock', 'target'):
                 frames = [encoder.observation(f) for f in facts]
         if status != 'facts':
             facts, frames, reading = [], [], None
@@ -712,8 +1066,8 @@ class Broker:
                 return 'the uptime or framework instance went back'
         return None
 
-    def _clock_group(self, context, expect_boot=None, emitted=True):
-        return self._group('clock', self.reader.clock, context, expect_boot, emitted)
+    def _clock_group(self, context, expect_boot=None, emitted=True, deadline_ns=None):
+        return self._group('clock', self.reader.clock, context, expect_boot, emitted, deadline_ns)
 
     # ------------------------------------------------ serving a generation
 
@@ -870,7 +1224,8 @@ class Broker:
             number, _ = self.host_begun[key]
             self.ledger.record('host', {'phase': 'END', 'ticket': key[0], 'index': key[1], 'begin': number,
                                         'outcome': 'PROCESS_ENDED', 'reply': None, 'cell': None,
-                                        'reason': 'the generation ended during the host call'})
+                                        'reason': 'the generation ended during the host call',
+                                        'wall_ns': self._wall(), 'monotonic_ns': self._monotonic()})
             self.host_ended.add(key)
         exit_code = code if code is not None and code >= 0 else None
         signal_number = -code if code is not None and code < 0 else None
@@ -950,7 +1305,12 @@ class Broker:
         if self.stopped is not None:
             state['stopped_sent'] = True
             return self._reply(m, 'STOPPED', reason=self.stopped)
-        return self._reply(m, 'OK', generation=state['generation'], target=proto.TARGETS[self._target_scope()])
+        try:
+            scope = self._target_scope({'request': m['request'], 'generation': state['generation'], 'purpose': 'hello'})
+        except Stopped as error:
+            state['stopped_sent'] = True
+            return self._reply(m, 'STOPPED', reason=str(error))
+        return self._reply(m, 'OK', generation=state['generation'], target=proto.TARGETS[scope])
 
     def _clock(self, m, state):
         context = {'request': m['request'], 'generation': state['generation'], 'purpose': 'clock'}
@@ -1008,9 +1368,11 @@ class Broker:
     def _host(self, m, state):
         name = 'SIGN' if m['crossing'] == proto.HOST_CROSSINGS['SIGN'] else 'PUBLISH'
         key = (m['ticket'], m['index'])
+        # The broker's own host times: a BEGIN's come before the host effect, an END's after it.
         common = {'ticket': m['ticket'], 'index': m['index'], 'plan': m['plan'], 'attempt': m['attempt'],
                   'crossing': name, 'occurrence': m['occurrence'], 'reference': m['reference'],
-                  'request': m['request'], 'generation': state['generation']}
+                  'request': m['request'], 'generation': state['generation'], 'wall_ns': self._wall(),
+                  'monotonic_ns': self._monotonic()}
         if m['phase'] == proto.HOST_PHASES['BEGIN']:
             if key in self.host_begun:
                 return self._reply(m, 'REFUSED', reason='a host call of one ledger entry begins once')
@@ -1058,7 +1420,17 @@ class Broker:
         key = (m['ticket'], m['index'])
         if key in self.crossed:
             return self._reply(m, 'REFUSED', reason='a crossing of one ledger entry is issued once')
-        cell = self._match('cross', plan=m['plan'], attempt=m['attempt'], crossing=name, occurrence=m['occurrence'])
+        # Under a version 2 admission the exact records the crossing names are kept first; a crossing
+        # whose stored records cannot be kept or differ launches nothing and consumes no cell.
+        retained, refusal = {}, None
+        if self.admission['version'] == 2:
+            try:
+                retained, refusal = self._retain_records(m)
+            except (BrokerError, OSError) as error:
+                refusal = 'the crossing records cannot be retained: %s' % error
+        cell = None
+        if refusal is None:
+            cell = self._match('cross', plan=m['plan'], attempt=m['attempt'], crossing=name, occurrence=m['occurrence'])
         if cell is not None:
             self.consumed.add(cell['cell'])
         fields = {k: m[k] for k in ('ticket', 'ticket_digest', 'plan', 'plan_digest', 'attempt', 'index', 'occurrence',
@@ -1066,19 +1438,28 @@ class Broker:
                                     'actor', 'granted', 'window')}
         number = self.ledger.record('crossing', dict(fields, crossing=name, native=list(m['native']),
                                                      request=m['request'], generation=state['generation'],
-                                                     cell=cell and cell['cell']))
+                                                     cell=cell and cell['cell'], records=retained))
         self.crossed.add(key)
         self.open_crossings[number] = m
         captures = []
         try:
             self._fence()
             self._verify_sources()
+            if refusal is not None:
+                reason = '%s: nothing launched' % refusal
+                self._outcome(number, 'NO_REPLY', captures, None, None, reason)
+                return self._reply(m, 'NO_REPLY', record=number, reason=reason)
             if cell is not None and cell['mode'] == 'loss-before':
                 fault = self.ledger.record('fault', {'cell': cell['cell'], 'on': 'cross', 'crossing': number,
                                                      'decision': 'halt-before-effect', 'launched': False,
                                                      'captures': []})
                 self._outcome(number, 'HALT', captures, None, cell, 'admitted loss before the effect', fault=fault)
                 return self._reply(m, 'HALT', record=number, reason='admitted loss before the effect')
+            # The admitted launch set is a fence of its own, whatever the fault schedule holds.
+            if name not in self._launches:
+                reason = 'the crossing is not admitted to launch on this guest: nothing launched'
+                self._outcome(number, 'NO_REPLY', captures, None, cell, reason)
+                return self._reply(m, 'NO_REPLY', record=number, reason=reason)
             try:
                 classification, fact, reason = self._execute(name, m, number, captures, cell, state)
             except _NotLaunched as error:
@@ -1144,7 +1525,7 @@ class Broker:
         session may be abandoned whatever the target reads. The gate validates the requested crossing
         only: it never chooses another."""
         if name != 'ABANDON':
-            scope = self._target_scope()
+            scope = self._target_scope(context)
             if scope != 'ESTABLISHED_EMPTY':
                 return None, None, 'the native target scope is %s, not established empty' % scope
         if name in ('WRITE', 'COMMIT', 'ABANDON'):

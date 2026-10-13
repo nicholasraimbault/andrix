@@ -92,11 +92,12 @@ MUTANTS = {
                                      "BOUND_REFERENCE:\n", "    if False:\n", ('test_lab_protocol',)),
     'intent-after-launch': ('lab_broker.py', '        entry = self.ledger.begin_capture(intent)\n'
                                              '        # The final launch gate, once the intent is durable: a launch whose '
-                                             'activation grant may have\n'
-                                             '        # expired since the gate\'s clock reading sends nothing.\n'
+                                             'deadline has passed since\n'
+                                             "        # the gate's clock reading (an activation grant that may have expired, "
+                                             'or a bound) sends nothing.\n'
                                              '        if not_after_ns is not None and self._monotonic() >= not_after_ns:\n'
-                                             "            self._not_sent(entry, 'the activation grant may have expired "
-                                             "before the launch')\n        try:\n            result = call()\n",
+                                             "            self._not_sent(entry, command, 'the activation grant may have expired "
+                                             "before the launch, or its bound passed')\n        try:\n            result = call()\n",
                             '        try:\n            result = call()\n'
                             '            entry = self.ledger.begin_capture(intent)\n', ('test_lab_broker',)),
     'fence-skipped': ('lab_broker.py', '        self._fence()\n        intent = dict(context, operation=operation, command=command, '
@@ -146,12 +147,12 @@ MUTANTS = {
                                  "'loss-between-members':\n", ('test_lab_broker',)),
 
     'fence-only-before-the-feature-query': ('lab_broker.py',
-        '        self._require_shell2(context)\n        return self._record_command(operation, command, context, call, '
+        '        self._require_shell2(context, not_after_ns)\n        return self._record_command(operation, command, context, call, '
         'timeout, not_after_ns)\n\n    def _record_command(self, operation, command, context, call, timeout, '
         'not_after_ns=None):\n'
         '        # Every command, the feature query included, is fenced right before its intent: a fence that\n'
         '        # trips while an earlier command runs stops the next one.\n        self._fence()\n',
-        '        self._fence()\n        self._require_shell2(context)\n        return self._record_command(operation, '
+        '        self._fence()\n        self._require_shell2(context, not_after_ns)\n        return self._record_command(operation, '
         'command, context, call, timeout, not_after_ns)\n\n    def _record_command(self, operation, command, context, '
         'call, timeout, not_after_ns=None):\n',
         ('test_lab_broker',)),
@@ -195,8 +196,13 @@ MUTANTS = {
     'reboot-deadline-not-given-to-the-transport': ('lab_broker.py', '            gate = self._may_send(deadline)\n',
                                                    '            gate = None\n', ('test_lab_broker',)),
     'transport-sends-past-the-launch-deadline': ('shell_transport.py',
-                                                 '        if may_send is not None and not may_send():\n',
-                                                 '        if False:\n', ('test_shell_transport',)),
+                                                 '        if may_send is not None and not may_send():\n'
+                                                 "            return sock, 'launch-deadline', 'not-launched', None, "
+                                                 "'the launch deadline passed before the service request'\n",
+                                                 '        if False:\n'
+                                                 "            return sock, 'launch-deadline', 'not-launched', None, "
+                                                 "'the launch deadline passed before the service request'\n",
+                                                 ('test_shell_transport',)),
     'buffered-stream-accepted': ('lab_broker.py', "        if isinstance(stream, io.BufferedIOBase):\n"
                                                   "            raise BrokerError('a generation stream must be unbuffered')\n",
                                  '', ('test_lab_broker',)),
@@ -215,6 +221,106 @@ MUTANTS = {
                                                   "request: %s' % failed\n",
                                                   "            return sock, failed.transport, 'not-launched', None, 'the service "
                                                   "request: %s' % failed\n", ('test_shell_transport',)),
+    'target-form-loosened': ('lab_target.py', "    return 'ESTABLISHED_EMPTY' if (code, stdout, stderr) == (0, FRESH_FORM, '') else 'UNKNOWN'\n",
+                             "    return 'ESTABLISHED_EMPTY' if code == 0 and stdout.startswith('andrix-native-identities-v1\\n') "
+                             "else 'UNKNOWN'\n", ('test_lab_broker',)),
+    'target-not-read-at-the-gate': ('lab_broker.py', '            scope = self._target_scope(context)\n',
+                                    "            scope = self.admission['target_scope']\n", ('test_lab_broker',)),
+    'target-read-widens-the-admission': ('lab_broker.py', "            return read if admitted == 'ESTABLISHED_EMPTY' else admitted\n",
+                                         '            return read\n', ('test_lab_broker',)),
+    'restart-settle-skipped': ('lab_broker.py',
+                               "        settled, settle, why = self._restart_settle(dict(context, purpose='lab-action-settle'), before)\n",
+                               "        settled, settle, why = {'clock': 0, 'sessions': 0, 'instance': before[1] + 1}, {'polls': []}, None\n",
+                               ('test_lab_broker',)),
+    'restart-settle-other-boot-accepted': ('lab_broker.py', "            if clock.ok and clock.reading['boot'] != boot:\n"
+                                           "                poll['ended_monotonic_ns'] = self._monotonic()\n"
+                                           "                return None, record, 'a poll read another boot'\n", '',
+                                           ('test_lab_broker',)),
+    'restart-settle-listing-unchecked': ('lab_broker.py', '                if group.ok and _whole_listing(group.facts, later):\n',
+                                         '                if group.ok:\n', ('test_lab_broker',)),
+    'launch-fence-skipped': ('lab_broker.py', '            if name not in self._launches:\n', '            if False:\n',
+                             ('test_lab_broker',)),
+    'stored-records-unchecked': ('lab_broker.py', "            if label in ('ticket', 'plan') and digest != m[label + '_digest']:\n",
+                                 '            if False:\n', ('test_lab_broker',)),
+    'restart-limit-unchecked': ('lab_broker.py',
+                                "        if refused is None and launched >= self.admission['lab_actions']['framework-restart']:\n",
+                                '        if False:\n', ('test_lab_broker',)),
+    'incomplete-listing-accepted': ('lab_broker.py', "    return (len(listings) == 1 and listings[0]['classification'] in COMPLETE_LISTINGS\n",
+                                    '    return (len(listings) == 1\n', ('test_lab_broker',)),
+    'restart-beside-unknown-commitment': ('lab_broker.py', "RESTART_BLOCKING = ('VERIFYING', 'LIVE_NOT_READY', 'READY')\n",
+                                          "RESTART_BLOCKING = ('VERIFYING', 'READY')\n", ('test_lab_broker',)),
+    'controller-read-during-generation': ('lab_broker.py', '        if self.open_generation is not None:\n'
+                                          "            raise BrokerError('a controller read runs only between generations')\n", '',
+                                          ('test_lab_broker',)),
+    'diagnostic-of-any-name': ('lab_broker.py', '        if name not in DIAGNOSTICS:\n'
+                               "            raise BrokerError('a diagnostic of no known name')\n", '', ('test_lab_broker',)),
+    'retention-single-write': ('lab_broker.py', '            view = memoryview(data)\n            while view:\n'
+                               '                written = os.write(fd, view)\n                if written <= 0:\n'
+                               "                    raise BrokerError('a retained record could not be written whole')\n"
+                               '                view = view[written:]\n', '            os.write(fd, data)\n', ('test_lab_broker',)),
+    'settle-late-poll-accepted': ('lab_broker.py', "                    if poll['ended_monotonic_ns'] > deadline:\n"
+                                  "                        return None, record, 'the settling poll ended after the %d s bound' "
+                                  "% RESTART_SETTLE_S\n", '', ('test_lab_broker',)),
+    'settle-sessions-after-the-bound': ('lab_broker.py',
+                                        "            if clock.ok and clock.reading['instance'] > instance and self._monotonic() < deadline:\n",
+                                        "            if clock.ok and clock.reading['instance'] > instance:\n", ('test_lab_broker',)),
+    'bound-launch-gate-missing': ('lab_broker.py', "                                             int(self.limits['read_stderr_max']), not_after_ns=deadline_ns,\n",
+                                  "                                             int(self.limits['read_stderr_max']),\n", ('test_lab_broker',)),
+    'bound-fraction-started': ('lab_broker.py', '                if remaining < BOUND_COMMAND_MIN_S:\n', '                if remaining <= 0:\n',
+                               ('test_lab_broker',)),
+    'bound-timeout-fixed-at-intent': ('lab_broker.py', '            allowed = timeout if bound_ns is None else min(timeout, max(0.0, (bound_ns - '
+                                      'self._monotonic()) / 1_000_000_000))\n'
+                                      '            return self.transport.shell(command, allowed, stdout_max, stderr_max, **extra)\n',
+                                      '            allowed = timeout\n'
+                                      '            return self.transport.shell(command, allowed, stdout_max, stderr_max, **extra)\n',
+                                      ('test_lab_broker',)),
+    'records-root-unsynced': ('lab_broker.py', '        # earlier call could not finish is never skipped.\n        _sync_directory(self.root)\n',
+                              '        # earlier call could not finish is never skipped.\n', ('test_lab_broker',)),
+    'existing-record-unsynced': ('lab_broker.py', '            _sync_directory(directory)\n            return\n', '            return\n',
+                                 ('test_lab_broker',)),
+    'broker-name-unsynced-when-made': ('lab_broker.py', '        _sync_directory(root.parent)\n', '', ('test_lab_broker',)),
+    'broker-name-unsynced-at-opening': ('lab_broker.py', '            _sync_directory(self.root.parent)\n', '', ('test_lab_broker',)),
+    'feature-query-unbounded': ('lab_broker.py', '        self._require_shell2(context, not_after_ns)\n',
+                                '        self._require_shell2(context)\n', ('test_lab_broker',)),
+    'feature-query-timeout-uncut': ('lab_broker.py', '            return self.transport.features(allowed, **extra)\n',
+                                    '            return self.transport.features(timeout, **extra)\n', ('test_lab_broker',)),
+    'feature-gate-not-passed': ('lab_broker.py', '            return self.transport.features(allowed, **extra)\n',
+                                '            return self.transport.features(allowed)\n', ('test_lab_broker',)),
+    'unreadable-features-unlisted': ('lab_broker.py', "        error = _NotLaunched('the device features could not be read: %s' % result.status)\n"
+                                                      '        error.capture, error.command = number, command\n        raise error\n',
+                                     "        raise _NotLaunched('the device features could not be read: %s' % result.status)\n",
+                                     ('test_lab_broker',)),
+    'ledger-entries-unsynced-at-opening': ('capture_ledger.py', '                ledger._sync_file(entry.path / name)\n'
+                                                                '            ledger._sync_dir(entry.path)\n',
+                                           '                ledger._sync_file(entry.path / name)\n',
+                                           ('test_capture_ledger', 'test_lab_broker')),
+    'ledger-files-unsynced-at-opening': ('capture_ledger.py', '        ledger._sync_file(ledger.root / MARKER_NAME)\n'
+                                                              '        for entry in ledger.entries:\n'
+                                                              '            for name in sorted(os.listdir(entry.path)):\n'
+                                                              '                ledger._sync_file(entry.path / name)\n',
+                                         '        for entry in ledger.entries:\n', ('test_capture_ledger', 'test_lab_broker')),
+    'ledger-write-failure-not-latched': ('capture_ledger.py', '        except OSError as error:\n            self._failed = error\n'
+                                                              '            raise\n', '        except OSError:\n            raise\n',
+                                         ('test_capture_ledger',)),
+    'features-send-ungated': ('shell_transport.py', '            if may_send is not None and not may_send():\n'
+                                                    "                return FeaturesResult('launch-deadline', (), None, "
+                                                    "'the launch deadline passed before the request')\n", '',
+                              ('test_shell_transport',)),
+    'host-begin-untimed': ('lab_broker.py', "                  'request': m['request'], 'generation': state['generation'], 'wall_ns': self._wall(),\n"
+                                            "                  'monotonic_ns': self._monotonic()}\n",
+                           "                  'request': m['request'], 'generation': state['generation']}\n", ('test_lab_broker',)),
+    'process-ended-untimed': ('lab_broker.py', "                                        'reason': 'the generation ended during the host call',\n"
+                                               "                                        'wall_ns': self._wall(), 'monotonic_ns': self._monotonic()})\n",
+                              "                                        'reason': 'the generation ended during the host call'})\n",
+                              ('test_lab_broker',)),
+    'restart-not-admitted': ('lab_broker.py', "        if 'framework-restart' not in self.admission.get('lab_actions', {}):\n",
+                             '        if False:\n', ('test_lab_broker',)),
+    'restart-during-generation': ('lab_broker.py', '        if self.open_generation is not None:\n'
+                                  "            raise BrokerError('a lab action runs only between generations')\n", '',
+                                  ('test_lab_broker',)),
+    'restart-beside-committed-session': ('lab_broker.py',
+                                         "        if any(f['kind'] == 'SESSION' and f['classification'] in RESTART_BLOCKING "
+                                         "for f in group.facts):\n", '        if False:\n', ('test_lab_broker',)),
 }
 
 # Each Java defect: the file under this directory, its exact old and new text, and the suites run
@@ -389,9 +495,9 @@ DRIVER_MUTANTS = {
                            '                    if (o.component.equals(component)) throw new IllegalStateException("a data copy is active at '
                            'the baseline");\n', '', ('DriverTest', DRIVER_SUITE)),
     'publication-not-pinned': ('lab_driver.py', '        self.broker.pin_artifacts(plan, members)\n', '', (DRIVER_SUITE,)),
-    'settles-before-staging': ('lab_driver.py', "            if plan in self.staged:\n                self.advance('settle', ticket, "
-                               "str(rounds))\n            else:\n                self.advance('round', ticket)\n",
-                               "            self.advance('settle', ticket, str(rounds))\n", (DRIVER_SUITE,)),
+    'settles-before-staging': ('lab_driver.py', "            if plan in self.staged:\n                summary = self.advance('settle', "
+                               "ticket, str(rounds))\n            else:\n                summary = self.advance('round', ticket)\n",
+                               "            summary = self.advance('settle', ticket, str(rounds))\n", (DRIVER_SUITE,)),
     'staging-failure-swallowed': ('lab_driver.py', '                members = self.stage_publication(plan)\n',
                                   '                try:\n                    members = self.stage_publication(plan)\n'
                                   '                except DriverError:\n                    members = None\n', (DRIVER_SUITE,)),
@@ -407,6 +513,30 @@ DRIVER_MUTANTS = {
                                    '', (DRIVER_SUITE,)),
     'host-clock-only': ('lab_driver.py', '        self.clock = clock or (lambda: time.time_ns() // 1_000_000)\n',
                         '        self.clock = lambda: time.time_ns() // 1_000_000\n', (DRIVER_SUITE,)),
+    'restart-checkpoint-not-renewed': ('lab_driver.py', "            if not any(g['reader'] == 'checkpoint' and g['status'] == 'facts'\n",
+                                       "            if False and not any(g['reader'] == 'checkpoint' and g['status'] == 'facts'\n",
+                                       (DRIVER_SUITE,)),
+    'restart-beside-a-committed-wait': ('lab_driver.py',
+                                        "        return not any(o['kind'] == 'SESSION' and o['classification'] in lab_broker.RESTART_BLOCKING\n",
+                                        "        return True or not any(o['kind'] == 'SESSION' and o['classification'] in "
+                                        "lab_broker.RESTART_BLOCKING\n", (DRIVER_SUITE,)),
+    'restart-beside-a-pending-checkpoint': ('lab_driver.py',
+                                            "        if [o['classification'] for o in checkpoint['observations'] if o['kind'] == 'CHECKPOINT'] "
+                                            "!= ['COMMITTED']:\n", '        if False:\n', (DRIVER_SUITE,)),
+    'faults-acted-not-compared': ('lab_driver.py', "        expected['faults'] = sorted(item['cell'] for item in spec['faults'])\n",
+                                  "        expected['faults'] = found['faults']\n", (DRIVER_SUITE,)),
+    'restart-effect-unverified': ('lab_driver.py',
+                                  "            if not readings or any(r['boot'] != boot or r['instance'] < later or r['instance'] <= before "
+                                  "for r in readings):\n",
+                                  '            if False:\n', (DRIVER_SUITE,)),
+    'attempt-before-terminal': ('lab_driver.py', "              or any(t['state'] not in TERMINAL for t in found)):\n",
+                                '              and False):\n', (DRIVER_SUITE,)),
+    'attempt-faults-not-admitted': ('lab_driver.py',
+                                    "        self.broker.admit_faults([dict(item, plan=plan, attempt=spec['attempt']) "
+                                    "for item in spec['faults']])\n", '', (DRIVER_SUITE,)),
+    'prediction-not-compared': ('lab_driver.py', '        if found != expected:\n', '        if False:\n', (DRIVER_SUITE,)),
+    'cohort-control-not-contradicted': (DRIVER_JAVA + 'LabDriverMain.java',
+                                        'contradict ? otherDigest(base.apk) : base.apk', 'base.apk', ('DriverTest', DRIVER_SUITE)),
 }
 
 
@@ -462,8 +592,9 @@ def run_suite(tree, suite, java=None, classes=None, timeout=900, driver=None):
     output = done.stderr
     passed = re.findall(r'^(test_\w+) \(([\w.]+)\) \.\.\. ok$', output, re.M)
     skipped = re.findall(r'^(test_\w+) \(([\w.]+)\) \.\.\. skipped', output, re.M)
-    # A failing subtest prints its parameters after the test's name, and still fails the test.
-    failed = re.findall(r'^(?:FAIL|ERROR): (test_\w+) \(([\w.]+)\)(?: \(.*\))?$', output, re.M)
+    # A failing subtest prints its label in brackets and its parameters in parentheses after the
+    # test's name, either or both, and still fails the test.
+    failed = re.findall(r'^(?:FAIL|ERROR): (test_\w+) \(([\w.]+)\)(?: \[.*\])?(?: \(.*\))?$', output, re.M)
     return {'returncode': done.returncode, 'passed': sorted(full for _, full in passed),
             'skipped': sorted(full for _, full in skipped), 'failed': sorted(set(full for _, full in failed)),
             'output': output[-4000:]}

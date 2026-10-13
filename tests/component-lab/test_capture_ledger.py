@@ -76,6 +76,77 @@ class LedgerTests(unittest.TestCase):
                          [(1, 'open', 'complete'), (2, 'capture', 'complete')])
         self.assertEqual(reopened.entries[1].content['stdout'], b'uid=2000(shell)\n')
 
+    def test_reopening_syncs_every_file_and_directory_again(self):
+        ledger = self.ledger(sync=True)
+        ledger.record('open', {'pid': 1})
+        capture = ledger.begin_capture({'command': 'id'})
+        ledger.finish_capture(capture, b'out', b'', {'exit': 0})
+        spy = Spy()
+        reopened = cl.Ledger.open(self.root, sync=True, fsync=spy)
+        want = [str(self.root / 'LEDGER')]
+        for entry in reopened.entries:
+            want += [str(entry.path / name) for name in sorted(os.listdir(entry.path))] + [str(entry.path)]
+        self.assertEqual(spy.events, want + [str(self.root)])
+
+    def test_a_failed_file_sync_refuses_reopening_until_it_completes(self):
+        ledger = self.ledger(sync=True)
+        record = self.root / '000001-open' / 'record.json'
+
+        def failing(fd):
+            if os.readlink('/proc/self/fd/%d' % fd) == str(record):
+                raise OSError(5, 'injected')
+            os.fsync(fd)
+        ledger._fsync = failing
+        with self.assertRaises(OSError):
+            ledger.record('open', {'pid': 1})
+        # The record reads whole, but its own barrier never completed: every opening refuses until it does.
+        self.assertEqual(cl.scan(self.root)[-1].state, 'complete')
+        for _ in range(2):
+            with self.assertRaises(OSError):
+                cl.Ledger.open(self.root, sync=True, fsync=failing)
+        spy = Spy()
+        self.assertEqual(cl.Ledger.open(self.root, sync=True, fsync=spy).last.state, 'complete')
+        self.assertIn(str(record), spy.events)
+
+    def test_a_failed_write_latches_the_ledger_in_its_process(self):
+        ledger = self.ledger(sync=True)
+
+        def failing(fd):
+            raise OSError(5, 'injected')
+        ledger._fsync = failing
+        with self.assertRaises(OSError):
+            ledger.record('open', {'pid': 1})
+        ledger._fsync = os.fsync
+        # Nothing more is written in this process, whatever the storage does next.
+        for write in (lambda: ledger.record('open', {'pid': 2}), lambda: ledger.begin_capture({'command': 'id'})):
+            with self.assertRaisesRegex(cl.LedgerDamaged, 'an earlier write or sync failed'):
+                write()
+        self.assertEqual(len(cl.scan(self.root)), 1)
+
+    def test_a_failed_final_directory_sync_refuses_reopening_until_it_completes(self):
+        ledger = self.ledger(sync=True)
+        ledger.record('open', {'pid': 1})
+        entry = self.root / '000002-capture'
+
+        def failing(fd):
+            if os.readlink('/proc/self/fd/%d' % fd) == str(entry):
+                raise OSError(5, 'injected')
+            os.fsync(fd)
+        # The capture's own intent sync succeeds; only its last directory sync after the result fails.
+        writer = cl.Ledger.open(self.root, sync=True)
+        capture = writer.begin_capture({'command': 'id'})
+        writer._fsync = failing
+        with self.assertRaises(OSError):
+            writer.finish_capture(capture, b'out', b'', {'exit': 0})
+        # The entry reads whole, but its barrier never completed: every opening refuses until it does.
+        self.assertEqual(cl.scan(self.root)[-1].state, 'complete')
+        for _ in range(2):
+            with self.assertRaises(OSError):
+                cl.Ledger.open(self.root, sync=True, fsync=failing)
+        spy = Spy()
+        self.assertEqual(cl.Ledger.open(self.root, sync=True, fsync=spy).last.state, 'complete')
+        self.assertIn(str(entry), spy.events)
+
     def test_damage_refuses_reopening(self):
         def fresh():
             if self.root.exists():

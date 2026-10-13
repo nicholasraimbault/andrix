@@ -31,7 +31,7 @@ import stat
 MARKER = b'andrix-lab-ledger 1\n'
 MARKER_NAME = 'LEDGER'
 KINDS = ('open', 'generation', 'generation-end', 'capture', 'group', 'crossing', 'outcome', 'fault', 'escrow',
-         'host', 'quarantine', 'stop', 'faults', 'artifacts', 'report')
+         'host', 'quarantine', 'stop', 'faults', 'artifacts', 'report', 'lab-action')
 NAME = re.compile(r'([0-9]{6})-([a-z][a-z-]*)')
 MAX_ENTRIES = 999999
 CAPTURE_FILES = ('intent.json', 'stdout', 'stderr', 'result.json')
@@ -74,6 +74,9 @@ class Ledger:
 
     def __init__(self, root, entries, sync=True, fsync=os.fsync):
         self.root, self.entries, self._sync, self._fsync = Path(root), entries, sync, fsync
+        # The first write or sync that fails in this process: from then on nothing more is written,
+        # so no later entry, and no command, ever stands on a barrier that did not complete.
+        self._failed = None
 
     # ------------------------------------------------ durability primitives
 
@@ -97,6 +100,25 @@ class Ledger:
         finally:
             os.close(fd)
 
+    def _sync_file(self, path):
+        if not self._sync:
+            return
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        try:
+            self._fsync(fd)
+        finally:
+            os.close(fd)
+
+    def _writing(self, write):
+        """Runs one entry's writes; a failed write or sync latches the ledger against any later one."""
+        if self._failed is not None:
+            raise LedgerDamaged('an earlier write or sync failed in this process: %s' % self._failed)
+        try:
+            return write()
+        except OSError as error:
+            self._failed = error
+            raise
+
     @classmethod
     def create(cls, root, sync=True, fsync=os.fsync):
         """A new empty ledger. The directory must not exist or must be empty."""
@@ -112,8 +134,21 @@ class Ledger:
 
     @classmethod
     def open(cls, root, sync=True, fsync=os.fsync):
-        """The ledger as it stands, every entry checked. Raises LedgerDamaged."""
-        return cls(Path(root), scan(root), sync, fsync)
+        """The ledger as it stands, every entry checked. Raises LedgerDamaged. Before anything relies
+        on the history, every file it holds (the marker, and each entry's files) is synced again,
+        then each entry's directory and the ledger's own: an entry that reads whole may still have had
+        a file or directory sync fail in an earlier writer. A sync that fails raises OSError, so the
+        opening is refused until every barrier completes. A loss the kernel already reported to an
+        earlier sync can go unreported to a later one; no reading from user space can see it, which is
+        why a writer never writes on after a failed write or sync."""
+        ledger = cls(Path(root), scan(root), sync, fsync)
+        ledger._sync_file(ledger.root / MARKER_NAME)
+        for entry in ledger.entries:
+            for name in sorted(os.listdir(entry.path)):
+                ledger._sync_file(entry.path / name)
+            ledger._sync_dir(entry.path)
+        ledger._sync_dir(ledger.root)
+        return ledger
 
     # ------------------------------------------------ writing
 
@@ -147,37 +182,44 @@ class Ledger:
         data = encode_json(content)
         if len(data) > MAX_JSON:
             raise ValueError('a record above its bound')
-        entry = self._allocate(kind)
-        self._write_new(entry.path / RECORD_FILE, data)
-        self._sync_dir(entry.path)
-        entry.content, entry.state = content, 'complete'
-        return entry.number
+        def write():
+            entry = self._allocate(kind)
+            self._write_new(entry.path / RECORD_FILE, data)
+            self._sync_dir(entry.path)
+            entry.content, entry.state = content, 'complete'
+            return entry.number
+        return self._writing(write)
 
     def begin_capture(self, intent):
         """Writes a capture's intent and syncs it. Only after this returns may its command run."""
         content = dict(intent, number=len(self.entries) + 1, kind='capture')
         data = encode_json(content)
-        entry = self._allocate('capture')
-        self._write_new(entry.path / 'intent.json', data)
-        self._sync_dir(entry.path)
-        entry.content, entry.state = {'intent': content}, 'interrupted'
-        return entry
+        def write():
+            entry = self._allocate('capture')
+            self._write_new(entry.path / 'intent.json', data)
+            self._sync_dir(entry.path)
+            entry.content, entry.state = {'intent': content}, 'interrupted'
+            return entry
+        return self._writing(write)
 
     def finish_capture(self, entry, stdout, stderr, result):
         """Writes a capture's streams, then its result last."""
         if entry is not self.last or entry.state != 'interrupted':
             raise ValueError('only the open capture can finish')
         stdout, stderr = bytes(stdout), bytes(stderr)
-        self._write_new(entry.path / 'stdout', stdout)
-        self._write_new(entry.path / 'stderr', stderr)
         content = dict(result, number=entry.number, kind='capture',
                        stdout_sha256=hashlib.sha256(stdout).hexdigest(), stdout_bytes=len(stdout),
                        stderr_sha256=hashlib.sha256(stderr).hexdigest(), stderr_bytes=len(stderr))
-        self._write_new(entry.path / 'result.json', encode_json(content))
-        self._sync_dir(entry.path)
-        entry.content = {'intent': entry.content['intent'], 'result': content, 'stdout': stdout, 'stderr': stderr}
-        entry.state = 'complete'
-        return entry.number
+
+        def write():
+            self._write_new(entry.path / 'stdout', stdout)
+            self._write_new(entry.path / 'stderr', stderr)
+            self._write_new(entry.path / 'result.json', encode_json(content))
+            self._sync_dir(entry.path)
+            entry.content = {'intent': entry.content['intent'], 'result': content, 'stdout': stdout, 'stderr': stderr}
+            entry.state = 'complete'
+            return entry.number
+        return self._writing(write)
 
     def unquarantined(self):
         """Every incomplete entry that no quarantine record names yet."""

@@ -7,15 +7,19 @@ It needs a JDK, the driver's classes compiled with the pinned apksigner jar, the
 platform key and the two built SystemUI signing inputs, named by ANDRIX_LAB_JAVA,
 ANDRIX_LAB_DRIVER_CLASSPATH, ANDRIX_LAB_PLATFORM_KEYS (a directory with platform.pk8 and
 platform.x509.pem) and ANDRIX_LAB_SIGNING_INPUTS (a directory with built-A.apk and built-R.apk).
-Without them every case is skipped. Host evidence only: a simulated guest, not Android."""
+Without them the end to end cases are skipped; the cell sequence's form checks run without them.
+Host evidence only: a simulated guest, not Android."""
 import base64
 import hashlib
+import copy
+import json
 import os
 from pathlib import Path
 import tempfile
 import unittest
 import zipfile
 
+import cells
 import labtest
 import lab_broker
 import lab_driver
@@ -71,7 +75,7 @@ def sha(path):
 class World:
     """A lab driver over a broker on a simulated guest, with the real host."""
 
-    def __init__(self, cells=(), sdk=(37, 65535), plans=(PLAN,)):
+    def __init__(self, cells=(), sdk=(37, 65535), plans=(PLAN,), lab_actions=False):
         self._temp = tempfile.TemporaryDirectory()
         self.dir = Path(self._temp.name)
         self.store = self.dir / 'store'
@@ -94,9 +98,18 @@ class World:
         manifest = labtest.manifest_bytes()
         config = self.driver.init(self.store, hashlib.sha256(manifest).hexdigest(), labtest.INSTALLATION,
                                   labtest.COORDINATOR, labtest.TRUST)
-        lab_broker.Broker.initialize(self.dir / 'broker', labtest.admission(self.dir, config=config), manifest)
+        # A guest's admission: the restart action with its limit, the launch set the loss cells need
+        # (no COMMIT, no reboot) and this store, whose records each crossing names. Its settle wait
+        # sleeps on a host test clock, not in real time.
+        changes, timing = {}, {}
+        if lab_actions:
+            changes = {'version': 2, 'lab_actions': {'framework-restart': 10}, 'launches': ['CREATE', 'WRITE', 'ABANDON'],
+                       'store': str(self.store)}
+            clock = labtest.Clock()
+            timing = {'monotonic': clock.monotonic_ns, 'sleep': clock.sleep}
+        lab_broker.Broker.initialize(self.dir / 'broker', labtest.admission(self.dir, config=config, **changes), manifest)
         self.driver.broker = lab_broker.Broker.open(self.dir / 'broker', labtest.REPO, sim_android.SimTransport(self.sim),
-                                                    sim_android.SimReader(labtest.INSTALLATION), sync=False)
+                                                    sim_android.SimReader(labtest.INSTALLATION), sync=False, **timing)
         if cells:
             self.driver.broker.admit_faults(list(cells))
 
@@ -110,6 +123,90 @@ class World:
 
     def calls(self, kind):
         return [c for c in self.sim.calls if c[0] == kind]
+
+
+class CellSequenceTests(unittest.TestCase):
+    """The cell sequence's data, without the JDK."""
+
+    def test_the_sequence_is_well_formed(self):
+        self.assertTrue(cells.check_sequence())
+        self.assertEqual([spec['attempt'] for spec in cells.SEQUENCE], list(range(1, len(cells.SEQUENCE) + 1)))
+
+    def test_malformed_attempts_are_refused(self):
+        base = cells.SEQUENCE[1]
+        changes = {
+            'a missing key': lambda s: s.pop('restarts'),
+            'an unknown crossing': lambda s: s['faults'][0].update(crossing='LAUNCH'),
+            'a fault named twice': lambda s: s['faults'].append(dict(s['faults'][0])),
+            'a restart outside the waits a later instance resolves': lambda s: s['restarts'].append('READY'),
+            'a native call missing from the prediction': lambda s: s['calls'].pop('reboot'),
+            'an unknown grant': lambda s: s.update(grants=['STAGE']),
+            'an unknown fault mode': lambda s: s['faults'][0].update(mode='loss-during'),
+            'a host occurrence beyond two': lambda s: s['faults'][0].update(occurrence=3),
+            'a host fault on a device crossing': lambda s: s['faults'][0].update(crossing='CREATE'),
+            'a loss between members outside WRITE': lambda s: s['faults'][3].update(mode='loss-between-members'),
+            'an end that is not terminal': lambda s: s.update(end='READY'),
+            'a native count that is not a count': lambda s: s['calls'].update(CREATE='1'),
+        }
+        for label, change in changes.items():
+            spec = copy.deepcopy(base)
+            change(spec)
+            with self.subTest(change=label), self.assertRaises(ValueError):
+                cells.check_spec(spec)
+        first = copy.deepcopy(cells.SEQUENCE[0])
+        first['grants'] = ['SIGN']
+        with self.assertRaises(ValueError):
+            cells.check_spec(first)
+
+    def test_the_sequence_refuses_reordered_or_reused_cells(self):
+        with self.assertRaises(ValueError):
+            cells.check_sequence((cells.SEQUENCE[1], cells.SEQUENCE[0]))
+        reused = copy.deepcopy(cells.SEQUENCE[:2])
+        reused[1]['faults'][0]['cell'] = reused[0]['faults'][0]['cell']
+        with self.assertRaises(ValueError):
+            cells.check_sequence(reused)
+
+
+class Entry:
+    def __init__(self, kind, content):
+        self.kind, self.content = kind, content
+
+
+class RestartDecisionTests(unittest.TestCase):
+    """Which unchanged waits the driver asks a restart for, from one generation's recorded reads."""
+
+    def decide(self, checkpoint='COMMITTED', listing='SESSIONS_FOR_PACKAGE', session='SEALED', instance=4001,
+               unavailable=()):
+        def group(reader, observations, reading=None):
+            status = 'unavailable' if reader in unavailable else 'facts'
+            return Entry('group', {'generation': 7, 'reader': reader, 'status': status, 'reading': reading,
+                                   'observations': observations if status == 'facts' else []})
+        entries = [group('clock', [], {'boot': 'b1' * 16, 'instance': 4001}),
+                   group('checkpoint', [{'kind': 'CHECKPOINT', 'classification': checkpoint, 'instance': -1}]),
+                   group('sessions', [{'kind': 'LISTING', 'classification': listing, 'instance': instance}]
+                         + ([{'kind': 'SESSION', 'classification': session, 'instance': instance}] if session else []))]
+        driver = lab_driver.LabDriver.__new__(lab_driver.LabDriver)
+        driver.broker = type('Broker', (), {'ledger': type('Ledger', (), {'entries': entries})()})()
+        return driver.restart_resolves(7)
+
+    def test_a_loss_wait_beside_an_uncommitted_session_is_one_a_later_instance_resolves(self):
+        for session in ('OPEN', 'SEALED', 'ABANDONED', None):
+            with self.subTest(session=session):
+                self.assertTrue(self.decide(session=session, listing='NONE_FOR_PACKAGE' if session is None else 'SESSIONS_FOR_PACKAGE'))
+
+    def test_a_committed_session_or_unknown_commitment_is_another_wait(self):
+        for session in ('VERIFYING', 'READY', 'LIVE_NOT_READY'):
+            with self.subTest(session=session):
+                self.assertFalse(self.decide(session=session))
+
+    def test_a_pending_checkpoint_is_another_wait(self):
+        self.assertFalse(self.decide(checkpoint='PENDING'))
+
+    def test_unavailable_or_partial_reads_ask_no_restart(self):
+        for case in ({'unavailable': ('clock',)}, {'unavailable': ('checkpoint',)}, {'unavailable': ('sessions',)},
+                     {'listing': 'INCOMPLETE'}, {'instance': 3901}):
+            with self.subTest(case=case):
+                self.assertFalse(self.decide(**case))
 
 
 @unittest.skipUnless(JAVA and CLASSPATH and KEYS and INPUTS, 'needs the JDK, the driver classpath, the keys and inputs')
@@ -358,6 +455,121 @@ class DriverEndToEnd(unittest.TestCase):
         with self.assertRaisesRegex(lab_driver.DriverError, 'ended FAILED'):
             w.driver.drive(TICKET, PLAN, lambda s: s['state'] in TERMINAL, generations=3, between=lambda s: w.sim.tick(40_000))
         self.assertEqual(len(w.driver.generations), 2)
+
+    def test_the_loss_cells_run_in_order_to_their_predicted_ends(self):
+        # The design's cohort refusal first, then its loss cells as one sequence of attempts on plan
+        # A, each compared with its prediction from the store and the broker's ledger; the factory
+        # choice stays current throughout.
+        w = self.world(lab_actions=True, plans=(PLAN, OTHER_PLAN))
+        w.driver.check()
+        w.driver.run_cohort_refusal(OTHER_PLAN, OTHER_TICKET)
+        w.driver.check()
+        w.driver.plan(PLAN, TICKET, 4)
+        tickets = [TICKET] + [('%02x' % (0x30 + i)) * 16 for i in range(1, len(cells.SEQUENCE))]
+        for spec, ticket in zip(cells.SEQUENCE, tickets):
+            with self.subTest(attempt=spec['name']):
+                w.driver.run_attempt(spec, PLAN, ticket, between=lambda s: w.sim.tick(40_000), staged=w.staged)
+        selection = w.driver.selection()
+        self.assertEqual((selection['choice'], selection['revision'], selection['realization']), ('FACTORY', '0', 'CURRENT'))
+        self.assertEqual(w.sim.active[0], 'FACTORY_COPY')
+        # Every crossing kept the exact ticket, plan and selection records it named, by digest.
+        crossings = [e.content for e in w.driver.broker.ledger.entries if e.kind == 'crossing']
+        self.assertTrue(crossings)
+        for crossing in crossings:
+            records = crossing['records']
+            self.assertEqual((records['ticket'], records['plan']), (crossing['ticket_digest'], crossing['plan_digest']))
+            for digest in records.values():
+                data = (w.dir / 'broker' / 'records' / digest).read_bytes()
+                self.assertEqual(hashlib.sha256(data).hexdigest(), digest)
+        self.assertEqual([c for c in w.sim.calls if c[0] in ('COMMIT', 'reboot')], [])
+
+    def test_an_attempt_begins_only_after_the_previous_ticket_is_terminal(self):
+        w = self.world(lab_actions=True)
+        w.driver.check()
+        w.driver.plan(PLAN, TICKET, 4)
+        # The plan's first ticket is PLANNED: no second attempt yet, and attempt 1 is only that ticket.
+        with self.assertRaisesRegex(lab_driver.DriverError, 'previous ticket is terminal'):
+            w.driver.run_attempt(cells.SEQUENCE[1], PLAN, '31' * 16, staged=w.staged)
+        with self.assertRaisesRegex(lab_driver.DriverError, "attempt 1 is the plan's first ticket"):
+            w.driver.run_attempt(cells.SEQUENCE[0], PLAN, '31' * 16, staged=w.staged)
+        # Nothing was admitted for the refused attempts, and the store holds only the first ticket.
+        self.assertEqual([e for e in w.driver.broker.ledger.entries if e.kind == 'faults'], [])
+        self.assertEqual(w.driver.tickets(PLAN), [{'ticket': TICKET, 'attempt': 1, 'state': 'PLANNED'}])
+        # A moved first ticket is no longer attempt 1's to take.
+        w.driver.advance('round', TICKET)
+        self.assertNotEqual(w.driver.tickets(PLAN)[0]['state'], 'PLANNED')
+        with self.assertRaisesRegex(lab_driver.DriverError, "attempt 1 is the plan's first ticket"):
+            w.driver.run_attempt(cells.SEQUENCE[0], PLAN, TICKET, staged=w.staged)
+
+    def test_a_framework_restart_that_does_not_take_stops_the_driver(self):
+        w = self.world(lab_actions=True)
+        w.driver.check()
+        # The command succeeds, but the framework does not restart: no poll shows a later instance,
+        # the broker refuses the action after its record, and no generation follows.
+        w.sim.scripts['am restart'] = [lambda command: sim_android.result(command, 0)]
+        generations = len(w.driver.generations)
+        with self.assertRaisesRegex(lab_broker.BrokerError, 'did not settle'):
+            w.driver.restart_framework('a later framework instance that does not come')
+        self.assertIsNone(w.driver.t0)
+        self.assertEqual(len(w.driver.generations), generations)
+
+    def test_a_restart_without_a_renewed_checkpoint_read_stops_the_driver(self):
+        w = self.world(lab_actions=True)
+        w.driver.check()
+        w.driver.restart_framework('a later framework instance')
+        # The next generation reads the later instance, but its checkpoint read does not complete.
+        w.sim.scripts['sim:checkpoint'] = ['before']
+        with self.assertRaisesRegex(lab_driver.DriverError, 'checkpoint again'):
+            w.driver.check()
+        self.assertIsNone(w.driver.t0)
+
+    def test_a_generation_of_another_boot_after_a_settled_restart_stops_the_driver(self):
+        w = self.world(lab_actions=True)
+        w.driver.check()
+        w.driver.restart_framework('a later framework instance')
+        # The restart settled, but the guest boots again before the next generation reads.
+        w.sim.reboot()
+        with self.assertRaisesRegex(lab_driver.DriverError, 'later instance of the same boot'):
+            w.driver.check()
+
+    def test_a_ticket_round_after_a_restart_must_read_the_checkpoint_again(self):
+        w = self.world(lab_actions=True)
+        w.driver.check()
+        w.driver.plan(PLAN, TICKET, 4)
+        w.driver.restart_framework('a later framework instance')
+        w.sim.scripts['sim:checkpoint'] = ['before']
+        with self.assertRaisesRegex(lab_driver.DriverError, 'checkpoint again'):
+            w.driver.advance('round', TICKET)
+
+    def test_the_store_is_kept_after_every_step(self):
+        w = self.world(lab_actions=True)
+        w.driver.check()
+        w.driver.plan(PLAN, TICKET, 4)
+        snapshots = sorted(p.name for p in (w.dir / 'store-snapshots').iterdir())
+        self.assertEqual([name.split('-', 1)[1] for name in snapshots], ['init', 'generation-1', 'plan'])
+        manifest = json.loads((w.dir / 'store-snapshots' / snapshots[-1] / 'manifest.json').read_text())
+        self.assertIn('tickets/%s.rec' % TICKET, manifest)
+        ticket = (w.store / 'tickets' / ('%s.rec' % TICKET)).read_bytes()
+        self.assertEqual(manifest['tickets/%s.rec' % TICKET], hashlib.sha256(ticket).hexdigest())
+
+    def test_a_fault_that_never_acts_stops_the_driver(self):
+        w = self.world(lab_actions=True)
+        w.driver.check()
+        w.driver.plan(PLAN, TICKET, 4)
+        extra = copy.deepcopy(cells.SEQUENCE[0])
+        # H1 never creates a session, so a CREATE cell admitted with it never acts.
+        extra['faults'].append(cells.fault('h1-unreached', 'cross', 'CREATE', 1, 'drop-reply'))
+        with self.assertRaisesRegex(lab_driver.DriverError, 'differs from its prediction'):
+            w.driver.run_attempt(extra, PLAN, TICKET, between=lambda s: w.sim.tick(40_000), staged=w.staged)
+
+    def test_a_prediction_the_records_do_not_meet_stops_the_driver(self):
+        w = self.world(lab_actions=True)
+        w.driver.check()
+        w.driver.plan(PLAN, TICKET, 4)
+        wrong = copy.deepcopy(cells.SEQUENCE[0])
+        wrong['signs'] = 1
+        with self.assertRaisesRegex(lab_driver.DriverError, 'differs from its prediction'):
+            w.driver.run_attempt(wrong, PLAN, TICKET, between=lambda s: w.sim.tick(40_000), staged=w.staged)
 
     def test_a_lost_sign_reply_is_resolved_by_reading_never_by_signing_again(self):
         cell = {'cell': 'drop-sign', 'on': 'host', 'mode': 'drop-reply', 'plan': PLAN, 'attempt': 1, 'crossing': 'SIGN',
