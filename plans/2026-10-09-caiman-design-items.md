@@ -335,12 +335,14 @@ exits 0 to pass and 1 to refuse, like the other Pixel checkers (`scripts/pixel/R
    `system/sepolicy`, and a witness table, `scripts/pixel/neverallow_witnesses.json`.
 5. Host tools pinned by SHA-256, as `scripts/pixel/install_zip.py:47-55` pins its own:
    `sepolicy-analyze`, `secilc` and `checkpolicy` from the build's host output, and `debugfs`,
-   `simg2img` and `lpunpack`. The pins follow the base tag. Each tag has one reviewed set of
-   digests for `sepolicy-analyze`, `secilc` and `checkpolicy`, added in the pin review that a new
-   tag already needs (`scripts/proof/grapheneos_source.md:30`). The tool reads the base tag from the
-   image's signed `com.andrix.build.base_tag` property and refuses a tag without a set. The release
-   wrapper confirms that the build's own host tools hash to that set. The 2026081300 set serves
-   only the stage 1 corpus.
+   `simg2img` and `lpunpack`, the verified kit's image readers, which are pinned once in
+   `scripts/pixel/install_zip.py` from one reviewed host tool set. The policy tools' pins follow the
+   base tag. Each tag has one reviewed set of digests for `sepolicy-analyze`, `secilc` and
+   `checkpolicy`, added in the pin review that a new tag already needs
+   (`scripts/proof/grapheneos_source.md:30`). The tool reads the base tag from the image's signed
+   `com.andrix.build.base_tag` property and refuses a tag without a set. The release wrapper
+   confirms that the build's own host tools hash to that set. The 2026081300 set serves only the
+   stage 1 corpus.
 
 **Steps.**
 
@@ -360,16 +362,17 @@ exits 0 to pass and 1 to refuse, like the other Pixel checkers (`scripts/pixel/R
   owner policy directory is included (`owner/sepolicy/andrix_terminal.te:3`).
 - **C. Andrix rules in expanded form.** The sources are every Andrix policy directory the product
   adds, derived from `board/owner-policy.mk`, and every Andrix patch to `system/sepolicy` for the
-  base tag, not a fixed list. For a patch, the text at a line is the text after its leading `+`. A
-  hunk that removes a `neverallow` line or adds an exclusion inside one refuses unless the witness
-  table records it, as it records the two narrowings of the bridge patch. The expanded rule file's
-  digest must equal the one in the release record. Each witness table entry holds
-  the source file and line, the literal rule, its expected expansion and its witness. The tool
-  requires three things. The literal text at that line in the built commit equals the entry. Every
-  literal `neverallow` in those sources has exactly one entry. The expected expansion appears in the
-  build's expanded rule file. The expansions are short. Only `capability_class_set`
-  (`system/sepolicy/public/global_macros:5`), `no_x_file_perms`
-  (`system/sepolicy/public/neverallow_macros:6`) and `userdebug_or_eng`
+  base tag, not a fixed list. Every `vendor/andrix/` file that the expanded rule file's line markers
+  name must lie in one of those directories, and none under `tests/`. A caller gives neither list.
+  For a patch, the text at a line is the text after its leading `+`. A hunk that removes a
+  `neverallow` line or adds an exclusion inside one refuses unless the witness table records it, as
+  it records the two narrowings of the bridge patch. The expanded rule file's digest must equal the
+  one in the release record. Each witness table entry holds the source file and line, the literal
+  rule, its expected expansion and its witness. The tool requires three things. The literal text at
+  that line in the built commit equals the entry. Every literal `neverallow` in those sources has
+  exactly one entry. The expected expansion appears in the build's expanded rule file. The
+  expansions are short. Only `capability_class_set` (`system/sepolicy/public/global_macros:5`),
+  `no_x_file_perms` (`system/sepolicy/public/neverallow_macros:6`) and `userdebug_or_eng`
   (`system/sepolicy/public/te_macros:583`) occur.
 - **D. Andrix rules on the loaded policy.** `sepolicy-analyze <precompiled_sepolicy> neverallow -w
   -f <the 28 rules>`. It passes only with exit status 0, no violation line and nothing at all on
@@ -940,7 +943,9 @@ After the build, its `release` step:
 3. reads the produced vbmeta and confirms exactly one `com.andrix.build.base_tag` equal to the
    derived tag;
 4. completes the release record with the SHA-256 of the signed target files and of every artifact
-   made from them, the OTA and the install zip among them.
+   made from them, the OTA and the install zip among them, and the SHA-256 of the expanded rule
+   file. Before it completes the record, it confirms with the neverallow check's tool check that
+   the build's own host tools hash to the base tag's set.
 
 The vbmeta property is therefore added at the `sign_target_files_apks` call of the release script
 (`script/generate-release.sh:80`), from a value only verification code produced. If the build ran

@@ -347,9 +347,11 @@ are bounded emulator, host and artifact qualifications, not general hardware or 
 
 The accepted [workshop phone plan](2026-10-09-caiman-workshop-phone.md) sets the stages, safety
 rules and owner decisions for bringing Andrix to the owner's Pixel 9 Pro. Host checkers for its
-version rule, session records, signed release tags and install kits are written and tested on the
-host only, and a desk study of the build design items has corrected the plan. No Andrix image has
-been built for it, and nothing has touched the phone.
+version rule, session records, signed release tags, install kits and SELinux neverallow rules are
+written and tested on the host only, and a desk study of the build design items has corrected the
+plan. The neverallow check takes its inputs from the build's own records, and a corpus mode that
+can never pass the gate has run it on an emulator image's policy. No Andrix image has been built
+for the phone, and nothing has touched it.
 
 ### Native development and work
 
