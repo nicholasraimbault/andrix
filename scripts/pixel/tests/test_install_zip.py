@@ -483,6 +483,99 @@ class FullKitTests(unittest.TestCase):
         with first, second:
             self.refused(path, 'vbmeta', 'avbtool verify_image exited 1', tools=tools)
 
+    def test_a_passing_check_keeps_the_verified_images(self):
+        kit = self.kit
+        keep = Path(tempfile.mkdtemp(dir=kit.work))
+        report = kit.check(kit.zip(), keep=keep)
+        self.assertEqual(report['verdict'], 'PASS', report['reasons'])
+        self.assertEqual(sorted(path.name for path in keep.iterdir()), sorted(f'{name}.img' for name in STATIC))
+        for name in STATIC:
+            self.assertEqual((keep / f'{name}.img').read_bytes(), kit.members[f'{name}.img'])
+        system = kit.image('system', size=16384, kind='hashtree')
+        tools = self.fake_tools(system)
+        first, second = self.pinned(tools)
+        rebuilt = Path(tempfile.mkdtemp(dir=kit.work))
+        with first, second:
+            report = kit.check(kit.zip(vbmeta__img=kit.vbmeta(include=STATIC + ('system',))), tools=tools,
+                               keep=rebuilt)
+        self.assertEqual(report['verdict'], 'PASS', report['reasons'])
+        self.assertEqual((rebuilt / 'system.img').read_bytes(), system)
+        boot = bytearray(kit.members['boot.img'])
+        boot[100] ^= 0xff
+        refused = Path(tempfile.mkdtemp(dir=kit.work))
+        # check_vbmeta itself moves nothing before every vbmeta check passed, cleanup or not
+        with mock.patch.object(iz, 'discard', lambda keep: None):
+            self.refused(kit.zip(boot__img=bytes(boot)), 'vbmeta', 'avbtool verify_image exited 1', keep=refused)
+        self.assertEqual(list(refused.iterdir()), [])
+        # vbmeta passes and keeps its images, then a later check fails: the images go again
+        report = self.refused(kit.zip(flash_dash_all__sh=b'#!/bin/sh\nexit 1\n'), 'flash_script', keep=refused)
+        self.assertTrue(report['checks']['vbmeta']['ok'])
+        self.assertEqual(list(refused.iterdir()), [])
+        (refused / 'stale.img').write_bytes(b'stale')
+        report = kit.check(kit.zip(), keep=refused)
+        self.assertEqual((report['verdict'], report['checks']), ('REFUSE', {}))
+        self.assertIn('is not an empty directory to keep the verified images in', report['reasons'][0])
+        self.assertEqual([path.name for path in refused.iterdir()], ['stale.img'])
+        andrix = Path(tempfile.mkdtemp(dir=kit.work))
+        with mock.patch.object(iz, 'BASES', kit.bases), \
+                mock.patch.object(iz, 'WORKSHOP_PKMD_SHA256', sha(kit.members['avb_pkmd.bin'])):
+            with self.assertRaisesRegex(Refusal, 'neither the legacy nor the optimized form'):
+                iz.andrix_identity(self.andrix_zip(name='2026100600-broken',
+                                                   extra={'flash-all.sh': b'#!/bin/sh\nexit 1\n'}),
+                                   avbtool=AVBTOOL, keep=andrix)
+            self.assertEqual(list(andrix.iterdir()), [])
+            identity = iz.andrix_identity(self.andrix_zip(name='2026100600-kept'), avbtool=AVBTOOL, keep=andrix)
+            with self.assertRaisesRegex(Refusal, 'is not an empty directory'):
+                iz.andrix_identity(self.andrix_zip(name='2026100600-again'), avbtool=AVBTOOL, keep=andrix)
+        self.assertEqual(identity['base_tag'], '2026100600')
+        self.assertEqual(sorted(path.name for path in andrix.iterdir()),
+                         sorted(f'{name}.img' for name in STATIC if name != 'boot'))
+
+    def test_the_andrix_zip_is_read_through_the_hashed_handle(self):
+        kit = self.kit
+        good = self.andrix_zip(name='2026100600-handle')
+        data = good.read_bytes()
+        untagged = self.andrix_zip(name='2026100600-untagged', props=[
+            ('com.android.build.system.fingerprint',
+             'google/caiman/caiman:17/CP3A.261005.005/andrix1:userdebug/release-keys'),
+            ('com.android.build.system.security_patch', '2026-10-05')])
+        keep = Path(tempfile.mkdtemp(dir=kit.work))
+        real_open, real_hash = open, iz.handle_sha256
+
+        def swapping_open(path, *args, **kwargs):
+            # the zip is replaced on disk right after it is opened, before it is hashed
+            handle = real_open(path, *args, **kwargs)
+            if Path(path) == good and not swapped:
+                swapped.append(path)
+                (kit.work / 'replacement').write_bytes(untagged.read_bytes())
+                os.replace(kit.work / 'replacement', good)
+            return handle
+
+        def touching_hash(handle):
+            # the zip changes in place after it was hashed
+            digest = real_hash(handle)
+            os.utime(good, ns=(1, 1))
+            return digest
+        with mock.patch.object(iz, 'BASES', kit.bases), \
+                mock.patch.object(iz, 'WORKSHOP_PKMD_SHA256', sha(kit.members['avb_pkmd.bin'])):
+            identity = iz.andrix_identity(good, avbtool=AVBTOOL)
+            self.assertEqual(identity['sha256'], sha(data))
+            with mock.patch.object(iz, 'handle_sha256', touching_hash):
+                with self.assertRaisesRegex(Refusal, 'caiman-install-2026100600-handle.zip changed or was '
+                                            'replaced while it was read'):
+                    iz.andrix_identity(good, avbtool=AVBTOOL, keep=keep)
+            self.assertEqual(list(keep.iterdir()), [])
+            swapped = []
+            with mock.patch.object(iz, 'open', swapping_open, create=True):
+                # the handle still reads the hashed bytes, which pass; the replacement is seen
+                with self.assertRaisesRegex(Refusal, 'caiman-install-2026100600-handle.zip changed or was '
+                                            'replaced while it was read'):
+                    iz.andrix_identity(good, avbtool=AVBTOOL, keep=keep)
+            self.assertEqual((swapped, list(keep.iterdir())), ([good], []))
+            # read by its path, the file now there holds other bytes, which refuse
+            with self.assertRaisesRegex(Refusal, 'is not a file directly under caiman-install-2026100600-handle/'):
+                iz.andrix_identity(good, avbtool=AVBTOOL)
+
     def test_rollback_location_and_image_size(self):
         self.refused(self.kit.zip(vbmeta__img=self.kit.vbmeta(location=1)), 'vbmeta',
                      'rollback index location 1')

@@ -1,6 +1,6 @@
 {
-  "schema": "andrix.pixel.neverallow_witnesses/1",
-  "description": "Andrix's literal neverallow rules, their expansion by m4 and one witness allow statement for each. scripts/pixel/neverallow_check.py checks the table against the sources and the policy.",
+  "schema": "andrix.pixel.neverallow_witnesses/2",
+  "description": "Andrix's literal neverallow rules, their expansion by m4 and one witness allow statement for each, and the changes Andrix patches make to existing rules. scripts/pixel/neverallow_check.py checks the table against the sources and the policy.",
   "macros": {
     "capability_class_set": {
       "value": "{ capability capability2 cap_userns cap2_userns }",
@@ -354,6 +354,34 @@
         "userdebug": "neverallow domain andrix_owner:process dyntransition;"
       },
       "witness": "(allow andrixd andrix_owner (process (dyntransition)))"
+    }
+  ],
+  "changes": [
+    {
+      "number": 1,
+      "title": "owner execution outside the system image",
+      "source": "patches/grapheneos-2026081300/owner-session-policy.patch",
+      "line": 31,
+      "kind": "inside",
+      "file": "system/sepolicy/private/domain.te",
+      "rule_line": 1959,
+      "lines": [
+        "+    ifelse(andrix_owner_session, `true', `-andrix_owner')"
+      ],
+      "effect": "With andrix_owner_session=true, andrix_owner leaves the rule against executing files outside the system image. Rule 25 limits its execution of data files to its home, andrix_home_file."
+    },
+    {
+      "number": 2,
+      "title": "owner execution of data",
+      "source": "patches/grapheneos-2026081300/owner-session-policy.patch",
+      "line": 33,
+      "kind": "inside",
+      "file": "system/sepolicy/private/domain.te",
+      "rule_line": 2040,
+      "lines": [
+        "+  ifelse(andrix_owner_session, `true', `-andrix_owner')"
+      ],
+      "effect": "With andrix_owner_session=true, andrix_owner leaves the rule against executing data files. Rule 25 limits it to its home files, and rule 26 keeps every other domain from executing them."
     }
   ]
 }

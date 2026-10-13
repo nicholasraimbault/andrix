@@ -50,6 +50,9 @@ AVBTOOL_SHA256 = '1aa6f2b462aa67aa3fdf488bee83ab517de8ad9d8228c7b45c35267ab2cf67
 # dynamic partitions refuses until their SHA-256 values are recorded here.
 SIMG2IMG_SHA256 = None
 LPUNPACK_SHA256 = None
+# debugfs reads files out of the verified ext4 images (neverallow_check.py). It is pinned with the
+# two above, from the same reviewed host tool set, and refuses until its SHA-256 is recorded here.
+DEBUGFS_SHA256 = None
 # The workshop key set's avb_pkmd.bin for this phone (decision 2). It is not generated yet, so
 # every Andrix zip is refused until its SHA-256 is recorded here.
 WORKSHOP_PKMD_SHA256 = None
@@ -377,7 +380,14 @@ def rebuild_dynamic(archive, work, tools, described):
     return rebuilt
 
 
-def check_vbmeta(archive, vbmeta_data, pkmd, security_patch, avbtool, scratch, tools=None):
+def check_vbmeta(archive, vbmeta_data, pkmd, security_patch, avbtool, scratch, tools=None,
+                 keep=None):
+    """vbmeta's signature, key and properties, and avbtool verify_image on every image it names.
+
+    With keep, an empty directory, the images that avbtool verified are moved there once every
+    vbmeta check has passed, for a caller that reads files from them. check and andrix_identity
+    empty it again when their whole check does not pass.
+    """
     vbmeta = parse_vbmeta(vbmeta_data)
     if vbmeta['algorithm'] != SHA256_RSA4096:
         refuse(f'vbmeta is signed with {vbmeta["algorithm_name"]}, not SHA256_RSA4096')
@@ -427,6 +437,9 @@ def check_vbmeta(archive, vbmeta_data, pkmd, security_patch, avbtool, scratch, t
                                  env=_environment(), timeout=COMMAND_TIMEOUT, cwd=work)
         if process.returncode != 0 or not key.is_file() or key.read_bytes() != pkmd:
             refuse("the key avbtool extracts from vbmeta is not byte identical to avb_pkmd.bin")
+        if keep is not None:
+            for name in images:
+                shutil.move(str(work / f'{name}.img'), str(Path(keep) / f'{name}.img'))
     finally:
         shutil.rmtree(work, ignore_errors=True)
     return vbmeta, {'algorithm': 'SHA256_RSA4096', 'rollback_index': wanted,
@@ -451,8 +464,12 @@ def patch_level(release, given=None, bases=None):
 
 
 def check(zip_path, *, signature, signers, release, stable, record, avbtool, security_patch=None,
-          tools=None, scratch=None, bases=None):
-    """Runs every check. Returns the report; the verdict is PASS only if all pass."""
+          tools=None, scratch=None, bases=None, keep=None):
+    """Runs every check. Returns the report; the verdict is PASS only if all pass.
+
+    keep, an empty directory, receives the images that avbtool verified (check_vbmeta). It holds
+    them only when the verdict is PASS, and is emptied otherwise.
+    """
     checks = {}
 
     def run(name, function):
@@ -473,6 +490,7 @@ def check(zip_path, *, signature, signers, release, stable, record, avbtool, sec
             refuse(f'the adevtool record is for {record["release"]}, not {state["release"].base}')
         security_patch = patch_level(state['release'], security_patch, bases)
         state['sha256'] = file_sha256(zip_path)
+        empty_directory(keep)
     except (Refusal, OSError) as error:
         return {'verdict': 'REFUSE', 'reasons': [str(error)], 'checks': {}}
     checks['inputs'] = {'ok': True, 'detail': {'zip': Path(zip_path).name,
@@ -510,7 +528,7 @@ def check(zip_path, *, signature, signers, release, stable, record, avbtool, sec
         if 'pkmd' not in state:
             refuse('avb_pkmd.bin did not pass, so the embedded key cannot be compared')
         parsed, detail = check_vbmeta(archive, archive.read('vbmeta.img'), state['pkmd'],
-                                      security_patch, avbtool, scratch, tools)
+                                      security_patch, avbtool, scratch, tools, keep)
         state['vbmeta'] = parsed
         return detail
 
@@ -539,7 +557,24 @@ def check(zip_path, *, signature, signers, release, stable, record, avbtool, sec
         run('flash_script', script)
     finally:
         archive.zip.close()
-    return _finish(checks, state['sha256'])
+    report = _finish(checks, state['sha256'])
+    if report['verdict'] != 'PASS':
+        discard(keep)
+    return report
+
+
+def empty_directory(keep):
+    """A directory that is to receive verified images must exist and be empty."""
+    if keep is not None and (Path(keep).is_symlink() or not Path(keep).is_dir()
+                             or any(Path(keep).iterdir())):
+        refuse(f'{keep} is not an empty directory to keep the verified images in')
+
+
+def discard(keep):
+    """Removes the images that a check which did not pass had kept."""
+    if keep is not None:
+        for path in Path(keep).iterdir():
+            path.unlink()
 
 
 def _finish(checks, digest=None):
@@ -549,41 +584,59 @@ def _finish(checks, digest=None):
 
 
 def file_sha256(path):
-    digest = hashlib.sha256()
     with open(path, 'rb') as handle:
-        for block in iter(lambda: handle.read(1 << 20), b''):
-            digest.update(block)
+        return handle_sha256(handle)
+
+
+def handle_sha256(handle):
+    digest = hashlib.sha256()
+    for block in iter(lambda: handle.read(1 << 20), b''):
+        digest.update(block)
     return digest.hexdigest()
 
 
-def andrix_identity(zip_path, *, avbtool, tools=None, scratch=None, bases=None):
+def andrix_identity(zip_path, *, avbtool, tools=None, scratch=None, bases=None, keep=None):
     """An Andrix zip's identity from its signed vbmeta: base tag, stock build and versions.
 
     The base tag is the signed vbmeta property com.andrix.build.base_tag, which Andrix's
     release signing must add (design item 6). Until it does, every Andrix zip is refused.
+    keep, an empty directory, receives the verified images (check_vbmeta). It holds them only
+    when this returns, and is emptied when it refuses. The zip is read through the handle that
+    hashed it, so its SHA-256 is that of the bytes checked, and a zip that changes or is
+    replaced while it is read refuses.
     """
-    digest = file_sha256(zip_path)
-    archive = Archive(zip_path)
-    try:
-        pkmd = archive.read('avb_pkmd.bin')
-        if WORKSHOP_PKMD_SHA256 is None:
-            refuse('the workshop key for this phone is not recorded yet, so no Andrix zip is trusted')
-        if caiman.sha256(pkmd) != WORKSHOP_PKMD_SHA256:
-            refuse('the Andrix zip is not signed with the workshop key recorded for this phone')
-        vbmeta = parse_vbmeta(archive.read('vbmeta.img'))
-        base = andrix_base_tag(vbmeta)
-        level = patch_level(base, None, bases)
-        _, detail = check_vbmeta(archive, archive.read('vbmeta.img'), pkmd, level, avbtool,
-                                 scratch, tools)
-        stock = andrix_stock_build(vbmeta)
-        info = caiman.parse_android_info(archive.read('android-info.txt'), 'the Andrix android-info.txt')
-        report = flash_script.read(archive.read('flash-all.sh'),
-                                   flash_script.Expectation(info.bootloader, info.baseband))
-        if report['verdict'] != 'PASS':
-            refuse('the Andrix flash-all.sh: ' + '; '.join(report['reasons']))
-        firmware = _firmware(archive, info)
-    finally:
-        archive.zip.close()
+    empty_directory(keep)
+    with open(zip_path, 'rb') as handle:
+        before = os.fstat(handle.fileno())
+        digest = handle_sha256(handle)
+        archive = Archive(zip_path, handle=handle)
+        try:
+            pkmd = archive.read('avb_pkmd.bin')
+            if WORKSHOP_PKMD_SHA256 is None:
+                refuse('the workshop key for this phone is not recorded yet, so no Andrix zip is trusted')
+            if caiman.sha256(pkmd) != WORKSHOP_PKMD_SHA256:
+                refuse('the Andrix zip is not signed with the workshop key recorded for this phone')
+            vbmeta = parse_vbmeta(archive.read('vbmeta.img'))
+            base = andrix_base_tag(vbmeta)
+            level = patch_level(base, None, bases)
+            _, detail = check_vbmeta(archive, archive.read('vbmeta.img'), pkmd, level, avbtool,
+                                     scratch, tools, keep)
+            stock = andrix_stock_build(vbmeta)
+            info = caiman.parse_android_info(archive.read('android-info.txt'), 'the Andrix android-info.txt')
+            report = flash_script.read(archive.read('flash-all.sh'),
+                                       flash_script.Expectation(info.bootloader, info.baseband))
+            if report['verdict'] != 'PASS':
+                refuse('the Andrix flash-all.sh: ' + '; '.join(report['reasons']))
+            firmware = _firmware(archive, info)
+            after, current = os.fstat(handle.fileno()), os.stat(zip_path)
+            if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns) or \
+                    (current.st_dev, current.st_ino) != (after.st_dev, after.st_ino):
+                refuse(f'{Path(zip_path).name} changed or was replaced while it was read')
+        except BaseException:
+            discard(keep)
+            raise
+        finally:
+            archive.zip.close()
     return {'sha256': digest, 'base_tag': base.number, 'stock_build': stock,
             'android_info': info, 'vbmeta': detail, 'firmware': firmware}
 

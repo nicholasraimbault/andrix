@@ -110,6 +110,9 @@ No identity and no session fact is typed.
     that tag, given with `--official-kit`.
   - The base tag is the signed vbmeta property `com.andrix.build.base_tag`. Andrix's release
     script must set it from the tag it verified, never by hand.
+  - `install_zip.py` reads the zip through the handle that hashed it, so the SHA-256 it reports
+    is that of the bytes it checked, and a zip that changes or is replaced while it is read is
+    refused.
 - **The session record.** `--session` is the checker's own session record. It holds the
   phone's release recorded at the session's start, the releases carried from the previous
   session, the identities that `verify` kept, and every ALLOWed release. An ALLOW is written
@@ -361,56 +364,123 @@ phone would load. It follows item 2 of the
 [stage 1 design](../../plans/2026-10-09-caiman-design-items.md#2-the-neverallow-check).
 
 ```sh
-python3 -B $P/neverallow_check.py --partitions "$PARTITIONS" --official "$OFFICIAL" \
+# The gate, on the Andrix install zip to be flashed. Exit 0 PASS, 1 REFUSE.
+python3 -B $P/neverallow_check.py --zip caiman-install-BUILD.zip \
+  --official-kit caiman-install-2026100600.zip --release-record release.json \
   --expanded "$OUT/soong/.intermediates/system/sepolicy/sepolicy_neverallows.sepolicy_analyze.conf/android_common/sepolicy_neverallows.sepolicy_analyze.conf" \
-  --variant user --policy-dir sepolicy/private --policy-dir owner/sepolicy \
-  --policy-dir owner/platform/sepolicy --patches patches/grapheneos-2026081300 \
+  --variant user --grapheneos-tree "$TREE" --allowed-signers allowed_signers \
+  --stable caiman-stable --record 2026100600.json --avbtool "$PINNED_TREE/external/avb/avbtool.py" \
+  --simg2img "$TOOLS/simg2img" --lpunpack "$TOOLS/lpunpack" --debugfs "$TOOLS/debugfs" \
   --sepolicy-analyze "$TOOLS/sepolicy-analyze" --secilc "$TOOLS/secilc" --checkpolicy "$TOOLS/checkpolicy"
+# Corpus mode, on a product that is not a caiman image: CORPUS (exit 3) or REFUSE (exit 1)
+python3 -B $P/neverallow_check.py --corpus --partitions "$CORPUS" --base-tag 2026081300 \
+  --expanded "$EXPANDED" --variant userdebug --grapheneos-tree "$TREE" \
+  --sepolicy-analyze "$TOOLS/sepolicy-analyze" --secilc "$TOOLS/secilc" --checkpolicy "$TOOLS/checkpolicy"
+# The release wrapper's check: the build's own host tools against the base tag's reviewed set
+python3 -B $P/neverallow_check.py --build-tools "$OUT/host/linux-x86/bin" --base-tag 2026100600
 ```
 
-**Inputs.**
+**What the gate reads, and where it comes from.** No input that decides the gate is typed.
 
-- `--partitions` is a directory of partition files laid out as on the phone:
-  `system/etc/selinux`, `system/build.prop`, `system_ext/etc/selinux`, `product/etc/selinux` and
-  `vendor/etc/selinux`. The whole directory is walked, so the check can show what is absent.
-  `--file PHONE_PATH=HOST_PATH`, repeated, gives single files instead. Step A then refuses,
-  because single files cannot show that no image carries an odm or userdebug policy.
-- `--official` is the same for the official GrapheneOS release of the base tag, for steps F and G.
+- `--zip` is the Andrix install zip. `install_zip.py` verifies it as for the version criterion:
+  the workshop key, vbmeta, `avbtool verify_image` on every image vbmeta names, with the super
+  splits rebuilt by the pinned `simg2img` and `lpunpack`. The base tag is its signed
+  `com.andrix.build.base_tag` property. `install_zip.py` moves the images it verified into an
+  empty directory and empties it again when its whole check does not pass. `debugfs`, pinned in
+  `install_zip.py` beside `simg2img` and `lpunpack`, reads the policy files out of them: each
+  partition's `etc/selinux`, the system image's `/system/build.prop`, and `/odm/etc/selinux`
+  from an odm image or else from the vendor image's `/odm`, where `/odm/etc` leads on a phone
+  without an odm partition.
+  `debugfs` exits 0 even for a missing path, so any message besides its banner refuses.
+- `--official-kit` is the official GrapheneOS install zip of the base tag. `install_zip.py`'s
+  checks must pass it for that tag: signature, allowed signers, `avb_pkmd.bin`,
+  `android-info.txt`, vbmeta, release identity and flash script. Its policy is read out of its
+  verified images the same way, and its hash pairs are checked as in step A.
+- `--release-record` is the build's release record, schema `andrix.caiman.release/1`, which the
+  release wrapper of design item 6 is to complete: `base_tag`, `artifacts.install_zip.sha256`
+  and `artifacts.expanded_rule_file.sha256`. The zip and `--expanded` must hash to these, and the
+  zip's signed base tag must be the record's. The expanded rule file is read once, and the steps
+  check the text whose digest was compared. When the digests differ, no step reads it.
+- The Andrix policy directories come from `board/owner-policy.mk`, which may hold only comments
+  and `+=` additions under `vendor/andrix/`, and no directory under `tests/`. Lines are joined
+  as make joins them. A comment that a final backslash continues, a backslash before a line's
+  end and trailing white space refuse. The expanded rule file names each source file it was
+  made from in an m4 line marker, and every `vendor/andrix/` file named there must lie in one
+  of these directories, so a build that read Andrix policy from elsewhere refuses. The patch set
+  is `patches/grapheneos-TAG` for the base tag. Each patch there needs its record, and each
+  `system/sepolicy` record must name that tag. `--policy-dir`, `--patches` and `--file` are
+  refused by name in every mode, and `--official` in the gate and in corpus mode, so a caller
+  cannot give a list that leaves an Andrix rule out.
+- `sepolicy-analyze`, `secilc` and `checkpolicy` must hash to the base tag's reviewed set in
+  `TOOL_PINS`. A tag without a set refuses, because equal sources at two tags do not stand for
+  equal compiled tools. Only the 2026081300 set exists, and it serves only the stage 1 corpus, as
+  the design says: corpus mode uses it, and the gate refuses it for an image. `--build-tools` is
+  the release wrapper's check that the build's own host tools hash to the set. The wrapper
+  releases images, so it refuses the corpus set too.
 - `--expanded` is the build's expanded rule file. The existing module always expands for `user`,
   so a `userdebug` build needs its own module with the real variant.
 - `--variant` must equal `ro.build.type`. It selects rule 11's expansion, which keeps
   `-overlay_remounter` for `userdebug`.
-- `--policy-dir` and `--patches` name, relative to `--source-root`, the Andrix policy directories
-  the product adds and the directories of patch records. Every record for `system/sepolicy` is
-  read, and its patch must hash to the record's `patch_sha256`.
-- `sepolicy-analyze`, `secilc` and `checkpolicy` are pinned by SHA-256 to the pinned tree's host
-  output.
+- `--grapheneos-tree` is the GrapheneOS source tree of the base tag. Only the `system/sepolicy`
+  file that each patch record names is read. It must hash to the record's `upstream_sha256`, or
+  to its `adapted_sha256` and then give the upstream bytes with the patch taken back out. The
+  patch applied to the upstream bytes must give the adapted ones.
 - `neverallow_witnesses.json` holds each rule's source line, literal text, `user` and `userdebug`
-  expansions and witness, one CIL `allow` of one permission inside the rule.
+  expansions and witness, one CIL `allow` of one permission inside the rule. Its `changes` list
+  records each patch hunk that changes an existing rule, with its patch line, its lines, the
+  rule's upstream line and its effect. The two narrowings of the bridge patch are recorded there.
 
-**Steps.** Every step runs and reports, and the policy passes only if all pass.
+**Corpus mode.** `--corpus` runs the check on a real policy that is not a caiman image, the Andrix
+Cuttlefish product. Its only verdicts are CORPUS and REFUSE, it exits 3 or 1 and never 0, not even
+for `--help`, so it can never pass the gate. It departs from the gate only where the corpus is not a
+caiman image. It takes `--partitions`, a directory of the corpus's partition files laid out as on
+the phone, and `--base-tag`, because a corpus image carries no signed base tag. A typed tag can only
+choose a reviewed set of pins and a patch directory. Step A takes the precompiled policy init would
+load, from odm before vendor, with its hash files beside it, and records a
+`userdebug_plat_sepolicy.cil` instead of refusing it. Step C looks the `user` expansions up in the
+expanded rule file, which the build makes for `user` only, and checks the variant's expansions
+against the table. Step D runs the variant's rules, and on a `userdebug` corpus also the `user`
+rules, which must fail with exactly `allow overlay_remounter andrix_owner_entry:file { execute };`.
+Step F does not run, because no official release exists for the product, and `--official-kit` is
+refused. Step G runs on the corpus files alone and must find no violated rule.
+
+**Steps.** Every step runs and reports, and the policy passes only if all pass. In the gate the
+provenance checks `release_record`, `image`, `expanded_rule_file` and `official_kit` come first.
 
 | Step | Passes only if |
 |---|---|
 | A | `/vendor/etc/selinux/precompiled_sepolicy` exists, no other `precompiled_sepolicy` and no `userdebug_plat_sepolicy.cil` exists anywhere, `ro.build.type` is the variant, and each of the three hash pairs is one equal line that the CIL file followed by its mapping file hashes to |
 | B | `sepolicy-analyze POLICY attribute domain` lists `andrixd`, `andrix_owner` and `andrix_terminal` |
-| C | every literal `neverallow` in the sources has exactly one entry, each entry's text is its line, its expansion is the rule with the three known macros applied, and that expansion is a statement of the expanded rule file. A literal `neverallowxperm` or an unknown macro refuses |
+| C | every `vendor/andrix/` file that the expanded rule file's line markers name lies in a directory of `board/owner-policy.mk`, every literal `neverallow` in the sources has exactly one entry, each entry's text is its line, its expansion is the rule with the three known macros applied, and that expansion is a statement of the expanded rule file. A literal `neverallowxperm` or an unknown macro refuses. Each run of changed lines in a patch hunk is placed in the upstream file and read with m4's lexical state there: quotes `` ` `` and `'`, and `#` comments, which m4 sees only outside quotes. Unchanged context lines are no change. A run that removes a `neverallow` or `neverallowxperm` line, changes text inside such a statement or inside an m4 macro definition, names an m4 builtin that defines macros or changes m4's input, is not balanced in itself, closes a quote or parenthesis opened before it, or adds an argument to a macro call open around it, needs an exact record in `changes`. So does an m4 builtin of that kind in a policy file. Blank lines and comments that m4 skips at the top level change nothing. Inside a quoted string a `#` starts no comment, so such text is judged like any other |
 | D | `sepolicy-analyze POLICY neverallow -w -f RULES` on the 28 expansions exits 0 and prints nothing, so a warning fails like a violation |
 | E | `secilc` with init's arguments and file order gives a control whose `checkpolicy -M -b -C` text equals the loaded policy's, the control passes, and each witness added as one more CIL file fails its own rule alone and the whole set, with exactly its own violation |
-| F | every other `neverallow` of the expanded rule file gives no violation and no warning on this policy that the official policy does not give too. Shared violations are listed as vendor findings, and warnings on both are listed |
-| G | `secilc` without `-N`, with the build's check flags, over this policy's CIL files reports no violated rule that the same run on the official files does not report. A unit is the rule and its offending rules, without places and with generated attribute numbers dropped |
+| F | the official policy's hash pairs hold as in step A, and every other `neverallow` of the expanded rule file gives no violation and no warning on this policy that the official policy does not give too. Shared violations are listed as vendor findings, and warnings on both are listed |
+| G | `secilc` without `-N`, with the build's check flags, over this policy's CIL files reports no pair of a violated rule and one offending rule that the same run on the official files does not report. Places are dropped, and each generated attribute, `base_typeattr_N` or `base_typeattr_N_V`, is replaced by its `typeattributeset` expression from the same run's CIL files, recursively. The definitions are read from CIL tokens as secilc reads them: white space may stand between any two tokens, a quoted string is one token and never a definition, and a comment runs from `;` to the next newline token, so a carriage return inside a quoted string does not end it. A name without a definition, defined twice or through itself refuses, and so does a file secilc could not parse |
 
 **Limits.**
 
-- Reading an install zip is not written yet. The partitions come from extracted images.
-- The pins name the 2026081300 host tools. A caiman build at 2026100600 needs its own tools pinned.
+- No real install zip is read yet. `debugfs`, `simg2img` and `lpunpack` are not pinned in
+  `install_zip.py` and the workshop key is not recorded, so the gate refuses every real zip. The
+  tests stand in for `install_zip.py`'s verification and read real ext4 images with the pinned
+  tree's `debugfs`.
+- Only the 2026081300 tools are pinned. A caiman build at 2026100600 needs that tag's compiled
+  tools built and pinned in a reviewed change.
+- The release record is read as the release wrapper of design item 6 is to write it. That
+  wrapper does not exist yet.
+- The gate reads the partitions' policy directories, not the boot images. A
+  `userdebug_plat_sepolicy.cil` in a debug ramdisk is not seen. The flash script check keeps
+  debug boot images off the phone.
 - Step F compares warnings by their text, which names the undefined name but not the rule.
-- Step G compares units by text. If the vendor or bridge policy renumbers generated attributes,
-  units that differ only there compare equal, which can hide a new offending rule that differs
-  only in such a name.
-- The stage 1 corpus, the Andrix Cuttlefish product, cannot pass. It loads its policy from odm and
-  is built `userdebug`, so step A refuses it. Its expanded rule file is the `user` one, so step C
-  refuses it for `userdebug`. No official GrapheneOS policy exists for it, so steps F and G refuse.
+- Step G compares expressions as text, after the generated names are expanded. It cannot see a
+  change in the members of a named attribute, such as Andrix domains in `domain`, because both
+  runs print the same name. Steps D and F cover the Andrix rules and the AOSP rules for that.
+- Step C places hunks by the text of the upstream file, not by m4's expansion of it. It sees a
+  change inside a statement or a macro definition, and m4 builtins that redefine, but not a rule
+  weakened through a macro that a hunk outside those places changes in another way. It follows
+  m4's quotes and comments, and counts every parenthesis outside quotes, which is stricter than
+  m4, which counts them only inside a macro call.
+- The stage 1 corpus, the Andrix Cuttlefish product, cannot pass the gate, which reads only
+  install zips. Corpus mode checks it without ever passing.
 
 ## Limits
 
@@ -418,8 +488,9 @@ python3 -B $P/neverallow_check.py --partitions "$PARTITIONS" --official "$OFFICI
   at 2026100600, not from a phone. The sealed platform tools may print differently. Every sample
   in the tests is synthetic. A session on the phone must confirm the forms before the parser is
   trusted. Until then any difference is refused.
-- **Not built or generated yet.** `simg2img`, `lpunpack` and the workshop key are not built or
-  generated yet, so their SHA-256 constants in `install_zip.py` are empty.
+- **Not pinned or generated yet.** `simg2img`, `lpunpack` and `debugfs` are not reviewed and
+  pinned, and the workshop key is not generated yet, so their SHA-256 constants in
+  `install_zip.py` are empty. The three tools are to come from one reviewed host tool set.
   - A real install zip is refused, because its dynamic partitions live only in the super
     splits.
   - Every Andrix zip is refused, until both the tools and the key are recorded.
@@ -458,5 +529,6 @@ are skipped unless `ANDRIX_PIXEL_TREES` names them, for example
 from the real trees and compare the fixture copies with the trees. The vbmeta cases need the
 pinned tree's avbtool, through `ANDRIX_PIXEL_TREES` or `ANDRIX_GRAPHENEOS_ROOT`.
 The neverallow cases of steps B and D to G need `sepolicy-analyze`, `secilc` and `checkpolicy`
-from the pinned tree's host output, through `ANDRIX_PIXEL_TREES`.
+from the pinned tree's host output, through `ANDRIX_PIXEL_TREES`. The cases that read ext4
+images need `mke2fs` and `debugfs` from the same output.
 `tests/fixtures/README.md` lists where each fixture comes from.
