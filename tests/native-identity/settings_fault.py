@@ -187,29 +187,172 @@ KEYSET_REFERENCE_TAGS = ('proper-signing-keyset', 'defined-keyset', 'upgrade-key
 
 
 def _counted_keyset_references(root, skip=None):
-    """keyset ID -> the references Package Manager counts: the proper signing and defined keysets of
-    each top level package row (Settings.readPackageLPw), but `skip`."""
+    """keyset ID -> the references Package Manager counts: the proper signing and defined keysets
+    that are immediate children of each top level package row (Settings.readPackageLPw), but `skip`."""
     counts = {}
     for child in root:
         if child is skip or child.tag != 'package':
             continue
-        for node in child.iter():
+        for node in child:
             if node.tag in COUNTED_KEYSET_TAGS:
                 counts[node.get('identifier')] = counts.get(node.get('identifier'), 0) + 1
     return counts
 
 
-def _check_keyset_shape(root):
-    """Refuses settings that Package Manager's writer does not produce for keysets: a keyset reference
-    anywhere but in a top level package row, or a defined keyset that no package row counts (which
-    Package Manager reports as a terrible failure and removes when it reads its settings)."""
-    for child in root:
-        if child.tag in ('package', 'keyset-settings'):
+# The tree KeySetManagerService.writeKeySetManagerServiceLPr writes under keyset-settings, in order.
+KEYSET_SETTINGS_TREE = ('keys', 'keysets', 'lastIssuedKeyId', 'lastIssuedKeySetId')
+
+
+def _long_id(value):
+    """An identifier as the writer's attributeLong leaves it: canonical decimal, within a long."""
+    return type(value) is str and re.fullmatch(r'0|[1-9][0-9]{0,18}', value) is not None and int(value) < 1 << 63
+
+
+def _positive_id(value):
+    """An app ID as the writer's attributeInt leaves it: canonical decimal, positive, within an int."""
+    return type(value) is str and re.fullmatch(r'[1-9][0-9]{0,9}', value) is not None and int(value) < 1 << 31
+
+
+# The elements Settings.writeLPr writes under <packages>, and those of them it writes empty, which the
+# reader's loop reads by their attributes without consuming what is below them (readSettingsLPw).
+WRITER_ELEMENTS = ('version', 'verifier', 'permission-trees', 'permissions', 'package', 'updated-package', 'shared-user',
+                   'renamed-package', 'domain-verifications', 'domain-verifications-legacy', 'keyset-settings')
+WRITER_EMPTY = ('version', 'verifier', 'renamed-package')
+UUID_FORM = r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+
+
+def _check_writer_structure(root):
+    """Refuses settings with an element outside the places Package Manager's writer puts it, where its
+    reader would read it differently from this module: an element under <packages> the writer does
+    not write (the reader skips it), a child of an element the writer writes empty (the reader's loop
+    reads what is below it as if it stood under <packages>), a certificate outside a package's or a
+    shared user's signatures (PackageSignatures.writeXml writes each cert in sigs, in
+    install-initiator-sigs or in their pastSigs; the reader takes certificates only from those, up to
+    their count), signatures whose count is not their certificates', and a shared user without a
+    name and a positive app ID of its own (readSharedUserLPw, addSharedUserLPw)."""
+    rows = list(root)
+    for row in rows:
+        if row.tag not in WRITER_ELEMENTS:
+            raise ValueError('an element the settings writer never writes: %s' % row.tag)
+        if row.tag in WRITER_EMPTY and len(row):
+            raise ValueError('an element the settings writer writes empty holds others: %s' % row.tag)
+    parent = {id(child): node for node in root.iter() for child in node}
+    top = {id(row) for row in rows}
+    for node in root.iter():
+        if node.tag in ('sigs', 'install-initiator-sigs'):
+            holder = parent.get(id(node))
+            places = ('package', 'shared-user') if node.tag == 'sigs' else ('package',)
+            past = [x for x in node if x.tag == 'pastSigs']
+            if (holder is None or id(holder) not in top or holder.tag not in places
+                    or any(x.tag not in ('cert', 'pastSigs') for x in node) or len(past) > 1):
+                raise ValueError('signatures outside the places the settings writer writes them')
+        elif node.tag == 'pastSigs':
+            holder = parent.get(id(node))
+            if holder is None or holder.tag not in ('sigs', 'install-initiator-sigs') or any(x.tag != 'cert' for x in node):
+                raise ValueError('past signatures outside the places the settings writer writes them')
+        elif node.tag == 'cert':
+            if parent.get(id(node)) is None or parent[id(node)].tag not in ('sigs', 'install-initiator-sigs', 'pastSigs') or len(node):
+                raise ValueError('a certificate outside the signatures the settings writer writes')
+        if node.tag in ('sigs', 'install-initiator-sigs', 'pastSigs'):
+            count = node.get('count')
+            if not (count == '0' or _positive_id(count)) or int(count) != sum(1 for x in node if x.tag == 'cert'):
+                raise ValueError('signatures whose count is not their certificates')
+    names, ids = set(), set()
+    for row in rows:
+        if row.tag == 'shared-user':
+            if not row.get('name') or row.get('name') in names or not _positive_id(row.get('userId')) or row.get('userId') in ids:
+                raise ValueError('a shared user the settings reader does not admit as the writer leaves it')
+            names.add(row.get('name'))
+            ids.add(row.get('userId'))
+
+
+def _check_package_rows(rows):
+    """Refuses a package row that Package Manager's reader skips, so that its keyset references would
+    never be counted. The writer (Settings.writePackageLPr) always writes a row's name and code
+    path, and its app ID as userId or, for a shared user's package, as sharedUserId; the reader
+    (readPackageLPw) skips a row without a name or code path, with neither a positive userId nor a
+    positive sharedUserId, or whose name or ordinary app ID an earlier row already holds
+    (addPackageLPw). The writer's rows also name each package once, and a shared user it defines."""
+    shared = {row.get('userId') for row in rows if row.tag == 'shared-user'}
+    names, ordinary = set(), set()
+    for row in rows:
+        if row.tag != 'package':
             continue
-        if any(node.tag in KEYSET_REFERENCE_TAGS for node in child.iter()):
+        user, shared_user = row.get('userId'), row.get('sharedUserId')
+        # The writer always writes the row's domain set as a UUID, which the reader parses
+        # (UUID.fromString) and fails the whole file on otherwise.
+        if (not row.get('name') or not row.get('codePath') or (user is None) == (shared_user is None)
+                or re.fullmatch(UUID_FORM, row.get('domainSetId') or '') is None
+                or not _positive_id(user if shared_user is None else shared_user) or row.get('name') in names
+                or (user is not None and (user in ordinary or user in shared)) or (shared_user is not None and shared_user not in shared)):
+            raise ValueError("a package row Package Manager's reader skips or the writer never leaves")
+        names.add(row.get('name'))
+        if user is not None:
+            ordinary.add(user)
+
+
+def _check_keyset_shape(root):
+    """Refuses settings whose keysets Package Manager's writer does not leave, in either mode.
+
+    What remove_package claims holds for settings Package Manager's own writer wrote, such as a
+    decoded capture of a guest's packages.xml: there it removes what Android's removal of the package
+    removes. These checks are a second line, refusing the shapes they name; they are not a complete
+    model of the settings reader, and settings no writer wrote are outside the claim.
+
+    Settings.writeLPr writes a package row's keyset references as its immediate children: one
+    proper-signing-keyset, its upgrade keysets and one defined-keyset per alias
+    (writeSigningKeySetLPr, writeUpgradeKeySetsLPr, writeKeySetAliasesLPr).
+    KeySetManagerService.writeKeySetManagerServiceLPr then writes keyset-settings once, last: a
+    version, keys holding public-key elements, keysets holding keyset elements of key-id elements,
+    and the two issue counters, every identifier a canonical decimal long. This matters because
+    Package Manager's readers take any element below theirs by name at any depth (readKeysLPw,
+    readKeySetListLPw), and the package reader counts every proper-signing-keyset and
+    defined-keyset element (readPackageLPw) while a removal takes back one signing keyset and one
+    keyset per alias (removeAppKeySetDataLPw). Any other shape could make Package Manager's keysets
+    or counts differ from the ones seen here.
+
+    Admitted: that tree, every package row one the reader admits (_check_package_rows), with at most
+    one proper-signing-keyset in a row (a row without one counts nothing) and distinct defined keyset
+    aliases; every reference naming a defined keyset; every
+    keyset's key IDs naming defined public keys; every defined keyset counted by some row. A public
+    key no keyset holds is admitted, and a removal never touches it. Everything else is refused,
+    including a defined keyset no row counts, which Package Manager reports as a terrible failure
+    and removes when it reads its settings (addRefCountsFromSavedPackagesLPw)."""
+    rows = list(root)
+    settings = [child for child in rows if child.tag == 'keyset-settings']
+    if len(settings) != 1 or rows[-1] is not settings[0]:
+        raise ValueError('not the one final keyset-settings element the writer leaves')
+    _check_writer_structure(root)
+    _check_package_rows(rows)
+    tree = list(settings[0])
+    if (settings[0].get('version') is None or [child.tag for child in tree] != list(KEYSET_SETTINGS_TREE)
+            or any(len(counter) or not _long_id(counter.get('value')) for counter in tree[2:])
+            or any(key.tag != 'public-key' or len(key) or not _long_id(key.get('identifier')) for key in tree[0])
+            or any(keyset.tag != 'keyset' or not _long_id(keyset.get('identifier'))
+                   or any(member.tag != 'key-id' or len(member) or not _long_id(member.get('identifier')) for member in keyset)
+                   for keyset in tree[1])):
+        raise ValueError('keyset-settings is not the tree the writer leaves')
+    # Distinct key and keyset identifiers, each keyset's key IDs defined, none empty or repeated.
+    _keysets(root)
+    references = set()
+    for child in rows:
+        if child.tag == 'package':
+            for node in child:
+                if node.tag in KEYSET_REFERENCE_TAGS:
+                    if not _long_id(node.get('identifier')):
+                        raise ValueError('a keyset reference identifier the writer does not leave')
+                    references.add(node.get('identifier'))
+                if any(inner.tag in KEYSET_REFERENCE_TAGS for inner in node.iter() if inner is not node):
+                    raise ValueError('a keyset reference nested below a package row')
+            aliases = [node.get('alias') for node in child if node.tag == 'defined-keyset']
+            if (sum(1 for node in child if node.tag == 'proper-signing-keyset') > 1
+                    or None in aliases or len(set(aliases)) != len(aliases)):
+                raise ValueError('a package row whose keyset references Package Manager would count otherwise')
+        elif any(node.tag in KEYSET_REFERENCE_TAGS for node in child.iter()):
             raise ValueError('a keyset reference outside a package row')
-    settings = root.find('keyset-settings')
-    defined = {k.get('identifier') for k in settings.findall('keysets/keyset')} if settings is not None else set()
+    defined = {keyset.get('identifier') for keyset in tree[1]}
+    if not references <= defined:
+        raise ValueError('a keyset reference names no defined keyset')
     counts = _counted_keyset_references(root)
     if any(counts.get(k, 0) == 0 for k in defined):
         raise ValueError('the capture already holds a keyset no package references')
@@ -244,12 +387,14 @@ def _remove_unreferenced_keysets(root, candidates):
 
 def remove_package(data, package, app_id, orphaned_keysets='refuse'):
     """The settings without one captured fixture package's row and app ID. Only the keyset shapes
-    Package Manager's writer leaves are admitted, in either mode: every keyset reference in a top
-    level package row, and every defined keyset counted by one. A row whose signing or defined
-    keyset no other package row counts is refused by default; with orphaned_keysets set to
-    'remove-as-android', such keysets and the public keys only they hold are removed with the row,
-    as Package Manager's own removal of a package does, and nothing else changes. A row removed
-    with its own keysets cannot be put back by restore_package, which needs them."""
+    Package Manager's writer leaves are admitted, in either mode (_check_keyset_shape): one final
+    keyset-settings element in the writer's tree, every keyset reference an immediate child of a top
+    level package row naming a defined keyset, and every defined keyset counted by one. A row whose
+    signing or defined keyset no other package row counts is refused by default; with
+    orphaned_keysets set to 'remove-as-android', such keysets and the public keys only they hold are
+    removed with the row, as Package Manager's own removal of a package does, and nothing else
+    changes. A row removed with its own keysets cannot be put back by restore_package, which needs
+    them."""
     if orphaned_keysets not in ('refuse', 'remove-as-android'):
         raise ValueError('orphaned keysets are refused or removed as Android removes them')
     if (type(data) is not bytes or not 0 < len(data) <= MAX_BYTES
@@ -266,20 +411,20 @@ def remove_package(data, package, app_id, orphaned_keysets='refuse'):
     # In either mode: the keysets as Package Manager's writer leaves them, before anything is removed.
     _check_keyset_shape(root)
     reference_tags = {'proper-signing-keyset', 'defined-keyset', 'upgrade-keyset'}
-    removed_keysets = {node.get('identifier') for node in targets[0].iter() if node.tag in reference_tags}
-    remaining_keysets = {node.get('identifier') for child in root if child is not targets[0]
-                         for node in child.iter() if node.tag in reference_tags}
+    removed_keysets = {node.get('identifier') for node in targets[0] if node.tag in reference_tags}
+    remaining_keysets = {node.get('identifier') for child in root if child is not targets[0] and child.tag == 'package'
+                         for node in child if node.tag in reference_tags}
     if any(value is None or not re.fullmatch(r'[0-9]{1,19}', value) for value in removed_keysets | remaining_keysets):
         raise ValueError('removal would orphan signing keysets; use a narrower fixture')
     # Orphans by Package Manager's own count: a keyset the row counts that no remaining package counts.
     # Upgrade references are not counted, so one naming such a keyset would be left dangling.
     after = _counted_keyset_references(root, skip=targets[0])
-    candidates = {node.get('identifier') for node in targets[0].iter() if node.tag in COUNTED_KEYSET_TAGS}
+    candidates = {node.get('identifier') for node in targets[0] if node.tag in COUNTED_KEYSET_TAGS}
     orphans = {k for k in candidates if after.get(k, 0) == 0}
-    upgrades = {node.get('identifier') for child in root if child is not targets[0] and child.tag != 'keyset-settings'
-                for node in child.iter() if node.tag == 'upgrade-keyset'}
+    upgrades = {node.get('identifier') for child in root if child is not targets[0] and child.tag == 'package'
+                for node in child if node.tag == 'upgrade-keyset'}
     dangling = {k for k in upgrades if after.get(k, 0) == 0}
-    own_upgrades = {node.get('identifier') for node in targets[0].iter() if node.tag == 'upgrade-keyset'}
+    own_upgrades = {node.get('identifier') for node in targets[0] if node.tag == 'upgrade-keyset'}
     if not own_upgrades <= candidates | set(after):
         raise ValueError('the row names an upgrade keyset that no package counts')
     if dangling:
