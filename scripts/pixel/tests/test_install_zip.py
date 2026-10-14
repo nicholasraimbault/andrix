@@ -9,6 +9,8 @@ Cases that build or verify vbmeta need external/avb/avbtool.py of the pinned tre
 that tree with ANDRIX_PIXEL_TREES (2026081300=TREE) or ANDRIX_GRAPHENEOS_ROOT.
 """
 import contextlib
+from copy import deepcopy
+import dataclasses
 import errno
 import gc
 import hashlib
@@ -438,6 +440,43 @@ def copied_by(copier, kit, path, root):
     with mock.patch.object(tempfile, 'tempdir', str(root)):
         return vc.verified_image(session, path, 'grapheneos',
                                  vc.Table({RELEASE: 'CP3A.261005.005'}, {RELEASE: info}, {}))
+
+
+# The members that a valid variant of a zip holds beyond the zip's own (valid_variants): enough
+# that a cap on their number would show, few enough to stay cheap.
+MORE_MEMBERS = 10000
+
+
+def valid_variants(make, plain):
+    """Three valid zips that differ from the zip at plain only where a valid zip may: an archive
+    comment, MORE_MEMBERS more members, and a path that is a link. make takes Kit.zip's comment
+    and entries, and writes the zip as it wrote plain but with them. The link has plain's name
+    and names a regular file of plain's bytes with another name, in another directory. Beside
+    it, a link of the signature's name names plain's signature, if plain has one. Each variant's
+    path by what it varies."""
+    prefix = plain.name[:-len('.zip')] + '/'
+    entries = [(f'{prefix}notes-{index}.txt', b'notes\n') for index in range(MORE_MEMBERS)]
+    target = Path(tempfile.mkdtemp(dir=plain.parent)) / 'kit-with-another-name.zip'
+    shutil.copyfile(plain, target)
+    link = Path(tempfile.mkdtemp(dir=plain.parent)) / plain.name
+    link.symlink_to(target)
+    if Path(f'{plain}.sig').exists():
+        Path(f'{link}.sig').symlink_to(f'{plain}.sig')
+    return {'an archive comment': make(comment=b'an archive comment, signed with the zip'),
+            'more members': make(entries=entries),
+            'a link to a zip of another name': link}
+
+
+def reported_alike(report, path, members=0):
+    """report, check's report of a plain zip, as check reports a valid variant of that zip at path
+    with members more members: the same verdict, checks and reasons, but the SHA-256 of the
+    variant's bytes and of its signature, and its count of members."""
+    expected = deepcopy(report)
+    expected['sha256'] = expected['checks']['inputs']['detail']['sha256'] = sha(path.read_bytes())
+    expected['checks']['signature']['detail']['signature_sha256'] = sha(
+        Path(f'{path}.sig').read_bytes())
+    expected['checks']['zip_layout']['detail']['members'] += members
+    return expected
 
 
 @contextlib.contextmanager
@@ -1183,7 +1222,7 @@ class Kit:
         return (self.work / 'vbmeta.img').read_bytes()
 
     def zip(self, release=RELEASE, name=None, prefix=None, sign=True, namespace='factory images',
-            entries=(), **changes):
+            entries=(), comment=b'', **changes):
         self.count += 1
         folder = self.work / f'zip{self.count}'
         folder.mkdir()
@@ -1202,6 +1241,7 @@ class Kit:
                 archive.writestr(prefix + member, data)
             for info, data in entries:
                 archive.writestr(info, data)
+            archive.comment = comment   # the archive's own, written before the zip is signed
         if sign:
             run('ssh-keygen', '-Y', 'sign', '-n', namespace, '-f', self.work / 'ssh', path)
         return path
@@ -2227,6 +2267,41 @@ class ChecksWithoutVbmetaTests(unittest.TestCase):
         self.assertEqual(report['sha256'], sha(path.read_bytes()))
         path.unlink()
 
+    def test_valid_variants_of_a_zip_are_checked_as_the_plain_zip(self):
+        # A zip with an archive comment, one with MORE_MEMBERS more members, and a link under the
+        # zip's name to a regular zip of another name (valid_variants). check reports each as it
+        # reports the plain zip, on the SHA-256 of its bytes, and ZipCopy's copy has that digest.
+        # andrix_identity and decide refuse each where they refuse the plain zip, once its
+        # archive passed: at the workshop key, which is not recorded, and at the synthetic
+        # vbmeta.img.
+        kit = self.kit
+        plain = kit.zip()
+        root = Path(tempfile.mkdtemp(dir=kit.work))
+        report = kit.check(plain, scratch=root)
+        self.assert_only_failing(report)
+        refusals = {}
+        for copier, pattern in (('andrix_identity', 'workshop key'), ('verified_image', 'vbmeta')):
+            result = outcome(lambda: copied_by(copier, kit, plain, root))
+            self.assertIsInstance(result, Refusal)
+            self.assertIn(pattern, str(result))
+            refusals[copier] = str(result)
+        variants = valid_variants(kit.zip, plain)
+        with zipfile.ZipFile(variants['an archive comment']) as archive:
+            self.assertTrue(archive.comment)
+        link = variants['a link to a zip of another name']
+        self.assertTrue(link.is_symlink() and link.resolve().is_file())
+        self.assertNotEqual(link.resolve().name, link.name)
+        for variant, path in variants.items():
+            with self.subTest(variant=variant):
+                members = MORE_MEMBERS if variant == 'more members' else 0
+                self.assertEqual(kit.check(path, scratch=root),
+                                 reported_alike(report, path, members))
+                self.assertEqual(copied_by('ZipCopy', kit, path, root), sha(path.read_bytes()))
+                for copier, refusal in refusals.items():
+                    result = outcome(lambda: copied_by(copier, kit, path, root))
+                    self.assertEqual((type(result), str(result)), (Refusal, refusal))
+                self.assertEqual(list(root.iterdir()), [])
+
 
 class FailingCopy(iz.ZipCopy):
     """A ZipCopy whose copy fails with an I/O error once it is complete, so that __enter__'s
@@ -2930,6 +3005,43 @@ class FullKitTests(unittest.TestCase):
         self.assertEqual(report['verdict'], 'PASS', report['reasons'])
         self.assertEqual(list(scratch.iterdir()), [])
 
+    def test_valid_variants_of_a_kit_pass_as_the_plain_kit(self):
+        # The valid variants of a kit (valid_variants) pass with the plain kit's checks, on the
+        # SHA-256 of their bytes, and decide takes the identity kept under that digest.
+        kit = self.kit
+        plain = kit.zip()
+        root = Path(tempfile.mkdtemp(dir=kit.work))
+        report = kit.check(plain, scratch=root)
+        self.assertEqual(report['verdict'], 'PASS', report['reasons'])
+        image = copied_by('verified_image', kit, plain, root)
+        for variant, path in valid_variants(kit.zip, plain).items():
+            with self.subTest(variant=variant):
+                members = MORE_MEMBERS if variant == 'more members' else 0
+                self.assertEqual(kit.check(path, scratch=root),
+                                 reported_alike(report, path, members))
+                self.assertEqual(copied_by('verified_image', kit, path, root),
+                                 dataclasses.replace(image, sha256=sha(path.read_bytes())))
+                self.assertEqual(list(root.iterdir()), [])
+
+    def test_valid_variants_of_an_andrix_zip_have_its_identity(self):
+        # The valid variants of an Andrix zip (valid_variants) have the plain zip's identity, on
+        # the SHA-256 of their bytes.
+        kit = self.kit
+        name = '2026100600-variants'
+        plain = self.andrix_zip(name=name)
+        variants = valid_variants(lambda **options: self.andrix_zip(name=name, **options), plain)
+        root = Path(tempfile.mkdtemp(dir=kit.work))
+        with mock.patch.object(iz, 'BASES', kit.bases), \
+                mock.patch.object(iz, 'WORKSHOP_PKMD_SHA256', sha(kit.members['avb_pkmd.bin'])):
+            identity = iz.andrix_identity(plain, avbtool=AVBTOOL, scratch=root)
+            for variant, path in variants.items():
+                with self.subTest(variant=variant):
+                    self.assertEqual(iz.andrix_identity(path, avbtool=AVBTOOL, scratch=root),
+                                     dict(identity, sha256=sha(path.read_bytes())))
+                    self.assertEqual(list(root.iterdir()), [])
+        self.assertEqual((identity['base_tag'], identity['sha256']),
+                         ('2026100600', sha(plain.read_bytes())))
+
     def test_a_passing_check_keeps_the_verified_images(self):
         kit = self.kit
         keep = Path(tempfile.mkdtemp(dir=kit.work))
@@ -3240,7 +3352,7 @@ class FullKitTests(unittest.TestCase):
         with mock.patch.object(iz, 'IMAGE', 1000):
             self.refused(self.kit.zip(), 'vbmeta', 'is larger than 1000 bytes')
 
-    def andrix_zip(self, props=None, name='2026100600-andrix1', extra=None):
+    def andrix_zip(self, props=None, name='2026100600-andrix1', extra=None, **options):
         kit = self.kit
         if props is None:
             props = [('com.android.build.system.fingerprint',
@@ -3249,8 +3361,9 @@ class FullKitTests(unittest.TestCase):
                      ('com.andrix.build.base_tag', '2026100600')]
         vbmeta = kit.vbmeta(props=props, include=tuple(item for item in STATIC if item != 'boot'))
         changes = {'vbmeta.img': vbmeta, **(extra or {})}
-        return kit.zip(release=name, sign=False, **{member.replace('-', '_dash_').replace('.', '__'): data
-                                                  for member, data in changes.items()})
+        return kit.zip(release=name, sign=False, **options,
+                       **{member.replace('-', '_dash_').replace('.', '__'): data
+                          for member, data in changes.items()})
 
     def andrix_check(self, path, **overrides):
         """andrix_image with this kit's key as the workshop key and this kit as the official one."""

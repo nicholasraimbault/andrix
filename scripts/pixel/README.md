@@ -135,12 +135,14 @@ No identity and no session fact is typed.
   remove, also when an interruption stops its removal, stays, and a warning on stderr names it.
   At the exit, the sweep tries each directory that stays, and writes once more a warning that
   stderr did not take, as when an interruption stopped it; only a stderr that is closed or
-  fails, or a second interruption of the same warning, loses the warning. One case remains
-  theoretical: another process that makes a directory of the same random name after
-  PrivateDirectory found the path free. If an interruption came before the path was given up,
-  after that check but before mkdir made the directory, or after a removal ended but before the
-  path left the registry of owned directories, while the backstop and the exit sweep are still
-  armed for it, the cleanup could remove that directory.
+  fails, or a second interruption of the same warning, loses the warning. A directory whose
+  strict removal refused stays owned, so the backstop and the exit sweep try it again: it can be
+  named in the refusal, then again in the backstop's warning and in the exit sweep's, when they
+  cannot remove it either. One case remains theoretical: another process that makes a directory
+  of the same random name after PrivateDirectory found the path free. If an interruption came
+  before the path was given up, after that check but before mkdir made the directory, or after a
+  removal ended but before the path left the registry of owned directories, while the backstop
+  and the exit sweep are still armed for it, the cleanup could remove that directory.
 - **The zip's own identity, read again.** For a GrapheneOS kit or an Andrix zip, `decide` also
   reads the zip's own `android-info.txt` and `vbmeta.img` again. It reads the zip once into a
   private copy, as `install_zip.py` does, in the system's temporary directory (`TMPDIR`), which
