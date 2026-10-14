@@ -308,6 +308,10 @@ patches still apply at fuzz 0, two of them at line offsets. The pinned base lack
 frameworks/base security fixes, and 2026100600 has all of them. Four touch Andrix patch
 targets, one of them only the lab writer's target. These are source facts about the
 [upstream records](../upstream/README.md). They select no base and qualify no build.
+The owner has set the timing. The carry check runs on every release. The base moves monthly, and
+sooner for fixes in Andrix's patch targets. The first move comes after the current lifecycle guests
+and the first component transaction guest finish, so it does not disturb the images they use. The
+second source tree will share its objects with the pinned one.
 
 Gate 3 now has an accepted plan for the
 [first durable component transaction](2026-10-09-component-transaction.md), starting with
