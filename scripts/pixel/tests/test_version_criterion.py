@@ -8,16 +8,23 @@ import contextlib
 import copy
 import datetime
 import fcntl
+import gc
 import hashlib
 import io
+import itertools
 import json
 import os
 from pathlib import Path
 import re
+import shutil
+import signal
+import stat
 import struct
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest import mock
 import zipfile
@@ -43,6 +50,7 @@ AUGUST = samples.parsed(samples.AUGUST)
 PARTIAL = samples.parsed({'version-baseband': samples.AUGUST['version-baseband']})
 NOVEMBER = samples.parsed({'version-bootloader': 'ripcurrentpro-17.0-16280000',
                            'version-baseband': 'g5400c-260901-261007-B-16310000'})
+OLD_NS = 10 ** 18     # 2001-09-09T01:46:40Z, a modification time that a test puts back
 STATE = {}
 
 
@@ -140,6 +148,72 @@ def kit_zip(folder, name, stock, info, number=None, base_tag=None):
     return path
 
 
+def outcome(call):
+    """What call returns, or the exception it raises, so that a test can look at either."""
+    try:
+        return call()
+    except Exception as error:
+        return error
+
+
+def unblock_later(fifo, done, delay=3):
+    """After delay seconds, gives a reader that waits to open the FIFO an end of file, so that a
+    check that waits for a writer fails instead of hanging."""
+    if done.wait(delay):
+        return
+    while not done.wait(0.05):
+        with contextlib.suppress(OSError):    # nothing reads the FIFO yet
+            os.close(os.open(fifo, os.O_WRONLY | os.O_NONBLOCK))
+
+
+@contextlib.contextmanager
+def after_mkdir(prefix, action):
+    """os.mkdir, which runs action with the path once it made the first directory whose name
+    starts with prefix. The paths it ran action for are given."""
+    made, done = os.mkdir, []
+
+    def mkdir(path, *args, **kwargs):
+        made(path, *args, **kwargs)
+        if not done and Path(path).name.startswith(prefix):
+            done.append(Path(path))
+            action(Path(path))
+    with mock.patch.object(os, 'mkdir', mkdir):
+        yield done
+
+
+@contextlib.contextmanager
+def backstop_warnings():
+    """The lines that the backstops of private directories (install_zip.PrivateDirectory) write
+    on stderr meanwhile, in a list that is complete once the block ends and garbage is collected.
+    A finalizer that raises fails the block: the backstop warns instead."""
+    stream, raised, lines = io.StringIO(), [], []
+    def unraisable(found):
+        raised.append(f'{found.exc_type.__name__}: {found.exc_value}')
+    with contextlib.redirect_stderr(stream), mock.patch.object(sys, 'unraisablehook', unraisable):
+        try:
+            yield lines
+        finally:
+            gc.collect()
+    lines.extend(stream.getvalue().splitlines())
+    if raised:
+        raise AssertionError(f'a finalizer raised instead of warning: {raised}')
+
+
+class Lookup(dict):
+    """The verified identities of a session record. Its change runs when decide first looks a
+    SHA-256 up in it, right after decide hashed the file."""
+
+    def __init__(self, entries, change):
+        super().__init__(entries)
+        self.change = change
+
+    def get(self, *args):
+        change, self.change = self.change, None
+        if change is not None:
+            change()
+        return super().get(*args)
+
+
 class Case(unittest.TestCase):
     def decide(self, item, start='2026100600', allowed=(), readings=None, stage=8, os_booted=True,
                pending='no', stable=None, channel='stable', approved=True, tags=None, table=None,
@@ -208,10 +282,138 @@ class SignedTagTests(unittest.TestCase):
             with self.assertRaisesRegex(Refusal, 'not the allowed signers file'):
                 vc.signed_tags(w.repo, w.foreign.with_suffix('.pub'), R('2026081300'), R('2026100600'),
                                bases=w.bases)
+            # The allowed signers file is read once: replaced by a foreign key right after that
+            # read, every tag still verifies against the bytes read, and git never reads the path.
+            real_read, foreign = install_zip.read_small, w.foreign.with_suffix('.pub').read_bytes()
+            original = w.signers.read_bytes()
+
+            def read_then_replace(path, what):
+                data = real_read(path, what)
+                Path(path).write_bytes(foreign)
+                return data
+            with mock.patch.object(install_zip, 'read_small', read_then_replace):
+                self.assertEqual(vc.signed_tags(w.repo, w.signers, R('2026081300'), R('2026100600'), bases=w.bases),
+                                 ['2026081300', '2026100200', '2026100600'])
+            w.signers.write_bytes(original)
             table = vc.load_table(list(w.records.values()), bases=w.bases, repo=w.repo)
             tags = vc.signed_tags(w.repo, w.signers, R('2026081300'), R('2026100600'), bases=w.bases)
             with self.assertRaisesRegex(Refusal, 'no adevtool record for the signed release tags 2026100200'):
                 vc.check_coverage(table, tags, R('2026081300'), R('2026100600'))
+
+    def test_the_allowed_signers_copy_is_private_and_removed(self):
+        # git verifies against a private copy in the system's temporary directory, here one of
+        # the test's. It goes on every path, and a copy that cannot be removed refuses.
+        real_git = vc._git
+        with tempfile.TemporaryDirectory() as work:
+            system = Path(work) / 'temporary'
+            system.mkdir()
+            for name, kwargs in (('signed', {}), ('foreign', {'foreign': ('2026100600',)})):
+                with self.subTest(name):
+                    w = world.World(Path(work) / name, **kwargs)
+                    calls = []
+
+                    def recording_git(repo, *args):
+                        for arg in args:
+                            if arg.startswith('gpg.ssh.allowedSignersFile='):
+                                private = Path(arg.split('=', 1)[1])
+                                calls.append((private.parent.parent,
+                                              stat.S_IMODE(private.parent.stat().st_mode),
+                                              stat.S_IMODE(private.stat().st_mode),
+                                              private.read_bytes()))
+                        return real_git(repo, *args)
+                    umask = os.umask(0)     # the modes do not come from the umask
+                    try:
+                        with mock.patch.object(tempfile, 'tempdir', str(system)), \
+                                mock.patch.object(vc, '_git', recording_git), \
+                                (self.assertRaisesRegex(Refusal, 'verify-tag') if kwargs
+                                 else contextlib.nullcontext()):
+                            tags = vc.signed_tags(w.repo, w.signers, R('2026081300'), R('2026100600'),
+                                                  bases=w.bases)
+                    finally:
+                        os.umask(umask)
+                    if not kwargs:
+                        self.assertEqual(tags, ['2026081300', '2026100600'])
+                    # the foreign tag is the second, verified against the same copy
+                    self.assertEqual(calls, [(system, 0o700, 0o600, w.signers.read_bytes())] * 2)
+                    self.assertEqual(list(system.iterdir()), [])
+
+            # An interrupted verification leaves no copy either.
+            def interrupted_git(repo, *args):
+                if 'verify-tag' in args:
+                    raise KeyboardInterrupt
+                return real_git(repo, *args)
+            with mock.patch.object(tempfile, 'tempdir', str(system)), \
+                    mock.patch.object(vc, '_git', interrupted_git), \
+                    self.assertRaises(KeyboardInterrupt):
+                vc.signed_tags(w.repo, w.signers, R('2026081300'), R('2026081300'), bases=w.bases)
+            self.assertEqual(list(system.iterdir()), [])
+            # A file or a symbolic link planted at the copy's path, once its directory is made,
+            # refuses, and nothing is written through it.
+            victim = Path(work) / 'victim'
+            for planted in ('file', 'symbolic link'):
+                with self.subTest(planted=planted):
+                    victim.write_bytes(b'not to be written')
+
+                    def plant(directory):
+                        if planted == 'file':
+                            (directory / 'allowed_signers').write_bytes(b'planted')
+                        else:
+                            (directory / 'allowed_signers').symlink_to(victim)
+                    with mock.patch.object(tempfile, 'tempdir', str(system)), \
+                            after_mkdir('signers-', plant), \
+                            self.assertRaisesRegex(FileExistsError, 'File exists'):
+                        vc.signed_tags(w.repo, w.signers, R('2026081300'), R('2026081300'),
+                                       bases=w.bases)
+                    self.assertEqual((victim.read_bytes(), list(system.iterdir())),
+                                     (b'not to be written', []))
+            # A real SIGINT right after the directory is made leaves nothing, and a directory
+            # that exists already at its path is refused and left as it is.
+            previous = signal.signal(signal.SIGINT, signal.default_int_handler)
+            try:
+                with mock.patch.object(tempfile, 'tempdir', str(system)), \
+                        after_mkdir('signers-', lambda _: signal.raise_signal(signal.SIGINT)) \
+                        as made, self.assertRaises(KeyboardInterrupt):
+                    vc.signed_tags(w.repo, w.signers, R('2026081300'), R('2026081300'),
+                                   bases=w.bases)
+            finally:
+                signal.signal(signal.SIGINT, previous)
+            self.assertEqual((len(made), list(system.iterdir())), (1, []))
+            taken = system / 'signers-taken'
+            taken.mkdir()
+            (taken / 'victim').write_bytes(b'not to be removed')
+            refusal = f'^the private directory {re.escape(str(taken))} exists already$'
+            with mock.patch.object(tempfile, 'tempdir', str(system)), \
+                    mock.patch.object(install_zip.secrets, 'token_hex', return_value='taken'), \
+                    self.assertRaisesRegex(Refusal, refusal):
+                vc.signed_tags(w.repo, w.signers, R('2026081300'), R('2026081300'), bases=w.bases)
+            self.assertEqual([(item.name, item.read_bytes()) for item in taken.iterdir()],
+                             [('victim', b'not to be removed')])
+            shutil.rmtree(taken)
+            if os.geteuid() == 0:
+                return      # root removes files from a directory it cannot write
+
+            def locking_git(repo, *args):
+                result = real_git(repo, *args)
+                if 'verify-tag' in args:
+                    [directory] = system.iterdir()
+                    directory.chmod(0o500)
+                return result
+            try:
+                with backstop_warnings() as warned, \
+                        mock.patch.object(tempfile, 'tempdir', str(system)), \
+                        mock.patch.object(vc, '_git', locking_git), \
+                        self.assertRaisesRegex(Refusal, '^the private directory .*/signers-[^/]+ '
+                                               'could not be removed: '):
+                    vc.signed_tags(w.repo, w.signers, R('2026081300'), R('2026081300'),
+                                   bases=w.bases)
+                # the backstop cannot remove it either, and warns of it when the object is dropped
+                [directory] = system.iterdir()
+                self.assertEqual(len(warned), 1)
+                self.assertTrue(warned[0].startswith(f'warning: the private directory {directory} '
+                                                     'could not be removed: [Errno 13] '), warned)
+            finally:
+                for directory in system.iterdir():
+                    directory.chmod(0o700)
 
     def test_clone_config_cannot_change_the_verification(self):
         """A clone whose own config points the signature programs at stand-ins that accept all,
@@ -834,30 +1036,6 @@ class VerifiedIdentityTests(Case):
                                            'the record no longer holds what verify read'):
                 value, _ = self.kept(kind, path)
                 vc.verified_image(vc.check_session(value), path, kind, STATE['table'])
-        # the reads go through the handle that hashed the file, and a file changed or replaced
-        # meanwhile is refused
-        value, item = self.kept()
-        august = kit_zip(folder / 'swap', '2026081300', 'CP2A.260805.005', '2026081300').read_bytes()
-        hashed = vc.handle_sha256
-
-        def replace():
-            (folder / 'swapped').write_bytes(august)
-            os.replace(folder / 'swapped', self.path)
-
-        def append():
-            with self.path.open('ab') as handle:
-                handle.write(b'more')
-        for name, change in (('replaced', replace), ('appended', append)):
-            original = self.path.read_bytes()
-
-            def hash_then_change(handle):
-                digest = hashed(handle)
-                change()
-                return digest
-            with self.subTest(name), mock.patch.object(vc, 'handle_sha256', side_effect=hash_then_change), \
-                    self.assertRaisesRegex(Refusal, 'changed or was replaced while decide read it'):
-                vc.verified_image(vc.check_session(value), self.path, 'grapheneos', STATE['table'])
-            self.path.write_bytes(original)
         not_a_zip = folder / 'plain' / 'caiman-install-2026100600.zip'
         not_a_zip.parent.mkdir()
         not_a_zip.write_bytes(b'synthetic bytes, not a zip')
@@ -871,6 +1049,195 @@ class VerifiedIdentityTests(Case):
         value, _ = self.kept('grapheneos', corrupt)
         with self.assertRaisesRegex(Refusal, 'its own identity cannot be read: BadZipFile'):
             vc.verified_image(vc.check_session(value), corrupt, 'grapheneos', STATE['table'])
+
+    def test_decide_reads_the_zips_own_identity_only_from_its_copy(self):
+        # The file is the August kit. Once decide has copied it, or when it looks its SHA-256 up,
+        # the file is rewritten in place by a kit of the same name and size that names October's
+        # identity, and put back once decide read the zip's own identity, its modification time
+        # put back each time. A comparison of size, time and inode at the end saw nothing. decide
+        # hashed the bytes as it copied them and reads that identity only from its copy, so it
+        # reads August's: the August identity kept under their SHA-256 is returned, and an
+        # October identity edited in under it is refused. A file rewritten, replaced or removed
+        # after it was copied changes nothing either.
+        folder = Path(self.tmp.name)
+        path = kit_zip(folder / 'august', '2026081300', 'CP2A.260805.005', '2026081300')
+        august = path.read_bytes()
+        october = kit_zip(folder / 'october', '2026081300', 'CP3A.261005.005', '2026100600',
+                          number='2026100600').read_bytes()
+        self.assertEqual(len(october), len(august))
+        digest = hashlib.sha256(august).hexdigest()
+        with zipfile.ZipFile(io.BytesIO(august)) as archive:
+            own = {name: archive.read(f'caiman-install-2026081300/{name}')
+                   for name in ('android-info.txt', 'vbmeta.img')}
+        system = folder / 'temporary'
+        system.mkdir()
+
+        def write(data):
+            with open(path, 'r+b') as handle:
+                handle.write(data)
+            os.utime(path, ns=(OLD_NS, OLD_NS))
+
+        def replace():
+            (folder / 'replacement').write_bytes(october)
+            os.replace(folder / 'replacement', path)
+        changes = {'rewritten and put back': (lambda: write(october), lambda: write(august)),
+                   'rewritten': (lambda: write(october), None), 'replaced': (replace, None),
+                   'removed': (path.unlink, None)}
+        honest = image('grapheneos', '2026081300', sha=digest)
+        edited = image('grapheneos', '2026100600', sha=digest)     # October's, under August's
+        real_read, plan, reads = install_zip.Archive.read, {}, []
+
+        def run(boundary):
+            change = plan.pop(boundary, None)
+            if change is not None:
+                change()
+
+        class Copied(install_zip.ZipCopy):
+            """ZipCopy, whose copy is followed by the change at 'after the copy'."""
+
+            def fill(self):
+                copied = super().fill()
+                run('after the copy')
+                return copied
+
+        def watched_read(archive, member, *args, **kwargs):
+            data = real_read(archive, member, *args, **kwargs)
+            reads.append((archive.path.parent.parent, archive.path.name, member, data))
+            if member == 'vbmeta.img':
+                run('after the member reads')
+            return data
+        for boundary, (name, (change, put_back)), kept in itertools.product(
+                ('after the copy', 'at the lookup'), changes.items(), (honest, edited)):
+            with self.subTest(boundary=boundary, change=name, kept=kept.release.number):
+                path.write_bytes(august)
+                os.utime(path, ns=(OLD_NS, OLD_NS))
+                plan = {boundary: change}
+                if put_back is not None:
+                    plan['after the member reads'] = put_back
+                reads.clear()
+                value = session('2026081300')
+                entry = vc.identity_entry(kept, '2026-10-09T10:01:00Z')
+                value['verified'] = Lookup({digest: entry}, lambda: run('at the lookup'))
+                with mock.patch.object(tempfile, 'tempdir', str(system)), \
+                        mock.patch.object(install_zip, 'ZipCopy', Copied), \
+                        mock.patch.object(install_zip.Archive, 'read', watched_read):
+                    result = outcome(lambda: vc.verified_image(vc.check_session(value), path,
+                                                               'grapheneos', STATE['table']))
+                self.assertEqual(plan, {})
+                if kept is honest:
+                    self.assertEqual(result, honest)
+                else:
+                    self.assertIsInstance(result, Refusal)
+                    self.assertRegex(str(result), f'^{path.name} itself names release 2026081300, '
+                                     'stock build CP2A.260805.005 .* they differ in release, '
+                                     'stock build, android-info.txt, so the record no longer')
+                # read from the bytes hashed, in decide's copy, which is gone
+                self.assertEqual(reads, [(system, path.name, member, data)
+                                         for member, data in own.items()])
+                self.assertEqual(list(system.iterdir()), [])
+
+    def test_a_path_that_is_not_a_regular_file_is_refused_without_waiting(self):
+        # Whatever the kind, decide opens the file without waiting for a writer and refuses it.
+        folder = Path(self.tmp.name)
+        fifo = folder / 'fifo' / 'caiman-install-2026100600.zip'
+        fifo.parent.mkdir()
+        os.mkfifo(fifo)
+        system = folder / 'temporary'
+        system.mkdir()
+        value, _ = self.kept()
+        done = threading.Event()
+        helper = threading.Thread(target=unblock_later, args=(fifo, done), daemon=True)
+        helper.start()
+        try:
+            started = time.monotonic()
+            with mock.patch.object(tempfile, 'tempdir', str(system)):
+                results = [outcome(lambda: vc.verified_image(value, fifo, kind, STATE['table']))
+                           for kind in vc.KINDS]
+            elapsed = time.monotonic() - started
+        finally:
+            done.set()
+            helper.join()
+        self.assertLess(elapsed, 2)
+        self.assertEqual([(type(result), str(result)) for result in results],
+                         [(Refusal, f'{fifo.name} is not a regular file')] * len(vc.KINDS))
+        with mock.patch.object(tempfile, 'tempdir', str(system)):
+            for kind in vc.KINDS:
+                with self.subTest(kind=kind), self.assertRaisesRegex(
+                        Refusal, f'^{Path(os.devnull).name} is not a regular file$'):
+                    vc.verified_image(value, Path(os.devnull), kind, STATE['table'])
+        self.assertEqual(list(system.iterdir()), [])
+
+    def test_the_copy_that_decide_reads_is_removed(self):
+        # decide reads its own copy in the system's temporary directory, here one of the test's.
+        # It goes when decide returns, refuses or is interrupted, and one that cannot be removed
+        # refuses. The backstop cannot remove that one either, and warns of it.
+        system = Path(self.tmp.name) / 'temporary'
+        system.mkdir()
+        value, item = self.kept()
+        real_read, read = install_zip.Archive.read, []
+
+        def interrupted(archive, member, *args, **kwargs):
+            read.append(archive.path)
+            raise KeyboardInterrupt
+        with mock.patch.object(tempfile, 'tempdir', str(system)):
+            self.assertEqual(vc.verified_image(value, self.path, 'grapheneos', STATE['table']),
+                             item)
+            self.assertEqual(list(system.iterdir()), [])
+            with self.assertRaisesRegex(Refusal, 'was verified as grapheneos, not andrix'):
+                vc.verified_image(value, self.path, 'andrix', STATE['table'])
+            self.assertEqual(list(system.iterdir()), [])
+            with mock.patch.object(install_zip.Archive, 'read', interrupted), \
+                    self.assertRaises(KeyboardInterrupt):
+                vc.verified_image(value, self.path, 'grapheneos', STATE['table'])
+        self.assertEqual([(path.parent.parent, path.name) for path in read],
+                         [(system, self.path.name)])
+        self.assertEqual(list(system.iterdir()), [])
+        if os.geteuid() == 0:
+            return      # root removes files from a directory it cannot write
+
+        def read_then_lock(archive, member, *args, **kwargs):
+            data = real_read(archive, member, *args, **kwargs)
+            if archive.path.parent.name.startswith('zip-'):
+                archive.path.parent.chmod(0o500)
+            return data
+        try:
+            with backstop_warnings() as warned, \
+                    mock.patch.object(tempfile, 'tempdir', str(system)), \
+                    mock.patch.object(install_zip.Archive, 'read', read_then_lock), \
+                    self.assertRaisesRegex(Refusal, '^the private directory '
+                                           f'{re.escape(str(system))}/zip-[^/]+ could not be '
+                                           'removed: '):
+                vc.verified_image(value, self.path, 'grapheneos', STATE['table'])
+            [directory] = system.iterdir()
+            self.assertEqual(len(warned), 1)
+            self.assertTrue(warned[0].startswith(f'warning: the private directory {directory} '
+                                                 'could not be removed: [Errno 13] '), warned)
+        finally:
+            for directory in system.iterdir():
+                directory.chmod(0o700)
+                shutil.rmtree(directory)
+
+    def test_a_stock_image_is_hashed_to_its_end(self):
+        # Google's image is identified by the SHA-256 of all its bytes. One of several blocks of
+        # the hash's 1 MiB, whose later blocks differ from its first, is identified by verify
+        # under that digest and decided by it, never by the digest of its first block.
+        w = STATE['world']
+        path = Path(self.tmp.name) / 'factory.zip'
+        head = b'synthetic factory image ' * (1 << 16)
+        path.write_bytes(head + b'and the rest of its bytes ' * (1 << 15))
+        self.assertGreater(path.stat().st_size, 2 << 20)
+        whole = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.assertNotEqual(whole, hashlib.sha256(head[:1 << 20]).hexdigest())
+        records = copy.deepcopy(w.records)
+        for value in records.values():
+            if 'CP3A.261005.005' in value['build_index']['caiman']:
+                value['build_index']['caiman']['CP3A.261005.005']['factory_sha256'] = whole
+        table = vc.load_table(list(records.values()), bases=w.bases, repo=w.repo)
+        stock = vc.stock_image(path, table)
+        self.assertEqual((stock.sha256, stock.release.number), (whole, '2026100600'))
+        value = session('2026081300')
+        value['verified'][whole] = vc.identity_entry(stock, '2026-10-09T10:01:00Z')
+        self.assertEqual(vc.verified_image(vc.check_session(value), path, 'stock', table), stock)
 
     def test_record_controls(self):
         value, item = self.kept()
@@ -889,6 +1256,75 @@ class VerifiedIdentityTests(Case):
         missing.pop('verified')
         with self.assertRaisesRegex(Refusal, 'no map of verified images'):
             vc.check_session(missing)
+
+
+class OfficialKitTests(unittest.TestCase):
+    """An Andrix zip's firmware is compared with the digests that install_zip.check read from the
+    official kit's verified bytes. Both verifications of install_zip.py are stood in for. The
+    stand-in check removes the kit once it has checked it, so opening the kit again would fail."""
+
+    FIRMWARE = {'bootloader-caiman-ripcurrentpro-17.0-15819938.img': '1' * 64,
+                'radio-caiman-g5400c-260604-260807-b-16035863.img': '2' * 64}
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.official = Path(self.tmp.name) / 'caiman-install-2026100600.zip'
+        self.official.write_bytes(b'synthetic official kit')
+        self.kit = {'records': dict(STATE['world'].records), 'signers': 'allowed_signers',
+                    'stable': 'caiman-stable', 'avbtool': 'avbtool.py', 'official': str(self.official)}
+        self.checked = []
+
+    def stood_in(self, verdict='PASS', release='2026100600', firmware=None):
+        info = INFO['2026100600']
+
+        def identity(path, *, avbtool, tools=None, scratch=None, bases=None, keep=None):
+            return {'sha256': 'a' * 64, 'base_tag': '2026100600', 'stock_build': 'CP3A.261005.005',
+                    'android_info': info, 'firmware': dict(self.FIRMWARE)}
+
+        def check(path, **kwargs):
+            self.checked.append(Path(path))
+            Path(path).unlink()
+            report = {'verdict': verdict, 'sha256': 'b' * 64,
+                      'reasons': [] if verdict == 'PASS' else ['flash_script: synthetic refusal'],
+                      'checks': {'release_identity': {'ok': True, 'detail': {
+                                     'build_number': release, 'stock_build': 'CP3A.261005.005'}},
+                                 'android_info': {'ok': True, 'detail': info.as_dict()}}}
+            if verdict == 'PASS':
+                report['firmware'] = dict(firmware or self.FIRMWARE)
+            return report
+        return mock.patch.multiple(install_zip, andrix_identity=identity, check=check)
+
+    def test_the_firmware_comes_from_the_verified_report(self):
+        with self.stood_in():
+            image = vc.andrix_image('caiman-install-2026100600-andrix1.zip', self.kit, STATE['table'])
+        self.assertEqual((image.kind, image.release.number, image.sha256), ('andrix', '2026100600', 'a' * 64))
+        self.assertTrue(image.source.endswith('the official kit ' + 'b' * 64))
+        self.assertEqual((self.checked, self.official.exists()), ([self.official], False))
+        self.assertFalse(hasattr(install_zip, 'kit_firmware'))
+
+    def test_the_verified_report_decides(self):
+        other = dict(self.FIRMWARE, **{'radio-caiman-g5400c-260604-260807-b-16035863.img': '3' * 64})
+        for name, stood_in, pattern in (
+                ('other firmware', self.stood_in(firmware=other),
+                 'not byte identical to the official kit of 2026100600'),
+                ('refused kit', self.stood_in(verdict='REFUSE'),
+                 'caiman-install-2026100600.zip does not pass the checks that need no phone: '
+                 'flash_script: synthetic refusal'),
+                ('other release', self.stood_in(release='2026081300'),
+                 'the official kit is 2026081300, not the base tag 2026100600')):
+            self.official.write_bytes(b'synthetic official kit')
+            with self.subTest(name), stood_in, self.assertRaisesRegex(Refusal, pattern):
+                vc.andrix_image('caiman-install-2026100600-andrix1.zip', self.kit, STATE['table'])
+
+    def test_grapheneos_kit_returns_the_reported_firmware(self):
+        with self.stood_in():
+            image, firmware = vc.grapheneos_kit(self.official, self.kit)
+        self.assertEqual((image.kind, image.release.number, image.sha256, firmware),
+                         ('grapheneos', '2026100600', 'b' * 64, self.FIRMWARE))
+        self.official.write_bytes(b'synthetic official kit')
+        with self.stood_in():
+            self.assertEqual(vc.grapheneos_image(self.official, self.kit), image)
 
 
 class ApprovalTests(Case):

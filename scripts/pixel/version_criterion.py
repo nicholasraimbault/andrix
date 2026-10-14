@@ -114,20 +114,27 @@ def signed_tags(repo, signers, low, high, bases=None):
     Each tag in the range must verify with git verify-tag against the allowed signers file
     whose digest upstream/bases pins, with the signature programs pinned as
     grapheneos_source.py pins them, so the clone's own config cannot change the result.
+    The allowed signers file is read once. Its digest is checked on those bytes, and git
+    verifies every tag against a private copy of exactly them (install_zip.write_private), in a
+    new directory that only this user can enter (install_zip.PrivateDirectory). The directory is
+    removed afterwards, and one that cannot be removed refuses.
     """
     import install_zip
-    if caiman.sha256(Path(signers).read_bytes()) != install_zip.pinned_signers_digest(bases):
+    data = install_zip.read_small(signers, 'allowed_signers')
+    if caiman.sha256(data) != install_zip.pinned_signers_digest(bases):
         refuse(f'{signers} is not the allowed signers file that upstream/bases pins')
     names = _git(repo, 'for-each-ref', '--format=%(refname:strip=2)', 'refs/tags').decode().split()
     low, high = sorted((low, high), key=lambda release: int(release.base))
     found = []
-    for name in sorted(name for name in names if re.fullmatch(r'[0-9]{10}', name)):
-        if int(low.base) <= int(name) <= int(high.base):
-            release = caiman.parse_release(name, what='manifest tag')
-            _git(repo, *VERIFY_PINS,
-                 '-c', 'gpg.ssh.allowedSignersFile=' + str(Path(signers).resolve()),
-                 'verify-tag', name)
-            found.append(release.number)
+    with install_zip.PrivateDirectory('signers-') as work:
+        copy = work / 'allowed_signers'
+        install_zip.write_private(copy, data)
+        for name in sorted(name for name in names if re.fullmatch(r'[0-9]{10}', name)):
+            if int(low.base) <= int(name) <= int(high.base):
+                release = caiman.parse_release(name, what='manifest tag')
+                _git(repo, *VERIFY_PINS, '-c', f'gpg.ssh.allowedSignersFile={copy}',
+                     'verify-tag', name)
+                found.append(release.number)
     for release in (low, high):
         if release.base not in found:
             refuse(f'{release.base} is not a signed release tag of the manifest repository')
@@ -660,37 +667,49 @@ def identity_entry(image, at):
 
 def verified_image(session, path, kind, table):
     """The identity verify kept for this file's SHA-256, checked against the records and, for a
-    kit or zip, against the identity the zip states itself."""
-    with open(path, 'rb') as handle:
-        before = os.fstat(handle.fileno())
-        digest = handle_sha256(handle)
-        entry = session['verified'].get(digest)
-        if entry is None:
-            refuse(f'{Path(path).name} hashes to {digest}, and the session record holds no verified '
-                   'identity under that SHA-256; run verify on this file first')
-        if entry['kind'] != kind:
-            refuse(f'{Path(path).name} was verified as {entry["kind"]}, not {kind}')
-        image = Image(kind, digest, caiman.parse_release(entry['release'], what='verified release'),
-                      entry['stock_build'], android_info(entry['android_info'], digest),
-                      entry['source'], entry['wipes_data'])
-        check_identity(image, table)
-        if kind != 'stock':
-            check_own_identity(image, path, handle)
-        after, current = os.fstat(handle.fileno()), os.stat(path)
-        if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns) or \
-                (current.st_dev, current.st_ino) != (after.st_dev, after.st_ino):
-            refuse(f'{Path(path).name} changed or was replaced while decide read it; verify it again')
+    kit or zip, against the identity the zip states itself.
+
+    A kit or zip is read once into a private copy (install_zip.ZipCopy), as verify reads it, and
+    hashed as it is copied. Its own identity is read only from that copy, so it is read from the
+    bytes whose SHA-256 names the kept identity, whatever happens to the file meanwhile. Google's
+    image is identified by its SHA-256 alone, so it is only hashed, in one read. A path that is
+    not a regular file is refused without waiting (install_zip.open_regular). The copy is removed
+    before this returns or refuses, and a copy that cannot be removed refuses.
+    """
+    import install_zip
+    if kind == 'stock':
+        with install_zip.open_regular(path) as handle:
+            return kept_image(session, path, kind, handle_sha256(handle), table)
+    with install_zip.ZipCopy(path) as copy:
+        image = kept_image(session, path, kind, copy.sha256, table)
+        check_own_identity(image, copy.path)
     return image
 
 
-def own_identity(path, kind, handle=None):
+def kept_image(session, path, kind, digest, table):
+    """The identity that verify kept under digest, the SHA-256 of the file at path, checked
+    against the records."""
+    entry = session['verified'].get(digest)
+    if entry is None:
+        refuse(f'{Path(path).name} hashes to {digest}, and the session record holds no verified '
+               'identity under that SHA-256; run verify on this file first')
+    if entry['kind'] != kind:
+        refuse(f'{Path(path).name} was verified as {entry["kind"]}, not {kind}')
+    image = Image(kind, digest, caiman.parse_release(entry['release'], what='verified release'),
+                  entry['stock_build'], android_info(entry['android_info'], digest),
+                  entry['source'], entry['wipes_data'])
+    check_identity(image, table)
+    return image
+
+
+def own_identity(path, kind):
     """What a kit or zip states about itself: the release that its vbmeta names, as the build
     number of its fingerprints or, for an Andrix zip, its base tag property, the stock build of
     its fingerprints and its android-info.txt. These are small reads, and nothing here verifies
-    a signature. Read through the handle that hashed the file to the SHA-256 that verify kept,
-    they are the bytes that verify checked."""
+    a signature. decide reads them from the private copy whose SHA-256 it found in the session
+    record, so they are the bytes that verify checked."""
     import install_zip
-    archive = install_zip.Archive(path, handle=handle)
+    archive = install_zip.Archive(path)
     try:
         info = caiman.parse_android_info(archive.read('android-info.txt'),
                                          f'the android-info.txt of {Path(path).name}')
@@ -707,11 +726,11 @@ def own_identity(path, kind, handle=None):
     return release, stock, info
 
 
-def check_own_identity(image, path, handle=None):
+def check_own_identity(image, path):
     """decide reads a kit's or zip's own identity again and refuses any mismatch with the
     identity kept under its SHA-256, so an identity edited in the record is caught even when
     the record's SHA-256 was computed again by hand."""
-    release, stock, info = own_identity(path, image.kind, handle)
+    release, stock, info = own_identity(path, image.kind)
     mismatched = [name for name, own, kept in (
         ('release', release.number, image.release.number), ('stock build', stock, image.stock_build),
         ('android-info.txt', info, image.android_info)) if own != kept]
@@ -758,6 +777,13 @@ def stock_image(path, table):
 
 def grapheneos_image(path, kit):
     """A GrapheneOS install zip, identified by install_zip's verified build number."""
+    return grapheneos_kit(path, kit)[0]
+
+
+def grapheneos_kit(path, kit):
+    """grapheneos_image's identity of a GrapheneOS install zip, and the SHA-256 of its bootloader
+    and radio images. install_zip.check reads the zip once into a private copy and reports both
+    from the copy's bytes that passed its checks, so nothing here opens the zip again."""
     import install_zip
     name = Path(path).name
     match = re.fullmatch(r'caiman-install-([0-9]{10})\.zip', name)
@@ -776,13 +802,18 @@ def grapheneos_image(path, kit):
     detail = report['checks']['android_info']['detail']
     info = caiman.AndroidInfo(detail['board'], detail['bootloader'], detail['baseband'],
                               tuple(detail['partitions']))
-    return Image('grapheneos', report['sha256'],
-                 caiman.parse_release(identity['build_number'], what='build number inside the zip'),
-                 identity['stock_build'], info, 'the signed build number inside the zip')
+    release = caiman.parse_release(identity['build_number'], what='build number inside the zip')
+    image = Image('grapheneos', report['sha256'], release, identity['stock_build'], info,
+                  'the signed build number inside the zip')
+    return image, report['firmware']
 
 
 def andrix_image(path, kit, table):
-    """An Andrix zip: workshop key, base tag record and the official kit's firmware."""
+    """An Andrix zip: workshop key, base tag record and the official kit's firmware.
+
+    The official kit's firmware digests are those that install_zip.check read from the kit's
+    verified bytes. The kit is not opened again after its check.
+    """
     import install_zip
     identity = install_zip.andrix_identity(path, avbtool=kit['avbtool'], tools=kit.get('tools'))
     base = caiman.parse_release(identity['base_tag'], allow_preview=False, what='base tag')
@@ -796,10 +827,9 @@ def andrix_image(path, kit, table):
                f'{table.stock[base.base]} recorded for {base}')
     if not kit.get('official'):
         refuse(f'an Andrix zip needs the official GrapheneOS kit of {base} for its firmware')
-    official = grapheneos_image(kit['official'], kit)
+    official, theirs = grapheneos_kit(kit['official'], kit)
     if official.release.number != base.number:
         refuse(f'the official kit is {official.release}, not the base tag {base}')
-    theirs = install_zip.kit_firmware(kit['official'], official.android_info)
     if identity['firmware'] != theirs:
         refuse(f'the Andrix bootloader and radio images are not byte identical to the official kit of {base}')
     return Image('andrix', identity['sha256'], base, identity['stock_build'], identity['android_info'],

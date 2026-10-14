@@ -10,12 +10,18 @@ an embedded key byte identical to avb_pkmd.bin. Every check runs and reports; th
 passes only if all of them pass. The tool reads the zip and runs ssh-keygen and the
 pinned avbtool.py. It contacts nothing.
 
+The zip is read once, from its start to its end, into a private copy, and its SHA-256 is that
+of the bytes copied. ssh-keygen's verification, every archive check and the firmware digests
+read only that copy, so each concerns exactly the bytes that the SHA-256 names, whatever
+happens to the zip meanwhile. The signature and the allowed signers file are read once each.
+
 The build number is read from the fingerprints in vbmeta's signed property descriptors.
 avbtool verify_image needs every image that a vbmeta descriptor names beside vbmeta.img.
 An install zip written by optimize-factory-image carries the dynamic partitions only
 inside super splits, so for such a zip this check refuses and names the missing images.
 """
 import argparse
+import atexit
 import calendar
 import datetime
 import hashlib
@@ -23,12 +29,15 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import secrets
 import shlex
 import shutil
+import stat
 import struct
 import subprocess
 import sys
 import tempfile
+import weakref
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -104,21 +113,319 @@ def signature_command(signers, signature):
             '-s', str(signature)]
 
 
-def check_signature(zip_path, signature, signers):
-    command = signature_command(signers, signature)
-    with open(zip_path, 'rb') as stdin:
-        process = subprocess.run(command, stdin=stdin, stdout=subprocess.PIPE,
-                                 stderr=subprocess.PIPE, env=_environment(), timeout=COMMAND_TIMEOUT)
+def read_small(path, what):
+    """A small input file's bytes, read once."""
+    try:
+        with open(path, 'rb') as handle:
+            data = handle.read(SMALL + 1)
+    except (OSError, TypeError, ValueError) as error:
+        refuse(f'{what} cannot be read: {error}')
+    if len(data) > SMALL:
+        refuse(f'{what} is larger than {SMALL} bytes')
+    return data
+
+
+def _private(path, flags):
+    """An opener for a new file that only this user can read and write."""
+    return os.open(path, flags, 0o600)
+
+
+def _without_waiting(path, flags):
+    """An opener that never waits: a FIFO or a device opens at once, so that it can be refused
+    before it is read, and a terminal does not become the controlling terminal."""
+    return os.open(path, flags | os.O_NONBLOCK | os.O_NOCTTY)
+
+
+def open_regular(path):
+    """path opened for reading, unbuffered, or a refusal if it is not a regular file. The open
+    never waits (_without_waiting), so a FIFO or a device is refused before any read."""
+    source = open(path, 'rb', buffering=0, opener=_without_waiting)
+    try:
+        if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+            refuse(f'{Path(path).name} is not a regular file')
+        os.set_blocking(source.fileno(), True)
+    except BaseException:
+        source.close()
+        raise
+    return source
+
+
+def write_private(path, data):
+    """Writes data into a new file at path that only this user can read and write. The file is
+    created exclusively: a path that names anything already raises FileExistsError."""
+    with open(path, 'xb', opener=_private) as handle:
+        handle.write(data)
+
+
+def remove_private(work, missing_ok=False):
+    """Removes a private directory and the copies in it. A directory that cannot be removed
+    refuses, so that no copy is left behind unnoticed. With missing_ok, a directory that does not
+    exist is no error: PrivateDirectory owns its path before it makes the directory."""
+    try:
+        if missing_ok:
+            try:
+                os.lstat(work)
+            except FileNotFoundError:
+                return
+        shutil.rmtree(work)
+    except OSError as error:
+        refuse(f'the private directory {work} could not be removed: {error}')
+
+
+# The registry of owned directories: the private directories that PrivateDirectory objects of this
+# process own now, each by its path as a string. A path is added when it becomes an object's,
+# before its directory is made, and taken out only once a removal of the directory succeeded, or
+# when mkdir failed and made nothing. remove_leftover, as a backstop or in the exit sweep, removes
+# only what is here. A child that os.fork makes starts with none, so that its exit leaves its
+# parent's directories alone.
+OWNED = set()
+
+
+def warn_left(work, error):
+    """Names the private directory at work, which remove_leftover could not remove because of
+    error, in a warning on stderr, and gives whether the warning was written.
+
+    A stderr that is closed, that fails, or that was replaced by anything, and an interruption of
+    the write, are no errors here: the warning is then lost, and False says so. Everything that
+    this function does is inside its handler, so nothing raises past it. Only an interruption at
+    its very first instruction, before the handler is set up, or a second one while the handler
+    runs, which no handler of its own can take, goes on to its caller."""
+    try:
+        reason = str(error) if isinstance(error, Refusal) else \
+            f'the private directory {work} could not be removed: {type(error).__name__}'
+        sys.stderr.write(f'warning: {reason}\n')
+        return True
+    except BaseException:   # whatever stderr is or does, an interruption of the write too
+        return False
+
+
+def remove_leftover(work):
+    """Removes what is left of the private directory at work while this process owns it (OWNED),
+    as remove_private does, and gives whether the directory is now gone or named in a warning.
+
+    It is PrivateDirectory's backstop: weakref.finalize runs it when the object that owns the
+    directory is dropped, or at the interpreter's exit. It is given the path alone, so that it
+    keeps no reference to that object, and it does nothing once a removal succeeded and took the
+    path out of OWNED, or the object gave the path up. The exit sweep (sweep_at_exit) runs it too,
+    for every directory still owned.
+
+    It runs where nothing can take a refusal: Python only reports what a finalizer raises, and
+    goes on. So it warns rather than refuses: a directory that it cannot remove, also when an
+    interruption stops its removal, stays, still owned, and a warning on stderr names it
+    (warn_left). An interruption at its very first instruction, before its handler is set up, or
+    a second one while its handler runs, goes on to its caller, as no handler of its own can take
+    it there. The directory is then still owned, so the exit sweep removes it or names it."""
+    try:
+        if work in OWNED:
+            remove_private(work, missing_ok=True)
+            OWNED.discard(work)
+        return True
+    except BaseException as error:  # an interruption too: the finalizer's caller would drop it
+        return warn_left(work, error)
+
+
+def sweep_at_exit():
+    """Removes every private directory that this process still owns (OWNED), at the interpreter's
+    exit: this module registers it with atexit when it is imported. remove_leftover removes each
+    directory or names it in a warning on stderr, inside its own handler, which takes whatever
+    the removal meets, an interruption too. A directory that it neither removed nor named, as
+    when stderr did not take the warning or an interruption stopped it, is tried once more. An
+    interruption anywhere else in the sweep, between two directories or on the way into
+    remove_leftover, starts the sweep again on what is still owned. So an interruption or a
+    failure on one directory goes on to the next, and each directory that stays is named, unless
+    stderr cannot take the warning or a second interruption stops it too.
+
+    The backstops remove a directory earlier, when its object is dropped, and at the exit
+    through weakref.finalize._exitfunc, which atexit runs too. An interruption can stop a
+    backstop at its very first instruction, where no handler can take it, and the directory
+    stays, still owned. When that happens as the object is collected during the run, this sweep
+    removes the directory at the exit. When it happens at the exit, the interruption also stops
+    _exitfunc and every backstop that it had still to run, but atexit reports it and goes on to
+    its next function, so this sweep runs all the same. That holds whatever order atexit runs
+    them in: it runs its functions in the reverse order of their registration, and _exitfunc is
+    registered when the process makes its first finalizer, which can be before this module is
+    imported or after. Run first, the sweep leaves the backstops only what it could not remove;
+    run last, it removes what they left. Both are idempotent: a directory that is gone, or no
+    longer owned, is no error.
+
+    No handler can take an interruption at the very first instruction of the sweep itself,
+    before its handler is set up, nor one at the first instruction of the new start that an
+    earlier interruption gives it. Such an interruption ends the sweep, atexit reports it, and
+    the directories that the sweep did not reach stay, unnamed, unless a backstop that runs
+    after it removes them. Only blocking SIGINT could close that."""
+    try:
+        for work in sorted(OWNED):
+            if not remove_leftover(work):   # neither removed nor named: once more
+                remove_leftover(work)
+    except BaseException:   # between two directories, or on the way into remove_leftover
+        sweep_at_exit()
+
+
+atexit.register(sweep_at_exit)
+os.register_at_fork(after_in_child=OWNED.clear)
+
+
+class PrivateDirectory:
+    """A new directory that only this user can enter, for private copies, which the end of its
+    with block removes with them.
+
+    The constructor only records its arguments. __enter__ chooses the directory's path: prefix
+    and 128 random bits (secrets.token_hex(16)) under scratch or else the system's temporary
+    directory, made absolute. Anything at that path, even a dangling link, is another's, and
+    __enter__ refuses it at once and leaves it as it is. Only then does the path become this
+    object's: __enter__ records it, adds it to OWNED, registers the backstop below and makes the
+    directory with mode 0700. If mkdir fails, it made nothing, so __enter__ gives the path up
+    without removing anything (disown), and when something exists there, which another process
+    made since the check, it refuses.
+
+    Anything that fails or interrupts __enter__ once the path is this object's, as it makes the
+    directory or fills it (fill), removes whatever of the directory exists before the error goes
+    on, and the end of the with block removes the directory. A directory that cannot be removed
+    there refuses (remove_private). So a caller enters it in its with statement, with nothing
+    between. Each of these removals gives the path up only once it succeeded.
+
+    The backstop is a weakref.finalize that removes what is left of the directory when this
+    object is dropped, or at the interpreter's exit (remove_leftover). It covers every exit that
+    does not reach a removal or does not finish one, where no handler can: an interruption at the
+    return of __enter__, before the with statement holds this object, which only a trace or
+    profile function can raise there, or one at the start of __exit__ or of remove_private, or
+    inside shutil.rmtree, where CPython checks for one. The exit sweep (sweep_at_exit) removes,
+    at the interpreter's exit, every directory still in OWNED, also one whose backstop a second
+    interruption stopped at its very first instruction, where no handler can take it.
+
+    Limits. A process ended without Python's cleanup leaves its private copies behind: one killed
+    by SIGKILL, or by a signal that Python does not handle by default such as SIGTERM, or one
+    that calls os._exit. So does an interruption at the very first instruction of the exit sweep
+    itself, or of the new start that an earlier interruption gives it, which no Python handler can
+    cover and only blocking SIGINT could close: the directories that the sweep did not reach
+    stay, unnamed, unless a backstop that runs after it removes them. Every other directory that
+    the cleanup cannot remove is named. A strict removal, at the end of a with block or after a
+    failed entry, refuses, and its refusal names the directory. The backstop and the exit sweep
+    cannot refuse: a directory that they cannot remove, also when an interruption stops its
+    removal, stays, and a warning on stderr names it. At the exit, the sweep tries each directory
+    that stays, and writes once more a warning that stderr did not take, as when an interruption
+    stopped it; only a stderr that is closed or fails, or a second interruption of the same
+    warning, loses the warning. One case remains theoretical: another process that makes a
+    directory of the same random name after PrivateDirectory found the path free. If an
+    interruption came before the path was given up, after that check but before mkdir made the
+    directory, or after a removal ended but before the path left the registry of owned
+    directories, while the backstop and the exit sweep are still armed for it, the cleanup could
+    remove that directory.
+    """
+
+    def __init__(self, prefix, scratch=None):
+        self.prefix, self.scratch, self.work, self.backstop = prefix, scratch, None, None
+
+    def __enter__(self):
+        parent = tempfile.gettempdir() if self.scratch is None else self.scratch
+        work = os.path.abspath(os.path.join(parent, self.prefix + secrets.token_hex(16)))
+        if os.path.lexists(work):   # another's: refused before this object owns the path
+            refuse(f'the private directory {work} exists already')
+        self.work = Path(work)      # this object's from here on, before the directory exists
+        OWNED.add(work)
+        self.backstop = weakref.finalize(self, remove_leftover, work)
+        try:
+            try:
+                os.mkdir(work, 0o700)
+            except OSError as error:
+                # mkdir made nothing, and whatever is at the path now is another's: give it up
+                self.disown()
+                self.work = None
+                if isinstance(error, FileExistsError):
+                    refuse(f'the private directory {work} exists already')
+                raise
+            entered = self.fill()
+            return entered
+        except BaseException:
+            if self.work is not None:
+                remove_private(self.work, missing_ok=True)
+                self.disown()       # only once the removal succeeded
+            raise
+
+    def disown(self):
+        """Gives the path up: takes it out of OWNED, so that neither the backstop nor the exit
+        sweep touches it from here on, and detaches the backstop. It is called only once a removal
+        of the directory succeeded, or once mkdir failed and made nothing."""
+        OWNED.discard(str(self.work))
+        self.backstop.detach()
+
+    def fill(self):
+        """Fills the new directory, inside __enter__'s cleanup, and gives what the with statement
+        binds. Here nothing is filled, and the with statement binds the directory's path."""
+        return self.work
+
+    def __exit__(self, *exception):
+        remove_private(self.work)
+        self.disown()       # only once the removal succeeded
+
+
+class ZipCopy(PrivateDirectory):
+    """A zip read once into a private copy, which every check reads instead of the zip.
+
+    The constructor only records its arguments. __enter__ makes a private directory, as
+    PrivateDirectory does, under scratch or else the system's temporary directory, and fills it
+    with the copy (fill). The zip is read from its start to its end, and hashed as it is copied,
+    so sha256 names exactly the bytes of the copy at path. A path that is not a regular file is
+    refused before any read, without waiting (open_regular). The copy is created exclusively, as
+    a file that only this user can read and write. It carries the zip's name, so Archive and the
+    report name it as the zip. Anything that fails or interrupts __enter__ once the directory's
+    path is this object's, up to the zip's close and the digest's end, removes whatever of the
+    directory exists, and so does the end of the with block. A directory that cannot be removed
+    there refuses. PrivateDirectory's backstop and the exit sweep remove the copy on every other
+    exit, and their limits are the copy's. Every caller enters the copy directly in its with
+    statement: with ZipCopy(path, scratch) as copy.
+
+    Nothing reads the zip again, so a zip changed or replaced after it was copied changes nothing
+    that is checked, and a zip changed while it was copied is checked as the bytes that were read.
+    """
+
+    def __init__(self, zip_path, scratch=None):
+        super().__init__('zip-', scratch)
+        self.zip_path, self.path, self.sha256 = zip_path, None, None
+
+    def fill(self):
+        """Copies the zip into the new directory, hashing its bytes as it copies them."""
+        self.path = self.work / Path(self.zip_path).name
+        digest = hashlib.sha256()
+        with open_regular(self.zip_path) as source, open(self.path, 'xb', opener=_private) as copy:
+            for block in iter(lambda: source.read(1 << 20), b''):
+                digest.update(block)
+                copy.write(block)
+        self.sha256 = digest.hexdigest()
+        return self
+
+
+def check_signature(zip_copy, signature, signers, scratch=None):
+    """ssh-keygen's verification of the zip's private copy at zip_copy (ZipCopy).
+
+    signature and signers are the bytes that were read once from each file. ssh-keygen reads
+    private copies of exactly them (write_private), in a new directory that only this user can
+    enter (PrivateDirectory) and that is removed afterwards, so it cannot read a file that was
+    replaced since. A directory that cannot be removed refuses the signature.
+    """
+    with PrivateDirectory('signature-', scratch) as work:
+        write_private(work / 'allowed_signers', signers)
+        write_private(work / 'signature', signature)
+        command = signature_command(work / 'allowed_signers', work / 'signature')
+        with open(zip_copy, 'rb') as stdin:
+            process = subprocess.run(command, stdin=stdin, stdout=subprocess.PIPE,
+                                     stderr=subprocess.PIPE, env=_environment(),
+                                     timeout=COMMAND_TIMEOUT)
     output = process.stdout.decode('utf-8', 'replace')
     if process.returncode != 0 or output != good_line() + '\n':
         refuse(f'ssh-keygen exited {process.returncode} and printed {output.strip()!r}; '
                f'expected {good_line()!r}; stderr {process.stderr.decode("utf-8", "replace").strip()!r}')
-    return {'command': shlex.join(command) + ' < ' + shlex.quote(str(zip_path)),
-            'output': output.strip()}
+    # the command as it ran, with the private copies named by their roles and the zip by its name
+    return {'command': shlex.join(signature_command('allowed_signers', 'signature')) + ' < '
+            + shlex.quote(Path(zip_copy).name), 'allowed_signers_sha256': caiman.sha256(signers),
+            'signature_sha256': caiman.sha256(signature), 'output': output.strip()}
 
 
 def check_signers(signers, bases=None):
-    digest = caiman.sha256(Path(signers).read_bytes())
+    """The allowed signers digest against the pin of the upstream base records. signers is the
+    file's bytes as check read them once, or the path of a file to read once."""
+    data = signers if isinstance(signers, bytes) else read_small(signers, 'allowed_signers')
+    digest = caiman.sha256(data)
     pinned = pinned_signers_digest(bases)
     if digest != pinned:
         refuse(f'allowed_signers hashes to {digest}, not the pinned {pinned}')
@@ -128,7 +435,7 @@ def check_signers(signers, bases=None):
 class Archive:
     """The members of one install zip, all directly under the directory its name gives."""
 
-    def __init__(self, path, release=None, handle=None):
+    def __init__(self, path, release=None):
         self.path = Path(path)
         if release is None:   # an Andrix zip: optimize-factory-image names the directory alike
             if re.fullmatch(r'caiman-install-[A-Za-z0-9._-]+\.zip', self.path.name) is None:
@@ -137,8 +444,8 @@ class Archive:
         self.prefix = f'{caiman.DEVICE}-install-{release}/'
         if self.path.name != f'{caiman.DEVICE}-install-{release}.zip':
             refuse(f'{self.path.name} is not named {caiman.DEVICE}-install-{release}.zip')
-        try:   # an open handle reads the bytes that were hashed through it
-            self.zip = zipfile.ZipFile(self.path if handle is None else handle)
+        try:
+            self.zip = zipfile.ZipFile(self.path)
         except (zipfile.BadZipFile, OSError) as error:
             refuse(f'{self.path.name} is not a readable zip: {error}')
         self.members = {}
@@ -339,7 +646,9 @@ def rebuild_dynamic(archive, work, tools, described):
 
     simg2img merges every split into one image, because lpunpack refuses sparse input
     (lpunpack.cc). lpunpack writes NAME_a.img and NAME_b.img; each _a image is renamed to
-    NAME.img beside vbmeta.img, and every _b image must be empty.
+    NAME.img beside vbmeta.img, and every _b image must be empty. The splits are extracted into
+    a private directory in work (PrivateDirectory), removed once the images are renamed or the
+    rebuild refuses.
     """
     simg2img = _pinned_tool(tools, 'simg2img', SIMG2IMG_SHA256)
     lpunpack = _pinned_tool(tools, 'lpunpack', LPUNPACK_SHA256)
@@ -347,35 +656,33 @@ def rebuild_dynamic(archive, work, tools, described):
                                                for name in archive.members) if m)
     if not numbers or numbers != list(range(1, len(numbers) + 1)):
         refuse(f'the zip does not hold one numbered run of super splits: {numbers}')
-    splits = work / 'splits'
-    splits.mkdir()
-    paths = [str(archive.extract(f'super_{number}.img', splits)) for number in numbers]
-    unpacked = work / 'unpacked'
-    unpacked.mkdir()
-    for command in ([simg2img, *paths, str(work / 'super.img')],
-                    [lpunpack, str(work / 'super.img'), str(unpacked)]):
-        process = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                 env=_environment(), timeout=COMMAND_TIMEOUT, cwd=work)
-        if process.returncode != 0:
-            refuse(f'{Path(command[0]).name} exited {process.returncode}: '
-                   f'{process.stderr.decode("utf-8", "replace").strip()[-300:]!r}')
-    rebuilt = set()
-    for path in sorted(unpacked.iterdir()):
-        match = re.fullmatch(r'([a-z0-9_]+)_(a|b)\.img', path.name)
-        if match is None or path.is_symlink() or not path.is_file():
-            refuse(f'lpunpack wrote {path.name}, which is not a slot image')
-        if match.group(2) == 'b':
-            if path.stat().st_size != 0:
-                refuse(f'{path.name} is not empty; the install zip writes slot a only')
-            continue
-        name = match.group(1)
-        if name not in described:
-            refuse(f'the super image holds {name}, which vbmeta does not describe')
-        if f'{name}.img' in archive.members or name == 'vbmeta':
-            refuse(f'the super image holds {name}, which the zip also holds outside it')
-        path.rename(work / f'{name}.img')
-        rebuilt.add(name)
-    shutil.rmtree(splits, ignore_errors=True)
+    with PrivateDirectory('splits-', work) as splits:
+        paths = [str(archive.extract(f'super_{number}.img', splits)) for number in numbers]
+        unpacked = work / 'unpacked'
+        unpacked.mkdir()
+        for command in ([simg2img, *paths, str(work / 'super.img')],
+                        [lpunpack, str(work / 'super.img'), str(unpacked)]):
+            process = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                     env=_environment(), timeout=COMMAND_TIMEOUT, cwd=work)
+            if process.returncode != 0:
+                refuse(f'{Path(command[0]).name} exited {process.returncode}: '
+                       f'{process.stderr.decode("utf-8", "replace").strip()[-300:]!r}')
+        rebuilt = set()
+        for path in sorted(unpacked.iterdir()):
+            match = re.fullmatch(r'([a-z0-9_]+)_(a|b)\.img', path.name)
+            if match is None or path.is_symlink() or not path.is_file():
+                refuse(f'lpunpack wrote {path.name}, which is not a slot image')
+            if match.group(2) == 'b':
+                if path.stat().st_size != 0:
+                    refuse(f'{path.name} is not empty; the install zip writes slot a only')
+                continue
+            name = match.group(1)
+            if name not in described:
+                refuse(f'the super image holds {name}, which vbmeta does not describe')
+            if f'{name}.img' in archive.members or name == 'vbmeta':
+                refuse(f'the super image holds {name}, which the zip also holds outside it')
+            path.rename(work / f'{name}.img')
+            rebuilt.add(name)
     (work / 'super.img').unlink()
     return rebuilt
 
@@ -386,7 +693,9 @@ def check_vbmeta(archive, vbmeta_data, pkmd, security_patch, avbtool, scratch, t
 
     With keep, an empty directory, the images that avbtool verified are moved there once every
     vbmeta check has passed, for a caller that reads files from them. check and andrix_identity
-    empty it again when their whole check does not pass.
+    empty it again when their whole check does not pass. The images are extracted into a private
+    directory (PrivateDirectory), removed before this returns or refuses, and a directory that
+    cannot be removed refuses vbmeta.
     """
     vbmeta = parse_vbmeta(vbmeta_data)
     if vbmeta['algorithm'] != SHA256_RSA4096:
@@ -408,8 +717,7 @@ def check_vbmeta(archive, vbmeta_data, pkmd, security_patch, avbtool, scratch, t
     tool = Path(avbtool)
     if caiman.sha256(tool.read_bytes()) != AVBTOOL_SHA256:
         refuse(f'{tool} is not external/avb/avbtool.py of the pinned tree')
-    work = Path(tempfile.mkdtemp(prefix='avb-', dir=scratch))
-    try:
+    with PrivateDirectory('avb-', scratch) as work:
         missing = [name for name in images if f'{name}.img' not in archive.members]
         rebuilt = rebuild_dynamic(archive, work, tools, set(images)) if missing else set()
         absent = [name for name in missing if name not in rebuilt]
@@ -440,8 +748,6 @@ def check_vbmeta(archive, vbmeta_data, pkmd, security_patch, avbtool, scratch, t
         if keep is not None:
             for name in images:
                 shutil.move(str(work / f'{name}.img'), str(Path(keep) / f'{name}.img'))
-    finally:
-        shutil.rmtree(work, ignore_errors=True)
     return vbmeta, {'algorithm': 'SHA256_RSA4096', 'rollback_index': wanted,
                     'verified_images': images, 'rebuilt_from_super': sorted(rebuilt),
                     'kernel_cmdline_descriptors': sum(d['type'] == 'kernel_cmdline'
@@ -467,8 +773,22 @@ def check(zip_path, *, signature, signers, release, stable, record, avbtool, sec
           tools=None, scratch=None, bases=None, keep=None):
     """Runs every check. Returns the report; the verdict is PASS only if all pass.
 
+    The zip is read once into a private copy (ZipCopy), and the report's SHA-256 is that of the
+    bytes copied. ssh-keygen's verification, every archive check and the firmware digests read
+    only that copy, so each concerns exactly the bytes that the SHA-256 names. A zip changed or
+    replaced after it was copied changes nothing that is checked or reported, and a zip changed
+    while it was copied is checked as the bytes that were read. The signature and
+    allowed_signers files are read once each, and both checks that use allowed_signers see the
+    same bytes.
+
     keep, an empty directory, receives the images that avbtool verified (check_vbmeta). It holds
-    them only when the verdict is PASS, and is emptied otherwise.
+    them only when the verdict is PASS, and is emptied otherwise. Only a PASS report has
+    firmware: the SHA-256 of the bootloader and radio images in the copy.
+
+    Every private copy is removed before check returns, and one that cannot be removed is never
+    ignored: it fails the check that made it, or refuses the zip when its copy failed. Once the
+    checks have run, a copy of the zip that cannot be removed makes check raise Refusal, after
+    it has discarded the kept images.
     """
     checks = {}
 
@@ -481,34 +801,16 @@ def check(zip_path, *, signature, signers, release, stable, record, avbtool, sec
             checks[name] = {'ok': False, 'reason': f'{type(error).__name__}: {error}'}
         return checks[name]['ok']
 
-    state = {}
-    try:
-        state['release'] = caiman.parse_release(release, what='expected release')
-        state['stable'] = caiman.parse_stable_channel(Path(stable).read_bytes())
-        _, state['stock'], _, state['info'] = adevtool_record.validate_record(record, bases=bases)
-        if caiman.parse_release(record['release']).number != state['release'].base:
-            refuse(f'the adevtool record is for {record["release"]}, not {state["release"].base}')
-        security_patch = patch_level(state['release'], security_patch, bases)
-        state['sha256'] = file_sha256(zip_path)
-        empty_directory(keep)
-    except (Refusal, OSError) as error:
-        return {'verdict': 'REFUSE', 'reasons': [str(error)], 'checks': {}}
-    checks['inputs'] = {'ok': True, 'detail': {'zip': Path(zip_path).name,
-                                               'sha256': state['sha256'],
-                                               'release': state['release'].number,
-                                               'stable': state['stable'].number,
-                                               'security_patch': security_patch,
-                                               'record_stock_build': state['stock']}}
-    run('signature', lambda: check_signature(zip_path, signature, signers))
-    run('allowed_signers', lambda: check_signers(signers, bases))
+    state, given = {}, {}
+
+    def given_bytes(what):
+        if isinstance(given[what], Refusal):
+            refuse(str(given[what]))
+        return given[what]
 
     def layout():
-        state['archive'] = Archive(zip_path, state['release'].number)
+        state['archive'] = Archive(copy.path, state['release'].number)
         return {'members': len(state['archive'].members)}
-
-    if not run('zip_layout', layout):
-        return _finish(checks, state['sha256'])
-    archive = state['archive']
 
     def pkmd():
         data = archive.read('avb_pkmd.bin')
@@ -546,19 +848,63 @@ def check(zip_path, *, signature, signers, release, stable, record, avbtool, sec
         absent = [name for name in report['files'] if name not in archive.members]
         if absent:
             refuse(f'flash-all.sh writes files the zip does not contain: {absent}')
+        # the bootloader and radio images that the script writes, from the archive checked here
+        state['firmware'] = _firmware(archive, state['info'])
         return {key: report[key] for key in ('form', 'super_splits', 'os_images', 'unconfirmed')
                 if key in report}
 
     try:
-        run('avb_pkmd', pkmd)
-        run('android_info', android_info)
-        run('vbmeta', vbmeta)
-        run('release_identity', identity)
-        run('flash_script', script)
-    finally:
-        archive.zip.close()
-    report = _finish(checks, state['sha256'])
-    if report['verdict'] != 'PASS':
+        state['release'] = caiman.parse_release(release, what='expected release')
+        state['stable'] = caiman.parse_stable_channel(Path(stable).read_bytes())
+        _, state['stock'], _, state['info'] = adevtool_record.validate_record(record, bases=bases)
+        if caiman.parse_release(record['release']).number != state['release'].base:
+            refuse(f'the adevtool record is for {record["release"]}, not {state["release"].base}')
+        security_patch = patch_level(state['release'], security_patch, bases)
+        empty_directory(keep)
+    except (Refusal, OSError) as error:
+        return {'verdict': 'REFUSE', 'reasons': [str(error)], 'checks': {}}
+    copied = False      # whether ZipCopy's __enter__ returned the copy
+    try:
+        with ZipCopy(zip_path, scratch) as copy:
+            copied = True
+            checks['inputs'] = {'ok': True, 'detail': {'zip': Path(zip_path).name,
+                                                       'sha256': copy.sha256,
+                                                       'release': state['release'].number,
+                                                       'stable': state['stable'].number,
+                                                       'security_patch': security_patch,
+                                                       'record_stock_build': state['stock']}}
+            # Each small input is read once. A refusal to read it is kept and given to every
+            # check that needs it, so no check reads the file again.
+            for what, path in (('the signature', signature), ('allowed_signers', signers)):
+                try:
+                    given[what] = read_small(path, what)
+                except Refusal as error:
+                    given[what] = error
+            run('signature', lambda: check_signature(copy.path, given_bytes('the signature'),
+                                                     given_bytes('allowed_signers'), scratch))
+            run('allowed_signers', lambda: check_signers(given_bytes('allowed_signers'), bases))
+            if run('zip_layout', layout):
+                archive = state['archive']
+                try:
+                    run('avb_pkmd', pkmd)
+                    run('android_info', android_info)
+                    run('vbmeta', vbmeta)
+                    run('release_identity', identity)
+                    run('flash_script', script)
+                finally:
+                    archive.zip.close()
+    except (Refusal, OSError) as error:
+        if not copied:      # the copy failed, so the zip is refused as an input is
+            return {'verdict': 'REFUSE', 'reasons': [str(error)], 'checks': {}}
+        discard(keep)
+        raise
+    except BaseException:
+        discard(keep)
+        raise
+    report = _finish(checks, copy.sha256)
+    if report['verdict'] == 'PASS':
+        report['firmware'] = state['firmware']
+    else:
         discard(keep)
     return report
 
@@ -583,61 +929,48 @@ def _finish(checks, digest=None):
             'sha256': digest}
 
 
-def file_sha256(path):
-    with open(path, 'rb') as handle:
-        return handle_sha256(handle)
-
-
-def handle_sha256(handle):
-    digest = hashlib.sha256()
-    for block in iter(lambda: handle.read(1 << 20), b''):
-        digest.update(block)
-    return digest.hexdigest()
-
-
 def andrix_identity(zip_path, *, avbtool, tools=None, scratch=None, bases=None, keep=None):
     """An Andrix zip's identity from its signed vbmeta: base tag, stock build and versions.
 
     The base tag is the signed vbmeta property com.andrix.build.base_tag, which Andrix's
     release signing must add (design item 6). Until it does, every Andrix zip is refused.
     keep, an empty directory, receives the verified images (check_vbmeta). It holds them only
-    when this returns, and is emptied when it refuses. The zip is read through the handle that
-    hashed it, so its SHA-256 is that of the bytes checked, and a zip that changes or is
-    replaced while it is read refuses.
+    when this returns, and is emptied when it refuses. The zip is read once into a private copy
+    (ZipCopy), as check reads a kit, and every check reads only that copy, so the SHA-256 is that
+    of the bytes checked, whatever happens to the zip meanwhile. The copy is removed before this
+    returns or refuses, and a copy that cannot be removed refuses.
     """
     empty_directory(keep)
-    with open(zip_path, 'rb') as handle:
-        before = os.fstat(handle.fileno())
-        digest = handle_sha256(handle)
-        archive = Archive(zip_path, handle=handle)
-        try:
-            pkmd = archive.read('avb_pkmd.bin')
-            if WORKSHOP_PKMD_SHA256 is None:
-                refuse('the workshop key for this phone is not recorded yet, so no Andrix zip is trusted')
-            if caiman.sha256(pkmd) != WORKSHOP_PKMD_SHA256:
-                refuse('the Andrix zip is not signed with the workshop key recorded for this phone')
-            vbmeta = parse_vbmeta(archive.read('vbmeta.img'))
-            base = andrix_base_tag(vbmeta)
-            level = patch_level(base, None, bases)
-            _, detail = check_vbmeta(archive, archive.read('vbmeta.img'), pkmd, level, avbtool,
-                                     scratch, tools, keep)
-            stock = andrix_stock_build(vbmeta)
-            info = caiman.parse_android_info(archive.read('android-info.txt'), 'the Andrix android-info.txt')
-            report = flash_script.read(archive.read('flash-all.sh'),
-                                       flash_script.Expectation(info.bootloader, info.baseband))
-            if report['verdict'] != 'PASS':
-                refuse('the Andrix flash-all.sh: ' + '; '.join(report['reasons']))
-            firmware = _firmware(archive, info)
-            after, current = os.fstat(handle.fileno()), os.stat(zip_path)
-            if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns) or \
-                    (current.st_dev, current.st_ino) != (after.st_dev, after.st_ino):
-                refuse(f'{Path(zip_path).name} changed or was replaced while it was read')
-        except BaseException:
-            discard(keep)
-            raise
-        finally:
-            archive.zip.close()
-    return {'sha256': digest, 'base_tag': base.number, 'stock_build': stock,
+    try:
+        with ZipCopy(zip_path, scratch) as copy:
+            archive = Archive(copy.path)
+            try:
+                pkmd = archive.read('avb_pkmd.bin')
+                if WORKSHOP_PKMD_SHA256 is None:
+                    refuse('the workshop key for this phone is not recorded yet, so no Andrix zip '
+                           'is trusted')
+                if caiman.sha256(pkmd) != WORKSHOP_PKMD_SHA256:
+                    refuse('the Andrix zip is not signed with the workshop key recorded for this '
+                           'phone')
+                vbmeta = parse_vbmeta(archive.read('vbmeta.img'))
+                base = andrix_base_tag(vbmeta)
+                level = patch_level(base, None, bases)
+                _, detail = check_vbmeta(archive, archive.read('vbmeta.img'), pkmd, level, avbtool,
+                                         scratch, tools, keep)
+                stock = andrix_stock_build(vbmeta)
+                info = caiman.parse_android_info(archive.read('android-info.txt'),
+                                                 'the Andrix android-info.txt')
+                report = flash_script.read(archive.read('flash-all.sh'),
+                                           flash_script.Expectation(info.bootloader, info.baseband))
+                if report['verdict'] != 'PASS':
+                    refuse('the Andrix flash-all.sh: ' + '; '.join(report['reasons']))
+                firmware = _firmware(archive, info)
+            finally:
+                archive.zip.close()
+    except BaseException:
+        discard(keep)
+        raise
+    return {'sha256': copy.sha256, 'base_tag': base.number, 'stock_build': stock,
             'android_info': info, 'vbmeta': detail, 'firmware': firmware}
 
 
@@ -662,18 +995,10 @@ def andrix_stock_build(vbmeta):
 
 
 def _firmware(archive, info):
+    """The SHA-256 of the bootloader and radio images that info names, read from archive."""
     expect = flash_script.Expectation(info.bootloader, info.baseband)
     return {name: caiman.sha256(archive.read(name, IMAGE))
             for name in (expect.bootloader_file, expect.radio_file)}
-
-
-def kit_firmware(zip_path, info):
-    """The SHA-256 of a verified kit's bootloader and radio images."""
-    archive = Archive(zip_path, Path(zip_path).name[len('caiman-install-'):-len('.zip')])
-    try:
-        return _firmware(archive, info)
-    finally:
-        archive.zip.close()
 
 
 def main(argv=None):
@@ -695,10 +1020,13 @@ def main(argv=None):
     except (OSError, ValueError) as error:
         sys.stdout.write(caiman.dump({'verdict': 'REFUSE', 'reasons': [str(error)]}))
         return 1
-    report = check(args.zip, signature=args.sig or args.zip + '.sig', signers=args.allowed_signers,
-                   release=args.release, stable=args.stable, security_patch=args.security_patch,
-                   record=record, avbtool=args.avbtool,
-                   tools={'simg2img': args.simg2img, 'lpunpack': args.lpunpack})
+    try:
+        report = check(args.zip, signature=args.sig or args.zip + '.sig',
+                       signers=args.allowed_signers, release=args.release, stable=args.stable,
+                       security_patch=args.security_patch, record=record, avbtool=args.avbtool,
+                       tools={'simg2img': args.simg2img, 'lpunpack': args.lpunpack})
+    except Refusal as error:    # the zip's private copy could not be removed
+        report = {'verdict': 'REFUSE', 'reasons': [str(error)], 'checks': {}}
     sys.stdout.write(caiman.dump(report))
     return 0 if report['verdict'] == 'PASS' else 1
 

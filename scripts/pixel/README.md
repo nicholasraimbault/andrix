@@ -94,25 +94,78 @@ No identity and no session fact is typed.
   records it is given. A file that changed since, or was never verified, is refused. So the
   15 minutes of the readings cover only `decide`'s fast part. The decision names the file's
   SHA-256.
+- **One read of a kit's bytes.** `install_zip.py` reads a GrapheneOS install zip, and an Andrix
+  zip alike, once from its start to its end into a private copy: a new file that only the user can
+  read and write, in a new directory that only the user can enter. That directory is made in the
+  scratch directory that a caller such as the neverallow gate gives, or else in the system's
+  temporary directory (`TMPDIR`), which needs room for one more zip. The SHA-256 it reports is
+  that of the bytes copied, hashed as they were copied. The bytes that `ssh-keygen` verifies,
+  every check of the archive and the SHA-256 of the bootloader and radio images all come from that
+  copy, so each concerns exactly the bytes that the SHA-256 names. A zip changed or replaced after
+  it was copied changes nothing that is checked or reported. A zip changed while it was copied is
+  checked as the bytes that were read, and the SHA-256 names them. A path that is not a regular
+  file, such as a FIFO or a device, is refused without waiting for it. The signature and the
+  allowed signers file are read once each. `ssh-keygen` verifies private copies of exactly those
+  bytes, and the allowed signers digest is checked on the same bytes. Every private copy is
+  removed before the check returns, also when it refuses or fails. `PrivateDirectory` in
+  `install_zip.py` makes each private directory under a random name of 128 bits. Anything that
+  exists at that path already is refused and left as it is, before the path is the check's to
+  remove. After an interruption the directory is removed too: by its cleanup, or where no
+  handler can run, as entering the directory ends or while it is removed, by a backstop, a
+  `weakref.finalize`, when its `PrivateDirectory` object is dropped or at the interpreter's
+  exit. From the moment the path is the check's until a removal of it succeeded, it is in a
+  registry of owned directories, and one exit sweep, which `install_zip.py` registers with
+  `atexit`, removes at the interpreter's exit every directory still there. So a second
+  interruption that stops a backstop at its very first instruction, where no handler can take
+  it, leaves its directory to the sweep, also when it comes at the exit and stops the other
+  backstops there. Each directory has its own handler in the sweep, so an interruption or a
+  failure on one goes on to the next. A copy that cannot be removed is a refusal, or else a
+  warning of the backstop or of the exit sweep, within the limits that the next item states.
+  Only a passing report names the firmware digests. The manifest's signed tags are verified the
+  same way, against a private copy of the allowed signers bytes that were read once and checked.
+- **What can still leave a private copy.** A process ended without Python's cleanup leaves its
+  private copies behind: one killed by SIGKILL, or by a signal that Python does not handle by
+  default such as SIGTERM, or one that calls os._exit. So does an interruption at the very
+  first instruction of the exit sweep itself, or of the new start that an earlier interruption
+  gives it, which no Python handler can cover and only blocking SIGINT could close: the
+  directories that the sweep did not reach stay, unnamed, unless a backstop that runs after it
+  removes them. Every other directory that the cleanup cannot remove is named. A strict
+  removal, at the end of a with block or after a failed entry, refuses, and its refusal names
+  the directory. The backstop and the exit sweep cannot refuse: a directory that they cannot
+  remove, also when an interruption stops its removal, stays, and a warning on stderr names it.
+  At the exit, the sweep tries each directory that stays, and writes once more a warning that
+  stderr did not take, as when an interruption stopped it; only a stderr that is closed or
+  fails, or a second interruption of the same warning, loses the warning. One case remains
+  theoretical: another process that makes a directory of the same random name after
+  PrivateDirectory found the path free. If an interruption came before the path was given up,
+  after that check but before mkdir made the directory, or after a removal ended but before the
+  path left the registry of owned directories, while the backstop and the exit sweep are still
+  armed for it, the cleanup could remove that directory.
 - **The zip's own identity, read again.** For a GrapheneOS kit or an Andrix zip, `decide` also
-  reads the zip's own `android-info.txt` and `vbmeta.img` again. Both are small reads, through
-  the handle that hashed the file, so they are the verified bytes, and a file changed or
-  replaced meanwhile is refused. No signature is checked again. The release that the vbmeta
-  names, as the build number of its fingerprints or as an Andrix zip's base tag property, the
-  stock build of its fingerprints and the `android-info.txt` must equal the kept identity. So an
-  identity edited in the record is refused even when the record's SHA-256 was computed again by
-  hand.
+  reads the zip's own `android-info.txt` and `vbmeta.img` again. It reads the zip once into a
+  private copy, as `install_zip.py` does, in the system's temporary directory (`TMPDIR`), which
+  needs room for one more zip. It hashes the bytes as it copies them and looks that SHA-256 up
+  in the session record. Both small reads come only from that copy, so they are the bytes whose
+  SHA-256 names the kept identity, whatever happens to the file meanwhile. The copy is removed
+  before the decision, and a copy that cannot be removed refuses. Google's image is identified
+  by its SHA-256 alone, so `decide` only hashes it. A path that is not a regular file is refused
+  without waiting, whatever the image. No signature is checked again. The release that the
+  vbmeta names, as the build number of its fingerprints or as an Andrix zip's base tag property,
+  the stock build of its fingerprints and the `android-info.txt` must equal the kept identity. So
+  an identity edited in the record is refused even when the record's SHA-256 was computed again
+  by hand.
 - **An Andrix zip** must also meet four conditions:
   - Its vbmeta must verify against the workshop key whose SHA-256 `install_zip.py` records
     (`WORKSHOP_PKMD_SHA256`).
   - Its `android-info.txt` and fingerprint stock build must equal its base tag's record.
   - Its bootloader and radio images must be byte identical to the verified official kit of
-    that tag, given with `--official-kit`.
+    that tag, given with `--official-kit`. The kit's digests are the ones `install_zip.py`
+    reports for the bytes that passed its checks, and the kit is not opened again.
   - The base tag is the signed vbmeta property `com.andrix.build.base_tag`. Andrix's release
     script must set it from the tag it verified, never by hand.
-  - `install_zip.py` reads the zip through the handle that hashed it, so the SHA-256 it reports
-    is that of the bytes it checked, and a zip that changes or is replaced while it is read is
-    refused.
+  - `install_zip.py` reads the zip once into a private copy, as it reads a kit, and checks only
+    that copy, so the SHA-256 it reports is that of the bytes it checked, whatever happens to
+    the zip meanwhile.
 - **The session record.** `--session` is the checker's own session record. It holds the
   phone's release recorded at the session's start, the releases carried from the previous
   session, the identities that `verify` kept, and every ALLOWed release. An ALLOW is written
@@ -351,10 +404,75 @@ Each rule has at least one mutated input that the checker must refuse. The tests
 | Rule 5, caiman, fastboot 35.0.1, official order | `flash_script` | product and version changes; every swap and every move of a command line |
 | Rule 6, write only what the official script writes, always wiping | `flash_script` | other flashes, erases and formats; scripts without the wipe |
 | Checks that need no phone, with the super splits rebuilt | `install_zip` | one control for each check in `ChecksWithoutVbmetaTests` and `FullKitTests` |
+| Every check reads one private copy of a kit's or zip's bytes | `install_zip` | listed below |
+| No private copy is left unnoticed; a FIFO is refused at once | `install_zip` | listed below |
 
 The OS image list of the optimized form, its order and the wipe erases are fixed in
 `flash_script.py` and refuse any other script. They are unconfirmed until a real install zip
 is read, and only a reviewed change to that file can change them.
+
+The last two rows of the table, in detail. Their controls are in `test_install_zip.py` unless
+`test_version_criterion.py` is named.
+
+- `ZipCopy` reads a kit or zip once into a private copy and hashes the bytes as it copies them.
+  `check`, `check_signature` and `andrix_identity` read only that copy, and so do
+  `version_criterion.grapheneos_kit` for the official kit's firmware and
+  `version_criterion.verified_image` for the identity that `decide` reads again. Controls:
+  `test_a_zip_changed_after_it_was_copied_changes_nothing`,
+  `test_a_zip_changed_while_it_is_copied_is_checked_as_read`,
+  `test_a_kit_changed_after_it_was_copied_passes_as_copied`,
+  `test_a_kit_changed_while_it_is_copied_is_checked_as_read`,
+  `test_a_rewrite_put_back_within_one_timestamp_tick_changes_nothing`,
+  `test_the_andrix_zip_is_read_once_into_a_private_copy`,
+  `test_the_signature_and_the_allowed_signers_are_read_once`,
+  `test_the_zip_is_read_once_from_its_start_to_its_end`,
+  `test_each_small_input_is_read_in_one_read`,
+  `test_ssh_keygen_verifies_private_copies_of_the_bytes_read`,
+  `test_the_official_kit_is_not_opened_again_after_its_check`, and in
+  `test_version_criterion.py` `OfficialKitTests`,
+  `test_decide_reads_the_zips_own_identity_only_from_its_copy` and
+  `test_a_stock_image_is_hashed_to_its_end`.
+- `open_regular` refuses a path that is not a regular file without waiting, by what it opened,
+  whatever the path names afterwards. `write_private` creates each private copy exclusively, and
+  `remove_private` removes it or refuses, whatever error the removal meets. `PrivateDirectory`
+  names each private directory by 128 random bits, made absolute, refuses a path where anything
+  exists before the path is its own, then makes the directory, and removes it on every exit, an
+  interruption too. Its backstop removes it where no handler can, and warns of what it cannot
+  remove. The exit sweep removes, at the interpreter's exit, every directory still owned, also
+  when a second interruption stopped its backstop, and names what it cannot remove; a warning
+  that stderr cannot take raises nothing. A forked child owns none of its parent's directories.
+  `ZipCopy` copies the zip inside it, from a link to a regular file too, whatever its size.
+  Every caller of `ZipCopy`, `check_signature`, `check_vbmeta`, `rebuild_dynamic` and
+  `version_criterion.signed_tags` enter theirs in their `with` statement. Controls:
+  `test_the_private_copies_are_private_and_removed`,
+  `test_a_copy_that_fails_once_its_directory_exists_leaves_nothing`,
+  `test_an_interruption_at_any_boundary_of_the_copy_leaves_nothing`,
+  `test_an_interruption_that_no_handler_covers_leaves_nothing_once_it_went_on`,
+  `test_an_interruption_that_no_handler_covers_leaves_no_extracted_image`,
+  `test_an_interrupted_copy_that_cannot_be_removed_refuses`,
+  `test_a_private_directory_whose_path_exists_is_refused_and_left_alone`,
+  `test_a_path_that_exists_is_left_alone_wherever_an_interruption_comes`,
+  `test_a_path_that_another_makes_after_the_check_is_refused_and_left_alone`,
+  `test_the_private_directories_of_vbmeta_are_owned`,
+  `test_a_failed_copy_that_cannot_be_removed_refuses`,
+  `test_a_private_copy_that_cannot_be_removed_refuses`,
+  `test_a_path_that_is_not_a_regular_file_is_refused_without_waiting` in both files,
+  `test_a_device_replaced_by_a_regular_file_once_opened_is_refused`,
+  `test_every_private_copy_goes_when_a_check_raises`,
+  `test_a_zip_copy_that_cannot_be_removed_discards_the_kept_images`,
+  `test_extracted_images_that_cannot_be_removed_refuse_vbmeta`,
+  `test_an_io_error_that_keeps_the_copy_is_printed_as_a_refusal`,
+  `test_a_backstop_stopped_at_its_entry_leaves_its_directory_to_the_exit_sweep`,
+  `test_a_backstop_stopped_at_its_entry_leaves_no_extracted_image`,
+  `test_python_removes_at_its_exit_what_a_stopped_backstop_left`,
+  `test_python_removes_at_its_exit_the_extracted_images_that_a_stopped_backstop_left`,
+  `test_a_link_to_a_regular_zip_is_read_as_the_zip`,
+  `test_a_zip_with_a_member_larger_than_128_mib_is_checked_as_any_other`,
+  `test_a_kit_with_a_member_larger_than_128_mib_passes`,
+  `test_a_relative_scratch_directory_passes`, the tests of `PrivateDirectoryTests`, and in
+  `test_version_criterion.py`
+  `test_the_allowed_signers_copy_is_private_and_removed` and
+  `test_the_copy_that_decide_reads_is_removed`.
 
 ## The neverallow check
 
@@ -394,8 +512,9 @@ python3 -B $P/neverallow_check.py --build-tools "$OUT/host/linux-x86/bin" --base
   `debugfs` exits 0 even for a missing path, so any message besides its banner refuses.
 - `--official-kit` is the official GrapheneOS install zip of the base tag. `install_zip.py`'s
   checks must pass it for that tag: signature, allowed signers, `avb_pkmd.bin`,
-  `android-info.txt`, vbmeta, release identity and flash script. Its policy is read out of its
-  verified images the same way, and its hash pairs are checked as in step A.
+  `android-info.txt`, vbmeta, release identity and flash script, all on one private copy of the
+  kit, whose SHA-256 the report names. Its policy is read out of its verified images the same
+  way, and its hash pairs are checked as in step A.
 - `--release-record` is the build's release record, schema `andrix.caiman.release/1`, which the
   release wrapper of design item 6 is to complete: `base_tag`, `artifacts.install_zip.sha256`
   and `artifacts.expanded_rule_file.sha256`. The zip and `--expanded` must hash to these, and the
