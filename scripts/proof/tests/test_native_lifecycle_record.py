@@ -1212,7 +1212,9 @@ class LifecycleFloorTests(unittest.TestCase):
             path.unlink()
             by(path)
         # Each case: the starts it makes, as (argv, cwd, env), from a fresh layout's pinned copies,
-        # rebuild directory and command, the edit before them, and why its start is refused.
+        # rebuild directory and command, the edit made to that layout before the floor's assembly
+        # opens, and why its start is refused. A link made inside the assembly is refused as it is
+        # made; one laid out before it reaches the start's own checks.
         own = lambda pinned, directory, spec: (spec['argv'], spec['cwd'], None)  # noqa: E731
         command, copy = 'not the rebuild\'s own patch command', 'the patch input is not the scratch copy'
         cases = {
@@ -1246,8 +1248,9 @@ class LifecycleFloorTests(unittest.TestCase):
         for name, (starts, before, why) in cases.items():
             pinned, directory, spec = self.rebuild_layout()
             made = starts(pinned, directory, spec) if starts else (own(pinned, directory, spec),)
-            edit = (lambda before=before, p=pinned, d=directory: before(p, d)) if before else None
-            stand_in = self.rebuilding(spec, *made, before=edit, window=name != 'the start outside the rebuild')
+            if before:
+                before(pinned, directory)
+            stand_in = self.rebuilding(spec, *made, window=name != 'the start outside the rebuild')
             with self.subTest(case=name), mock.patch.object(runner, 'floor_candidate', stand_in), \
                     mock.patch.object(runner, 'floor_harness_source', harness):
                 with self.assertRaisesRegex(runner.FloorBypass, 'started a process past its loader and rebuild: .*'
@@ -1352,6 +1355,163 @@ class LifecycleFloorTests(unittest.TestCase):
                          ['git', '-C', str(ROOT), 'show', '%s:x' % runner.b1.FLOOR])
         self.assertEqual(runner.floor_git_command('list', 'y/')[0],
                          ['git', '-C', str(ROOT), 'ls-tree', '-r', '--name-only', runner.b1.FLOOR, 'y/'])
+
+    def repository_copy(self):
+        """A scratch repository standing in for this one, so that no test writes into the real
+        working tree: its Git directory borrows the repository's objects, the only thing the floor
+        reads from a repository, and its root holds a working tree file with B1's patch bytes,
+        which no floor input names. Returns its root, that file, and a patch of b1's ROOT and
+        CLOSED_ROOT under which the floor's checks run against that root."""
+        copy = scratch(self) / 'repository'
+        objects = runner.subprocess.run(['git', '-C', str(ROOT), 'rev-parse', '--git-path', 'objects'],
+                                        capture_output=True, text=True, check=True).stdout.strip()
+        runner.subprocess.run(['git', 'init', '--quiet', str(copy)], capture_output=True, check=True)
+        (copy / '.git/objects/info/alternates').write_text('%s\n' % (ROOT / objects))
+        living = copy / 'planted-living-floor.patch'
+        living.write_bytes(runner.b1.floor_bytes(runner.b1.NATIVE_PATCH))
+        return copy, living, mock.patch.multiple(runner.b1, ROOT=copy, CLOSED_ROOT=copy)
+
+    @staticmethod
+    def brought_in(living):
+        """Edits that bring a file into a rebuild's scratch directory and read it there: a hard
+        link to it, the file renamed into it and back, and a symbolic link to it, each with the
+        audit event that makes the name."""
+        def linked(directory):
+            os.link(living, directory / 'staging')
+            return (directory / 'staging').read_bytes()
+
+        def renamed(directory):
+            os.rename(living, directory / 'moved')
+            try:
+                return (directory / 'moved').read_bytes()
+            finally:
+                os.rename(directory / 'moved', living)
+
+        def symlinked(directory):
+            os.symlink(living, directory / 'pointer')
+            return (directory / 'pointer').read_bytes()
+        return (('hard linked into the scratch', linked, 'os.link'), ('renamed into the scratch', renamed, 'os.rename'),
+                ('a symbolic link to it in the scratch', symlinked, 'os.symlink'))
+
+    def test_nothing_is_linked_or_renamed_while_the_inputs_are_assembled(self):
+        candidate, harness = self.floor_stand_ins()
+        # The floor's checks run against a scratch repository whose working tree holds B1's bytes.
+        copy, living, against_copy = self.repository_copy()
+        held = living.read_bytes()
+        with against_copy:
+            # Control: the honest rebuild, its own start, passes.
+            pinned, directory, spec = self.rebuild_layout()
+            stand_in = self.rebuilding(spec, (spec['argv'], spec['cwd'], None))
+            with mock.patch.object(runner, 'floor_candidate', stand_in), \
+                    mock.patch.object(runner, 'floor_harness_source', harness):
+                reads = runner.floor_inputs(Path('unused'), Path('unused'))[3]
+            self.assertEqual((runner.floor_manifest_problems(reads), spec['started']), ([], 1))
+            # A working tree file holding B1's bytes, hard linked or renamed into the rebuild's
+            # scratch and read there before the rebuild's own start, or a symbolic link to it made
+            # there, is refused as the name is made: nothing is read, and the file stays put.
+            for name, edit, event in self.brought_in(living):
+                pinned, directory, spec = self.rebuild_layout()
+                before = (lambda edit=edit, directory=directory: edit(directory))
+                stand_in = self.rebuilding(spec, (spec['argv'], spec['cwd'], None), before=before)
+                with self.subTest(case=name), mock.patch.object(runner, 'floor_candidate', stand_in), \
+                        mock.patch.object(runner, 'floor_harness_source', harness):
+                    with self.assertRaisesRegex(runner.FloorBypass, 'made a link or renamed a path while its '
+                                                'inputs are assembled: ' + re.escape(event)):
+                        runner.floor_inputs(Path('unused'), Path('unused'))
+                    self.assertEqual((living.read_bytes(), spec['started']), (held, 0))
+                    self.assertEqual(sorted(path.name for path in directory.iterdir()), ['floor.patch', 'tree'])
+        # The same holds while the inputs are assembled outside the rebuild: a rename in the sealed
+        # assembly is refused too.
+        elsewhere = scratch(self)
+        (elsewhere / 'a').write_bytes(b'x')
+
+        def renaming(settings):
+            os.rename(elsewhere / 'a', elsewhere / 'b')
+            return harness(settings)
+        with mock.patch.object(runner, 'floor_candidate', candidate), \
+                mock.patch.object(runner, 'floor_harness_source', renaming):
+            with self.assertRaisesRegex(runner.FloorBypass, 'made a link or renamed a path .*: os.rename'):
+                runner.floor_inputs(Path('unused'), Path('unused'))
+        self.assertEqual(sorted(path.name for path in elsewhere.iterdir()), ['a'])
+        self.assertEqual((runner._FLOOR_ACTIVE, runner._FLOOR_LOADER, runner._FLOOR_REBUILD, runner._FLOOR_EXEC),
+                         ([], [], [], []))
+        # Outside the floor's assembly the same names are no concern of its guard.
+        os.link(elsewhere / 'a', elsewhere / 'c')
+        self.assertEqual((elsewhere / 'c').read_bytes(), b'x')
+
+    def test_an_exec_is_admitted_only_as_its_starts_very_next_event(self):
+        harness = self.floor_stand_ins()[1]
+        argv, env = runner.floor_git_command('show', runner.b1.NATIVE_PATCH)
+        base, here = scratch(self), os.getcwd()
+        empty = base / 'empty'
+        empty.mkdir()
+        other = {'PATH': os.environ['PATH'], 'GIT_DIR': str(base / 'no-such-repository')}
+        # The child opens its own output, which is no path this process opens.
+        quiet = [(os.POSIX_SPAWN_OPEN, descriptor, os.devnull, os.O_WRONLY, 0) for descriptor in (1, 2)]
+
+        def spawned(environment, directory=None):
+            """A raw posix_spawnp of Git with the reader's own argv for B1's patch."""
+            if directory:
+                os.chdir(directory)
+            try:
+                os.waitpid(os.posix_spawnp('git', argv, environment, file_actions=quiet), 0)
+            finally:
+                os.chdir(here)
+
+        def later(environment, directory=None, between=None):
+            """In the rebuild, the floor loader's admitted Git start for B1's patch, then between,
+            then that raw spawn from directory."""
+            def edit(scratch_directory, spec):
+                runner.b1.floor_bytes(runner.b1.NATIVE_PATCH)
+                if between:
+                    between(scratch_directory)
+                spawned(environment, directory)
+            return edit
+
+        def raised(environment=None, directory=None):
+            """The rebuild's own start and an exec of it, raised by hand as subprocess raises them
+            for a start it runs with posix_spawn: the start, then at once the exec, from directory,
+            the start's own working directory unless named. No start of the floor raises an exec
+            today."""
+            def edit(scratch_directory, spec):
+                os.chdir(directory or spec['cwd'])
+                try:
+                    sys.audit('subprocess.Popen', runner.FLOOR_PATCH_TOOL, spec['argv'], spec['cwd'], None)
+                    sys.audit('os.posix_spawn', runner.FLOOR_PATCH_TOOL, spec['argv'], environment)
+                finally:
+                    os.chdir(here)
+            return edit
+        # Controls: the honest rebuild with its own start, and that start with its own exec as the
+        # very next event, in its environment and working directory.
+        for name, starts, edit in (('the honest rebuild', 1, None), ('its own exec as the next event', 0, raised())):
+            pinned, directory, spec = self.rebuild_layout()
+            before = edit and (lambda edit=edit, directory=directory, spec=spec: edit(directory, spec))
+            stand_in = self.rebuilding(spec, *[(spec['argv'], spec['cwd'], None)] * starts, before=before)
+            with self.subTest(control=name), mock.patch.object(runner, 'floor_candidate', stand_in), \
+                    mock.patch.object(runner, 'floor_harness_source', harness):
+                reads = runner.floor_inputs(Path('unused'), Path('unused'))[3]
+                self.assertEqual((runner.floor_manifest_problems(reads), spec['started']), ([], 1))
+        # A later raw spawn with the argv of the reader's start just admitted, from another
+        # environment and directory, or with its own environment and directory after another event,
+        # and the rebuild's exec as the next event but with another environment or directory: each
+        # is refused, and starts nothing.
+        cases = {'a later spawn, another environment and directory': later(other, empty),
+                 'a later spawn, the same command after another event': later(
+                     env, between=lambda scratch_directory: (scratch_directory / 'floor.patch').read_bytes()),
+                 'the next exec with another environment': raised(other),
+                 'the next exec from another directory': raised(directory=empty)}
+        for name, edit in cases.items():
+            pinned, directory, spec = self.rebuild_layout()
+            before = (lambda edit=edit, directory=directory, spec=spec: edit(directory, spec))
+            stand_in = self.rebuilding(spec, before=before)
+            with self.subTest(case=name), mock.patch.object(runner, 'floor_candidate', stand_in), \
+                    mock.patch.object(runner, 'floor_harness_source', harness):
+                with self.assertRaisesRegex(runner.FloorBypass, 'started a process past its loader and rebuild: '
+                                            '.*not the exec of the start just admitted'):
+                    runner.floor_inputs(Path('unused'), Path('unused'))
+        self.assertEqual(os.getcwd(), here)
+        self.assertEqual((runner._FLOOR_ACTIVE, runner._FLOOR_LOADER, runner._FLOOR_REBUILD, runner._FLOOR_EXEC),
+                         ([], [], [], []))
 
     def test_the_floor_compiles_exactly_the_bytes_its_loader_checked(self):
         sources = runner.floor_compile_sources()
@@ -1555,6 +1715,45 @@ class LifecycleFloorTests(unittest.TestCase):
         self.assertEqual(runner.floor_compile_problems({name: runner.sha(data) for name, data in changed.items()}),
                          ['the floor compile set differs from its pinned inputs: '
                           "['framework/NativeIdentityStore.java']"])
+        # On the real rebuild too, the normal pinned rebuild above its control: a later raw spawn of
+        # Git with the argv of the reader's last start, for B1's profile, from another environment
+        # and directory, is refused.
+        rebuild, empty = runner.b1.floor_patch_outputs, scratch(self)
+        other = {'PATH': os.environ['PATH'], 'GIT_DIR': str(empty / 'no-such-repository')}
+        profile_argv = runner.floor_git_command('show', runner.b1.NATIVE_PROFILE)[0]
+
+        def spawned(directory):
+            here = os.getcwd()
+            os.chdir(empty)
+            try:
+                os.waitpid(os.posix_spawnp('git', profile_argv, other, file_actions=[
+                    (os.POSIX_SPAWN_OPEN, descriptor, os.devnull, os.O_WRONLY, 0) for descriptor in (1, 2)]), 0)
+            finally:
+                os.chdir(here)
+
+        def edited(edit):
+            """b1's own rebuild step, after an edit made inside it."""
+            def patch_outputs(pinned_copies, value, directory):
+                edit(directory)
+                return rebuild(pinned_copies, value, directory)
+            return mock.patch.object(runner.b1, 'floor_patch_outputs', patch_outputs)
+        with self.subTest(case='a later raw spawn from another environment and directory'), edited(spawned):
+            with self.assertRaisesRegex(runner.FloorBypass, 'not the exec of the start just admitted'):
+                runner.floor_inputs(pinned, scratch(self) / 'spawned')
+        # Against a scratch repository whose working tree holds B1's patch bytes, the real rebuild
+        # passes, and that file, brought into the rebuild's scratch and read there, is refused as
+        # its name is made.
+        copy, living, against_copy = self.repository_copy()
+        with against_copy:
+            reads = runner.floor_inputs(pinned, scratch(self) / 'in-the-copy')[3]
+            self.assertEqual((runner.floor_manifest_problems(reads), reads['outside']), ([], []))
+            self.assertEqual({key: len(reads[key]) for key in ('floor', 'git', 'trees', 'listed')}, predicted['calls'])
+            for name, edit, event in self.brought_in(living):
+                with self.subTest(case=name), edited(edit):
+                    with self.assertRaisesRegex(runner.FloorBypass, 'made a link or renamed a path while its '
+                                                'inputs are assembled: ' + re.escape(event)):
+                        runner.floor_inputs(pinned, scratch(self) / 'brought-in')
+        self.assertEqual(living.read_bytes(), runner.b1.floor_bytes(runner.b1.NATIVE_PATCH))
         # A wrong patch fails the ten candidate checks, another format the boot read check, and a
         # harness that is not the pinned one is refused.
         current, original = runner.integration.PATCH.read_bytes(), runner.b1.git_bytes

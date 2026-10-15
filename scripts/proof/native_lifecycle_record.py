@@ -1941,11 +1941,16 @@ def rollback_inputs(pinned, scratch):
 # facade and stubs, that harness, B1's test supports and B1's own reader check. Every Git call is
 # attributed to the floor loader call that made it. Each process start must be the Git reader's
 # own command for that call, or the rebuild's own patch command, with everything its child can
-# read checked as it starts, and the rebuild may read only the pinned copies and its scratch. Any
-# other call, start or read raises, so the call record holds every input; and the compile set
-# must be exactly the bytes the loader checked. The model runs under Format.V2, the format of
-# B1's boot read, over every emitted lifecycle layout, beside the current sources' readers and the
-# older models.
+# read checked as it starts; an exec it raises is admitted only as the very next event, with that
+# start's program, argv, environment and working directory. The rebuild may read only the pinned
+# copies and its scratch, and while the inputs are assembled no path may be linked or renamed, so
+# no other file can be brought into that scratch and read there. Any other Git call, and any other
+# audited process start or open, listing or glob of a path, raises, so the call record holds every
+# input; and the compile set must be exactly the bytes the loader checked. These checks watch only
+# the window in which the inputs are assembled: bytes read, or a file opened, before it begins are
+# outside them, even when used inside it. The review of the floor's code covers that. The model
+# runs under Format.V2, the format of B1's boot read, over every emitted lifecycle layout, beside
+# the current sources' readers and the older models.
 FLOOR_FORMAT = 'V2'
 FLOOR_STEPS = ('floor',)
 FLOOR_FRAMEWORK = ('NativePrincipalPins', 'NativePrincipalManager', 'NativeIdentityRecords', 'NativeIdentityStore',
@@ -2192,8 +2197,8 @@ def floor_model_files(settings):
 
 
 class FloorBypass(b1.WorktreeRead):
-    """A Git read, path read or process start past the floor loader and the candidate rebuild while
-    the floor's inputs are assembled."""
+    """A Git read, path read or process start past the floor loader and the candidate rebuild, or a
+    link or rename, while the floor's inputs are assembled."""
 
 
 # The candidate rebuild's patch tool and its options, as b1's floor rebuild starts it.
@@ -2201,12 +2206,16 @@ FLOOR_PATCH_TOOL = '/usr/bin/patch'
 FLOOR_PATCH_OPTIONS = ('--batch', '--forward', '--fuzz=0', '--no-backup-if-mismatch', '-p1')
 # While floor_inputs assembles the floor's inputs: whether it runs; the active floor loader call,
 # with its kind, its key, and its Git calls and process starts so far; while B1's patch rebuilds
-# the candidate, the one rebuild command it may start and the paths it may read; and the exec of
-# a start just admitted, which the same start may still raise.
+# the candidate, the one rebuild command it may start and the paths it may read; and what the
+# exec of a start just admitted must be, which holds for the very next event alone.
 _FLOOR_ACTIVE = []
 _FLOOR_LOADER = []
 _FLOOR_REBUILD = []
 _FLOOR_EXEC = []
+# The audit events of making a hard or symbolic link and of renaming a path, os.replace and
+# shutil.move included. Assembling the floor's inputs makes none, so none may bring a file into
+# the rebuild's scratch, where its reads are admitted.
+FLOOR_LINK_EVENTS = frozenset({'os.link', 'os.rename', 'os.symlink'})
 
 
 def floor_git_command(kind, key):
@@ -2284,19 +2293,32 @@ def floor_rebuild_problems(spec):
     return problems
 
 
-def _floor_start(event, args):
+def _floor_child(program, argv, env, cwd):
+    """What a child process runs: its program, argv, environment and working directory, the
+    runner's own environment and directory where the start names none. Reading either raises no
+    audit event; a directory that cannot be read is None and matches nothing."""
+    try:
+        directory = os.getcwd() if cwd is None else os.fsdecode(cwd)
+    except OSError:
+        directory = None
+    return (os.fsdecode(program), [os.fsdecode(item) for item in argv],
+            dict(os.environ) if env is None else dict(env), directory)
+
+
+def _floor_start(event, args, admitted):
     """Admit a process start only when it is the Git reader's own command for the active floor
     loader call, once per call, or the rebuild's own patch command, once, with everything its child
-    can read checked as it starts, and the exec that such an admitted start raises. Refuse every
-    other start, naming why."""
-    admitted = _FLOOR_EXEC[:]
-    del _FLOOR_EXEC[:]
+    can read checked as it starts, and the exec of such a start only as the very next event, with
+    that start's program, argv, environment and working directory: admitted holds what that exec
+    must be, if the event before was such a start. Refuse every other start, naming why."""
     why = 'outside a loader call and the rebuild'
     try:
         if event == 'os.posix_spawn':
-            if admitted and (os.fsdecode(args[0]), [os.fsdecode(item) for item in args[1]]) == admitted[0]:
+            child = _floor_child(args[0], args[1], args[2], None)
+            if admitted and child == admitted[0] and child[3] is not None:
                 return
-            why = 'not the exec of the start just admitted'
+            why = ('not the exec of the start just admitted: the very next event, with its program, argv, '
+                   'environment and directory')
         elif event == 'subprocess.Popen' and len(args) == 4 and isinstance(args[1], (list, tuple)):
             executable = None if args[0] is None else os.fsdecode(args[0])
             argv, cwd, env = [os.fsdecode(item) for item in args[1]], args[2], args[3]
@@ -2309,7 +2331,7 @@ def _floor_start(event, args):
                     why = 'not the Git reader\'s own command for %s %s' % (call['kind'], call['key'])
                 else:
                     call['started'] += 1
-                    _FLOOR_EXEC.append((executable, argv))
+                    _FLOOR_EXEC.append(_floor_child(executable, argv, env, cwd))
                     return
             elif _FLOOR_REBUILD and not b1._LOADER:
                 spec = _FLOOR_REBUILD[-1]
@@ -2321,7 +2343,7 @@ def _floor_start(event, args):
                     why = '; '.join(floor_rebuild_problems(spec))
                     if not why:
                         spec['started'] += 1
-                        _FLOOR_EXEC.append((executable, argv))
+                        _FLOOR_EXEC.append(_floor_child(executable, argv, env, cwd))
                         return
         else:
             why = 'a start the floor never makes'
@@ -2352,17 +2374,24 @@ def _floor_read(event, args):
 
 
 def _floor_audit(event, args):
-    """While the floor's inputs are assembled, every process start and path read must be one that
-    the floor admits by its exact command or path; any other raises FloorBypass. The sealed assembly
-    refuses starts and reads past the Git reader already, but admits whatever that reader's flag
-    covers; this binds the reader's starts to its own commands, and covers the candidate rebuild
-    too, which runs the patch tool and so cannot be sealed."""
+    """While the floor's inputs are assembled, every audited process start and path read must be
+    one that the floor admits by its exact command or path, and no path may be linked or renamed;
+    any other raises FloorBypass. The sealed assembly refuses starts and reads past the Git reader
+    already, but admits whatever that reader's flag covers; this binds the reader's starts to its
+    own commands, and covers the candidate rebuild too, which runs the patch tool and so cannot be
+    sealed."""
     if not _FLOOR_ACTIVE:
         return
+    # What the exec of a start just admitted must be holds for the very next event alone.
+    admitted = _FLOOR_EXEC[:]
+    del _FLOOR_EXEC[:]
     if event in b1.SPAWN_EVENTS:
-        _floor_start(event, args)
+        _floor_start(event, args, admitted)
     elif event in b1.READ_EVENTS:
         _floor_read(event, args)
+    elif event in FLOOR_LINK_EVENTS:
+        raise FloorBypass('the floor made a link or renamed a path while its inputs are assembled: %s %s'
+                          % (event, list(args)[:2]))
     elif event.startswith('socket.') or event in ('urllib.Request', 'http.client.connect'):
         # No input of the floor comes from the network.
         raise FloorBypass('the floor reached the network while its inputs are assembled: %s' % event)
@@ -2375,9 +2404,11 @@ def floor_inputs(pinned, scratch):
     """The floor model's candidate Settings, its ten output digests, its compile set and the record
     of every call: each floor input and tree the loader read, and each Git object read and tree
     listing, beside the loader call that made it. A Git call that is not the active loader call's
-    own, once, for its own path, raises FloorBypass, as does any process start or path read that the
-    floor does not admit by its exact command or path, so every Git read passes through the floor
-    loader and the rebuild reads only its checked inputs. The candidate is rebuilt in scratch."""
+    own, once, for its own path, raises FloorBypass, as does any audited process start or path read
+    that the floor does not admit by its exact command or path, and any link or rename, so every
+    Git read passes through the floor loader and the rebuild reads only its checked inputs. The
+    candidate is rebuilt in scratch. The checks watch this call alone: bytes read, or a file
+    opened, before it begins are outside them, even when used inside it."""
     reads = {'floor': [], 'trees': [], 'git': [], 'listed': [], 'outside': []}
     loader, tree_loader, git, git_list = b1.floor_bytes, b1.floor_paths, b1.git_bytes, b1.git_paths
 

@@ -2528,9 +2528,12 @@
         "A Git start must be the reader's own command and environment for its loader call, once.",
         "The rebuild's patch start must be its own command, once: argv, input and directory.",
         "As it starts, its input holds B1's pinned patch, its tree the pinned upstream copies.",
+        "An exec is admitted only as the very next event after a start that was admitted.",
+        "That exec must have the start's program, argv, environment and working directory.",
         "Python reads: only the pinned copies and the scratch, in the rebuild, by absolute path.",
+        "Making a hard or symbolic link, or renaming a path, raises; the floor itself makes none.",
         "No input comes from the network: a socket or a request raises.",
-        "Any other process start or path read raises, naming why.",
+        "Any other audited process start, or open, listing or glob of a path, raises, naming why.",
         "An unpinned input, or a stub tree with a file the manifest lacks, is refused.",
         "An altered stub, patch or profile is drift and refused.",
         "A wrong patch fails the ten candidate checks of the floor profile.",
@@ -2538,6 +2541,11 @@
         "A floor format other than the previous format is refused.",
         "A compile set that is not exactly the pinned bytes is refused before and after the build.",
         "The record holds every call: Git reads must equal the loader reads as multisets."
+      ],
+      "window": [
+        "Checks of calls, starts, reads, links and the network watch the inputs' assembly alone.",
+        "Bytes read, or a file opened, before it begins are outside them, even if used inside it.",
+        "The review of the floor's code covers what that code does before it."
       ]
     },
     "footprint_entries": 2374,
