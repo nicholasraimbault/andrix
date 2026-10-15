@@ -171,9 +171,15 @@ clear and uninstall were refused. ART treats a deferred package as not installed
 compiled code; the APK and data stay, and that cache regenerates. Two checks of the evidence itself
 were corrected and independently reviewed during the runs: a fresh guest's first phase now inherits
 the first boot's settings warnings, and an ambiguous record of the host stop is read from its raw
-capture. The settings loss trial did not run. Its fixture correctly refuses to remove the test
-package's setting, because that package alone holds its signing key set, which removing the setting
-alone would orphan. Settings loss, and allocation after it, remain to be observed.
+capture. The first settings loss trial stopped before any change: its fixture correctly refused
+to remove the test package's setting alone, because that package alone held its signing key set. The
+fixture now removes the setting together with the key sets and keys only it holds, as Android's
+own removal of a package does, and admits only the settings shapes Android's writer leaves. A sixth
+guest then ran that sequence again, and every phase passed as predicted. With its setting lost, the
+package was found missing and ignored at boot, its code and data kept and its UID still held and
+empty. Its reinstall was refused, and an ordinary install took exactly the next free ID. On this
+image a lost mapping strands an account's UID and data safely, without restoring them. Every planned
+session of the guest stage has now run.
 
 The [installer durability assessment](2026-09-27-package-installer-durability.md) retains an
 unclean stop failure and a separate Android file comparison. The checked writing descriptor sync
