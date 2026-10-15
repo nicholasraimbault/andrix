@@ -347,7 +347,12 @@ from the store's and the broker's own records. The broker launches only the cros
 names. It restarts the framework only when one whole session listing shows nothing committed,
 settles each restart within a hard bound, keeps every record a crossing relies on before the launch,
 reads the native target scope as its own group, and makes its ledger durable again at each opening.
-The first guest of the fault matrix, one boot that never commits or reboots, comes next. The
+The first guest of the fault matrix ran, one boot that never commits or reboots. Its host side and
+the broker's reads worked on the real image and kept their evidence, but the shell cannot restart
+the framework there: `am restart` also needs the shutdown permission, which the shell lacks, so no
+loss cell ran. The run's closure first failed it on a disk rule that real QEMU never meets.
+Corrected and independently reviewed, it finds the run's records and completed phases sound. The
+loss cells move to the next guest, which confirms each loss with a plain reboot instead. The
 rollback target waits for qualified candidate floor images, before the device coordinator.
 
 ## Product checkpoint
