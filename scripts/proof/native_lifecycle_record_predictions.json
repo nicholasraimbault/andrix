@@ -1556,6 +1556,7 @@
       "candidate",
       "codec",
       "reads",
+      "dump",
       "store",
       "transactions",
       "faults",
@@ -1566,6 +1567,12 @@
       "rollback",
       "readers",
       "mutants"
+    ],
+    "phases_correction": [
+      "Corrected at B2 checkpoint 2.",
+      "P7 added the dump phase after reads, but did not name it here.",
+      "A guarded run must complete that phase before it can pass.",
+      "The list now names it. No case, count or result changes."
     ],
     "labels": {
       "pinned": [
