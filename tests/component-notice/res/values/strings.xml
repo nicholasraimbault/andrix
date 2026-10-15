@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<resources>
+    <string name="app_name">Andrix notice fixture</string>
+    <string name="title_notice">Device restart notice</string>
+    <string name="title_qualification">Notice screen check</string>
+    <string name="challenge_label">Challenge</string>
+    <string name="interruption_notice">This device restarts after a short delay, and every user
+        is interrupted. No action is needed. Closing this screen does not stop the restart.</string>
+    <string name="interruption_qualification">This is a check of the notice screen. No restart
+        follows from it.</string>
+    <string name="component_label">Component: %1$s</string>
+    <string name="plan_label">Plan %1$s, ticket %2$s, entry %3$d</string>
+    <string name="control_label">Control %1$s</string>
+    <string name="text_sha256_label">Notice text SHA-256: %1$s</string>
+</resources>

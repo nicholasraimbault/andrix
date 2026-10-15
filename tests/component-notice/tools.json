@@ -1,0 +1,10 @@
+{
+  "prebuilts/jdk/jdk25/linux-x86/bin/javac": "a5f3fb28e08804fb3bc55522625e7dff9c686172aac7f7067b1d839297c73001",
+  "prebuilts/jdk/jdk25/linux-x86/bin/java": "6ba1442aa35cbaeeff58ea4cedb224cb27bf07bb2f0adb18402ac5421a0364ec",
+  "prebuilts/jdk/jdk25/linux-x86/bin/jar": "c58d4ff66459717b22c2eabacf1ae7bff929be9f08e1efb368eca9beb253e0f7",
+  "prebuilts/sdk/36/public/android.jar": "d9eb9da824d9e247a352f570f01e1169e725b2954bca9e283a71786c59b59f9a",
+  "prebuilts/sdk/tools/linux/bin/aapt2": "3f7b9e7b6568c08aea46dac795a66af6b98d9dbb959b6282149c434e4d210df8",
+  "prebuilts/sdk/tools/linux/bin/zipalign": "2f5ebdded1fe910913926ac486c4cf3eef9874c6a7a1d1480875c9375a478ca4",
+  "prebuilts/r8/r8.jar": "49a6139b96a272482570cb8f32685cc89c27f2457e5d0ec9f447689e52ec9779",
+  "prebuilts/sdk/tools/linux/lib/apksigner.jar": "8b1c3da45925931bc8fdd075d328cd0618e97e42eedefd28eeee1fd50d36fd7a"
+}

@@ -1,0 +1,38 @@
+{
+  "apk": {
+    "aligned_unsigned_sha256": "7b558b7f345803a16ed126649f2e607443eb29b7d5c40aec8542e5922b09e2eb",
+    "classes_dex_sha256": "b92ab63af16e33112746c5235abdb9d012323e22230f9506d7bd46fc583beeba",
+    "resources_sha256": "43e70d8d8899ebca362b506a1a36ae3f44e9be819b6575332119a609329a6c57"
+  },
+  "binder": {
+    "aidl": "frameworks/base/core/java/android/app/IActivityTaskManager.aidl",
+    "lines": [
+      114,
+      117
+    ],
+    "lines_sha256": "caf2bf0986d9bf923c2abd156ebfea0c0c0fe8024e3ec5188265898b45719f41",
+    "method": "startActivityAndWait",
+    "parameters": [
+      "android.app.IApplicationThread",
+      "java.lang.String",
+      "java.lang.String",
+      "android.content.Intent",
+      "java.lang.String",
+      "android.os.IBinder",
+      "java.lang.String",
+      "int",
+      "int",
+      "android.app.ProfilerInfo",
+      "android.os.Bundle",
+      "int"
+    ],
+    "returns": "android.app.WaitResult"
+  },
+  "helper_jar": {
+    "bytes": 18064,
+    "dex_sha256": "94a6774986bbcd6129dd410218a64fa1c7d04efd34dd6d8dbc9ffb036b9a4e64",
+    "name": "andrix-notice-present.jar",
+    "sha256": "2b39f2d9b344d6043d9e2a3b7e464ce67b3ed20db7160331b5d5a654a6836a3f"
+  },
+  "schema": "andrix-notice-fixture-pins-v1"
+}

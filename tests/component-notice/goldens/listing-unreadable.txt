@@ -1,0 +1,2 @@
+andrix-notice-store-v1 user=10 serial=5 uid=1010123 status=UNREADABLE
+end rows=0 corrupt=0 partial=0 listing=cf9500bdda4e3bca39d3b3e9293971c744849e12f2038c3f1ee71348b819025a

@@ -1,0 +1,2 @@
+andrix-notice-store-v1 user=10 serial=5 uid=1010123 status=ABSENT
+end rows=0 corrupt=0 partial=0 listing=507f530e05aed80643522ed563d60c9e1753476f3ad3fb04199c2b1732299dfe
