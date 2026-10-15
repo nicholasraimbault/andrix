@@ -1150,11 +1150,12 @@ CONSTRUCTION = ('        mNativeIdentityStore = new NativeIdentityStore(\n'
                 '                new File(Environment.getDataSystemDirectory(), "native-principals"),\n'
                 '                ')
 BOOT_END = '        mNativeIdentityPersistence = new NativeIdentityPersistence(mNativeIdentityStore);\n'
-# The format the boot construction passes, and the format of the earlier normal images.
-PRODUCTION = 'NativeIdentityStore.Format.V2'
+# The format the boot construction passes: the lifecycle format, which reads version 2 slots as
+# supported state. Production refuses the earlier formats: the previous one, which the images up to
+# B1's, the rollback floor, pass, and the retired one of the images before the version 2 store.
+PRODUCTION = 'NativeIdentityStore.Format.V3'
+PREVIOUS = 'NativeIdentityStore.Format.V2'
 RETIRED = 'NativeIdentityStore.Format.V1'
-# The lifecycle format, which reads and writes version 2 slots. No production text constructs it in B1.
-NEW_FORMAT = 'NativeIdentityStore.Format.V3'
 # The store's whole Format enum, comments aside: three closed versions fixed at construction, each with
 # its header ceiling, its reservation version and its slot ceiling.
 FORMAT_ENUM = ('enum Format { V1(1, 1, 1), V2(2, 2, 1), V3(2, 2, 2); final int headerCeiling;'
@@ -1180,7 +1181,7 @@ CONSTRUCTIONS = (java_creation('NativeIdentityStore'), java_constructor_referenc
 # printable ASCII.
 UNICODE_ESCAPE = r'\\+u+'
 # The guard's rules, by the name each violation starts with.
-FORMAT_RULES = ('sites', 'format', 'v1', 'v3', 'mention', 'selector', 'enum', 'escape')
+FORMAT_RULES = ('sites', 'format', 'v1', 'v2', 'mention', 'selector', 'enum', 'escape')
 HUNK = re.compile(r'@@ -[0-9]+(?:,([0-9]+))? \+[0-9]+(?:,([0-9]+))? @@')
 
 
@@ -1294,12 +1295,12 @@ def enum_definition(text):
 def format_violations(texts):
     """Every production format violation, as 'rule: detail'.
 
-    sites: exactly one store construction and one Format.V2 in all production texts, both the
+    sites: exactly one store construction and one Format.V3 in all production texts, both the
     anchored boot construction in readNativeIdentityStoreForBoot of the native patch's Settings
     section. A qualified construction or a constructor reference is a construction too. format:
-    that construction passes exactly Format.V2. v1: no production text names Format.V1 or imports
-    the enum's constants by wildcard. v3: no production text names Format.V3, the lifecycle format
-    that B1 builds but never constructs. mention: only the native helpers and the native patch name
+    that construction passes exactly Format.V3. v1: no production text names Format.V1 or imports
+    the enum's constants by wildcard. v2: no production text names Format.V2, the format that the
+    images up to B1's passed. mention: only the native helpers and the native patch name
     NativeIdentityStore. selector: no value, property, settings, reflection or enum selection,
     with the wider set in the native sources. enum: the store's Format enum is exactly its three
     closed versions with their header and slot ceilings. escape: no production text carries a Java
@@ -1325,15 +1326,14 @@ def format_violations(texts):
                 if not (here and found.start() == construction):
                     problems.append('sites: %s constructs a store outside the boot read: %s'
                                     % (name, ' '.join(found.group(0).split())))
-        for found in re.finditer(r'\bFormat\s*\.\s*V2\b', text):
+        for found in re.finditer(r'\bFormat\s*\.\s*V3\b', text):
             if not (here and found.start() == literal):
-                problems.append('sites: %s names Format.V2 outside the boot construction' % name)
+                problems.append('sites: %s names Format.V3 outside the boot construction' % name)
         for pattern in (r'\bFormat\s*\.\s*V1\b', r'\bimport\s+static\s+[\w.]*\bFormat\s*\.\s*\*'):
             for found in re.finditer(pattern, text):
                 problems.append('v1: %s names the retired format: %s' % (name, found.group(0)))
-        for found in re.finditer(r'\bFormat\s*\.\s*V3\b', text):
-            problems.append('v3: %s names the lifecycle format, which production does not construct: %s'
-                            % (name, found.group(0)))
+        for found in re.finditer(r'\bFormat\s*\.\s*V2\b', text):
+            problems.append('v2: %s names the previous format: %s' % (name, found.group(0)))
         if (re.search(r'\bNativeIdentityStore\b', text) and name not in NATIVE_HELPERS
                 and not name.startswith(NATIVE_PATCH + ':')):
             problems.append('mention: %s names NativeIdentityStore outside the native helpers and patch'
@@ -1384,15 +1384,104 @@ def facade_default(text=None):
     return found[0]
 
 
-def r0_forward(text):
-    """The text with the earlier images' boot literal Format.V1 replaced by Format.V2: the whole R0
-    change of the native patch and of the adapted Settings, and the code change of the host
-    facade's default. None unless exactly one earlier literal and no production literal occur.
-    Historical comparisons use it to allow exactly that change and nothing else."""
-    old, new = RETIRED + ');', PRODUCTION + ');'
+def b2_forward(text):
+    """The text with the floor's boot literal Format.V2 replaced by Format.V3: the whole B2 change
+    of the native patch and of the adapted Settings, and the code change of the host facade's
+    default. None unless exactly one previous literal and no production literal occur. Comparisons
+    with B1's floor use it to allow exactly that change and nothing else."""
+    old, new = PREVIOUS + ');', PRODUCTION + ');'
     if text.count(old) != 1 or text.count(new):
         return None
     return text.replace(old, new, 1)
+
+
+# B1's image, the rollback floor, whose boot read constructs Format.V2. Its native patch, profile,
+# host facade and store helper are read from their Git objects at its revision, never from the
+# working tree, each with its pin here. The forward rule gives the current patch from the floor's
+# byte for byte, and the current adapted Settings from the floor's, rebuilt from the pinned
+# canonical copies.
+FLOOR = 'da790b1748b14cfa7cec1db4ee44b20f608bdf5a'
+NATIVE_PROFILE = 'patches/grapheneos-2026081300/native-principal-pins.json'
+FLOOR_SHA256 = {NATIVE_PATCH: '59300e3d12a59dcb33acadc104894fd4b015e9fcc14bf456a09a07aee015a04e',
+                NATIVE_PROFILE: '37e180b0b4bf7576aee23be6d7298c4c1af9e1037688523be56c20d59547d8f2',
+                FACADE: 'a314430a8f0970cfae1cf8df3e5f1532da7b5eb91e3a206b642c20bc332b5dd1',
+                STORE: 'e4cd321662733cc781566689e9c0436d7865010ce446548e5fea9ffbd7b85c57'}
+# The floor's adapted Settings, as its pinned profile states it.
+FLOOR_SETTINGS_SHA256 = '4d851032afedd43ddadacdbc026ac62e0ea22c218a8fb0c8f59a70d67a452eeb'
+
+
+def floor_bytes(path):
+    """One input of B1's floor: its Git object at the floor revision, refused unless pinned here
+    with that SHA-256. The working tree is never read."""
+    digest = FLOOR_SHA256.get(path)
+    if digest is None:
+        raise ValueError('unpinned floor input: ' + path)
+    data = git_bytes(FLOOR, path)
+    if sha(data) != digest:
+        raise ValueError('floor input drift: ' + path)
+    return data
+
+
+def floor_outputs(pinned):
+    """The floor's ten framework outputs: its patch, read from its Git object, applied to the pinned
+    canonical copies as the profile tool applies the current patch, each output checked against the
+    candidate of the floor's pinned profile. Pure patch reproduction; no compiler."""
+    value = json.loads(floor_bytes(NATIVE_PROFILE))
+    if ([row['path'] for row in value['files']] != list(integration.FILES)
+            or [row['candidate_sha256'] for row in value['files'] if row['path'] == integration.SETTINGS]
+            != [FLOOR_SETTINGS_SHA256]):
+        raise ValueError('floor profile drift')
+    with tempfile.TemporaryDirectory(prefix='andrix-b2-floor-') as directory:
+        tree, patch = Path(directory) / 'tree', Path(directory) / 'floor.patch'
+        patch.write_bytes(floor_bytes(NATIVE_PATCH))
+        for row in value['files']:
+            source = pinned / row['path']
+            if source.is_symlink() or not source.is_file():
+                raise ValueError('pinned framework copy missing: ' + row['path'])
+            data = source.read_bytes()
+            if sha(data) != row['upstream_sha256']:
+                raise ValueError('wrong pinned input: ' + row['path'])
+            (tree / row['path']).parent.mkdir(parents=True, exist_ok=True)
+            (tree / row['path']).write_bytes(data)
+        result = subprocess.run(['/usr/bin/patch', '--batch', '--forward', '--fuzz=0', '--no-backup-if-mismatch',
+                                 '-p1', '-i', str(patch)], cwd=tree, capture_output=True, timeout=30)
+        if result.returncode:
+            raise ValueError('floor patch failed: ' + result.stderr.decode(errors='replace'))
+        if ({path.relative_to(tree).as_posix() for path in tree.rglob('*') if path.is_file()} != set(integration.FILES)
+                or any(path.is_symlink() for path in tree.rglob('*'))):
+            raise ValueError('unexpected floor patch output')
+        output = {row['path']: (tree / row['path']).read_bytes() for row in value['files']}
+    for row in value['files']:
+        if sha(output[row['path']]) != row['candidate_sha256']:
+            raise ValueError('floor candidate drift: ' + row['path'])
+    return output
+
+
+def floor_forward(pinned):
+    """B2 against B1's floor over the pinned canonical copies: the current ten outputs, each the
+    current profile's candidate, beside the floor's. The forward rule gives the current adapted
+    Settings from the floor's, and every other output is equal. Returns the record and its
+    problems."""
+    value = integration.profile()
+    original = {}
+    for row in value['files']:
+        path = pinned / row['path']
+        if path.is_symlink() or not path.is_file():
+            raise ValueError('pinned framework copy missing: ' + row['path'])
+        original[row['path']] = path.read_bytes()
+    current, floor = integration.targets(original, value), floor_outputs(pinned)
+    old, new = floor[integration.SETTINGS], current[integration.SETTINGS]
+    forwarded = b2_forward(old.decode())
+    record = {'revision': FLOOR, 'outputs': {name: sha(floor[name]) for name in integration.FILES},
+              'differing': sorted(name for name in integration.FILES if floor[name] != current[name]),
+              'settings_byte_differences': sum(a != b for a, b in zip(old, new)) if len(old) == len(new) else None,
+              'settings_forward': forwarded is not None and forwarded.encode() == new}
+    problems = []
+    if record['differing'] != [integration.SETTINGS]:
+        problems.append('floor outputs other than the adapted Settings differ: %s' % record['differing'])
+    if not record['settings_forward']:
+        problems.append('the adapted Settings is not the floor one with its boot literal moved forward')
+    return record, problems
 
 
 def facade_violations(texts=None, facade=None):
@@ -1464,7 +1553,7 @@ ONE_TOKEN_PATHS = {'one-token-v1-patch-beside-native': 'patches/grapheneos-20260
 # Code the guard mutants insert before the persistence constructor, or pass at the boot site.
 HOST_CONSTRUCTION = ('    static NativeIdentityPersistence host(java.io.File root) {\n'
                      '        return new NativeIdentityPersistence(new NativeIdentityStore(root,\n'
-                     '                NativeIdentityStore.Format.V2));\n    }\n\n')
+                     '                NativeIdentityStore.Format.V3));\n    }\n\n')
 REFLECTIVE_WRITE = ('    static void copyFormat(NativeIdentityStore store, NativeIdentityStore from)\n'
                     '            throws ReflectiveOperationException {\n'
                     '        java.lang.reflect.Field field = NativeIdentityStore.class.getDeclaredField("format");\n'
@@ -1474,7 +1563,7 @@ COMPLEMENT = ('    static NativeIdentityStore.Format otherFormat(NativeIdentityS
               '        return java.util.EnumSet.complementOf(java.util.EnumSet.of(store.format()))\n'
               '                .iterator().next();\n    }\n\n')
 SELECTED = ('NativeIdentityStore.Format.valueOf(android.os.SystemProperties.get('
-            '"persist.andrix.native_format", "V2")));\n')
+            '"persist.andrix.native_format", "V3")));\n')
 QUALIFIED = ('    static NativeIdentityStore qualified(java.io.File root, NativeIdentityStore.Format format) {\n'
              '        return new com.android.server.pm.NativeIdentityStore(root, format);\n    }\n\n')
 REFERENCE = ('    static final java.util.function.BiFunction<java.io.File, NativeIdentityStore.Format,\n'
@@ -1486,8 +1575,8 @@ HIDDEN = ('    // \\u000a static final NativeIdentityStore HIDDEN = new NativeId
           'new java.io.File("/"), NativeIdentityStore.Format.V1);\n')
 RETIRED_NAME = ('    static NativeIdentityStore.Format earlierFormat() {\n'
                 '        return NativeIdentityStore.Format.V1;\n    }\n\n')
-NEW_NAME = ('    static NativeIdentityStore.Format lifecycleFormat() {\n'
-            '        return NativeIdentityStore.Format.V3;\n    }\n\n')
+PREVIOUS_NAME = ('    static NativeIdentityStore.Format floorFormat() {\n'
+                 '        return NativeIdentityStore.Format.V2;\n    }\n\n')
 # A non native framework source that names the store, and the non native class it goes in.
 MENTION = '    private static final String STORE = "NativeIdentityStore";\n'
 NON_NATIVE = FRAMEWORK_DIR + 'CeStorageAccessTracker.java'
@@ -1526,11 +1615,13 @@ def guard_mutants():
         'enumset-complement': (changed((persistence, anchor, COMPLEMENT + anchor)), {'selector'}),
         'enum-version-swap': (changed((STORE, 'V1(1, 1, 1),', 'V1(2, 2, 1),'), (STORE, 'V2(2, 2, 1),', 'V2(1, 1, 1),')),
                               {'enum'}),
-        # The production format reading version 2 slots as positive state: a slot ceiling raised.
-        'slot-ceiling-raise': (changed((STORE, 'V2(2, 2, 1),', 'V2(2, 2, 2),')), {'enum'}),
-        # The boot read constructs the lifecycle format, which B1 builds but does not ship.
-        'promotion-to-v3': (changed((settings, boot, CONSTRUCTION + NEW_FORMAT + ');\n')), {'format', 'v3'}),
-        'v3-alone': (changed((persistence, anchor, NEW_NAME + anchor)), {'v3'}),
+        # The production format no longer reading version 2 slots as supported state: its slot
+        # ceiling lowered to the floor's.
+        'slot-ceiling-regression': (changed((STORE, 'V3(2, 2, 2);', 'V3(2, 2, 1);')), {'enum'}),
+        # The boot read constructs the floor's format again, which reads version 2 slots only as
+        # evidence.
+        'regression-to-v2': (changed((settings, boot, CONSTRUCTION + PREVIOUS + ');\n')), {'format', 'v2'}),
+        'v2-alone': (changed((persistence, anchor, PREVIOUS_NAME + anchor)), {'v2'}),
         'construction-outside-boot': (outside, {'sites'}),
         'qualified-construction': (changed((persistence, anchor, QUALIFIED + anchor)), {'sites'}),
         'constructor-reference': (changed((persistence, anchor, REFERENCE % '' + anchor)), {'sites'}),
@@ -2664,9 +2755,13 @@ def main():
     problems = source_checks()
     report['source_checks'] = problems or 'PASS'
     if args.verify_candidate:
-        report['candidate'] = verify_candidate(args.verify_candidate.resolve(strict=True))
+        pinned = args.verify_candidate.resolve(strict=True)
+        report['candidate'] = verify_candidate(pinned)
         if not all(row['candidate'] for row in report['candidate'].values()):
             problems.append('regenerated candidate differs from the profile')
+        # B2 against B1's floor, rebuilt from the same copies with its patch from Git objects.
+        report['floor'], floor = floor_forward(pinned)
+        problems += floor
     if args.source_checks_only or args.verify_candidate:
         report['status'] = 'FAIL' if problems else 'SOURCE_ONLY'
         print(json.dumps(report, indent=2))

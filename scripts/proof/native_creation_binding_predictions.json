@@ -679,5 +679,103 @@
         "selector"
       ]
     }
+  },
+  "b2_checkpoint_1": {
+    "status": "PREDICTED after one development run of the pure guard. No JVM result.",
+    "plan": "plans/2026-10-08-native-lifecycle-record.md",
+    "construction": [
+      "The one boot construction passes Format.V3, the lifecycle format.",
+      "The normal image then reads version 2 slots as supported state.",
+      "The host Settings facade defaults to Format.V3.",
+      "Every caller, writer, release and deletion stays off."
+    ],
+    "rules": {
+      "sites": "one store construction and one Format.V3, both the anchored boot construction",
+      "format": "the boot construction passes exactly Format.V3",
+      "v1": "unchanged: no Format.V1 and no wildcard import of the enum constants",
+      "v2": "no production text names Format.V2, the format of the images up to the floor",
+      "mention": "unchanged",
+      "selector": "unchanged",
+      "enum": "unchanged",
+      "escape": "unchanged"
+    },
+    "replaced_rule": {
+      "v3": "v2"
+    },
+    "mutant_rules": {
+      "slot-ceiling-regression": [
+        "enum"
+      ],
+      "regression-to-v2": [
+        "format",
+        "v2"
+      ],
+      "v2-alone": [
+        "v2"
+      ]
+    },
+    "replaced_mutants": {
+      "slot-ceiling-raise": "slot-ceiling-regression",
+      "promotion-to-v3": "regression-to-v2",
+      "v3-alone": "v2-alone"
+    },
+    "retargeted_mutants": {
+      "framework-construction": "Its host construction passes Format.V3.",
+      "value-and-property-selection": "Its property default names V3.",
+      "second-construction": "It repeats the Format.V3 boot construction.",
+      "construction-outside-boot": "It moves the Format.V3 construction out of the boot read.",
+      "other-file-section": "It moves the Format.V3 construction to another file section."
+    },
+    "retargeted_rules": "unchanged",
+    "guard_mutants": {
+      "before": 33,
+      "after": 33
+    },
+    "rules_tripped_alone": [
+      "enum",
+      "escape",
+      "format",
+      "mention",
+      "selector",
+      "sites",
+      "v1",
+      "v2"
+    ],
+    "floor": {
+      "revision": "da790b1748b14cfa7cec1db4ee44b20f608bdf5a",
+      "patch_sha256": "59300e3d12a59dcb33acadc104894fd4b015e9fcc14bf456a09a07aee015a04e",
+      "settings_sha256": "4d851032afedd43ddadacdbc026ac62e0ea22c218a8fb0c8f59a70d67a452eeb",
+      "store_sha256": "e4cd321662733cc781566689e9c0436d7865010ce446548e5fea9ffbd7b85c57",
+      "guard_rules": [
+        "format",
+        "v2"
+      ]
+    },
+    "candidate": {
+      "patch_sha256": "1e3ace92192d5bca7e1cfd1b58fb863ba829d55a91dc84c8d401b3d2a0704531",
+      "settings_sha256": "6c0e895d68c222436d1c34d123511875d8ede5f248c931ac843ff9ac2830c908",
+      "store_sha256": "ebcbf4a43281bf02b0e367831518778c96ef34f15edee034229aacd437c5247b",
+      "changed_profile_rows": [
+        "patch_sha256",
+        "files/services/core/java/com/android/server/pm/Settings.java",
+        "added/services/core/java/com/android/server/pm/NativeIdentityStore.java"
+      ],
+      "unchanged_profile_rows": 42,
+      "patch_byte_differences": 1,
+      "settings_byte_differences": 1,
+      "other_outputs_equal": 9
+    },
+    "forward": [
+      "b2_forward moves one Format.V2 boot literal to Format.V3 where no Format.V3 one is.",
+      "On the floor patch it gives the current patch byte for byte.",
+      "On the floor adapted Settings it gives the current one. The other nine outputs are equal.",
+      "Comments aside, it gives the current host facade from the floor one.",
+      "The archived R0 forward check over 78456b3 and 24bfb6a stays."
+    ],
+    "store": [
+      "Only two comments of the store helper change, each with its line count.",
+      "Its code view equals the floor one line by line.",
+      "Its class files are expected to equal the floor ones under one JDK."
+    ]
   }
 }

@@ -547,7 +547,7 @@ def living_code_broken(test, module, names):
 
 # The living functions of the B1 runner that the archived legs of every runner must not call.
 B1_LIVING = ('build', 'execute', 'suite', 'outcome', 'with_seams', 'product_sources', 'store_sources',
-             'test_sources', 'current_header_suite', 'b1_suite', 'r0_forward', 'copy_layouts', 'rollback_names',
+             'test_sources', 'current_header_suite', 'b1_suite', 'b2_forward', 'copy_layouts', 'rollback_names',
              'replace_once', 'strip_java_comments', 'tool_environment')
 # And this runner's.
 HISTORY_LIVING = ('settings_texts', 'b2_text_checks', 'harness_source', 'history_stubs', 'worktree_tests',

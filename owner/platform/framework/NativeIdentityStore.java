@@ -59,12 +59,12 @@ import com.android.server.pm.NativeIdentityRecords.UserEntry;
  *
  * Each store has one Format, fixed at construction: the highest header version it
  * reads as supported, the version a new bound reservation writes, and the highest
- * slot version it reads as supported and writes. Production constructs Format.V2
+ * slot version it reads as supported and writes. Production constructs Format.V3
  * once, at the Settings boot read. Format.V1 reads and writes version 1 headers
- * only, as the earlier images did. Format.V1 and Format.V2 read and write version 1
- * slots only. Format.V3 also reads and writes version 2 slots, which carry the
- * account lifecycle record; no production text constructs it. Initialization
- * writes an empty version 1 header in every format.
+ * only, as the images before the version 2 store did. Format.V1 and Format.V2, which
+ * the images up to the rollback floor construct, read and write version 1 slots
+ * only. Format.V3 also reads and writes version 2 slots, which carry the account
+ * lifecycle record. Initialization writes an empty version 1 header in every format.
  * An intact record frame (bounded size, magic, expected type, length and SHA-256)
  * that declares a version above the format's ceiling is an unsupported footprint,
  * not damage. Under Format.V1 a decoded version 2 header copy still contributes
@@ -160,9 +160,9 @@ final class NativeIdentityStore {
     /**
      * The header and slot versions one store instance reads and writes. Closed and fixed
      * at construction; nothing selects it from configuration, properties, settings or
-     * stored bytes. Production constructs V2 at its one boot read. V1, the earlier
-     * images' format, remains for host rollback models. V3 is the lifecycle format, which
-     * no production text constructs yet.
+     * stored bytes. Production constructs V3, the lifecycle format, at its one boot read.
+     * V1 and V2, the earlier images' formats, remain for host rollback models; V2 is the
+     * format of the rollback floor.
      */
     enum Format {
         /**

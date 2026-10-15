@@ -20,6 +20,8 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / 'scripts/proof'))
 import native_creation_binding as runner  # noqa: E402
 
+PINNED = os.environ.get('ANDRIX_PINNED_FRAMEWORK')
+
 
 def historical_constants(revision, path, names, namespace=None):
     """Module level constants of a runner as its Git object at one revision states them: each named
@@ -112,10 +114,12 @@ class CreationBindingSourceTests(unittest.TestCase):
     def test_source_checks_pass(self):
         self.assertEqual(runner.source_checks(), [])
 
-    def test_production_format_is_one_anchored_v2_construction(self):
+    def test_production_format_is_one_anchored_v3_construction(self):
         texts = runner.production_texts()
         self.assertEqual(runner.format_violations(texts), [])
         self.assertEqual(runner.boot_literal(texts), runner.PRODUCTION)
+        self.assertEqual((runner.PRODUCTION, runner.PREVIOUS, runner.RETIRED),
+                         tuple('NativeIdentityStore.Format.V%d' % version for version in (3, 2, 1)))
         # The patch is read per file section: the boot construction is in the Settings section only.
         sections = [name for name in texts if name.startswith(runner.NATIVE_PATCH + ':')]
         self.assertEqual(sections, [runner.NATIVE_PATCH + ':' + name for name in runner.integration.FILES])
@@ -125,8 +129,18 @@ class CreationBindingSourceTests(unittest.TestCase):
         # The enum's own constants and comments are neither constructions nor format names.
         self.assertIn('V2(2, 2, 1),', store)
         self.assertIn('V3(2, 2, 2);', store)
-        self.assertIn('Production constructs Format.V2 once', store.replace('\n * ', ' '))
+        self.assertIn('Production constructs Format.V3 once', store.replace('\n * ', ' '))
         self.assertEqual(runner.enum_definition(runner.strip_java_comments(store)), runner.FORMAT_ENUM)
+        # The floor's native patch and store helper, from their pinned Git objects, break the rule
+        # only by passing and naming the previous format.
+        floor = dict(texts)
+        for target, added in runner.patch_sections(runner.floor_bytes(runner.NATIVE_PATCH).decode()):
+            floor['%s:%s' % (runner.NATIVE_PATCH, target)] = added
+        floor[runner.STORE] = runner.floor_bytes(runner.STORE).decode()
+        self.assertNotEqual(floor, texts)
+        predicted = json.loads(runner.PREDICTIONS.read_text())['b2_checkpoint_1']['floor']
+        self.assertEqual(sorted(runner.format_rules(floor)), predicted['guard_rules'])
+        self.assertEqual(runner.boot_literal(floor), runner.PREVIOUS)
 
     def test_the_structure_view_blanks_annotations_and_literal_data(self):
         text = ('@A(x = "(", y = @B(@C(1))) class T { String s = "{"; Object o = new @P("(") X<@Q(1 < 2) Y>(); }\n'
@@ -155,20 +169,32 @@ class CreationBindingSourceTests(unittest.TestCase):
             'annotated-qualified-creation', 'constructor-reference-with-type-arguments',
             'annotated-creation-holding-a-parenthesis', 'nested-annotation-creation', 'code-outside-ascii',
             'computed-method-lookup', *runner.ONE_TOKEN_PATHS,
-            'slot-ceiling-raise', 'promotion-to-v3', 'v3-alone'})
+            'slot-ceiling-regression', 'regression-to-v2', 'v2-alone'})
         # The R0 guard's mutants as R0 predicted them, and the three P1 adds for the slot ceiling and
-        # the lifecycle format.
+        # the lifecycle format, which B2 replaces with their regressions to the previous format.
         recorded = json.loads(runner.PREDICTIONS.read_text())
         # P7 reads every rule through the compiler's escape translation and one lexical view, which
         # widens the two escape mutants' rules, and reads constructions in every syntactic form.
         predictions = {**recorded['r0_format_guard']['mutant_rules'],
                        **recorded['p1_lifecycle_record']['mutant_rules'],
                        **recorded['p7_guard_reading']['mutant_rules']}
-        self.assertEqual(len(mutants), recorded['p7_guard_reading']['guard_mutants']['after'])
+        b2 = recorded['b2_checkpoint_1']
+        self.assertEqual(set(b2['replaced_mutants']), set(recorded['p1_lifecycle_record']['mutant_rules']))
+        self.assertEqual(set(b2['replaced_mutants'].values()), set(b2['mutant_rules']))
+        for name in b2['replaced_mutants']:
+            del predictions[name]
+        predictions.update(b2['mutant_rules'])
+        self.assertEqual(recorded['p7_guard_reading']['guard_mutants']['after'], b2['guard_mutants']['before'])
+        self.assertEqual(len(mutants), b2['guard_mutants']['after'])
         self.assertEqual(set(predictions), set(mutants))
+        # The construction mutants pass the production format now and keep their rules.
+        self.assertTrue(set(b2['retargeted_mutants']) <= set(recorded['r0_format_guard']['mutant_rules']))
+        self.assertIn(runner.PRODUCTION + ')', runner.HOST_CONSTRUCTION)
+        self.assertIn('"V3"', runner.SELECTED)
         # Every rule is tripped alone by at least one mutant, so none is only ever a bystander.
         alone = {next(iter(rules)) for _, rules in mutants.values() if len(rules) == 1}
         self.assertEqual(alone, set(runner.FORMAT_RULES))
+        self.assertEqual(sorted(alone), b2['rules_tripped_alone'])
         for name, (texts, rules) in mutants.items():
             with self.subTest(name=name):
                 self.assertTrue(rules and set(rules) <= set(runner.FORMAT_RULES))
@@ -249,6 +275,14 @@ class CreationBindingSourceTests(unittest.TestCase):
         self.assertEqual(runner.boot_literal(mutated), runner.RETIRED)
         self.assertTrue(runner.facade_violations(mutated, facade))
         self.assertEqual(runner.facade_violations(mutated, retired), [])
+        # The same holds for the previous format, the floor's.
+        previous = facade.replace('initialize, ' + runner.PRODUCTION + '); }', 'initialize, ' + runner.PREVIOUS + '); }')
+        self.assertNotEqual(previous, facade)
+        self.assertTrue(runner.facade_violations(texts, previous))
+        regressed = runner.guard_mutants()['regression-to-v2'][0]
+        self.assertEqual(runner.boot_literal(regressed), runner.PREVIOUS)
+        self.assertTrue(runner.facade_violations(regressed, facade))
+        self.assertEqual(runner.facade_violations(regressed, previous), [])
         self.assertIsNone(runner.facade_default(facade.replace('    Settings() { this(null, true); }\n', '')))
         self.assertIsNone(runner.boot_literal(runner.guard_mutants()['construction-outside-boot'][0]))
 
@@ -264,12 +298,72 @@ class CreationBindingSourceTests(unittest.TestCase):
         facade = runner.pinned_bytes('7845', runner.ARCHIVED_FACADE).decode()
         self.assertEqual(code(runner.archived_r0_forward(facade)),
                          code(runner.pinned_bytes(runner.ARCHIVE, runner.ARCHIVED_FACADE).decode()))
-        # Living: the same rule over the current literals, and the current facade's default.
-        boot = 'store(' + runner.RETIRED + ');\n'
-        self.assertEqual(runner.r0_forward(boot), 'store(' + runner.PRODUCTION + ');\n')
-        self.assertIsNone(runner.r0_forward(boot + boot))
-        self.assertIsNone(runner.r0_forward(runner.r0_forward(boot)))
+
+    def test_b2_forward_is_the_one_literal_change(self):
+        # Living: B1's floor, from its pinned Git objects. The forward rule gives the current native
+        # patch byte for byte, one byte apart.
+        predicted = json.loads(runner.PREDICTIONS.read_text())['b2_checkpoint_1']
+        old = runner.floor_bytes(runner.NATIVE_PATCH).decode()
+        current = runner.integration.PATCH.read_text()
+        self.assertEqual(runner.b2_forward(old), current)
+        self.assertEqual((len(old), sum(a != b for a, b in zip(old, current))),
+                         (len(current), predicted['candidate']['patch_byte_differences']))
+        self.assertEqual(runner.sha(current.encode()), predicted['candidate']['patch_sha256'])
+        self.assertIsNone(runner.b2_forward(current))
+        self.assertIsNone(runner.b2_forward(old + old))
+        boot = 'store(' + runner.PREVIOUS + ');\n'
+        self.assertEqual(runner.b2_forward(boot), 'store(' + runner.PRODUCTION + ');\n')
+        self.assertIsNone(runner.b2_forward(boot + boot))
+        self.assertIsNone(runner.b2_forward(runner.b2_forward(boot)))
+        self.assertIsNone(runner.b2_forward('store(' + runner.RETIRED + ');\n'))
+        # Comments aside, it gives the current host facade from the floor one: the default moves.
+        code = lambda text: ' '.join(runner.strip_java_comments(text).split())  # noqa: E731
+        facade = runner.floor_bytes(runner.FACADE).decode()
+        self.assertEqual(runner.facade_default(facade), runner.PREVIOUS)
+        self.assertEqual(code(runner.b2_forward(facade)), code((ROOT / runner.FACADE).read_text()))
         self.assertEqual(runner.facade_default((ROOT / runner.FACADE).read_text()), runner.PRODUCTION)
+        # The profile moves only the patch, the adapted Settings and the store helper rows.
+        floor, profile = json.loads(runner.floor_bytes(runner.NATIVE_PROFILE)), runner.integration.profile()
+
+        def rows(value):
+            """Each scalar by key, and each list row by its key and its name, path or position."""
+            result = {}
+            for key, item in value.items():
+                for index, row in enumerate(item) if isinstance(item, list) else ((None, item),):
+                    name = row.get('name', row['path']) if isinstance(row, dict) else index
+                    result[key if index is None else '%s/%s' % (key, name)] = row
+            return result
+        before, after = rows(floor), rows(profile)
+        self.assertEqual(set(before), set(after))
+        self.assertEqual(sorted(name for name in after if before[name] != after[name]),
+                         sorted(predicted['candidate']['changed_profile_rows']))
+        self.assertEqual(sum(before[name] == after[name] for name in after),
+                         predicted['candidate']['unchanged_profile_rows'])
+        settings = 'files/' + runner.integration.SETTINGS
+        self.assertEqual((before[settings]['candidate_sha256'], after[settings]['candidate_sha256']),
+                         (runner.FLOOR_SETTINGS_SHA256, predicted['candidate']['settings_sha256']))
+        self.assertEqual(before[settings]['candidate_sha256'], predicted['floor']['settings_sha256'])
+        # The store helper changes two comments, each with its line count, and keeps its code.
+        store = 'added/' + runner.integration.PREFIX + 'NativeIdentityStore.java'
+        self.assertEqual((before[store]['sha256'], after[store]['sha256']),
+                         (predicted['floor']['store_sha256'], predicted['candidate']['store_sha256']))
+        old_store, new_store = runner.floor_bytes(runner.STORE).decode(), (ROOT / runner.STORE).read_text()
+        self.assertNotEqual(old_store, new_store)
+        self.assertEqual([line.rstrip() for line in runner.living_code(old_store).split('\n')],
+                         [line.rstrip() for line in runner.living_code(new_store).split('\n')])
+        # The floor's pins are its Git objects, read without the working tree.
+        self.assertEqual((runner.FLOOR, runner.FLOOR_SHA256[runner.NATIVE_PATCH]),
+                         (predicted['floor']['revision'], predicted['floor']['patch_sha256']))
+        for path, digest in runner.FLOOR_SHA256.items():
+            self.assertEqual(runner.sha(runner.git_bytes(runner.FLOOR, path)), digest, path)
+        with mock.patch.object(Path, 'read_bytes', side_effect=AssertionError('working tree read')), \
+                mock.patch.object(Path, 'read_text', side_effect=AssertionError('working tree read')):
+            self.assertEqual(runner.sha(runner.floor_bytes(runner.NATIVE_PATCH)), runner.FLOOR_SHA256[runner.NATIVE_PATCH])
+        with self.assertRaisesRegex(ValueError, 'unpinned floor input'):
+            runner.floor_bytes('AGENTS.md')
+        with mock.patch.object(runner, 'git_bytes', lambda revision, path: b'drifted'):
+            with self.assertRaisesRegex(ValueError, 'floor input drift'):
+                runner.floor_bytes(runner.NATIVE_PATCH)
 
     def test_rollback_copy_count_and_controls_are_predicted(self):
         # The living layouts' current predictions: the retirement layouts are the lifecycle emitter's.
@@ -768,13 +862,14 @@ class ArchiveTests(unittest.TestCase):
         # Every living function and constant a later package may change, and the B0 runner's code:
         # the archived steps run without them and record the same.
         living_code_broken(self, runner, ('build', 'execute', 'suite', 'outcome', 'with_seams', 'product_sources',
-                                          'store_sources', 'test_sources', 'current_header_suite', 'b1_suite', 'r0_forward',
+                                          'store_sources', 'test_sources', 'current_header_suite', 'b1_suite', 'b2_forward',
+                                          'floor_bytes', 'floor_outputs', 'floor_forward',
                                           'copy_layouts', 'rollback_names', 'replace_once', 'strip_java_comments',
                                           'tool_environment'))
         living_code_broken(self, runner.b0, ('passed_checks', 'failed_checks', 'inject'))
-        with mock.patch.multiple(runner, PRODUCTION='x', RETIRED='y', CONSTRUCTION='z', FRAMEWORK=(), PLATFORM='x/',
-                                 FRAMEWORK_DIR='x/', LAYOUT_NAMES=(), ROLLBACK_CONTROLS=(), ROLLBACK_COPY_LAYOUTS=0,
-                                 PREDICTIONS=work / 'absent.json', STEPS=()), \
+        with mock.patch.multiple(runner, PRODUCTION='x', PREVIOUS='w', RETIRED='y', CONSTRUCTION='z', FRAMEWORK=(),
+                                 PLATFORM='x/', FRAMEWORK_DIR='x/', LAYOUT_NAMES=(), ROLLBACK_CONTROLS=(),
+                                 ROLLBACK_COPY_LAYOUTS=0, PREDICTIONS=work / 'absent.json', STEPS=()), \
                 mock.patch.multiple(runner.b0, STORE_SEAMS=(), WRITER_SEAMS=(), FOCUSED_NAMES=(), FAULT_NAMES=(),
                                     STEPS=()):
             self.assertEqual(archived_run(work / 'second'), expected)
@@ -827,6 +922,29 @@ class CreationBindingJvmTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             evidence = runner.qualify(Path(directory))
         self.assertEqual(evidence['problems'], [], json.dumps(evidence['steps'], indent=2)[-20000:])
+
+
+if PINNED:
+    class FloorForwardTests(unittest.TestCase):
+        """B2 against B1's floor over the pinned canonical framework copies. A test case only when
+        ANDRIX_PINNED_FRAMEWORK names them."""
+
+        def test_the_floor_outputs_move_only_the_boot_literal(self):
+            predicted = json.loads(runner.PREDICTIONS.read_text())['b2_checkpoint_1']
+            record, problems = runner.floor_forward(Path(PINNED))
+            self.assertEqual(problems, [])
+            settings = runner.integration.SETTINGS
+            self.assertEqual((record['revision'], record['differing'], record['settings_forward']),
+                             (predicted['floor']['revision'], [settings], True))
+            self.assertEqual(record['outputs'][settings], predicted['floor']['settings_sha256'])
+            self.assertEqual(record['settings_byte_differences'], predicted['candidate']['settings_byte_differences'])
+            self.assertEqual(len(record['outputs']) - len(record['differing']),
+                             predicted['candidate']['other_outputs_equal'])
+            current = runner.verify_candidate(Path(PINNED))
+            self.assertEqual(current[settings], {'sha256': predicted['candidate']['settings_sha256'],
+                                                 'candidate': True})
+            self.assertEqual({name for name in current if current[name]['sha256'] != record['outputs'][name]},
+                             {settings})
 
 
 if __name__ == '__main__':

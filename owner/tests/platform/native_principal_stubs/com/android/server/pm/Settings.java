@@ -44,8 +44,8 @@ final class Settings {
     int rememberCalls, refreshCalls;
 
     Settings() { this(null, true); }
-    // The production format of the boot read. A rollback or legacy test passes V1 explicitly.
-    Settings(Path existing, boolean initialize) { this(existing, initialize, NativeIdentityStore.Format.V2); }
+    // The production format of the boot read. V1 and V2 tests pass an earlier format explicitly.
+    Settings(Path existing, boolean initialize) { this(existing, initialize, NativeIdentityStore.Format.V3); }
     Settings(Path existing, boolean initialize, NativeIdentityStore.Format format) {
         try {
             root = existing != null ? existing : Files.createTempDirectory("native-manager-").resolve("store");
