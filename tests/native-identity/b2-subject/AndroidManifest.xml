@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.andrix.proof.principalclosed" android:versionCode="1"
+    android:versionName="1">
+    <uses-sdk android:minSdkVersion="37" android:targetSdkVersion="37" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <application android:label="@string/app_name" android:allowBackup="false"
+        android:debuggable="false" android:testOnly="true" android:hasCode="true"
+        android:usesCleartextTraffic="false" android:directBootAware="false">
+        <service android:name=".B2StateJobService" android:exported="true"
+            android:permission="android.permission.BIND_JOB_SERVICE"
+            android:directBootAware="false" />
+    </application>
+    <instrumentation android:name=".B2StateInstrumentation"
+        android:targetPackage="dev.andrix.proof.principalclosed"
+        android:functionalTest="true" android:handleProfiling="false" />
+</manifest>

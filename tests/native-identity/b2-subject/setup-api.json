@@ -1,0 +1,12 @@
+{
+  "frameworks/base/core/java/android/app/INotificationManager.aidl": "e4e6ea48ce39ade0eac62d4ffffe48894e02c9f63f121793712764bf78c229a7",
+  "frameworks/base/core/java/android/app/NotificationChannel.java": "5672e5a6a51f163267edbb1b2a43d2f7b45f8302368028a3b2c6839cf510873d",
+  "frameworks/base/core/java/android/os/BinderProxy.java": "bebc89c3485a9d5ddfc7c49745f7c75fdd81defc0989028392025dfc4d7faef1",
+  "frameworks/base/core/java/android/os/Parcel.java": "358755d26f5563c15db17dc4d7819e0312a382f439890c4d4bed2c10376c9454",
+  "frameworks/base/core/java/android/os/ServiceManager.java": "db31209bd0558e0bd7e911fcf270ffb3e491be70723b2c21da55746d86c5e019",
+  "frameworks/base/cmds/app_process/app_main.cpp": "50e38aed3d9debefc075c5644306eeea17c335a0b1d37c4166a3685772a2d1d3",
+  "frameworks/base/core/java/com/android/internal/os/RuntimeInit.java": "eb0dc383e1ea1af65ae146f6c6e78abf053f1b98ec12d7dc65b1e18baa46b6f5",
+  "frameworks/base/services/core/java/com/android/server/notification/NotificationManagerService.java": "e7fb79fe5819b02f05e9b246ed35d310d25fe3ee4af4868cfdd2405ffbc95af8",
+  "frameworks/base/services/core/java/com/android/server/notification/PreferencesHelper.java": "5eaf3c4762c62297e3ad71d032533acf38245d1dfda6b0c3d2ba34e19fe25df9",
+  "frameworks/base/services/core/java/com/android/server/notification/NotificationShellCmd.java": "30a8b0581ba0e99f797f525d838310deb22593c9246f7e6b9b5c155311458b66"
+}
