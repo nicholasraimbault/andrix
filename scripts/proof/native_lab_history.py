@@ -59,6 +59,9 @@ GUEST_REVISION = 'e6f8b681021b5c36256a50337803ef8ec4268ab1'
 GUEST_CODEC = ('owner/platform/framework/NativeIdentityRecords.java',
                '4be9c8a0135d3793bb4153e9dc794c2afbf6e4bdbc3466d447b883fe30e0b032')
 GUEST_VALUES = ('00112233445566778899aabbccddeeff', 10148, 10149, 7)
+# A second set, as a future guest's: B1's guests had the subject at app ID 10147 with user 0 serial
+# 0, and a second app ID a thousand above. The guest stage generates with each guest's own values.
+GUEST_FUTURE_VALUES = ('ffeeddccbbaa99887766554433221100', 10147, 11147, 0)
 OTHER = 'dev.andrix.proof.lifecycleother'
 # The one reviewed host facade overlap, as in the B1 runner: the XML stub's Log replaces the
 # native principal stub's. Any other overlap refuses rather than silently replacing a stub.
@@ -212,12 +215,197 @@ def lifecycle_goldens(mode, lineage='00112233445566778899aabbccddeeff', app_id=1
         store = header(1, 2, [live, (other_app_id, 2, 0, '', False)])
         slots = {app_id: version_1_body(app_id, subject, 1, False), other_app_id: suspended(other_app_id, other, 2)}
     else:
-        raise ValueError('lifecycle guest mode')
+        return reader_step_goldens(mode, lineage, app_id, other_app_id, serial, signer, subject)
     files = {'store.bin': store, 'store.bin.reservecopy': store}
     for app, data in slots.items():
         files['slots/%d/record.bin' % app] = data
         files['slots/%d/record.bin.reservecopy' % app] = data
     return files
+
+
+# The reader step's guest layouts, again from the documented layouts alone: the plan's slot
+# version 2 with its lifecycle blocks, its tombstone ticket and the stable prefix every later slot
+# version keeps. A test oracle only, beside the actual codec and the generator's fixture assembly.
+READER_STEP_MODES = (
+    'v2-grant', 'v2-scope-1', 'v2-recovery-hold', 'v2-recovery-scope-2', 'v2-recovery-scope-3', 'v2-noted',
+    'v2-retiring', 'v2-retired', 'v2-disposing', 'v2-legacy-suspended', 'legacy-continuation-interrupted',
+    'mixed-suspend-backup', 'mixed-lift-backup', 'mixed-suspend-conflict', 'mixed-lift-conflict', 'tombstone-live',
+    'tombstone-releasing', 'releasing-without-directory', 'maximum-beside-eligible', 'damaged-v2-of-v1',
+    'damaged-retired-unknown-inventory', 'damaged-disposing-work', 'v3-prefix-valid', 'v3-prefix-broken',
+    'reservation', 'reservation-wrong-serial', 'lift-v1')
+MAXIMUM = 'dev.andrix.proof.maximum.' + 'm' * 230
+_STATES = {'ELIGIBLE': 1, 'RETIRING': 2, 'RETIRED': 3}
+_ACTORS = {'ACCOUNT_USER': 1, 'ADMIN_GRANT': 2, 'RECOVERY_HOLD': 3, 'USER_REMOVAL': 4, 'LEGACY_MARKER': 5}
+_DUTIES = {'OUTSTANDING': 1, 'DISPOSING': 2, 'DISCHARGED': 3, 'ORPHANED_WITH_USER': 4}
+_ZERO = '00' * 16
+_TIME = 1_700_000_000_000
+
+
+def _entry(actor, scope, user, serial, grant, reason, time, note=None):
+    """One suspension entry: class, scope, actor user and serial, grant, reason, time and note."""
+    return (struct.pack('<BBiq', _ACTORS[actor], scope, user, serial) + bytes.fromhex(grant)
+            + struct.pack('<Hq', reason, time) + (b'\x00' if note is None else b'\x01' + bytes.fromhex(note)))
+
+
+def _inventory(retirement, disposition):
+    """The 16 kinds in kind order, kinds 1 to 9 in one state and 10 to 16 in another. A DISCHARGED
+    kind carries its receipt: an odd kind a reference, an even kind none, its kind as code and a
+    time."""
+    duties = []
+    for kind in range(1, 17):
+        state = disposition if kind >= 10 else retirement
+        receipt = state == 'DISCHARGED'
+        duties.append((state, '%02x' % (0x10 + kind) * 16 if receipt and kind % 2 else _ZERO,
+                       kind if receipt else 0, _TIME + kind if receipt else 0))
+    return duties
+
+
+def _retirement(actor, user, serial, grant, time, duties):
+    """A retirement block: class, actor, grant, time, then inventory 1 with every kind or 0 with
+    none."""
+    out = struct.pack('<Biq', _ACTORS[actor], user, serial) + bytes.fromhex(grant) + struct.pack('<q', time)
+    out += struct.pack('<BB', 1 if duties else 0, len(duties))
+    for kind, (state, reference, code, at) in enumerate(duties, 1):
+        out += struct.pack('<BB', kind, _DUTIES[state]) + bytes.fromhex(reference) + struct.pack('<Bq', code, at)
+    return out
+
+
+def _block(state, entries=(), retirement=b''):
+    return struct.pack('<BB', _STATES[state], len(entries)) + b''.join(entries) + retirement
+
+
+def _prefix(head, app, generation, package, signer_list, identities):
+    """The stable prefix: lineage, app ID, generation, package, signers ascending, user count and
+    each user's principal ID, user and serial."""
+    body = head + struct.pack('<iq', app, generation) + _ascii(package)
+    body += struct.pack('<H', len(signer_list)) + b''.join(bytes.fromhex(item) for item in sorted(signer_list))
+    return body + struct.pack('<H', len(identities)) + b''.join(struct.pack('<qiq', *item) for item in identities)
+
+
+def _header(head, version, last, entries):
+    """A header: each entry (app ID, phase code, creation ID, package, binding or None) in app ID
+    order, a version 2 creation entry with its binding tag and, when bound, user, serial and
+    signers."""
+    body = head + struct.pack('<qH', last, len(entries))
+    for app, phase, creation, package, binding in sorted(entries):
+        body += struct.pack('<iBq', app, phase, creation) + _ascii(package)
+        if version == 2 and phase == 1:
+            if binding is None:
+                body += b'\x00'
+            else:
+                user, serial, signer_list = binding
+                body += b'\x01' + struct.pack('<iqH', user, serial, len(signer_list))
+                body += b''.join(bytes.fromhex(item) for item in sorted(signer_list))
+    return _record(1, version, body)
+
+
+def _maximum(head, app, serial):
+    """The largest record: the maximum package, 32 signers and 64 users, each with six noted
+    entries, its own, four grants' and a recovery hold with the prior unknown bit, and every kind
+    outstanding."""
+    note = '5a' * 32
+    identities, blocks = [], b''
+    for user in range(64):
+        user_serial = serial if user == 0 else 100 + user
+        identities.append((2 + user, user, user_serial))
+        entries = [_entry('ACCOUNT_USER', 0, user, user_serial, _ZERO, 1, _TIME, note)]
+        entries += [_entry('ADMIN_GRANT', 0, 0, serial, '%02x' % (0x40 + grant) * 16, 3, _TIME + grant, note)
+                    for grant in range(1, 5)]
+        entries.append(_entry('RECOVERY_HOLD', 2, 0, serial, _ZERO, 7, _TIME + 9, note))
+        blocks += _block('RETIRING', entries, _retirement('ACCOUNT_USER', user, user_serial, _ZERO, _TIME + 100,
+                                                          _inventory('OUTSTANDING', 'OUTSTANDING')))
+    signer_list = ['%064x' % index for index in range(1, 33)]
+    return _record(2, 2, _prefix(head, app, 2, MAXIMUM, signer_list, identities) + blocks)
+
+
+def reader_step_goldens(mode, lineage, app_id, other_app_id, serial, signer, subject):
+    """The files of one guest layout that the reader step adds, by path relative to the store."""
+    if mode not in READER_STEP_MODES:
+        raise ValueError('lifecycle guest mode')
+    head = bytes.fromhex(lineage)
+    identity = [(1, 0, serial)]
+
+    def v1(generation, flag=0):
+        return _record(2, 1, _prefix(head, app_id, generation, subject, [signer], identity) + bytes([flag]))
+
+    def v2(generation, block, version=2, identities=identity):
+        return _record(2, version, _prefix(head, app_id, generation, subject, [signer], identities) + block)
+    by_user = _entry('ACCOUNT_USER', 0, 0, serial, _ZERO, 1, _TIME)
+    eligible, lifted, suspended = v1(1), v1(3), v2(2, _block('ELIGIBLE', [by_user]))
+    legacy = _retirement('LEGACY_MARKER', 0, 0, _ZERO, 0, [])
+    store = _header(head, 1, 1, [(app_id, 2, 0, '', None)])
+    copies = {}
+    entries = {'v2-grant': _entry('ADMIN_GRANT', 0, 0, serial, '47' * 16, 2, _TIME),
+               'v2-scope-1': _entry('ACCOUNT_USER', 1, 0, serial, _ZERO, 6, _TIME),
+               'v2-recovery-hold': _entry('RECOVERY_HOLD', 0, 0, serial, _ZERO, 7, _TIME),
+               'v2-recovery-scope-2': _entry('RECOVERY_HOLD', 2, 0, serial, _ZERO, 7, _TIME),
+               'v2-recovery-scope-3': _entry('RECOVERY_HOLD', 3, 0, serial, _ZERO, 7, _TIME),
+               'v2-noted': _entry('ACCOUNT_USER', 0, 0, serial, _ZERO, 5, _TIME, '5a' * 32)}
+    disposing = _inventory('DISCHARGED', 'DISPOSING')
+    if mode in entries:
+        copies[app_id] = (v2(2, _block('ELIGIBLE', [entries[mode]])),) * 2
+    elif mode in ('v2-retiring', 'v2-retired', 'v2-disposing', 'damaged-disposing-work'):
+        generation, duties = {'v2-retiring': (2, _inventory('OUTSTANDING', 'OUTSTANDING')),
+                              'v2-retired': (3, _inventory('DISCHARGED', 'OUTSTANDING')),
+                              'v2-disposing': (4, disposing),
+                              'damaged-disposing-work': (4, [('DISPOSING',) + disposing[0][1:]] + disposing[1:])}[mode]
+        state = 'RETIRING' if mode == 'v2-retiring' else 'RETIRED'
+        copies[app_id] = (v2(generation, _block(state, [], _retirement('ACCOUNT_USER', 0, serial, _ZERO, _TIME + 100,
+                                                                         duties))),) * 2
+    elif mode in ('v2-legacy-suspended', 'damaged-retired-unknown-inventory'):
+        state = 'RETIRING' if mode == 'v2-legacy-suspended' else 'RETIRED'
+        copies[app_id] = (v2(2, _block(state, [by_user], legacy)),) * 2
+    elif mode == 'legacy-continuation-interrupted':
+        continued = v2(2, _block('RETIRING', [], _retirement('LEGACY_MARKER', 0, 0, _ZERO, 0,
+                                                             _inventory('OUTSTANDING', 'OUTSTANDING'))))
+        copies[app_id] = (continued, continued, v1(1, 1))
+    elif mode == 'mixed-suspend-backup':
+        copies[app_id] = (suspended, suspended, eligible)
+    elif mode == 'mixed-lift-backup':
+        copies[app_id] = (lifted, lifted, suspended)
+    elif mode == 'mixed-suspend-conflict':
+        copies[app_id] = (suspended, eligible)
+    elif mode == 'mixed-lift-conflict':
+        copies[app_id] = (lifted, suspended)
+    elif mode in ('tombstone-live', 'tombstone-releasing'):
+        ticket = struct.pack('<qiq', 1, 0, serial) + bytes.fromhex('54' * 16)
+        copies[app_id] = (v2(4, ticket, identities=[]),) * 2
+        if mode == 'tombstone-releasing':
+            store = _header(head, 1, 1, [(app_id, 3, 0, '', None)])
+    elif mode == 'releasing-without-directory':
+        store = _header(head, 1, 1, [(app_id, 3, 0, '', None)])
+    elif mode == 'maximum-beside-eligible':
+        store = _header(head, 1, 65, [(app_id, 2, 0, '', None), (other_app_id, 2, 0, '', None)])
+        copies[app_id] = (eligible, eligible)
+        copies[other_app_id] = (_maximum(head, other_app_id, serial),) * 2
+    elif mode == 'damaged-v2-of-v1':
+        copies[app_id] = (v2(1, _block('ELIGIBLE')),) * 2
+    elif mode in ('v3-prefix-valid', 'v3-prefix-broken'):
+        principal = 1 if mode == 'v3-prefix-valid' else 0
+        copies[app_id] = (v2(2, b'a later slot version tail', 3, [(principal, 0, serial)]),) * 2
+    elif mode in ('reservation', 'reservation-wrong-serial'):
+        bound = serial + (mode == 'reservation-wrong-serial')
+        store = _header(head, 2, 1, [(app_id, 1, 1, subject, (0, bound, [signer]))])
+    elif mode == 'lift-v1':
+        copies[app_id] = (lifted, lifted)
+    files = {'store.bin': store, 'store.bin.reservecopy': store}
+    for app, data in copies.items():
+        for name, copy in zip(('record.bin', 'record.bin.reservecopy', 'record.bin-backup'), data):
+            files['slots/%d/%s' % (app, name)] = copy
+    return files
+
+
+def layout_digest(files):
+    """One SHA-256 of a layout: each file's path, SHA-256 and length, a line each in path order."""
+    return sha(''.join('%s\t%s\t%d\n' % (name, sha(data), len(data)) for name, data in sorted(files.items())).encode())
+
+
+def java_layouts(text):
+    """The layout digests the Java store fixture pins, by mode."""
+    found = re.findall(r'Map\.entry\("([a-z0-9-]+)",\s+"([0-9a-f]{64})"\)', text)
+    if len(found) != len(dict(found)):
+        raise ValueError('Java layout goldens repeat a mode')
+    return dict(found)
 
 
 def oracle_problems(files, gold, where):
@@ -305,6 +493,20 @@ def source_checks():
         if (java_constant(test, name + '_SHA256') != sha(data)
                 or int(java_constant(test, name + '_BYTES')) != len(data)):
             problems.append('Java golden differs from the documented layout: ' + name)
+    # Every lifecycle guest layout's Java golden is the independent oracle's at the fixed values,
+    # and the predictions name each mode's files and digest there.
+    modes = observer().LIFECYCLE_MODES
+    pinned = java_layouts(test)
+    gold = {mode: lifecycle_goldens(mode, *GUEST_VALUES) for mode in modes}
+    if pinned != {mode: layout_digest(files) for mode, files in gold.items()}:
+        problems.append('Java layout goldens differ from the independent oracle: %s' % sorted(
+            mode for mode in set(pinned) | set(gold) if pinned.get(mode) != layout_digest(gold.get(mode, {})))[:5])
+    expected = strict(PREDICTIONS.read_text())['guest_inputs']
+    if (list(expected['modes']) != list(modes)
+            or expected['layouts'] != {mode: layout_digest(gold[mode]) for mode in modes}
+            or any(expected['modes'][mode] != sorted(gold[mode]) for mode in modes)
+            or tuple(expected['values']) != GUEST_VALUES or tuple(expected['future_values']) != GUEST_FUTURE_VALUES):
+        problems.append('guest input predictions differ from the independent oracle')
     rehearsal = (LAB_DIR / 'NativeWriterLabRehearsal.java').read_text()
     problems += rehearsal_problems(rehearsal)
     predictions = strict(PREDICTIONS.read_text())
@@ -513,9 +715,10 @@ def store_fixture(work, predictions, pinned, record, problems, save):
 
 
 def guest_inputs(work, predictions, pinned, record, problems, save):
-    """The lifecycle guest layouts: the generator compiled with B1's codec from its pinned Git object,
-    each mode's store against the independent oracle byte for byte and against the observer's matching
-    phase, one changed byte refused by the observer, and the generator's refusals before any file."""
+    """The lifecycle guest layouts: the generator compiled with B1's codec from its pinned Git
+    object, each mode's store at the fixed values and at a future guest's against the independent
+    oracle byte for byte and against the observer's matching phase, one changed byte refused by the
+    observer, and the generator's refusals before any file."""
     expected = predictions['guest_inputs']
     path, digest = GUEST_CODEC
     codec = b1.git_bytes(GUEST_REVISION, path)
@@ -534,39 +737,47 @@ def guest_inputs(work, predictions, pinned, record, problems, save):
         problems.append('guest generator compilation failed')
         return
     observe = observer()
-    lineage, app_id, other_app_id, serial = GUEST_VALUES
     record['modes'] = {}
     if list(observe.LIFECYCLE_MODES) != list(expected['modes']):
         problems.append('guest modes differ from the predictions')
-    for mode in observe.LIFECYCLE_MODES:
-        output = work / ('guest-' + mode)
-        companion = mode.startswith('v2-beside-')
-        result = java(work, GENERATOR, mode, output, lineage, str(app_id), *([str(other_app_id)] if companion else []),
-                      str(serial), classes=classes, timeout=120)
-        entry = record['modes'][mode] = {'returncode': result['returncode'], 'stdout': result['stdout'][-4000:],
-                                         'stderr': result['stderr'][-2000:]}
-        save()
-        try:
-            manifest = observe.load_lifecycle_generation(result['stdout'].strip())
-            entry['assessed'] = observe.assess_store(output, mode, generation=manifest)
-        except (OSError, ValueError) as error:
-            problems.append('guest input %s: %s' % (mode, error))
-            continue
-        gold = lifecycle_goldens(mode, lineage, app_id, other_app_id, serial)
-        entry['oracle'] = sorted(name for name in set(gold) | set(manifest['files'])
-                                 if not (output / name).is_file() or (output / name).read_bytes() != gold.get(name))
-        save()
-        if result['returncode'] or entry['oracle'] or sorted(gold) != expected['modes'][mode]:
-            problems.append('guest input %s differs from the independent oracle: %s' % (mode, entry['oracle']))
-        # The control: one changed byte in a copy of the store is refused by the observer.
-        control = work / ('guest-control-' + mode)
-        shutil.copytree(output, control)
-        target = control / sorted(gold)[0]
-        changed = bytearray(target.read_bytes())
-        changed[-1] ^= 1
-        target.write_bytes(bytes(changed))
-        if not refused(lambda: observe.assess_store(control, mode, generation=manifest)):
-            problems.append('guest input %s control was not refused' % mode)
+    for values, prefix in ((GUEST_VALUES, 'guest-'), (GUEST_FUTURE_VALUES, 'guest-future-')):
+        lineage, app_id, other_app_id, serial = values
+        for mode in observe.LIFECYCLE_MODES:
+            output = work / (prefix + mode)
+            companion = mode in observe.COMPANION_MODES
+            result = java(work, GENERATOR, mode, output, lineage, str(app_id),
+                          *([str(other_app_id)] if companion else []), str(serial), classes=classes, timeout=120)
+            entry = record['modes'][prefix + mode] = {'returncode': result['returncode'],
+                                                      'stdout': result['stdout'][-4000:],
+                                                      'stderr': result['stderr'][-2000:]}
+            save()
+            try:
+                manifest = observe.load_lifecycle_generation(result['stdout'].strip())
+                if (manifest['mode'], manifest['lineage'], manifest['app_id'], manifest['other_app_id'],
+                        manifest['user_serial']) != (mode, lineage, app_id, other_app_id if companion else None,
+                                                     serial):
+                    raise ValueError('the generator manifest differs from the request')
+                entry['assessed'] = observe.assess_store(output, mode, generation=manifest)
+            except (OSError, ValueError) as error:
+                problems.append('guest input %s%s: %s' % (prefix, mode, error))
+                continue
+            gold = lifecycle_goldens(mode, lineage, app_id, other_app_id, serial)
+            entry['oracle'] = sorted(name for name in set(gold) | set(manifest['files'])
+                                     if not (output / name).is_file() or (output / name).read_bytes() != gold.get(name))
+            save()
+            if (result['returncode'] or entry['oracle']
+                    or (values == GUEST_VALUES and sorted(gold) != expected['modes'][mode])):
+                problems.append('guest input %s%s differs from the independent oracle: %s' % (prefix, mode,
+                                                                                              entry['oracle']))
+            # The control: one changed byte in a copy of the store is refused by the observer.
+            control = work / (prefix + 'control-' + mode)
+            shutil.copytree(output, control)
+            target = control / sorted(gold)[0]
+            changed = bytearray(target.read_bytes())
+            changed[-1] ^= 1
+            target.write_bytes(bytes(changed))
+            if not refused(lambda: observe.assess_store(control, mode, generation=manifest)):
+                problems.append('guest input %s%s control was not refused' % (prefix, mode))
     record['refusals'] = []
     for index, arguments in enumerate(expected['refusals']):
         output = work / ('guest-refused-%d' % index)

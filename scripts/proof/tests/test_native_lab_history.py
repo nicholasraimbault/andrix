@@ -700,6 +700,13 @@ class GuestInputTests(unittest.TestCase):
         self.assertEqual(list(predicted['modes']), list(runner.observer().LIFECYCLE_MODES))
         for mode, names in predicted['modes'].items():
             self.assertEqual(sorted(runner.lifecycle_goldens(mode)), names)
+        # Each mode's exact files at the fixed values, by digest, and the second set of values.
+        self.assertEqual(predicted['layouts'], {mode: runner.layout_digest(runner.lifecycle_goldens(mode))
+                                                for mode in predicted['modes']})
+        self.assertEqual((tuple(predicted['values']), tuple(predicted['future_values'])),
+                         (runner.GUEST_VALUES, runner.GUEST_FUTURE_VALUES))
+        self.assertEqual(len(predicted['refusals']), 15)
+        self.assertNotEqual(runner.GUEST_VALUES[1:], runner.GUEST_FUTURE_VALUES[1:])
 
     def test_the_codec_is_its_pinned_git_object(self):
         path, digest = runner.GUEST_CODEC
@@ -717,7 +724,7 @@ class GuestInputTests(unittest.TestCase):
     def test_the_oracle_agrees_with_the_independent_decoder(self):
         import native_lifecycle_record as lifecycle
         lineage, app_id, other_app_id, serial = runner.GUEST_VALUES
-        for mode in runner.observer().LIFECYCLE_MODES:
+        for mode in runner.observer().LIFECYCLE_MODES[:6]:
             files = runner.lifecycle_goldens(mode, lineage, app_id, other_app_id, serial)
             header = lifecycle.decode_header(files['store.bin'])
             self.assertIsNotNone(header, mode)
@@ -755,6 +762,181 @@ class GuestInputTests(unittest.TestCase):
             if mode == 'eligible-v1':
                 self.assertEqual(sorted(files), sorted(runner.lifecycle_goldens('retiring-v1', lineage, app_id,
                                                                                 other_app_id, serial)))
+
+    def test_the_reader_steps_oracle_is_the_lifecycle_runners_independent_encoding(self):
+        """Every version 2 record of the reader step's layouts, from the lab oracle, equals the
+        lifecycle runner's independent encoder over the same value, written apart from it; every
+        version 1 record and header reads back with the independent decoder, and every later version
+        frame with the independent prefix decoder."""
+        import native_lifecycle_record as lifecycle
+        for lineage, app_id, other_app_id, serial in (runner.GUEST_VALUES, runner.GUEST_FUTURE_VALUES):
+            signer, subject = runner.fixture_subject()['signer_sha256'], runner.observer().SUBJECT
+            zero, time = '00' * 16, 1_700_000_000_000
+
+            def v2(generation, users, ticket=None, app=app_id, package=subject, signers=(signer,)):
+                return lifecycle.slot_v2(lineage, app, generation, package, list(signers), users, ticket)
+
+            def receipts(retirement, disposition):
+                return lifecycle.all_kinds(lambda code, kind: (
+                    kind, disposition if code >= 10 else retirement,
+                    '%02x' % (0x10 + code) * 16 if (disposition if code >= 10 else retirement) == 'DISCHARGED'
+                    and code % 2 else zero, code if (disposition if code >= 10 else retirement) == 'DISCHARGED' else 0,
+                    time + code if (disposition if code >= 10 else retirement) == 'DISCHARGED' else 0))
+            user = ('ACCOUNT_USER', 0, 0, serial, zero, 1, time, None)
+            disposing = receipts('DISCHARGED', 'DISPOSING')
+            expected = {
+                'v2-grant': v2(2, [(1, 0, serial, ('ELIGIBLE', [('ADMIN_GRANT', 0, 0, serial, '47' * 16, 2, time,
+                                                                 None)], None))]),
+                'v2-scope-1': v2(2, [(1, 0, serial, ('ELIGIBLE', [('ACCOUNT_USER', 1, 0, serial, zero, 6, time, None)],
+                                                     None))]),
+                'v2-noted': v2(2, [(1, 0, serial, ('ELIGIBLE', [('ACCOUNT_USER', 0, 0, serial, zero, 5, time,
+                                                                 '5a' * 32)], None))]),
+                'v2-retiring': v2(2, [(1, 0, serial, ('RETIRING', [], ('ACCOUNT_USER', 0, serial, zero, time + 100,
+                                                                       receipts('OUTSTANDING', 'OUTSTANDING'))))]),
+                'v2-retired': v2(3, [(1, 0, serial, ('RETIRED', [], ('ACCOUNT_USER', 0, serial, zero, time + 100,
+                                                                     receipts('DISCHARGED', 'OUTSTANDING'))))]),
+                'v2-disposing': v2(4, [(1, 0, serial, ('RETIRED', [], ('ACCOUNT_USER', 0, serial, zero, time + 100,
+                                                                       disposing)))]),
+                'v2-legacy-suspended': v2(2, [(1, 0, serial, ('RETIRING', [user], ('LEGACY_MARKER', 0, 0, zero, 0,
+                                                                                   [])))]),
+                'damaged-retired-unknown-inventory': v2(2, [(1, 0, serial, ('RETIRED', [user],
+                                                                            ('LEGACY_MARKER', 0, 0, zero, 0, [])))]),
+                'damaged-disposing-work': v2(4, [(1, 0, serial, ('RETIRED', [], ('ACCOUNT_USER', 0, serial, zero,
+                                                                                 time + 100, [('WORK', 'DISPOSING')
+                                                                                              + disposing[0][2:]]
+                                                                                 + disposing[1:])))]),
+                'damaged-v2-of-v1': v2(1, [(1, 0, serial, ('ELIGIBLE', [], None))]),
+                'tombstone-live': v2(4, [], (1, 0, serial, '54' * 16)),
+                'tombstone-releasing': v2(4, [], (1, 0, serial, '54' * 16)),
+            }
+            for scope, mode in ((0, 'v2-recovery-hold'), (2, 'v2-recovery-scope-2'), (3, 'v2-recovery-scope-3')):
+                expected[mode] = v2(2, [(1, 0, serial, ('ELIGIBLE', [('RECOVERY_HOLD', scope, 0, serial, zero, 7, time,
+                                                                     None)], None))])
+            for mode, data in expected.items():
+                files = runner.lifecycle_goldens(mode, lineage, app_id, other_app_id, serial)
+                with self.subTest(mode=mode, app_id=app_id):
+                    self.assertEqual(files['slots/%d/record.bin' % app_id], data)
+                    self.assertEqual(files['slots/%d/record.bin.reservecopy' % app_id], data)
+            # The largest record, by the same encoder.
+            note = '5a' * 32
+            users = []
+            for index in range(64):
+                user_serial = serial if index == 0 else 100 + index
+                entries = [('ACCOUNT_USER', 0, index, user_serial, zero, 1, time, note)]
+                entries += [('ADMIN_GRANT', 0, 0, serial, '%02x' % (0x40 + grant) * 16, 3, time + grant, note)
+                            for grant in range(1, 5)]
+                entries.append(('RECOVERY_HOLD', 2, 0, serial, zero, 7, time + 9, note))
+                users.append((2 + index, index, user_serial, ('RETIRING', entries, (
+                    'ACCOUNT_USER', index, user_serial, zero, time + 100, receipts('OUTSTANDING', 'OUTSTANDING')))))
+            largest = v2(2, users, app=other_app_id, package=runner.MAXIMUM,
+                         signers=['%064x' % index for index in range(1, 33)])
+            files = runner.lifecycle_goldens('maximum-beside-eligible', lineage, app_id, other_app_id, serial)
+            self.assertEqual(files['slots/%d/record.bin' % other_app_id], largest)
+            self.assertEqual(len(largest), lifecycle.PLAN_SIZES['largest'])
+            # Each copy of the mixed layouts and the legacy continuation is the record its name
+            # says.
+            suspended = runner.lifecycle_goldens('v2-slot', lineage, app_id, other_app_id, serial)[
+                'slots/%d/record.bin' % app_id]
+            directory = 'slots/%d/' % app_id
+            for mode, copies in (('mixed-suspend-backup', ((2, 'v2', True), (2, 'v2', True), (1, 'v1', False))),
+                                 ('mixed-lift-backup', ((3, 'v1', False), (3, 'v1', False), (2, 'v2', True))),
+                                 ('mixed-suspend-conflict', ((2, 'v2', True), (1, 'v1', False))),
+                                 ('mixed-lift-conflict', ((3, 'v1', False), (2, 'v2', True))),
+                                 ('legacy-continuation-interrupted', ((2, 'v2', False), (2, 'v2', False),
+                                                                      (1, 'v1', False)))):
+                files = runner.lifecycle_goldens(mode, lineage, app_id, other_app_id, serial)
+                for name, (generation, version, entries) in zip(('record.bin', 'record.bin.reservecopy',
+                                                                 'record.bin-backup'), copies):
+                    data = files[directory + name]
+                    read = lifecycle.decode_slot(data)
+                    with self.subTest(mode=mode, copy=name):
+                        self.assertEqual((read['version'], runner.struct.unpack_from('<q', data, 32)[0],
+                                          bool(read['users'][0]['entries'])), (int(version[1]), generation, entries))
+                        if version == 'v2' and entries:
+                            self.assertEqual(data, suspended)
+                self.assertEqual(len(files), len(copies) + 2, mode)
+            continued = runner.lifecycle_goldens('legacy-continuation-interrupted', lineage, app_id, other_app_id,
+                                                 serial)[directory + 'record.bin']
+            read = lifecycle.decode_slot(continued)['users'][0]
+            self.assertEqual((read['state'], read['retirement']['class'], read['retirement']['inventory']),
+                             ('RETIRING', 'LEGACY_MARKER', 1))
+            lifted = runner.lifecycle_goldens('lift-v1', lineage, app_id, other_app_id, serial)
+            self.assertEqual(lifted[directory + 'record.bin'], runner.lifecycle_goldens(
+                'mixed-lift-backup', lineage, app_id, other_app_id, serial)[directory + 'record.bin'])
+            # Later version frames, by the independent prefix decoder.
+            for mode, prefix in (('v3-prefix-valid', {'version': 3, 'app_id': app_id, 'package': subject,
+                                                      'principals': [1]}), ('v3-prefix-broken', None)):
+                data = runner.lifecycle_goldens(mode, lineage, app_id, other_app_id, serial)[directory + 'record.bin']
+                self.assertEqual((lifecycle.decode_frame(data, lifecycle.TYPE_SLOT)[0], lifecycle.decode_prefix(data)),
+                                 (3, prefix))
+            # The headers, by the independent decoder.
+            for mode, version, entries in (('releasing-without-directory', 1, [(app_id, 'RELEASING', False)]),
+                                           ('tombstone-releasing', 1, [(app_id, 'RELEASING', False)]),
+                                           ('reservation', 2, [(app_id, 'CREATING', True)]),
+                                           ('reservation-wrong-serial', 2, [(app_id, 'CREATING', True)]),
+                                           ('maximum-beside-eligible', 1, [(app_id, 'LIVE', False),
+                                                                           (other_app_id, 'LIVE', False)])):
+                header = lifecycle.decode_header(runner.lifecycle_goldens(mode, lineage, app_id, other_app_id,
+                                                                          serial)['store.bin'])
+                self.assertEqual((header['version'], [(entry['app_id'], entry['phase'], entry['bound'])
+                                                      for entry in header['entries']]), (version, entries), mode)
+            # The serial control differs from its twin by the binding's serial alone.
+            right, wrong = (runner.lifecycle_goldens(mode, lineage, app_id, other_app_id, serial)['store.bin']
+                            for mode in ('reservation', 'reservation-wrong-serial'))
+            self.assertEqual(right, runner.lifecycle_goldens('reservation', lineage, app_id, other_app_id,
+                                                             serial)['store.bin'])
+            self.assertEqual(wrong, runner.lifecycle_goldens('reservation', lineage, app_id, other_app_id,
+                                                             serial + 1)['store.bin'])
+
+    def test_a_wrong_signer_serial_or_value_is_another_layout(self):
+        """The oracle at another serial, signer, lineage or app ID differs from the layout at the
+        requested values, so the comparison refuses each; at the requested values it is equal."""
+        values = dict(zip(('lineage', 'app_id', 'other_app_id', 'serial'), runner.GUEST_VALUES))
+        signer_free = {'releasing-without-directory'}
+        serial_free = {'releasing-without-directory'}
+        for mode in runner.READER_STEP_MODES:
+            gold = runner.lifecycle_goldens(mode, **values)
+            self.assertEqual(runner.lifecycle_goldens(mode, **values), gold)
+            for change, free in (({'serial': 8}, serial_free), ({'signer': '0' * 64}, signer_free),
+                                 ({'lineage': 'f' * 32}, set()), ({'app_id': 10150}, set())):
+                with self.subTest(mode=mode, change=change):
+                    self.assertEqual(runner.lifecycle_goldens(mode, **dict(values, **change)) == gold, mode in free)
+
+    def test_a_changed_byte_or_checksum_is_refused_even_resealed(self):
+        """A staged copy of a generated layout passes the observer against its manifest; a body byte
+        changed under a fresh, valid frame checksum, or only the checksum changed, is refused by the
+        observer and differs from the oracle. A checksum is no authority over the expected bytes."""
+        observe = runner.observer()
+        lineage, app_id, other_app_id, serial = runner.GUEST_VALUES
+        mode = 'mixed-lift-backup'
+        gold = runner.lifecycle_goldens(mode, lineage, app_id, other_app_id, serial)
+        manifest = json.dumps({'version': 1, 'mode': mode, 'lab_input_only': True, 'authority': False,
+                               'subject': observe.SUBJECT, 'lineage': lineage, 'app_id': app_id,
+                               'other_app_id': None, 'user_id': 0, 'user_serial': serial,
+                               'files': {name: {'sha256': runner.sha(data), 'bytes': len(data)}
+                                         for name, data in sorted(gold.items())}}, separators=(',', ':'))
+        generation = observe.load_lifecycle_generation(manifest)
+
+        def staged(files):
+            root = scratch(self) / 'store'
+            (root / 'slots').mkdir(parents=True)
+            for name, data in files.items():
+                (root / name).parent.mkdir(parents=True, exist_ok=True)
+                (root / name).write_bytes(data)
+            return root
+        self.assertEqual(observe.assess_store(staged(gold), mode, generation=generation)['phase'], mode)
+        backup = 'slots/%d/record.bin-backup' % app_id
+        record = bytearray(gold[backup])
+        record[40] ^= 1
+        resealed = bytes(record[:-32]) + runner.hashlib.sha256(bytes(record[:-32])).digest()
+        import native_lifecycle_record as lifecycle
+        self.assertIsNotNone(lifecycle.decode_frame(resealed, lifecycle.TYPE_SLOT))
+        checksum = gold[backup][:-1] + bytes([gold[backup][-1] ^ 1])
+        for changed in (resealed, checksum):
+            files = dict(gold, **{backup: changed})
+            self.assertNotEqual(files, gold)
+            with self.assertRaises(ValueError):
+                observe.assess_store(staged(files), mode, generation=generation)
 
 
 if __name__ == '__main__':

@@ -5,6 +5,7 @@ framework copies. Not Android runtime proof."""
 from collections import Counter
 from pathlib import Path
 import ast
+import base64
 import contextlib
 import inspect
 import io
@@ -130,9 +131,13 @@ class LifecycleRecordSourceTests(unittest.TestCase):
         self.assertEqual(runner.FORMAT_LABELS, {'V1': 'legacy', 'V2': 'previous', 'V3': 'production'})
         b2 = predictions['b2_checkpoint_2']
         self.assertEqual(runner.FORMAT_LABELS, b2['format_labels'])
-        # Checkpoint 2b adds the floor step and its own label to the step labels, and nothing else.
-        floor = predictions['b2_checkpoint_2b']
-        self.assertEqual({step: list(labels) for step, labels in runner.STEP_LABELS.items()}, floor['step_labels'])
+        # Checkpoint 2b adds the floor step and its own label to the step labels, and nothing else;
+        # checkpoint 3a adds the guests step, under the production label.
+        floor, guests = predictions['b2_checkpoint_2b'], predictions['b2_checkpoint_3a']
+        self.assertEqual({step: list(labels) for step, labels in runner.STEP_LABELS.items()}, guests['step_labels'])
+        self.assertEqual({step: labels for step, labels in guests['step_labels'].items() if step != 'guests'},
+                         floor['step_labels'])
+        self.assertEqual(guests['step_labels']['guests'], ['production'])
         self.assertEqual({step: labels for step, labels in floor['step_labels'].items() if step != 'floor'},
                          b2['step_labels'])
         self.assertEqual(floor['step_labels']['floor'], [floor['run_label']])
@@ -236,9 +241,12 @@ class LifecycleRecordSourceTests(unittest.TestCase):
         rows = [row for row in runner.b1.HARNESS_LABELS if row[0] == 'production']
         # The codec's row and the Format.V3 rows of this runner: the read test's, the diagnostic
         # test's, the store, transaction and fault tests', the Settings test's, the manager test's,
-        # the reader check's and the layout emitter's.
+        # the reader check's, the layout emitter's, and since checkpoint 3a the guest inputs': the
+        # guest generator and the guest check.
         lifecycle = 'scripts/proof/native_lifecycle_record.py'
-        self.assertEqual(len([row for row in rows if row[1] == lifecycle]), 8)
+        self.assertEqual(len([row for row in rows if row[1] == lifecycle]), 9)
+        self.assertIn(('production', lifecycle, (runner.GUEST_CHECK, runner.GUEST_GENERATOR_CLASS)),
+                      [row[:3] for row in rows])
         # Elsewhere, the named V3 runs: the presence V3 step and the moved V3 cases of the binding
         # runner, its production twins and production default check, the header footprint module's
         # V3 cases, the store module's entry points, the production twins and parity of the history
@@ -295,11 +303,18 @@ class LifecycleRecordSourceTests(unittest.TestCase):
             with self.subTest(change=change), mock.patch.dict(runner.STEP_LABELS, change):
                 self.assertTrue(runner.label_problems())
         floor_rows = [row for row in runner.b1.HARNESS_LABELS if row[0] == 'floor-model']
-        self.assertEqual([row[1:3] for row in floor_rows], [(lifecycle, (runner.FLOOR_READER,))])
-        with mock.patch.object(runner.b1, 'HARNESS_LABELS', runner.b1.HARNESS_LABELS + (
-                ('floor-model', 'scripts/proof/native_creation_binding.py', ('NativeHeaderTestSupport',), 'x'),)):
-            self.assertIn('the floor label does not name the floor model\'s reader check alone',
-                          runner.label_problems())
+        self.assertEqual([row[1:3] for row in floor_rows], [(lifecycle, (runner.FLOOR_READER,)),
+                                                            (lifecycle, (runner.GUEST_CHECK,))])
+        # The guest check is the floor's one working-tree class, and the binding runner names it so.
+        self.assertEqual(runner.b1.LIVING_FLOOR_CHECKS, (runner.GUEST_CHECK,))
+        for change in ({'HARNESS_LABELS': runner.b1.HARNESS_LABELS + (
+                ('floor-model', 'scripts/proof/native_creation_binding.py', ('NativeHeaderTestSupport',), 'x'),)},
+                       {'LIVING_FLOOR_CHECKS': ()},
+                       {'HARNESS_LABELS': tuple(row for row in runner.b1.HARNESS_LABELS
+                                                if row[:3] != ('floor-model', lifecycle, (runner.GUEST_CHECK,)))}):
+            with self.subTest(change=sorted(change)), mock.patch.multiple(runner.b1, **change):
+                self.assertIn('the floor label does not name the floor model\'s reader check and the guest check'
+                              ' alone', runner.label_problems())
         for label in (('production', 'archived-baseline'), ('rollback-reader',)):
             for step in ('reads', 'store', 'transactions', 'faults'):
                 with mock.patch.dict(runner.STEP_LABELS, {step: label}):
@@ -471,10 +486,10 @@ class LifecycleTransitionSourceTests(unittest.TestCase):
 
     def test_lifecycle_cases_are_named_once_and_labelled_by_format(self):
         self.assertEqual(runner.lifecycle_name_problems(), [])
-        # The floor model's phase follows the readers.
+        # The floor model's phase follows the readers, and the guest inputs' the layouts.
         self.assertEqual(runner.PHASES, ('candidate', 'codec', 'reads', 'dump', 'store', 'transactions', 'faults',
-                                         'settings', 'manager', 'pinned', 'layouts', 'rollback', 'readers', 'floor',
-                                         'mutants'))
+                                         'settings', 'manager', 'pinned', 'layouts', 'guests', 'rollback', 'readers',
+                                         'floor', 'mutants'))
         self.assertEqual({runner.case_label(name) for name in runner.MANAGER_NAMES},
                          {'legacy', 'previous', 'production'})
         self.assertEqual({runner.FORMAT_LABELS[name.split(' / ', 1)[0]] for name in runner.SETTINGS_NAMES},
@@ -531,7 +546,9 @@ class LifecycleTransitionSourceTests(unittest.TestCase):
                                     runner.SETTINGS_TEST: {'previous', 'production'},
                                     runner.MANAGER_TEST: every, runner.LAYOUTS: {'production'},
                                     runner.ROLLBACK_CHECK: {'rollback-reader'},
-                                    runner.READER_CHECK: {'previous', 'production', 'floor-model'}})
+                                    runner.READER_CHECK: {'previous', 'production', 'floor-model'},
+                                    runner.GUEST_CHECK: {'production', 'floor-model'},
+                                    runner.GUEST_GENERATOR_CLASS: {'production'}})
         # Every Settings fragment mutant changes the facade and the harness alike.
         for name, (edits, suites) in runner.MUTANTS.items():
             if any(target.startswith(runner.FRAGMENT) for target, _, _ in edits):
@@ -599,9 +616,13 @@ class LifecycleLayoutTests(unittest.TestCase):
         self.assertIn('RELEASING without a directory under header 2', runner.LAYOUT_FACTS)
         # The manager's writes are the persistence transactions': no manager layout is emitted.
         self.assertFalse([name for name in runner.LAYOUT_NAMES if name.startswith('manager-')])
-        # Checkpoint 2b's phases are P5's with the floor phase after the readers.
+        # Checkpoint 2b's phases are P5's with the floor phase after the readers, and checkpoint
+        # 3a's are 2b's with the guests phase after the layouts.
         phases = json.loads(runner.PREDICTIONS.read_text())['b2_checkpoint_2b']['phases']
-        self.assertEqual(phases, list(runner.PHASES))
+        current = json.loads(runner.PREDICTIONS.read_text())['b2_checkpoint_3a']['phases']
+        self.assertEqual(current, list(runner.PHASES))
+        self.assertEqual([phase for phase in current if phase != 'guests'], phases)
+        self.assertEqual(current.index('guests'), current.index('layouts') + 1)
         self.assertEqual([phase for phase in phases if phase != 'floor'], predicted['phases'])
         self.assertEqual(phases.index('floor'), phases.index('readers') + 1)
         # Every transaction of the fault sweeps is a step family.
@@ -1573,19 +1594,35 @@ class LifecycleFloorTests(unittest.TestCase):
         self.assertEqual(predicted['differing_from_24bf'], 17)
 
     def test_the_guest_input_hook_fails_closed(self):
-        self.assertEqual(runner.GUEST_INPUTS, ())
+        # Every guest input has its floor and production reads, each a prediction of every check.
+        self.assertEqual(len(runner.GUEST_INPUTS), 35)
         self.assertEqual(runner.guest_input_problems(), [])
-        found = runner.guest_input_problems(('suspended-by-user',))
+        reads = runner.guest_section()['reads']
+        found = runner.guest_input_problems(runner.GUEST_INPUTS + ('suspended-by-user',))
         self.assertEqual(len(found), 1)
         for check in runner.GUEST_INPUT_CHECKS:
             self.assertIn(check, found[0])
-        with mock.patch.object(runner, 'GUEST_INPUTS', ('suspended-by-user',)):
+        self.assertIn("['suspended-by-user']", found[0])
+        with mock.patch.object(runner, 'GUEST_INPUTS', runner.GUEST_INPUTS + ('suspended-by-user',)):
             self.assertEqual(runner.guest_input_problems(), found)
+        # A reader or a check missing from one input's predictions is no read either, and a
+        # prediction of an input that does not exist is refused.
+        for change in (lambda value: value['v2-grant'].pop('floor'),
+                       lambda value: value['v2-grant']['production'].pop('boot facts'),
+                       lambda value: value['v2-grant']['floor'].update(extra=[])):
+            broken = json.loads(json.dumps(reads))
+            change(broken)
+            self.assertIn("B2 guest inputs without reads: ['v2-grant']",
+                          runner.guest_input_problems(predicted=broken)[0])
+        broken = dict(reads, **{'unknown-input': reads['v2-grant']})
+        self.assertEqual(runner.guest_input_problems(predicted=broken),
+                         ["reads of guest inputs that do not exist: ['unknown-input']"])
         self.assertIn('guest_input_problems()', inspect.getsource(runner.source_checks))
-        self.assertIn('guest_input_problems()', inspect.getsource(runner.floor_phase))
+        self.assertIn('guest_input_problems(', inspect.getsource(runner.floor_phase))
+        self.assertIn('guest_floor(', inspect.getsource(runner.floor_phase))
+        # Checkpoint 2b's record of the hook, before any input: the same checks.
         predicted = json.loads(runner.PREDICTIONS.read_text())['b2_checkpoint_2b']['guest_inputs']
-        self.assertEqual((predicted['inputs'], tuple(predicted['checks'])), (len(runner.GUEST_INPUTS),
-                                                                           runner.GUEST_INPUT_CHECKS))
+        self.assertEqual((predicted['inputs'], tuple(predicted['checks'])), (0, runner.GUEST_INPUT_CHECKS))
 
     def test_the_layout_footprint_sees_bytes_and_files_not_times(self):
         emitted = scratch(self) / 'emitted'
@@ -1616,9 +1653,13 @@ class LifecycleFloorTests(unittest.TestCase):
 
     def test_the_floor_predictions_are_consistent(self):
         predictions = json.loads(runner.PREDICTIONS.read_text())
-        predicted = predictions['b2_checkpoint_2b']
+        predicted, current = predictions['b2_checkpoint_2b'], predictions['b2_checkpoint_3a']
         floor = predicted['floor']
-        self.assertEqual(runner.floor_prediction_problems(predicted), [])
+        self.assertEqual(runner.floor_prediction_problems(predicted, current), [])
+        # Without the current checkpoint, the floor's own record names the phases before the guests
+        # step.
+        self.assertEqual(runner.floor_prediction_problems(predicted),
+                         ['the predicted phases or step labels differ from the runner'])
         readers = predictions['p5_checkpoint_2']['readers']
         self.assertEqual((floor['classes'], floor['outside_user_0']),
                          (readers['classes'], readers['outside_user_0_under_v3']))
@@ -1645,14 +1686,19 @@ class LifecycleFloorTests(unittest.TestCase):
                 (('floor', 'calls', 'git'), 96, 'Git calls other than the floor loader'),
                 (('floor', 'calls', 'listed'), 3, 'Git calls other than the floor loader'),
                 (('floor', 'classes', 'nothing'), 13, 'do not cover the layouts'),
-                (('phases',), list(runner.PHASES[:-1]), 'phases or step labels')):
+                (('phases',), list(runner.PHASES[:-1]), 'phases or step labels'),
+                (('phases',), list(runner.PHASES), 'phases or step labels')):
             broken = json.loads(json.dumps(predicted))
             target = broken
             for key in path[:-1]:
                 target = target[key]
             target[path[-1]] = value
             with self.subTest(path=path):
-                self.assertIn(expected, ' '.join(runner.floor_prediction_problems(broken)))
+                self.assertIn(expected, ' '.join(runner.floor_prediction_problems(broken, current)))
+        for value in (list(runner.PHASES[:-1]), [phase for phase in runner.PHASES if phase != 'guests']):
+            with self.subTest(current=value):
+                self.assertIn('the predicted phases or step labels differ from the runner',
+                              runner.floor_prediction_problems(predicted, dict(current, phases=value)))
 
     def test_the_floor_from_its_git_objects(self):
         if not PINNED:
@@ -1775,6 +1821,206 @@ class LifecycleFloorTests(unittest.TestCase):
         with mock.patch.object(runner, 'FLOOR_HARNESS_SHA256', '0' * 64):
             with self.assertRaisesRegex(ValueError, 'floor harness drift'):
                 runner.floor_model_files(settings)
+
+
+def rendered(rows):
+    """A raw diagnostic with these predicted rows, written here from the documented schema alone:
+    the scalars in their order with an allocator search start, the counts, holds, slot rows and
+    names."""
+    fields = dict(item.split('=') for item in rows['fields'])
+    encode = lambda name: base64.b64encode(name.encode()).decode()
+    lines = ['andrix-native-identities-v%d' % rows['schema'], 'live_settings=true', 'authority=not-reported',
+             'counter_known=' + fields['counter_known'], 'cached_header=' + fields['cached_header'],
+             'cached_enumeration_complete=' + fields['cached_enumeration_complete'],
+             'creation_ready=' + fields['creation_ready'], 'allocator_search_start=10150',
+             'unidentified_code=' + fields['unidentified_code'], 'deferred_count=%d' % len(rows['deferred'])]
+    if rows['schema'] == 3:
+        lines.append('slot_count=%d' % len(rows['holds']))
+    for hold in rows['holds']:
+        app, status, pinned, kind, name = hold.split(' ')
+        lines.append('hold=%s\t%s\t%s\t%s\t%s' % (app, status, str(pinned == 'pinned').lower(), kind,
+                                                  '' if name == '-' else encode(name)))
+    for slot in rows.get('slots', []):
+        lines.append('slot=' + '\t'.join(slot.split(' ')))
+    lines += ['deferred=' + encode(name) for name in rows['deferred']]
+    return '\n'.join(lines) + '\n'
+
+
+def guest_line(name, reading):
+    """The line a guest check prints for this reading."""
+    value = {'lifecycle': reading['lifecycle'], 'pins': reading['pin phase'], 'deferred': reading['deferred set'],
+             'scan': reading['scan outcome'], 'boot_facts': reading['boot facts'],
+             'dump': rendered(reading['schema 3 rows'])}
+    return 'GUEST %s %s' % (name, json.dumps(value, separators=(',', ':')))
+
+
+class LifecycleGuestInputTests(unittest.TestCase):
+    """The B2 guest inputs: their modes and coverage, both readers' exact predictions with their
+    swap and cross controls, the comparison of readings with predictions, the independent prefix
+    decoder and the largest record's arithmetic. The JVM reads run in the guarded run's guests and
+    floor steps."""
+
+    def test_the_inputs_are_every_generator_mode_with_the_lost_mapping(self):
+        observe = runner.lab.observer()
+        self.assertEqual(runner.GUEST_MODES, observe.LIFECYCLE_MODES)
+        self.assertEqual(len(runner.GUEST_MODES), 33)
+        self.assertEqual(runner.GUEST_INPUTS, ('empty-v1',) + runner.GUEST_MODES + ('v2-slot-mapping-lost',))
+        self.assertEqual(runner.GUEST_INPUT_MODES['v2-slot-mapping-lost'], ('v2-slot', 'lost'))
+        self.assertEqual({mapping for name, (mode, mapping) in runner.GUEST_INPUT_MODES.items()
+                          if name != 'v2-slot-mapping-lost'}, {'mapped'})
+        self.assertEqual(runner.GUEST_SUBJECT, observe.SUBJECT)
+        self.assertEqual(dict(runner.GUEST_NAMES)['maximum'], runner.lab.MAXIMUM)
+        self.assertEqual(len(runner.lab.MAXIMUM), 255)
+        # The subject's certificate is the generator's signer, and the store holds the subject's app
+        # ID in every layout but the empty store, so the boot enumerates its data owner there.
+        self.assertEqual(runner.sha(runner.guest_certificate()), observe.FIXTURE_SIGNER)
+        lineage, app_id, other_app_id, serial = runner.lab.GUEST_VALUES
+        for mode in runner.GUEST_MODES:
+            files = runner.lab.lifecycle_goldens(mode, lineage, app_id, other_app_id, serial)
+            self.assertIn(app_id, runner.guest_holds(files), mode)
+            self.assertEqual(other_app_id in runner.guest_holds(files), mode in observe.COMPANION_MODES, mode)
+        empty = dict.fromkeys(observe.HEADERS, runner.lab.goldens()['EMPTY'])
+        self.assertEqual(runner.guest_holds(empty), set())
+        self.assertEqual(sorted(runner.guest_files({'a': b''})), ['a', 'tests/%s.java' % runner.GUEST_CHECK])
+
+    def test_every_plan_layout_is_covered(self):
+        self.assertEqual(runner.guest_coverage_problems(), [])
+        rows = [row for source, row, _ in runner.GUEST_COVERAGE if source == 'plan']
+        self.assertEqual(len(rows), 14)
+        reduced = tuple((source, row, tuple(name for name in names if name != 'lift-v1'))
+                        for source, row, names in runner.GUEST_COVERAGE)
+        with mock.patch.object(runner, 'GUEST_COVERAGE', reduced):
+            self.assertIn("guest coverage differs from the inputs: ['lift-v1']", runner.guest_coverage_problems())
+        with mock.patch.object(runner, 'GUEST_COVERAGE', runner.GUEST_COVERAGE + (
+                ('plan', 'a layout the plan never names', ('v2-slot',)),)):
+            self.assertIn('guest coverage row not in its source: a layout the plan never names',
+                          runner.guest_coverage_problems())
+
+    def test_the_predictions_and_their_controls_are_consistent(self):
+        section = runner.guest_section()
+        self.assertEqual(runner.guest_prediction_problems(section), [])
+        reads = section['reads']
+        # The readers differ beyond the schema on 26 inputs and read the other 9 alike.
+        alike = [name for name in runner.GUEST_INPUTS if name not in section['cross_control_fails']]
+        self.assertEqual(alike, ['empty-v1', 'retiring-v1', 'eligible-v1', 'releasing-without-directory',
+                                 'v3-prefix-valid', 'v3-prefix-broken', 'reservation', 'reservation-wrong-serial',
+                                 'lift-v1'])
+        self.assertEqual(len(section['cross_control_fails']), 26)
+        for reader in runner.GUEST_READERS:
+            self.assertEqual(sorted(section['swap_control'][reader]), sorted(runner.GUEST_INPUTS))
+            self.assertEqual({reads[name][reader]['schema 3 rows']['schema'] for name in runner.GUEST_INPUTS},
+                             {runner.GUEST_SCHEMAS[reader]})
+        # B1 reads every intact version 2 frame of the subject alike, whatever its lifecycle.
+        floor = {json.dumps(reads[name]['floor'], sort_keys=True) for name in (
+            'v2-slot', 'v2-grant', 'v2-scope-1', 'v2-recovery-hold', 'v2-recovery-scope-2', 'v2-recovery-scope-3',
+            'v2-noted', 'v2-retiring', 'v2-retired', 'v2-disposing', 'v2-legacy-suspended')}
+        self.assertEqual(len(floor), 1)
+        # Each break is refused.
+        for change, expected in (
+                (lambda value: value['swap_control']['floor'].update({'v2-grant': 'v2-slot'}),
+                 'the floor guest swap control keeps the own prediction of [\'v2-grant\']'),
+                (lambda value: value['cross_control_fails'].pop(), 'cross control failures'),
+                (lambda value: value['values'].update(user_serial=0), 'other values'),
+                (lambda value: value['reads']['v2-slot']['floor']['schema 3 rows'].update(schema=3),
+                 'the floor guest predictions name schemas [2, 3]'),
+                (lambda value: value['inputs'].pop('lift-v1'), 'the predicted guest inputs differ'),
+                (lambda value: value['readers']['floor'].update(format='V3'), 'other formats, schemas or labels')):
+            broken = json.loads(json.dumps(section))
+            change(broken)
+            with self.subTest(expected=expected):
+                self.assertIn(expected, ' '.join(runner.guest_prediction_problems(broken)))
+
+    def test_readings_are_compared_exactly_with_their_predictions(self):
+        reads = runner.guest_section()['reads']
+        for reader, schema in runner.GUEST_SCHEMAS.items():
+            stdout = '\n'.join(['PASS x'] + [guest_line(name, reads[name][reader]) for name in runner.GUEST_INPUTS])
+            readings = runner.guest_readings(stdout, schema)
+            self.assertEqual(runner.guest_mismatches(readings, reads, reader), [])
+            # Another reader's predictions fail beyond the schema exactly where predicted.
+            other = 'floor' if reader == 'production' else 'production'
+            self.assertEqual(runner.mismatched_inputs(runner.guest_mismatches(
+                readings, runner.guest_other(reads, reader, other), reader, runner.schema_free)),
+                sorted(runner.guest_section()['cross_control_fails']))
+            # A swap fails each swapped input.
+            swaps = runner.guest_section()['swap_control'][reader]
+            self.assertEqual(runner.mismatched_inputs(runner.guest_mismatches(
+                readings, runner.guest_swapped(reads, reader, swaps), reader)), sorted(swaps))
+            # One changed fact fails its input and check alone; a missing reading is named.
+            for check, change in (('lifecycle', lambda value: value.update(header='VALID v1 last=2')),
+                                  ('pin phase', lambda value: value.append('10149 9 x PENDING')),
+                                  ('deferred set', lambda value: value.append('dev.andrix.extra')),
+                                  ('scan outcome', lambda value: value.update({'other unmapped': 'protected'})),
+                                  ('boot facts', lambda value: value.append('releasing 10148')),
+                                  ('schema 3 rows', lambda value: value['deferred'].append('dev.andrix.extra'))):
+                changed = json.loads(json.dumps(readings))
+                change(changed['lift-v1'][check])
+                self.assertEqual(runner.guest_mismatches(changed, reads, reader), [('lift-v1', check)])
+            missing = {name: value for name, value in readings.items() if name != 'reservation'}
+            self.assertEqual(runner.guest_mismatches(missing, reads, reader), [('reservation', 'no reading')])
+        # A diagnostic of the other schema, a repeated reading or unknown facts are refused.
+        line = guest_line('lift-v1', reads['lift-v1']['production'])
+        repeated = line.replace('"boot_facts":[]', '"boot_facts":[],"boot_facts":[]')
+        for stdout, schema in ((line, 2), (line + '\n' + line, 3), (line.replace('"pins"', '"pin"'), 3),
+                               (repeated, 3), (guest_line('lift-v1', reads['lift-v1']['floor']), 3)):
+            with self.subTest(stdout=stdout[:60], schema=schema), self.assertRaises(ValueError):
+                runner.guest_readings(stdout, schema)
+
+    def test_the_independent_prefix_decoder(self):
+        lineage, app_id, other_app_id, serial = runner.lab.GUEST_VALUES
+        files = {mode: runner.lab.lifecycle_goldens(mode, lineage, app_id, other_app_id, serial)
+                 for mode in ('v3-prefix-valid', 'v3-prefix-broken', 'v2-slot')}
+        record = 'slots/%d/record.bin' % app_id
+        self.assertEqual(runner.decode_prefix(files['v3-prefix-valid'][record]),
+                         {'version': 3, 'app_id': app_id, 'package': runner.GUEST_SUBJECT, 'principals': [1]})
+        self.assertIsNone(runner.decode_slot(files['v3-prefix-valid'][record]))
+        self.assertIsNone(runner.decode_prefix(files['v3-prefix-broken'][record]))
+        self.assertIsNone(runner.decode_prefix(files['v2-slot'][record]))
+        # Each frozen bound and rule refuses: the app ID, the generation, the package, the signers
+        # and the identities.
+        head, tail = bytes.fromhex(lineage), b'later'
+        sign = '0f' * 32
+
+        def frame(app=app_id, generation=2, package='dev.andrix.a', signers=(sign,), identities=((1, 0, 7),)):
+            body = head + runner.struct.pack('<iq', app, generation) + runner.text(package)
+            body += runner.struct.pack('<H', len(signers)) + b''.join(bytes.fromhex(item) for item in signers)
+            body += runner.struct.pack('<H', len(identities))
+            body += b''.join(runner.struct.pack('<qiq', *item) for item in identities)
+            return runner.record(runner.TYPE_SLOT, 3, body + tail)
+        self.assertIsNotNone(runner.decode_prefix(frame()))
+        for change in ({'app': 9999}, {'generation': 0}, {'package': 'nodots'}, {'package': 'a.' + 'b' * 254},
+                       {'signers': ()}, {'signers': ('1f' * 32, sign)}, {'identities': ((0, 0, 7),)},
+                       {'identities': ((1, 5, 7), (2, 5, 7))}, {'identities': ((1, 0, 7), (1, 5, 7))},
+                       {'identities': ((1, -1, 7),)}, {'identities': ((1, 21475, 7),)}):
+            with self.subTest(change=change):
+                self.assertIsNone(runner.decode_prefix(frame(**change)))
+        self.assertIsNone(runner.decode_prefix(frame()[:-1] + b'\x00'))
+
+    def test_the_largest_record_is_the_plans_arithmetic(self):
+        lineage, app_id, other_app_id, serial = runner.lab.GUEST_VALUES
+        largest = runner.lab.lifecycle_goldens('maximum-beside-eligible', lineage, app_id, other_app_id,
+                                               serial)['slots/%d/record.bin' % other_app_id]
+        self.assertEqual(len(largest), 60941)
+        self.assertEqual(runner.maximum_problems(largest), [])
+        self.assertEqual(runner.maximum_problems(runner.goldens()['MAXIMUM']), [])
+        for broken in (largest[:-1], runner.lab.lifecycle_goldens('v2-noted')['slots/10148/record.bin']):
+            self.assertTrue(runner.maximum_problems(broken))
+        # The same arithmetic at a future guest's values: the record's size never depends on them.
+        future = runner.lab.lifecycle_goldens('maximum-beside-eligible', *runner.lab.GUEST_FUTURE_VALUES)
+        self.assertEqual(runner.maximum_problems(future['slots/%d/record.bin' % runner.lab.GUEST_FUTURE_VALUES[2]]), [])
+
+    def test_the_floors_guest_compile_set_is_its_pinned_set_and_the_check(self):
+        if not PINNED:
+            self.skipTest('NOT RUN: ANDRIX_PINNED_FRAMEWORK does not name the pinned framework copies')
+        pinned = Path(PINNED)
+        files = runner.floor_inputs(pinned, scratch(self) / 'candidate')[2]
+        production = runner.guest_files(runner.reader_files(runner.candidate(pinned)))
+        floor = runner.guest_files(files)
+        compile_set = runner.guest_section()['compile']
+        self.assertEqual((len(floor), len(production)), (compile_set['files'],) * 2)
+        self.assertEqual(runner.compile_differences(floor, production), compile_set['differing_from_production'])
+        living = runner.guest_files({})
+        self.assertEqual(runner.floor_compile_problems({name: runner.sha(data) for name, data in floor.items()
+                                                        if name not in living}), [])
 
 
 class LifecycleRecordJvmTests(unittest.TestCase):

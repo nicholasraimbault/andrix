@@ -415,6 +415,123 @@ class LifecycleLayoutTests(unittest.TestCase):
                 observe.load_lifecycle_generation(bad)
 
 
+class ReaderStepLayoutTests(unittest.TestCase):
+    """The guest layouts of the reader step: each mode's exact file set by the app ID that holds it,
+    and each refusal of a manifest or a staged copy beside its control."""
+
+    def manifest(self, mode, files, other=None, lineage=LINEAGE, serial=7, **changes):
+        value = {'version': 1, 'mode': mode, 'lab_input_only': True, 'authority': False, 'subject': observe.SUBJECT,
+                 'lineage': lineage, 'app_id': 10148, 'other_app_id': other, 'user_id': 0, 'user_serial': serial,
+                 'files': {name: {'sha256': hashlib.sha256(data).hexdigest(), 'bytes': len(data)}
+                           for name, data in sorted(files.items())}}
+        value.update(changes)
+        return json.dumps(value, separators=(',', ':'))
+
+    def files(self, mode, other=10149, salt=b''):
+        ids = {'A': 10148, 'B': other}
+        files = {name: b'header' + salt for name in observe.HEADERS}
+        for slot, names in observe.LAYOUT_SLOTS[mode].items():
+            for name in names:
+                files['slots/%d/%s' % (ids[slot], name)] = ('%s %s' % (slot, name)).encode() + salt
+        return files
+
+    def store(self, files, directories=()):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root)
+        snapshot = root / 'store'
+        (snapshot / 'slots').mkdir(parents=True)
+        for directory in directories:
+            (snapshot / directory).mkdir(parents=True)
+        for name, data in files.items():
+            (snapshot / name).parent.mkdir(parents=True, exist_ok=True)
+            (snapshot / name).write_bytes(data)
+        return snapshot
+
+    def test_the_modes_and_their_file_sets(self):
+        self.assertEqual(observe.LIFECYCLE_MODES[:6], ('retiring-v1', 'v2-slot', 'eligible-v1', 'v2-beside-reservation',
+                                                       'v2-beside-sibling', 'v2-beside-unrelated-body'))
+        self.assertEqual(len(observe.LIFECYCLE_MODES), 33)
+        self.assertEqual(observe.COMPANION_MODES, ('v2-beside-reservation', 'v2-beside-sibling',
+                                                   'v2-beside-unrelated-body', 'maximum-beside-eligible'))
+        backups = [mode for mode, slots in observe.LAYOUT_SLOTS.items() if observe.WITH_BACKUP in slots.values()]
+        self.assertEqual(backups, ['legacy-continuation-interrupted', 'mixed-suspend-backup', 'mixed-lift-backup'])
+        headers_only = [mode for mode, slots in observe.LAYOUT_SLOTS.items() if not slots]
+        self.assertEqual(headers_only, ['releasing-without-directory', 'reservation', 'reservation-wrong-serial'])
+        for mode in observe.LIFECYCLE_MODES:
+            other = 10149 if mode in observe.COMPANION_MODES else None
+            files = self.files(mode)
+            generation = observe.load_lifecycle_generation(self.manifest(mode, files, other))
+            assessed = observe.assess_store(self.store(files), mode, generation=generation)
+            self.assertEqual(assessed['files'], {name: hashlib.sha256(data).hexdigest()
+                                                 for name, data in files.items()})
+            # A manifest that names another file set for its mode is refused.
+            extra = dict(files, **{'slots/10148/record.bin-seed': b'seed'})
+            with self.subTest(mode=mode), self.assertRaises(ValueError):
+                observe.load_lifecycle_generation(self.manifest(mode, extra, other))
+
+    def test_each_refusal_beside_its_control(self):
+        mode = 'mixed-lift-backup'
+        files = self.files(mode)
+        text = self.manifest(mode, files)
+        generation = observe.load_lifecycle_generation(text)
+        self.assertEqual(observe.assess_store(self.store(files), mode, generation=generation)['phase'], mode)
+        # Duplicate fields, an unknown or missing field, another version, a wrong mode and an
+        # envelope that claims authority or is not lab input: each manifest is refused.
+        for bad in (text.replace('"version":1,', '"version":1,"version":1,'),
+                    text.replace('"user_id":0,', '"user_id":0,"note":"x",'),
+                    text.replace('"user_id":0,', ''),
+                    text.replace('"version":1,', '"version":2,'),
+                    text.replace('"mixed-lift-backup"', '"mixed-lift-copies"'),
+                    text.replace('"authority":false', '"authority":true'),
+                    text.replace('"lab_input_only":true', '"lab_input_only":false'),
+                    text.replace('"user_serial":7', '"user_serial":-1'), text + '\n'):
+            with self.subTest(bad=bad[-60:]), self.assertRaises(ValueError):
+                observe.load_lifecycle_generation(bad)
+        # The staged copy: another mode, an extra or missing file, a link, a hard link, an aliased
+        # root, a changed byte, a changed byte under a fresh frame checksum, a partial staging, an
+        # empty slot directory where a layout has none and a store of another generation.
+        backup = 'slots/10148/record.bin-backup'
+        resealed = files[backup][:-1] + bytes([files[backup][-1] ^ 1])
+        other = self.files(mode, salt=b'2')
+        cases = {
+            'another mode': (files, (), 'mixed-suspend-backup'),
+            'an extra file': (dict(files, **{'slots/10148/record.bin-seed': b's'}), (), mode),
+            'a missing backup': ({name: data for name, data in files.items() if name != backup}, (), mode),
+            'a changed byte': (dict(files, **{backup: resealed}), (), mode),
+            'a partial staging': ({name: files[name] for name in observe.HEADERS}, (), mode),
+            'another generation': (other, (), mode),
+        }
+        for name, (staged, directories, phase) in cases.items():
+            with self.subTest(case=name), self.assertRaises(ValueError):
+                observe.assess_store(self.store(staged, directories), phase, generation=generation)
+        linked = self.store({name: data for name, data in files.items() if name != backup})
+        (linked / backup).symlink_to(linked / 'slots/10148/record.bin')
+        hard = self.store({name: data for name, data in files.items() if name != backup})
+        os.link(hard / 'slots/10148/record.bin', hard / backup)
+        alias = Path(tempfile.mkdtemp()) / 'alias'
+        self.addCleanup(shutil.rmtree, alias.parent)
+        alias.symlink_to(self.store(files))
+        for snapshot in (linked, hard, alias):
+            with self.subTest(snapshot=snapshot.name), self.assertRaises(ValueError):
+                observe.assess_store(snapshot, mode, generation=generation)
+        # The store of the other generation passes against its own manifest: the control.
+        own = observe.load_lifecycle_generation(self.manifest(mode, other, lineage='f' * 32))
+        self.assertEqual(observe.assess_store(self.store(other), mode, generation=own)['phase'], mode)
+        # RELEASING without a directory: the slot directory is absent, never empty.
+        releasing = self.files('releasing-without-directory')
+        generation = observe.load_lifecycle_generation(self.manifest('releasing-without-directory', releasing))
+        self.assertEqual(observe.assess_store(self.store(releasing), 'releasing-without-directory',
+                                              generation=generation)['directories'], ['', 'slots'])
+        with self.assertRaises(ValueError):
+            observe.assess_store(self.store(releasing, ('slots/10148',)), 'releasing-without-directory',
+                                 generation=generation)
+        # The maximum record's layout needs its second app ID, as the other companions do.
+        largest = self.files('maximum-beside-eligible')
+        observe.load_lifecycle_generation(self.manifest('maximum-beside-eligible', largest, 10149))
+        for other_id in (None, 10148):
+            with self.subTest(other=other_id), self.assertRaises(ValueError):
+                observe.load_lifecycle_generation(self.manifest('maximum-beside-eligible', largest, other_id))
+
 
 class DumpTests(unittest.TestCase):
     """The raw dump of a B1 phase against its exact prediction: schema 2 only, exact holds and names, and

@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.regex.Matcher;
@@ -35,6 +36,47 @@ public final class LabHistoryStoreTest {
     private static final int LIVE_BYTES = 85;
     private static final String BODY_SHA256 = "fd36d085d7d7acf46425eda8852ab3a783748e0a95a76eea0e31b62d1e9f2121";
     private static final int BODY_BYTES = 163;
+    // Each lifecycle guest layout at the fixed values, other app ID 10149, by one digest of its
+    // files: each file's path, SHA-256 and length, a line each in path order. The runner holds
+    // these to the independent layout oracle.
+    private static final int OTHER_ID = 10149;
+    private static final Map<String, String> LAYOUT_SHA256 = Map.ofEntries(
+            Map.entry("retiring-v1", "0162f96ca342d72939dbb974739f6423deb134f7c92cdfb0657230674be38c6c"),
+            Map.entry("v2-slot", "07be4ab36d6dba048cbcbe28e6c4d2f5d1fc81a65c7178a5dfe5a499a91b509a"),
+            Map.entry("eligible-v1", "85046f053f0396316c2ef3dcb74aa9e4c7b023a4ac5e68b6ad9aa9b64e42b155"),
+            Map.entry("v2-beside-reservation", "a3f841b678e55888ce71d35ecfc63974c37bdc9cf39fde9c6a5e4e177b3d253f"),
+            Map.entry("v2-beside-sibling", "6b1ee45c416665689e960fbabbb45980c44bb1a5aa232695a9be100f52ee4205"),
+            Map.entry("v2-beside-unrelated-body", "6de53b0219227b4467a347480ee7a4c55dfae2b5be74972e8a090b0d6650d3a9"),
+            Map.entry("v2-grant", "41e46d3810e33e31b65244cdaa82f1ee267818cafff7a122c62fbb88c20aab68"),
+            Map.entry("v2-scope-1", "bcee1635addd1b40927f68f11d8cfc9f71e136ad4e9e6f3ea8051cf72f368eb7"),
+            Map.entry("v2-recovery-hold", "93056da780729ce8bb09cd109c1459587cfdea4e9ef72b7364d2ebef27ef393a"),
+            Map.entry("v2-recovery-scope-2", "2c6393c5cb9e1eadaff5f05c0eb1e76950dc8cd344dc875f946d99d4b0cadce7"),
+            Map.entry("v2-recovery-scope-3", "ffbc10d7e435322a4a4d5910aa470a7c52e4b821d700a569e414f1b4dc29ca62"),
+            Map.entry("v2-noted", "78c2e53f7087922090db38ea4855ec0c8ba5f0bcea5c4dae952d7718995780f1"),
+            Map.entry("v2-retiring", "ff0f9824aab08f4784458e7211f9a717e1d64bea7124b867166ce8061c2f19ad"),
+            Map.entry("v2-retired", "3a3f330317b80cc80bbaa7f5ecc18ac84e84d78d1da4f500384508399cdb3baf"),
+            Map.entry("v2-disposing", "9594eb32f3134be11912bc0139a2800268c75bf78a7089dc03e83bbfdfbc78b4"),
+            Map.entry("v2-legacy-suspended", "2fdc5bbb8060c38ca0768f96297da7242f38546e52b5722016971dcf55f59022"),
+            Map.entry("legacy-continuation-interrupted",
+                    "d86f0a52ada4641730c922438e46ed93afd03a2f5ec98cd06fc2ef2505200585"),
+            Map.entry("mixed-suspend-backup", "42f69fbe24e07ecc492b22d5562ba0486eca29d52264744d30cf68c1cd3f63f4"),
+            Map.entry("mixed-lift-backup", "33e471f461861964c0f1bbe0bfce23e7f3fe89c13bbb1e0600b4efe0761f3400"),
+            Map.entry("mixed-suspend-conflict", "b9f4dadf7f006a37cc5fc6a6b0eda301e5891a0aeb7324f5790f62acb3861074"),
+            Map.entry("mixed-lift-conflict", "8ed24d5e4e0e34d80e3b730304dee236dc9815ea83cc00b8993bcc58f8e7583a"),
+            Map.entry("tombstone-live", "6d14be4c291f68d2c005440e523a8bba3f9f1919d960398950d905c30c3eec71"),
+            Map.entry("tombstone-releasing", "271203ecdb1b768bed9af49b1014326cf60c8245522920e10c06f9890f524f74"),
+            Map.entry("releasing-without-directory",
+                    "c7c992264b9973e45b1bb49a96205269e5bbea1c8c42063425f1e1e82f7aca0c"),
+            Map.entry("maximum-beside-eligible", "538be192e944d68b540be19a5552ec4c7598de862453ae99259d20971eeeabd3"),
+            Map.entry("damaged-v2-of-v1", "9267ca3828b3f534def2d3529afcfa5af86c67a7ca8da4680f63c690ed823f85"),
+            Map.entry("damaged-retired-unknown-inventory",
+                    "b390d76855c4acb1d9bc4b049fb400f8308cc2eefcdd446d55eca6536a31393d"),
+            Map.entry("damaged-disposing-work", "62c82eaf73e82b1f7d6398bf7e4d67591e7b234147025426ee162dcb3030c8ab"),
+            Map.entry("v3-prefix-valid", "7f459332d9e03f7cad9744d1d54e31e02539134128632f211f7e76f976fa41d5"),
+            Map.entry("v3-prefix-broken", "e8c8717277ee9c7b7ecd17ef6f1c1b96e8b173e5a66fc983620ba22832cd21f3"),
+            Map.entry("reservation", "f5115a8d6ff76d18925ba2aefa66198c8548f3ae209f190c6b3ac36bfa74b6d7"),
+            Map.entry("reservation-wrong-serial", "928c562da8e1a3b96e43c2f7b72e686aabedcebf8873eb424b0017d52158836d"),
+            Map.entry("lift-v1", "c8f9b9b86c4892d4290434198cd4d3007aecba958fefdffb9e8ffe063290db59"));
     private static final Set<String> STORE = Set.of("slots", "store.bin", "store.bin.reservecopy");
     private static final Set<String> PREDICTION = Set.of("prediction.json", "v2-creating-header.bin",
             "v2-live-header.bin", "v2-slot-body.bin");
@@ -73,6 +115,16 @@ public final class LabHistoryStoreTest {
         Matcher matcher = Pattern.compile("\"" + name + "\":\"([^\"]*)\"").matcher(json);
         check(matcher.find(), "missing field " + name);
         return matcher.group(1);
+    }
+
+    // One digest of a layout: each file's path, SHA-256 and length, a line each in path order.
+    private static String layoutDigest(Map<String, byte[]> files) {
+        StringBuilder text = new StringBuilder();
+        for (Map.Entry<String, byte[]> file : new java.util.TreeMap<>(files).entrySet()) {
+            text.append(file.getKey()).append('\t').append(LabHistoryStore.sha256(file.getValue())).append('\t')
+                    .append(file.getValue().length).append('\n');
+        }
+        return LabHistoryStore.sha256(text.toString().getBytes(StandardCharsets.US_ASCII));
     }
 
     private static Set<String> entries(Path directory) throws IOException {
@@ -285,6 +337,76 @@ public final class LabHistoryStoreTest {
         refused(() -> LabHistoryStore.predict(unused, LINEAGE, APP_ID, SERIAL, 2, signers), "principal 2");
         check(!Files.exists(unused, LinkOption.NOFOLLOW_LINKS), "output created for a codec refusal");
         System.out.println("PASS identifier and mode controls refuse before output");
+
+        // Every lifecycle guest layout at the fixed values: its pinned digest, each valid record
+        // the codec's own one encoding, each damaged or later version record an intact frame that
+        // the codec refuses for its named rule, the later version's stable prefix read or refused,
+        // and the largest record exactly as long as its encoding's measure.
+        Map<String, String> refusals = Map.of("damaged-v2-of-v1", "version 1 value in a version 2 record",
+                "damaged-retired-unknown-inventory", "an unknown inventory only while RETIRING",
+                "damaged-disposing-work", "DISPOSING only on a disposition kind",
+                "v3-prefix-valid", "unsupported record version", "v3-prefix-broken", "unsupported record version");
+        check(LAYOUT_SHA256.keySet().equals(LabHistoryStore.LIFECYCLE_MODES), "layout goldens name every mode");
+        for (String mode : new TreeSet<>(LabHistoryStore.LIFECYCLE_MODES)) {
+            Map<String, byte[]> files = LabHistoryStore.lifecycleLayout(mode, LINEAGE, APP_ID, OTHER_ID, SERIAL,
+                    signers);
+            check(layoutDigest(files).equals(LAYOUT_SHA256.get(mode)), "layout golden of " + mode);
+            for (Map.Entry<String, byte[]> record : files.entrySet()) {
+                byte[] bytes = record.getValue();
+                String what = mode + " " + record.getKey();
+                if (record.getKey().startsWith("store.bin")) {
+                    check(Arrays.equals(NativeIdentityRecords.encodeHeader(NativeIdentityRecords.decodeHeader(bytes)),
+                            bytes), "header encoding of " + what);
+                } else if (refusals.containsKey(mode)) {
+                    String refusal = null;
+                    try {
+                        NativeIdentityRecords.decodeSlot(bytes);
+                    } catch (IllegalArgumentException refused) {
+                        refusal = refused.getMessage();
+                    }
+                    check(refusals.get(mode).equals(refusal), "refusal of " + what + ": " + refusal);
+                    check(NativeIdentityRecords.intactSlotVersion(bytes) == (mode.startsWith("v3") ? 3 : 2),
+                            "intact frame of " + what);
+                } else {
+                    NativeIdentityRecords.Slot value = NativeIdentityRecords.decodeSlot(bytes);
+                    check(Arrays.equals(NativeIdentityRecords.encodeSlot(value), bytes)
+                            && NativeIdentityRecords.encodedSlotLength(value) == bytes.length, "encoding of " + what);
+                }
+            }
+        }
+        byte[] prefix = LabHistoryStore.lifecycleLayout("v3-prefix-valid", LINEAGE, APP_ID, OTHER_ID, SERIAL, signers)
+                .get("slots/" + APP_ID + "/record.bin");
+        NativeIdentityRecords.SlotPrefix read = NativeIdentityRecords.decodeSlotPrefix(prefix);
+        check(read.version == 3 && read.packageName.equals(LabHistoryStore.SUBJECT)
+                && read.principalIds.equals(List.of(1L)), "the later version's prefix " + read);
+        byte[] broken = LabHistoryStore.lifecycleLayout("v3-prefix-broken", LINEAGE, APP_ID, OTHER_ID, SERIAL, signers)
+                .get("slots/" + APP_ID + "/record.bin");
+        refused(() -> NativeIdentityRecords.decodeSlotPrefix(broken), "a broken prefix");
+        byte[] largest = LabHistoryStore.lifecycleLayout("maximum-beside-eligible", LINEAGE, APP_ID, OTHER_ID, SERIAL,
+                signers).get("slots/" + OTHER_ID + "/record.bin");
+        check(largest.length == 60_941 && NativeIdentityRecords.decodeSlot(largest).users.size() == 64,
+                "the largest record takes " + largest.length + " bytes");
+        // The lift is restaged over the suspended layout: its header bytes are the suspended
+        // layout's.
+        check(Arrays.equals(LabHistoryStore.lifecycleLayout("lift-v1", LINEAGE, APP_ID, OTHER_ID, SERIAL, signers)
+                .get("store.bin"), LabHistoryStore.lifecycleLayout("v2-slot", LINEAGE, APP_ID, OTHER_ID, SERIAL,
+                signers).get("store.bin")), "the lift's header");
+        refused(() -> LabHistoryStore.lifecycleLayout("reservation-wrong-serial", LINEAGE, APP_ID, OTHER_ID,
+                Long.MAX_VALUE, signers), "a wrong serial past the largest");
+        // A layout goes only to a fresh target: an existing one, even a partial earlier attempt, is
+        // refused and kept as it was.
+        Path layout = work.resolve("layout");
+        cli("v2-grant", layout.toString(), LINEAGE, Integer.toString(APP_ID), Long.toString(SERIAL));
+        byte[] staged = Files.readAllBytes(layout.resolve("slots/" + APP_ID + "/record.bin"));
+        refused(() -> LabHistoryStore.main(new String[] {"v2-grant", layout.toString(), LINEAGE,
+                Integer.toString(APP_ID), Long.toString(SERIAL)}), "an existing layout");
+        check(Arrays.equals(staged, Files.readAllBytes(layout.resolve("slots/" + APP_ID + "/record.bin"))),
+                "an existing layout changed");
+        Path attempt = Files.createDirectory(work.resolve("attempt"));
+        refused(() -> LabHistoryStore.main(new String[] {"maximum-beside-eligible", attempt.toString(), LINEAGE,
+                Integer.toString(APP_ID), Integer.toString(OTHER_ID), Long.toString(SERIAL)}), "a partial attempt");
+        check(entries(attempt).isEmpty(), "a partial attempt was reused");
+        System.out.println("PASS lifecycle guest layouts equal their goldens and the codec's own reading");
         System.out.println("Lab history store fixture host controls passed; Android and authority unqualified");
     }
 }

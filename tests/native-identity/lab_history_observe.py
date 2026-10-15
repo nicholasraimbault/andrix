@@ -39,10 +39,29 @@ PREDICTION_KEYS = ('version', 'mode', 'format', 'prediction_only', 'authority', 
                    'signer_sha256', 'lineage', 'app_id', 'user_id', 'user_serial', 'principal_id', 'files')
 # The lifecycle guest layouts: the store each guest row of the lifecycle record's image starts from,
 # with the keys of the generator's manifest. The companions use a second app ID. eligible-v1 and
-# v2-beside-unrelated-body are the healthy controls of the retiring and sibling layouts.
-SINGLE_MODES = ('retiring-v1', 'v2-slot', 'eligible-v1')
-COMPANION_MODES = ('v2-beside-reservation', 'v2-beside-sibling', 'v2-beside-unrelated-body')
-LIFECYCLE_MODES = SINGLE_MODES + COMPANION_MODES
+# v2-beside-unrelated-body are the healthy controls of the retiring and sibling layouts. The reader
+# step of the normal image adds the rest, after B1's six.
+PAIR = ('record.bin', 'record.bin.reservecopy')
+WITH_BACKUP = PAIR + ('record.bin-backup',)
+# Each mode's slot files by the app ID that holds them: A the subject's, B the second app ID. Every
+# layout also has the equal header pair, and no other file or directory.
+LAYOUT_SLOTS = {
+    'retiring-v1': {'A': PAIR}, 'v2-slot': {'A': PAIR}, 'eligible-v1': {'A': PAIR},
+    'v2-beside-reservation': {'B': PAIR}, 'v2-beside-sibling': {'A': PAIR, 'B': PAIR},
+    'v2-beside-unrelated-body': {'A': PAIR, 'B': PAIR},
+    **{mode: {'A': PAIR} for mode in (
+        'v2-grant', 'v2-scope-1', 'v2-recovery-hold', 'v2-recovery-scope-2', 'v2-recovery-scope-3', 'v2-noted',
+        'v2-retiring', 'v2-retired', 'v2-disposing', 'v2-legacy-suspended')},
+    'legacy-continuation-interrupted': {'A': WITH_BACKUP}, 'mixed-suspend-backup': {'A': WITH_BACKUP},
+    'mixed-lift-backup': {'A': WITH_BACKUP}, 'mixed-suspend-conflict': {'A': PAIR},
+    'mixed-lift-conflict': {'A': PAIR}, 'tombstone-live': {'A': PAIR}, 'tombstone-releasing': {'A': PAIR},
+    'releasing-without-directory': {}, 'maximum-beside-eligible': {'A': PAIR, 'B': PAIR},
+    **{mode: {'A': PAIR} for mode in ('damaged-v2-of-v1', 'damaged-retired-unknown-inventory',
+                                      'damaged-disposing-work', 'v3-prefix-valid', 'v3-prefix-broken')},
+    'reservation': {}, 'reservation-wrong-serial': {}, 'lift-v1': {'A': PAIR}}
+LIFECYCLE_MODES = tuple(LAYOUT_SLOTS)
+COMPANION_MODES = tuple(mode for mode, slots in LAYOUT_SLOTS.items() if 'B' in slots)
+SINGLE_MODES = tuple(mode for mode in LIFECYCLE_MODES if mode not in COMPANION_MODES)
 # The schema a B1 phase's raw dump must have. A version 1 dump names no deferred set.
 DUMP_SCHEMA = 2
 LIFECYCLE_KEYS = ('version', 'mode', 'lab_input_only', 'authority', 'subject', 'lineage', 'app_id', 'other_app_id',
@@ -195,11 +214,9 @@ def load_lifecycle_generation(text):
             or not 0 <= value['user_serial'] < 1 << 63 or type(value['files']) is not dict
             or text != json.dumps(value, separators=(',', ':'))):
         raise ValueError('lifecycle generation manifest')
-    slots = {str(value['app_id'])} if value['mode'] in SINGLE_MODES else (
-        {str(value['other_app_id'])} if value['mode'] == 'v2-beside-reservation'
-        else {str(value['app_id']), str(value['other_app_id'])})
-    names = set(HEADERS) | {'slots/%s/%s' % (slot, name) for slot in slots for name in ('record.bin',
-                                                                                          'record.bin.reservecopy')}
+    ids = {'A': value['app_id'], 'B': value['other_app_id']}
+    names = set(HEADERS) | {'slots/%d/%s' % (ids[slot], name) for slot, files in LAYOUT_SLOTS[value['mode']].items()
+                            for name in files}
     if set(value['files']) != names or any(type(item) is not dict or set(item) != {'sha256', 'bytes'}
                                            or not _hex(item['sha256'], 64) or type(item['bytes']) is not int
                                            for item in value['files'].values()):

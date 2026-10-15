@@ -2580,5 +2580,2995 @@
       "Every case count, mutant, layout, class count and swap control of the earlier models.",
       "Every archived comparison of 24bfb6a and 78456b3, and every reader label but the new one."
     ]
+  },
+  "b2_checkpoint_3a": {
+    "status": "PREDICTED before any guarded run. Development runs only, as basis says.",
+    "plan": "plans/2026-10-08-native-lifecycle-record.md",
+    "phases": [
+      "candidate",
+      "codec",
+      "reads",
+      "dump",
+      "store",
+      "transactions",
+      "faults",
+      "settings",
+      "manager",
+      "pinned",
+      "layouts",
+      "guests",
+      "rollback",
+      "readers",
+      "floor",
+      "mutants"
+    ],
+    "phases_change": [
+      "The guests phase runs after the layouts and before the rollback step.",
+      "A guarded run must complete it before it can pass."
+    ],
+    "step_labels": {
+      "codec": [
+        "production"
+      ],
+      "reads": [
+        "previous",
+        "legacy",
+        "production"
+      ],
+      "dump": [
+        "previous",
+        "legacy",
+        "production"
+      ],
+      "store": [
+        "previous",
+        "legacy",
+        "production"
+      ],
+      "transactions": [
+        "previous",
+        "legacy",
+        "production"
+      ],
+      "faults": [
+        "production"
+      ],
+      "settings": [
+        "previous",
+        "production"
+      ],
+      "manager": [
+        "previous",
+        "legacy",
+        "production"
+      ],
+      "pinned": [
+        "rollback-reader"
+      ],
+      "layouts": [
+        "production"
+      ],
+      "guests": [
+        "production"
+      ],
+      "rollback": [
+        "rollback-reader"
+      ],
+      "readers": [
+        "previous",
+        "production"
+      ],
+      "floor": [
+        "floor-model"
+      ],
+      "mutants": [
+        "previous",
+        "legacy",
+        "production"
+      ]
+    },
+    "guest_inputs": {
+      "checks": [
+        "lifecycle",
+        "pin phase",
+        "deferred set",
+        "scan outcome",
+        "boot facts",
+        "schema 3 rows"
+      ],
+      "compile": {
+        "differing_from_production": [
+          "framework/NativeIdentityStore.java",
+          "stubs/com/android/server/pm/Settings.java",
+          "tests/NativeLifecycleReaderCheck.java"
+        ],
+        "files": 52,
+        "living": [
+          "tests/NativeLifecycleGuestCheck.java"
+        ]
+      },
+      "controls": [
+        "Each reader against its own predictions: no input and no check differs.",
+        "Swap control: each input given another input's prediction of the same reader fails.",
+        "Cross control: each reader's readings against the other reader's predictions, beyond",
+        "the schema: exactly the 26 inputs whose two predictions differ there fail, and the 9",
+        "read alike pass.",
+        "Wrong model: B1's pinned sources under Format.V3 read every input as the production",
+        "reader does.",
+        "Runs without assertions are refused, and no read changes a byte, file or file identity."
+      ],
+      "coverage": {
+        "RELEASING with its directory gone": [
+          "releasing-without-directory"
+        ],
+        "a legacy marker, and an interrupted legacy continuation": [
+          "retiring-v1",
+          "legacy-continuation-interrupted"
+        ],
+        "a lift restaged at a later boot": [
+          "lift-v1"
+        ],
+        "a noted entry and a maximum size record": [
+          "v2-noted",
+          "maximum-beside-eligible"
+        ],
+        "a recovery hold": [
+          "v2-recovery-hold",
+          "v2-recovery-scope-2",
+          "v2-recovery-scope-3"
+        ],
+        "a ticketed tombstone under LIVE and under RELEASING": [
+          "tombstone-live",
+          "tombstone-releasing"
+        ],
+        "a version 2 only slot with a lost mapping, read by B2 and by the floor": [
+          "v2-slot-mapping-lost"
+        ],
+        "a version 2 slot beside a bound reservation, as a positive control": [
+          "v2-beside-reservation"
+        ],
+        "controls the new reader must read as damaged": [
+          "damaged-v2-of-v1",
+          "eligible-v1",
+          "damaged-retired-unknown-inventory",
+          "v2-legacy-suspended",
+          "damaged-disposing-work",
+          "v2-disposing"
+        ],
+        "mixed copies in both directions": [
+          "mixed-suspend-backup",
+          "mixed-lift-backup",
+          "mixed-suspend-conflict",
+          "mixed-lift-conflict"
+        ],
+        "retiring with an inventory, retired, disposing": [
+          "v2-retiring",
+          "v2-retired",
+          "v2-disposing"
+        ],
+        "slot version 3 frames": [
+          "v3-prefix-valid",
+          "v3-prefix-broken"
+        ],
+        "suspension by the user, by a grant, and with scope bits": [
+          "v2-slot",
+          "v2-grant",
+          "v2-scope-1",
+          "v2-recovery-scope-2",
+          "v2-recovery-scope-3"
+        ],
+        "the eligible, empty store, unrelated body and sibling collision controls": [
+          "eligible-v1",
+          "empty-v1",
+          "v2-beside-unrelated-body",
+          "v2-beside-sibling"
+        ],
+        "the serial control": [
+          "reservation-wrong-serial",
+          "reservation"
+        ]
+      },
+      "cross_control_fails": [
+        "v2-slot",
+        "v2-beside-reservation",
+        "v2-beside-sibling",
+        "v2-beside-unrelated-body",
+        "v2-grant",
+        "v2-scope-1",
+        "v2-recovery-hold",
+        "v2-recovery-scope-2",
+        "v2-recovery-scope-3",
+        "v2-noted",
+        "v2-retiring",
+        "v2-retired",
+        "v2-disposing",
+        "v2-legacy-suspended",
+        "legacy-continuation-interrupted",
+        "mixed-suspend-backup",
+        "mixed-lift-backup",
+        "mixed-suspend-conflict",
+        "mixed-lift-conflict",
+        "tombstone-live",
+        "tombstone-releasing",
+        "maximum-beside-eligible",
+        "damaged-v2-of-v1",
+        "damaged-retired-unknown-inventory",
+        "damaged-disposing-work",
+        "v2-slot-mapping-lost"
+      ],
+      "footprint_entries": 385,
+      "inputs": {
+        "damaged-disposing-work": [
+          "damaged-disposing-work",
+          "mapped"
+        ],
+        "damaged-retired-unknown-inventory": [
+          "damaged-retired-unknown-inventory",
+          "mapped"
+        ],
+        "damaged-v2-of-v1": [
+          "damaged-v2-of-v1",
+          "mapped"
+        ],
+        "eligible-v1": [
+          "eligible-v1",
+          "mapped"
+        ],
+        "empty-v1": [
+          "empty-v1",
+          "mapped"
+        ],
+        "legacy-continuation-interrupted": [
+          "legacy-continuation-interrupted",
+          "mapped"
+        ],
+        "lift-v1": [
+          "lift-v1",
+          "mapped"
+        ],
+        "maximum-beside-eligible": [
+          "maximum-beside-eligible",
+          "mapped"
+        ],
+        "mixed-lift-backup": [
+          "mixed-lift-backup",
+          "mapped"
+        ],
+        "mixed-lift-conflict": [
+          "mixed-lift-conflict",
+          "mapped"
+        ],
+        "mixed-suspend-backup": [
+          "mixed-suspend-backup",
+          "mapped"
+        ],
+        "mixed-suspend-conflict": [
+          "mixed-suspend-conflict",
+          "mapped"
+        ],
+        "releasing-without-directory": [
+          "releasing-without-directory",
+          "mapped"
+        ],
+        "reservation": [
+          "reservation",
+          "mapped"
+        ],
+        "reservation-wrong-serial": [
+          "reservation-wrong-serial",
+          "mapped"
+        ],
+        "retiring-v1": [
+          "retiring-v1",
+          "mapped"
+        ],
+        "tombstone-live": [
+          "tombstone-live",
+          "mapped"
+        ],
+        "tombstone-releasing": [
+          "tombstone-releasing",
+          "mapped"
+        ],
+        "v2-beside-reservation": [
+          "v2-beside-reservation",
+          "mapped"
+        ],
+        "v2-beside-sibling": [
+          "v2-beside-sibling",
+          "mapped"
+        ],
+        "v2-beside-unrelated-body": [
+          "v2-beside-unrelated-body",
+          "mapped"
+        ],
+        "v2-disposing": [
+          "v2-disposing",
+          "mapped"
+        ],
+        "v2-grant": [
+          "v2-grant",
+          "mapped"
+        ],
+        "v2-legacy-suspended": [
+          "v2-legacy-suspended",
+          "mapped"
+        ],
+        "v2-noted": [
+          "v2-noted",
+          "mapped"
+        ],
+        "v2-recovery-hold": [
+          "v2-recovery-hold",
+          "mapped"
+        ],
+        "v2-recovery-scope-2": [
+          "v2-recovery-scope-2",
+          "mapped"
+        ],
+        "v2-recovery-scope-3": [
+          "v2-recovery-scope-3",
+          "mapped"
+        ],
+        "v2-retired": [
+          "v2-retired",
+          "mapped"
+        ],
+        "v2-retiring": [
+          "v2-retiring",
+          "mapped"
+        ],
+        "v2-scope-1": [
+          "v2-scope-1",
+          "mapped"
+        ],
+        "v2-slot": [
+          "v2-slot",
+          "mapped"
+        ],
+        "v2-slot-mapping-lost": [
+          "v2-slot",
+          "lost"
+        ],
+        "v3-prefix-broken": [
+          "v3-prefix-broken",
+          "mapped"
+        ],
+        "v3-prefix-valid": [
+          "v3-prefix-valid",
+          "mapped"
+        ]
+      },
+      "names": {
+        "maximum": "dev.andrix.proof.maximum.mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm",
+        "other": "dev.andrix.proof.lifecycleother",
+        "subject": "dev.andrix.proof.principalclosed"
+      },
+      "readers": {
+        "floor": {
+          "format": "V2",
+          "label": "floor-model",
+          "schema": 2
+        },
+        "production": {
+          "format": "V3",
+          "label": "production",
+          "schema": 3
+        }
+      },
+      "reads": {
+        "damaged-disposing-work": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "UNSUPPORTED copies=0 prefixes=0 names=- ids=-",
+              "header": "VALID v1 last=1 10148:LIVE unsupported-footprint"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "unprotected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "DAMAGED copies=0 prefixes=0 names=- ids=-",
+              "header": "VALID v1 last=1 10148:LIVE"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "unprotected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 DAMAGED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 not-reported not-reported not-reported"
+              ]
+            }
+          }
+        },
+        "damaged-retired-unknown-inventory": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "UNSUPPORTED copies=0 prefixes=0 names=- ids=-",
+              "header": "VALID v1 last=1 10148:LIVE unsupported-footprint"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "unprotected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "DAMAGED copies=0 prefixes=0 names=- ids=-",
+              "header": "VALID v1 last=1 10148:LIVE"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "unprotected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 DAMAGED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 not-reported not-reported not-reported"
+              ]
+            }
+          }
+        },
+        "damaged-v2-of-v1": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "UNSUPPORTED copies=0 prefixes=0 names=- ids=-",
+              "header": "VALID v1 last=1 10148:LIVE unsupported-footprint"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "unprotected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "DAMAGED copies=0 prefixes=0 names=- ids=-",
+              "header": "VALID v1 last=1 10148:LIVE"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "unprotected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 DAMAGED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 not-reported not-reported not-reported"
+              ]
+            }
+          }
+        },
+        "eligible-v1": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [],
+            "lifecycle": {
+              "10148": "VALID v1 g1 subject user=1/0/7:ELIGIBLE:-:- selected=main,reserve",
+              "header": "VALID v1 last=1 10148:LIVE"
+            },
+            "pin phase": [
+              "10148 1 dev.andrix.proof.principalclosed PENDING"
+            ],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "admitted",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [],
+            "deferred set": [],
+            "lifecycle": {
+              "10148": "VALID v1 g1 subject user=1/0/7:ELIGIBLE:-:- selected=main,reserve",
+              "header": "VALID v1 last=1 10148:LIVE"
+            },
+            "pin phase": [
+              "10148 1 dev.andrix.proof.principalclosed PENDING"
+            ],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "admitted",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 1 ELIGIBLE false"
+              ]
+            }
+          }
+        },
+        "empty-v1": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [],
+            "lifecycle": {
+              "header": "VALID v1 last=0"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "admitted",
+              "subject unmapped": "unprotected"
+            },
+            "schema 3 rows": {
+              "deferred": [],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [],
+            "deferred set": [],
+            "lifecycle": {
+              "header": "VALID v1 last=0"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "admitted",
+              "subject unmapped": "unprotected"
+            },
+            "schema 3 rows": {
+              "deferred": [],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [],
+              "schema": 3,
+              "slots": []
+            }
+          }
+        },
+        "legacy-continuation-interrupted": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "UNSUPPORTED copies=3 prefixes=0 names=subject ids=1",
+              "header": "VALID v1 last=1 10148:LIVE unsupported-footprint"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "VALID v1 g1 subject user=1/0/7:RETIRING:-:LEGACY_MARKER/0/- selected=backup",
+              "header": "VALID v1 last=1 10148:LIVE"
+            },
+            "pin phase": [
+              "10148 1 dev.andrix.proof.principalclosed RETIRING"
+            ],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 1 RETIRING false"
+              ]
+            }
+          }
+        },
+        "lift-v1": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [],
+            "lifecycle": {
+              "10148": "VALID v1 g3 subject user=1/0/7:ELIGIBLE:-:- selected=main,reserve",
+              "header": "VALID v1 last=1 10148:LIVE"
+            },
+            "pin phase": [
+              "10148 1 dev.andrix.proof.principalclosed PENDING"
+            ],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "admitted",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [],
+            "deferred set": [],
+            "lifecycle": {
+              "10148": "VALID v1 g3 subject user=1/0/7:ELIGIBLE:-:- selected=main,reserve",
+              "header": "VALID v1 last=1 10148:LIVE"
+            },
+            "pin phase": [
+              "10148 1 dev.andrix.proof.principalclosed PENDING"
+            ],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "admitted",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 1 ELIGIBLE false"
+              ]
+            }
+          }
+        },
+        "maximum-beside-eligible": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [],
+            "lifecycle": {
+              "10148": "VALID v1 g1 subject user=1/0/7:ELIGIBLE:-:- selected=main,reserve",
+              "10149": "UNSUPPORTED copies=2 prefixes=0 names=maximum ids=2-65",
+              "header": "VALID v1 last=65 10148:LIVE 10149:LIVE unsupported-footprint"
+            },
+            "pin phase": [
+              "10148 1 dev.andrix.proof.principalclosed PENDING"
+            ],
+            "scan outcome": {
+              "maximum unmapped": "protected",
+              "other unmapped": "unprotected",
+              "subject": "admitted",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=true"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed",
+                "10149 UNSUPPORTED unpinned empty -"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [],
+            "deferred set": [],
+            "lifecycle": {
+              "10148": "VALID v1 g1 subject user=1/0/7:ELIGIBLE:-:- selected=main,reserve",
+              "10149": "UNSUPPORTED copies=2 prefixes=0 names=maximum ids=2-65",
+              "header": "VALID v1 last=65 10148:LIVE 10149:LIVE"
+            },
+            "pin phase": [
+              "10148 1 dev.andrix.proof.principalclosed PENDING"
+            ],
+            "scan outcome": {
+              "maximum unmapped": "protected",
+              "other unmapped": "unprotected",
+              "subject": "admitted",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=true"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed",
+                "10149 UNSUPPORTED unpinned empty -"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 1 ELIGIBLE false",
+                "10149 not-reported not-reported not-reported"
+              ]
+            }
+          }
+        },
+        "mixed-lift-backup": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "UNSUPPORTED copies=3 prefixes=0 names=subject ids=1",
+              "header": "VALID v1 last=1 10148:LIVE unsupported-footprint"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "VALID v2 g2 subject user=1/0/7:ELIGIBLE:ACCOUNT_USER/0:- selected=backup",
+              "header": "VALID v1 last=1 10148:LIVE"
+            },
+            "pin phase": [
+              "10148 1 dev.andrix.proof.principalclosed PENDING"
+            ],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 2 ELIGIBLE true"
+              ]
+            }
+          }
+        },
+        "mixed-lift-conflict": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "UNSUPPORTED copies=2 prefixes=0 names=subject ids=1",
+              "header": "VALID v1 last=1 10148:LIVE unsupported-footprint"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "CONFLICT copies=2 prefixes=0 names=subject ids=1",
+              "header": "VALID v1 last=1 10148:LIVE"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 CONFLICT unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 not-reported not-reported not-reported"
+              ]
+            }
+          }
+        },
+        "mixed-suspend-backup": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "UNSUPPORTED copies=3 prefixes=0 names=subject ids=1",
+              "header": "VALID v1 last=1 10148:LIVE unsupported-footprint"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [],
+            "deferred set": [],
+            "lifecycle": {
+              "10148": "VALID v1 g1 subject user=1/0/7:ELIGIBLE:-:- selected=backup",
+              "header": "VALID v1 last=1 10148:LIVE"
+            },
+            "pin phase": [
+              "10148 1 dev.andrix.proof.principalclosed PENDING"
+            ],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "admitted",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 1 ELIGIBLE false"
+              ]
+            }
+          }
+        },
+        "mixed-suspend-conflict": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "UNSUPPORTED copies=2 prefixes=0 names=subject ids=1",
+              "header": "VALID v1 last=1 10148:LIVE unsupported-footprint"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "CONFLICT copies=2 prefixes=0 names=subject ids=1",
+              "header": "VALID v1 last=1 10148:LIVE"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 CONFLICT unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 not-reported not-reported not-reported"
+              ]
+            }
+          }
+        },
+        "releasing-without-directory": {
+          "floor": {
+            "boot facts": [
+              "releasing 10148"
+            ],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "MISSING copies=0 prefixes=0 names=- ids=-",
+              "header": "VALID v1 last=1 10148:RELEASING"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "unprotected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 MISSING unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [
+              "releasing 10148"
+            ],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "MISSING copies=0 prefixes=0 names=- ids=-",
+              "header": "VALID v1 last=1 10148:RELEASING"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "unprotected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 MISSING unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 not-reported not-reported not-reported"
+              ]
+            }
+          }
+        },
+        "reservation": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [],
+            "lifecycle": {
+              "10148": "MISSING copies=0 prefixes=0 names=- ids=-",
+              "header": "VALID v2 last=1 10148:CREATING:1:subject:bound/0/7"
+            },
+            "pin phase": [
+              "10148 1 dev.andrix.proof.principalclosed PENDING"
+            ],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "admitted",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 MISSING pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [],
+            "deferred set": [],
+            "lifecycle": {
+              "10148": "MISSING copies=0 prefixes=0 names=- ids=-",
+              "header": "VALID v2 last=1 10148:CREATING:1:subject:bound/0/7"
+            },
+            "pin phase": [
+              "10148 1 dev.andrix.proof.principalclosed PENDING"
+            ],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "admitted",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 MISSING pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 not-reported not-reported not-reported"
+              ]
+            }
+          }
+        },
+        "reservation-wrong-serial": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [],
+            "lifecycle": {
+              "10148": "MISSING copies=0 prefixes=0 names=- ids=-",
+              "header": "VALID v2 last=1 10148:CREATING:1:subject:bound/0/8"
+            },
+            "pin phase": [
+              "10148 1 dev.andrix.proof.principalclosed PENDING"
+            ],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 MISSING pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [],
+            "deferred set": [],
+            "lifecycle": {
+              "10148": "MISSING copies=0 prefixes=0 names=- ids=-",
+              "header": "VALID v2 last=1 10148:CREATING:1:subject:bound/0/8"
+            },
+            "pin phase": [
+              "10148 1 dev.andrix.proof.principalclosed PENDING"
+            ],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 MISSING pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 not-reported not-reported not-reported"
+              ]
+            }
+          }
+        },
+        "retiring-v1": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "VALID v1 g1 subject user=1/0/7:RETIRING:-:LEGACY_MARKER/0/- selected=main,reserve",
+              "header": "VALID v1 last=1 10148:LIVE"
+            },
+            "pin phase": [
+              "10148 1 dev.andrix.proof.principalclosed RETIRING"
+            ],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "VALID v1 g1 subject user=1/0/7:RETIRING:-:LEGACY_MARKER/0/- selected=main,reserve",
+              "header": "VALID v1 last=1 10148:LIVE"
+            },
+            "pin phase": [
+              "10148 1 dev.andrix.proof.principalclosed RETIRING"
+            ],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 1 RETIRING false"
+              ]
+            }
+          }
+        },
+        "tombstone-live": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "UNSUPPORTED copies=2 prefixes=0 names=subject ids=1",
+              "header": "VALID v1 last=1 10148:LIVE unsupported-footprint"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [
+              "tombstone 10148 1"
+            ],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "VALID v2 g4 subject TOMBSTONE ticket=1/0/7 selected=main,reserve",
+              "header": "VALID v1 last=1 10148:LIVE"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 2 TOMBSTONE false"
+              ]
+            }
+          }
+        },
+        "tombstone-releasing": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "UNSUPPORTED copies=2 prefixes=0 names=subject ids=1",
+              "header": "VALID v1 last=1 10148:RELEASING unsupported-footprint"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [
+              "tombstone 10148 1"
+            ],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "VALID v2 g4 subject TOMBSTONE ticket=1/0/7 selected=main,reserve",
+              "header": "VALID v1 last=1 10148:RELEASING"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 2 TOMBSTONE false"
+              ]
+            }
+          }
+        },
+        "v2-beside-reservation": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "MISSING copies=0 prefixes=0 names=- ids=-",
+              "10149": "UNSUPPORTED copies=2 prefixes=0 names=other ids=2",
+              "header": "VALID v2 last=2 10148:CREATING:1:subject:bound/0/7 10149:LIVE unsupported-footprint"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "protected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=true"
+              ],
+              "holds": [
+                "10148 MISSING unpinned package dev.andrix.proof.principalclosed",
+                "10149 UNSUPPORTED unpinned empty -"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.lifecycleother"
+            ],
+            "lifecycle": {
+              "10148": "MISSING copies=0 prefixes=0 names=- ids=-",
+              "10149": "VALID v2 g2 other user=2/0/7:ELIGIBLE:ACCOUNT_USER/0:- selected=main,reserve",
+              "header": "VALID v2 last=2 10148:CREATING:1:subject:bound/0/7 10149:LIVE"
+            },
+            "pin phase": [
+              "10148 1 dev.andrix.proof.principalclosed PENDING",
+              "10149 2 dev.andrix.proof.lifecycleother PENDING"
+            ],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "protected",
+              "subject": "admitted",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.lifecycleother"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=true"
+              ],
+              "holds": [
+                "10148 MISSING pinned package dev.andrix.proof.principalclosed",
+                "10149 VALID pinned empty -"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 not-reported not-reported not-reported",
+                "10149 2 ELIGIBLE true"
+              ]
+            }
+          }
+        },
+        "v2-beside-sibling": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "CONFLICT copies=2 prefixes=0 names=subject ids=1",
+              "10149": "UNSUPPORTED copies=2 prefixes=0 names=subject ids=2",
+              "header": "VALID v1 last=2 10148:LIVE 10149:LIVE unsupported-footprint"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=true"
+              ],
+              "holds": [
+                "10148 CONFLICT unpinned package dev.andrix.proof.principalclosed",
+                "10149 UNSUPPORTED unpinned empty -"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "CONFLICT copies=2 prefixes=0 names=subject ids=1",
+              "10149": "CONFLICT copies=2 prefixes=0 names=subject ids=2",
+              "header": "VALID v1 last=2 10148:LIVE 10149:LIVE"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=true"
+              ],
+              "holds": [
+                "10148 CONFLICT unpinned package dev.andrix.proof.principalclosed",
+                "10149 CONFLICT unpinned empty -"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 not-reported not-reported not-reported",
+                "10149 not-reported not-reported not-reported"
+              ]
+            }
+          }
+        },
+        "v2-beside-unrelated-body": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [],
+            "lifecycle": {
+              "10148": "VALID v1 g1 subject user=1/0/7:ELIGIBLE:-:- selected=main,reserve",
+              "10149": "UNSUPPORTED copies=2 prefixes=0 names=other ids=2",
+              "header": "VALID v1 last=2 10148:LIVE 10149:LIVE unsupported-footprint"
+            },
+            "pin phase": [
+              "10148 1 dev.andrix.proof.principalclosed PENDING"
+            ],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "protected",
+              "subject": "admitted",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=true"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed",
+                "10149 UNSUPPORTED unpinned empty -"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.lifecycleother"
+            ],
+            "lifecycle": {
+              "10148": "VALID v1 g1 subject user=1/0/7:ELIGIBLE:-:- selected=main,reserve",
+              "10149": "VALID v2 g2 other user=2/0/7:ELIGIBLE:ACCOUNT_USER/0:- selected=main,reserve",
+              "header": "VALID v1 last=2 10148:LIVE 10149:LIVE"
+            },
+            "pin phase": [
+              "10148 1 dev.andrix.proof.principalclosed PENDING",
+              "10149 2 dev.andrix.proof.lifecycleother PENDING"
+            ],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "protected",
+              "subject": "admitted",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.lifecycleother"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=true"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed",
+                "10149 VALID pinned empty -"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 1 ELIGIBLE false",
+                "10149 2 ELIGIBLE true"
+              ]
+            }
+          }
+        },
+        "v2-disposing": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "UNSUPPORTED copies=2 prefixes=0 names=subject ids=1",
+              "header": "VALID v1 last=1 10148:LIVE unsupported-footprint"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [
+              "retired 10148 1 dev.andrix.proof.principalclosed"
+            ],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "VALID v2 g4 subject user=1/0/7:RETIRED:-:ACCOUNT_USER/1/DDDDDDDDDPPPPPPP selected=main,reserve",
+              "header": "VALID v1 last=1 10148:LIVE"
+            },
+            "pin phase": [
+              "10148 1 dev.andrix.proof.principalclosed RETIRING"
+            ],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 2 RETIRED false"
+              ]
+            }
+          }
+        },
+        "v2-grant": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "UNSUPPORTED copies=2 prefixes=0 names=subject ids=1",
+              "header": "VALID v1 last=1 10148:LIVE unsupported-footprint"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "VALID v2 g2 subject user=1/0/7:ELIGIBLE:ADMIN_GRANT/0:- selected=main,reserve",
+              "header": "VALID v1 last=1 10148:LIVE"
+            },
+            "pin phase": [
+              "10148 1 dev.andrix.proof.principalclosed PENDING"
+            ],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 2 ELIGIBLE true"
+              ]
+            }
+          }
+        },
+        "v2-legacy-suspended": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "UNSUPPORTED copies=2 prefixes=0 names=subject ids=1",
+              "header": "VALID v1 last=1 10148:LIVE unsupported-footprint"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "VALID v2 g2 subject user=1/0/7:RETIRING:ACCOUNT_USER/0:LEGACY_MARKER/0/- selected=main,reserve",
+              "header": "VALID v1 last=1 10148:LIVE"
+            },
+            "pin phase": [
+              "10148 1 dev.andrix.proof.principalclosed RETIRING"
+            ],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 2 RETIRING true"
+              ]
+            }
+          }
+        },
+        "v2-noted": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "UNSUPPORTED copies=2 prefixes=0 names=subject ids=1",
+              "header": "VALID v1 last=1 10148:LIVE unsupported-footprint"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "VALID v2 g2 subject user=1/0/7:ELIGIBLE:ACCOUNT_USER/0+note:- selected=main,reserve",
+              "header": "VALID v1 last=1 10148:LIVE"
+            },
+            "pin phase": [
+              "10148 1 dev.andrix.proof.principalclosed PENDING"
+            ],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 2 ELIGIBLE true"
+              ]
+            }
+          }
+        },
+        "v2-recovery-hold": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "UNSUPPORTED copies=2 prefixes=0 names=subject ids=1",
+              "header": "VALID v1 last=1 10148:LIVE unsupported-footprint"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "VALID v2 g2 subject user=1/0/7:ELIGIBLE:RECOVERY_HOLD/0:- selected=main,reserve",
+              "header": "VALID v1 last=1 10148:LIVE"
+            },
+            "pin phase": [
+              "10148 1 dev.andrix.proof.principalclosed PENDING"
+            ],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 2 ELIGIBLE true"
+              ]
+            }
+          }
+        },
+        "v2-recovery-scope-2": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "UNSUPPORTED copies=2 prefixes=0 names=subject ids=1",
+              "header": "VALID v1 last=1 10148:LIVE unsupported-footprint"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "VALID v2 g2 subject user=1/0/7:ELIGIBLE:RECOVERY_HOLD/2:- selected=main,reserve",
+              "header": "VALID v1 last=1 10148:LIVE"
+            },
+            "pin phase": [
+              "10148 1 dev.andrix.proof.principalclosed PENDING"
+            ],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 2 ELIGIBLE true"
+              ]
+            }
+          }
+        },
+        "v2-recovery-scope-3": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "UNSUPPORTED copies=2 prefixes=0 names=subject ids=1",
+              "header": "VALID v1 last=1 10148:LIVE unsupported-footprint"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "VALID v2 g2 subject user=1/0/7:ELIGIBLE:RECOVERY_HOLD/3:- selected=main,reserve",
+              "header": "VALID v1 last=1 10148:LIVE"
+            },
+            "pin phase": [
+              "10148 1 dev.andrix.proof.principalclosed PENDING"
+            ],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 2 ELIGIBLE true"
+              ]
+            }
+          }
+        },
+        "v2-retired": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "UNSUPPORTED copies=2 prefixes=0 names=subject ids=1",
+              "header": "VALID v1 last=1 10148:LIVE unsupported-footprint"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [
+              "retired 10148 1 dev.andrix.proof.principalclosed"
+            ],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "VALID v2 g3 subject user=1/0/7:RETIRED:-:ACCOUNT_USER/1/DDDDDDDDDOOOOOOO selected=main,reserve",
+              "header": "VALID v1 last=1 10148:LIVE"
+            },
+            "pin phase": [
+              "10148 1 dev.andrix.proof.principalclosed RETIRING"
+            ],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 2 RETIRED false"
+              ]
+            }
+          }
+        },
+        "v2-retiring": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "UNSUPPORTED copies=2 prefixes=0 names=subject ids=1",
+              "header": "VALID v1 last=1 10148:LIVE unsupported-footprint"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "VALID v2 g2 subject user=1/0/7:RETIRING:-:ACCOUNT_USER/1/OOOOOOOOOOOOOOOO selected=main,reserve",
+              "header": "VALID v1 last=1 10148:LIVE"
+            },
+            "pin phase": [
+              "10148 1 dev.andrix.proof.principalclosed RETIRING"
+            ],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 2 RETIRING false"
+              ]
+            }
+          }
+        },
+        "v2-scope-1": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "UNSUPPORTED copies=2 prefixes=0 names=subject ids=1",
+              "header": "VALID v1 last=1 10148:LIVE unsupported-footprint"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "VALID v2 g2 subject user=1/0/7:ELIGIBLE:ACCOUNT_USER/1:- selected=main,reserve",
+              "header": "VALID v1 last=1 10148:LIVE"
+            },
+            "pin phase": [
+              "10148 1 dev.andrix.proof.principalclosed PENDING"
+            ],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 2 ELIGIBLE true"
+              ]
+            }
+          }
+        },
+        "v2-slot": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "UNSUPPORTED copies=2 prefixes=0 names=subject ids=1",
+              "header": "VALID v1 last=1 10148:LIVE unsupported-footprint"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "VALID v2 g2 subject user=1/0/7:ELIGIBLE:ACCOUNT_USER/0:- selected=main,reserve",
+              "header": "VALID v1 last=1 10148:LIVE"
+            },
+            "pin phase": [
+              "10148 1 dev.andrix.proof.principalclosed PENDING"
+            ],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 2 ELIGIBLE true"
+              ]
+            }
+          }
+        },
+        "v2-slot-mapping-lost": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "UNSUPPORTED copies=2 prefixes=0 names=subject ids=1",
+              "header": "VALID v1 last=1 10148:LIVE unsupported-footprint"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=true"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned empty -"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "VALID v2 g2 subject user=1/0/7:ELIGIBLE:ACCOUNT_USER/0:- selected=main,reserve",
+              "header": "VALID v1 last=1 10148:LIVE"
+            },
+            "pin phase": [
+              "10148 1 dev.andrix.proof.principalclosed PENDING"
+            ],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=true"
+              ],
+              "holds": [
+                "10148 VALID pinned empty -"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 2 ELIGIBLE true"
+              ]
+            }
+          }
+        },
+        "v3-prefix-broken": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "UNSUPPORTED copies=0 prefixes=0 names=- ids=-",
+              "header": "VALID v1 last=1 10148:LIVE unsupported-footprint"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "unprotected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "UNSUPPORTED copies=0 prefixes=0 names=- ids=-",
+              "header": "VALID v1 last=1 10148:LIVE unsupported-footprint"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "unprotected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 not-reported not-reported not-reported"
+              ]
+            }
+          }
+        },
+        "v3-prefix-valid": {
+          "floor": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "UNSUPPORTED copies=0 prefixes=2 names=subject ids=1",
+              "header": "VALID v1 last=1 10148:LIVE unsupported-footprint"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          },
+          "production": {
+            "boot facts": [],
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "lifecycle": {
+              "10148": "UNSUPPORTED copies=0 prefixes=2 names=subject ids=1",
+              "header": "VALID v1 last=1 10148:LIVE unsupported-footprint"
+            },
+            "pin phase": [],
+            "scan outcome": {
+              "maximum unmapped": "unprotected",
+              "other unmapped": "unprotected",
+              "subject": "refused",
+              "subject unmapped": "protected"
+            },
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 not-reported not-reported not-reported"
+              ]
+            }
+          }
+        }
+      },
+      "swap_control": {
+        "floor": {
+          "damaged-disposing-work": "v3-prefix-valid",
+          "damaged-retired-unknown-inventory": "v3-prefix-valid",
+          "damaged-v2-of-v1": "v3-prefix-valid",
+          "eligible-v1": "v2-beside-reservation",
+          "empty-v1": "retiring-v1",
+          "legacy-continuation-interrupted": "mixed-suspend-conflict",
+          "lift-v1": "v2-slot-mapping-lost",
+          "maximum-beside-eligible": "damaged-v2-of-v1",
+          "mixed-lift-backup": "mixed-suspend-conflict",
+          "mixed-lift-conflict": "tombstone-releasing",
+          "mixed-suspend-backup": "mixed-suspend-conflict",
+          "mixed-suspend-conflict": "tombstone-releasing",
+          "releasing-without-directory": "maximum-beside-eligible",
+          "reservation": "reservation-wrong-serial",
+          "reservation-wrong-serial": "lift-v1",
+          "retiring-v1": "v2-slot",
+          "tombstone-live": "tombstone-releasing",
+          "tombstone-releasing": "releasing-without-directory",
+          "v2-beside-reservation": "v2-beside-sibling",
+          "v2-beside-sibling": "v2-beside-unrelated-body",
+          "v2-beside-unrelated-body": "v2-grant",
+          "v2-disposing": "legacy-continuation-interrupted",
+          "v2-grant": "legacy-continuation-interrupted",
+          "v2-legacy-suspended": "legacy-continuation-interrupted",
+          "v2-noted": "legacy-continuation-interrupted",
+          "v2-recovery-hold": "legacy-continuation-interrupted",
+          "v2-recovery-scope-2": "legacy-continuation-interrupted",
+          "v2-recovery-scope-3": "legacy-continuation-interrupted",
+          "v2-retired": "legacy-continuation-interrupted",
+          "v2-retiring": "legacy-continuation-interrupted",
+          "v2-scope-1": "legacy-continuation-interrupted",
+          "v2-slot": "eligible-v1",
+          "v2-slot-mapping-lost": "empty-v1",
+          "v3-prefix-broken": "reservation",
+          "v3-prefix-valid": "v3-prefix-broken"
+        },
+        "production": {
+          "damaged-disposing-work": "v3-prefix-valid",
+          "damaged-retired-unknown-inventory": "v3-prefix-valid",
+          "damaged-v2-of-v1": "v3-prefix-valid",
+          "eligible-v1": "v2-beside-reservation",
+          "empty-v1": "retiring-v1",
+          "legacy-continuation-interrupted": "mixed-suspend-backup",
+          "lift-v1": "v2-slot-mapping-lost",
+          "maximum-beside-eligible": "damaged-v2-of-v1",
+          "mixed-lift-backup": "mixed-suspend-conflict",
+          "mixed-lift-conflict": "tombstone-live",
+          "mixed-suspend-backup": "mixed-lift-backup",
+          "mixed-suspend-conflict": "tombstone-live",
+          "releasing-without-directory": "maximum-beside-eligible",
+          "reservation": "reservation-wrong-serial",
+          "reservation-wrong-serial": "lift-v1",
+          "retiring-v1": "v2-slot",
+          "tombstone-live": "tombstone-releasing",
+          "tombstone-releasing": "releasing-without-directory",
+          "v2-beside-reservation": "v2-beside-sibling",
+          "v2-beside-sibling": "v2-beside-unrelated-body",
+          "v2-beside-unrelated-body": "v2-grant",
+          "v2-disposing": "v2-legacy-suspended",
+          "v2-grant": "v2-scope-1",
+          "v2-legacy-suspended": "legacy-continuation-interrupted",
+          "v2-noted": "v2-retiring",
+          "v2-recovery-hold": "v2-recovery-scope-2",
+          "v2-recovery-scope-2": "v2-recovery-scope-3",
+          "v2-recovery-scope-3": "v2-noted",
+          "v2-retired": "v2-disposing",
+          "v2-retiring": "v2-retired",
+          "v2-scope-1": "v2-recovery-hold",
+          "v2-slot": "eligible-v1",
+          "v2-slot-mapping-lost": "empty-v1",
+          "v3-prefix-broken": "reservation",
+          "v3-prefix-valid": "v3-prefix-broken"
+        }
+      },
+      "values": {
+        "app_id": 10148,
+        "lineage": "00112233445566778899aabbccddeeff",
+        "other_app_id": 10149,
+        "user_serial": 7
+      }
+    },
+    "labels": {
+      "production": [
+        "NativeLifecycleGuestCheck",
+        "LabHistoryStore"
+      ],
+      "floor-model": [
+        "NativeLifecycleGuestCheck"
+      ]
+    },
+    "basis": [
+      "Each reading was written down before any read, from the study's layout table and the",
+      "reader code paths. The guest inputs were generated, held to the oracle and read by both",
+      "readers in development, outside the guarded scope: both matched every prediction on their",
+      "first runs, and every control failed as predicted. Later edits changed only the form of a",
+      "reading, its labels and runs of IDs, each checked to keep every predicted value."
+    ]
   }
 }

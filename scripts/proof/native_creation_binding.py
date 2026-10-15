@@ -561,7 +561,8 @@ LAYOUT_NAMES = tuple(sorted(
 # own sources pinned from Git objects at its revision: its own lifecycle reader check under its
 # boot format, Format.V2, compiled with its product, host facade and stubs, its history harness
 # filled from its candidate Settings and its test supports, every input pinned by the floor
-# manifest below and assembled sealed, none from the working tree or the 24bfb6a archive.
+# manifest below and assembled sealed, none from the working tree or the 24bfb6a archive. The
+# lifecycle guest check is the one working-tree class compiled with it.
 # archived-baseline: every other archived run, over pinned Git objects of an earlier revision,
 # compared as history, whose inputs and results no edit of the working tree changes.
 RUN_LABELS = ('production', 'rollback-reader', 'archived-baseline', 'legacy', 'previous', 'floor-model')
@@ -577,8 +578,12 @@ FLOOR_RUN_LABELS = ('floor-model',)
 # The one exception is the history parity driver: the living parity compiles its pinned 24bfb6a
 # object, and the history source checks hold the working-tree driver to those bytes. The exception the
 # other way is the lifecycle rollback check: a working-tree source written against the API of 24bfb6a
-# and 78456b3 only, compiled only with their pinned products, under the rollback-reader label.
+# and 78456b3 only, compiled only with their pinned products, under the rollback-reader label. The
+# floor's exception is the lifecycle guest check: a working-tree source written against the API that
+# B1 and the current sources share, compiled under the floor-model label only with the floor's
+# pinned compile set, which its runner checks byte for byte.
 LIVING_ROLLBACK_CHECKS = ('NativeLifecycleRollbackCheck',)
+LIVING_FLOOR_CHECKS = ('NativeLifecycleGuestCheck',)
 HARNESS_LABELS = (
     ('production', 'scripts/proof/tests/test_native_identity_store.py', ('NativeIdentityRecordsTest',),
      'the record codec, which constructs no store'),
@@ -647,6 +652,14 @@ HARNESS_LABELS = (
      'B1\'s image, the rollback floor: its own reader check with its pinned compile set, under'
      ' Format.V2 over every lifecycle layout, names protected, the lost mapping unable to register'
      ' afresh and the sibling in CONFLICT, with its swap, cross-format and wrong model controls'),
+    ('production', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleGuestCheck', 'LabHistoryStore'),
+     'the B2 guest inputs: the guest generator, which constructs no store, writes each layout, and the'
+     ' guest check reads them all under Format.V3 against their exact predictions, with the swap and cross'
+     ' controls'),
+    ('floor-model', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleGuestCheck',),
+     'B1\'s image over the B2 guest inputs: the guest check, the one working-tree class, with the'
+     ' floor\'s pinned compile set under Format.V2 against the floor\'s exact predictions, with its swap'
+     ' and cross controls, and under Format.V3 as the wrong model, which reads as the production reader'),
     ('production', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleLayouts',),
      'the store layouts that the Format.V3 lifecycle writers leave, at each state and every writer step of each'
      ' transaction, with the values no writer of B1 writes and the companions, for the rollback models and'
@@ -849,7 +862,7 @@ def label_problems():
             problems.append('harness label row %s %s' % (label, runner))
         for name in classes:
             if harness_class(name, label in ARCHIVED_RUN_LABELS and name not in LIVING_ROLLBACK_CHECKS,
-                             label in FLOOR_RUN_LABELS) is None:
+                             label in FLOOR_RUN_LABELS and name not in LIVING_FLOOR_CHECKS) is None:
                 problems.append('labelled host class not found once: %s %s' % (label, name))
     if {row[0] for row in HARNESS_LABELS} != set(RUN_LABELS):
         problems.append('a run label names no harness')

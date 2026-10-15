@@ -460,11 +460,20 @@ class CreationBindingSourceTests(unittest.TestCase):
                                                 'archived': list(runner.ARCHIVED_RUN_LABELS),
                                                 'floor': list(runner.FLOOR_RUN_LABELS)})
         self.assertEqual(predicted['retired_labels'], {'new-format': 'production'})
-        # The floor label names one row, the floor model's own reader check, which resolves in the
-        # floor manifest: B1's object, not the working tree's or the archive's.
+        # The floor label names two rows: the floor model's own reader check, which resolves in the
+        # floor manifest, B1's object, not the working tree's or the archive's; and the guest check,
+        # the one working-tree class compiled with the floor's pinned compile set.
         self.assertEqual([row[1:3] for row in runner.HARNESS_LABELS if row[0] == 'floor-model'],
-                         [('scripts/proof/native_lifecycle_record.py', ('NativeLifecycleReaderCheck',))])
+                         [('scripts/proof/native_lifecycle_record.py', ('NativeLifecycleReaderCheck',)),
+                          ('scripts/proof/native_lifecycle_record.py', ('NativeLifecycleGuestCheck',))])
         self.assertEqual(labels['NativeLifecycleReaderCheck'], {'previous', 'production', 'floor-model'})
+        self.assertEqual(runner.LIVING_FLOOR_CHECKS, ('NativeLifecycleGuestCheck',))
+        self.assertEqual(labels['NativeLifecycleGuestCheck'], {'production', 'floor-model'})
+        self.assertIsNone(runner.harness_class('NativeLifecycleGuestCheck', floor=True))
+        self.assertIsNotNone(runner.harness_class('NativeLifecycleGuestCheck'))
+        with mock.patch.object(runner, 'LIVING_FLOOR_CHECKS', ()):
+            self.assertIn('labelled host class not found once: floor-model NativeLifecycleGuestCheck',
+                          runner.label_problems())
         self.assertEqual(runner.harness_class('NativeLifecycleReaderCheck', floor=True),
                          '%s:%sNativeLifecycleReaderCheck.java' % (runner.FLOOR, runner.FLOOR_PLATFORM))
         self.assertIsNone(runner.harness_class('NativeLifecycleRollbackCheck', floor=True))

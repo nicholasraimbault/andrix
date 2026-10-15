@@ -34,10 +34,13 @@ candidate Settings, a frozen copy of B1's cutter fills B1's harness, and the com
 sealed with every Git read through the floor loader and only where the floor manifest pins, every
 process start the exact command the floor admits, and exactly the bytes that loader checked, runs
 B1's own reader check under Format.V2 over every layout with its swap, cross-format and wrong model
-controls. No reader changes a byte, file
-or file identity of the emitted layouts. It runs each deliberate defect against the suites predicted
-to catch it, a Settings fragment defect in the facade and the harness alike. It does not nest
-another runner.
+controls. The guests step generates the inputs of B2's guest stage with the guest generator and
+B1's codec, holds every byte to the independent oracle, and reads each with the production reader
+under Format.V3; the floor step reads them with the floor model under Format.V2. Each reading is
+compared with that reader's exact prediction, with swap and cross controls. No reader changes a
+byte, file or file identity of the emitted layouts or the guest inputs. It runs each deliberate
+defect against the suites predicted to catch it, a Settings fragment defect in the facade and the
+harness alike. It does not nest another runner.
 
 Host JVM evidence only: not Android, crash, power loss, storage or activation evidence. Production
 constructs Format.V3 once, at the normal image's boot read, while its lifecycle operations and the
@@ -45,6 +48,7 @@ release engine keep no production caller."""
 from collections import Counter
 from pathlib import Path
 import argparse
+import base64
 import contextlib
 import hashlib
 import json
@@ -62,6 +66,7 @@ sys.path.insert(0, str(ROOT / 'scripts/proof'))
 import native_principal_pins as integration  # noqa: E402
 import native_creation_binding as b1  # noqa: E402
 import native_creation_history as b2  # noqa: E402
+import native_lab_history as lab  # noqa: E402
 
 PREDICTIONS = ROOT / 'scripts/proof/native_lifecycle_record_predictions.json'
 PLAN = ROOT / 'plans/2026-10-08-native-lifecycle-record.md'
@@ -93,7 +98,7 @@ HARNESS = 'harness'
 # the facade and to the harness, which both carry that text verbatim, and both copies run it.
 FRAGMENT = 'fragment:'
 PHASES = ('candidate', 'codec', 'reads', 'dump', 'store', 'transactions', 'faults', 'settings', 'manager', 'pinned',
-          'layouts', 'rollback', 'readers', 'floor', 'mutants')
+          'layouts', 'guests', 'rollback', 'readers', 'floor', 'mutants')
 # The pinned and rollback steps are archived, the floor step is the floor model's, and every other
 # step is living. The read, store and transaction tests run each store format under its own label:
 # Format.V1 is legacy, Format.V2 previous and Format.V3 production, the format of the normal
@@ -102,13 +107,15 @@ PHASES = ('candidate', 'codec', 'reads', 'dump', 'store', 'transactions', 'fault
 # The fault sweeps and the layout emitter run Format.V3 only. The pinned step assembles and
 # compiles the rollback models' inputs from pinned Git objects only, under the rollback reader
 # label. The floor step models B1's image from the floor's pinned Git objects alone, under its own
-# label, floor-model.
+# label, floor-model. The guests step generates the B2 guest inputs with the guest generator and
+# reads them with the production reader; the floor step reads them with the floor model too.
 STEP_LABELS = {'codec': ('production',), 'reads': ('previous', 'legacy', 'production'),
                'dump': ('previous', 'legacy', 'production'),
                'store': ('previous', 'legacy', 'production'),
                'transactions': ('previous', 'legacy', 'production'), 'faults': ('production',),
                'settings': ('previous', 'production'), 'manager': ('previous', 'legacy', 'production'),
-               'pinned': ('rollback-reader',), 'layouts': ('production',), 'rollback': ('rollback-reader',),
+               'pinned': ('rollback-reader',), 'layouts': ('production',), 'guests': ('production',),
+               'rollback': ('rollback-reader',),
                'readers': ('previous', 'production'), 'floor': ('floor-model',),
                'mutants': ('previous', 'legacy', 'production')}
 # The steps whose products are pinned Git objects only. They carry only archived labels. The rollback
@@ -1350,6 +1357,42 @@ def decode_header(data):
     return {'version': version, 'entries': entries}
 
 
+PACKAGE_NAME = re.compile(r'[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+')
+
+
+def decode_prefix(data):
+    """An independent reading of the stable prefix of an intact slot frame above version 2, from the
+    plan's layout and its frozen bounds alone: its version, package and principal IDs, or None when
+    the frame is not intact, is version 1 or 2, or the prefix breaks a bound or rule: an app ID in
+    the application range, a positive generation, a package name of at most 255 characters and two
+    or more segments, 1 to 32 signers ascending, at most 64 users ascending by user, each with a
+    positive principal ID, a user and serial not negative and a UID that fits, and no principal
+    twice. Nothing after the prefix is read."""
+    frame = decode_frame(data, TYPE_SLOT)
+    if frame is None or frame[0] <= 2:
+        return None
+    version, body = frame
+    cursor = Cursor(body)
+    try:
+        cursor.raw(16)
+        app_id, generation = cursor.take('<iq')
+        package = cursor.text()
+        signers = [cursor.raw(32) for _ in range(cursor.take('<H'))]
+        count = cursor.take('<H')
+        identities = [cursor.take('<qiq') for _ in range(count)]
+    except (struct.error, ValueError, UnicodeDecodeError):
+        return None
+    principals = [principal for principal, _, _ in identities]
+    users = [user for _, user, _ in identities]
+    if (not 10000 <= app_id <= 19999 or generation <= 0 or len(package) > 255 or not PACKAGE_NAME.fullmatch(package)
+            or not 1 <= len(signers) <= 32 or signers != sorted(set(signers)) or count > 64
+            or users != sorted(set(users)) or len(set(principals)) != count
+            or any(principal <= 0 or user < 0 or serial < 0 or user * 100000 + app_id > 2 ** 31 - 1
+                   for principal, user, serial in identities)):
+        return None
+    return {'version': version, 'app_id': app_id, 'package': package, 'principals': principals}
+
+
 def read_layout(path):
     """One emitted layout: its three files and every intact header and slot copy of its store, read by
     the independent decoder. Raises ValueError for a malformed file."""
@@ -1878,11 +1921,19 @@ def model_prediction_problems(predicted, swaps):
     return problems
 
 
-def floor_prediction_problems(predicted):
+def floor_prediction_problems(predicted, current=None):
     """The floor model's predictions: it runs B1's boot format and the run label of its step, reads
     every input the floor manifest pins, its classes cover every layout once, and its swap control
-    names layouts that exist and gives each reader class exactly once."""
+    names layouts that exist and gives each reader class exactly once. The phases and step labels
+    are the current checkpoint's, when it is given: its own predictions record them since the guests
+    step, and the floor's record keeps the phases it had, every phase but that step."""
     problems = []
+    if current is not None:
+        if predicted['phases'] != [phase for phase in PHASES if phase != 'guests'] or {
+                step: labels for step, labels in predicted['step_labels'].items()} != {
+                step: list(labels) for step, labels in STEP_LABELS.items() if step != 'guests'}:
+            problems.append('the floor\'s recorded phases or step labels are not the runner\'s before the guests step')
+        predicted = dict(predicted, phases=current['phases'], step_labels=current['step_labels'])
     floor = predicted['floor']
     if (floor['format'], floor['revision'], floor['reads']) != (FLOOR_FORMAT, b1.FLOOR, len(b1.FLOOR_SHA256)):
         problems.append('the floor predictions name another format, revision or input count')
@@ -2527,30 +2578,469 @@ def layout_footprint(emitted):
     return footprint
 
 
-def footprint_problems(emitted, before, after_step, record):
-    """Whether the emitted layouts still have the footprint they had before any reader read them."""
+def footprint_problems(emitted, before, after_step, record, what='the emitted layouts'):
+    """Whether the emitted layouts, or another read tree, still have the footprint they had before
+    any reader read them."""
     same = layout_footprint(emitted) == before
     record['unchanged after ' + after_step] = same
-    return [] if same else ['the emitted layouts changed during the %s step' % after_step]
+    return [] if same else ['%s changed during the %s step' % (what, after_step)]
 
 
-# The B2 guest inputs, which checkpoint 3's generator stages for the guests, and what their reads
-# must check. None exists yet. Each one is to be read by the floor model and by the production
-# reader, beside the emitted layouts, and to assert under each: its exact lifecycle state, its pin
-# phase, the deferred set, the scan outcome and the boot facts, and under the production reader the
-# schema 3 diagnostic rows, under the floor the schema 2 rows of B1's image.
-GUEST_INPUTS = ()
+# ---------------------------------------------------------------- the B2 guest inputs
+# The inputs of the guest stage of B2, the reader in the normal image: the store layout of each
+# guest generator mode, the empty store, and the version 2 only slot read again with its subject's
+# mapping lost. The guests step compiles the generator with the guest codec, B1's own codec pinned
+# from its Git object, generates each input at the fixed values, holds every byte to the independent
+# oracle and the observer, and reads them with the production reader, the current sources under
+# Format.V3. The floor step reads the same bytes with the floor model, B1's pinned sources under
+# Format.V2, through this hook. One living check reports each read's facts, and each fact is
+# compared with its exact prediction: the lifecycle of each held slot as the store selected it, with
+# its copies, or its status and evidence; the pin phases; the deferred set; the scan outcome, with
+# what a boot that maps nothing protects; the boot facts; and the diagnostic rows, schema 3 under
+# the production reader and under the floor the schema 2 view of B1's image. An input without both
+# predictions fails closed.
+GUEST_MODES = ('retiring-v1', 'v2-slot', 'eligible-v1', 'v2-beside-reservation', 'v2-beside-sibling',
+               'v2-beside-unrelated-body') + lab.READER_STEP_MODES
+GUEST_INPUT_MODES = {'empty-v1': ('empty-v1', 'mapped'), **{mode: (mode, 'mapped') for mode in GUEST_MODES},
+                     'v2-slot-mapping-lost': ('v2-slot', 'lost')}
+GUEST_INPUTS = tuple(GUEST_INPUT_MODES)
 GUEST_INPUT_CHECKS = ('lifecycle', 'pin phase', 'deferred set', 'scan outcome', 'boot facts', 'schema 3 rows')
+GUEST_CHECK = 'NativeLifecycleGuestCheck'
+# The guest generator's class, which this runner runs too.
+GUEST_GENERATOR_CLASS = 'LabHistoryStore'
+GUEST_READERS = ('production', 'floor')
+GUEST_FORMATS = {'production': 'V3', 'floor': FLOOR_FORMAT}
+GUEST_SCHEMAS = {'production': 3, 'floor': 2}
+# The diagnostic's fields a host read predicts. The allocator's search start is the guest's own.
+GUEST_DUMP_FIELDS = ('counter_known', 'cached_header', 'cached_enumeration_complete', 'creation_ready',
+                     'unidentified_code')
+# The subject's public development certificate, whose DER is the generator's signer.
+GUEST_CERTIFICATE = 'tests/native-identity/b2-subject/signer-certificate.pem'
+GUEST_SUBJECT = 'dev.andrix.proof.principalclosed'
+# The packages the readings name, by the label they use for each: the subject, the companion's
+# other package and the maximum record's. A boot that maps nothing reports what protects each.
+GUEST_NAMES = (('subject', GUEST_SUBJECT), ('other', lab.OTHER), ('maximum', lab.MAXIMUM))
+# Each staged layout the plan's B2 step lists, as the plan words it, and the inputs that stage it;
+# then the controls the study keeps beside them. A row of the plan must be found in the plan.
+GUEST_COVERAGE = (
+    ('plan', 'suspension by the user, by a grant, and with scope bits',
+     ('v2-slot', 'v2-grant', 'v2-scope-1', 'v2-recovery-scope-2', 'v2-recovery-scope-3')),
+    ('plan', 'a recovery hold', ('v2-recovery-hold', 'v2-recovery-scope-2', 'v2-recovery-scope-3')),
+    ('plan', 'retiring with an inventory, retired, disposing', ('v2-retiring', 'v2-retired', 'v2-disposing')),
+    ('plan', 'a legacy marker, and an interrupted legacy continuation',
+     ('retiring-v1', 'legacy-continuation-interrupted')),
+    ('plan', 'mixed copies in both directions',
+     ('mixed-suspend-backup', 'mixed-lift-backup', 'mixed-suspend-conflict', 'mixed-lift-conflict')),
+    ('plan', 'a ticketed tombstone under LIVE and under RELEASING', ('tombstone-live', 'tombstone-releasing')),
+    ('plan', 'RELEASING with its directory gone', ('releasing-without-directory',)),
+    ('plan', 'a noted entry and a maximum size record', ('v2-noted', 'maximum-beside-eligible')),
+    ('plan', 'controls the new reader must read as damaged',
+     ('damaged-v2-of-v1', 'eligible-v1', 'damaged-retired-unknown-inventory', 'v2-legacy-suspended',
+      'damaged-disposing-work', 'v2-disposing')),
+    ('plan', 'slot version 3 frames', ('v3-prefix-valid', 'v3-prefix-broken')),
+    ('plan', 'the serial control', ('reservation-wrong-serial', 'reservation')),
+    ('plan', 'a version 2 slot beside a bound reservation, as a positive control', ('v2-beside-reservation',)),
+    ('plan', 'a version 2 only slot with a lost mapping, read by B2 and by the floor', ('v2-slot-mapping-lost',)),
+    ('plan', 'a lift restaged at a later boot', ('lift-v1',)),
+    ('study', 'the eligible, empty store, unrelated body and sibling collision controls',
+     ('eligible-v1', 'empty-v1', 'v2-beside-unrelated-body', 'v2-beside-sibling')))
 
 
-def guest_input_problems(inputs=None):
-    """The hook of the B2 guest inputs. Until checkpoint 3 adds the inputs with their reads, an
-    input set that is not empty fails closed, rather than going unread."""
+def guest_section(predictions=None):
+    """The guest input predictions of this checkpoint."""
+    predictions = strict(PREDICTIONS.read_text()) if predictions is None else predictions
+    return predictions.get('b2_checkpoint_3a', {}).get('guest_inputs', {})
+
+
+def guest_input_problems(inputs=None, predicted=None):
+    """The hook of the B2 guest inputs: each input needs its floor and production reads, each a
+    prediction of every check, and no prediction names an input that does not exist. An input
+    without them fails closed, rather than going unread."""
     inputs = GUEST_INPUTS if inputs is None else inputs
-    if not inputs:
-        return []
-    return ['B2 guest inputs without reads: %s; each needs its floor and production reads, checking %s'
-            % (list(inputs)[:5], ', '.join(GUEST_INPUT_CHECKS))]
+    predicted = guest_section().get('reads', {}) if predicted is None else predicted
+    unread = [name for name in inputs if set(predicted.get(name, {})) != set(GUEST_READERS)
+              or any(set(predicted[name][reader]) != set(GUEST_INPUT_CHECKS) for reader in GUEST_READERS)]
+    problems = []
+    if unread:
+        problems.append('B2 guest inputs without reads: %s; each needs its floor and production reads, checking %s'
+                        % (unread[:5], ', '.join(GUEST_INPUT_CHECKS)))
+    if set(predicted) - set(inputs):
+        problems.append('reads of guest inputs that do not exist: %s' % sorted(set(predicted) - set(inputs))[:5])
+    return problems
+
+
+def guest_reading(value, schema):
+    """One input's facts as a guest check reported them, in the form of its predictions. The raw
+    diagnostic is parsed by the independent observer at the reader's schema, never another, and its
+    allocator search start, which only the guest reports, is left out. Each hold reads 'app ID,
+    cached slot, pinned or unpinned, mapping kind, mapping or -', and each slot row 'app ID,
+    version, lifecycle, suspended'."""
+    rows = lab.observer().dump.parse_reservations(value['dump'], schema=schema)
+    if (rows['fields']['live_settings'], rows['fields']['authority']) != ('true', 'not-reported'):
+        raise ValueError('a diagnostic of no live settings or with authority')
+    dump = {'schema': rows['schema_version'],
+            'fields': ['%s=%s' % (key, rows['fields'][key]) for key in GUEST_DUMP_FIELDS],
+            'holds': ['%d %s %s %s %s' % (app, hold['cached_slot'], 'pinned' if hold['memory_pin'] else 'unpinned',
+                                          hold['mapping_kind'], hold['mapping'] or '-')
+                      for app, hold in rows['holds'].items()], 'deferred': rows['deferred_names']}
+    if schema == 3:
+        dump['slots'] = ['%d %s %s %s' % (app, slot['version'], slot['lifecycle'], slot['suspended'])
+                         for app, slot in rows['slots'].items()]
+    return {'lifecycle': value['lifecycle'], 'pin phase': value['pins'], 'deferred set': value['deferred'],
+            'scan outcome': value['scan'], 'boot facts': value['boot_facts'], 'schema 3 rows': dump}
+
+
+def guest_readings(stdout, schema):
+    """Each input's reading from a guest check's output, by input. A malformed or repeated one
+    raises."""
+    readings = {}
+    for line in stdout.splitlines():
+        if not line.startswith('GUEST '):
+            continue
+        words = line.split(' ', 2)
+        if len(words) != 3 or words[1] in readings:
+            raise ValueError('a guest reading line: %s' % line[:80])
+        value = strict(words[2])
+        if set(value) != {'lifecycle', 'pins', 'deferred', 'scan', 'boot_facts', 'dump'}:
+            raise ValueError('the facts of a guest reading: %s' % sorted(value))
+        readings[words[1]] = guest_reading(value, schema)
+    return readings
+
+
+def schema_free(check, value):
+    """The part of a check that both schemas report: the diagnostic without its schema and slot
+    rows."""
+    return {key: value[key] for key in ('fields', 'holds', 'deferred')} if check == 'schema 3 rows' else value
+
+
+def guest_mismatches(readings, predicted, reader, view=None):
+    """Each (input, check) whose reading differs from its prediction for this reader, in input
+    order, and each input without a reading. A view reduces both sides first."""
+    found = []
+    for name in GUEST_INPUTS:
+        if name not in readings:
+            found.append((name, 'no reading'))
+            continue
+        for check in GUEST_INPUT_CHECKS:
+            got, want = readings[name][check], predicted[name][reader][check]
+            if view is not None:
+                got, want = view(check, got), view(check, want)
+            if got != want:
+                found.append((name, check))
+    return found
+
+
+def mismatched_inputs(found):
+    return sorted({name for name, _ in found})
+
+
+def guest_cross_inputs(predicted):
+    """The inputs whose two readers' predictions differ beyond the diagnostic's schema."""
+    return [name for name in GUEST_INPUTS
+            if any(schema_free(check, predicted[name]['production'][check])
+                   != schema_free(check, predicted[name]['floor'][check]) for check in GUEST_INPUT_CHECKS)]
+
+
+def guest_swapped(predicted, reader, swaps):
+    """One reader's predictions with each swapped input given its donor's, a control that must fail
+    exactly there."""
+    return {name: {reader: predicted[swaps.get(name, name)][reader]} for name in predicted}
+
+
+def guest_other(predicted, reader, other):
+    """The other reader's predictions asserted as this reader's: a cross control."""
+    return {name: {reader: predicted[name][other]} for name in predicted}
+
+
+def guest_prediction_problems(section):
+    """The guest predictions: the inputs and their modes are the runner's, every input has both
+    reads and nothing else, each swap control gives each swapped input a donor whose prediction
+    differs, the predicted cross control failures are exactly the inputs whose readers' predictions
+    differ beyond the schema, and the fixed values are the guest generator's."""
+    problems = guest_input_problems(predicted=section.get('reads', {}))
+    if section.get('inputs') != {name: list(value) for name, value in GUEST_INPUT_MODES.items()}:
+        problems.append('the predicted guest inputs differ from the runner\'s')
+    if problems:
+        return problems
+    reads = section['reads']
+    for reader in GUEST_READERS:
+        swaps = section['swap_control'][reader]
+        same = sorted(name for name, donor in swaps.items() if name not in reads or donor not in reads
+                      or reads[name][reader] == reads[donor][reader])
+        if same or not swaps:
+            problems.append('the %s guest swap control keeps the own prediction of %s' % (reader, same))
+    if section['cross_control_fails'] != guest_cross_inputs(reads):
+        problems.append('the predicted guest cross control failures are not the inputs whose readers differ')
+    if (section['values']['lineage'], section['values']['app_id'], section['values']['other_app_id'],
+            section['values']['user_serial']) != lab.GUEST_VALUES:
+        problems.append('the guest inputs are predicted at other values than the generator\'s')
+    if section['readers'] != {reader: {'format': GUEST_FORMATS[reader], 'schema': GUEST_SCHEMAS[reader],
+                                       'label': STEP_LABELS['guests' if reader == 'production' else 'floor'][0]}
+                              for reader in GUEST_READERS}:
+        problems.append('the guest readers are predicted with other formats, schemas or labels')
+    for reader in GUEST_READERS:
+        schemas = {reads[name][reader]['schema 3 rows']['schema'] for name in GUEST_INPUTS}
+        if schemas != {GUEST_SCHEMAS[reader]}:
+            problems.append('the %s guest predictions name schemas %s' % (reader, sorted(schemas)))
+    return problems
+
+
+def guest_coverage_problems():
+    """Every guest input stages a row of the plan or a kept control, every row has inputs, and each
+    plan row is the plan's own words."""
+    problems = []
+    covered = {name for _, _, names in GUEST_COVERAGE for name in names}
+    if covered != set(GUEST_INPUTS):
+        problems.append('guest coverage differs from the inputs: %s' % sorted(covered ^ set(GUEST_INPUTS)))
+    plan = ' '.join(PLAN.read_text().split())
+    for source, row, names in GUEST_COVERAGE:
+        if not names or source not in ('plan', 'study') or (source == 'plan' and row not in plan):
+            problems.append('guest coverage row not in its source: ' + row)
+    return problems
+
+
+def maximum_problems(data):
+    """The plan's size arithmetic over the guest stage's largest record, by the independent decoder:
+    a 255 character package, 32 signers and 64 users, each with six noted entries and every kind in
+    its retirement; 1,357 bytes for the fixed part and 931 for each user, 60,941 in all."""
+    slot = decode_slot(data)
+    if slot is None:
+        return ['the largest guest record does not decode']
+    signers = struct.unpack_from('<H', data, 12 + 16 + 4 + 8 + 2 + len(slot['package']))[0]
+    fixed = 12 + 16 + 4 + 8 + 2 + len(slot['package']) + 2 + 32 * signers + 2 + 32
+    users = [20 + 2 + sum(73 if entry['note'] else 41 for entry in user['entries'])
+             + (39 + 27 * len(user['retirement']['obligations']) if user['retirement'] else 0)
+             for user in slot['users']]
+    if ((len(slot['package']), signers, len(users)) != (255, 32, 64)
+            or any(len(user['entries']) != 6 or not all(entry['note'] for entry in user['entries'])
+                   or user['retirement'] is None or user['retirement']['inventory'] != 1 for user in slot['users'])
+            or fixed != PLAN_SIZES['fixed'] or set(users) != {PLAN_SIZES['user']}
+            or fixed + sum(users) != len(data) or len(data) != PLAN_SIZES['largest']):
+        return ['the largest guest record is not the plan\'s arithmetic: fixed %d, users %s, %d bytes'
+                % (fixed, sorted(set(users)), len(data))]
+    return []
+
+
+def guest_certificate():
+    """The subject's development certificate as DER, whose SHA-256 must be the guest generator's
+    signer."""
+    lines = (ROOT / GUEST_CERTIFICATE).read_text().strip().splitlines()
+    if lines[:1] != ['-----BEGIN CERTIFICATE-----'] or lines[-1:] != ['-----END CERTIFICATE-----']:
+        raise ValueError('the subject certificate is not one PEM certificate')
+    der = base64.b64decode(''.join(lines[1:-1]), validate=True)
+    if sha(der) != lab.observer().FIXTURE_SIGNER:
+        raise ValueError('the subject certificate is not the guest generator\'s signer')
+    return der
+
+
+def guest_holds(files):
+    """The app IDs a generated store names, by the independent decoder: every entry of its header
+    copies and every slot directory."""
+    held = set()
+    for name, data in files.items():
+        if name in HEADER_COPIES:
+            header = decode_header(data)
+            held |= {entry['app_id'] for entry in header['entries']} if header else set()
+        elif name.startswith('slots/'):
+            held.add(int(name.split('/')[1]))
+    return held
+
+
+def guest_generator(build, args):
+    """One command line run of the guest generator."""
+    state = build / 'state'
+    state.mkdir(exist_ok=True)
+    return subprocess.run(['java', '-Xmx256m', '-ea', '-Djava.io.tmpdir=' + str(state), '-cp', str(build / 'classes'),
+                           lab.GENERATOR, *[str(item) for item in args]], capture_output=True, text=True,
+                          timeout=120, cwd=build, env=b1.tool_environment())
+
+
+def guest_inputs(base, record, problems):
+    """Every guest input, generated by the guest generator compiled with the guest codec from its
+    pinned Git object, each byte held to the independent oracle and the observer, beside the facts
+    of its guest boot: the subject mapped at its app ID unless the mapping is lost, the subject's
+    data directory owned by its UID when the store holds that app ID, as the image enumerates
+    owners, and the user 0 serial. Returns the inputs, the certificate and names files, or None."""
+    path, digest = lab.GUEST_CODEC
+    codec = b1.git_bytes(lab.GUEST_REVISION, path)
+    record['codec_sha256'] = sha(codec)
+    if sha(codec) != digest:
+        problems.append('the guest codec differs from its pinned Git object')
+        return None
+    build = base / 'generator'
+    built = b1.build(build, {'framework/NativeIdentityRecords.java': codec,
+                             'tests/LabHistoryStore.java': (ROOT / GUEST_GENERATOR).read_bytes()})
+    record['generator'] = {'returncode': built['returncode'], 'inputs': built['inputs'],
+                           'output': built['output'][-4000:]}
+    if built['returncode']:
+        problems.append('the guest generator does not compile')
+        return None
+    observe = lab.observer()
+    lineage, app_id, other_app_id, serial = lab.GUEST_VALUES
+    inputs = base / 'inputs'
+    inputs.mkdir()
+    certificate, names = base / 'subject.der', base / 'names'
+    certificate.write_bytes(guest_certificate())
+    names.write_text(''.join('%s %s\n' % pair for pair in GUEST_NAMES))
+    record['inputs'] = {}
+    for name, (mode, mapping) in GUEST_INPUT_MODES.items():
+        directory = inputs / name
+        directory.mkdir()
+        store = directory / 'store'
+        companion = mode in observe.COMPANION_MODES
+        result = guest_generator(build, ['empty-v1', store] if mode == 'empty-v1' else [
+            mode, store, lineage, app_id, *([other_app_id] if companion else []), serial])
+        entry = record['inputs'][name] = {'mode': mode, 'mapping': mapping, 'returncode': result.returncode,
+                                          'stdout': result.stdout[-4000:], 'stderr': result.stderr[-2000:]}
+        try:
+            if mode == 'empty-v1':
+                generation = observe.load_generation(result.stdout.strip())
+                gold = dict.fromkeys(observe.HEADERS, lab.goldens(lineage=generation['lineage'])['EMPTY'])
+            else:
+                generation = observe.load_lifecycle_generation(result.stdout.strip())
+                if (generation['mode'], generation['lineage'], generation['app_id'], generation['other_app_id'],
+                        generation['user_serial']) != (mode, lineage, app_id, other_app_id if companion else None,
+                                                       serial):
+                    raise ValueError('the generator manifest differs from the request')
+                gold = lab.lifecycle_goldens(mode, lineage, app_id, other_app_id, serial)
+            entry['assessed'] = observe.assess_store(store, mode, generation=generation)
+        except (OSError, ValueError) as error:
+            problems.append('guest input %s: %s' % (name, error))
+            continue
+        files = {item.relative_to(store).as_posix(): item.read_bytes() for item in sorted(store.rglob('*'))
+                 if item.is_file()}
+        entry['files'] = {file: sha(data) for file, data in files.items()}
+        if result.returncode or files != gold:
+            problems.append('guest input %s differs from the independent oracle: %s' % (
+                name, sorted(file for file in set(files) | set(gold) if files.get(file) != gold.get(file))))
+        (directory / 'packages').write_text('' if mapping == 'lost' else '%s %d\n' % (GUEST_SUBJECT, app_id))
+        (directory / 'owners').write_text('%s %d\n' % (GUEST_SUBJECT, app_id) if app_id in guest_holds(files) else '')
+        (directory / 'serial').write_text('%d\n' % serial)
+    return inputs, certificate, names
+
+
+def guest_files(product):
+    """A reader's compile set with the guest check, which compiles against the current sources and
+    against the floor's pinned ones alike: the one living input of the floor's guest reads."""
+    return dict(product, **{'tests/%s.java' % GUEST_CHECK: (ROOT / PLATFORM / (GUEST_CHECK + '.java')).read_bytes()})
+
+
+def guest_read(build, generated, format_name, leg, record, problems):
+    """One complete read of every guest input by one build: each input read once and every read
+    passing its own checks, then the readings in the form of the predictions, or None."""
+    inputs, certificate, names = generated
+    run = b1.execute(build, GUEST_CHECK, [str(inputs), str(build / ('state-' + leg.replace(' ', '-'))),
+                                          format_name, str(certificate), str(names)], timeout=1800)
+    record[leg] = {'returncode': run['returncode'], 'failed': run['failed'], 'passed': len(run['passed']),
+                   'stdout': run['stdout'][-3000:], 'stderr': run['stderr'][-3000:]}
+    found = check_outcome(run, GUEST_INPUTS)
+    if found:
+        problems.append('guest %s: %s' % (leg, found))
+        return None
+    try:
+        readings = guest_readings(run['stdout'], 3 if format_name == 'V3' else 2)
+    except ValueError as error:
+        problems.append('guest %s readings: %s' % (leg, error))
+        return None
+    record[leg]['readings'] = len(readings)
+    return readings
+
+
+def guest_controls(readings, section, reader, record, problems):
+    """One reader's readings against its predictions, then its swap control and its cross control,
+    each failing exactly where predicted."""
+    reads, other = section['reads'], 'floor' if reader == 'production' else 'production'
+    record['mismatches'] = guest_mismatches(readings, reads, reader)
+    problems += ['guest input %s: the %s %s differs from its prediction' % (name, reader, check)
+                 for name, check in record['mismatches']]
+    swaps = section['swap_control'][reader]
+    record['swap control'] = mismatched_inputs(guest_mismatches(readings, guest_swapped(reads, reader, swaps), reader))
+    if record['swap control'] != sorted(swaps):
+        problems.append('the %s guest swap control failed %s, not %s' % (reader, record['swap control'], sorted(swaps)))
+    record['cross control'] = mismatched_inputs(guest_mismatches(readings, guest_other(reads, reader, other), reader,
+                                                                 schema_free))
+    if record['cross control'] != sorted(section['cross_control_fails']):
+        problems.append('the %s readings against the %s predictions failed %s'
+                        % (reader, other, record['cross control']))
+
+
+def guests_phase(work, predictions, settings, steps, problems):
+    """Generate the guest inputs and read them with the production reader. Returns the generated
+    inputs and their footprint before any read, or None."""
+    section = guest_section(predictions)
+    record = steps['guests'] = {'inputs': len(GUEST_INPUTS), 'checks': list(GUEST_INPUT_CHECKS),
+                                'problems': guest_input_problems(predicted=section.get('reads', {}))}
+    problems += record['problems']
+    base = work / 'guests'
+    base.mkdir()
+    generated = guest_inputs(base, record, problems)
+    if generated is None:
+        return None
+    before = layout_footprint(generated[0])
+    record['footprint'] = {'entries': len(before)}
+    if len(before) != section['footprint_entries']:
+        problems.append('the guest inputs hold %d paths, not the predicted' % len(before))
+    build = base / 'production'
+    built = b1.build(build, guest_files(reader_files(settings)))
+    record['build'] = {'returncode': built['returncode'], 'inputs': built['inputs'], 'output': built['output'][-4000:]}
+    if built['returncode'] or len(built['inputs']) != section['compile']['files']:
+        problems.append('the guest check does not compile with the current sources as predicted')
+        return generated, before
+    readings = guest_read(build, generated, GUEST_FORMATS['production'], 'run', record, problems)
+    if readings is not None:
+        record['readings'] = readings
+        guest_controls(readings, section, 'production', record, problems)
+    refused = b1.execute(build, GUEST_CHECK, [str(generated[0]), str(build / 'no-assertions'), 'V3',
+                                              str(generated[1]), str(generated[2])], assertions=False, timeout=120)
+    if not refused['returncode'] or '-ea' not in refused['stderr']:
+        problems.append('the guest check ran without assertions')
+    problems += footprint_problems(generated[0], before, 'guests', record['footprint'], 'the guest inputs')
+    return generated, before
+
+
+def guest_floor(work, section, files, steps, record, problems):
+    """The floor model's reads of the guest inputs: its pinned compile set and the guest check, the
+    one living input, read under Format.V2 against the floor's predictions, with the swap and cross
+    controls, and under Format.V3, the wrong model, whose readings must be the production reader's
+    exactly: B1's sources differ from the current ones only by the boot literal and comments."""
+    production = steps.get('guests', {}).get('readings')
+    inputs = (work / 'guests' / 'inputs', work / 'guests' / 'subject.der', work / 'guests' / 'names')
+    if production is None or not inputs[0].is_dir():
+        problems.append('floor: no guest inputs read by the production reader to read')
+        return
+    build = work / 'floor' / 'guests'
+    living = guest_files({})
+    built = b1.build(build, guest_files(files))
+    record['build'] = {'returncode': built['returncode'], 'inputs': built['inputs'], 'output': built['output'][-4000:]}
+    pinned = {name: digest for name, digest in built['inputs'].items() if name not in living}
+    if (built['returncode'] or floor_compile_problems(pinned)
+            or {name: built['inputs'].get(name) for name in living}
+            != {name: sha(data) for name, data in living.items()}):
+        problems.append('the floor\'s guest reads do not compile from its pinned inputs and the guest check')
+        return
+    # The two guest reads compile the same check beside the floor's three different files alone.
+    production_inputs = steps['guests'].get('build', {}).get('inputs', {})
+    record['files'] = len(built['inputs'])
+    record['differing_from_production'] = sorted(name for name in set(production_inputs) | set(built['inputs'])
+                                                 if production_inputs.get(name) != built['inputs'].get(name))
+    if (record['files'], record['differing_from_production']) != (section['compile']['files'],
+                                                                 section['compile']['differing_from_production']):
+        problems.append('the floor\'s guest compile set differs from the predictions: %s'
+                        % record['differing_from_production'])
+    readings = guest_read(build, inputs, GUEST_FORMATS['floor'], 'run', record, problems)
+    if readings is not None:
+        guest_controls(readings, section, 'floor', record, problems)
+    wrong = guest_read(build, inputs, GUEST_FORMATS['production'], 'wrong model', record, problems)
+    if wrong is not None:
+        record['wrong model']['equals production'] = wrong == production
+        if wrong != production:
+            problems.append('B1\'s sources under Format.V3 read the guest inputs otherwise than the production'
+                            ' reader: %s' % sorted(name for name in GUEST_INPUTS
+                                                   if wrong.get(name) != production.get(name))[:5])
+    refused = b1.execute(build, GUEST_CHECK, [str(inputs[0]), str(build / 'no-assertions'), FLOOR_FORMAT,
+                                              str(inputs[1]), str(inputs[2])], assertions=False, timeout=120)
+    if not refused['returncode'] or '-ea' not in refused['stderr']:
+        problems.append('the floor\'s guest check ran without assertions')
 
 # ---------------------------------------------------------------- deliberate defects
 
@@ -4064,8 +4554,9 @@ STORELESS_HARNESSES = {
 def label_problems():
     """The pinned steps carry only archived labels, the floor step only the floor model's, and every
     other step only living labels. This runner's harness rows name its tests. The floor label names
-    one row, the floor model's own reader check here. Outside this runner the production label, the
-    label of the lifecycle format's runs, names only the known Format.V3 runs and code that
+    two rows here: the floor model's own reader check, and the guest check, the one working-tree
+    class compiled with the floor's pinned compile set. Outside this runner the production label,
+    the label of the lifecycle format's runs, names only the known Format.V3 runs and code that
     constructs no store, so no run of an earlier format passes for production."""
     problems = []
     for step, labels in STEP_LABELS.items():
@@ -4075,8 +4566,9 @@ def label_problems():
             problems.append('step %s carries labels %s' % (step, labels))
     if not set(FLOOR_STEPS) <= set(STEP_LABELS) or [row[1:3] for row in b1.HARNESS_LABELS
                                                     if row[0] in b1.FLOOR_RUN_LABELS] != [
-            ('scripts/proof/native_lifecycle_record.py', (FLOOR_READER,))]:
-        problems.append('the floor label does not name the floor model\'s reader check alone')
+            ('scripts/proof/native_lifecycle_record.py', (FLOOR_READER,)),
+            ('scripts/proof/native_lifecycle_record.py', (GUEST_CHECK,))] or b1.LIVING_FLOOR_CHECKS != (GUEST_CHECK,):
+        problems.append('the floor label does not name the floor model\'s reader check and the guest check alone')
     rows = [row for row in b1.HARNESS_LABELS if row[1] == 'scripts/proof/native_lifecycle_record.py']
     labelled = {}
     for label, _, classes, _ in rows:
@@ -4090,9 +4582,11 @@ def label_problems():
             or labelled.get(SETTINGS_TEST) != {'previous', 'production'}
             or labelled.get(MANAGER_TEST) != every or labelled.get(LAYOUTS) != {'production'}
             or labelled.get(ROLLBACK_CHECK) != {'rollback-reader'}
-            or labelled.get(READER_CHECK) != {'previous', 'production', 'floor-model'} or set(labelled) != {
+            or labelled.get(READER_CHECK) != {'previous', 'production', 'floor-model'}
+            or labelled.get(GUEST_CHECK) != {'production', 'floor-model'}
+            or labelled.get(GUEST_GENERATOR_CLASS) != {'production'} or set(labelled) != {
                 CODEC_TEST, READ_TEST, DUMP_TEST, STORE_TEST, TRANSACTION_TEST, FAULT_TEST, SETTINGS_TEST, MANAGER_TEST,
-                LAYOUTS, ROLLBACK_CHECK, READER_CHECK}):
+                LAYOUTS, ROLLBACK_CHECK, READER_CHECK, GUEST_CHECK, GUEST_GENERATOR_CLASS}):
         problems.append('harness labels of this runner differ: %s' % labelled)
     production = FORMAT_LABELS['V3']
     if {row[0] for row in b1.HARNESS_LABELS if row[0] == production} != {production} or any(
@@ -4178,10 +4672,19 @@ def source_checks():
         problems.append('predicted layouts differ from the layout lists')
     problems += model_prediction_problems(predictions['p5_checkpoint_2'], swap_controls(predictions))
     # The floor model of B1's image: its manifest, the format of its boot read, its predictions and
-    # the hook of the B2 guest inputs, which fails closed until those inputs have reads.
+    # the hook of the B2 guest inputs, which fails closed for an input without both reads.
     problems += ['floor: ' + item for item in b1.floor_problems()]
-    problems += floor_prediction_problems(predictions['b2_checkpoint_2b'])
+    problems += floor_prediction_problems(predictions['b2_checkpoint_2b'], predictions['b2_checkpoint_3a'])
     problems += guest_input_problems()
+    # The B2 guest inputs: the generator's modes, the coverage of the plan's layouts, and the
+    # predictions of both readers with their controls.
+    if GUEST_MODES != lab.observer().LIFECYCLE_MODES:
+        problems.append('the guest inputs do not read every guest generator mode in the observer\'s order')
+    problems += guest_coverage_problems()
+    problems += guest_prediction_problems(guest_section(predictions))
+    lineage, app_id, other_app_id, serial = lab.GUEST_VALUES
+    problems += maximum_problems(lab.lifecycle_goldens('maximum-beside-eligible', lineage, app_id, other_app_id,
+                                                       serial)['slots/%d/record.bin' % other_app_id])
     problems += registration_guard_problems()
     problems += case_map_problems()
     problems += refusal_problems()
@@ -4614,11 +5117,14 @@ def floor_phase(work, predictions, pinned, settings, pinned_halves, emitted, ste
     runs under Format.V2 with B1's class of every layout, then with the rotated swap control, with
     the production expectations asserted over the floor, and with the floor's expectations over B1's
     sources under Format.V3, which B1's image never constructs; each control fails exactly the
-    layouts predicted. A run without assertions is refused."""
+    layouts predicted. A run without assertions is refused. It then reads the B2 guest inputs
+    through their hook, with B1's pinned compile set and the guest check, against the floor's
+    predictions."""
     predicted = predictions['b2_checkpoint_2b']['floor']
     record = steps['floor'] = {'revision': b1.FLOOR, 'format': FLOOR_FORMAT, 'labels': list(STEP_LABELS['floor'])}
     record['guest_inputs'] = {'inputs': len(GUEST_INPUTS), 'checks': list(GUEST_INPUT_CHECKS),
-                              'problems': guest_input_problems()}
+                              'problems': guest_input_problems(
+                                  predicted=guest_section(predictions).get('reads', {}))}
     problems += record['guest_inputs']['problems']
     read = read_emitted(emitted, [])
     if not read:
@@ -4695,6 +5201,8 @@ def floor_phase(work, predictions, pinned, settings, pinned_halves, emitted, ste
                          assertions=False, timeout=120)
     if not refused['returncode'] or '-ea' not in refused['stderr']:
         problems.append('floor model ran without assertions')
+    # The B2 guest inputs, through the hook: the floor's own compile set with the guest check.
+    guest_floor(work, guest_section(predictions), files, steps, record['guest_inputs'], problems)
 
 
 
@@ -4790,17 +5298,29 @@ def qualify(work, pinned, report):
     if len(footprint) != predictions['b2_checkpoint_2b']['footprint_entries']:
         problems.append('the emitted layouts hold %d paths, not the predicted' % len(footprint))
     report['completed_phases'].append('layouts')
+    # The B2 guest inputs, generated, held to the oracle and read by the production reader. Their
+    # footprint before any read, which every later reading step must leave as it found it too.
+    guests = guests_phase(work, predictions, settings, steps, problems)
+    report['completed_phases'].append('guests')
+
+    def unchanged(step):
+        found = footprint_problems(emitted, footprint, step, steps['layouts']['footprint'])
+        if guests is not None:
+            found += footprint_problems(guests[0][0], guests[1], step, steps['guests']['footprint'],
+                                        'the guest inputs')
+        return found
     # Each layout's class comes from the independent reading of its bytes and every class count is
     # predicted, so no layout leaves its branch.
     rollback_phase(work, predictions, pinned_halves, emitted, steps, problems)
-    problems += footprint_problems(emitted, footprint, 'rollback', steps['layouts']['footprint'])
+    problems += unchanged('rollback')
     report['completed_phases'].append('rollback')
     readers_phase(work, predictions, settings, emitted, steps, problems)
-    problems += footprint_problems(emitted, footprint, 'readers', steps['layouts']['footprint'])
+    problems += unchanged('readers')
     report['completed_phases'].append('readers')
-    # B1's image, the rollback floor, modelled from its own pinned sources over the same layouts.
+    # B1's image, the rollback floor, modelled from its own pinned sources over the same layouts and
+    # the guest inputs.
     floor_phase(work, predictions, pinned, settings, pinned_halves, emitted, steps, problems)
-    problems += footprint_problems(emitted, footprint, 'floor', steps['layouts']['footprint'])
+    problems += unchanged('floor')
     report['completed_phases'].append('floor')
 
     steps['mutants'] = {}

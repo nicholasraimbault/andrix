@@ -88,6 +88,43 @@ before the serial. The runner compares every file of every mode byte for byte wi
 layout oracle. `lab_history_observe.assess_store` reads a staged copy against the manifest, and
 `assess_dump` reads a phase's raw dump against its exact prediction.
 
+The reader step of the normal image adds the layouts its guest stage reads, each the subject at
+principal ID 1 with a header of LIVE entries unless it says otherwise:
+
+- `v2-grant`, `v2-scope-1`, `v2-recovery-hold`, `v2-recovery-scope-2`, `v2-recovery-scope-3` and
+  `v2-noted`: the eligible subject suspended by a grant, by its user with scope bit 0, by a recovery
+  hold with scope 0, 2 and 3, and by its user with a noted entry.
+- `v2-retiring`, `v2-retired` and `v2-disposing`: retirement by the user with every kind
+  outstanding; RETIRED with the retirement kinds discharged; and RETIRED with every disposition
+  kind DISPOSING.
+- `v2-legacy-suspended`: the legacy marker, its inventory unknown, suspended by its user.
+- `legacy-continuation-interrupted`: the continuation of the legacy marker in the main and the
+  reserve, and the version 1 marker still in the backup.
+- `mixed-suspend-backup` and `mixed-lift-backup`: an interrupted suspension and lift, the backup
+  holding the record before. `mixed-suspend-conflict` and `mixed-lift-conflict`: the same records
+  unequal in the main and the reserve, with no backup.
+- `tombstone-live` and `tombstone-releasing`: the ticketed tombstone under a LIVE and a RELEASING
+  entry. `releasing-without-directory`: the RELEASING entry alone, with no slot directory at all.
+- `maximum-beside-eligible`: the eligible subject, and at the second app ID the largest record,
+  60,941 bytes: a package name of 255 characters, 32 signers and 64 users, each with six noted
+  entries and every kind in its retirement.
+- `damaged-v2-of-v1`, `damaged-retired-unknown-inventory` and `damaged-disposing-work`: a version 2
+  encoding of the eligible version 1 value, `v2-legacy-suspended` made RETIRED, and `v2-disposing`
+  with WORK DISPOSING. Each frame is intact, and the codec refuses each for its named rule.
+- `v3-prefix-valid` and `v3-prefix-broken`: slot version 3 frames with the subject's stable prefix
+  and a later tail, the second with principal ID 0 in its prefix.
+- `reservation` and `reservation-wrong-serial`: the subject's bound reservation with the given
+  serial, and with the next one, the serial control.
+- `lift-v1`: the subject's eligible version 1 body at generation 3, after `v2-slot`'s 2, over the
+  same header.
+
+`maximum-beside-eligible` adds `OTHER_APP_ID` too; the others take the first form. Valid records
+come from the codec. The damaged and later version records are fixture assembly: a bounded edit of
+the codec's own bytes, checked to be what the codec wrote there, framed again with its length and
+SHA-256. The store fixture pins one digest of each layout's files at fixed values, and the runner
+generates every mode at those values and at a future guest's, against the independent oracle. The
+lifecycle runner reads them with the production reader and with the floor model of B1's image.
+
 ## Host rehearsal
 
 `NativeWriterLabRehearsal.java` drives the unchanged `NativePrincipalWriterFixture`, the real
