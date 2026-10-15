@@ -365,6 +365,36 @@ class CreationBindingSourceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'floor input drift'):
                 runner.floor_bytes(runner.NATIVE_PATCH)
 
+    def test_the_floor_manifest_pins_every_floor_input(self):
+        predicted = json.loads(runner.PREDICTIONS.read_text())['b2_checkpoint_2b']['floor_manifest']
+        self.assertEqual(runner.floor_problems(), [])
+        self.assertEqual((runner.FLOOR, len(runner.FLOOR_SHA256)), (predicted['revision'], predicted['inputs']))
+        self.assertEqual([len(group) for _, group in runner.FLOOR_PIN_GROUPS], predicted['by_group'])
+        # Checkpoint 1's four pins of the forward rule are the manifest's own.
+        old = {runner.NATIVE_PATCH: '59300e3d12a59dcb33acadc104894fd4b015e9fcc14bf456a09a07aee015a04e',
+               runner.NATIVE_PROFILE: '37e180b0b4bf7576aee23be6d7298c4c1af9e1037688523be56c20d59547d8f2',
+               runner.FACADE: 'a314430a8f0970cfae1cf8df3e5f1532da7b5eb91e3a206b642c20bc332b5dd1',
+               runner.STORE: 'e4cd321662733cc781566689e9c0436d7865010ce446548e5fea9ffbd7b85c57'}
+        self.assertEqual({path: runner.FLOOR_SHA256[path] for path in old}, old)
+        self.assertEqual(sorted(old), sorted(predicted['forward_pins_unchanged']))
+        # The floor's own manifest, not the 24bfb6a archive's: the same paths there often differ.
+        archive = runner.manifest(runner.ARCHIVE)
+        common = [path for path in runner.FLOOR_SHA256 if path in archive]
+        self.assertEqual((len(common), len([path for path in common if archive[path] != runner.FLOOR_SHA256[path]])),
+                         (predicted['same_path_in_24bfb6a'], predicted['differing_from_24bfb6a']))
+        self.assertEqual(len(runner.FLOOR_SHA256) - len(common), predicted['not_in_24bfb6a'])
+        # Each stub tree is pinned whole, the unused XML stub aside; a missing pin is refused.
+        for directory in runner.FLOOR_STUB_DIRECTORIES:
+            self.assertTrue(runner.floor_paths(runner.FLOOR_PLATFORM + directory + '/'))
+        stub = runner.FLOOR_PLATFORM + 'native_principal_xml_stubs/android/system/Os.java'
+        with mock.patch.object(runner, 'FLOOR_SHA256', {k: v for k, v in runner.FLOOR_SHA256.items() if k != stub}):
+            self.assertIn('floor tree drift', ' '.join(runner.floor_problems()))
+        # The floor rebuild takes only fresh scratch outside the repository.
+        for place in (ROOT / 'floor-scratch', ROOT):
+            with self.subTest(place=place), self.assertRaisesRegex(ValueError, 'floor scratch is not fresh'):
+                runner.floor_outputs(Path('unused'), place)
+        self.assertFalse((ROOT / 'floor-scratch').exists())
+
     def test_rollback_copy_count_and_controls_are_predicted(self):
         # The living layouts' current predictions: the retirement layouts are the lifecycle emitter's.
         predictions = json.loads(runner.PREDICTIONS.read_text())['p6_checkpoint_1c']
@@ -415,13 +445,37 @@ class CreationBindingSourceTests(unittest.TestCase):
         self.assertEqual(labels['LabHistoryStoreTest'], {'previous', 'legacy'})
         self.assertEqual(labels['LabHistoryStore'], {'production'})
         # B1's label of the lifecycle format's runs is retired. Its runs are production, and the
-        # Format.V2 runs of the current sources, production in B1, are previous.
+        # Format.V2 runs of the current sources, production in B1, are previous. The floor model of
+        # B1's image, from its own pinned sources, has its own label, neither living nor archived.
         self.assertEqual(runner.RUN_LABELS,
-                         ('production', 'rollback-reader', 'archived-baseline', 'legacy', 'previous'))
+                         ('production', 'rollback-reader', 'archived-baseline', 'legacy', 'previous', 'floor-model'))
         self.assertEqual(runner.LIVING_RUN_LABELS, ('production', 'legacy', 'previous'))
-        predicted = json.loads(runner.PREDICTIONS.read_text())['b2_checkpoint_2']
-        self.assertEqual(tuple(predicted['run_labels']), runner.RUN_LABELS)
+        self.assertEqual(runner.FLOOR_RUN_LABELS, ('floor-model',))
+        predictions = json.loads(runner.PREDICTIONS.read_text())
+        predicted, floor = predictions['b2_checkpoint_2'], predictions['b2_checkpoint_2b']
+        self.assertEqual(tuple(floor['run_labels']), runner.RUN_LABELS)
+        self.assertEqual(predicted['run_labels'] + ['floor-model'], floor['run_labels'])
+        self.assertEqual(floor['label_kinds'], {'living': list(runner.LIVING_RUN_LABELS),
+                                                'archived': list(runner.ARCHIVED_RUN_LABELS),
+                                                'floor': list(runner.FLOOR_RUN_LABELS)})
         self.assertEqual(predicted['retired_labels'], {'new-format': 'production'})
+        # The floor label names one row, the floor model's own reader check, which resolves in the
+        # floor manifest: B1's object, not the working tree's or the archive's.
+        self.assertEqual([row[1:3] for row in runner.HARNESS_LABELS if row[0] == 'floor-model'],
+                         [('scripts/proof/native_lifecycle_record.py', ('NativeLifecycleReaderCheck',))])
+        self.assertEqual(labels['NativeLifecycleReaderCheck'], {'previous', 'production', 'floor-model'})
+        self.assertEqual(runner.harness_class('NativeLifecycleReaderCheck', floor=True),
+                         '%s:%sNativeLifecycleReaderCheck.java' % (runner.FLOOR, runner.FLOOR_PLATFORM))
+        self.assertIsNone(runner.harness_class('NativeLifecycleRollbackCheck', floor=True))
+        with mock.patch.object(runner, 'HARNESS_LABELS', runner.HARNESS_LABELS + (
+                ('floor-model', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleRollbackCheck',), 'x'),)):
+            self.assertIn('labelled host class not found once: floor-model NativeLifecycleRollbackCheck',
+                          runner.label_problems())
+        for change in ({'LIVING_RUN_LABELS': runner.LIVING_RUN_LABELS + ('floor-model',)}, {'FLOOR_RUN_LABELS': ()},
+                       {'ARCHIVED_RUN_LABELS': runner.ARCHIVED_RUN_LABELS + ('floor-model',)}):
+            with self.subTest(change=sorted(change)), mock.patch.multiple(runner, **change):
+                self.assertIn('the living, archived and floor labels do not divide the run labels',
+                              runner.label_problems())
         # The rollback checks read under Format.V1, and their discrimination controls under Format.V2,
         # each on the current sources and on archived objects.
         everything = {'rollback-reader', 'previous', 'legacy', 'archived-baseline'}
@@ -492,6 +546,8 @@ class CreationBindingSourceTests(unittest.TestCase):
                        {'STEP_LABELS': dict(runner.STEP_LABELS, **{'b1 focused': ('previous', 'rollback-reader')})},
                        {'STEP_LABELS': dict(runner.STEP_LABELS, **{'b1 focused': ('new-format', 'legacy')})},
                        {'STEP_LABELS': dict(runner.STEP_LABELS, **{'archived readers': ('production',)})},
+                       {'STEP_LABELS': dict(runner.STEP_LABELS, **{'readers': ('floor-model',)})},
+                       {'STEP_LABELS': dict(runner.STEP_LABELS, **{'archived rollback': ('floor-model',)})},
                        {'HARNESS_LABELS': runner.HARNESS_LABELS + (
                            ('rollback-reader', 'scripts/proof/native_creation_binding.py',
                             ('NativeIdentityRecordsTest',), 'x'),)}):
@@ -881,6 +937,7 @@ class ArchiveTests(unittest.TestCase):
         living_code_broken(self, runner, ('build', 'execute', 'suite', 'outcome', 'with_seams', 'product_sources',
                                           'store_sources', 'test_sources', 'current_header_suite', 'b1_suite', 'b2_forward',
                                           'floor_bytes', 'floor_outputs', 'floor_forward',
+                                          'floor_patch_outputs', 'floor_paths', 'floor_problems',
                                           'copy_layouts', 'rollback_names', 'replace_once', 'strip_java_comments',
                                           'tool_environment'))
         living_code_broken(self, runner.b0, ('passed_checks', 'failed_checks', 'inject'))
@@ -927,6 +984,9 @@ class ArchiveTests(unittest.TestCase):
             # A class deleted from the working tree fails its living rows, though the archive keeps it.
             self.assertIsNone(runner.harness_class('UnsupportedCounterProbe'))
             self.assertIsNotNone(runner.harness_class('UnsupportedCounterProbe', archived=True))
+            # A floor-model row resolves in the floor manifest alone.
+            self.assertIsNotNone(runner.harness_class('NativeLifecycleReaderCheck', floor=True))
+        self.assertIsNone(runner.harness_class('UnsupportedCounterProbe', floor=True))
 
 
 class CreationBindingJvmTests(unittest.TestCase):

@@ -28,18 +28,30 @@ pinned Git objects alone with the working tree closed, checks every read against
 compiles each, runs the layout emitter under Format.V3 and reads every layout it writes with an
 independent decoder, which must show every lifecycle state, entry class, scope value, inventory,
 obligation state, tombstone, RELEASING tail, companion and writer step, each control removing one of
-them failing the check, and runs each deliberate defect against the suites predicted to catch it, a
-Settings fragment defect in the facade and the harness alike. It does not nest another runner.
+them failing the check. Beside the current sources' readers and the older models, it models B1's
+image, the rollback floor, from the floor's pinned Git objects alone: B1's patch rebuilds B1's
+candidate Settings, a frozen copy of B1's cutter fills B1's harness, and the compile set, assembled
+sealed with every Git read through the floor loader and only where the floor manifest pins, every
+process start the exact command the floor admits, and exactly the bytes that loader checked, runs
+B1's own reader check under Format.V2 over every layout with its swap, cross-format and wrong model
+controls. No reader changes a byte, file
+or file identity of the emitted layouts. It runs each deliberate defect against the suites predicted
+to catch it, a Settings fragment defect in the facade and the harness alike. It does not nest
+another runner.
 
 Host JVM evidence only: not Android, crash, power loss, storage or activation evidence. Production
 constructs Format.V3 once, at the normal image's boot read, while its lifecycle operations and the
 release engine keep no production caller."""
+from collections import Counter
 from pathlib import Path
 import argparse
+import contextlib
 import hashlib
 import json
+import os
 import re
 import shutil
+import stat
 import struct
 import subprocess
 import sys
@@ -81,21 +93,24 @@ HARNESS = 'harness'
 # the facade and to the harness, which both carry that text verbatim, and both copies run it.
 FRAGMENT = 'fragment:'
 PHASES = ('candidate', 'codec', 'reads', 'dump', 'store', 'transactions', 'faults', 'settings', 'manager', 'pinned',
-          'layouts', 'rollback', 'readers', 'mutants')
-# Every step but the pinned one is living. The read, store and transaction tests run each store format
-# under its own label: Format.V1 is legacy, Format.V2 previous and Format.V3 production, the
-# format of the normal image's boot read. The previous format's runs read the current sources:
-# they are earlier format regressions, not a model of B1's image, the rollback floor. The codec
-# test constructs no store. The fault sweeps and the layout emitter run Format.V3 only. The pinned
-# step assembles and compiles the rollback models' inputs from pinned Git objects only, under the
-# rollback reader label.
+          'layouts', 'rollback', 'readers', 'floor', 'mutants')
+# The pinned and rollback steps are archived, the floor step is the floor model's, and every other
+# step is living. The read, store and transaction tests run each store format under its own label:
+# Format.V1 is legacy, Format.V2 previous and Format.V3 production, the format of the normal
+# image's boot read. The previous format's runs read the current sources: they are earlier format
+# regressions, not a model of B1's image, the rollback floor. The codec test constructs no store.
+# The fault sweeps and the layout emitter run Format.V3 only. The pinned step assembles and
+# compiles the rollback models' inputs from pinned Git objects only, under the rollback reader
+# label. The floor step models B1's image from the floor's pinned Git objects alone, under its own
+# label, floor-model.
 STEP_LABELS = {'codec': ('production',), 'reads': ('previous', 'legacy', 'production'),
                'dump': ('previous', 'legacy', 'production'),
                'store': ('previous', 'legacy', 'production'),
                'transactions': ('previous', 'legacy', 'production'), 'faults': ('production',),
                'settings': ('previous', 'production'), 'manager': ('previous', 'legacy', 'production'),
                'pinned': ('rollback-reader',), 'layouts': ('production',), 'rollback': ('rollback-reader',),
-               'readers': ('previous', 'production'), 'mutants': ('previous', 'legacy', 'production')}
+               'readers': ('previous', 'production'), 'floor': ('floor-model',),
+               'mutants': ('previous', 'legacy', 'production')}
 # The steps whose products are pinned Git objects only. They carry only archived labels. The rollback
 # step compiles one working-tree check, written against the old API, with those pinned products.
 PINNED_STEPS = ('pinned', 'rollback')
@@ -1128,10 +1143,11 @@ def case_map_problems():
 
 # ---------------------------------------------------------------- the lifecycle layouts
 # NativeLifecycleLayouts emits, under Format.V3 with the existing host write fault seams, the store
-# layouts that the rollback models of 24bfb6a and 78456b3 and B1's own readers read. Its layout names
-# are predicted here. Each layout's facts are read from its bytes by an independent decoder, written
-# from the plan's layout alone, never from the Java codec, and the layouts together must show every
-# fact below and every writer step, or the check names what is missing.
+# layouts that the rollback models of 24bfb6a and 78456b3, the floor model of B1's image and the
+# current sources' readers read. Its layout names are predicted here. Each layout's facts are read
+# from its bytes by an independent decoder, written from the plan's layout alone, never from the
+# Java codec, and the layouts together must show every fact below and every writer step, or the
+# check names what is missing.
 LAYOUTS = 'NativeLifecycleLayouts'
 # The retirement families that the binding and history emitters wrote under the old retirement, now
 # written by the lifecycle record's retirement: a pending reservation's retirement, which publishes its
@@ -1694,9 +1710,10 @@ def rollback_manifest_problems(reads):
 
 # ---------------------------------------------------------------- the rollback and reader checks
 # NativeLifecycleRollbackCheck is written against the old API only and compiled into each model's
-# pinned set. NativeLifecycleReaderCheck uses the current sources and the candidate's harness. Both
-# read every emitted layout with the class this runner states for it, from the independent reading of
-# its bytes, and with the predicted count of each class.
+# pinned set. NativeLifecycleReaderCheck uses the current sources and the candidate's harness, and
+# the floor model compiles B1's own copy of it with B1's pinned sources. Each reads every emitted
+# layout with the class this runner states for it, from the independent reading of its bytes, and
+# with the predicted count of each class.
 ROLLBACK_CHECK = 'NativeLifecycleRollbackCheck'
 READER_CHECK = 'NativeLifecycleReaderCheck'
 ROLLBACK_CLASSES = ('footprint', 'reservation', 'sibling', 'sibling-principal', 'lost', 'withdrawn', 'admitted',
@@ -1797,7 +1814,8 @@ def rollback_class(layout, revision):
 
 
 def reader_class(layout):
-    """B1's class of one layout: the 24bfb6a model's, whose positive controls B1 must read alike."""
+    """B1's class of one layout, which the floor model and the current sources' reader both take:
+    the 24bfb6a model's, whose positive controls B1 must read alike."""
     return rollback_class(layout, '24bf')
 
 
@@ -1860,6 +1878,30 @@ def model_prediction_problems(predicted, swaps):
     return problems
 
 
+def floor_prediction_problems(predicted):
+    """The floor model's predictions: it runs B1's boot format and the run label of its step, reads
+    every input the floor manifest pins, its classes cover every layout once, and its swap control
+    names layouts that exist and gives each reader class exactly once."""
+    problems = []
+    floor = predicted['floor']
+    if (floor['format'], floor['revision'], floor['reads']) != (FLOOR_FORMAT, b1.FLOOR, len(b1.FLOOR_SHA256)):
+        problems.append('the floor predictions name another format, revision or input count')
+    calls = floor['calls']
+    if calls['git'] != calls['floor'] or not calls['listed'] == calls['trees'] == len(b1.FLOOR_STUB_DIRECTORIES):
+        problems.append('the floor predictions name Git calls other than the floor loader\'s')
+    if (predicted['phases'], predicted['step_labels']) != (
+            list(PHASES), {step: list(labels) for step, labels in STEP_LABELS.items()}):
+        problems.append('the predicted phases or step labels differ from the runner')
+    if sum(floor['classes'].values()) != len(LAYOUT_NAMES) or not set(floor['classes']) <= set(READER_CLASSES):
+        problems.append('predicted floor classes do not cover the layouts')
+    for name, klass in floor['swap_control'].items():
+        if name not in LAYOUT_NAMES or klass not in READER_CLASSES:
+            problems.append('floor swap control %s %s' % (name, klass))
+    if sorted(floor['swap_control'].values()) != sorted(READER_CLASSES):
+        problems.append('the floor swap control does not give each reader class once')
+    return problems
+
+
 def rollback_inputs(pinned, scratch):
     """Each rollback model's pinned half and the (revision, path) of every Git object it read. The
     candidate Settings of 24bfb6a and 78456b3 come from their pinned patches over the pinned framework
@@ -1886,6 +1928,598 @@ def rollback_inputs(pinned, scratch):
         finally:
             b1.pinned_bytes, b1.git_bytes = original, original_git
     return files, reads
+
+# ---------------------------------------------------------------- the floor model of B1's image
+# B1's image is the rollback floor once lifecycle records exist, and its model is built from its own
+# sources alone. Every input is a Git object at the floor revision, pinned by the binding runner's
+# floor manifest and read through its one floor loader: never the working tree, a living fragment
+# or the 24bfb6a archive. B1's patch rebuilds B1's candidate Settings over the pinned framework
+# copies with the working tree closed, and each of its ten outputs must be the floor profile's
+# candidate. A frozen copy of B1's own cutter, which the tests compare with its Git object at the
+# floor revision, cuts the harness texts from that Settings with B1's fragments, and the filled
+# harness must have its pinned SHA-256. The compile set is assembled sealed: B1's product, host
+# facade and stubs, that harness, B1's test supports and B1's own reader check. Every Git call is
+# attributed to the floor loader call that made it. Each process start must be the Git reader's
+# own command for that call, or the rebuild's own patch command, with everything its child can
+# read checked as it starts, and the rebuild may read only the pinned copies and its scratch. Any
+# other call, start or read raises, so the call record holds every input; and the compile set
+# must be exactly the bytes the loader checked. The model runs under Format.V2, the format of
+# B1's boot read, over every emitted lifecycle layout, beside the current sources' readers and the
+# older models.
+FLOOR_FORMAT = 'V2'
+FLOOR_STEPS = ('floor',)
+FLOOR_FRAMEWORK = ('NativePrincipalPins', 'NativePrincipalManager', 'NativeIdentityRecords', 'NativeIdentityStore',
+                   'NativeIdentityPersistence', 'NativePrincipalRecovery')
+FLOOR_SUPPORT = ('NativeHeaderTestSupport', 'NativeBindingTestSupport', 'NativeHistoryTestSupport')
+FLOOR_READER = 'NativeLifecycleReaderCheck'
+FLOOR_TEMPLATE = b1.FLOOR_PLATFORM + 'NativeHistoryHarness.java.in'
+FLOOR_BODY_INPUTS = b1.FLOOR_PLATFORM + 'native_history_api/b2/body-inputs.java.inc'
+# The history harness that B1's own cutter fills from B1's candidate Settings, by its SHA-256.
+FLOOR_HARNESS_SHA256 = '28b95753a6abdcc47b5898e4b7aba7ee79e9e2e1a68868814e2e38068e017b26'
+# The Settings anchors of B1's cutter, frozen with it.
+FLOOR_APPLY_START = '    void applyNativeIdentityStoreLPw(NativeIdentityStore.Loaded loaded) {\n'
+FLOOR_BOOT_FACTS_START = '    private void recordNativeBootFactsLPw(NativeIdentityStore.Loaded loaded) {\n'
+FLOOR_QUERIES_START = '    NativeIdentityPersistence.BootFacts nativeBootFactsLPr() {\n'
+FLOOR_RELEASE_FINISH_START = ('    void finishNativeIdentityReleaseLPw(NativePrincipalPins.Record record,'
+                              ' NativeIdentityStore.Loaded loaded) {\n')
+FLOOR_BINDING_START = '    NativeIdentityRecords.Slot nativePrincipalBindingLPr(NativePrincipalPins.Record record) {\n'
+FLOOR_DIAGNOSTIC_START = '    String nativeIdentityDumpLPr() {\n'
+FLOOR_DIAGNOSTIC_NAME_START = '    private static byte[] nativeDiagnosticNameBytes(String name) {\n'
+FLOOR_REMEMBERED_FIELD = re.compile(r'    private final java\.util\.Map<Long, [A-Za-z.]+> mNativeRememberedBindings =\n'
+                                    r'            new java\.util\.HashMap<>\(\);\n')
+
+
+def floor_profile():
+    """B1's native profile, from its pinned Git object."""
+    return json.loads(b1.floor_bytes(b1.NATIVE_PROFILE))
+
+
+def floor_profile_problems(value):
+    """B1's profile against the floor manifest: it names the floor's patch, B1's six helpers in
+    their order, and two fixtures and eighteen fragments, each row's source a floor input with the
+    row's own SHA-256."""
+    problems = []
+    if value.get('patch_sha256') != b1.FLOOR_SHA256[b1.NATIVE_PATCH]:
+        problems.append('the floor profile names another patch')
+    if [row['source'] for row in value.get('added', [])] != [
+            b1.FLOOR_FRAMEWORK_DIR + name + '.java' for name in FLOOR_FRAMEWORK]:
+        problems.append('the floor profile names other helpers')
+    for kind, count in (('added', 6), ('fixtures', 2), ('fragments', 18)):
+        rows = value.get(kind, [])
+        if len(rows) != count:
+            problems.append('the floor profile names %d %s, not %d' % (len(rows), kind, count))
+        for row in rows:
+            if b1.FLOOR_SHA256.get(row['source']) != row['sha256']:
+                problems.append('a floor profile row is unpinned or drifted: ' + row['source'])
+    return problems
+
+
+def floor_format_problems(settings, format_name=None):
+    """The floor model runs one format, the one B1's boot read constructs: the candidate's anchored
+    boot construction passes exactly it, and it is the previous format, Format.V2."""
+    literal = 'NativeIdentityStore.Format.' + (FLOOR_FORMAT if format_name is None else format_name)
+    code = b1.living_code(settings)
+    boot = b1.boot_site(code)
+    found = None if boot is None else b1.boot_argument(code, boot)
+    problems = []
+    if found != literal:
+        problems.append('the floor candidate constructs %s at its boot read, not %s' % (found, literal))
+    if literal != b1.PREVIOUS:
+        problems.append('the floor model would run %s, not %s, the format of B1\'s boot read' % (literal, b1.PREVIOUS))
+    return problems
+
+
+def floor_candidate(pinned, scratch):
+    """B1's candidate Settings and the SHA-256 of each of its ten outputs: B1's patch over the
+    pinned framework copies, which must lie outside the repository, applied in scratch, a fresh
+    directory outside it, with the working tree closed. Each output is the floor profile's
+    candidate, each fixture its output and each fragment once in its output, and the boot read
+    constructs the floor's format. Pure patch reproduction."""
+    pinned, scratch = Path(pinned).absolute(), Path(scratch).absolute()
+    with b1.worktree_closed():
+        value = floor_profile()
+        # The rebuild may start its one patch command, with its inputs checked, and read nothing but
+        # the pinned copies and its scratch: the patch child's reads are no Python reads.
+        with floor_rebuilding(floor_rebuild(pinned, scratch, value)):
+            outputs = b1.floor_outputs(pinned, scratch)
+        problems = floor_profile_problems(value)
+        for row in value['fixtures']:
+            if outputs[row['path']] != b1.floor_bytes(row['source']):
+                problems.append('a floor fixture differs from its candidate output: ' + row['source'])
+        for row in value['fragments']:
+            if outputs[row['path']].count(b1.floor_bytes(row['source'])) != 1:
+                problems.append('a floor fragment is not once in its candidate output: ' + row['name'])
+    settings = outputs[integration.SETTINGS].decode()
+    problems += floor_format_problems(settings)
+    if problems:
+        raise ValueError('floor candidate: ' + '; '.join(problems))
+    return settings, {name: sha(data) for name, data in sorted(outputs.items())}
+
+
+# B1's cutter, frozen: the history runner's functions at the floor revision, which read the current
+# fragments, reading B1's own fragments through the floor loader instead.
+
+def floor_fragments():
+    """B1's recovery fragments by name, as its pinned profile names them, from their Git objects."""
+    return {row['name']: b1.floor_bytes(row['source']).decode() for row in floor_profile()['fragments']}
+
+
+def _floor_cut(text, start, end, keep_start=True):
+    """The exact text from start, or just after it, to just before end. Each anchor occurs once."""
+    if text.count(start) != 1 or text.count(end) != 1:
+        raise ValueError('Settings history anchor drift: ' + start.strip()[:70])
+    first, last = text.index(start), text.index(end)
+    if last < first:
+        raise ValueError('Settings history anchors out of order: ' + start.strip()[:70])
+    return text[first if keep_start else first + len(start):last]
+
+
+def _floor_method(text, start):
+    """One four space indented method from its first line through its closing brace."""
+    if text.count(start) != 1:
+        raise ValueError('Settings method anchor drift: ' + start.strip()[:70])
+    first = text.index(start)
+    return text[first:text.index('\n    }\n', first) + len('\n    }\n')]
+
+
+def _floor_methods_through(text, first, last):
+    """From one method's first line through the closing brace of a later method."""
+    start, closing = text.find(first), _floor_method(text, last)
+    if text.count(first) != 1 or start < 0 or text.index(closing) < start:
+        raise ValueError('Settings method span drift: ' + first.strip()[:70])
+    return text[start:text.index(closing) + len(closing)]
+
+
+def floor_settings_texts(settings):
+    """Every history text the harness takes from B1's candidate Settings, by placeholder, cut as
+    B1's cutter cuts it: the boot restoration method and restore inputs, the observation, remembered
+    binding field and remembering it calls, the hold refresh, the app ID hold, scan rule, recovery
+    seeding, boot facts, retired boot queries and release finish, the creation readiness query, and
+    the diagnostic dump with its availability query and name check, and B1's shared identity and
+    path safety fragments, which it must contain exactly once."""
+    fragments = floor_fragments()
+    for name in ('restore-capacity', 'identity', 'path-safety'):
+        if settings.count(fragments[name]) != 1:
+            raise ValueError('shared fragment absent from a candidate Settings: ' + name)
+    fields = FLOOR_REMEMBERED_FIELD.findall(settings)
+    if len(fields) != 1:
+        raise ValueError('remembered binding field anchor drift')
+    apply = _floor_method(settings, FLOOR_APPLY_START)
+    if fragments['restore-capacity'] not in apply:
+        raise ValueError('restore capacity is not inside the restoration method')
+    binding = _floor_method(settings, FLOOR_BINDING_START)
+    stored = _floor_cut(settings, binding, '    String nativeIdentityLineageLPr() {\n', False)
+    return {
+        'REMEMBERED_FIELD': fields[0],
+        'APPLY': apply,
+        'OBSERVE': _floor_method(settings,
+                                 '    void observeNativeIdentityStoreLPw(NativeIdentityStore.Loaded loaded) {\n'),
+        'REFRESH': _floor_method(settings, '    void refreshNativePrincipalAppIdsLPw() {\n'),
+        'STORED': stored,
+        'RESTORE_INPUTS': _floor_cut(settings, FLOOR_APPLY_START,
+                                     '        NativePrincipalPins restored = new NativePrincipalPins(64);\n', False),
+        'APP_ID_HELD': _floor_method(settings, '    boolean isNativePrincipalAppIdLPr(int appId) {\n'),
+        'IDENTITY': fragments['identity'],
+        'PATH_SAFETY': fragments['path-safety'],
+        'SCAN': _floor_cut(settings, '    boolean nativeScanSubjectAllowedLPr(PackageSetting candidate) {\n',
+                           '\n    boolean nativePrincipalCreationReadyLPr() {\n'),
+        'SEEDING': _floor_cut(settings, '    private void seedNativeRecoveryLPw() {\n',
+                              '\n    @Watched(manual = true)\n    private final PccIdSettingMap mPccIds;\n'),
+        'BOOT_FACTS': _floor_method(settings, FLOOR_BOOT_FACTS_START),
+        'RETIRED_BOOT': _floor_cut(settings, FLOOR_QUERIES_START,
+                                   '\n    boolean nativeScanSubjectAllowedLPr(PackageSetting candidate) {\n'),
+        'RELEASE_FINISH': _floor_method(settings, FLOOR_RELEASE_FINISH_START),
+        'CREATION_READY': _floor_method(settings, '    boolean nativePrincipalCreationReadyLPr() {\n'),
+        'DIAGNOSTIC_AVAILABLE': _floor_method(settings, '    boolean nativeIdentityDumpAvailableLPr() {\n'),
+        'DIAGNOSTIC': _floor_methods_through(settings, FLOOR_DIAGNOSTIC_START, FLOOR_DIAGNOSTIC_NAME_START),
+    }
+
+
+def floor_text_checks(settings):
+    """B1's candidate's cut texts are exactly B1's registered fragments."""
+    texts = floor_settings_texts(settings)
+    fragments = floor_fragments()
+    problems = []
+    for tag, name in (('RESTORE_INPUTS', 'restore-history'), ('SCAN', 'scan'), ('SEEDING', 'recovery-seeding')):
+        if texts[tag] != fragments[name]:
+            problems.append('candidate %s differs from fragment %s' % (tag, name))
+    if settings.count(fragments['stored-history']) != 1 or fragments['stored-history'] not in texts['STORED']:
+        problems.append('candidate lacks the stored history fragment where the harness cuts it')
+    for tag, name in (('BOOT_FACTS', 'boot-facts'), ('RETIRED_BOOT', 'retired-boot'),
+                      ('RELEASE_FINISH', 'release-finish'), ('OBSERVE', 'observation'),
+                      ('DIAGNOSTIC', 'diagnostic-dump')):
+        if settings.count(fragments[name]) != 1 or not fragments[name].endswith(texts[tag]):
+            problems.append('candidate %s is not the end of fragment %s' % (tag, name))
+    if texts['APPLY'].count('recordNativeBootFactsLPw(loaded);') != 1:
+        problems.append('candidate boot restoration does not record the boot facts once')
+    if 'rememberNativeHistoriesLPw(loaded);' not in texts['OBSERVE'] or 'bindingUsable' in texts['OBSERVE']:
+        problems.append('candidate observation does not remember through the history view')
+    if 'NativeIdentityStore.History' not in texts['REMEMBERED_FIELD']:
+        problems.append('candidate remembers something other than histories')
+    return problems
+
+
+def floor_harness_source(settings):
+    """NativeHistoryHarness of B1's image, filled with B1's exact Settings texts and body inputs,
+    and refused unless it is the pinned harness."""
+    texts = floor_settings_texts(settings)
+    texts['BODY_INPUTS'] = b1.floor_bytes(FLOOR_BODY_INPUTS).decode()
+    source = b1.floor_bytes(FLOOR_TEMPLATE).decode()
+    for tag, text in texts.items():
+        marker = '@%s@\n' % tag
+        if source.count(marker) != 1:
+            raise ValueError('harness placeholder drift: ' + tag)
+        source = source.replace(marker, text)
+    if re.search(r'@[A-Z_]+@', source):
+        raise ValueError('unfilled harness placeholder')
+    if sha(source.encode()) != FLOOR_HARNESS_SHA256:
+        raise ValueError('floor harness drift: %s' % sha(source.encode()))
+    return source
+
+
+def floor_product_sources():
+    """B1's framework sources, guarded fixtures and host facades, as relative source path to bytes,
+    from the floor's pinned Git objects, laid out as the current product's: each stub tree whole but
+    the unused XML stub, the file stubs' log facade over the host one."""
+    files = {}
+    for name in FLOOR_FRAMEWORK:
+        files['framework/%s.java' % name] = b1.floor_bytes(b1.FLOOR_FRAMEWORK_DIR + name + '.java')
+    for name in ('AppIdSettingMap', 'ResilientAtomicFile'):
+        files['fixtures/%s.java' % name] = b1.floor_bytes(b1.FLOOR_PLATFORM + name + '.java.inc')
+    stubs = {}
+    for directory in b1.FLOOR_STUB_DIRECTORIES:
+        prefix = b1.FLOOR_PLATFORM + directory + '/'
+        for path in b1.floor_paths(prefix):
+            relative = path[len(prefix):]
+            if relative in stubs and relative != 'android/util/Log.java':
+                raise ValueError('unreviewed host facade overlap: ' + relative)
+            stubs[relative] = b1.floor_bytes(path)
+    for relative, data in stubs.items():
+        files['stubs/' + relative] = data
+    return files
+
+
+@b1.sealed
+def floor_model_files(settings):
+    """The floor model's compile set, assembled sealed from the floor's pinned Git objects alone:
+    B1's product and host facades, its harness filled from its candidate Settings, its test supports
+    and its own reader check. B1 has no history stubs."""
+    files = floor_product_sources()
+    files['tests/NativeHistoryHarness.java'] = floor_harness_source(settings).encode()
+    for name in FLOOR_SUPPORT + (FLOOR_READER,):
+        files['tests/%s.java' % name] = b1.floor_bytes(b1.FLOOR_PLATFORM + name + '.java')
+    return files
+
+
+class FloorBypass(b1.WorktreeRead):
+    """A Git read, path read or process start past the floor loader and the candidate rebuild while
+    the floor's inputs are assembled."""
+
+
+# The candidate rebuild's patch tool and its options, as b1's floor rebuild starts it.
+FLOOR_PATCH_TOOL = '/usr/bin/patch'
+FLOOR_PATCH_OPTIONS = ('--batch', '--forward', '--fuzz=0', '--no-backup-if-mismatch', '-p1')
+# While floor_inputs assembles the floor's inputs: whether it runs; the active floor loader call,
+# with its kind, its key, and its Git calls and process starts so far; while B1's patch rebuilds
+# the candidate, the one rebuild command it may start and the paths it may read; and the exec of
+# a start just admitted, which the same start may still raise.
+_FLOOR_ACTIVE = []
+_FLOOR_LOADER = []
+_FLOOR_REBUILD = []
+_FLOOR_EXEC = []
+
+
+def floor_git_command(kind, key):
+    """The Git reader's own argv and environment for one floor loader call, as git_bytes and
+    git_paths build them: a show of the path, or a listing of the tree, at the floor revision."""
+    if kind == 'show':
+        argv = ['git', '-C', str(b1.ROOT), 'show', '%s:%s' % (b1.FLOOR, key)]
+    else:
+        argv = ['git', '-C', str(b1.ROOT), 'ls-tree', '-r', '--name-only', b1.FLOOR, key]
+    return argv, dict(os.environ, GIT_OPTIONAL_LOCKS='0', GIT_NO_REPLACE_OBJECTS='1')
+
+
+def floor_rebuild(pinned, scratch, value):
+    """The one process start of B1's candidate rebuild and every path it may read, as b1's floor
+    rebuild lays them out in scratch: the patch tool's exact argv, its input the scratch copy of
+    B1's patch, which must hold the bytes the floor loader checks, its working directory the
+    scratch tree, which must hold exactly the profile value's framework copies with their upstream
+    digests, and as Python reads the pinned framework copies and the scratch directory alone."""
+    directory = Path(scratch).resolve()
+    patch = directory / 'floor.patch'
+    return {'argv': [FLOOR_PATCH_TOOL, *FLOOR_PATCH_OPTIONS, '-i', str(patch)], 'input': str(patch),
+            'input_sha256': b1.FLOOR_SHA256[b1.NATIVE_PATCH], 'cwd': str(directory / 'tree'),
+            'tree': {row['path']: row['upstream_sha256'] for row in value['files']}, 'scratch': str(directory),
+            'copies': frozenset(os.path.realpath(Path(pinned) / row['path']) for row in value['files']),
+            'started': 0}
+
+
+@contextlib.contextmanager
+def floor_rebuilding(spec):
+    """The candidate rebuild's window, in which its one patch start and its reads are admitted."""
+    _FLOOR_REBUILD.append(spec)
+    try:
+        yield spec
+    finally:
+        _FLOOR_REBUILD.pop()
+
+
+def _regular_file(path, digest):
+    """Whether path is its own real path, a regular file with one link, holding bytes of this
+    SHA-256."""
+    try:
+        info = os.lstat(path)
+        if os.path.realpath(path) != path or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            return False
+        with open(path, 'rb') as handle:
+            return sha(handle.read()) == digest
+    except OSError:
+        return False
+
+
+def floor_rebuild_problems(spec):
+    """Whether everything the rebuild's patch child can read is what the floor checked: its input
+    the scratch copy holding B1's pinned patch bytes, and its working directory the scratch tree
+    holding exactly the framework copies with their upstream digests, each a regular file with one
+    link, and no link or special file anywhere in that tree."""
+    problems = []
+    if not _regular_file(spec['input'], spec['input_sha256']):
+        problems.append('the patch input is not the scratch copy of B1\'s pinned patch')
+    if os.path.realpath(spec['cwd']) != spec['cwd'] or not os.path.isdir(spec['cwd']):
+        return problems + ['the patch working directory is not the scratch tree']
+    found = {}
+    for top, directories, files in os.walk(spec['cwd']):
+        for name in directories + files:
+            entry = os.path.join(top, name)
+            mode = os.lstat(entry).st_mode
+            if stat.S_ISREG(mode):
+                found[os.path.relpath(entry, spec['cwd'])] = entry
+            elif not stat.S_ISDIR(mode):
+                problems.append('the scratch tree holds a link or special file: ' + entry)
+    if sorted(found) != sorted(spec['tree']):
+        problems.append('the scratch tree holds other files: %s' % sorted(set(found) ^ set(spec['tree']))[:3])
+    for relative, entry in sorted(found.items()):
+        if relative in spec['tree'] and not _regular_file(entry, spec['tree'][relative]):
+            problems.append('a scratch tree copy is not its pinned upstream bytes: ' + relative)
+    return problems
+
+
+def _floor_start(event, args):
+    """Admit a process start only when it is the Git reader's own command for the active floor
+    loader call, once per call, or the rebuild's own patch command, once, with everything its child
+    can read checked as it starts, and the exec that such an admitted start raises. Refuse every
+    other start, naming why."""
+    admitted = _FLOOR_EXEC[:]
+    del _FLOOR_EXEC[:]
+    why = 'outside a loader call and the rebuild'
+    try:
+        if event == 'os.posix_spawn':
+            if admitted and (os.fsdecode(args[0]), [os.fsdecode(item) for item in args[1]]) == admitted[0]:
+                return
+            why = 'not the exec of the start just admitted'
+        elif event == 'subprocess.Popen' and len(args) == 4 and isinstance(args[1], (list, tuple)):
+            executable = None if args[0] is None else os.fsdecode(args[0])
+            argv, cwd, env = [os.fsdecode(item) for item in args[1]], args[2], args[3]
+            cwd = None if cwd is None else os.fsdecode(cwd)
+            if _FLOOR_LOADER and b1._LOADER:
+                call = _FLOOR_LOADER[-1]
+                if call['started']:
+                    why = 'a second Git start in one loader call'
+                elif (executable, cwd) != ('git', None) or (argv, env) != floor_git_command(call['kind'], call['key']):
+                    why = 'not the Git reader\'s own command for %s %s' % (call['kind'], call['key'])
+                else:
+                    call['started'] += 1
+                    _FLOOR_EXEC.append((executable, argv))
+                    return
+            elif _FLOOR_REBUILD and not b1._LOADER:
+                spec = _FLOOR_REBUILD[-1]
+                if spec['started']:
+                    why = 'a second rebuild start'
+                elif (executable, argv, cwd, env) != (FLOOR_PATCH_TOOL, spec['argv'], spec['cwd'], None):
+                    why = 'not the rebuild\'s own patch command'
+                else:
+                    why = '; '.join(floor_rebuild_problems(spec))
+                    if not why:
+                        spec['started'] += 1
+                        _FLOOR_EXEC.append((executable, argv))
+                        return
+        else:
+            why = 'a start the floor never makes'
+    except (IndexError, TypeError, ValueError) as error:
+        why = 'an unreadable start: %s' % error
+    raise FloorBypass('the floor started a process past its loader and rebuild: %s %s: %s'
+                      % (event, list(args)[:2], why))
+
+
+def _floor_read(event, args):
+    """Admit a path read only in the candidate rebuild and outside any loader call, and only of the
+    pinned framework copies or below the rebuild's scratch directory, by its real absolute path. A
+    descriptor event names no path. Refuse every other path read, and any relative path, which may
+    name a path below a directory descriptor rather than the working directory: the Git reader
+    reads none."""
+    if not args or isinstance(args[0], int):
+        return
+    try:
+        name = os.fsdecode(args[0])
+        path = os.path.realpath(name) if os.path.isabs(name) else None
+    except (TypeError, ValueError):
+        path = None
+    if path and _FLOOR_REBUILD and not _FLOOR_LOADER and not b1._LOADER:
+        spec = _FLOOR_REBUILD[-1]
+        if path in spec['copies'] or path == spec['scratch'] or path.startswith(spec['scratch'] + os.sep):
+            return
+    raise FloorBypass('the floor read a path past its loader and rebuild: %s %s' % (event, path or args[0]))
+
+
+def _floor_audit(event, args):
+    """While the floor's inputs are assembled, every process start and path read must be one that
+    the floor admits by its exact command or path; any other raises FloorBypass. The sealed assembly
+    refuses starts and reads past the Git reader already, but admits whatever that reader's flag
+    covers; this binds the reader's starts to its own commands, and covers the candidate rebuild
+    too, which runs the patch tool and so cannot be sealed."""
+    if not _FLOOR_ACTIVE:
+        return
+    if event in b1.SPAWN_EVENTS:
+        _floor_start(event, args)
+    elif event in b1.READ_EVENTS:
+        _floor_read(event, args)
+    elif event.startswith('socket.') or event in ('urllib.Request', 'http.client.connect'):
+        # No input of the floor comes from the network.
+        raise FloorBypass('the floor reached the network while its inputs are assembled: %s' % event)
+
+
+sys.addaudithook(_floor_audit)
+
+
+def floor_inputs(pinned, scratch):
+    """The floor model's candidate Settings, its ten output digests, its compile set and the record
+    of every call: each floor input and tree the loader read, and each Git object read and tree
+    listing, beside the loader call that made it. A Git call that is not the active loader call's
+    own, once, for its own path, raises FloorBypass, as does any process start or path read that the
+    floor does not admit by its exact command or path, so every Git read passes through the floor
+    loader and the rebuild reads only its checked inputs. The candidate is rebuilt in scratch."""
+    reads = {'floor': [], 'trees': [], 'git': [], 'listed': [], 'outside': []}
+    loader, tree_loader, git, git_list = b1.floor_bytes, b1.floor_paths, b1.git_bytes, b1.git_paths
+
+    def through(kind, key, call):
+        _FLOOR_LOADER.append({'kind': kind, 'key': key, 'calls': 0, 'started': 0})
+        try:
+            return call(key)
+        finally:
+            _FLOOR_LOADER.pop()
+
+    def floor_bytes(path):
+        reads['floor'].append((b1.FLOOR, path))
+        return through('show', path, loader)
+
+    def floor_paths(directory):
+        reads['trees'].append((b1.FLOOR, directory))
+        return through('list', directory, tree_loader)
+
+    def attributed(kind, record, commit, key):
+        record.append((commit, key))
+        call = _FLOOR_LOADER[-1] if _FLOOR_LOADER else None
+        if commit != b1.FLOOR or not call or (call['kind'], call['key']) != (kind, key) or call['calls']:
+            reads['outside'].append((kind, commit, key))
+            raise FloorBypass('the floor read Git past its loader: %s %s %s' % (kind, commit, key))
+        call['calls'] += 1
+
+    def git_bytes(commit, path):
+        attributed('show', reads['git'], commit, path)
+        return git(commit, path)
+
+    def git_paths(commit, directory):
+        attributed('list', reads['listed'], commit, directory)
+        return git_list(commit, directory)
+    saved = b1.floor_bytes, b1.floor_paths, b1.git_bytes, b1.git_paths
+    _FLOOR_ACTIVE.append(True)
+    b1.floor_bytes, b1.floor_paths, b1.git_bytes, b1.git_paths = floor_bytes, floor_paths, git_bytes, git_paths
+    try:
+        settings, outputs = floor_candidate(pinned, scratch)
+        files = floor_model_files(settings)
+    finally:
+        b1.floor_bytes, b1.floor_paths, b1.git_bytes, b1.git_paths = saved
+        del _FLOOR_EXEC[:]
+        _FLOOR_ACTIVE.pop()
+    return settings, outputs, files, reads
+
+
+def floor_manifest_problems(reads):
+    """The manifest test of the floor model, over the complete call record. Every input the loader
+    read is one the floor manifest pins, at the floor revision, and every pinned input is read, so
+    the manifest is exactly the floor's input set. The Git object reads are the loader's reads, one
+    for one and as often, and the tree listings its tree reads, and no call was past the loader.
+    The only trees read are the floor's stub directories."""
+    problems = []
+    allowed = {(b1.FLOOR, path) for path in b1.FLOOR_SHA256}
+    actual = set(reads['floor'])
+    if actual - allowed:
+        problems.append('the floor read unpinned inputs: %s' % sorted(actual - allowed)[:5])
+    if allowed - actual:
+        problems.append('the floor manifest pins inputs the floor did not read: %s' % sorted(allowed - actual)[:5])
+    extra = sorted((Counter(reads['git']) - Counter(reads['floor'])).elements())
+    missing = sorted((Counter(reads['floor']) - Counter(reads['git'])).elements())
+    if reads['outside'] or extra or missing:
+        problems.append('the floor read Git objects outside its loader: %s, without a Git read: %s' % (
+            (reads['outside'] or extra)[:5], missing[:5]))
+    trees = {(b1.FLOOR, b1.FLOOR_PLATFORM + directory + '/') for directory in b1.FLOOR_STUB_DIRECTORIES}
+    if Counter(reads['listed']) != Counter(reads['trees']) or set(reads['trees']) != trees:
+        problems.append('the floor listed %s through its loader %s, not its stub trees' % (
+            sorted(reads['listed'])[:5], sorted(reads['trees'])[:5]))
+    return problems
+
+
+def floor_compile_sources():
+    """Each file of the floor model's compile set but its harness, by compile name, and the floor
+    input it must be, from the floor manifest alone: B1's six helpers and two fixtures, each stub of
+    its two stub trees, the file stubs' log facade over the host one, its supports and its reader
+    check."""
+    sources = {'framework/%s.java' % name: b1.FLOOR_FRAMEWORK_DIR + name + '.java' for name in FLOOR_FRAMEWORK}
+    sources.update({'fixtures/%s.java' % name: b1.FLOOR_PLATFORM + name + '.java.inc'
+                    for name in ('AppIdSettingMap', 'ResilientAtomicFile')})
+    for directory in b1.FLOOR_STUB_DIRECTORIES:
+        prefix = b1.FLOOR_PLATFORM + directory + '/'
+        sources.update({'stubs/' + path[len(prefix):]: path for path in sorted(b1.FLOOR_SHA256)
+                        if path.startswith(prefix)})
+    sources.update({'tests/%s.java' % name: b1.FLOOR_PLATFORM + name + '.java'
+                    for name in FLOOR_SUPPORT + (FLOOR_READER,)})
+    return sources
+
+
+def floor_compile_problems(digests):
+    """Whether a compile set's digests, by compile name, are exactly the floor's: each file the
+    bytes that the floor loader checks for its source, by that source's pin, the harness the pinned
+    one, and no file more or less. So the floor compiles the bytes its loader checked, whatever the
+    assembly did with them."""
+    expected = {name: b1.FLOOR_SHA256[path] for name, path in floor_compile_sources().items()}
+    expected['tests/NativeHistoryHarness.java'] = FLOOR_HARNESS_SHA256
+    differing = sorted(name for name in set(expected) | set(digests) if expected.get(name) != digests.get(name))
+    return ['the floor compile set differs from its pinned inputs: %s' % differing[:5]] if differing else []
+
+
+def compile_differences(files, other):
+    """The compile names whose bytes differ between two compile sets, or that one of them lacks."""
+    return sorted(name for name in set(files) | set(other) if files.get(name) != other.get(name))
+
+
+def layout_footprint(emitted):
+    """Every path below the emitted layouts, with its kind, mode, file identity, and for a file its
+    size and the SHA-256 of its bytes. Times are left out: each check ages the store it reads, and
+    checks with its own footprint that nothing else changes."""
+    footprint = {}
+    for path in sorted(emitted.rglob('*')) if emitted.is_dir() else ():
+        info = path.lstat()
+        kind = 'link' if path.is_symlink() else 'directory' if path.is_dir() else 'file'
+        footprint[path.relative_to(emitted).as_posix()] = (
+            kind, info.st_mode, info.st_ino, info.st_size if kind == 'file' else 0,
+            sha(path.read_bytes()) if kind == 'file' else None)
+    return footprint
+
+
+def footprint_problems(emitted, before, after_step, record):
+    """Whether the emitted layouts still have the footprint they had before any reader read them."""
+    same = layout_footprint(emitted) == before
+    record['unchanged after ' + after_step] = same
+    return [] if same else ['the emitted layouts changed during the %s step' % after_step]
+
+
+# The B2 guest inputs, which checkpoint 3's generator stages for the guests, and what their reads
+# must check. None exists yet. Each one is to be read by the floor model and by the production
+# reader, beside the emitted layouts, and to assert under each: its exact lifecycle state, its pin
+# phase, the deferred set, the scan outcome and the boot facts, and under the production reader the
+# schema 3 diagnostic rows, under the floor the schema 2 rows of B1's image.
+GUEST_INPUTS = ()
+GUEST_INPUT_CHECKS = ('lifecycle', 'pin phase', 'deferred set', 'scan outcome', 'boot facts', 'schema 3 rows')
+
+
+def guest_input_problems(inputs=None):
+    """The hook of the B2 guest inputs. Until checkpoint 3 adds the inputs with their reads, an
+    input set that is not empty fails closed, rather than going unread."""
+    inputs = GUEST_INPUTS if inputs is None else inputs
+    if not inputs:
+        return []
+    return ['B2 guest inputs without reads: %s; each needs its floor and production reads, checking %s'
+            % (list(inputs)[:5], ', '.join(GUEST_INPUT_CHECKS))]
 
 # ---------------------------------------------------------------- deliberate defects
 
@@ -3391,15 +4025,21 @@ STORELESS_HARNESSES = {
 
 
 def label_problems():
-    """Every step but the pinned one is living and carries living labels, and the pinned step only
-    archived ones. This runner's harness rows name its tests. Outside this runner the production
-    label, the label of the lifecycle format's runs, names only the known Format.V3 runs and code
-    that constructs no store, so no run of an earlier format passes for production."""
+    """The pinned steps carry only archived labels, the floor step only the floor model's, and every
+    other step only living labels. This runner's harness rows name its tests. The floor label names
+    one row, the floor model's own reader check here. Outside this runner the production label, the
+    label of the lifecycle format's runs, names only the known Format.V3 runs and code that
+    constructs no store, so no run of an earlier format passes for production."""
     problems = []
     for step, labels in STEP_LABELS.items():
-        allowed = b1.ARCHIVED_RUN_LABELS if step in PINNED_STEPS else b1.LIVING_RUN_LABELS
+        allowed = (b1.ARCHIVED_RUN_LABELS if step in PINNED_STEPS
+                   else b1.FLOOR_RUN_LABELS if step in FLOOR_STEPS else b1.LIVING_RUN_LABELS)
         if step not in PHASES or not labels or not set(labels) <= set(allowed):
             problems.append('step %s carries labels %s' % (step, labels))
+    if not set(FLOOR_STEPS) <= set(STEP_LABELS) or [row[1:3] for row in b1.HARNESS_LABELS
+                                                    if row[0] in b1.FLOOR_RUN_LABELS] != [
+            ('scripts/proof/native_lifecycle_record.py', (FLOOR_READER,))]:
+        problems.append('the floor label does not name the floor model\'s reader check alone')
     rows = [row for row in b1.HARNESS_LABELS if row[1] == 'scripts/proof/native_lifecycle_record.py']
     labelled = {}
     for label, _, classes, _ in rows:
@@ -3413,7 +4053,7 @@ def label_problems():
             or labelled.get(SETTINGS_TEST) != {'previous', 'production'}
             or labelled.get(MANAGER_TEST) != every or labelled.get(LAYOUTS) != {'production'}
             or labelled.get(ROLLBACK_CHECK) != {'rollback-reader'}
-            or labelled.get(READER_CHECK) != {'previous', 'production'} or set(labelled) != {
+            or labelled.get(READER_CHECK) != {'previous', 'production', 'floor-model'} or set(labelled) != {
                 CODEC_TEST, READ_TEST, DUMP_TEST, STORE_TEST, TRANSACTION_TEST, FAULT_TEST, SETTINGS_TEST, MANAGER_TEST,
                 LAYOUTS, ROLLBACK_CHECK, READER_CHECK}):
         problems.append('harness labels of this runner differ: %s' % labelled)
@@ -3500,6 +4140,11 @@ def source_checks():
             len(LAYOUT_NAMES), len(LAYOUT_FACTS), len(LAYOUT_STEP_FAMILIES), layout_groups()):
         problems.append('predicted layouts differ from the layout lists')
     problems += model_prediction_problems(predictions['p5_checkpoint_2'], swap_controls(predictions))
+    # The floor model of B1's image: its manifest, the format of its boot read, its predictions and
+    # the hook of the B2 guest inputs, which fails closed until those inputs have reads.
+    problems += ['floor: ' + item for item in b1.floor_problems()]
+    problems += floor_prediction_problems(predictions['b2_checkpoint_2b'])
+    problems += guest_input_problems()
     problems += registration_guard_problems()
     problems += case_map_problems()
     problems += refusal_problems()
@@ -3877,7 +4522,9 @@ def rollback_phase(work, predictions, pinned_halves, emitted, steps, problems):
 
 
 def readers_phase(work, predictions, settings, emitted, steps, problems):
-    """B1's reader under Format.V2 and Format.V3 over the emitted layouts, with the cross-format controls."""
+    """The current sources' reader under Format.V2, the previous format, and Format.V3, the
+    production format, over the emitted layouts, with the cross-format controls. B1's own reader is
+    the floor model's."""
     predicted = predictions['p5_checkpoint_2']
     read = read_emitted(emitted, [])
     steps['readers'] = {}
@@ -3920,6 +4567,97 @@ def readers_phase(work, predictions, settings, emitted, steps, problems):
                                  assertions=False, timeout=120)
             if not refused['returncode'] or '-ea' not in refused['stderr']:
                 problems.append('reader check ran without assertions')
+
+
+def floor_phase(work, predictions, pinned, settings, pinned_halves, emitted, steps, problems):
+    """The floor model of B1's image over the emitted layouts. Its compile set is assembled sealed
+    from the floor's pinned Git objects, every Git call through the floor loader and only where the
+    floor manifest pins, and it compiles exactly the bytes the loader checked, or the floor does not
+    run. It is compared with the current sources' reader and the 24bfb6a model, the wrong models. It
+    runs under Format.V2 with B1's class of every layout, then with the rotated swap control, with
+    the production expectations asserted over the floor, and with the floor's expectations over B1's
+    sources under Format.V3, which B1's image never constructs; each control fails exactly the
+    layouts predicted. A run without assertions is refused."""
+    predicted = predictions['b2_checkpoint_2b']['floor']
+    record = steps['floor'] = {'revision': b1.FLOOR, 'format': FLOOR_FORMAT, 'labels': list(STEP_LABELS['floor'])}
+    record['guest_inputs'] = {'inputs': len(GUEST_INPUTS), 'checks': list(GUEST_INPUT_CHECKS),
+                              'problems': guest_input_problems()}
+    problems += record['guest_inputs']['problems']
+    read = read_emitted(emitted, [])
+    if not read:
+        problems.append('floor: no complete layouts to read')
+        return
+    try:
+        floor_settings, outputs, files, reads = floor_inputs(pinned, work / 'floor-candidate')
+    except (ValueError, b1.WorktreeRead) as error:
+        problems.append('floor inputs refused: %s' % error)
+        return
+    record['candidate'] = {'settings_sha256': sha(floor_settings.encode()), 'outputs': outputs,
+                           'text_checks': floor_text_checks(floor_settings)}
+    record['reads'] = {'floor': len(set(reads['floor'])), 'git': len(set(reads['git'])),
+                       'listed': sorted(directory for _, directory in set(reads['listed'])),
+                       'calls': {key: len(reads[key]) for key in ('floor', 'git', 'trees', 'listed')},
+                       'outside': reads['outside']}
+    record['allowed'] = len(b1.FLOOR_SHA256)
+    record['manifest'] = floor_manifest_problems(reads)
+    record['compile'] = floor_compile_problems({name: sha(data) for name, data in files.items()})
+    problems += ['floor manifest: ' + item for item in record['manifest']]
+    problems += ['floor candidate: ' + item for item in record['candidate']['text_checks']]
+    problems += ['floor compile set: ' + item for item in record['compile']]
+    record['files'] = len(files)
+    record['differing_from_previous'] = compile_differences(files, reader_files(settings))
+    record['differing_from_24bf'] = len(compile_differences(files, pinned_halves.get('24bf', {})))
+    if ((record['reads']['floor'], record['reads']['calls'], record['files'], record['differing_from_previous'],
+         record['differing_from_24bf'])
+            != (predicted['reads'], predicted['calls'], predicted['files'], predicted['differing_from_previous'],
+                predicted['differing_from_24bf'])):
+        problems.append('floor inputs differ from the predictions: %s' % {
+            key: record[key] for key in ('reads', 'files', 'differing_from_previous', 'differing_from_24bf')})
+    if record['manifest'] or record['compile'] or record['candidate']['text_checks']:
+        # The floor model runs on exactly its pinned inputs, or not at all.
+        return
+    lines = expectation_lines(read, reader_class)
+    counts = record['classes'] = class_counts(lines)
+    if counts != predicted['classes']:
+        problems.append('floor classes differ from the prediction: %s' % counts)
+    swaps = predicted['swap_control']
+    same = sorted(name for name, klass in swaps.items() if name not in read or reader_class(read[name]) == klass)
+    if same:
+        problems.append('floor swap control keeps the own class of %s' % same)
+    base = work / 'floor'
+    base.mkdir(parents=True)
+    built = b1.build(base / 'build', files)
+    record['build'] = {'returncode': built['returncode'], 'inputs': built['inputs'], 'output': built['output'][-4000:]}
+    # What the compiler was given, file by file, is exactly the bytes the floor loader checked.
+    problems += ['floor compiled inputs: ' + item for item in floor_compile_problems(built['inputs'])]
+    if built['returncode'] or floor_compile_problems(built['inputs']):
+        problems.append('floor model does not compile from its pinned inputs')
+        return
+    versioned = [name for name in LAYOUT_NAMES if reader_class(read[name]) in VERSION_TWO_CLASSES]
+    exchanged = swapped(lines, swaps)
+    legs = {'run': (FLOOR_FORMAT, None, lines, counts, 'lifecycle reader / ', ()),
+            'swap control': (FLOOR_FORMAT, None, exchanged, class_counts(exchanged), 'lifecycle reader / ',
+                             sorted(swaps)),
+            'production expectations': (FLOOR_FORMAT, 'V3', lines, dict(counts, valid=0, **{
+                'outside-user-0': predicted['outside_user_0']}), 'lifecycle reader V3 / ', versioned),
+            'wrong model': ('V3', FLOOR_FORMAT, lines, counts, 'lifecycle reader / ', versioned)}
+    for leg, (format_used, other, text_value, pairs, prefix, failing) in legs.items():
+        name = leg.replace(' ', '-')
+        (base / (name + '.expectations')).write_text(text_value)
+        run = b1.execute(base / 'build', FLOOR_READER, [
+            str(emitted), str(base / ('state-' + name)), format_used, str(base / (name + '.expectations')),
+            counts_argument(pairs), *([other] if other else [])], timeout=1800)
+        record[leg] = {'returncode': run['returncode'], 'failed': run['failed'], 'passed': len(run['passed']),
+                       'stdout': run['stdout'][-3000:], 'stderr': run['stderr'][-3000:]}
+        found = check_outcome(run, [prefix + layout for layout in LAYOUT_NAMES] + [prefix + 'layouts by class'],
+                              [prefix + layout for layout in failing])
+        if found:
+            problems.append('floor %s: %s' % (leg, found))
+    refused = b1.execute(base / 'build', FLOOR_READER, [str(emitted), str(base / 'no-assertions'), FLOOR_FORMAT,
+                                                        str(base / 'run.expectations'), 'x=0'],
+                         assertions=False, timeout=120)
+    if not refused['returncode'] or '-ea' not in refused['stderr']:
+        problems.append('floor model ran without assertions')
 
 
 
@@ -4007,13 +4745,26 @@ def qualify(work, pinned, report):
     pinned_halves = pinned_phase(work, pinned, steps, problems, predictions['p5_checkpoint_2']['pinned'])
     report['completed_phases'].append('pinned')
     layouts_phase(work, steps, problems, predictions['p5_checkpoint_2']['layouts'])
+    emitted = work / 'layouts' / 'emitted'
+    # The footprint of every emitted path before any reader reads it, which each reading step must
+    # leave as it found it.
+    footprint = layout_footprint(emitted)
+    steps['layouts']['footprint'] = {'entries': len(footprint)}
+    if len(footprint) != predictions['b2_checkpoint_2b']['footprint_entries']:
+        problems.append('the emitted layouts hold %d paths, not the predicted' % len(footprint))
     report['completed_phases'].append('layouts')
     # Each layout's class comes from the independent reading of its bytes and every class count is
     # predicted, so no layout leaves its branch.
-    rollback_phase(work, predictions, pinned_halves, work / 'layouts' / 'emitted', steps, problems)
+    rollback_phase(work, predictions, pinned_halves, emitted, steps, problems)
+    problems += footprint_problems(emitted, footprint, 'rollback', steps['layouts']['footprint'])
     report['completed_phases'].append('rollback')
-    readers_phase(work, predictions, settings, work / 'layouts' / 'emitted', steps, problems)
+    readers_phase(work, predictions, settings, emitted, steps, problems)
+    problems += footprint_problems(emitted, footprint, 'readers', steps['layouts']['footprint'])
     report['completed_phases'].append('readers')
+    # B1's image, the rollback floor, modelled from its own pinned sources over the same layouts.
+    floor_phase(work, predictions, pinned, settings, pinned_halves, emitted, steps, problems)
+    problems += footprint_problems(emitted, footprint, 'floor', steps['layouts']['footprint'])
+    report['completed_phases'].append('floor')
 
     steps['mutants'] = {}
     expectations = predictions['mutants_caught_at_least']

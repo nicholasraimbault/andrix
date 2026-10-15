@@ -21,6 +21,8 @@ import java.util.TreeSet;
  * writers leave, with the current sources and the candidate's exact Settings texts. Each layout is
  * booted through the facade with its store named packages mapped at their held app IDs. The
  * current sources under Format.V2 are an earlier format regression, not a model of B1's image.
+ * The floor model of B1's image compiles B1's own copy of this check, pinned from its Git object,
+ * with B1's pinned sources.
  *
  * <p>Under Format.V2, B1's format, a version 2 slot is negative evidence only. Every hold stays,
  * the counter is withheld, and no version 2 slot gives a pin, a history or a VALID read. Every
@@ -264,7 +266,7 @@ public final class NativeLifecycleReaderCheck {
         run(prefix + "layouts by class", problems -> check(problems, counted.equals(predicted),
                 counted + " layouts by class, not the predicted " + predicted));
         finish(Os.allClosed());
-        System.out.println(layouts.size() + " lifecycle layouts read by B1's reader under Format." + format
+        System.out.println(layouts.size() + " lifecycle layouts read by the current sources under Format." + format
                 + "; Android boot unqualified");
     }
 }

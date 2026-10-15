@@ -40,11 +40,13 @@ REVISIONS = {'c926': 'c9264e496777a81c2465ba3d1a0da91d3a4a8855',
              '7845': '78456b352267dba916778b90d7c926c4e67ef888',
              '24bf': '24bfb6ad3c5c9630faca141a93d3531851e280b8'}
 # Exact baseline inputs taken from Git objects. c9264e4 and d104e15 are archived baselines.
-# 78456b3 is the last version 1 normal image and the one supported rollback reader: its sources
-# equal the version 2 normal sources of 24bfb6a except for the boot literal, the store comments and
-# the host facade default, and the rollback model runs them under Format.V1. 24bfb6a is the source
-# of the qualified version 2 normal image and the revision of the archive below: every comparison
-# that R0 qualified against the working tree now reads its Git objects instead.
+# 78456b3 is the last version 1 normal image, the rollback reader that the version 2 normal store
+# supported. Once lifecycle records exist, B1's image is the rollback floor (FLOOR below), and
+# 78456b3 and 24bfb6a are comparisons below it. The sources of 78456b3 equal the version 2 normal
+# sources of 24bfb6a except for the boot literal, the store comments and the host facade default,
+# and the rollback model runs them under Format.V1. 24bfb6a is the source of the qualified version
+# 2 normal image and the revision of the archive below: every comparison that R0 qualified against
+# the working tree now reads its Git objects instead.
 ARCHIVE = '24bf'
 BASELINE_SHA256 = {
     'c926': {
@@ -90,7 +92,8 @@ LEGACY_ROLLBACK = ('b1-v1',)
 # pinned Git objects only: 24bf-v1, the 24bfb6a sources under Format.V1 and the archived twin of
 # the R0 rollback reader model, archived c9264e4, and the pinned 78456b3 image under Format.V1.
 ARCHIVED_READERS = (('24bf-v1', ARCHIVE, 'b1'), ('c926', 'c926', 'baseline'), ('7845', '7845', 'b1'))
-# The targets that model the supported 78456b3 rollback reader, over the archived layouts.
+# The targets that model the 78456b3 rollback reader, which the version 2 normal store supported,
+# over the archived layouts.
 ARCHIVED_ROLLBACK_READERS = ('24bf-v1', '7845')
 # The emitted layouts that hold a version 2 header copy, predicted from the writer protocol: all
 # 38 but the three seed-synced steps whose prior header copies are version 1, where only the
@@ -456,23 +459,32 @@ LAYOUT_NAMES = tuple(sorted(
 # and the image step requires both to stay out of the final DEX. previous: Format.V2 runs of the
 # current sources, the format of the images from the version 2 normal store up to B1's, the rollback
 # floor; they stay as regressions of the version 2 paths. They are no model of B1's image, which
-# only its own sources, pinned from Git objects, can give. legacy: Format.V1 writes or Format.V1 end
-# to end, which model no shipped reader since the normal image became version 2, and every Format.V1
-# read by the current sources, which stop modelling 78456b3 once B1 edits them; they stay as
-# regressions of the version 1 paths, and none is retired. rollback-reader: an older image reading
-# newer state as its pinned objects do: Format.V1 reading version 2 state as the supported 78456b3
-# rollback reader does, the pinned 78456b3 image and its twin, the pinned 24bfb6a sources, and the
-# pinned 24bfb6a image under its own production Format.V2 reading version 2 slots, in runs over
-# pinned products only; the lifecycle rollback check is the one working-tree class among them.
+# only its own sources, pinned from Git objects, can give: that is floor-model. legacy: Format.V1
+# writes or Format.V1 end to end, which model no shipped reader since the normal image became
+# version 2, and every Format.V1 read by the current sources, which stop modelling 78456b3 once B1
+# edits them; they stay as regressions of the version 1 paths, and none is retired.
+# rollback-reader: an older image reading newer state as its pinned objects do, below the rollback
+# floor once lifecycle records exist: Format.V1 reading version 2 state as 78456b3 does, the
+# rollback reader that the version 2 normal store supported; the pinned 78456b3 image and its twin;
+# the pinned 24bfb6a sources; and the pinned 24bfb6a image under its own production Format.V2
+# reading version 2 slots; in runs over pinned products only. The lifecycle rollback check is the
+# one working-tree class among them. floor-model: B1's image, the rollback floor, modelled from its
+# own sources pinned from Git objects at its revision: its own lifecycle reader check under its
+# boot format, Format.V2, compiled with its product, host facade and stubs, its history harness
+# filled from its candidate Settings and its test supports, every input pinned by the floor
+# manifest below and assembled sealed, none from the working tree or the 24bfb6a archive.
 # archived-baseline: every other archived run, over pinned Git objects of an earlier revision,
 # compared as history, whose inputs and results no edit of the working tree changes.
-RUN_LABELS = ('production', 'rollback-reader', 'archived-baseline', 'legacy', 'previous')
-# Living runs carry only the living labels and archived runs only the archived ones.
+RUN_LABELS = ('production', 'rollback-reader', 'archived-baseline', 'legacy', 'previous', 'floor-model')
+# Living runs carry only the living labels, archived runs only the archived ones, and the floor
+# model's runs only its own.
 LIVING_RUN_LABELS = ('production', 'legacy', 'previous')
 ARCHIVED_RUN_LABELS = ('rollback-reader', 'archived-baseline')
+FLOOR_RUN_LABELS = ('floor-model',)
 # Which harnesses run under each label: label, runner, the host classes it runs and which runs.
 # A harness that runs cases under more than one format is listed once per label. A living row's
-# classes are compiled from the working tree, and an archived row's from pinned 24bfb6a objects.
+# classes are compiled from the working tree, an archived row's from pinned 24bfb6a objects, and a
+# floor-model row's from the floor's pinned objects.
 # The one exception is the history parity driver: the living parity compiles its pinned 24bfb6a
 # object, and the history source checks hold the working-tree driver to those bytes. The exception the
 # other way is the lifecycle rollback check: a working-tree source written against the API of 24bfb6a
@@ -542,6 +554,10 @@ HARNESS_LABELS = (
      ' regression, not a model of B1\'s image built from its pinned sources'),
     ('production', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleReaderCheck',),
      'the Format.V3 reads of the same layouts as positive state, and the discrimination control'),
+    ('floor-model', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleReaderCheck',),
+     'B1\'s image, the rollback floor: its own reader check with its pinned compile set, under'
+     ' Format.V2 over every lifecycle layout, names protected, the lost mapping unable to register'
+     ' afresh and the sibling in CONFLICT, with its swap, cross-format and wrong model controls'),
     ('production', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleLayouts',),
      'the store layouts that the Format.V3 lifecycle writers leave, at each state and every writer step of each'
      ' transaction, with the values no writer of B1 writes and the companions, for the rollback models and'
@@ -687,9 +703,13 @@ def step_labels(step):
     return STEP_LABELS[step] if step in STEP_LABELS else STEP_LABELS[step.rsplit(' ', 1)[0]]
 
 
-def harness_class(name, archived=False):
+def harness_class(name, archived=False, floor=False):
     """The one source of a labelled host class, or None: for a living row, its one host source under
-    the platform tests or the native identity tests; for an archived row, its pinned 24bfb6a object."""
+    the platform tests or the native identity tests; for an archived row, its pinned 24bfb6a object;
+    for a floor-model row, its object at the floor revision, pinned by the floor manifest."""
+    if floor:
+        pinned = FLOOR_PLATFORM + name + '.java'
+        return '%s:%s' % (FLOOR, pinned) if pinned in FLOOR_SHA256 else None
     if archived:
         pinned = ARCHIVED_PLATFORM + name + '.java'
         return '%s:%s' % (REVISIONS[ARCHIVE], pinned) if pinned in ARCHIVE_SHA256 else None
@@ -701,17 +721,22 @@ def harness_class(name, archived=False):
 
 def label_problems():
     """The labels name only known runners and host classes, use every label, and label every step
-    and reader of this runner. A living row's classes are found in the working tree and an archived
-    row's in the archive. Living steps and readers carry only living labels and archived ones only
-    archived labels; living readers read the current sources and archived readers a registered
-    revision; the rollback reader models are archived rollback-reader targets, and the legacy
-    rollback checks living legacy ones."""
+    and reader of this runner. A living row's classes are found in the working tree, an archived
+    row's in the archive and a floor-model row's in the floor manifest. The living, archived and
+    floor labels divide the labels between them. Living steps and readers carry only living labels
+    and archived ones only archived labels; living readers read the current sources and archived
+    readers a registered revision; the rollback reader models are archived rollback-reader targets,
+    and the legacy rollback checks living legacy ones."""
     problems = []
+    kinds = (LIVING_RUN_LABELS, ARCHIVED_RUN_LABELS, FLOOR_RUN_LABELS)
+    if sorted(label for kind in kinds for label in kind) != sorted(RUN_LABELS):
+        problems.append('the living, archived and floor labels do not divide the run labels')
     for label, runner, classes, runs in HARNESS_LABELS:
         if label not in RUN_LABELS or not (ROOT / runner).is_file() or not classes or not runs:
             problems.append('harness label row %s %s' % (label, runner))
         for name in classes:
-            if harness_class(name, label in ARCHIVED_RUN_LABELS and name not in LIVING_ROLLBACK_CHECKS) is None:
+            if harness_class(name, label in ARCHIVED_RUN_LABELS and name not in LIVING_ROLLBACK_CHECKS,
+                             label in FLOOR_RUN_LABELS) is None:
                 problems.append('labelled host class not found once: %s %s' % (label, name))
     if {row[0] for row in HARNESS_LABELS} != set(RUN_LABELS):
         problems.append('a run label names no harness')
@@ -1405,24 +1430,135 @@ def b2_forward(text):
     return text.replace(old, new, 1)
 
 
-# B1's image, the rollback floor, whose boot read constructs Format.V2. Its native patch, profile,
-# host facade and store helper are read from their Git objects at its revision, never from the
-# working tree, each with its pin here. The forward rule gives the current patch from the floor's
-# byte for byte, and the current adapted Settings from the floor's, rebuilt from the pinned
-# canonical copies.
+# B1's image, the rollback floor, whose boot read constructs Format.V2. Every input that a run over
+# the floor reads is its Git object at the floor revision, never the working tree, pinned here by
+# repository path with the SHA-256 of that object. This is the floor's own manifest: the 24bfb6a
+# archive's manifest supplies none of it, and its fixtures, stubs, fragments, supports and harness
+# template are not the floor's. The forward rule gives the current patch from the floor's byte for
+# byte, and the current adapted Settings from the floor's, rebuilt from the pinned canonical
+# copies. The lifecycle runner's floor model compiles B1's own reader check with B1's product, host
+# facade and stubs, its harness cut from B1's candidate Settings by B1's fragments, and its test
+# supports, all from these pins.
 FLOOR = 'da790b1748b14cfa7cec1db4ee44b20f608bdf5a'
 NATIVE_PROFILE = 'patches/grapheneos-2026081300/native-principal-pins.json'
-FLOOR_SHA256 = {NATIVE_PATCH: '59300e3d12a59dcb33acadc104894fd4b015e9fcc14bf456a09a07aee015a04e',
-                NATIVE_PROFILE: '37e180b0b4bf7576aee23be6d7298c4c1af9e1037688523be56c20d59547d8f2',
-                FACADE: 'a314430a8f0970cfae1cf8df3e5f1532da7b5eb91e3a206b642c20bc332b5dd1',
-                STORE: 'e4cd321662733cc781566689e9c0436d7865010ce446548e5fea9ffbd7b85c57'}
+# The floor's directories, frozen with it, and its stub directories, whose floor trees are pinned
+# whole but for the unused XML stub.
+FLOOR_PLATFORM = 'owner/tests/platform/'
+FLOOR_FRAMEWORK_DIR = 'owner/platform/framework/'
+FLOOR_STUB_DIRECTORIES = ('native_principal_stubs', 'native_principal_xml_stubs')
+FLOOR_PIN_GROUPS = (
+    # The native patch and its profile, which the candidate rebuild reads.
+    ('patches/grapheneos-2026081300/', {
+        'native-principal-pins.patch': '59300e3d12a59dcb33acadc104894fd4b015e9fcc14bf456a09a07aee015a04e',
+        'native-principal-pins.json': '37e180b0b4bf7576aee23be6d7298c4c1af9e1037688523be56c20d59547d8f2'}),
+    # The six native helpers.
+    (FLOOR_FRAMEWORK_DIR, {
+        'NativePrincipalPins.java': 'c8b58f864fedb0fc522bdb622b9dee150a3407d967b2f703011fcb1b2de4401b',
+        'NativePrincipalManager.java': '7c76194cc441507f2ffe8224f6e9e4d013b6fabadde56723430fd18d17f6fcee',
+        'NativeIdentityRecords.java': '4be9c8a0135d3793bb4153e9dc794c2afbf6e4bdbc3466d447b883fe30e0b032',
+        'NativeIdentityStore.java': 'e4cd321662733cc781566689e9c0436d7865010ce446548e5fea9ffbd7b85c57',
+        'NativeIdentityPersistence.java': 'a3d6d23e3378611f6d82df07a4ede7ba7949f1f69cc24873a788a64d24e1604b',
+        'NativePrincipalRecovery.java': 'e6370a2bc822c78602c97b3a04803916184095a6dc796d1360a48b47791fbda8'}),
+    # The guarded fixtures: the app ID map and the strict writer.
+    (FLOOR_PLATFORM, {
+        'AppIdSettingMap.java.inc': 'ac0721c8c98e1efbe17b64358f29a30ae514ceddff51f48959bd6249b256e9f7',
+        'ResilientAtomicFile.java.inc': 'b9b0a369d3519713d16de6bf7ec574bcad5ae6c8d3132121a6124b8b2f4d1130'}),
+    # The host facade and stubs.
+    (FLOOR_PLATFORM + 'native_principal_stubs/', {
+        'android/content/pm/Signature.java': '194cccdf1a00bb85a3189525ba7a43f88f30e3361660e590e0908321b3b8d644',
+        'android/content/pm/SigningDetails.java': '05e0e97105a55f69bde585f576cb04a59960ff999be3dd8a9fbaecfa02dedac2',
+        'android/content/pm/UserInfo.java': 'ff81825584932dcb182fcb44d12b1f27f8d71f6e78baf4a14d2ad641956a64fe',
+        'android/os/Process.java': 'ffe360d2de8e077132bb80a71d05695472221a5c794410b0bc2fe2f69ce0e2d1',
+        'android/os/UserHandle.java': '2dfd22758b83fc63f8419c5de8813346ba744ca0daddf266ab9fd7cb21b47ec5',
+        'android/util/Base64.java': '4316c03a833ecafde0b01b5dd66925f6d8d1d8c0cdf82e89dee80f3ffe927f1a',
+        'android/util/Log.java': '45dfc0e11053b0273901815c020112d8bd2e15a33bac059ba1a3f98cf2d5b056',
+        'com/android/server/LocalServices.java': 'c0adc1f494840fcb58d1acb6ac1943e56d63147667d2a13647913939ccc82c10',
+        'com/android/server/pm/PackageManagerService.java':
+            'd3cc9ab333fbfbc5f291ae3606e1daca5f0eaa5a7b0630f6858042559e71a1c7',
+        'com/android/server/pm/PackageManagerTracedLock.java':
+            'd4f07b6fe6761da9228129c7c25d4002f543f99f92ca2047720441ff3c624d3c',
+        'com/android/server/pm/PackageSetting.java': '9c1da430837ff410b9fededd51f4079521257221060ef5ab13c73cf0934c77e4',
+        'com/android/server/pm/SettingBase.java': 'c2389dc480ad1e713f5f3c15037c7b7388569c237a7ecda586e4bae29fc52232',
+        'com/android/server/pm/Settings.java': 'a314430a8f0970cfae1cf8df3e5f1532da7b5eb91e3a206b642c20bc332b5dd1',
+        'com/android/server/pm/SharedUserSetting.java':
+            '84e80c3dbdbadb4cf2e77801b7344eaebf6ddb75b68353ee9c2021edb3ea8929',
+        'com/android/server/pm/UserManagerInternal.java':
+            'e0a8b11a125c2684fdd7231fcf434ad88a73631abf03e982d833519fd93e2842',
+        'com/android/server/pm/pkg/PackageStateInternal.java':
+            '8810412ebb8dd0bdc504ab6aa4e64487f754a71f8415a382d82f900c8168a6e1',
+        'com/android/server/pm/pkg/PackageUserStateInternal.java':
+            'bd82da9aeffde182bce106847cfeeebcc02cbfb1de94474eb27e35f963fe0fc6',
+        'com/android/server/utils/SnapshotCache.java':
+            'b9775ad4dc2c3b9d9affe27be93cf2a097437307a077fa5b7fe10106d43e334c',
+        'com/android/server/utils/WatchedArrayList.java':
+            'b1a32b1ac8a4bffab749749be8800f030dde82c2ace07e53b5aa41a11e4523ec',
+        'com/android/server/utils/WatchedSparseArray.java':
+            '689d2bd1d6bd6fe112b5d0a9ebb75dd8573731441770e866ac1f0d516c3a172c',
+        'com/android/server/utils/Watcher.java': '8fe7fe546e40f3d6561af8b897e02e20dc5a03548172d7dbefde6436db172912'}),
+    # The file and XML stubs, the unused XML stub aside.
+    (FLOOR_PLATFORM + 'native_principal_xml_stubs/', {
+        'android/annotation/NonNull.java': '6ddc0b4d052155af25bb53e667a9af619e37627895d7f3931df37ce03ce2b40d',
+        'android/annotation/Nullable.java': '240f7f85d753d961120cdab80dfc49d1af63a1dc11db0e68d5532c8407689822',
+        'android/os/FileUtils.java': '9852208a316783e5a76141551181bd6ec1c6f41275e67f0c334ec7d6a39f5db2',
+        'android/os/ParcelFileDescriptor.java': '2ca584995f00f3608884c7850db8bc0592fc66ffad9180fbb520ac9dc0bdfbce',
+        'android/system/ErrnoException.java': '80e2fd2821ed73ad4c5239d174d55735f86e850195bed37be90aac12acfb7324',
+        'android/system/Os.java': '6cb0f0e9bc7af27a872e1dc9d3076f4cba7100c3ed6d2a973de7508a6d673d24',
+        'android/system/OsConstants.java': 'a8a42f40daafd3f3d3115c09ccdf4aaaad4c2d3c76d6093a19140b18cfe8d15d',
+        'android/system/StructStat.java': '9c79371a592cdf8e19f4b76e4229445725430ad390e4ffca95bfd5845de2890c',
+        'android/util/Log.java': '1179e9289ee751a66dfa1fc3167ccae3eb09d1bdffe0198150f2b91cd5ed6326',
+        'android/util/Slog.java': 'd05edc6412193d1027a8051abbf5dc9df082bf8e04173c09e01de84584249754',
+        'com/android/internal/annotations/VisibleForTesting.java':
+            '5f0d808d0ce0185826a8a145fd2ec7735ae185ade8ac3298af2cb5c24550371b',
+        'com/android/internal/util/XmlUtils.java': 'd02b0c70ede9298e475a8975c268622a7b48aefc504f3c1c64559b10ef3118e8',
+        'com/android/modules/utils/TypedXmlPullParser.java':
+            '74bb7ccb4e8ffbbc19f635ab9a6c3224ab1be238f812389a93cc1bf9e4940b7f',
+        'com/android/modules/utils/TypedXmlSerializer.java':
+            '67cc6ce0438d60ad059b20d7d62be32b17950d4ff495bf5d9640f7170ee8ca17',
+        'com/android/server/security/FileIntegrity.java':
+            '34850de514202aa02bbf8f3ccfd0e3e2c016f37d5c66a3703de65bc56c8a4a78',
+        'libcore/io/IoUtils.java': 'd5c7d4e663fde5f3e0d5a1d666055af45b9d0e87183b9309a8a173c108be640b',
+        'org/xmlpull/v1/XmlPullParser.java': 'ed18ef0bf4db43202e7720502738031223361592aca7bbb99e26fdb909fd6248',
+        'org/xmlpull/v1/XmlPullParserException.java':
+            'a89e65c01d99a7ae49f44532d717c746623c76705aff0ddd9a9177b5e0009068'}),
+    # The recovery fragments, by which the floor harness is cut and checked.
+    (FLOOR_PLATFORM + 'native_recovery_fragments/', {
+        'identity.java.inc': '04a06cad1791ba2b3a22b24152469f5b32da2404e91a863961569238e42ff7ce',
+        'system-cleanup.java.inc': 'a3fe313963a15e2cd8b7f9d5707ae89f53f470525343ff446e3904e06e72207c',
+        'parse-failure.java.inc': 'f769bea3670ac3611d112b1b771b9d26abbb0ba5508a549dd746040e106214e6',
+        'install-markers.java.inc': 'b0c2f79d9e02f99866ed50e832abb83913c90bab7ed7a13ace4aee1d5b279332',
+        'system-delete.java.inc': '22f757c8cd48513a9003093561872b02d686f251e01ab2a08a97d8b3f2aa63c3',
+        'path-safety.java.inc': 'c1db3fe3be384b360761c7953ffb12457fd8b10ecc16cdec6fcf73a99732bb6a',
+        'restore-capacity.java.inc': '94f73c5bc31d28d85f51c678b60daa7eeaae3482e15840210895cb62f58ecdef',
+        'admission.java.inc': 'f6fb1d4f8dd53dbb712f35f8832e51735657a4e5c1be948512c6d9f9b33fc8eb',
+        'restore-history.java.inc': 'fabd0161b440933cd61d2234667bdeb72a5119a0b3c00eb0c9e61b30d316b444',
+        'stored-history.java.inc': '08afa193e032e5eb3717a19584b90acaf81b1bb4541bd08cca298cc85dcf1b9a',
+        'scan.java.inc': '369d036a9931ec07f0689f55717e7945d59d2da9a449360163d16df0591f719a',
+        'recovery-seeding.java.inc': '604059a49fa26c8947803f40dd1f1c032b24d5875c7b84f299e79149c0a41727',
+        'boot-facts.java.inc': 'feef1495ce2b94302a140fc6df252a6d7f1fbb910bc8452cbbf67778c4ade6c7',
+        'retired-boot.java.inc': '02a35b1005f071c15a78e1f16e00f16958ed9922bd1f3d8c900a145893d10178',
+        'deferral.java.inc': 'ac1e3b8e4ef98fb593224673824d0942f7bb38d3b9986f0cb7d59eef0909a8dd',
+        'observation.java.inc': '3ec3bda6a37eec0752ecdd2363a61df6c9eebd38966fc0eaa0f16eaa28f0d709',
+        'release-finish.java.inc': 'bd8d21c0189304e5cb31d086ef7881cb46f3e5293079d242366dd03584e29eec',
+        'diagnostic-dump.java.inc': '17a8d470177321e79918c057a96fe6084cc9041ad124db334abda1417bd50f03'}),
+    # The history harness template, its body inputs, the test supports and the reader check.
+    (FLOOR_PLATFORM, {
+        'NativeHistoryHarness.java.in': '4671b3855f935cf7b270901a3910283a0c833d8b0a1e2c51c0046c7ed8c0b370',
+        'native_history_api/b2/body-inputs.java.inc':
+            '59f847a99f67c56d1803d561e9c29914cbe02f28e876a0e1731d943fcb493f84',
+        'NativeHeaderTestSupport.java': 'bc22ff336e19f201d04ec72865ba885caca0693e3d6385d06c4542f64abf2d9e',
+        'NativeBindingTestSupport.java': '2426ad2e672f28b762444727c9c34b9987fe5db4d7a1927a6c1d74b7ba8c199d',
+        'NativeHistoryTestSupport.java': '60a69f504b04af32e5f7176c8ae9e5f751722a83942cf008942c11f013f31ff1',
+        'NativeLifecycleReaderCheck.java': 'cac8a37b8e55badea71cfea8a20122eb8d451afbda7b34b8e5366c6aa88a7584'}),
+)
+FLOOR_SHA256 = {directory + relative: digest for directory, group in FLOOR_PIN_GROUPS
+                for relative, digest in group.items()}
 # The floor's adapted Settings, as its pinned profile states it.
 FLOOR_SETTINGS_SHA256 = '4d851032afedd43ddadacdbc026ac62e0ea22c218a8fb0c8f59a70d67a452eeb'
 
 
 def floor_bytes(path):
-    """One input of B1's floor: its Git object at the floor revision, refused unless pinned here
-    with that SHA-256. The working tree is never read."""
+    """One input of B1's floor: its Git object at the floor revision, refused unless the floor
+    manifest pins it with that SHA-256. The working tree is never read. The floor's one loader."""
     digest = FLOOR_SHA256.get(path)
     if digest is None:
         raise ValueError('unpinned floor input: ' + path)
@@ -1432,39 +1568,82 @@ def floor_bytes(path):
     return data
 
 
-def floor_outputs(pinned):
+def floor_paths(directory):
+    """The pinned floor inputs below one directory, refused unless they are exactly the floor's Git
+    tree there, the unused XML stub aside, so no file of that tree goes unpinned or unread."""
+    pinned = sorted(path for path in FLOOR_SHA256 if path.startswith(directory))
+    tree = [path for path in git_paths(FLOOR, directory) if not path.endswith('/Xml.java')]
+    if pinned != tree:
+        raise ValueError('floor tree drift: %s unpinned %s, absent %s' % (
+            directory, sorted(set(tree) - set(pinned))[:3], sorted(set(pinned) - set(tree))[:3]))
+    return pinned
+
+
+def floor_problems():
+    """The floor manifest's own consistency: every pin is its Git object at the floor revision, each
+    pinned stub tree is exactly the floor's tree there, and the boot read of the floor's patch
+    constructs the previous format, Format.V2, as B1's image does."""
+    problems = []
+    try:
+        for directory in FLOOR_STUB_DIRECTORIES:
+            floor_paths(FLOOR_PLATFORM + directory + '/')
+        for path in sorted(FLOOR_SHA256):
+            floor_bytes(path)
+        sections = dict(patch_sections(floor_bytes(NATIVE_PATCH).decode()))
+        if boot_literal({SETTINGS_SECTION: sections.get(integration.SETTINGS, '')}) != PREVIOUS:
+            problems.append('the floor patch does not construct %s at its boot read' % PREVIOUS)
+    except ValueError as error:
+        problems.append('floor pins: %s' % error)
+    return problems
+
+
+def floor_outputs(pinned, scratch=None):
     """The floor's ten framework outputs: its patch, read from its Git object, applied to the pinned
     canonical copies as the profile tool applies the current patch, each output checked against the
-    candidate of the floor's pinned profile. Pure patch reproduction; no compiler."""
+    candidate of the floor's pinned profile. The patch applies in a temporary directory, or in
+    scratch, a fresh directory outside the repository that is left to the caller, so a caller can
+    rebuild the floor with the working tree closed. Pure patch reproduction; no compiler."""
     value = json.loads(floor_bytes(NATIVE_PROFILE))
     if ([row['path'] for row in value['files']] != list(integration.FILES)
             or [row['candidate_sha256'] for row in value['files'] if row['path'] == integration.SETTINGS]
             != [FLOOR_SETTINGS_SHA256]):
         raise ValueError('floor profile drift')
-    with tempfile.TemporaryDirectory(prefix='andrix-b2-floor-') as directory:
-        tree, patch = Path(directory) / 'tree', Path(directory) / 'floor.patch'
-        patch.write_bytes(floor_bytes(NATIVE_PATCH))
-        for row in value['files']:
-            source = pinned / row['path']
-            if source.is_symlink() or not source.is_file():
-                raise ValueError('pinned framework copy missing: ' + row['path'])
-            data = source.read_bytes()
-            if sha(data) != row['upstream_sha256']:
-                raise ValueError('wrong pinned input: ' + row['path'])
-            (tree / row['path']).parent.mkdir(parents=True, exist_ok=True)
-            (tree / row['path']).write_bytes(data)
-        result = subprocess.run(['/usr/bin/patch', '--batch', '--forward', '--fuzz=0', '--no-backup-if-mismatch',
-                                 '-p1', '-i', str(patch)], cwd=tree, capture_output=True, timeout=30)
-        if result.returncode:
-            raise ValueError('floor patch failed: ' + result.stderr.decode(errors='replace'))
-        if ({path.relative_to(tree).as_posix() for path in tree.rglob('*') if path.is_file()} != set(integration.FILES)
-                or any(path.is_symlink() for path in tree.rglob('*'))):
-            raise ValueError('unexpected floor patch output')
-        output = {row['path']: (tree / row['path']).read_bytes() for row in value['files']}
+    if scratch is None:
+        with tempfile.TemporaryDirectory(prefix='andrix-b2-floor-') as directory:
+            output = floor_patch_outputs(pinned, value, Path(directory))
+    else:
+        if Path(scratch).exists() or not outside_repository(scratch):
+            raise ValueError('floor scratch is not fresh and outside the repository: %s' % scratch)
+        Path(scratch).mkdir(parents=True)
+        output = floor_patch_outputs(pinned, value, Path(scratch).resolve())
     for row in value['files']:
         if sha(output[row['path']]) != row['candidate_sha256']:
             raise ValueError('floor candidate drift: ' + row['path'])
     return output
+
+
+def floor_patch_outputs(pinned, value, directory):
+    """The floor patch applied in directory to the pinned canonical copies that the floor profile
+    value names, each refused unless it has the profile's upstream bytes: the ten outputs."""
+    tree, patch = directory / 'tree', directory / 'floor.patch'
+    patch.write_bytes(floor_bytes(NATIVE_PATCH))
+    for row in value['files']:
+        source = pinned / row['path']
+        if source.is_symlink() or not source.is_file():
+            raise ValueError('pinned framework copy missing: ' + row['path'])
+        data = source.read_bytes()
+        if sha(data) != row['upstream_sha256']:
+            raise ValueError('wrong pinned input: ' + row['path'])
+        (tree / row['path']).parent.mkdir(parents=True, exist_ok=True)
+        (tree / row['path']).write_bytes(data)
+    result = subprocess.run(['/usr/bin/patch', '--batch', '--forward', '--fuzz=0', '--no-backup-if-mismatch',
+                             '-p1', '-i', str(patch)], cwd=tree, capture_output=True, timeout=30)
+    if result.returncode:
+        raise ValueError('floor patch failed: ' + result.stderr.decode(errors='replace'))
+    if ({path.relative_to(tree).as_posix() for path in tree.rglob('*') if path.is_file()} != set(integration.FILES)
+            or any(path.is_symlink() for path in tree.rglob('*'))):
+        raise ValueError('unexpected floor patch output')
+    return {row['path']: (tree / row['path']).read_bytes() for row in value['files']}
 
 
 def floor_forward(pinned):
@@ -1723,6 +1902,7 @@ def source_checks():
             problems.append('baseline pins incomplete: ' + revision)
     problems += archive_problems()
     problems += boundary_problems()
+    problems += floor_problems()
     return problems
 
 

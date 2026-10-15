@@ -808,5 +808,70 @@
       "History and counter steps that ran production now run previous."
     ],
     "unchanged": "Every reader label and every archived row and step."
+  },
+  "b2_checkpoint_2b": {
+    "status": "PREDICTED. A new run label and the floor manifest; no case or mutant changes.",
+    "plan": "plans/2026-10-08-native-lifecycle-record.md",
+    "run_labels": [
+      "production",
+      "rollback-reader",
+      "archived-baseline",
+      "legacy",
+      "previous",
+      "floor-model"
+    ],
+    "label_kinds": {
+      "living": [
+        "production",
+        "legacy",
+        "previous"
+      ],
+      "archived": [
+        "rollback-reader",
+        "archived-baseline"
+      ],
+      "floor": [
+        "floor-model"
+      ]
+    },
+    "labels": [
+      "floor-model: B1's image, the rollback floor, modelled from its own pinned sources.",
+      "It names one row: the floor model's reader check in the lifecycle runner.",
+      "Its class resolves in the floor manifest, not in the working tree or the archive.",
+      "rollback-reader: older images below the floor; 78456b3 was the version 2 store's target."
+    ],
+    "floor_manifest": {
+      "revision": "da790b1748b14cfa7cec1db4ee44b20f608bdf5a",
+      "inputs": 73,
+      "by_group": [
+        2,
+        6,
+        2,
+        21,
+        18,
+        18,
+        6
+      ],
+      "groups": [
+        "patch and profile",
+        "native helpers",
+        "fixtures",
+        "facade and stubs",
+        "file and XML stubs",
+        "recovery fragments",
+        "harness, supports and reader check"
+      ],
+      "same_path_in_24bfb6a": 63,
+      "differing_from_24bfb6a": 15,
+      "not_in_24bfb6a": 10,
+      "forward_pins_unchanged": [
+        "patches/grapheneos-2026081300/native-principal-pins.patch",
+        "patches/grapheneos-2026081300/native-principal-pins.json",
+        "owner/tests/platform/native_principal_stubs/com/android/server/pm/Settings.java",
+        "owner/platform/framework/NativeIdentityStore.java"
+      ]
+    },
+    "floor_outputs": "It may rebuild in fresh scratch outside the repository.",
+    "unchanged": "Every other label row, every archived row and step, and every reader label."
   }
 }

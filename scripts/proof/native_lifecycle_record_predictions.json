@@ -2361,5 +2361,216 @@
       "Every case count, and every count by label under its new key.",
       "Every layout, model, mutant and case map entry."
     ]
+  },
+  "b2_checkpoint_2b": {
+    "status": "PREDICTED before any guarded run. Development runs only, as basis says.",
+    "plan": "plans/2026-10-08-native-lifecycle-record.md",
+    "phases": [
+      "candidate",
+      "codec",
+      "reads",
+      "dump",
+      "store",
+      "transactions",
+      "faults",
+      "settings",
+      "manager",
+      "pinned",
+      "layouts",
+      "rollback",
+      "readers",
+      "floor",
+      "mutants"
+    ],
+    "phases_change": [
+      "The floor phase runs after the readers and before the mutants.",
+      "A guarded run must complete it before it can pass."
+    ],
+    "step_labels": {
+      "codec": [
+        "production"
+      ],
+      "reads": [
+        "previous",
+        "legacy",
+        "production"
+      ],
+      "dump": [
+        "previous",
+        "legacy",
+        "production"
+      ],
+      "store": [
+        "previous",
+        "legacy",
+        "production"
+      ],
+      "transactions": [
+        "previous",
+        "legacy",
+        "production"
+      ],
+      "faults": [
+        "production"
+      ],
+      "settings": [
+        "previous",
+        "production"
+      ],
+      "manager": [
+        "previous",
+        "legacy",
+        "production"
+      ],
+      "pinned": [
+        "rollback-reader"
+      ],
+      "layouts": [
+        "production"
+      ],
+      "rollback": [
+        "rollback-reader"
+      ],
+      "readers": [
+        "previous",
+        "production"
+      ],
+      "floor": [
+        "floor-model"
+      ],
+      "mutants": [
+        "previous",
+        "legacy",
+        "production"
+      ]
+    },
+    "run_label": "floor-model",
+    "floor": {
+      "revision": "da790b1748b14cfa7cec1db4ee44b20f608bdf5a",
+      "format": "V2",
+      "reads": 73,
+      "git_reads": 73,
+      "calls": {
+        "floor": 95,
+        "git": 95,
+        "trees": 2,
+        "listed": 2
+      },
+      "listed": [
+        "owner/tests/platform/native_principal_stubs/",
+        "owner/tests/platform/native_principal_xml_stubs/"
+      ],
+      "files": 51,
+      "settings_sha256": "4d851032afedd43ddadacdbc026ac62e0ea22c218a8fb0c8f59a70d67a452eeb",
+      "harness_sha256": "28b95753a6abdcc47b5898e4b7aba7ee79e9e2e1a68868814e2e38068e017b26",
+      "differing_from_previous": [
+        "framework/NativeIdentityStore.java",
+        "stubs/com/android/server/pm/Settings.java",
+        "tests/NativeLifecycleReaderCheck.java"
+      ],
+      "differing_from_24bf": 17,
+      "classes": {
+        "admitted": 19,
+        "conflict": 2,
+        "footprint": 147,
+        "lost": 3,
+        "nothing": 12,
+        "reservation": 11,
+        "retiring": 5,
+        "sibling": 3,
+        "sibling-principal": 1,
+        "tombstone": 2
+      },
+      "outside_user_0": 2,
+      "swap_control": {
+        "state-lifted": "footprint",
+        "state-suspended-user": "lost",
+        "moved-retirement-publication-write-started": "reservation",
+        "companion-reservation-retiring": "sibling",
+        "companion-reservation-suspended": "sibling-principal",
+        "value-legacy-marker": "admitted",
+        "step-suspend-seed-synced": "retiring",
+        "moved-retirement-block-seed-synced": "tombstone",
+        "step-lift-backup-unlinked": "nothing",
+        "moved-retirement-publication-seed-synced": "conflict"
+      },
+      "swap_control_fails": 10,
+      "cases": {
+        "run": 206,
+        "swap control": 206,
+        "production expectations": 206,
+        "wrong model": 206
+      },
+      "failed": {
+        "run": 0,
+        "swap control": 10,
+        "production expectations": 165,
+        "wrong model": 165
+      },
+      "controls": [
+        "Swap control: each reader class once on a layout of another class; fails those 10.",
+        "Lost goes to a footprint layout, whose mapping is not lost.",
+        "Sibling and sibling-principal go to reservation layouts, with no conflict there.",
+        "Admitted, retiring, tombstone, nothing and conflict each fail on their own checks.",
+        "Footprint and reservation go to admitted layouts, which have no footprint.",
+        "Production expectations asserted over the floor fail the 165 version 2 layouts.",
+        "Wrong model: B1's sources under Format.V3, which B1's image never constructs.",
+        "With the floor's expectations it fails the same 165 layouts.",
+        "With the readers step, each expectation passes only on its own model.",
+        "Wrong model, by compile set: the current sources' reader differs in 3 files.",
+        "The 24bfb6a model's pinned half differs in 17.",
+        "A run without assertions is refused."
+      ],
+      "refusals": [
+        "A planted read of the working tree raises in the sealed assembly.",
+        "Every Git call is attributed to the loader call that made it; any other raises.",
+        "That holds for a new path and for a path the loader already read.",
+        "A Git start must be the reader's own command and environment for its loader call, once.",
+        "The rebuild's patch start must be its own command, once: argv, input and directory.",
+        "As it starts, its input holds B1's pinned patch, its tree the pinned upstream copies.",
+        "Python reads: only the pinned copies and the scratch, in the rebuild, by absolute path.",
+        "No input comes from the network: a socket or a request raises.",
+        "Any other process start or path read raises, naming why.",
+        "An unpinned input, or a stub tree with a file the manifest lacks, is refused.",
+        "An altered stub, patch or profile is drift and refused.",
+        "A wrong patch fails the ten candidate checks of the floor profile.",
+        "A candidate constructing another format at its boot read is refused.",
+        "A floor format other than the previous format is refused.",
+        "A compile set that is not exactly the pinned bytes is refused before and after the build.",
+        "The record holds every call: Git reads must equal the loader reads as multisets."
+      ]
+    },
+    "footprint_entries": 2374,
+    "footprint": [
+      "Every path below the emitted layouts: kind, mode, file identity, size and SHA-256.",
+      "Taken before the rollback step and compared after the rollback, readers and floor steps.",
+      "Times are left out: each check ages the store it reads and checks its own footprint."
+    ],
+    "guest_inputs": {
+      "inputs": 0,
+      "checks": [
+        "lifecycle",
+        "pin phase",
+        "deferred set",
+        "scan outcome",
+        "boot facts",
+        "schema 3 rows"
+      ],
+      "rule": "Inputs without reads fail the source check and the floor step."
+    },
+    "renamed": [
+      "The current sources' reader no longer calls itself B1's reader.",
+      "Its closing line says the current sources; B1's own copy, the floor's, keeps its words."
+    ],
+    "basis": [
+      "Development, outside the guarded scope: the assembly, its read record and the harness pin.",
+      "B1's cutter, run from its own tree on B1's candidate, gives the pinned harness.",
+      "The frozen copy gives the same bytes; the living cutter does too, today.",
+      "The emitter and the floor legs ran in development with the pinned JDK and these outcomes."
+    ],
+    "unchanged": [
+      "Every case count, mutant, layout, class count and swap control of the earlier models.",
+      "Every archived comparison of 24bfb6a and 78456b3, and every reader label but the new one."
+    ]
   }
 }

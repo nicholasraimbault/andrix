@@ -351,8 +351,9 @@ class CreationHistorySourceTests(unittest.TestCase):
                 for name in classes:
                     history.setdefault(name, set()).add(label)
         self.assertEqual(history['NativeCreationHistoryTest'], {'previous', 'legacy'})
-        # Every label but production: the parity runs Format.V1 and Format.V2 alone.
-        self.assertEqual(history['NativeHistoryParity'], set(runner.b1.RUN_LABELS) - {'production'})
+        # Every label but production and the floor model's: the parity runs Format.V1 and Format.V2
+        # alone, and the floor model reads only the lifecycle layouts.
+        self.assertEqual(history['NativeHistoryParity'], set(runner.b1.RUN_LABELS) - {'production', 'floor-model'})
         # The label rules: each break is refused.
         for change in ({'READER_LABELS': dict(runner.READER_LABELS, **{'b2-v1': 'rollback-reader'})},
                        {'READER_LABELS': {k: v for k, v in runner.READER_LABELS.items() if k != '24bf-v1'}},
