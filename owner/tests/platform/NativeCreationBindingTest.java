@@ -37,11 +37,32 @@ import java.util.TreeSet;
  * header. Held entries and unselected additions stay exactly as durable state lists them,
  * with a missing binding kept missing. Bindings are checked only negatively. Publication is
  * refused where needed by real unprivileged permissions on the slot namespace, so a durable
- * reservation stays visible. Host facades only: not Android crash, power loss, storage,
- * SELinux or UID authority qualification, and not activation of the version 2 format.
+ * reservation stays visible. Each common case also runs under Format.V3, the production format,
+ * as its own twin, named with a V3 prefix and printed right after it. Host facades only: not
+ * Android crash, power loss, storage, SELinux or UID authority qualification, and not activation
+ * of the version 2 format.
  */
 public final class NativeCreationBindingTest {
+    // The production format, which the normal image's boot read constructs.
+    private static final NativeIdentityStore.Format V3 = NativeIdentityStore.Format.V3;
     private static final Set<String> OTHER = Set.of("1".repeat(64));
+
+    private interface FormatBody {
+        void run(List<String> problems, NativeIdentityStore.Format format) throws Exception;
+    }
+
+    // A common case: its run under the earlier formats it names, as before, then its production
+    // twin under Format.V3. Format.V3 reserves the same version 2 headers and writes the same
+    // version 1 bodies as Format.V2, so the twin asserts the same outcome of the same steps. Where
+    // the earlier run also asserts a lifecycle refusal, the twin runs only the common half: under
+    // Format.V3 that operation is the lifecycle runner's, and the case map names its cases.
+    private static void common(String name, String twin, List<NativeIdentityStore.Format> earlier,
+            FormatBody body) {
+        run(name, problems -> {
+            for (NativeIdentityStore.Format format : earlier) body.run(problems, format);
+        });
+        run(twin, problems -> body.run(problems, V3));
+    }
     private static final Set<String> PAIR = Set.of("2".repeat(64), "3".repeat(64));
     private static final Set<String> TWO = Set.of("6".repeat(64), "7".repeat(64));
 
@@ -158,56 +179,56 @@ public final class NativeCreationBindingTest {
                     && header(3, creating(A, 1, PKG_A), creating(B, 2, PKG_B), creating(C, 3, PKG_C))
                     .equals(stored(root)), "reservation " + stored(root));
         });
-        run("manager / another manager's unreserved pin refuses before issuance", problems -> {
-            for (NativeIdentityStore.Format format : List.of(V1, V2)) {
-                PackageManagerService pm = livePmOf(format);
-                Path root = pm.mSettings.root;
-                NativePrincipalManager owner = new NativePrincipalManager(pm);
-                NativePrincipalManager other = new NativePrincipalManager(pm);
-                NativePrincipalManager.Handle b = owner.prepare(owner.select(PKG_B, 0));
-                NativePrincipalManager.Selection c = other.select(PKG_C, 0);
-                age(root);
-                Map<String, String> before = footprint(root);
-                int remembers = pm.mSettings.rememberCalls;
-                check(problems, throwsType(() -> other.prepare(c), IllegalStateException.class),
-                        format + " issued beside another manager's unreserved pin");
-                check(problems, pm.mSettings.pins.snapshotForWrite().lastId == 1
-                        && pm.mSettings.pins.find(PKG_C, 0) == null
-                        && !pm.mSettings.pins.isAppIdPinned(C)
-                        && pm.mSettings.rememberCalls == remembers, format + " issuance effects");
-                check(problems, footprint(root).equals(before), format + " store changed");
-                check(problems, owner.commit(b), format + " owner commit refused");
-                NativePrincipalManager.Handle issued = other.prepare(other.select(PKG_C, 0));
-                Header expected = format == V1 ? header(2, live(B), live(C)) : v2(2, live(B), live(C));
-                check(problems, other.commit(issued) && expected.equals(storedOf(root, format)),
-                        format + " header " + storedOf(root, format));
-            }
+        common("manager / another manager's unreserved pin refuses before issuance",
+                "V3 / manager / another manager's unreserved pin refuses before issuance", List.of(V1, V2),
+                (problems, format) -> {
+            PackageManagerService pm = livePmOf(format);
+            Path root = pm.mSettings.root;
+            NativePrincipalManager owner = new NativePrincipalManager(pm);
+            NativePrincipalManager other = new NativePrincipalManager(pm);
+            NativePrincipalManager.Handle b = owner.prepare(owner.select(PKG_B, 0));
+            NativePrincipalManager.Selection c = other.select(PKG_C, 0);
+            age(root);
+            Map<String, String> before = footprint(root);
+            int remembers = pm.mSettings.rememberCalls;
+            check(problems, throwsType(() -> other.prepare(c), IllegalStateException.class),
+                    format + " issued beside another manager's unreserved pin");
+            check(problems, pm.mSettings.pins.snapshotForWrite().lastId == 1
+                    && pm.mSettings.pins.find(PKG_C, 0) == null
+                    && !pm.mSettings.pins.isAppIdPinned(C)
+                    && pm.mSettings.rememberCalls == remembers, format + " issuance effects");
+            check(problems, footprint(root).equals(before), format + " store changed");
+            check(problems, owner.commit(b), format + " owner commit refused");
+            NativePrincipalManager.Handle issued = other.prepare(other.select(PKG_C, 0));
+            Header expected = format == V1 ? header(2, live(B), live(C)) : v2(2, live(B), live(C));
+            check(problems, other.commit(issued) && expected.equals(storedOf(root, format)),
+                    format + " header " + storedOf(root, format));
         });
-        run("manager / a late preparation failure keeps the original issuance", problems -> {
-            for (NativeIdentityStore.Format format : List.of(V1, V2)) {
-                PackageManagerService pm = livePmOf(format);
-                Path root = pm.mSettings.root;
-                NativePrincipalManager manager = new NativePrincipalManager(pm);
-                NativePrincipalManager.Selection selection = manager.select(PKG_B, 0);
-                pm.mSettings.failRemember = true;
-                check(problems, throwsType(() -> manager.prepare(selection),
-                        IllegalStateException.class), format + " injected failure not reached");
-                NativePrincipalManager.Handle b = manager.find(PKG_B, 0);
-                check(problems, b != null && manager.identity(b).id == 1
-                        && manager.prepare(selection) == b, format + " original issuance lost");
-                PackageSetting setting = pm.mSettings.packages.get(PKG_B);
-                SigningDetails original = setting.signing;
-                setting.signing = signing(9, 1);
-                check(problems, throwsType(() -> manager.commit(b), IllegalStateException.class),
-                        format + " replaced signer committed");
-                setting.signing = original;
-                Header expected = format == V1 ? header(1, live(B)) : v2(1, live(B));
-                check(problems, manager.commit(b) && expected.equals(storedOf(root, format))
-                        && pm.mSettings.pins.snapshotForWrite().lastId == 1, format + " commit");
-                Slot body = loadedOf(root, format).slots.get(B).value;
-                check(problems, body != null && SIGNERS.equals(body.signerSha256),
-                        format + " body signers");
-            }
+        common("manager / a late preparation failure keeps the original issuance",
+                "V3 / manager / a late preparation failure keeps the original issuance", List.of(V1, V2),
+                (problems, format) -> {
+            PackageManagerService pm = livePmOf(format);
+            Path root = pm.mSettings.root;
+            NativePrincipalManager manager = new NativePrincipalManager(pm);
+            NativePrincipalManager.Selection selection = manager.select(PKG_B, 0);
+            pm.mSettings.failRemember = true;
+            check(problems, throwsType(() -> manager.prepare(selection),
+                    IllegalStateException.class), format + " injected failure not reached");
+            NativePrincipalManager.Handle b = manager.find(PKG_B, 0);
+            check(problems, b != null && manager.identity(b).id == 1
+                    && manager.prepare(selection) == b, format + " original issuance lost");
+            PackageSetting setting = pm.mSettings.packages.get(PKG_B);
+            SigningDetails original = setting.signing;
+            setting.signing = signing(9, 1);
+            check(problems, throwsType(() -> manager.commit(b), IllegalStateException.class),
+                    format + " replaced signer committed");
+            setting.signing = original;
+            Header expected = format == V1 ? header(1, live(B)) : v2(1, live(B));
+            check(problems, manager.commit(b) && expected.equals(storedOf(root, format))
+                    && pm.mSettings.pins.snapshotForWrite().lastId == 1, format + " commit");
+            Slot body = loadedOf(root, format).slots.get(B).value;
+            check(problems, body != null && SIGNERS.equals(body.signerSha256),
+                    format + " body signers");
         });
     }
 
@@ -230,8 +251,9 @@ public final class NativeCreationBindingTest {
             check(problems, retirementRefused(root, manager, b)
                     && sameBytes(root.resolve("store.bin"), GOLDEN_LIVE_B_V1), "retirement " + stored(root));
         });
-        run("V2 / an owned flow writes the golden version 2 bytes", problems -> {
-            PackageManagerService pm = livePmOf(V2);
+        common("V2 / an owned flow writes the golden version 2 bytes",
+                "V3 / an owned flow writes the golden version 2 bytes", List.of(V2), (problems, format) -> {
+            PackageManagerService pm = livePmOf(format);
             Path root = pm.mSettings.root;
             check(problems, sameBytes(root.resolve("store.bin"), GOLDEN_EMPTY_V1),
                     "initialization is not an empty version 1 header");
@@ -241,14 +263,15 @@ public final class NativeCreationBindingTest {
                     && sameBytes(root.resolve("store.bin"), GOLDEN_PENDING_B_V2)
                     && sameBytes(root.resolve("store.bin.reservecopy"), GOLDEN_PENDING_B_V2),
                     "reservation bytes");
-            check(problems, v2(1, boundCreating(B, 1, PKG_B)).equals(storedOf(root, V2)),
-                    "reservation " + storedOf(root, V2));
-            check(problems, manager.commit(b) && v2(1, live(B)).equals(storedOf(root, V2))
+            check(problems, v2(1, boundCreating(B, 1, PKG_B)).equals(storedOf(root, format)),
+                    "reservation " + storedOf(root, format));
+            check(problems, manager.commit(b) && v2(1, live(B)).equals(storedOf(root, format))
                     && pm.mSettings.pins.snapshotForWrite().lastId == 1,
-                    "publication " + storedOf(root, V2));
+                    "publication " + storedOf(root, format));
         });
-        run("V2 / legacy B beside new C writes the golden bytes", problems -> {
-            PackageManagerService pm = livePmOf(V2);
+        common("V2 / legacy B beside new C writes the golden bytes",
+                "V3 / legacy B beside new C writes the golden bytes", List.of(V2), (problems, format) -> {
+            PackageManagerService pm = livePmOf(format);
             Path root = pm.mSettings.root;
             NativePrincipalManager manager = new NativePrincipalManager(pm);
             manager.prepare(manager.select(PKG_B, 0));
@@ -317,8 +340,9 @@ public final class NativeCreationBindingTest {
     // projection, so both admit or both refuse, and a refusal comes before N's ID is issued.
     private static void byteAdmission() {
         for (int over : List.of(0, 1)) {
-            run(over == 0 ? "admission / exactly MAX_BYTES is admitted and written"
-                    : "admission / one byte over MAX_BYTES refuses before issuance", problems -> {
+            String name = over == 0 ? "admission / exactly MAX_BYTES is admitted and written"
+                    : "admission / one byte over MAX_BYTES refuses before issuance";
+            common(name, "V3 / " + name, List.of(V2), (problems, format) -> {
                 Set<String> wide = wideSigners(NativeIdentityRecords.MAX_SIGNERS, 4);
                 List<HeaderEntry> held = new ArrayList<>();
                 for (int i = 0; i < 48; i++) {
@@ -346,7 +370,7 @@ public final class NativeCreationBindingTest {
                 if (!problems.isEmpty()) return;
                 String pkgN = uniqueName(length, 91);
                 SigningDetails nSigning = signing(91, count);
-                PackageManagerService pm = reopenOf(root, V2, Map.of(pkgP, appP, pkgN, appN));
+                PackageManagerService pm = reopenOf(root, format, Map.of(pkgP, appP, pkgN, appN));
                 pm.mSettings.packages.get(pkgP).signing = pSigning;
                 pm.mSettings.packages.get(pkgN).signing = nSigning;
                 check(problems, pm.mSettings.pins.hasKnownCounter()
@@ -368,7 +392,7 @@ public final class NativeCreationBindingTest {
                     check(problems, manager.identity(n).id == 52, "N was not issued ID 52");
                     check(problems, pm.mSettings.persistence.reservePending(planned)
                             && Files.size(root.resolve("store.bin")) == NativeIdentityRecords.MAX_BYTES
-                            && projected != null && projected.equals(storedOf(root, V2)),
+                            && projected != null && projected.equals(storedOf(root, format)),
                             "the writer did not write the admitted projection");
                     check(problems, manager.commit(n)
                             && pm.mSettings.pins.snapshotForWrite().lastId == 52, "N commit refused");
@@ -390,21 +414,23 @@ public final class NativeCreationBindingTest {
 
     // Under version 2 a truly new entry is bound; restatements keep their entries and version.
     private static void projection() {
-        run("V2 / a restatement alone keeps version 1", problems -> {
-            PackageManagerService pm = livePmOf(V2);
+        common("V2 / a restatement alone keeps version 1", "V3 / a restatement alone keeps version 1",
+                List.of(V2), (problems, format) -> {
+            PackageManagerService pm = livePmOf(format);
             Path root = pm.mSettings.root;
             NativePrincipalManager manager = new NativePrincipalManager(pm);
             NativePrincipalManager.Handle b = manager.prepare(manager.select(PKG_B, 0));
             legacyReservation(pm, OLD, PENDING_B);
             check(problems, !commitWithoutPublication(root, manager, b)
-                    && PENDING_B.equals(storedOf(root, V2)), "restatement " + storedOf(root, V2));
-            check(problems, manager.commit(b) && header(1, live(B)).equals(storedOf(root, V2)),
-                    "publication " + storedOf(root, V2));
+                    && PENDING_B.equals(storedOf(root, format)), "restatement " + storedOf(root, format));
+            check(problems, manager.commit(b) && header(1, live(B)).equals(storedOf(root, format)),
+                    "publication " + storedOf(root, format));
         });
         for (boolean cFirst : List.of(true, false)) {
-            run("V2 / legacy B with new C upgrades, " + (cFirst ? "C" : "B") + " committed first",
-                    problems -> {
-                PackageManagerService pm = livePmOf(V2);
+            String order = (cFirst ? "C" : "B") + " committed first";
+            common("V2 / legacy B with new C upgrades, " + order, "V3 / legacy B with new C upgrades, " + order,
+                    List.of(V2), (problems, format) -> {
+                PackageManagerService pm = livePmOf(format);
                 Path root = pm.mSettings.root;
                 NativePrincipalManager manager = new NativePrincipalManager(pm);
                 NativePrincipalManager.Handle b = manager.prepare(manager.select(PKG_B, 0));
@@ -414,36 +440,38 @@ public final class NativeCreationBindingTest {
                 NativePrincipalManager.Handle first = cFirst ? c : b, second = cFirst ? b : c;
                 Header upgraded = v2(2, creating(B, 1, PKG_B), boundCreating(C, 2, PKG_C));
                 check(problems, !commitWithoutPublication(root, manager, first)
-                        && upgraded.equals(storedOf(root, V2)), "upgrade " + storedOf(root, V2));
+                        && upgraded.equals(storedOf(root, format)), "upgrade " + storedOf(root, format));
                 check(problems, manager.commit(first), "first original retry refused");
-                Header middle = storedOf(root, V2);
+                Header middle = storedOf(root, format);
                 HeaderEntry legacyB = middle == null ? null : entryOf(middle, B);
                 check(problems, middle != null && middle.version == 2 && legacyB != null
                         && (cFirst ? legacyB.phase == SlotPhase.CREATING && legacyB.creationBinding == null
                         : legacyB.phase == SlotPhase.LIVE), "B after the first commit " + middle);
                 check(problems, manager.commit(second), "second commit refused");
-                check(problems, v2(2, live(B), live(C)).equals(storedOf(root, V2))
+                check(problems, v2(2, live(B), live(C)).equals(storedOf(root, format))
                         && pm.mSettings.pins.snapshotForWrite().lastId == 2,
-                        "result " + storedOf(root, V2));
+                        "result " + storedOf(root, format));
             });
         }
-        run("V2 / a restatement stays version 1, then new C upgrades", problems -> {
-            PackageManagerService pm = livePmOf(V2);
+        common("V2 / a restatement stays version 1, then new C upgrades",
+                "V3 / a restatement stays version 1, then new C upgrades", List.of(V2), (problems, format) -> {
+            PackageManagerService pm = livePmOf(format);
             Path root = pm.mSettings.root;
             NativePrincipalManager manager = new NativePrincipalManager(pm);
             NativePrincipalManager.Handle b = manager.prepare(manager.select(PKG_B, 0));
             legacyReservation(pm, OLD, PENDING_B);
-            check(problems, manager.commit(b) && header(1, live(B)).equals(storedOf(root, V2)),
-                    "restatement " + storedOf(root, V2));
+            check(problems, manager.commit(b) && header(1, live(B)).equals(storedOf(root, format)),
+                    "restatement " + storedOf(root, format));
             NativePrincipalManager.Handle c = manager.prepare(manager.select(PKG_C, 0));
             check(problems, !commitWithoutPublication(root, manager, c)
-                    && v2(2, live(B), boundCreating(C, 2, PKG_C)).equals(storedOf(root, V2)),
-                    "upgrade " + storedOf(root, V2));
-            check(problems, manager.commit(c) && v2(2, live(B), live(C)).equals(storedOf(root, V2)),
-                    "result " + storedOf(root, V2));
+                    && v2(2, live(B), boundCreating(C, 2, PKG_C)).equals(storedOf(root, format)),
+                    "upgrade " + storedOf(root, format));
+            check(problems, manager.commit(c) && v2(2, live(B), live(C)).equals(storedOf(root, format)),
+                    "result " + storedOf(root, format));
         });
-        run("V2 / pending and unpublished RETIRING pins reserve together", problems -> {
-            PackageManagerService pm = livePmOf(V2);
+        common("V2 / pending and unpublished RETIRING pins reserve together",
+                "V3 / pending and unpublished RETIRING pins reserve together", List.of(V2), (problems, format) -> {
+            PackageManagerService pm = livePmOf(format);
             Path root = pm.mSettings.root;
             NativePrincipalManager manager = new NativePrincipalManager(pm);
             NativePrincipalManager.Handle a = manager.prepare(manager.select(PKG_A, 0));
@@ -453,17 +481,21 @@ public final class NativeCreationBindingTest {
             Header all = v2(3, boundCreating(A, 1, PKG_A), boundCreating(B, 2, PKG_B),
                     boundCreating(C, 3, PKG_C));
             check(problems, !commitWithoutPublication(root, manager, a)
-                    && all.equals(storedOf(root, V2)), "reservation " + storedOf(root, V2));
+                    && all.equals(storedOf(root, format)), "reservation " + storedOf(root, format));
             check(problems, manager.commit(a) && manager.commit(b), "pending commits refused");
             // Its retirement refuses under the version 2 format before any effect: C stays reserved.
-            check(problems, retirementRefused(root, manager, c), "the RETIRING creation's retirement");
-            check(problems, v2(3, live(A), live(B), boundCreating(C, 3, PKG_C)).equals(storedOf(root, V2))
-                    && pm.mSettings.pins.snapshotForWrite().lastId == 3, "result " + storedOf(root, V2));
+            // The production twin leaves C alone: its retirement is the lifecycle runner's case.
+            if (format != V3) {
+                check(problems, retirementRefused(root, manager, c), "the RETIRING creation's retirement");
+            }
+            check(problems, v2(3, live(A), live(B), boundCreating(C, 3, PKG_C)).equals(storedOf(root, format))
+                    && pm.mSettings.pins.snapshotForWrite().lastId == 3, "result " + storedOf(root, format));
         });
-        run("V2 / a held binding refuses another owned signer row", problems -> {
+        common("V2 / a held binding refuses another owned signer row",
+                "V3 / a held binding refuses another owned signer row", List.of(V2), (problems, format) -> {
             Header held = v2(1, boundCreating(B, 1, PKG_B));
             Path root = layout(null, bytes(held), bytes(held));
-            NativeIdentityPersistence persistence = persistenceOf(root, V2);
+            NativeIdentityPersistence persistence = persistenceOf(root, format);
             Snapshot own = new Snapshot(1, List.of(record(1, PKG_B, B)));
             NativeIdentityStore.Loaded loaded = persistence.load();
             check(problems, persistence.projectReservation(loaded, plan(own, Map.of(1L, OTHER))) == null,
@@ -478,10 +510,11 @@ public final class NativeCreationBindingTest {
             unchanged(problems, root, "another signer set",
                     () -> persistence.reservePending(plan(own, Map.of(1L, OTHER))));
         });
-        run("V2 / a bound addition is restated exactly or refused", problems -> {
+        common("V2 / a bound addition is restated exactly or refused",
+                "V3 / a bound addition is restated exactly or refused", List.of(V2), (problems, format) -> {
             Header next = v2(2, live(A), boundCreating(D, 2, PKG_D));
             Path root = legacy(v2(1, live(A)), next);
-            NativeIdentityPersistence persistence = persistenceOf(root, V2);
+            NativeIdentityPersistence persistence = persistenceOf(root, format);
             Snapshot own = new Snapshot(2, List.of(record(2, PKG_D, D)));
             NativeIdentityStore.Loaded loaded = persistence.load();
             check(problems, next.equals(persistence.projectReservation(loaded,
@@ -494,7 +527,7 @@ public final class NativeCreationBindingTest {
                     List.of(new Record(2, PKG_D, D, 0, SERIAL + 1))), Map.of())) == null,
                     "another serial admitted");
             check(problems, persistence.reservePending(plan(own, Map.of(2L, SIGNERS)))
-                    && next.equals(storedOf(root, V2)), "restatement " + storedOf(root, V2));
+                    && next.equals(storedOf(root, format)), "restatement " + storedOf(root, format));
         });
     }
 
@@ -508,51 +541,56 @@ public final class NativeCreationBindingTest {
             check(problems, store.writeHeader(OLD, PENDING_B) && PENDING_B.equals(stored(root)),
                     "version 1 reservation refused");
         });
-        run("low level / a new entry under version 2 needs a complete binding", problems -> {
+        common("low level / a new entry under version 2 needs a complete binding",
+                "V3 / low level / a new entry under version 2 needs a complete binding", List.of(V2),
+                (problems, format) -> {
             Path root = layout(null, bytes(OLD), bytes(OLD));
-            NativeIdentityStore store = storeOf(root, V2);
+            NativeIdentityStore store = storeOf(root, format);
             unchanged(problems, root, "unbound version 1 addition", () -> store.writeHeader(OLD, PENDING_B));
             unchanged(problems, root, "unbound version 2 addition",
                     () -> store.writeHeader(OLD, v2(1, creating(B, 1, PKG_B))));
             Header upgraded = v2(1, boundCreating(B, 1, PKG_B));
-            check(problems, store.writeHeader(OLD, upgraded) && upgraded.equals(storedOf(root, V2)),
+            check(problems, store.writeHeader(OLD, upgraded) && upgraded.equals(storedOf(root, format)),
                     "bound upgrade refused");
             unchanged(problems, root, "unbound addition to version 2", () -> store.writeHeader(upgraded,
                     v2(2, boundCreating(B, 1, PKG_B), creating(C, 2, PKG_C))));
             Header both = v2(2, boundCreating(B, 1, PKG_B), boundCreating(C, 2, PKG_C));
-            check(problems, store.writeHeader(upgraded, both) && both.equals(storedOf(root, V2)),
+            check(problems, store.writeHeader(upgraded, both) && both.equals(storedOf(root, format)),
                     "bound addition refused");
         });
-        run("low level / a restatement alone never upgrades", problems -> {
+        common("low level / a restatement alone never upgrades", "V3 / low level / a restatement alone never upgrades",
+                List.of(V2), (problems, format) -> {
             Path root = legacy(OLD, PENDING_B);
-            NativeIdentityStore store = storeOf(root, V2);
+            NativeIdentityStore store = storeOf(root, format);
             unchanged(problems, root, "restatement upgrade",
                     () -> store.writeHeader(OLD, v2(1, creating(B, 1, PKG_B))));
-            check(problems, store.writeHeader(OLD, PENDING_B) && PENDING_B.equals(storedOf(root, V2)),
+            check(problems, store.writeHeader(OLD, PENDING_B) && PENDING_B.equals(storedOf(root, format)),
                     "version 1 restatement refused");
             Path filled = legacy(OLD, PENDING_B);
-            unchanged(problems, filled, "filled legacy binding", () -> storeOf(filled, V2).writeHeader(OLD,
+            unchanged(problems, filled, "filled legacy binding", () -> storeOf(filled, format).writeHeader(OLD,
                     v2(2, boundCreating(B, 1, PKG_B), boundCreating(C, 2, PKG_C))));
             Path upgraded = legacy(OLD, PENDING_B);
             Header target = v2(2, creating(B, 1, PKG_B), boundCreating(C, 2, PKG_C));
-            check(problems, storeOf(upgraded, V2).writeHeader(OLD, target)
-                    && target.equals(storedOf(upgraded, V2)), "restatement with a new bound entry refused");
+            check(problems, storeOf(upgraded, format).writeHeader(OLD, target)
+                    && target.equals(storedOf(upgraded, format)), "restatement with a new bound entry refused");
         });
-        run("low level / relabels and downgrades refuse", problems -> {
+        common("low level / relabels and downgrades refuse", "V3 / low level / relabels and downgrades refuse",
+                List.of(V2), (problems, format) -> {
             Path root = layout(null, bytes(PENDING_B), bytes(PENDING_B));
-            NativeIdentityStore store = storeOf(root, V2);
+            NativeIdentityStore store = storeOf(root, format);
             unchanged(problems, root, "relabel", () -> store.writeHeader(PENDING_B, v2(1, creating(B, 1, PKG_B))));
             Header boundB = v2(1, boundCreating(B, 1, PKG_B));
             Path other = layout(null, bytes(boundB), bytes(boundB));
-            NativeIdentityStore upgraded = storeOf(other, V2);
+            NativeIdentityStore upgraded = storeOf(other, format);
             unchanged(problems, other, "downgrade", () -> upgraded.writeHeader(boundB, PENDING_B));
             unchanged(problems, other, "downgrade with a phase change",
                     () -> upgraded.writeHeader(boundB, header(1, live(B))));
         });
-        run("low level / a binding is never changed, dropped or filled", problems -> {
+        common("low level / a binding is never changed, dropped or filled",
+                "V3 / low level / a binding is never changed, dropped or filled", List.of(V2), (problems, format) -> {
             Header boundB = v2(1, boundCreating(B, 1, PKG_B));
             Path root = layout(null, bytes(boundB), bytes(boundB));
-            NativeIdentityStore store = storeOf(root, V2);
+            NativeIdentityStore store = storeOf(root, format);
             unchanged(problems, root, "changed signers",
                     () -> store.writeHeader(boundB, v2(1, boundCreating(B, 1, PKG_B, OTHER))));
             unchanged(problems, root, "dropped binding",
@@ -560,25 +598,25 @@ public final class NativeCreationBindingTest {
             Header incomplete = v2(1, creating(B, 1, PKG_B));
             Path other = layout(null, bytes(incomplete), bytes(incomplete));
             unchanged(problems, other, "filled binding",
-                    () -> storeOf(other, V2).writeHeader(incomplete, boundB));
+                    () -> storeOf(other, format).writeHeader(incomplete, boundB));
         });
-        run("low level / an unselected addition is restated exactly", problems -> {
-            for (NativeIdentityStore.Format format : List.of(V1, V2)) {
-                Path root = legacy(OLD, PENDING_B);
-                NativeIdentityStore store = storeOf(root, format);
-                unchanged(problems, root, format + " another creation ID",
-                        () -> store.writeHeader(OLD, header(2, creating(B, 2, PKG_B))));
-                unchanged(problems, root, format + " another package",
-                        () -> store.writeHeader(OLD, header(1, creating(B, 1, PKG_X))));
-                check(problems, store.writeHeader(OLD, PENDING_B) && PENDING_B.equals(storedOf(root, format)),
-                        format + " exact restatement refused");
-            }
+        common("low level / an unselected addition is restated exactly",
+                "V3 / low level / an unselected addition is restated exactly", List.of(V1, V2), (problems, format) -> {
+            Path root = legacy(OLD, PENDING_B);
+            NativeIdentityStore store = storeOf(root, format);
+            unchanged(problems, root, format + " another creation ID",
+                    () -> store.writeHeader(OLD, header(2, creating(B, 2, PKG_B))));
+            unchanged(problems, root, format + " another package",
+                    () -> store.writeHeader(OLD, header(1, creating(B, 1, PKG_X))));
+            check(problems, store.writeHeader(OLD, PENDING_B) && PENDING_B.equals(storedOf(root, format)),
+                    format + " exact restatement refused");
         });
-        run("low level / an upgrade needs a pure reservation", problems -> {
+        common("low level / an upgrade needs a pure reservation",
+                "V3 / low level / an upgrade needs a pure reservation", List.of(V2), (problems, format) -> {
             Header prior = header(1, creating(A, 1, PKG_A));
             Path root = layout(null, bytes(prior), bytes(prior));
             slot(root, A, bound(A, PKG_A, 1, false, 1));
-            NativeIdentityStore store = storeOf(root, V2);
+            NativeIdentityStore store = storeOf(root, format);
             unchanged(problems, root, "mixed upgrade",
                     () -> store.writeHeader(prior, v2(2, live(A), boundCreating(C, 2, PKG_C))));
             check(problems, store.writeHeader(prior, header(1, live(A))), "completion refused");
@@ -590,32 +628,36 @@ public final class NativeCreationBindingTest {
     // Copies relate across versions only as a version 1 predecessor of a protected version 2
     // reservation. Anything else is incompatible: writes refuse and no counter is restored.
     private static void crossVersion() {
-        run("cross version / a V2 target beside V1 predecessors restores only its counter", problems -> {
+        common("cross version / a V2 target beside V1 predecessors restores only its counter",
+                "V3 / cross version / a V2 target beside V1 predecessors restores only its counter", List.of(V2),
+                (problems, format) -> {
             Header target = v2(3, creating(A, 1, PKG_A), creating(B, 2, PKG_B),
                     boundCreating(C, 3, PKG_C));
             Path root = layout(bytes(target), bytes(header(1, creating(A, 1, PKG_A))),
                     bytes(header(2, creating(A, 1, PKG_A), creating(B, 2, PKG_B))));
-            NativeIdentityStore.Loaded loaded = loadedOf(root, V2);
+            NativeIdentityStore.Loaded loaded = loadedOf(root, format);
             check(problems, loaded.header.status == Status.VALID && target.equals(loaded.header.value)
                     && !loaded.unselectedFootprint && loaded.counterRestorable()
                     && loaded.occupiedAppIds.equals(Set.of(A, B, C)), "selection " + loaded.header.status);
-            bootCounterOf(problems, root, V2, 3);
-            check(problems, storeOf(root, V2).writeHeader(target, target)
-                    && target.equals(storedOf(root, V2))
+            bootCounterOf(problems, root, format, 3);
+            check(problems, storeOf(root, format).writeHeader(target, target)
+                    && target.equals(storedOf(root, format))
                     && !Files.exists(root.resolve("store.bin-backup"), LinkOption.NOFOLLOW_LINKS),
                     "exact retry refused");
         });
-        run("cross version / a V1 selection beside a V2 copy is incompatible", problems -> {
+        common("cross version / a V1 selection beside a V2 copy is incompatible",
+                "V3 / cross version / a V1 selection beside a V2 copy is incompatible", List.of(V2),
+                (problems, format) -> {
             Header copy = v2(1, boundCreating(B, 1, PKG_B));
             Path root = layout(bytes(OLD), bytes(copy), bytes(copy));
-            NativeIdentityStore store = storeOf(root, V2);
+            NativeIdentityStore store = storeOf(root, format);
             NativeIdentityStore.Loaded loaded = store.load();
             check(problems, OLD.equals(loaded.header.value) && loaded.unselectedFootprint
                     && loaded.occupiedAppIds.contains(B), "view " + loaded.header.status);
             unchanged(problems, root, "selected header", () -> store.writeHeader(OLD, OLD));
-            unchanged(problems, root, "owned restatement", () -> persistenceOf(root, V2).reservePending(
+            unchanged(problems, root, "owned restatement", () -> persistenceOf(root, format).reservePending(
                     plan(new Snapshot(1, List.of(record(1, PKG_B, B))), Map.of(1L, SIGNERS))));
-            bootCounterOf(problems, root, V2, -1);
+            bootCounterOf(problems, root, format, -1);
         });
         Map<String, Header[]> shapes = new TreeMap<>();
         // Selected, copy, and an owner's restatement of every copy entry.
@@ -628,23 +670,25 @@ public final class NativeCreationBindingTest {
         shapes.put("a V1 copy below a counter only advance", new Header[] {v2(2, live(A)),
                 header(1, live(A)), null});
         for (Map.Entry<String, Header[]> shape : shapes.entrySet()) {
-            run("cross version / " + shape.getKey() + " is incompatible", problems -> {
+            String name = "cross version / " + shape.getKey() + " is incompatible";
+            common(name, "V3 / " + name, List.of(V2), (problems, format) -> {
                 Header selected = shape.getValue()[0];
                 Header restatement = shape.getValue()[2];
                 Path root = legacy(selected, shape.getValue()[1]);
-                NativeIdentityStore store = storeOf(root, V2);
-                check(problems, selected.equals(storedOf(root, V2)) && loadedOf(root, V2).unselectedFootprint,
-                        "not the constructed selection");
+                NativeIdentityStore store = storeOf(root, format);
+                check(problems, selected.equals(storedOf(root, format))
+                        && loadedOf(root, format).unselectedFootprint, "not the constructed selection");
                 unchanged(problems, root, "selected header", () -> store.writeHeader(selected, selected));
                 if (restatement != null) {
                     unchanged(problems, root, "restatement", () -> store.writeHeader(selected, restatement));
                 }
-                bootCounterOf(problems, root, V2, -1);
+                bootCounterOf(problems, root, format, -1);
             });
         }
-        run("cross version / an interrupted V1 publication then a protected V2 reservation",
-                problems -> {
-            PackageManagerService pm = livePmOf(V2);
+        common("cross version / an interrupted V1 publication then a protected V2 reservation",
+                "V3 / cross version / an interrupted V1 publication then a protected V2 reservation", List.of(V2),
+                (problems, format) -> {
+            PackageManagerService pm = livePmOf(format);
             Path root = pm.mSettings.root;
             NativePrincipalManager manager = new NativePrincipalManager(pm);
             NativePrincipalManager.Handle a = manager.prepare(manager.select(PKG_A, 0));
@@ -654,10 +698,10 @@ public final class NativeCreationBindingTest {
             observe(pm);
             NativePrincipalManager.Handle c = manager.prepare(manager.select(PKG_C, 0));
             check(problems, manager.commit(c)
-                    && v2(2, creating(A, 1, PKG_A), live(C)).equals(storedOf(root, V2)),
-                    "protected upgrade " + storedOf(root, V2));
-            check(problems, manager.commit(a) && v2(2, live(A), live(C)).equals(storedOf(root, V2)),
-                    "result " + storedOf(root, V2));
+                    && v2(2, creating(A, 1, PKG_A), live(C)).equals(storedOf(root, format)),
+                    "protected upgrade " + storedOf(root, format));
+            check(problems, manager.commit(a) && v2(2, live(A), live(C)).equals(storedOf(root, format)),
+                    "result " + storedOf(root, format));
         });
     }
 
@@ -680,10 +724,11 @@ public final class NativeCreationBindingTest {
         bodies.put("two users", new Slot(LINEAGE, R, PKG_R, 1, TWO,
                 List.of(new UserEntry(1, 0, SERIAL, false), new UserEntry(2, 10, SERIAL, false))));
         for (Map.Entry<String, Slot> body : bodies.entrySet()) {
-            run("binding mismatch / " + body.getKey(), problems -> {
+            String name = "binding mismatch / " + body.getKey();
+            common(name, "V3 / " + name, List.of(V2), (problems, format) -> {
                 Path root = layout(null, bytes(held), bytes(held));
                 slot(root, R, body.getValue());
-                NativeIdentityStore store = storeOf(root, V2);
+                NativeIdentityStore store = storeOf(root, format);
                 NativeIdentityStore.Loaded loaded = store.load();
                 NativeIdentityStore.ReadResult<Slot> read = loaded.slots.get(R);
                 // The counter admission correction: two users decode principal ID 2 above counter
@@ -695,66 +740,71 @@ public final class NativeCreationBindingTest {
                         "load " + (read == null ? null : read.status) + " ready " + loaded.creationReady());
                 unchanged(problems, root, "completion", () -> store.writeHeader(held, v2(1, live(R))));
                 unchanged(problems, root, "publication",
-                        () -> persistenceOf(root, V2).publish(recordR, TWO));
+                        () -> persistenceOf(root, format).publish(recordR, TWO));
                 Map<String, String> slotsBefore = footprint(root.resolve("slots"));
                 check(problems, !store.resumeCreatingDirectory(held, R)
                         && footprint(root.resolve("slots")).equals(slotsBefore)
                         && sameBytes(root.resolve("store.bin"), bytes(held)), "resume accepted");
-                PackageManagerService pm = reopenOf(root, V2, Map.of(PKG_R, R));
+                PackageManagerService pm = reopenOf(root, format, Map.of(PKG_R, R));
                 check(problems, pm.mSettings.pins.find(PKG_R, 0) == null
                         && pm.mSettings.isNativePrincipalAppIdLPr(R), "restored from a mismatch");
                 Path empty = layout(null, bytes(held), bytes(held));
                 Path directory = Files.createDirectory(empty.resolve("slots/" + R));
-                check(problems, !storeOf(empty, V2).publishCreatingSlot(held, body.getValue())
+                check(problems, !storeOf(empty, format).publishCreatingSlot(held, body.getValue())
                         && emptyDirectory(directory), "mismatched body published");
             });
         }
-        run("binding mismatch / another user", problems -> {
+        common("binding mismatch / another user", "V3 / binding mismatch / another user", List.of(V2),
+                (problems, format) -> {
             Header other = v2(1, new HeaderEntry(R, SlotPhase.CREATING, 1, PKG_R,
                     new CreationBinding(10, SERIAL, TWO)));
             Path root = layout(null, bytes(other), bytes(other));
             slot(root, R, new Slot(LINEAGE, R, PKG_R, 1, TWO, List.of(new UserEntry(1, 0, SERIAL, false))));
-            NativeIdentityStore.Loaded loaded = loadedOf(root, V2);
+            NativeIdentityStore.Loaded loaded = loadedOf(root, format);
             check(problems, loaded.slots.get(R).status == Status.CONFLICT && !loaded.bindingUsable(R),
                     "load " + loaded.slots.get(R).status);
             unchanged(problems, root, "completion",
-                    () -> storeOf(root, V2).writeHeader(other, v2(1, live(R))));
+                    () -> storeOf(root, format).writeHeader(other, v2(1, live(R))));
         });
-        run("binding mismatch / publication of another serial or signer set", problems -> {
+        common("binding mismatch / publication of another serial or signer set",
+                "V3 / binding mismatch / publication of another serial or signer set", List.of(V2),
+                (problems, format) -> {
             Path root = layout(null, bytes(held), bytes(held));
-            NativeIdentityPersistence persistence = persistenceOf(root, V2);
+            NativeIdentityPersistence persistence = persistenceOf(root, format);
             unchanged(problems, root, "another serial",
                     () -> persistence.publish(new Record(1, PKG_R, R, 0, SERIAL + 1), TWO));
             unchanged(problems, root, "a signer subset",
                     () -> persistence.publish(recordR, Set.of("6".repeat(64))));
             unchanged(problems, root, "a signer superset", () -> persistence.publish(recordR,
                     Set.of("6".repeat(64), "7".repeat(64), "8".repeat(64))));
-            check(problems, persistence.publish(recordR, TWO) && v2(1, live(R)).equals(storedOf(root, V2)),
-                    "exact publication refused " + storedOf(root, V2));
+            check(problems, persistence.publish(recordR, TWO) && v2(1, live(R)).equals(storedOf(root, format)),
+                    "exact publication refused " + storedOf(root, format));
         });
         for (boolean retiring : List.of(false, true)) {
-            run("binding match / " + (retiring ? "a retiring" : "an active") + " body is usable",
-                    problems -> {
+            String name = "binding match / " + (retiring ? "a retiring" : "an active") + " body is usable";
+            common(name, "V3 / " + name, List.of(V2), (problems, format) -> {
                 Path root = layout(null, bytes(held), bytes(held));
                 slot(root, R, new Slot(LINEAGE, R, PKG_R, retiring ? 2 : 1, TWO,
                         List.of(new UserEntry(1, 0, SERIAL, retiring))));
-                NativeIdentityStore.Loaded loaded = loadedOf(root, V2);
+                NativeIdentityStore.Loaded loaded = loadedOf(root, format);
                 check(problems, loaded.slots.get(R).status == Status.VALID && loaded.bindingUsable(R),
                         "matching body refused " + loaded.slots.get(R).status);
-                PackageManagerService pm = reopenOf(root, V2, Map.of(PKG_R, R));
+                PackageManagerService pm = reopenOf(root, format, Map.of(PKG_R, R));
                 NativePrincipalPins.Pin pin = pm.mSettings.pins.find(PKG_R, 0);
                 check(problems, pin != null && pin.phase() == (retiring ? NativePrincipalPins.Phase.RETIRING
                         : NativePrincipalPins.Phase.PENDING), "restored phase");
-                check(problems, storeOf(root, V2).writeHeader(held, v2(1, live(R)))
-                        && v2(1, live(R)).equals(storedOf(root, V2)), "completion refused");
+                check(problems, storeOf(root, format).writeHeader(held, v2(1, live(R)))
+                        && v2(1, live(R)).equals(storedOf(root, format)), "completion refused");
             });
         }
-        run("binding / a published body stays usable beside a later reservation", problems -> {
+        common("binding / a published body stays usable beside a later reservation",
+                "V3 / binding / a published body stays usable beside a later reservation", List.of(V2),
+                (problems, format) -> {
             Header pending = v2(1, boundCreating(C, 1, PKG_C));
             Path root = layout(null, bytes(pending), bytes(pending));
             // C's body is published and its completion to LIVE was lost.
             slot(root, C, bound(C, PKG_C, 1, false, 1));
-            NativeIdentityPersistence persistence = persistenceOf(root, V2);
+            NativeIdentityPersistence persistence = persistenceOf(root, format);
             Snapshot later = new Snapshot(2, List.of(record(1, PKG_C, C), record(2, PKG_D, D)));
             check(problems, persistence.reservePending(plan(later, Map.of(1L, SIGNERS, 2L, SIGNERS))),
                     "later reservation refused");
@@ -763,16 +813,16 @@ public final class NativeCreationBindingTest {
                     .equals(loaded.header.value) && loaded.slots.get(C).status == Status.VALID
                     && loaded.bindingUsable(C), "C conflicted beside D");
             check(problems, persistence.publish(record(1, PKG_C, C), SIGNERS)
-                    && v2(2, live(C), boundCreating(D, 2, PKG_D)).equals(storedOf(root, V2)),
+                    && v2(2, live(C), boundCreating(D, 2, PKG_D)).equals(storedOf(root, format)),
                     "C completion refused");
-            PackageManagerService pm = livePmOf(V2);
+            PackageManagerService pm = livePmOf(format);
             Path liveRoot = pm.mSettings.root;
             NativePrincipalManager manager = new NativePrincipalManager(pm);
             NativePrincipalManager.Handle b = manager.prepare(manager.select(PKG_B, 0));
             check(problems, manager.commit(b), "B commit refused");
             NativePrincipalManager.Handle a = manager.prepare(manager.select(PKG_A, 0));
             check(problems, !commitWithoutPublication(liveRoot, manager, a), "A published read only");
-            NativeIdentityStore.Loaded beside = loadedOf(liveRoot, V2);
+            NativeIdentityStore.Loaded beside = loadedOf(liveRoot, format);
             check(problems, v2(2, live(B), boundCreating(A, 2, PKG_A)).equals(beside.header.value)
                     && beside.slots.get(B).status == Status.VALID && beside.bindingUsable(B),
                     "B conflicted beside A's reservation");
@@ -784,7 +834,7 @@ public final class NativeCreationBindingTest {
     // layout has R's CREATING creation 1 and N's LIVE entry under counter 2. It is read bound,
     // with R's version 2 binding of user 0, serial 7 and a signer set, and as its bindings
     // cleared twin under the version 1 format of the rollback reader, then reopened in a host
-    // PMS facade.
+    // PMS facade. The production twin of each case reads both under Format.V3.
     // The bound layout never makes more usable, holds the same IDs and is never readier.
     // Without an ordinary conflict for R, N fares the same in both. An ordinary conflict alone
     // stays no evidence. Expected statuses are R's, then N's. Host facades only.
@@ -865,9 +915,13 @@ public final class NativeCreationBindingTest {
         for (boolean matching : List.of(false, true)) {
             for (boolean packageCollision : List.of(true, false)) {
                 String kind = packageCollision ? "package" : "principal";
-                String name = matching ? "matching binding ignores unselected " + kind + " body"
-                        : "unselected slot copy keeps " + kind + " evidence";
-                run("binding conflict evidence / " + name, problems -> {
+                String name = "binding conflict evidence / " + (matching
+                        ? "matching binding ignores unselected " + kind + " body"
+                        : "unselected slot copy keeps " + kind + " evidence");
+                // The earlier run reads the bound layout under Format.V2 and its cleared twin under
+                // Format.V1; the production twin reads both under Format.V3.
+                common(name, "V3 / " + name, List.of(V2), (problems, format) -> {
+                    NativeIdentityStore.Format twinFormat = format == V3 ? V3 : V1;
                     String other = "dev.andrix.other";
                     Slot selected = userBody(B, PKG_R, 1, SERIAL, bodySigners);
                     Slot unselected = userBody(B, packageCollision ? other : PKG_R,
@@ -889,17 +943,17 @@ public final class NativeCreationBindingTest {
                                 NativeIdentityRecords.encodeSlot(unselected));
                         slot(root, C, sibling);
                     }
-                    View before = view(problems, cleared, V1, B, C, "VALID VALID", selected, sibling, 2);
-                    View after = view(problems, held, V2, B, C,
+                    View before = view(problems, cleared, twinFormat, B, C, "VALID VALID", selected, sibling, 2);
+                    View after = view(problems, held, format, B, C,
                             matching ? "VALID VALID" : "CONFLICT CONFLICT", selected, sibling, 2);
                     check(problems, before.usable.containsAll(after.usable)
                             && before.holds.equals(after.holds)
                             && (before.creation || !after.creation) && (before.counter || !after.counter),
                             "unselected slot bytes became positive history or lost a hold");
-                    for (NativeIdentityStore.Format format : List.of(V1, V2)) {
-                        Path root = format == V1 ? cleared : held;
-                        NativePrincipalPins.Pin pin = reopenOf(root, format, Map.of()).mSettings.pins.findId(1);
-                        check(problems, pin == null ? format == V2 && !matching
+                    for (Path root : List.of(cleared, held)) {
+                        NativePrincipalPins.Pin pin = reopenOf(root, root == cleared ? twinFormat : format,
+                                Map.of()).mSettings.pins.findId(1);
+                        check(problems, pin == null ? root == held && !matching
                                 : pin.record().equals(record(1, PKG_R, B)),
                                 "restoration used an unselected slot package or principal");
                     }
@@ -964,7 +1018,11 @@ public final class NativeCreationBindingTest {
     private static void evidence(String name, int appR, int appN, String packageR,
             Set<String> bound, Set<String> selected, Slot bodyR, Slot bodyN, String twinStatuses,
             String boundStatuses) {
-        run("binding conflict evidence / " + name, problems -> {
+        // The earlier run reads the bound layout under Format.V2 and its cleared twin under
+        // Format.V1; the production twin reads both under Format.V3.
+        common("binding conflict evidence / " + name, "V3 / binding conflict evidence / " + name, List.of(V2),
+                (problems, format) -> {
+            NativeIdentityStore.Format twinFormat = format == V3 ? V3 : V1;
             Header twin = header(2, creating(appR, 1, packageR), live(appN));
             Header held = v2(2, boundCreating(appR, 1, packageR, bound), live(appN));
             byte[] backup = selected == null ? null
@@ -975,8 +1033,8 @@ public final class NativeCreationBindingTest {
                 slot(root, appR, bodyR);
                 slot(root, appN, bodyN);
             }
-            View twinView = view(problems, cleared, V1, appR, appN, twinStatuses, bodyR, bodyN, 2);
-            View boundView = view(problems, within, V2, appR, appN, boundStatuses, bodyR, bodyN,
+            View twinView = view(problems, cleared, twinFormat, appR, appN, twinStatuses, bodyR, bodyN, 2);
+            View boundView = view(problems, within, format, appR, appN, boundStatuses, bodyR, bodyN,
                     backup == null ? 2 : -1);
             check(problems, twinView.usable.containsAll(boundView.usable)
                     && twinView.holds.equals(boundView.holds)
@@ -995,28 +1053,31 @@ public final class NativeCreationBindingTest {
     // and nothing copies current package signers into it.
     private static void restored() {
         Header held = v2(1, boundCreating(R, 1, PKG_R));
-        run("restored R / unrelated N reserves beside it without a row", problems -> {
+        common("restored R / unrelated N reserves beside it without a row",
+                "V3 / restored R / unrelated N reserves beside it without a row", List.of(V2), (problems, format) -> {
             Path root = layout(null, bytes(held), bytes(held));
             slot(root, R, bound(R, PKG_R, 1, false, 1));
-            PackageManagerService pm = reopenOf(root, V2, Map.of(PKG_R, R, PKG_B, B));
+            PackageManagerService pm = reopenOf(root, format, Map.of(PKG_R, R, PKG_B, B));
             NativePrincipalPins.Pin pin = pm.mSettings.pins.find(PKG_R, 0);
             check(problems, pin != null && pin.issuance() == null && pm.mSettings.pins.hasKnownCounter(),
                     "R not restored beside a known counter");
             NativePrincipalManager manager = new NativePrincipalManager(pm);
             NativePrincipalManager.Handle n = manager.prepare(manager.select(PKG_B, 0));
             check(problems, manager.identity(n).id == 2 && manager.commit(n), "N refused beside R");
-            check(problems, v2(2, boundCreating(R, 1, PKG_R), live(B)).equals(storedOf(root, V2)),
-                    "R changed " + storedOf(root, V2));
+            check(problems, v2(2, boundCreating(R, 1, PKG_R), live(B)).equals(storedOf(root, format)),
+                    "R changed " + storedOf(root, format));
             NativePrincipalManager.Handle r = manager.prepare(manager.select(PKG_R, 0));
             check(problems, pm.mSettings.pins.find(PKG_R, 0).issuance() == null,
                     "an explicit rebind added issuance");
-            check(problems, manager.commit(r) && v2(2, live(R), live(B)).equals(storedOf(root, V2)),
-                    "R's own rebind refused " + storedOf(root, V2));
+            check(problems, manager.commit(r) && v2(2, live(R), live(B)).equals(storedOf(root, format)),
+                    "R's own rebind refused " + storedOf(root, format));
         });
-        run("restored R / a changed APK signer refuses only R's own rebind", problems -> {
+        common("restored R / a changed APK signer refuses only R's own rebind",
+                "V3 / restored R / a changed APK signer refuses only R's own rebind", List.of(V2),
+                (problems, format) -> {
             Path root = layout(null, bytes(held), bytes(held));
             slot(root, R, bound(R, PKG_R, 1, false, 1));
-            PackageManagerService pm = reopenOf(root, V2, Map.of(PKG_R, R, PKG_B, B));
+            PackageManagerService pm = reopenOf(root, format, Map.of(PKG_R, R, PKG_B, B));
             pm.mSettings.packages.get(PKG_R).signing = signing(5, 2);
             NativePrincipalManager manager = new NativePrincipalManager(pm);
             NativePrincipalManager.Handle n = manager.prepare(manager.select(PKG_B, 0));
@@ -1026,14 +1087,16 @@ public final class NativeCreationBindingTest {
             check(problems, throwsType(() -> manager.prepare(manager.select(PKG_R, 0)),
                     IllegalStateException.class), "R rebound to its current signer");
             check(problems, footprint(root).equals(before)
-                    && v2(2, boundCreating(R, 1, PKG_R), live(B)).equals(storedOf(root, V2)),
-                    "R's binding changed " + storedOf(root, V2));
+                    && v2(2, boundCreating(R, 1, PKG_R), live(B)).equals(storedOf(root, format)),
+                    "R's binding changed " + storedOf(root, format));
         });
-        run("restored R / a mismatched body is a conflict that keeps its header", problems -> {
+        common("restored R / a mismatched body is a conflict that keeps its header",
+                "V3 / restored R / a mismatched body is a conflict that keeps its header", List.of(V2),
+                (problems, format) -> {
             Path root = layout(null, bytes(held), bytes(held));
             slot(root, R, new Slot(LINEAGE, R, PKG_R, 1, SIGNERS,
                     List.of(new UserEntry(1, 0, SERIAL + 1, false))));
-            PackageManagerService pm = reopenOf(root, V2, Map.of(PKG_R, R, PKG_B, B));
+            PackageManagerService pm = reopenOf(root, format, Map.of(PKG_R, R, PKG_B, B));
             NativeIdentityStore.Loaded loaded = pm.mSettings.persistence.load();
             check(problems, pm.mSettings.pins.find(PKG_R, 0) == null
                     && loaded.slots.get(R).status == Status.CONFLICT
@@ -1041,16 +1104,17 @@ public final class NativeCreationBindingTest {
             NativePrincipalManager manager = new NativePrincipalManager(pm);
             NativePrincipalManager.Handle n = manager.prepare(manager.select(PKG_B, 0));
             check(problems, manager.commit(n)
-                    && v2(2, boundCreating(R, 1, PKG_R), live(B)).equals(storedOf(root, V2)),
-                    "N refused or R's header changed " + storedOf(root, V2));
+                    && v2(2, boundCreating(R, 1, PKG_R), live(B)).equals(storedOf(root, format)),
+                    "N refused or R's header changed " + storedOf(root, format));
         });
     }
 
     // Plan rows come from the original issuance, never the current PackageSetting. The real
     // designation gates are unchanged. A host facade is not proof of actual disposal.
     private static void signerMutation() {
-        run("signer mutation / Q reserves P with its original signers", problems -> {
-            PackageManagerService pm = livePmOf(V2);
+        common("signer mutation / Q reserves P with its original signers",
+                "V3 / signer mutation / Q reserves P with its original signers", List.of(V2), (problems, format) -> {
+            PackageManagerService pm = livePmOf(format);
             Path root = pm.mSettings.root;
             SigningDetails qSigning = signing(3, 3);
             Set<String> qSigners = digests(qSigning);
@@ -1064,49 +1128,58 @@ public final class NativeCreationBindingTest {
             check(problems, throwsType(() -> manager.commit(p), IllegalStateException.class)
                     && footprint(root).equals(before), "P committed with a replaced signer");
             check(problems, manager.commit(q), "Q stranded by P's replaced signer");
-            check(problems, v2(2, boundCreating(A, 1, PKG_A), live(B)).equals(storedOf(root, V2)),
-                    "P not reserved with its original signers " + storedOf(root, V2));
-            Slot qBody = loadedOf(root, V2).slots.get(B).value;
+            check(problems, v2(2, boundCreating(A, 1, PKG_A), live(B)).equals(storedOf(root, format)),
+                    "P not reserved with its original signers " + storedOf(root, format));
+            Slot qBody = loadedOf(root, format).slots.get(B).value;
             check(problems, qBody != null && qSigners.equals(qBody.signerSha256), "Q body signers");
             // P's retirement refuses under the version 2 format before any effect: P stays reserved.
-            check(problems, retirementRefused(root, manager, p)
-                    && v2(2, boundCreating(A, 1, PKG_A), live(B)).equals(storedOf(root, V2)),
-                    "P's retirement " + storedOf(root, V2));
+            // The production twin leaves P reserved: its retirement is the lifecycle runner's case.
+            if (format != V3) {
+                check(problems, retirementRefused(root, manager, p)
+                        && v2(2, boundCreating(A, 1, PKG_A), live(B)).equals(storedOf(root, format)),
+                        "P's retirement " + storedOf(root, format));
+            }
         });
-        run("signer mutation / a durable P reservation does not strand Q", problems -> {
-            PackageManagerService pm = livePmOf(V2);
+        common("signer mutation / a durable P reservation does not strand Q",
+                "V3 / signer mutation / a durable P reservation does not strand Q", List.of(V2), (problems, format) -> {
+            PackageManagerService pm = livePmOf(format);
             Path root = pm.mSettings.root;
             NativePrincipalManager manager = new NativePrincipalManager(pm);
             NativePrincipalManager.Handle p = manager.prepare(manager.select(PKG_A, 0));
             check(problems, !commitWithoutPublication(root, manager, p)
-                    && v2(1, boundCreating(A, 1, PKG_A)).equals(storedOf(root, V2)),
-                    "P reservation " + storedOf(root, V2));
+                    && v2(1, boundCreating(A, 1, PKG_A)).equals(storedOf(root, format)),
+                    "P reservation " + storedOf(root, format));
             pm.mSettings.packages.get(PKG_A).signing = signing(4, 1);
             pm.mSettings.packages.get(PKG_B).signing = signing(3, 3);
             NativePrincipalManager.Handle q = manager.prepare(manager.select(PKG_B, 0));
             check(problems, manager.commit(q), "Q stranded by P's replaced signer");
-            check(problems, v2(2, boundCreating(A, 1, PKG_A), live(B)).equals(storedOf(root, V2)),
-                    "result " + storedOf(root, V2));
+            check(problems, v2(2, boundCreating(A, 1, PKG_A), live(B)).equals(storedOf(root, format)),
+                    "result " + storedOf(root, format));
             check(problems, throwsType(() -> manager.commit(p), IllegalStateException.class),
                     "P committed with a replaced signer");
-            check(problems, retirementRefused(root, manager, p)
-                    && v2(2, boundCreating(A, 1, PKG_A), live(B)).equals(storedOf(root, V2)),
-                    "P's retirement " + storedOf(root, V2));
+            // The production twin leaves P reserved: its retirement is the lifecycle runner's case.
+            if (format != V3) {
+                check(problems, retirementRefused(root, manager, p)
+                        && v2(2, boundCreating(A, 1, PKG_A), live(B)).equals(storedOf(root, format)),
+                        "P's retirement " + storedOf(root, format));
+            }
         });
     }
 
-    // The host version 2 format keeps every footprint and presence rule, one version up.
+    // The host version 2 format keeps every footprint and presence rule, one version up. So does
+    // the production format, whose header ceiling is the same; its twins are named V3 gate.
     private static void gates() {
         for (int version : List.of(3, 65535)) {
             for (String position : List.of("store.bin", "store.bin.reservecopy", "store.bin-backup",
                     "store.bin-seed")) {
-                run("V2 gate / header version " + version + " in " + position, problems -> {
+                String gate = " gate / header version " + version + " in " + position;
+                common("V2" + gate, "V3" + gate, List.of(V2), (problems, format) -> {
                     Header healthy = v2(1, live(A));
                     Path root = layout(null, bytes(healthy), bytes(healthy));
                     slot(root, A, bound(A, PKG_A, 1, false, 1));
                     Files.write(root.resolve(position), frame(1, version,
                             concat(body(bytes(v2(9, live(A), live(E)))), new byte[] {0x33, 0x33})));
-                    NativeIdentityStore store = storeOf(root, V2);
+                    NativeIdentityStore store = storeOf(root, format);
                     NativeIdentityStore.Loaded loaded = store.load();
                     boolean copy = !position.endsWith("-seed");
                     check(problems, loaded.unsupportedFootprint && !loaded.creationReady()
@@ -1119,11 +1192,12 @@ public final class NativeCreationBindingTest {
                     unchanged(problems, root, "slot confirmation",
                             () -> store.confirmExistingSlot(bound(A, PKG_A, 1, false, 1)));
                     unchanged(problems, root, "initialization", () -> store.initializeNew(LINEAGE));
-                    bootCounterOf(problems, root, V2, -1);
+                    bootCounterOf(problems, root, format, -1);
                 });
             }
         }
-        run("V2 gate / malformed and damaged version 2 frames are damage", problems -> {
+        common("V2 gate / malformed and damaged version 2 frames are damage",
+                "V3 gate / malformed and damaged version 2 frames are damage", List.of(V2), (problems, format) -> {
             Header healthy = v2(1, boundCreating(B, 1, PKG_B));
             byte[] good = bytes(healthy);
             // The binding tag of B's entry: frame, lineage, counter, count, then the entry.
@@ -1135,7 +1209,7 @@ public final class NativeCreationBindingTest {
             damaged[damaged.length - 1] ^= 1;
             for (byte[] bad : List.of(malformed, damaged)) {
                 Path root = layout(null, good, bad);
-                NativeIdentityStore store = storeOf(root, V2);
+                NativeIdentityStore store = storeOf(root, format);
                 NativeIdentityStore.Loaded loaded = store.load();
                 check(problems, loaded.header.status == Status.VALID && healthy.equals(loaded.header.value)
                         && !loaded.unsupportedFootprint && loaded.creationReady(),
@@ -1143,10 +1217,13 @@ public final class NativeCreationBindingTest {
                 check(problems, store.writeHeader(healthy, healthy)
                         && sameBytes(root.resolve("store.bin.reservecopy"), good), "owned rewrite refused");
             }
-            Path root = layout(null, bytes(OLD), malformed);
-            NativeIdentityStore.Loaded older = loadedOf(root, V1);
-            check(problems, older.header.status == Status.UNSUPPORTED && older.unsupportedFootprint,
-                    "the version 1 format read an intact version 2 frame as damage");
+            // The version 1 format's reading of the same frame belongs to the earlier run alone.
+            if (format != V3) {
+                Path root = layout(null, bytes(OLD), malformed);
+                NativeIdentityStore.Loaded older = loadedOf(root, V1);
+                check(problems, older.header.status == Status.UNSUPPORTED && older.unsupportedFootprint,
+                        "the version 1 format read an intact version 2 frame as damage");
+            }
         });
         for (NativeIdentityStore.Format format : List.of(V1, V2)) {
             run("V2 gate / version 2 slot frames are footprints under " + format, problems -> {
@@ -1165,36 +1242,42 @@ public final class NativeCreationBindingTest {
                 unchanged(problems, root, "header rewrite", () -> store.writeHeader(liveA, liveA));
             });
         }
-        run("V2 gate / initialization writes an empty version 1 header", problems -> {
+        common("V2 gate / initialization writes an empty version 1 header",
+                "V3 gate / initialization writes an empty version 1 header", List.of(V2), (problems, format) -> {
             Path root = fresh();
-            NativeIdentityStore store = storeOf(root, V2);
+            NativeIdentityStore store = storeOf(root, format);
             check(problems, store.initializeNew(LINEAGE) && sameBytes(root.resolve("store.bin"), GOLDEN_EMPTY_V1)
                     && sameBytes(root.resolve("store.bin.reservecopy"), GOLDEN_EMPTY_V1),
                     "initialization bytes");
             check(problems, store.initializeNew(LINEAGE), "exact retry refused");
             Path upgraded = layout(null, bytes(v2(0)), bytes(v2(0)));
-            check(problems, !storeOf(upgraded, V2).initializeNew(LINEAGE),
+            check(problems, !storeOf(upgraded, format).initializeNew(LINEAGE),
                     "a version 2 header read as a fresh store");
         });
     }
 
     // A phase change and a later reservation keep version 2, and the retirement refuses there.
+    // The production twin keeps the reservation half alone: its retirement and release are the
+    // lifecycle runner's case that keeps header version 2 through them.
     private static void versionPreserved() {
-        run("V2 / publication and a later reservation keep version 2, and the marker refuses", problems -> {
-            PackageManagerService pm = livePmOf(V2);
+        common("V2 / publication and a later reservation keep version 2, and the marker refuses",
+                "V3 / publication and a later reservation keep version 2", List.of(V2), (problems, format) -> {
+            PackageManagerService pm = livePmOf(format);
             Path root = pm.mSettings.root;
             NativePrincipalManager manager = new NativePrincipalManager(pm);
             NativePrincipalManager.Handle b = manager.prepare(manager.select(PKG_B, 0));
-            check(problems, manager.commit(b) && v2(1, live(B)).equals(storedOf(root, V2)), "publication");
+            check(problems, manager.commit(b) && v2(1, live(B)).equals(storedOf(root, format)), "publication");
             // The marker refuses under the version 2 format before any effect, so nothing is released.
-            check(problems, retirementRefused(root, manager, b) && v2(1, live(B)).equals(storedOf(root, V2)),
-                    "marker " + storedOf(root, V2));
+            if (format != V3) {
+                check(problems, retirementRefused(root, manager, b) && v2(1, live(B)).equals(storedOf(root, format)),
+                        "marker " + storedOf(root, format));
+            }
             NativePrincipalManager.Handle c = manager.prepare(manager.select(PKG_C, 0));
             check(problems, !commitWithoutPublication(root, manager, c)
-                    && v2(2, live(B), boundCreating(C, 2, PKG_C)).equals(storedOf(root, V2)),
-                    "later reservation " + storedOf(root, V2));
-            check(problems, manager.commit(c) && v2(2, live(B), live(C)).equals(storedOf(root, V2)),
-                    "later publication " + storedOf(root, V2));
+                    && v2(2, live(B), boundCreating(C, 2, PKG_C)).equals(storedOf(root, format)),
+                    "later reservation " + storedOf(root, format));
+            check(problems, manager.commit(c) && v2(2, live(B), live(C)).equals(storedOf(root, format)),
+                    "later publication " + storedOf(root, format));
         });
     }
 

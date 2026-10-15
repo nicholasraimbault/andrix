@@ -440,9 +440,10 @@ class CreationBindingSourceTests(unittest.TestCase):
             for name in classes:
                 labels.setdefault(name, set()).add(label)
         # The lab rehearsal constructs Format.V3, the production format; the lab store fixture reads
-        # under Format.V2 and Format.V1, and the generator constructs no store.
+        # under Format.V2 and Format.V1 and, since B2 checkpoint 2c, under Format.V3 too; the
+        # generator constructs no store.
         self.assertEqual(labels['NativeWriterLabRehearsal'], {'production'})
-        self.assertEqual(labels['LabHistoryStoreTest'], {'previous', 'legacy'})
+        self.assertEqual(labels['LabHistoryStoreTest'], {'previous', 'legacy', 'production'})
         self.assertEqual(labels['LabHistoryStore'], {'production'})
         # B1's label of the lifecycle format's runs is retired. Its runs are production, and the
         # Format.V2 runs of the current sources, production in B1, are previous. The floor model of
@@ -490,8 +491,14 @@ class CreationBindingSourceTests(unittest.TestCase):
         self.assertEqual(labels['NativeIdentityPresenceTest'], {'legacy', 'previous', 'production'})
         # Its retirement refusals have Format.V2 twins over copies of the same version 1 states.
         self.assertEqual(labels['NativePrincipalManagerTest'], {'legacy', 'previous'})
-        self.assertEqual(labels['NativeCreationBindingTest'], {'previous', 'legacy'})
-        self.assertEqual(labels['NativeCreationHistoryTest'], {'previous', 'legacy'})
+        # Their common cases also run as production twins under Format.V3, and so do the counter
+        # suite's; the production default check runs the facade's default with its controls.
+        self.assertEqual(labels['NativeCreationBindingTest'], {'previous', 'legacy', 'production'})
+        self.assertEqual(labels['NativeCreationHistoryTest'], {'previous', 'legacy', 'production'})
+        self.assertEqual(labels['NativeCounterAdmissionTest'],
+                         {'previous', 'legacy', 'production', 'archived-baseline'})
+        self.assertEqual(labels['NativeProductionDefaultTest'], {'production', 'previous', 'legacy'})
+        self.assertEqual(runner.step_labels('production default'), ('production', 'previous', 'legacy'))
         # The presence matrix runs one step per format: Format.V2's is previous, and Format.V3's
         # production.
         self.assertEqual(runner.step_labels('presence v2'), ('previous',))
@@ -508,8 +515,8 @@ class CreationBindingSourceTests(unittest.TestCase):
         self.assertEqual(labels['NativeLifecycleRollbackCheck'], {'rollback-reader'})
         self.assertIsNotNone(runner.harness_class('NativeLifecycleRollbackCheck'))
         self.assertIsNone(runner.harness_class('NativeLifecycleRollbackCheck', archived=True))
-        self.assertEqual(runner.step_labels('b1 focused'), ('previous', 'legacy'))
-        self.assertEqual(runner.step_labels('mutants'), ('previous', 'legacy'))
+        self.assertEqual(runner.step_labels('b1 focused'), ('previous', 'legacy', 'production'))
+        self.assertEqual(runner.step_labels('mutants'), ('previous', 'legacy', 'production'))
         self.assertEqual(runner.step_labels('rollback'), ('legacy', 'previous'))
         self.assertEqual(runner.step_labels('archived rollback'), ('rollback-reader', 'archived-baseline'))
         self.assertEqual(runner.step_labels('readers'), ('previous', 'legacy'))
@@ -523,8 +530,8 @@ class CreationBindingSourceTests(unittest.TestCase):
         self.assertEqual(runner.step_labels('current header faults'), ('legacy', 'previous', 'production'))
         self.assertEqual(runner.step_labels('b1 faults'), ('previous', 'legacy', 'production'))
         # Every step a guarded run records carries labels of its kind: archived or living.
-        steps = ['store classes', 'b1 focused', 'b1 faults', 'presence v2', 'readers', 'rollback',
-                 'archived readers', 'archived rollback', 'mutants',
+        steps = ['store classes', 'b1 focused', 'b1 faults', 'presence v2', 'production default', 'readers',
+                 'rollback', 'archived readers', 'archived rollback', 'mutants',
                  *('b0 %s %s' % (leg, kind) for leg in ('c926', 'd104', '24bf')
                    for kind in ('focused', 'faults')),
                  'current header focused', 'current header faults']
@@ -591,9 +598,19 @@ class CreationBindingSourceTests(unittest.TestCase):
         predictions = json.loads(runner.PREDICTIONS.read_text())
         self.assertIn('PREDICTED', predictions['status'])
         self.assertEqual(set(predictions['b1_mutants_caught_at_least']), set(runner.MUTANTS))
-        names = set(runner.FOCUSED_NAMES) | set(runner.FAULT_NAMES)
+        names = set(runner.FOCUSED_RUNS) | set(runner.FAULT_NAMES)
         for name, expected in predictions['b1_mutants_caught_at_least'].items():
             self.assertTrue(expected and set(expected) <= names, name)
+        # The production mutants change only the production format's enum line and are predicted
+        # against production twins alone.
+        for name, line in runner.PRODUCTION_MUTANTS.items():
+            path, replacements, suites = runner.MUTANTS[name]
+            self.assertEqual((path, replacements, suites), (runner.STORE, ((runner.PRODUCTION_ENUM, line),),
+                                                            ('focused',)))
+            self.assertTrue(set(predictions['b1_mutants_caught_at_least'][name]) <= set(runner.PRODUCTION_TWINS))
+            store = (ROOT / runner.STORE).read_text()
+            changed = [(a, b) for a, b in zip(sources[name][1].split('\n'), store.split('\n')) if a != b]
+            self.assertEqual(changed, [(line.rstrip('\n'), runner.PRODUCTION_ENUM.rstrip('\n'))])
         d104 = runner.archived_predictions('binding')['b0_adapted_suite']['d104e15']
         self.assertEqual((len(d104['focused_failures']), len(d104['fault_failures'])), (41, 18))
         # The d104e15 legs are archived: their pinned predictions name the frozen 24bfb6a cases.
@@ -603,6 +620,85 @@ class CreationBindingSourceTests(unittest.TestCase):
                          set(runner.ARCHIVED_B0_FAULT_NAMES))
         self.assertEqual((len(runner.FOCUSED_NAMES), len(runner.FAULT_NAMES), len(runner.LAYOUT_NAMES)),
                          (80, 63, 38))
+
+    def test_production_twins_follow_their_cases(self):
+        # Each common case of b1 focused prints its production twin right after it, under Format.V3.
+        predicted = json.loads(runner.PREDICTIONS.read_text())['b2_checkpoint_2c']['focused']
+        self.assertEqual((len(runner.FOCUSED_NAMES), len(runner.PRODUCTION_TWINS), len(runner.FOCUSED_RUNS),
+                          len(runner.NO_TWIN)), (80, 68, 148, 12))
+        self.assertEqual((predicted['cases'], predicted['production_twins'], predicted['runs'],
+                          predicted['without_twin']), (80, 68, 148, 12))
+        self.assertEqual({row['case']: row['twin'] for row in predicted['renamed_twins']}, runner.TWIN_NAMES)
+        labels = json.loads(runner.PREDICTIONS.read_text())['b2_checkpoint_2c']['labels']
+        self.assertEqual(labels, {step: list(runner.step_labels(step)) for step in labels})
+        self.assertEqual(runner.twin_problems(json.loads(runner.PREDICTIONS.read_text())), [])
+        runs = list(runner.FOCUSED_RUNS)
+        for name in runner.FOCUSED_NAMES:
+            if name in runner.NO_TWIN:
+                self.assertNotIn(runner.production_twin(name), runs)
+                continue
+            twin = runner.production_twin(name)
+            self.assertEqual(runs[runs.index(name) + 1], twin)
+            self.assertTrue(twin.startswith(('V3 / ', 'V3 gate / ')), twin)
+        self.assertEqual(runner.production_twin('V2 / an owned flow writes the golden version 2 bytes'),
+                         'V3 / an owned flow writes the golden version 2 bytes')
+        self.assertEqual(runner.production_twin('V2 gate / header version 3 in store.bin'),
+                         'V3 gate / header version 3 in store.bin')
+        self.assertEqual(runner.production_twin('low level / relabels and downgrades refuse'),
+                         'V3 / low level / relabels and downgrades refuse')
+        # The earlier runs keep their names, so the lifecycle runner's case map and refusals still
+        # find them, and no twin is an earlier run.
+        self.assertFalse(set(runner.PRODUCTION_TWINS) & set(runner.FOCUSED_NAMES))
+        source = (ROOT / runner.PLATFORM / 'NativeCreationBindingTest.java').read_text()
+        for literal in ('"V2 / pending and unpublished RETIRING pins reserve together"',
+                        '"V2 / publication and a later reservation keep version 2, and the marker refuses"',
+                        '"signer mutation / Q reserves P with its original signers"',
+                        '"signer mutation / a durable P reservation does not strand Q"'):
+            self.assertEqual(source.count(literal), 1, literal)
+        # Their lifecycle refusals stay in the earlier runs alone.
+        self.assertEqual(source.count('if (format != V3) {'), 5)
+        # A case without a twin must be a case with a reason, and the twins must cover the rest.
+        predictions = json.loads(runner.PREDICTIONS.read_text())
+        with mock.patch.dict(runner.NO_TWIN, {'no such case': 'x'}):
+            self.assertIn('a case without a twin is no focused case, or has no reason',
+                          runner.twin_problems(predictions))
+        with mock.patch.object(runner, 'PRODUCTION_TWINS', runner.PRODUCTION_TWINS[1:]):
+            self.assertIn('the production twins of b1 focused differ from its cases', runner.twin_problems(predictions))
+        broken = json.loads(json.dumps(predictions))
+        broken['b1_mutants_caught_at_least']['production-header-ceiling-1'].append(runner.FOCUSED_NAMES[2])
+        self.assertIn('production mutant production-header-ceiling-1 is not predicted against production twins alone',
+                      runner.twin_problems(broken))
+
+    def test_production_default_check_and_its_routing(self):
+        predicted = json.loads(runner.PREDICTIONS.read_text())['b2_checkpoint_2c']['production_default']
+        self.assertEqual((len(runner.DEFAULT_NAMES), len(runner.DEFAULT_CASES)),
+                         (predicted['names'], predicted['stores']))
+        self.assertEqual(len(runner.default_failures()), predicted['routed']['fails'])
+        self.assertEqual(set(runner.default_failures()), {name for name in runner.DEFAULT_NAMES
+                                                          if not name.startswith('control / ')})
+        # The routed facade differs from the current one only in its default route.
+        current = (ROOT / runner.FACADE).read_text()
+        for format_name in predicted['routed']['formats']:
+            routed = runner.default_facade(format_name)
+            changed = [(a, b) for a, b in zip(current.split('\n'), routed.split('\n')) if a != b]
+            self.assertEqual(changed, [((runner.DEFAULT_ROUTE % runner.PRODUCTION).rstrip('\n'),
+                                        (runner.DEFAULT_ROUTE % ('NativeIdentityStore.Format.' + format_name))
+                                        .rstrip('\n'))])
+            self.assertEqual(runner.facade_default(routed), 'NativeIdentityStore.Format.' + format_name)
+            # The source guard refuses the routed facade too; only the check refuses it at run time.
+            self.assertTrue(runner.facade_violations(None, routed))
+        # The check's Java holds DEFAULT_CASES and both control sets, which the source checks
+        # compare.
+        predictions = json.loads(runner.PREDICTIONS.read_text())
+        with mock.patch.dict(runner.DEFAULT_DIFFERS, {'V2': runner.DEFAULT_DIFFERS['V2'][1:]}):
+            self.assertIn('the default check\'s V2 control differs from DEFAULT_DIFFERS',
+                          runner.twin_problems(predictions))
+        with mock.patch.object(runner, 'DEFAULT_CASES', runner.DEFAULT_CASES[1:] + runner.DEFAULT_CASES[:1]):
+            self.assertIn('the default check holds other stores than DEFAULT_CASES', runner.twin_problems(predictions))
+        source = (ROOT / runner.PLATFORM / (runner.DEFAULT_TEST + '.java')).read_text()
+        self.assertNotIn('new PackageManagerService(root, initialize, NativeIdentityStore.Format.V3)', source)
+        self.assertIn('new PackageManagerService(root, initialize)', source)
+        self.assertIn('new PackageManagerService()', source)
 
     def test_class_differences_compare_every_class_file(self):
         first, second = Path(tempfile.mkdtemp()), Path(tempfile.mkdtemp())

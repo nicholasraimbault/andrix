@@ -12,9 +12,19 @@
   "store_fixture": {
     "pass": ["golden bytes and sizes", "actual codec round trips",
              "empty version 1 input equals store initialization", "predictions equal the goldens",
-             "readers classify the predictions", "fresh output paths only",
-             "identifier and mode controls refuse before output"],
+             "readers classify the predictions",
+             "the production format reads them as the previous format does",
+             "fresh output paths only", "identifier and mode controls refuse before output"],
     "final": "Lab history store fixture host controls passed; Android and authority unqualified",
+    "production_control": {
+      "mutant": "production-header-ceiling-1",
+      "pass": ["golden bytes and sizes", "actual codec round trips",
+               "empty version 1 input equals store initialization", "predictions equal the goldens",
+               "readers classify the predictions"],
+      "failure": "V3 reservation history",
+      "note": ["PREDICTED. Format.V3 reading version 2 headers as footprints stops the run",
+               "at its first production read of one."]
+    },
     "cli_refusals": [
       ["predict-v2", "OUTPUT", "00112233445566778899AABBCCDDEEFF", "10148", "7", "1"],
       ["predict-v2", "OUTPUT", "00112233445566778899aabbccddeeff", "9999", "7", "1"],

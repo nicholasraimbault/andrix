@@ -146,6 +146,13 @@
     "facade-restores-differently": [
       "rebind / an explicit designation publishes the original ID",
       "restoration / reservations restore PENDING under the selected counter"
+    ],
+    "production-header-ceiling-1": [
+      "V3 / history / a complete creation without a body is a reservation",
+      "V3 / exact header confirmation / seed-synced"
+    ],
+    "production-header-ceiling-3": [
+      "V3 / gate / an unsupported header seed"
     ]
   },
   "parity_twinned_layouts": [
@@ -207,7 +214,14 @@
     "status": "PREDICTED. A living guard: a package that changes boot outcomes on the current sources predicts each difference here before any run.",
     "against": "the archived 24bfb6a parity side, over the layouts of the pinned 24bfb6a parity driver",
     "keys": "relation/<layout> for a twin relation, <format>/<layout>/<kind>/<detail> for an outcome line",
-    "driver": "The living side compiles the pinned 24bfb6a NativeHistoryParity too, so both sides run one driver. The source checks hold the working-tree driver to its bytes; a package that edits the driver moves the living parity to the edited driver and predicts each difference here.",
+    "driver": [
+      "The living side compiles the pinned 24bfb6a NativeHistoryParity too.",
+      "So both sides run one driver.",
+      "The working-tree driver is that driver with only its format selection.",
+      "The source checks hold it to that, and the production parity compiles it.",
+      "A package that edits the driver otherwise moves the living parity to the edited driver,",
+      "and predicts each difference here."
+    ],
     "predicted_differences": [
       "V1/body-retiring~cleared/seed/10002/same/incomplete",
       "V1/body-retiring~cleared/seed/10002/same/matching",
@@ -317,5 +331,81 @@
   "p6_checkpoint_2": {
     "status": "PREDICTED. The living probe's helpers are removed with its retired source. A history mutant that names any suite but focused or faults is a problem, not a run. Development runs came before this prediction and are recorded in the notes.",
     "unchanged_living": "b2 focused passes 87 and b2 faults 40, 34 mutants caught as predicted; the history emitter writes 29 layouts; the b2-v1 reader reads 29 and its rollback checks pass 32 each; living parity: 12 differences, none unpredicted or missing, hash 14ee06d41b6907f963d4756eecb66dfef0f09d3333a7f351e2b459bcf9ee209b; the archived probe sides pass with the pinned probe."
+  },
+  "b2_checkpoint_2c": {
+    "status": "PREDICTED before any JVM run of these cases. No guarded result.",
+    "plan": "plans/2026-10-08-native-lifecycle-record.md",
+    "focused": {
+      "cases": 87,
+      "production_twins": 77,
+      "runs": 164,
+      "without_twin": 10,
+      "rule": [
+        "Each common case of b2 focused gains a production twin under Format.V3.",
+        "It is named V3 / <case> and asserts the same outcome.",
+        "Format.V3 reads and writes these records as Format.V2 does.",
+        "The six retirement refusals and the refused retirement holds case have none.",
+        "Their Format.V3 halves are the lifecycle runner's cases, which the case map names.",
+        "The version 1 reader and the two version 2 slot frame cases have none either."
+      ]
+    },
+    "faults": {
+      "cases": 40,
+      "production_twins": 24,
+      "runs": 64,
+      "rule": [
+        "The three rebind sweeps run under Format.V3 as well.",
+        "The two refused retirement sweeps do not."
+      ]
+    },
+    "production_parity": {
+      "rule": [
+        "The working-tree driver is the pinned one but for its format selection.",
+        "It reads every layout under Format.V3 alone.",
+        "Each outcome equals the living parity's Format.V2 outcome, except in the apart layouts.",
+        "Their version 2 slot frame is above the earlier formats' slot ceiling.",
+        "It is within Format.V3's, so each of them, and its cleared twin, restores otherwise.",
+        "The control lowers Format.V3's header ceiling, which only this comparison can show."
+      ],
+      "apart_layouts": [
+        "future-body",
+        "unsupported-slot-seed"
+      ],
+      "predicted_differences": [
+        "future-body/restore/-",
+        "future-body~cleared/restore/-",
+        "unsupported-slot-seed/restore/-",
+        "unsupported-slot-seed~cleared/restore/-"
+      ],
+      "control": "production-header-ceiling-1"
+    },
+    "production_mutants": [
+      "production-header-ceiling-1",
+      "production-header-ceiling-3"
+    ],
+    "labels": {
+      "b2 focused": [
+        "previous",
+        "legacy",
+        "production"
+      ],
+      "b2 faults": [
+        "previous",
+        "legacy",
+        "production"
+      ],
+      "production parity": [
+        "production"
+      ],
+      "mutants": [
+        "previous",
+        "legacy",
+        "production"
+      ]
+    },
+    "unchanged": [
+      "Every earlier run, refusal, layout, reader and archived comparison.",
+      "The living parity and its predicted differences."
+    ]
   }
 }

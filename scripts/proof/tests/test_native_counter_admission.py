@@ -71,9 +71,24 @@ class CounterAdmissionSourceTests(unittest.TestCase):
         self.assertEqual(set(sources), set(runner.MUTANTS))
         predictions = json.loads(runner.PREDICTIONS.read_text())
         self.assertIn('PREDICTED', predictions['status'])
-        names = set(runner.FOCUSED_NAMES)
-        self.assertEqual((len(runner.FOCUSED_NAMES), len(names), predictions['focused_cases']), (35, 35, 35))
-        self.assertEqual(len(runner.MUTANTS), 15)
+        names = set(runner.FOCUSED_RUNS)
+        self.assertEqual((len(runner.FOCUSED_NAMES), len(set(runner.FOCUSED_NAMES)), predictions['focused_cases']),
+                         (35, 35, 35))
+        # B2 checkpoint 2c: 32 production twins and one production format regression, which only
+        # they may catch.
+        self.assertEqual((len(runner.PRODUCTION_TWINS), len(runner.FOCUSED_RUNS), len(names), len(runner.NO_TWIN)),
+                         (32, 67, 67, 3))
+        focused = predictions['b2_checkpoint_2c']['focused']
+        self.assertEqual((focused['cases'], focused['production_twins'], focused['runs'], focused['without_twin']),
+                         (35, 32, 67, 3))
+        self.assertEqual(len(runner.MUTANTS), 16)
+        self.assertEqual(predictions['b2_checkpoint_2c']['production_mutants'], list(runner.PRODUCTION_MUTANTS))
+        labels = predictions['b2_checkpoint_2c']['labels']
+        self.assertEqual(labels, {step: list(runner.STEP_LABELS[step]) for step in labels})
+        for name in runner.PRODUCTION_MUTANTS:
+            self.assertEqual(runner.MUTANTS[name], (runner.STORE, ((runner.b1.PRODUCTION_ENUM,
+                                                                    runner.b1.PRODUCTION_MUTANTS[name]),)))
+            self.assertTrue(set(predictions['mutants_caught_at_least'][name]) <= set(runner.PRODUCTION_TWINS))
         self.assertEqual(set(predictions['mutants_caught_at_least']), set(runner.MUTANTS))
         for name, expected in predictions['mutants_caught_at_least'].items():
             self.assertTrue(expected and set(expected) <= names, name)
@@ -93,6 +108,16 @@ class CounterAdmissionSourceTests(unittest.TestCase):
         self.assertTrue(balanced(source))
         for name in runner.FOCUSED_NAMES:
             self.assertEqual(source.count('"%s"' % name), 1, name)
+        # Each production twin is a V3 run of one earlier case, through the suite's one twin helper,
+        # and the cases whose retirement refuses keep no twin.
+        self.assertEqual(source.count('run("V3 / " + name, problems -> body.run(problems, V3));'), 1)
+        self.assertEqual(set(runner.PRODUCTION_TWINS), {'V3 / ' + name for name in runner.FOCUSED_NAMES
+                                                         if name not in runner.NO_TWIN})
+        for name in runner.NO_TWIN:
+            self.assertEqual(source.count('run("%s", problems -> {' % name), 1, name)
+            self.assertIn('retirementRefused(', source[source.index('"%s"' % name):].split('\n        });\n')[0])
+        with mock.patch.object(runner, 'PRODUCTION_TWINS', runner.PRODUCTION_TWINS[1:]):
+            self.assertIn('the production twins of the focused suite differ from its cases', runner.source_checks())
         predictions = json.loads(runner.PREDICTIONS.read_text())
         blocked, unchanged = set(predictions['blocked_observations']), set(predictions['unchanged_observations'])
         self.assertFalse(blocked & unchanged)
@@ -437,14 +462,16 @@ class ArchivedCounterTests(unittest.TestCase):
                          {'baselines': ('archived-baseline',), 'probes': ('archived-baseline',),
                           'parity': ('archived-baseline', 'rollback-reader')})
         self.assertEqual({name: runner.STEP_LABELS[name] for name in ('focused', 'mutants')},
-                         {'focused': ('previous', 'legacy'), 'mutants': ('previous', 'legacy')})
+                         {'focused': ('previous', 'legacy', 'production'),
+                          'mutants': ('previous', 'legacy', 'production')})
         rows = [row for row in runner.b1.HARNESS_LABELS if row[1] == COUNTER]
         labelled = {}
         for label, _, classes, _ in rows:
             for name in classes:
                 labelled.setdefault(name, set()).add(label)
         # The probes and parity run only on archived sides now; the focused suite on both.
-        self.assertEqual(labelled, {'NativeCounterAdmissionTest': {'previous', 'legacy', 'archived-baseline'},
+        self.assertEqual(labelled, {'NativeCounterAdmissionTest': {'previous', 'legacy', 'production',
+                                                                   'archived-baseline'},
                                     'UnsupportedCounterProbe': {'archived-baseline'},
                                     'StaleSlotCounterProbe': {'archived-baseline'},
                                     'NativeHistoryParity': {'archived-baseline', 'rollback-reader'}})

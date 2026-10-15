@@ -30,7 +30,8 @@ import java.util.TreeSet;
  * Prints one revision's history outcomes over a fixed matrix of store layouts, through that
  * revision's exact Settings text in NativeHistoryHarness. The same source runs against the
  * pinned 0018a1d sources and against B2, and builds the same bytes on both. Every layout is
- * also read as its bindings cleared twin, and every layout is read under both store formats.
+ * also read as its bindings cleared twin, and every layout is read under both earlier store
+ * formats, or under Format.V3 alone when the command line names it, as the production parity does.
  * Lines give the restore inputs and outcome, the body only inputs, recovery seeding for each
  * mapping of each app ID under each boot observation of device encrypted data owners, and scan
  * decisions over candidate, mapping, user and deferral. The
@@ -75,6 +76,8 @@ public final class NativeHistoryParity {
     // The facade signer of every fixture body and binding, and another one.
     private static final SigningDetails OWN_SIGNER = new SigningDetails(new Signature(new byte[] {1, 2, 3}));
     private static final SigningDetails OTHER_SIGNER = new SigningDetails(new Signature(new byte[] {9}));
+    // The formats every layout is read under: the earlier ones, unless the command line names V3.
+    private static List<NativeIdentityStore.Format> formats = List.of(V1, V2);
 
     private static void pair(Path root, Header header) throws Exception {
         copies(root, null, bytes(header), bytes(header));
@@ -453,7 +456,7 @@ public final class NativeHistoryParity {
     }
 
     private static void inspect(PrintWriter out, Layout layout, String name, Path root) {
-        for (NativeIdentityStore.Format format : List.of(V1, V2)) {
+        for (NativeIdentityStore.Format format : formats) {
             NativeIdentityStore.Loaded loaded = new NativeIdentityStore(root.toFile(), format).load();
             emit(out, format, name, "restore", "-", restore(loaded));
             emit(out, format, name, "body", "-", bodyLine(loaded));
@@ -501,6 +504,9 @@ public final class NativeHistoryParity {
         if (!NativeHistoryParity.class.desiredAssertionStatus()) {
             throw new AssertionError("run with java -ea");
         }
+        // The production parity reads every layout under Format.V3 alone. Nothing else is accepted.
+        if (args.length == 3 && args[2].equals("V3")) formats = List.of(NativeIdentityStore.Format.V3);
+        else if (args.length != 2) throw new IllegalArgumentException("state, outcomes and at most V3");
         start(Path.of(args[0]));
         int count = 0;
         try (PrintWriter out = new PrintWriter(Files.newBufferedWriter(Path.of(args[1])))) {

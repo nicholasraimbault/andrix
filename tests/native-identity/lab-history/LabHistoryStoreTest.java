@@ -211,6 +211,25 @@ public final class LabHistoryStoreTest {
                 && after.counterRestorable(), "V2 published body history");
         System.out.println("PASS readers classify the predictions");
 
+        // The production format, which the normal image's boot read constructs, reads the generated
+        // store, the reservation and the published body as the previous format does.
+        NativeIdentityStore.Loaded fresh = new NativeIdentityStore(generated.toFile(), NativeIdentityStore.Format.V3)
+                .load();
+        check(fresh.creationReady() && fresh.counterRestorable()
+                && fresh.header.value.equals(new NativeIdentityRecords.Header(lineage, 0, List.of()))
+                && fresh.occupiedAppIds.isEmpty() && fresh.histories().isEmpty(), "V3 reading of the generated store");
+        NativeIdentityStore.Loaded v3 = new NativeIdentityStore(reservation.toFile(), NativeIdentityStore.Format.V3)
+                .load();
+        check(v3.creationReady() && v3.counterRestorable() && history.equals(v3.history(APP_ID))
+                && v3.histories().equals(v2.histories()) && v3.occupiedAppIds.equals(v2.occupiedAppIds)
+                && !v3.bindingUsable(APP_ID), "V3 reservation history");
+        NativeIdentityStore.Loaded published3 = new NativeIdentityStore(published.toFile(),
+                NativeIdentityStore.Format.V3).load();
+        check(published3.bindingUsable(APP_ID) && published3.history(APP_ID) != null
+                && published3.history(APP_ID).equals(after.history(APP_ID)) && published3.counterRestorable()
+                && published3.slots.get(APP_ID).value.equals(bodyValue), "V3 published body history");
+        System.out.println("PASS the production format reads them as the previous format does");
+
         // Fresh output only: no alias, reuse, overwrite or partial output.
         byte[] before = Files.readAllBytes(generated.resolve("store.bin"));
         refused(() -> LabHistoryStore.main(new String[]{"empty-v1", generated.toString()}), "an existing store");

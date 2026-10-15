@@ -63,6 +63,13 @@ invalid identifiers refuse with explicit checks, also without Java assertions. T
 PackageSetting, UID allocation, user data, key file, initializer or publication here, and the
 output is lab input or prediction only.
 
+`LabHistoryStoreTest.java` checks these records against independent goldens and the actual
+codec. It reads the generated store under `Format.V1` and `Format.V2`, the predictions staged as
+a reservation under both and as a published body under `Format.V2`, then all three under
+`Format.V3`, the production format, which must read them as `Format.V2` does. The runner's
+production control lowers `Format.V3`'s header ceiling in a copy of the store: every earlier read
+still passes, and the production reads stop the run.
+
 The lifecycle guest modes write one store layout each, through the actual codec, with its manifest:
 
 - `retiring-v1`: a version 1 header and the subject's version 1 retiring body.

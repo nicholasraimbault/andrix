@@ -207,6 +207,18 @@
     ],
     "binding-conflict-first-copy-only": [
       "binding conflict evidence / unselected slot copy keeps principal evidence"
+    ],
+    "production-reservation-version-1": [
+      "V3 / an owned flow writes the golden version 2 bytes",
+      "V3 / low level / a new entry under version 2 needs a complete binding"
+    ],
+    "production-header-ceiling-1": [
+      "V3 / an owned flow writes the golden version 2 bytes",
+      "V3 / cross version / a V2 target beside V1 predecessors restores only its counter"
+    ],
+    "production-header-ceiling-3": [
+      "V3 gate / header version 3 in store.bin",
+      "V3 gate / header version 3 in store.bin-seed"
     ]
   },
   "b1_guard_mutants": [
@@ -873,5 +885,84 @@
     },
     "floor_outputs": "It may rebuild in fresh scratch outside the repository.",
     "unchanged": "Every other label row, every archived row and step, and every reader label."
+  },
+  "b2_checkpoint_2c": {
+    "status": "PREDICTED before any JVM run of these cases. No guarded result.",
+    "plan": "plans/2026-10-08-native-lifecycle-record.md",
+    "focused": {
+      "cases": 80,
+      "production_twins": 68,
+      "runs": 148,
+      "without_twin": 12,
+      "rule": [
+        "Each common case of b1 focused gains a production twin under Format.V3.",
+        "The twin runs right after its case and asserts the same outcome.",
+        "Format.V3 reserves the same version 2 headers and version 1 bodies as Format.V2.",
+        "A lifecycle refusal stays in the earlier run alone.",
+        "Under Format.V3 that operation is the lifecycle runner's case.",
+        "Cases whose outcome is specific to an earlier format, or that build no store, have none."
+      ],
+      "renamed_twins": [
+        {
+          "case": "V2 / publication and a later reservation keep version 2, and the marker refuses",
+          "twin": "V3 / publication and a later reservation keep version 2"
+        }
+      ]
+    },
+    "production_mutants": {
+      "rule": [
+        "Each changes only the production format's line of the store's Format enum.",
+        "Every run under an earlier format must pass; only production twins may fail."
+      ],
+      "mutants": {
+        "production-reservation-version-1": "V3(2, 1, 2)",
+        "production-header-ceiling-1": "V3(1, 2, 2)",
+        "production-header-ceiling-3": "V3(3, 2, 2)"
+      }
+    },
+    "production_default": {
+      "names": 15,
+      "stores": 12,
+      "rule": [
+        "The host facade's default boots each store as explicit Format.V3 does.",
+        "It reads, restores, holds, defers, scans, writes and dumps the same.",
+        "The default constructors build Format.V3 stores.",
+        "Format.V2 reads otherwise where version 2 slots are supported state.",
+        "Format.V1 also reads otherwise where version 2 headers are.",
+        "Both earlier formats dump another schema for every store."
+      ],
+      "routed": {
+        "formats": [
+          "V2",
+          "V1"
+        ],
+        "fails": 13,
+        "rule": [
+          "With the default routed to an earlier format, every default case fails.",
+          "No control fails."
+        ]
+      }
+    },
+    "labels": {
+      "b1 focused": [
+        "previous",
+        "legacy",
+        "production"
+      ],
+      "production default": [
+        "production",
+        "previous",
+        "legacy"
+      ],
+      "mutants": [
+        "previous",
+        "legacy",
+        "production"
+      ]
+    },
+    "unchanged": [
+      "Every case of b1 focused and b1 faults, and its earlier format runs.",
+      "Every refusal, archived comparison and reader."
+    ]
   }
 }

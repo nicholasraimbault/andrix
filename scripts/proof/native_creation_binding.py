@@ -406,6 +406,46 @@ FOCUSED_NAMES = (
     'V2 gate / initialization writes an empty version 1 header',
     'V2 / publication and a later reservation keep version 2, and the marker refuses',
     'V1 reader / version 2 layouts stay read only with every hold')
+# The production twins of b1 focused. Each common case runs under the earlier formats it names, as
+# above, then once more under Format.V3, the production format, as its own run printed right after
+# it. Format.V3 reserves the same version 2 headers and writes the same version 1 bodies as
+# Format.V2, so a twin asserts the same outcome of the same steps. Where the earlier run also
+# asserts a lifecycle refusal, the twin runs only the common half: under Format.V3 that operation is
+# the lifecycle runner's, and its case map names those cases. FOCUSED_NAMES stays the list of the
+# earlier runs, which the lifecycle runner reads for their refusals. These cases have no twin, each
+# for its reason: their outcome is specific to an earlier format, or they construct no store.
+NO_TWIN = {
+    'plan / rows only for records of a valid snapshot': 'constructs no store',
+    'plan / signer sets are valid, bounded and copied': 'constructs no store',
+    'V1 / a new entry without an owned row refuses before effects': 'golden version 1 bytes',
+    'V1 / held entries and additions need no row': 'a version 1 header, which Format.V3 binds and upgrades',
+    'V1 / an owned flow writes the golden version 1 bytes': 'golden version 1 bytes',
+    'encoded length / equals every actual encoding': 'constructs no store',
+    'encoded length / refuses what it cannot measure': 'constructs no store',
+    'low level / the version 1 format never writes version 2': 'a Format.V1 rule',
+    'binding conflict evidence / version 1 reads bound collisions as c9264e4 does': 'a Format.V1 read',
+    'V2 gate / version 2 slot frames are footprints under V1': 'the slot ceiling of the earlier formats',
+    'V2 gate / version 2 slot frames are footprints under V2': 'the slot ceiling of the earlier formats',
+    'V1 reader / version 2 layouts stay read only with every hold': 'a Format.V1 read'}
+# A twin is named with V3 in place of the earlier run's V2 prefix, or V3 before a name without one.
+# This twin drops the half its name would claim.
+TWIN_NAMES = {'V2 / publication and a later reservation keep version 2, and the marker refuses':
+              'V3 / publication and a later reservation keep version 2'}
+
+
+def production_twin(name):
+    """The name of a common case's production twin."""
+    if name in TWIN_NAMES:
+        return TWIN_NAMES[name]
+    if name.startswith(('V2 / ', 'V2 gate / ')):
+        return 'V3' + name[2:]
+    return 'V3 / ' + name
+
+
+PRODUCTION_TWINS = tuple(production_twin(name) for name in FOCUSED_NAMES if name not in NO_TWIN)
+# Every run that b1 focused prints, in order: each case, then its production twin.
+FOCUSED_RUNS = tuple(run for name in FOCUSED_NAMES
+                     for run in ((name,) if name in NO_TWIN else (name, production_twin(name))))
 FAULT_NAMES = (
     *('fresh upgrade / ' + step for step in STEPS),
     *('legacy B with bound C / C first / ' + step for step in STEPS),
@@ -445,6 +485,55 @@ def presence_problems(run, format_name):
     elif not set(refusals) <= set(run['passed']):
         return 'presence %s refusal rows missing: %s' % (format_name, sorted(set(refusals) - set(run['passed'])))
     return None
+
+
+# The production default check: the host facade's default format against explicit Format.V3 over
+# representative stores. Every substantive suite passes its format explicitly, so only this check
+# notices when the facade's default stops being the production format.
+DEFAULT_TEST = 'NativeProductionDefaultTest'
+DEFAULT_CASES = ('a missing store', 'a store the facade initializes', 'an eligible version 1 body',
+                 'a suspended version 2 slot', 'a retiring version 2 slot', 'a damaged header beside a body',
+                 'a damaged slot', 'a header of version 3', 'a slot of version 3 with its stable prefix',
+                 'a bound reservation', 'a version 2 slot beside a bound reservation',
+                 'a reservation and publication through the manager')
+# What the check prints, in order: each store booted by the default and by explicit Format.V3, the
+# default constructors themselves, then the discrimination controls of the earlier formats.
+DEFAULT_NAMES = (tuple('default / ' + case for case in DEFAULT_CASES)
+                 + ('default / the facade without arguments constructs Format.V3',
+                    'control / Format.V2 reads differently exactly where version 2 slots are supported state',
+                    'control / Format.V1 reads differently exactly where version 2 records are'))
+# The stores whose facts each earlier format reads otherwise than Format.V3, as the controls assert.
+# Each earlier format also dumps another schema for every store, since the slot ceiling selects it.
+DEFAULT_DIFFERS = {'V2': ('a suspended version 2 slot', 'a retiring version 2 slot',
+                          'a version 2 slot beside a bound reservation'),
+                   'V1': ('a suspended version 2 slot', 'a retiring version 2 slot',
+                          'a version 2 slot beside a bound reservation', 'a bound reservation',
+                          'a reservation and publication through the manager')}
+# The facade's default route, which the routing controls change to an earlier format.
+DEFAULT_ROUTE = '    Settings(Path existing, boolean initialize) { this(existing, initialize, %s); }\n'
+
+
+def default_facade(format_name):
+    """The host facade with its default routed to an earlier format, and nothing else changed."""
+    return replace_once((ROOT / FACADE).read_text(), DEFAULT_ROUTE % PRODUCTION,
+                        DEFAULT_ROUTE % ('NativeIdentityStore.Format.' + format_name))
+
+
+def default_failures():
+    """What the check fails with the facade's default routed to an earlier format: every default
+    case, since each dumps another schema, and the default constructors' own case. The controls
+    compare explicit formats alone, so they pass, as every explicitly formatted suite does."""
+    return tuple(name for name in DEFAULT_NAMES if name.startswith('default / '))
+
+
+def production_default_step(work, format_name=None):
+    """The production default check over the current sources, with the facade's default routed to
+    this earlier format when one is named, as an outcome against DEFAULT_NAMES."""
+    files = {**product_sources(), **test_sources(['NativeHeaderTestSupport', 'NativeBindingTestSupport',
+                                                  DEFAULT_TEST])}
+    if format_name is not None:
+        files['stubs/com/android/server/pm/Settings.java'] = default_facade(format_name).encode()
+    return outcome(suite(work, files, DEFAULT_TEST), DEFAULT_NAMES)
 
 
 LAYOUT_NAMES = tuple(sorted(
@@ -584,6 +673,17 @@ HARNESS_LABELS = (
      'the V3 cases of the header footprint suites and the binding faults: the release header steps through the'
      ' release engine\'s primitives and the lifecycle retirement\'s publication, with no production'
      ' caller'),
+    ('production', 'scripts/proof/native_creation_binding.py', ('NativeCreationBindingTest',),
+     'the V3 twins of the common cases of b1 focused, each asserting its case\'s outcome under Format.V3'
+     ' without the lifecycle refusals that its earlier run asserts, and the production mutants, which'
+     ' only those twins catch'),
+    ('production', 'scripts/proof/native_creation_binding.py', ('NativeProductionDefaultTest',),
+     'the host facade\'s default against explicit Format.V3 over representative stores, and its routing'
+     ' controls, which give the default an earlier format that only this check catches'),
+    ('previous', 'scripts/proof/native_creation_binding.py', ('NativeProductionDefaultTest',),
+     'the Format.V2 discrimination control of the production default check'),
+    ('legacy', 'scripts/proof/native_creation_binding.py', ('NativeProductionDefaultTest',),
+     'the Format.V1 discrimination control of the production default check'),
     ('production', 'scripts/proof/tests/test_native_header_footprint.py',
      ('NativeIdentityHeaderFootprintTest', 'NativeHeaderWriteFaultTest'),
      'the V3 cases of the header footprint suites and their mutants'),
@@ -639,8 +739,13 @@ HARNESS_LABELS = (
       'NativeHistoryParity', 'NativeCreationHistoryLayouts', 'NativeRollbackReaderCheck',
       'NativeRollbackSeedingCheck'),
      'the V2 cases and runs of b2 focused, b2 faults, the living parity against 24bfb6a'
-     ' with the pinned driver, which the working-tree driver equals byte for byte, the emitter, the B2'
-     ' mutants and the version 2 controls of the b2-v1 rollback checks'),
+     ' with the pinned driver, which the working-tree driver equals but for its format selection, the'
+     ' emitter, the B2 mutants and the version 2 controls of the b2-v1 rollback checks'),
+    ('production', 'scripts/proof/native_creation_history.py',
+     ('NativeCreationHistoryTest', 'NativeCreationHistoryFaultTest', 'NativeHistoryParity'),
+     'the V3 twins of the common cases of b2 focused and of the rebind sweeps of b2 faults, the production'
+     ' parity of the working-tree driver under Format.V3 against the living Format.V2 outcomes with its'
+     ' control, and the production mutants, which only those runs catch'),
     ('legacy', 'scripts/proof/native_creation_history.py',
      ('NativeCreationHistoryTest', 'NativeCreationHistoryFaultTest', 'NativeHistoryParity',
       'NativeCreationBindingReaderCheck', 'NativeRollbackReaderCheck', 'NativeRollbackSeedingCheck'),
@@ -663,6 +768,9 @@ HARNESS_LABELS = (
      'the V2 cases of the focused suite and its mutants on the current sources'),
     ('legacy', 'scripts/proof/native_counter_admission.py', ('NativeCounterAdmissionTest',),
      'the Format.V1 cases of the focused suite and its mutants on the current sources'),
+    ('production', 'scripts/proof/native_counter_admission.py', ('NativeCounterAdmissionTest',),
+     'the V3 twins of the common cases of the focused suite and its production mutant, which only those'
+     ' twins catch'),
     ('rollback-reader', 'scripts/proof/native_counter_admission.py', ('NativeHistoryParity',),
      'the Format.V1 runs of the archived 24bfb6a parity side'),
     ('archived-baseline', 'scripts/proof/native_counter_admission.py',
@@ -680,18 +788,23 @@ HARNESS_LABELS = (
      ' reservation and body'),
     ('legacy', 'scripts/proof/native_lab_history.py', ('LabHistoryStoreTest',),
      'the store fixture\'s Format.V1 initialization and reads'),
+    ('production', 'scripts/proof/native_lab_history.py', ('LabHistoryStoreTest',),
+     'the store fixture\'s Format.V3 reads of the generated store, the reservation and the published body,'
+     ' and its production control, which only those reads catch'),
 )
 # The labels of this runner's steps, by step or by the step's first two words, and of its readers.
 STEP_LABELS = {'store classes': ('archived-baseline',),
                'b0 c926': ('archived-baseline',), 'b0 d104': ('archived-baseline',),
                'b0 24bf': ('archived-baseline',), 'current header': ('legacy', 'previous', 'production'),
-               'b1 focused': ('previous', 'legacy'), 'b1 faults': ('previous', 'legacy', 'production'),
+               'b1 focused': ('previous', 'legacy', 'production'),
+               'b1 faults': ('previous', 'legacy', 'production'),
                'presence v2': ('previous',), 'presence v3': ('production',),
+               'production default': ('production', 'previous', 'legacy'),
                'readers': ('previous', 'legacy'),
                'rollback': ('legacy', 'previous'),
                'archived readers': ('archived-baseline', 'rollback-reader'),
                'archived rollback': ('rollback-reader', 'archived-baseline'),
-               'mutants': ('previous', 'legacy')}
+               'mutants': ('previous', 'legacy', 'production')}
 # This runner's archived steps. Every other step is living.
 ARCHIVED_STEP_NAMES = ('store classes', 'b0 c926', 'b0 d104', 'b0 24bf', 'archived readers', 'archived rollback')
 READER_LABELS = {'b1-v1': 'legacy', '24bf-v1': 'rollback-reader', 'c926': 'archived-baseline',
@@ -864,6 +977,19 @@ MUTANTS = {
         '                if (bindingMismatch && !conflict) bindingConflicts.add(entry.getKey());'),),
         ('focused',)),
 }
+# The production format's line of the store's Format enum, and the production format regressions:
+# each changes only that line, so every run under an earlier format must still pass and only the
+# production twins may catch it. The format guard pins the enum, so these exist only as mutants.
+PRODUCTION_ENUM = '        V3(2, 2, 2);\n'
+PRODUCTION_MUTANTS = {
+    # Format.V3 reserves version 1 headers again: a new entry carries no creation binding.
+    'production-reservation-version-1': '        V3(2, 1, 2);\n',
+    # Format.V3 reads version 2 headers as unsupported footprints.
+    'production-header-ceiling-1': '        V3(1, 2, 2);\n',
+    # Format.V3 reads intact version 3 headers as supported state, not as footprints.
+    'production-header-ceiling-3': '        V3(3, 2, 2);\n'}
+MUTANTS.update({name: (STORE, ((PRODUCTION_ENUM, line),), ('focused',))
+                for name, line in PRODUCTION_MUTANTS.items()})
 
 
 def sha(data):
@@ -1875,6 +2001,40 @@ def verify_candidate(pinned):
             for row in value['files'] for name in [row['path']]}
 
 
+def twin_problems(predictions):
+    """The production twins are exactly the cases outside NO_TWIN, each a V3 run printed right after
+    its case; the production mutants change only the production format's enum line and are predicted
+    to fail production twins alone; the default check's controls name known stores. Pure."""
+    problems = []
+    if not set(NO_TWIN) | set(TWIN_NAMES) <= set(FOCUSED_NAMES) or not all(NO_TWIN.values()):
+        problems.append('a case without a twin is no focused case, or has no reason')
+    if (len(PRODUCTION_TWINS) + len(NO_TWIN) != len(FOCUSED_NAMES) or len(FOCUSED_RUNS) != len(FOCUSED_NAMES)
+            + len(PRODUCTION_TWINS) or set(FOCUSED_RUNS) != set(FOCUSED_NAMES) | set(PRODUCTION_TWINS)
+            or set(FOCUSED_NAMES) & set(PRODUCTION_TWINS)
+            or not all(twin.startswith(('V3 / ', 'V3 gate / ')) for twin in PRODUCTION_TWINS)):
+        problems.append('the production twins of b1 focused differ from its cases')
+    if (ROOT / STORE).read_text().count(PRODUCTION_ENUM) != 1:
+        problems.append('the production format enum line is not found once')
+    for name in PRODUCTION_MUTANTS:
+        expected = predictions['b1_mutants_caught_at_least'].get(name, ())
+        if MUTANTS.get(name, (None,))[0] != STORE or not expected or not set(expected) <= set(PRODUCTION_TWINS):
+            problems.append('production mutant %s is not predicted against production twins alone' % name)
+    if (set(DEFAULT_DIFFERS) != {'V1', 'V2'} or not set(DEFAULT_DIFFERS['V2']) <= set(DEFAULT_DIFFERS['V1'])
+            or not set(DEFAULT_DIFFERS['V1']) < set(DEFAULT_CASES)):
+        problems.append('the default controls name stores the check does not hold')
+    # The check's Java holds the same stores, in order, and the same control sets.
+    code = strip_java_comments((ROOT / PLATFORM / (DEFAULT_TEST + '.java')).read_text())
+    if tuple(re.findall(r'\ball\.put\("([^"]+)"', code)) != DEFAULT_CASES:
+        problems.append('the default check holds other stores than DEFAULT_CASES')
+    for format_name, wanted in sorted(DEFAULT_DIFFERS.items()):
+        found = re.findall(r'\b%s_DIFFERS = Set\.of\(([^;]*)\);' % format_name, code)
+        if len(found) != 1 or sorted(re.findall(r'"([^"]+)"', found[0])) != sorted(wanted):
+            problems.append('the default check\'s %s control differs from DEFAULT_DIFFERS' % format_name)
+    if (ROOT / FACADE).read_text().count(DEFAULT_ROUTE % PRODUCTION) != 1:
+        problems.append('the facade default route is not found once')
+    return problems
+
+
 def source_checks():
     integration.profile()
     texts = production_texts()
@@ -1892,10 +2052,14 @@ def source_checks():
         problems.append('host admission differs from the production fragment')
     predictions = json.loads(PREDICTIONS.read_text())
     for name, expected in predictions['b1_mutants_caught_at_least'].items():
-        if name not in MUTANTS or not set(expected) <= set(FOCUSED_NAMES) | set(FAULT_NAMES):
+        if name not in MUTANTS or not set(expected) <= set(FOCUSED_RUNS) | set(FAULT_NAMES):
             problems.append('mutant prediction inconsistent: ' + name)
-    if len(set(FOCUSED_NAMES)) != len(FOCUSED_NAMES) or len(set(FAULT_NAMES)) != len(FAULT_NAMES):
+    if set(predictions['b1_mutants_caught_at_least']) != set(MUTANTS):
+        problems.append('mutant predictions do not list every mutant')
+    if (len(set(FOCUSED_RUNS)) != len(FOCUSED_RUNS) or len(set(FAULT_NAMES)) != len(FAULT_NAMES)
+            or len(set(DEFAULT_NAMES)) != len(DEFAULT_NAMES)):
         problems.append('duplicate check names')
+    problems += twin_problems(predictions)
     problems += label_problems()
     for revision in REVISIONS:
         if set(BASELINE_SHA256.get(revision, ())) != set(ARCHIVED_FRAMEWORK) | {'Settings'}:
@@ -2776,8 +2940,8 @@ def qualify(work):
                 or adapted['returncode'] != 0):
             problems.append('current header fence suite ' + kind)
 
-    # B1 focused and fault matrices.
-    for kind, names in (('focused', FOCUSED_NAMES), ('faults', FAULT_NAMES)):
+    # B1 focused and fault matrices: every case of the focused matrix with its production twin.
+    for kind, names in (('focused', FOCUSED_RUNS), ('faults', FAULT_NAMES)):
         record = b1_suite(work / ('b1-' + kind), kind)
         result = outcome(record, names)
         steps['b1 ' + kind] = result
@@ -2816,6 +2980,29 @@ def qualify(work):
                                 'passed': len(run['passed']), 'run': run}
         if presence_problems(run, 'V3'):
             problems.append(presence_problems(run, 'V3'))
+
+    # The facade's default against explicit Format.V3 over representative stores, with the earlier
+    # formats' discrimination controls; then the default routed to each earlier format, which leaves
+    # every explicitly formatted run unchanged and fails exactly the default cases here.
+    record = steps['production default'] = production_default_step(work / 'production-default')
+    if ('error' in record or record['failed'] or record['passed'] != list(DEFAULT_NAMES)
+            or record['returncode']):
+        problems.append('production default check')
+    elif 'unqualified' not in record['run']['stdout']:
+        problems.append('production default scope statement missing')
+    else:
+        refused = execute(work / 'production-default', DEFAULT_TEST,
+                          [str(work / 'production-default' / 'state-da')], assertions=False, timeout=120)
+        record['without_assertions'] = refused
+        if not refused['returncode'] or '-ea' not in refused['stderr']:
+            problems.append('production default check ran without assertions')
+    record['routed'] = {}
+    for format_name in ('V2', 'V1'):
+        routed = record['routed'][format_name] = production_default_step(
+            work / ('production-default-' + format_name), format_name)
+        if ('error' in routed or not routed['complete'] or not routed['returncode']
+                or sorted(routed['failed']) != sorted(default_failures())):
+            problems.append('production default check with the default routed to %s' % format_name)
 
     # Version 2 layouts from the Format.V2 host writer on the current sources, read by the legacy
     # b1-v1 reader, the current sources under Format.V1.
@@ -2889,7 +3076,7 @@ def qualify(work):
         failed, record = set(), {}
         for kind in suites:
             result = outcome(b1_suite(work / 'mutants' / name / kind, kind, override),
-                             FOCUSED_NAMES if kind == 'focused' else FAULT_NAMES)
+                             FOCUSED_RUNS if kind == 'focused' else FAULT_NAMES)
             record[kind] = result
             if 'error' in result:
                 problems.append('mutant %s did not compile; not a red result' % name)
@@ -2899,9 +3086,14 @@ def qualify(work):
                 problems.append('mutant %s failures did not fail the run' % name)
         missed = sorted(set(expectations[name]) - failed)
         record['missed'] = missed
+        record['failed'] = sorted(failed)
         steps['mutants'][name] = record
         if missed or not failed:
             problems.append('mutant %s not caught: %s' % (name, missed))
+        # A production format regression leaves every run under an earlier format passing.
+        if name in PRODUCTION_MUTANTS and not failed <= set(PRODUCTION_TWINS):
+            problems.append('production mutant %s failed a run under an earlier format: %s'
+                            % (name, sorted(failed - set(PRODUCTION_TWINS))[:5]))
     evidence['labels'] = {step: list(step_labels(step)) for step in steps}
     evidence['reader_labels'] = dict(READER_LABELS)
     return evidence

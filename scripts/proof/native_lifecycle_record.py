@@ -4004,15 +4004,21 @@ def lifecycle_name_problems():
 
 # The other runs that carry Format.V3 cases, and their classes: the V3 cases moved beside the old
 # flows of the header footprint suites and the binding faults, the presence matrix's V3 step, the
-# lifecycle entry points of the future format matrix and the version gate, and the lab rehearsal.
+# lifecycle entry points of the future format matrix and the version gate, the lab rehearsal, the
+# production twins of the binding, history and counter suites with the production parity, the
+# production default check, and the lab store fixture's Format.V3 reads.
 LIFECYCLE_FORMAT_HARNESSES = {
     'scripts/proof/native_creation_binding.py': ('NativeIdentityPresenceTest', 'NativeIdentityHeaderFootprintTest',
-                                                 'NativeHeaderWriteFaultTest', 'NativeCreationBindingFaultTest'),
+                                                 'NativeHeaderWriteFaultTest', 'NativeCreationBindingFaultTest',
+                                                 'NativeCreationBindingTest', 'NativeProductionDefaultTest'),
     'scripts/proof/tests/test_native_header_footprint.py': ('NativeIdentityHeaderFootprintTest',
                                                             'NativeHeaderWriteFaultTest'),
     'scripts/proof/tests/test_native_identity_store.py': ('NativeIdentityFutureFormatTest',
                                                           'NativeIdentityVersionGateTest'),
-    'scripts/proof/native_lab_history.py': ('NativeWriterLabRehearsal',)}
+    'scripts/proof/native_creation_history.py': ('NativeCreationHistoryTest', 'NativeCreationHistoryFaultTest',
+                                                 'NativeHistoryParity'),
+    'scripts/proof/native_counter_admission.py': ('NativeCounterAdmissionTest',),
+    'scripts/proof/native_lab_history.py': ('NativeWriterLabRehearsal', 'LabHistoryStoreTest')}
 # The other runs of code that constructs no store, which carry the production label too: the
 # record codec, the recovery view, the pins' core and allocator, the adapted boot fragments over
 # constructed views, and the lab's generator and predictor.

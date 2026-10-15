@@ -14,7 +14,8 @@ in /tmp/hsperfdata_<user> while it runs. A run that stops early keeps every fini
 its NOT_COMPLETE status; nothing is retried. The comparisons with 0018a1d and 78456b3 are archived
 at 24bfb6a: they read pinned Git objects and candidates built from pinned patches only. The probe
 and the parity also run on the current sources as living legs: the probe by its own assertions,
-and the parity against the archived 24bfb6a side, differing exactly where the predictions say.
+and the parity against the archived 24bfb6a side, differing exactly where the predictions say. The
+parity runs once more under Format.V3, the production format, against its own Format.V2 outcomes.
 Source checks are pure Python. Not Android, crash, power loss, storage or activation evidence."""
 from pathlib import Path
 import argparse
@@ -44,8 +45,8 @@ HISTORY_STUBS = ROOT / PLATFORM / 'native_history_stubs'
 BODY_INPUTS = {'0018': ROOT / PLATFORM / 'native_history_api/baseline/body-inputs.java.inc',
                'b2': ROOT / PLATFORM / 'native_history_api/b2/body-inputs.java.inc'}
 # The living parity compiles the pinned 24bfb6a parity driver, so that it and the archived side run
-# one driver. While it does, the working-tree driver keeps those bytes: a package that edits the
-# driver moves the living parity to its edit and predicts each difference.
+# one driver. The working-tree driver is that driver but for its format selection, which the source
+# checks hold it to: the production parity compiles it to read every layout under Format.V3.
 PARITY_DRIVER = ROOT / PLATFORM / 'NativeHistoryParity.java'
 PRESENCE_TEST = ROOT / PLATFORM / 'NativeIdentityPresenceTest.java'
 STORE_REGRESSION = ROOT / 'scripts/proof/tests/test_native_identity_store.py'
@@ -53,8 +54,8 @@ STORE_REGRESSION = ROOT / 'scripts/proof/tests/test_native_identity_store.py'
 # The kernel's own limit, 108 bytes with the terminator, is looser.
 SOCKET_LIMIT = 100
 # Every guarded phase in order. A run reports those it completed and those it did not.
-PHASES = ('candidates', 'b2 focused', 'b2 faults', 'probe', 'parity', 'living parity', 'readers',
-          'archived readers', 'mutants', 'b1 runner')
+PHASES = ('candidates', 'b2 focused', 'b2 faults', 'probe', 'parity', 'living parity', 'production parity',
+          'readers', 'archived readers', 'mutants', 'b1 runner')
 # The primary's reviewed read only probe, copied verbatim. Its 0018a1d result is BODY_ORIGIN_BASELINE.
 # The archived probe sides compile the pinned 24bfb6a object, which has these bytes. Its living run is
 # retired: under the earlier formats the retirement it probes refuses before any effect, and its
@@ -140,14 +141,17 @@ ROLLBACK_CHECKS = (('NativeRollbackReaderCheck', 'rollback reader'),
 ROLLBACK_COPY_LAYOUTS = 29
 ROLLBACK_CONTROLS = ('history-rebound', 'history-reserved')
 # The labels of this runner's guarded steps and readers, as the B1 runner's HARNESS_LABELS name them.
-# The living steps run Format.V2 and Format.V1 on the current sources: the previous and the legacy
-# format, neither of them production since the boot read constructs Format.V3.
-STEP_LABELS = {'b2 focused': ('previous', 'legacy'), 'b2 faults': ('previous', 'legacy'),
+# The living steps run Format.V2 and Format.V1 on the current sources, the previous and the legacy
+# format; their production twins and the production parity run Format.V3, which the boot read
+# constructs.
+STEP_LABELS = {'b2 focused': ('previous', 'legacy', 'production'),
+               'b2 faults': ('previous', 'legacy', 'production'),
                'probe': ('archived-baseline',),
                'parity': ('archived-baseline', 'rollback-reader'), 'living parity': ('previous', 'legacy'),
+               'production parity': ('production',),
                'readers': ('previous', 'legacy'),
                'archived readers': ('archived-baseline', 'rollback-reader'),
-               'mutants': ('previous', 'legacy')}
+               'mutants': ('previous', 'legacy', 'production')}
 # This runner's archived steps. Every other labelled step is living.
 ARCHIVED_STEP_NAMES = ('probe', 'parity', 'archived readers')
 READER_LABELS = {'b2-v1': 'legacy', '24bf-v1': 'rollback-reader', BASE: 'archived-baseline',
@@ -244,10 +248,32 @@ FOCUSED_NAMES = (
     'seeding / a reservation seeds as its published body under every data owner',
     'holds / every hold and fence remains',
     'holds / a refused retirement keeps the UID hold, keystore fence and history')
+# The production twins of b2 focused: each common case runs under the earlier formats it names, as
+# above, then once more under Format.V3, the production format, as its own run named with a V3
+# prefix. Format.V3 reads the same version 1 slots and version 2 headers as Format.V2 and writes the
+# same records, so a twin asserts the same outcome of the same steps. FOCUSED_NAMES stays the list
+# of the earlier runs, which the lifecycle runner reads for their refusals. These cases have no
+# twin.
+_RETIREMENT = 'a lifecycle refusal: under Format.V3 the operation is the lifecycle runner\'s case'
+_SLOT_CEILING = 'a version 2 slot frame, above the earlier formats\' slot ceiling but within Format.V3\'s'
+NO_TWIN = {
+    'history / the version 1 rollback reader reads no reservation': 'a Format.V1 read',
+    'no fallback / a future body': _SLOT_CEILING, 'gate / an unsupported slot seed': _SLOT_CEILING,
+    **{name: _RETIREMENT for name in FOCUSED_NAMES if name.startswith('retirement / ')},
+    'holds / a refused retirement keeps the UID hold, keystore fence and history': _RETIREMENT}
+PRODUCTION_FOCUSED = tuple('V3 / ' + name for name in FOCUSED_NAMES if name not in NO_TWIN)
+# Every run that b2 focused prints: each case, then its production twin.
+FOCUSED_RUNS = tuple(run for name in FOCUSED_NAMES
+                     for run in ((name,) if name in NO_TWIN else (name, 'V3 / ' + name)))
 FAULT_KINDS = ('exact header confirmation', 'first body write', 'LIVE completion',
                'rebound retirement refused before its publication',
                'rebound retirement refused before its marker')
 FAULT_NAMES = tuple('%s / %s' % (kind, step) for kind in FAULT_KINDS for step in STEPS)
+# The rebind sweeps also run under Format.V3, as twins named with a V3 prefix. The two refused
+# retirement sweeps have none: under Format.V3 their writer steps are the lifecycle runner's sweeps.
+PRODUCTION_FAULT_KINDS = FAULT_KINDS[:3]
+PRODUCTION_FAULTS = tuple('V3 / %s / %s' % (kind, step) for kind in PRODUCTION_FAULT_KINDS for step in STEPS)
+FAULT_RUNS = FAULT_NAMES + PRODUCTION_FAULTS
 LAYOUT_NAMES = tuple(sorted(
     ['history-reserved', 'history-beside-body', 'history-unknown-counter', 'history-protected-target',
      'history-rebound']
@@ -399,6 +425,29 @@ MUTANTS = {
         '        } else if (loaded.counterRestorable()) {\n',
         '        } else if (loaded.counterRestorable() && records.isEmpty()) {\n'),), ('focused',)),
 }
+# The production format regressions of the B1 runner that these suites can see, each changing only
+# Format.V3's line of the store's Format enum: only the production twins may catch them, and every
+# earlier run must pass. The reservation version regression is not run here: no history case
+# asserts a new entry's binding, only its published result, which that regression leaves equal.
+PRODUCTION_MUTANTS = ('production-header-ceiling-1', 'production-header-ceiling-3')
+MUTANTS.update({name: (STORE, ((b1.PRODUCTION_ENUM, b1.PRODUCTION_MUTANTS[name]),), ('focused', 'faults'))
+                for name in PRODUCTION_MUTANTS})
+# The production parity's control: the production format reading version 2 headers as footprints,
+# which only the production parity, not the living parity of the earlier formats, can show.
+PRODUCTION_PARITY_CONTROL = (STORE, 'production-header-ceiling-1')
+# The working-tree parity driver is the pinned 24bfb6a driver with exactly these code changes,
+# comments aside: the formats it reads come from the command line, Format.V3 alone for the
+# production parity.
+PARITY_DRIVER_CHANGES = (
+    ('    private static final SigningDetails OTHER_SIGNER = new SigningDetails(new Signature(new byte[] {9}));\n',
+     '    private static final SigningDetails OTHER_SIGNER = new SigningDetails(new Signature(new byte[] {9}));\n'
+     '    private static List<NativeIdentityStore.Format> formats = List.of(V1, V2);\n'),
+    ('        for (NativeIdentityStore.Format format : List.of(V1, V2)) {\n',
+     '        for (NativeIdentityStore.Format format : formats) {\n'),
+    ('        start(Path.of(args[0]));\n',
+     '        if (args.length == 3 && args[2].equals("V3")) formats = List.of(NativeIdentityStore.Format.V3);\n'
+     '        else if (args.length != 2) throw new IllegalArgumentException("state, outcomes and at most V3");\n'
+     '        start(Path.of(args[0]));\n'))
 
 
 def sha(data):
@@ -736,9 +785,12 @@ def source_checks():
         problems += surface_violations()
     except ValueError as error:
         problems.append('surface: %s' % error)
-    # The living parity compiles the pinned 24bfb6a driver, so the working-tree driver keeps its bytes.
-    if sha(PARITY_DRIVER.read_bytes()) != b1.ARCHIVE_SHA256[ARCHIVED_PARITY]:
-        problems.append('parity driver differs from the pinned 24bfb6a driver that the living parity compiles')
+    # The living parity compiles the pinned 24bfb6a driver; the production parity compiles the
+    # working-tree driver, which is that driver but for its format selection.
+    try:
+        problems += parity_driver_problems()
+    except ValueError as error:
+        problems.append('parity driver: %s' % error)
     try:
         problems += archived_support_problems()
     except ValueError as error:
@@ -749,16 +801,29 @@ def source_checks():
     except ValueError as error:
         problems.append('mutant anchors: %s' % error)
     predictions = json.loads(PREDICTIONS.read_text())
-    names = set(FOCUSED_NAMES) | set(FAULT_NAMES)
+    names = set(FOCUSED_RUNS) | set(FAULT_RUNS)
     expected = predictions['b2_mutants_caught_at_least']
     if set(expected) != set(MUTANTS):
         problems.append('mutant predictions do not list every mutant')
     for name, checks in expected.items():
         if not checks or not set(checks) <= names:
             problems.append('mutant prediction inconsistent: ' + name)
-    if (len(set(FOCUSED_NAMES)) != len(FOCUSED_NAMES) or len(set(FAULT_NAMES)) != len(FAULT_NAMES)
+    production = set(PRODUCTION_FOCUSED) | set(PRODUCTION_FAULTS)
+    for name in PRODUCTION_MUTANTS:
+        if not set(expected.get(name, ())) <= production or MUTANTS[name][0] != STORE:
+            problems.append('production mutant %s is not predicted against production twins alone' % name)
+    if (len(set(FOCUSED_RUNS)) != len(FOCUSED_RUNS) or len(set(FAULT_RUNS)) != len(FAULT_RUNS)
             or len(set(LAYOUT_NAMES)) != len(LAYOUT_NAMES)):
         problems.append('duplicate check names')
+    if (not set(NO_TWIN) <= set(FOCUSED_NAMES) or not all(NO_TWIN.values())
+            or len(PRODUCTION_FOCUSED) + len(NO_TWIN) != len(FOCUSED_NAMES)
+            or set(FOCUSED_RUNS) != set(FOCUSED_NAMES) | set(PRODUCTION_FOCUSED)
+            or not set(PRODUCTION_FAULT_KINDS) < set(FAULT_KINDS)):
+        problems.append('the production twins of the history suites differ from their cases')
+    parity = predictions['b2_checkpoint_2c']['production_parity']
+    if not all(name.split('/', 1)[0].split('~', 1)[0] in parity['apart_layouts']
+               for name in parity['predicted_differences']):
+        problems.append('a predicted production parity difference lies outside the apart layouts')
     predicted = predictions['living_parity']['predicted_differences']
     if not isinstance(predicted, list) or len(set(predicted)) != len(predicted):
         problems.append('living parity prediction is not a list of distinct outcome keys')
@@ -833,6 +898,34 @@ def predicted_parity(archived_text, living_text, predicted):
     return differences, sorted(set(differences) - set(predicted)), sorted(set(predicted) - set(differences))
 
 
+def production_parity_differences(previous_text, production_text):
+    """Every outcome of the production parity, read under Format.V3 alone, that differs from the
+    same outcome of the living parity under Format.V2, as '<layout>/<kind>/<detail>'; a twin
+    relation that differs, as 'relation/<layout>'; and every line of another format, as
+    'format/<line key>'. Sorted and pure."""
+    relations, previous = parse_parity(previous_text)
+    production_relations, production = parse_parity(production_text)
+    old = {key[1:]: value for key, value in previous.items() if key[0] == 'V2'}
+    new = {key[1:]: value for key, value in production.items() if key[0] == 'V3'}
+    return sorted(['relation/' + name for name in set(relations) | set(production_relations)
+                   if relations.get(name) != production_relations.get(name)]
+                  + ['/'.join(key) for key in set(old) | set(new) if old.get(key) != new.get(key)]
+                  + ['format/' + '/'.join(key) for key in production if key[0] != 'V3'])
+
+
+def predicted_production_parity(previous_text, production_text, predicted):
+    """The production parity's differences from the living parity's Format.V2 outcomes, those the
+    predictions do not allow, and the predicted ones that did not occur, each sorted. An outcome may
+    differ only in an apart layout or its cleared twin: one whose version 2 slot frame lies above
+    the earlier formats' slot ceiling but within the production format's. Each predicted difference
+    must occur. A relation or another format's line never may. Pure."""
+    differences = production_parity_differences(previous_text, production_text)
+    apart = set(predicted['apart_layouts'])
+    unexpected = sorted(name for name in differences if name.startswith(('relation/', 'format/'))
+                        or name.split('/', 1)[0].split('~', 1)[0] not in apart)
+    return differences, unexpected, sorted(set(predicted['predicted_differences']) - set(differences))
+
+
 # ---------------------------------------------------------------- JVM builds, guarded
 
 def history_stubs():
@@ -881,14 +974,46 @@ def b2_suite(work, settings, kind, override=None):
 def living_parity_files(settings):
     """The living parity: the current product, harness and support with the pinned 24bfb6a parity
     driver, whose fixed matrix holds the archived layouts. The source checks hold the working-tree
-    driver to those bytes."""
+    driver to it but for its format selection."""
     files = {**b2_product(settings), **worktree_tests(['NativeHeaderTestSupport', 'NativeBindingTestSupport'])}
     files['tests/NativeHistoryParity.java'] = b1.pinned_bytes(ARCHIVE, ARCHIVED_PARITY)
     return files
 
 
-def run_parity(work, files):
-    """One parity side's outcomes from its assembled sources."""
+def production_parity_files(settings, override=None):
+    """The production parity: the living parity's sources, with one optional override of the current
+    sources for its control, and the working-tree driver, which reads the same layouts under the
+    formats its command line names."""
+    files = {**b2_product(settings, override),
+             **worktree_tests(['NativeHeaderTestSupport', 'NativeBindingTestSupport'])}
+    files['tests/NativeHistoryParity.java'] = PARITY_DRIVER.read_bytes()
+    return files
+
+
+def production_parity_control_text():
+    """The store of the production parity's control: one production format regression."""
+    path, name = PRODUCTION_PARITY_CONTROL
+    return b1.replace_once((ROOT / path).read_text(), b1.PRODUCTION_ENUM, b1.PRODUCTION_MUTANTS[name])
+
+
+def parity_driver_problems():
+    """The working-tree parity driver is the pinned 24bfb6a driver with exactly the format selection
+    of PARITY_DRIVER_CHANGES, comments and layout aside, so the production parity reads every layout
+    as the living parity does, under Format.V3 alone."""
+    driver = b1.pinned_bytes(ARCHIVE, ARCHIVED_PARITY).decode()
+    for old, new in PARITY_DRIVER_CHANGES:
+        if driver.count(old) != 1:
+            return ['a parity driver change no longer anchors once in the pinned 24bfb6a driver']
+        driver = driver.replace(old, new)
+    code = lambda text: ' '.join(b1.strip_java_comments(text).split())  # noqa: E731
+    if code(driver) != code(PARITY_DRIVER.read_text()):
+        return ['parity driver differs from the pinned 24bfb6a driver beyond its format selection']
+    return []
+
+
+def run_parity(work, files, args=()):
+    """One parity side's outcomes from its assembled sources, the driver given these extra
+    arguments."""
     work.mkdir(parents=True)
     built = b1.build(work, files)
     record = {'build': built}
@@ -896,7 +1021,8 @@ def run_parity(work, files):
         record['compile_failure'] = True
         return record, None
     output = work / 'outcomes.tsv'
-    record['run'] = b1.execute(work, 'NativeHistoryParity', [str(work / 'state'), str(output)], timeout=1800)
+    record['run'] = b1.execute(work, 'NativeHistoryParity', [str(work / 'state'), str(output), *args],
+                               timeout=1800)
     text = output.read_text() if output.is_file() else None
     if text is not None:
         record['outcomes'] = {'sha256': sha(text.encode()), 'lines': len(text.splitlines())}
@@ -1556,8 +1682,9 @@ def qualify(work, pinned, progress):
     settings = built['b2']
     progress.done('candidates')
 
-    # The focused and fault matrices: each case exactly once, all passing, exit status 0.
-    for kind, names in (('focused', FOCUSED_NAMES), ('faults', FAULT_NAMES)):
+    # The focused and fault matrices: each case and production twin exactly once, all passing, exit
+    # status 0.
+    for kind, names in (('focused', FOCUSED_RUNS), ('faults', FAULT_RUNS)):
         progress.begin('b2 ' + kind)
         record = b2_suite(work / ('b2-' + kind), settings, kind)
         result = b1.outcome(record, names)
@@ -1604,6 +1731,37 @@ def qualify(work, pinned, progress):
             problems.append('living parity against 24bfb6a: %d unpredicted and %d missing differences'
                             % (len(unexpected), len(missing)))
     progress.done('living parity')
+
+    # Production: the same layouts read under Format.V3 alone by the working-tree driver, which is
+    # the pinned driver but for its format selection. Every outcome equals the living parity's under
+    # Format.V2, but in the apart layouts, whose version 2 slot frame Format.V3 reads within its
+    # slot ceiling and which restore otherwise. Then its control: a production format regression,
+    # which the living parity's earlier formats cannot show and this comparison must.
+    progress.begin('production parity')
+    record, production = run_parity(work / 'parity-production', production_parity_files(settings), ('V3',))
+    steps['production parity'] = record
+    expected = predictions['b2_checkpoint_2c']['production_parity']
+    if outcomes is None or production is None or record['run']['returncode']:
+        problems.append('production parity did not run')
+    else:
+        differences, unexpected, missing = predicted_production_parity(outcomes, production, expected)
+        record.update(difference_count=len(differences), differences=differences[:200],
+                      unpredicted=unexpected[:200], missing=missing[:200])
+        if unexpected or missing:
+            problems.append('production parity: %d unpredicted and %d missing differences'
+                            % (len(unexpected), len(missing)))
+        path, _ = PRODUCTION_PARITY_CONTROL
+        control, controlled = run_parity(work / 'parity-production-control', production_parity_files(
+            settings, {path: production_parity_control_text()}), ('V3',))
+        record['control'] = control
+        if controlled is None or control['run']['returncode']:
+            problems.append('production parity control did not run')
+        else:
+            _, caught, _ = predicted_production_parity(outcomes, controlled, expected)
+            control.update(unpredicted_count=len(caught), unpredicted=caught[:50])
+            if not caught:
+                problems.append('production parity control not caught')
+    progress.done('production parity')
 
     # Version 2 history layouts from the Format.V2 writer on the current sources, read by the
     # legacy b2-v1 reader, the current sources under Format.V1, whose facade and recovery seeding
@@ -1691,7 +1849,7 @@ def qualify(work, pinned, progress):
             if kind not in ('focused', 'faults'):
                 problems.append('mutant %s names no living history suite: %s' % (name, kind))
                 continue
-            names = FOCUSED_NAMES if kind == 'focused' else FAULT_NAMES
+            names = FOCUSED_RUNS if kind == 'focused' else FAULT_RUNS
             result = b1.outcome(b2_suite(directory, settings, kind, override), names)
             record[kind] = result
             if 'error' in result:
@@ -1705,8 +1863,14 @@ def qualify(work, pinned, progress):
             failed |= red
         missed = sorted(set(expectations[name]) - failed)
         record['missed'] = missed
+        record['failed'] = sorted(failed)
         if missed or not failed:
             problems.append('mutant %s not caught: %s' % (name, missed))
+        # A production format regression leaves every run under an earlier format passing.
+        production = set(PRODUCTION_FOCUSED) | set(PRODUCTION_FAULTS)
+        if name in PRODUCTION_MUTANTS and not failed <= production:
+            problems.append('production mutant %s failed a run under an earlier format: %s'
+                            % (name, sorted(failed - production)[:5]))
         progress.write()
     report['labels'] = {step: list(STEP_LABELS[step]) for step in steps if step in STEP_LABELS}
     report['reader_labels'] = dict(READER_LABELS)

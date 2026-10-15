@@ -26,12 +26,19 @@ import java.util.Map;
  * after. It restores PENDING until the durable marker is the selected copy, RETIRING after.
  * R's record, hold and the selected counter are conserved, and the same original handle
  * converges without another ID. A completed release keeps R held in the same Settings instance.
- * These are host injected failures, not Android crash or power loss evidence.
+ * The three rebind sweeps also run under Format.V3, the production format, as twins named with a
+ * V3 prefix. These are host injected failures, not Android crash or power loss evidence.
  */
 public final class NativeCreationHistoryFaultTest {
     private static final List<String> STEPS = List.of("seed-synced", "backup-renamed",
             "backup-published", "write-started", "main-synced", "reserve-synced", "backup-unlink",
             "backup-unlinked");
+    // The production format, which the normal image's boot read constructs.
+    private static final NativeIdentityStore.Format V3 = NativeIdentityStore.Format.V3;
+
+    private interface FormatBody {
+        void run(List<String> problems, NativeIdentityStore.Format format) throws Exception;
+    }
 
     // Every case disarms its seam, even when it fails before reaching it.
     private static void fault(String name, Body body) {
@@ -44,16 +51,23 @@ public final class NativeCreationHistoryFaultTest {
         });
     }
 
+    // A rebind sweep's case at one step under Format.V2, as before, then its production twin under
+    // Format.V3, named with a V3 prefix: the same transition, failure, reopening and convergence.
+    private static void common(String name, FormatBody body) {
+        fault(name, problems -> body.run(problems, V2));
+        fault("V3 / " + name, problems -> body.run(problems, V3));
+    }
+
     // A new view and a reopened registry after the failure: R's history source, its pin phase,
     // record and hold, and the selected counter.
-    private static void reopened(List<String> problems, Path root, Source source, Phase phase,
-            String step) {
-        History history = loadedOf(root, V2).history(R);
+    private static void reopened(List<String> problems, Path root, NativeIdentityStore.Format format,
+            Source source, Phase phase, String step) {
+        History history = loadedOf(root, format).history(R);
         check(problems, history != null && history.source == source
                 && NativeIdentityPersistence.identifies(history, recordR())
                 && history.signerSha256.equals(SIGNERS)
                 && history.retiring == (phase == Phase.RETIRING), step + ": history " + history);
-        PackageManagerService pm = reopenOf(root, V2, Map.of());
+        PackageManagerService pm = reopenOf(root, format, Map.of());
         NativePrincipalPins.Pin pin = pm.mSettings.pins.find(PKG_R, 0);
         check(problems, pin != null && pin.phase() == phase && pin.record().equals(recordR())
                 && pm.mSettings.isNativePrincipalAppIdLPr(R) && pm.mSettings.pins.hasKnownCounter()
@@ -61,15 +75,15 @@ public final class NativeCreationHistoryFaultTest {
     }
 
     // The same original handle finishes the rebind: its original body, LIVE, and no new ID.
-    private static void converge(List<String> problems, PackageManagerService pm,
+    private static void converge(List<String> problems, NativeIdentityStore.Format format, PackageManagerService pm,
             NativePrincipalManager manager, NativePrincipalManager.Handle r, Path root, String step) {
         check(problems, manager.commit(r) && manager.phase(r) == Phase.ACTIVE
-                && manager.identity(r).equals(recordR()) && v2(1, live(R)).equals(storedOf(root, V2))
-                && BODY_R.equals(loadedOf(root, V2).slots.get(R).value)
-                && pm.mSettings.pins.snapshotForWrite().lastId == 1, step + ": retry " + storedOf(root, V2));
-        History history = loadedOf(root, V2).history(R);
+                && manager.identity(r).equals(recordR()) && v2(1, live(R)).equals(storedOf(root, format))
+                && BODY_R.equals(loadedOf(root, format).slots.get(R).value)
+                && pm.mSettings.pins.snapshotForWrite().lastId == 1, step + ": retry " + storedOf(root, format));
+        History history = loadedOf(root, format).history(R);
         check(problems, history != null && history.source == Source.BODY
-                && reopenedPhase(root, V2, PKG_R) == Phase.PENDING, step + ": final " + history);
+                && reopenedPhase(root, format, PKG_R) == Phase.PENDING, step + ": final " + history);
     }
 
     // A restored reservation of R with its explicit designation, not yet committed.
@@ -79,9 +93,9 @@ public final class NativeCreationHistoryFaultTest {
         final NativePrincipalManager manager;
         final NativePrincipalManager.Handle handle;
 
-        Rebound() throws Exception {
+        Rebound(NativeIdentityStore.Format format) throws Exception {
             root = reserved();
-            pm = boot(root, V2, Map.of(PKG_R, R));
+            pm = boot(root, format, Map.of(PKG_R, R));
             manager = new NativePrincipalManager(pm);
             handle = manager.prepare(manager.select(PKG_R, 0));
         }
@@ -90,16 +104,16 @@ public final class NativeCreationHistoryFaultTest {
     // The rewrite of the unchanged header that opens the rebind commit.
     private static void exactConfirmation() {
         for (String step : STEPS) {
-            fault("exact header confirmation / " + step, problems -> {
-                Rebound r = new Rebound();
+            common("exact header confirmation / " + step, (problems, format) -> {
+                Rebound r = new Rebound(format);
                 NativeHeaderWriteFaults.arm(step, "store.bin");
                 check(problems, !r.manager.commit(r.handle) && NativeHeaderWriteFaults.reached(),
                         "no injected failure");
                 NativeHeaderWriteFaults.disarm();
-                check(problems, RESERVED_R.equals(storedOf(r.root, V2))
-                        && r.manager.phase(r.handle) == Phase.PENDING, step + ": selected " + storedOf(r.root, V2));
-                reopened(problems, r.root, Source.RESERVATION, Phase.PENDING, step);
-                converge(problems, r.pm, r.manager, r.handle, r.root, step);
+                check(problems, RESERVED_R.equals(storedOf(r.root, format)) && r.manager.phase(r.handle)
+                        == Phase.PENDING, step + ": selected " + storedOf(r.root, format));
+                reopened(problems, r.root, format, Source.RESERVATION, Phase.PENDING, step);
+                converge(problems, format, r.pm, r.manager, r.handle, r.root, step);
             });
         }
     }
@@ -108,16 +122,17 @@ public final class NativeCreationHistoryFaultTest {
     // reopened registry read the body.
     private static void firstBody() {
         for (String step : STEPS) {
-            fault("first body write / " + step, problems -> {
-                Rebound r = new Rebound();
+            common("first body write / " + step, (problems, format) -> {
+                Rebound r = new Rebound(format);
                 NativeHeaderWriteFaults.arm(step, "record.bin");
                 check(problems, !r.manager.commit(r.handle) && NativeHeaderWriteFaults.reached(),
                         "no injected failure");
                 NativeHeaderWriteFaults.disarm();
-                check(problems, RESERVED_R.equals(storedOf(r.root, V2)), step + ": header " + storedOf(r.root, V2));
-                reopened(problems, r.root, step.equals("seed-synced") ? Source.RESERVATION : Source.BODY,
+                check(problems, RESERVED_R.equals(storedOf(r.root, format)),
+                        step + ": header " + storedOf(r.root, format));
+                reopened(problems, r.root, format, step.equals("seed-synced") ? Source.RESERVATION : Source.BODY,
                         Phase.PENDING, step);
-                converge(problems, r.pm, r.manager, r.handle, r.root, step);
+                converge(problems, format, r.pm, r.manager, r.handle, r.root, step);
             });
         }
     }
@@ -126,9 +141,9 @@ public final class NativeCreationHistoryFaultTest {
     // final step.
     private static void liveCompletion() {
         for (String step : STEPS) {
-            fault("LIVE completion / " + step, problems -> {
-                Rebound r = new Rebound();
-                NativeIdentityStore store = storeOf(r.root, V2);
+            common("LIVE completion / " + step, (problems, format) -> {
+                Rebound r = new Rebound(format);
+                NativeIdentityStore store = storeOf(r.root, format);
                 check(problems, store.resumeCreatingDirectory(RESERVED_R, R)
                         && store.publishCreatingSlot(RESERVED_R, BODY_R), "fixture body");
                 NativeHeaderWriteFaults.arm(step, "store.bin");
@@ -136,10 +151,10 @@ public final class NativeCreationHistoryFaultTest {
                         "no injected failure");
                 NativeHeaderWriteFaults.disarm();
                 boolean last = step.equals("backup-unlinked");
-                check(problems, (last ? v2(1, live(R)) : RESERVED_R).equals(storedOf(r.root, V2)),
-                        step + ": selected " + storedOf(r.root, V2));
-                reopened(problems, r.root, Source.BODY, Phase.PENDING, step);
-                converge(problems, r.pm, r.manager, r.handle, r.root, step);
+                check(problems, (last ? v2(1, live(R)) : RESERVED_R).equals(storedOf(r.root, format)),
+                        step + ": selected " + storedOf(r.root, format));
+                reopened(problems, r.root, format, Source.BODY, Phase.PENDING, step);
+                converge(problems, format, r.pm, r.manager, r.handle, r.root, step);
             });
         }
     }
@@ -149,12 +164,12 @@ public final class NativeCreationHistoryFaultTest {
     private static void retirementPublication() {
         for (String step : STEPS) {
             fault("rebound retirement refused before its publication / " + step, problems -> {
-                Rebound r = new Rebound();
+                Rebound r = new Rebound(V2);
                 NativeHeaderWriteFaults.arm(step, "record.bin");
                 check(problems, retirementRefused(r.root, r.manager, r.handle) && !NativeHeaderWriteFaults.reached()
                         && r.manager.phase(r.handle) == Phase.PENDING, step + ": the retirement was not refused");
                 NativeHeaderWriteFaults.disarm();
-                reopened(problems, r.root, Source.RESERVATION, Phase.PENDING, step);
+                reopened(problems, r.root, V2, Source.RESERVATION, Phase.PENDING, step);
             });
         }
     }
@@ -164,14 +179,14 @@ public final class NativeCreationHistoryFaultTest {
     private static void retirementMarker() {
         for (String step : STEPS) {
             fault("rebound retirement refused before its marker / " + step, problems -> {
-                Rebound r = new Rebound();
+                Rebound r = new Rebound(V2);
                 check(problems, r.manager.commit(r.handle), "rebind refused");
                 NativeHeaderWriteFaults.arm(step, "record.bin");
                 check(problems, retirementRefused(r.root, r.manager, r.handle) && !NativeHeaderWriteFaults.reached(),
                         step + ": the retirement was not refused");
                 NativeHeaderWriteFaults.disarm();
                 check(problems, v2(1, live(R)).equals(storedOf(r.root, V2)), step + ": header " + storedOf(r.root, V2));
-                reopened(problems, r.root, Source.BODY, Phase.PENDING, step);
+                reopened(problems, r.root, V2, Source.BODY, Phase.PENDING, step);
             });
         }
     }

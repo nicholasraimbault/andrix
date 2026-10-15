@@ -40,12 +40,32 @@ import java.util.TreeMap;
  * restores PENDING, and only an explicit designation rebinds and publishes it with its original
  * ID and signers. Published bindings and current identities stay body only. A reservation never
  * rebound cannot create its first body in retirement. Each case isolates one store, and every
- * booted facade restores exactly what the adapted Settings text restores. Host facades only:
- * not Android boot, crash, storage, SELinux or UID authority qualification, and not activation
- * of the version 2 format.
+ * booted facade restores exactly what the adapted Settings text restores. Each common case also
+ * runs under Format.V3, the production format, as its own twin, named with a V3 prefix. Host
+ * facades only: not Android boot, crash, storage, SELinux or UID authority qualification, and not
+ * activation of the version 2 format.
  */
 public final class NativeCreationHistoryTest {
     private interface Layer { void write(Path root) throws Exception; }
+
+    private interface FormatBody {
+        void run(List<String> problems, NativeIdentityStore.Format format) throws Exception;
+    }
+
+    // The production format, which the normal image's boot read constructs.
+    private static final NativeIdentityStore.Format V3 = NativeIdentityStore.Format.V3;
+
+    // A common case: its run under the earlier formats it names, as before, then its production
+    // twin under Format.V3, named with a V3 prefix. Format.V3 reads the same version 1 slots and
+    // version 2 headers as Format.V2 and writes the same records, so the twin asserts the same
+    // outcome of the same steps. The retirement cases, whose refusal is the case, have none: under
+    // Format.V3 that operation is the lifecycle runner's, and the case map names its cases.
+    private static void common(String name, List<NativeIdentityStore.Format> earlier, FormatBody body) {
+        run(name, problems -> {
+            for (NativeIdentityStore.Format format : earlier) body.run(problems, format);
+        });
+        run("V3 / " + name, problems -> body.run(problems, V3));
+    }
 
     private static final UserManagerInternal USERS = new UserManagerInternal();
     private static final SigningDetails OWN = new SigningDetails(new Signature(new byte[] {1, 2, 3}));
@@ -113,44 +133,44 @@ public final class NativeCreationHistoryTest {
 
     // BODY and RESERVATION sources, and the view a reopened registry restores from them.
     private static void sources() {
-        run("history / an eligible body is BODY with its one user", problems -> {
-            for (NativeIdentityStore.Format format : List.of(V1, V2)) {
-                Path root = pairLayout(format == V1 ? header(1, live(A)) : v2(1, live(A)));
-                slot(root, A, BODY_A);
-                NativeIdentityStore.Loaded view = loadedOf(root, format);
-                History history = view.history(A);
-                check(problems, history != null && history.source == Source.BODY && history.id == 1
-                        && history.appId == A && history.packageName.equals(PKG_A) && history.userId == 0
-                        && history.userSerial == SERIAL && history.signerSha256.equals(SIGNERS)
-                        && !history.retiring && history.lineage.equals(LINEAGE)
-                        && view.histories().keySet().equals(Set.of(A)) && bodiesExact(view),
-                        format + " history " + history);
-                NativePrincipalPins.Pin pin = reopenOf(root, format, Map.of()).mSettings.pins.find(PKG_A, 0);
-                check(problems, pin != null && pin.phase() == Phase.PENDING
-                        && pin.record().equals(record(1, PKG_A, A)), format + " restored " + pin);
-            }
+        common("history / an eligible body is BODY with its one user",
+                List.of(V1, V2), (problems, format) -> {
+            Path root = pairLayout(format == V1 ? header(1, live(A)) : v2(1, live(A)));
+            slot(root, A, BODY_A);
+            NativeIdentityStore.Loaded view = loadedOf(root, format);
+            History history = view.history(A);
+            check(problems, history != null && history.source == Source.BODY && history.id == 1
+                    && history.appId == A && history.packageName.equals(PKG_A) && history.userId == 0
+                    && history.userSerial == SERIAL && history.signerSha256.equals(SIGNERS)
+                    && !history.retiring && history.lineage.equals(LINEAGE)
+                    && view.histories().keySet().equals(Set.of(A)) && bodiesExact(view),
+                    format + " history " + history);
+            NativePrincipalPins.Pin pin = reopenOf(root, format, Map.of()).mSettings.pins.find(PKG_A, 0);
+            check(problems, pin != null && pin.phase() == Phase.PENDING
+                    && pin.record().equals(record(1, PKG_A, A)), format + " restored " + pin);
         });
-        run("history / a retiring body keeps its marker", problems -> {
+        common("history / a retiring body keeps its marker", List.of(V2), (problems, format) -> {
             Path root = pairLayout(v2(1, live(A)));
             slot(root, A, bound(A, PKG_A, 1, true, 2));
-            NativeIdentityStore.Loaded view = loadedOf(root, V2);
+            NativeIdentityStore.Loaded view = loadedOf(root, format);
             History history = view.history(A);
             check(problems, history != null && history.source == Source.BODY && history.retiring
                     && bodiesExact(view), "history " + history);
             check(problems, NativeIdentityPersistence.restoration(view.histories()).retiringIds
                     .equals(Set.of(1L)), "retiring IDs");
-            check(problems, reopenedPhase(root, V2, PKG_A) == Phase.RETIRING, "restored phase");
+            check(problems, reopenedPhase(root, format, PKG_A) == Phase.RETIRING, "restored phase");
         });
-        run("history / a body under its creation entry is BODY", problems -> {
+        common("history / a body under its creation entry is BODY", List.of(V2), (problems, format) -> {
             Path root = pairLayout(v2(1, boundCreating(A, 1, PKG_A)));
             slot(root, A, BODY_A);
-            NativeIdentityStore.Loaded view = loadedOf(root, V2);
+            NativeIdentityStore.Loaded view = loadedOf(root, format);
             check(problems, view.history(A) != null && view.history(A).source == Source.BODY
                     && bodiesExact(view), "history " + view.history(A));
         });
-        run("history / a complete creation without a body is a reservation", problems -> {
+        common("history / a complete creation without a body is a reservation",
+                List.of(V2), (problems, format) -> {
             Path root = reserved();
-            NativeIdentityStore.Loaded view = loadedOf(root, V2);
+            NativeIdentityStore.Loaded view = loadedOf(root, format);
             reservedR(problems, view, "view");
             check(problems, view.slots.get(R).status == Status.MISSING && view.creationReady()
                     && view.counterRestorable()
@@ -162,38 +182,39 @@ public final class NativeCreationHistoryTest {
                     && restoration.retiringIds.isEmpty() && restoration.withdrawnReservations.isEmpty(),
                     "restoration " + restoration.records);
         });
-        run("history / an empty slot directory keeps the reservation", problems -> {
+        common("history / an empty slot directory keeps the reservation", List.of(V2), (problems, format) -> {
             Path root = reserved();
             slotDirectory(root, R);
-            reservedR(problems, loadedOf(root, V2), "empty directory");
+            reservedR(problems, loadedOf(root, format), "empty directory");
         });
-        run("history / a torn seed keeps the reservation and is no history", problems -> {
+        common("history / a torn seed keeps the reservation and is no history",
+                List.of(V2), (problems, format) -> {
             Path root = reserved();
             byte[] torn = Arrays.copyOf(NativeIdentityRecords.encodeSlot(BODY_R), 40);
             Path seed = slotDirectory(root, R).resolve("record.bin-seed");
             Files.write(seed, torn);
-            reservedR(problems, loadedOf(root, V2), "torn seed");
+            reservedR(problems, loadedOf(root, format), "torn seed");
             check(problems, sameBytes(seed, torn), "a read changed the seed");
         });
-        run("history / an intact seed is never history", problems -> {
+        common("history / an intact seed is never history", List.of(V2), (problems, format) -> {
             for (Set<String> signers : List.of(SIGNERS, OTHER_SIGNERS)) {
                 Path root = reserved();
                 Files.write(slotDirectory(root, R).resolve("record.bin-seed"),
                         NativeIdentityRecords.encodeSlot(userBody(R, PKG_R, 1, 0, signers)));
-                NativeIdentityStore.Loaded view = loadedOf(root, V2);
+                NativeIdentityStore.Loaded view = loadedOf(root, format);
                 reservedR(problems, view, "seed with " + signers.size() + " signer");
                 check(problems, view.slots.get(R).status == Status.MISSING,
                         "a seed was read as a copy " + view.slots.get(R).status);
             }
         });
-        run("history / a damaged header keeps an eligible body", problems -> {
+        common("history / a damaged header keeps an eligible body", List.of(V2), (problems, format) -> {
             Path root = layout(null, GARBAGE, GARBAGE);
             slot(root, A, BODY_A);
-            NativeIdentityStore.Loaded view = loadedOf(root, V2);
+            NativeIdentityStore.Loaded view = loadedOf(root, format);
             check(problems, view.header.status == Status.DAMAGED && !view.creationReady()
                     && view.history(A) != null && view.history(A).source == Source.BODY
                     && bodiesExact(view), "view " + view.header.status + " " + view.history(A));
-            PackageManagerService pm = reopenOf(root, V2, Map.of());
+            PackageManagerService pm = reopenOf(root, format, Map.of());
             check(problems, !pm.mSettings.pins.hasKnownCounter()
                     && pm.mSettings.pins.find(PKG_A, 0) != null, "restoration beside a damaged header");
         });
@@ -207,48 +228,50 @@ public final class NativeCreationHistoryTest {
                     && pm.mSettings.isNativePrincipalAppIdLPr(R) && !pm.mSettings.pins.hasKnownCounter(),
                     "version 1 registry");
         });
-        run("history / a protected V2 target beside V1 predecessors is a reservation", problems -> {
+        common("history / a protected V2 target beside V1 predecessors is a reservation",
+                List.of(V2), (problems, format) -> {
             Path root = protectedTarget();
-            NativeIdentityStore.Loaded view = loadedOf(root, V2);
+            NativeIdentityStore.Loaded view = loadedOf(root, format);
             reservation(problems, view.history(C), C, 3, PKG_C, SIGNERS, "target");
             check(problems, view.history(A) == null && view.history(B) == null
                     && view.histories().size() == 1 && view.counterRestorable(), "legacy entries became history");
-            PackageManagerService pm = reopenOf(root, V2, Map.of());
+            PackageManagerService pm = reopenOf(root, format, Map.of());
             NativePrincipalPins.Pin pin = pm.mSettings.pins.find(PKG_C, 0);
             check(problems, pin != null && pin.phase() == Phase.PENDING
                     && pin.record().equals(record(3, PKG_C, C))
                     && pm.mSettings.pins.snapshotForWrite().lastId == 3, "restored " + pin);
         });
-        run("history / bodies with a nonzero user give none and claim their principals", problems -> {
+        common("history / bodies with a nonzero user give none and claim their principals",
+                List.of(V2), (problems, format) -> {
             for (Slot body : List.of(TWO_USERS, NONZERO_USER)) {
                 Path root = pairLayout(v2(2, live(A)));
                 slot(root, A, body);
-                NativeIdentityStore.Loaded view = loadedOf(root, V2);
+                NativeIdentityStore.Loaded view = loadedOf(root, format);
                 // A user 0 limit, not a format footprint: the store stays creation ready.
                 check(problems, view.slots.get(A).status == Status.UNSUPPORTED && !view.unsupportedFootprint
                         && view.creationReady() && view.histories().isEmpty()
                         && view.occupiedAppIds.equals(Set.of(A)) && bodiesExact(view),
                         body.users.size() + " users: " + view.slots.get(A).status);
-                PackageManagerService pm = reopenOf(root, V2, Map.of());
+                PackageManagerService pm = reopenOf(root, format, Map.of());
                 check(problems, pm.mSettings.pins.reservedAppIds().isEmpty()
                         && pm.mSettings.isNativePrincipalAppIdLPr(A), "registry beside " + body.users.size());
             }
             Path beside = pairLayout(v2(3, live(A), boundCreating(R, 3, PKG_R)));
             slot(beside, A, TWO_USERS);
-            reservation(problems, loadedOf(beside, V2).history(R), R, 3, PKG_R, SIGNERS,
+            reservation(problems, loadedOf(beside, format).history(R), R, 3, PKG_R, SIGNERS,
                     "an unclaimed reservation beside it");
             Path claimed = pairLayout(v2(3, live(A), boundCreating(R, 2, PKG_R)));
             slot(claimed, A, TWO_USERS);
-            noHistory(problems, claimed, V2, R, "a reservation of its user 1 principal");
+            noHistory(problems, claimed, format, R, "a reservation of its user 1 principal");
         });
-        run("history / tombstones give none and keep their holds", problems -> {
+        common("history / tombstones give none and keep their holds", List.of(V2), (problems, format) -> {
             Path root = pairLayout(v2(2, live(A), releasing(B)));
             slot(root, A, tombstone(A, PKG_A, 2));
             slot(root, B, tombstone(B, PKG_B, 3));
-            NativeIdentityStore.Loaded view = loadedOf(root, V2);
+            NativeIdentityStore.Loaded view = loadedOf(root, format);
             check(problems, view.histories().isEmpty() && view.occupiedAppIds.equals(Set.of(A, B))
                     && bodiesExact(view), "view " + view.histories());
-            PackageManagerService pm = reopenOf(root, V2, Map.of());
+            PackageManagerService pm = reopenOf(root, format, Map.of());
             check(problems, pm.mSettings.pins.reservedAppIds().isEmpty()
                     && pm.mSettings.isNativePrincipalAppIdLPr(A) && pm.mSettings.isNativePrincipalAppIdLPr(B),
                     "reopened");
@@ -279,17 +302,24 @@ public final class NativeCreationHistoryTest {
         bodies.put("a directory record", root ->
                 Files.createDirectories(root.resolve("slots/" + R + "/record.bin")));
         for (Map.Entry<String, Layer> kind : bodies.entrySet()) {
-            run("no fallback / " + kind.getKey(), problems -> {
+            FormatBody body = (problems, format) -> {
                 Path root = reserved();
                 kind.getValue().write(root);
-                noHistory(problems, root, V2, R, kind.getKey());
-            });
+                noHistory(problems, root, format, R, kind.getKey());
+            };
+            // A future body is a version 2 slot frame, above the slot ceiling of the earlier
+            // formats but within the production format's: it has no production twin.
+            if (kind.getKey().equals("a future body")) {
+                run("no fallback / " + kind.getKey(), problems -> body.run(problems, V2));
+            } else {
+                common("no fallback / " + kind.getKey(), List.of(V2), body);
+            }
         }
-        run("no fallback / an unavailable body", problems -> {
+        common("no fallback / an unavailable body", List.of(V2), (problems, format) -> {
             Path root = reserved();
             slot(root, R, BODY_R);
             NativeIdentityStore.Loaded view = restricted(root.resolve("slots/" + R + "/record.bin"),
-                    "-w-------", () -> loadedOf(root, V2));
+                    "-w-------", () -> loadedOf(root, format));
             check(problems, view.slots.get(R).unavailable && view.unavailableFootprint
                     && view.histories().isEmpty() && view.occupiedAppIds.contains(R),
                     "view " + view.slots.get(R).status + " " + view.histories());
@@ -305,15 +335,17 @@ public final class NativeCreationHistoryTest {
         global.put("an unsupported header seed", root -> Files.write(root.resolve("store.bin-seed"),
                 frame(1, 3, body(bytes(RESERVED_R)))));
         for (Map.Entry<String, Layer> gate : global.entrySet()) {
-            run("gate / " + gate.getKey(), problems -> {
+            common("gate / " + gate.getKey(), List.of(V2), (problems, format) -> {
                 Path root = reserved();
                 gate.getValue().write(root);
-                NativeIdentityStore.Loaded view = loadedOf(root, V2);
+                NativeIdentityStore.Loaded view = loadedOf(root, format);
                 check(problems, !view.creationReady() && view.header.status == Status.VALID,
                         "the store stayed creation ready");
-                noHistory(problems, root, V2, R, gate.getKey());
+                noHistory(problems, root, format, R, gate.getKey());
             });
         }
+        // A version 2 slot seed is above the slot ceiling of the earlier formats but within the
+        // production format's: this case has no production twin.
         run("gate / an unsupported slot seed", problems -> {
             Path root = pairLayout(BESIDE_A);
             slot(root, A, BODY_A);
@@ -324,10 +356,10 @@ public final class NativeCreationHistoryTest {
                     && view.history(A).source == Source.BODY, "the body was gated " + view.history(A));
             noHistory(problems, root, V2, R, "unsupported slot seed");
         });
-        run("gate / an unavailable header copy", problems -> {
+        common("gate / an unavailable header copy", List.of(V2), (problems, format) -> {
             Path root = reserved();
             NativeIdentityStore.Loaded view = restricted(root.resolve("store.bin.reservecopy"),
-                    "-w-------", () -> loadedOf(root, V2));
+                    "-w-------", () -> loadedOf(root, format));
             check(problems, view.header.unavailable && view.histories().isEmpty()
                     && view.occupiedAppIds.contains(R), "view " + view.header.status);
         });
@@ -355,25 +387,28 @@ public final class NativeCreationHistoryTest {
                 new CreationBinding(10, SERIAL, SIGNERS)));
         selections.put("another user's binding", new Header[] {null, otherUser, otherUser});
         for (Map.Entry<String, Header[]> selection : selections.entrySet()) {
-            run("gate / " + selection.getKey(), problems -> {
+            common("gate / " + selection.getKey(), List.of(V2), (problems, format) -> {
                 Header[] copies = selection.getValue();
                 Path root = layout(copies[0] == null ? null : bytes(copies[0]), bytes(copies[1]),
                         bytes(copies[2]));
-                noHistory(problems, root, V2, R, selection.getKey());
-                noHistory(problems, root, V1, R, selection.getKey() + " under V1");
+                noHistory(problems, root, format, R, selection.getKey());
+                // The version 1 format's reading belongs to the earlier run alone.
+                if (format != V3) noHistory(problems, root, V1, R, selection.getKey() + " under V1");
             });
         }
-        run("gate / a compatible LIVE copy is withdrawn by corroboration alone", problems -> {
+        common("gate / a compatible LIVE copy is withdrawn by corroboration alone",
+                List.of(V2), (problems, format) -> {
             Path root = layout(bytes(RESERVED_R), bytes(v2(1, live(R))), bytes(v2(1, live(R))));
-            NativeIdentityStore.Loaded view = loadedOf(root, V2);
+            NativeIdentityStore.Loaded view = loadedOf(root, format);
             check(problems, view.header.status == Status.VALID && RESERVED_R.equals(view.header.value)
                     && NativeIdentityStore.HeaderCopies.of(view.header) != null && view.creationReady()
                     && view.history(R) == null, "view " + view.history(R));
         });
-        run("gate / incompatible copies are withdrawn by the copy rule alone", problems -> {
+        common("gate / incompatible copies are withdrawn by the copy rule alone",
+                List.of(V2), (problems, format) -> {
             for (Header copy : List.of(foreign, counterOnly)) {
                 Path root = layout(bytes(RESERVED_R), bytes(copy), bytes(copy));
-                NativeIdentityStore.Loaded view = loadedOf(root, V2);
+                NativeIdentityStore.Loaded view = loadedOf(root, format);
                 boolean listed = true;
                 for (Header decoded : view.header.decodedCopies) {
                     listed &= decoded.entries.contains(RESERVED_R.entries.get(0));
@@ -436,49 +471,52 @@ public final class NativeCreationHistoryTest {
             Files.write(directory.resolve("record.bin.reservecopy"), misplaced);
         });
         for (Map.Entry<String, Layer> claim : claims.entrySet()) {
-            run("uniqueness / " + claim.getKey(), problems -> {
+            common("uniqueness / " + claim.getKey(), List.of(V2), (problems, format) -> {
                 Path root = layout(null, null, null);
                 claim.getValue().write(root);
-                NativeIdentityStore.Loaded view = loadedOf(root, V2);
+                NativeIdentityStore.Loaded view = loadedOf(root, format);
                 check(problems, view.creationReady(), "not a creation ready claim");
-                noHistory(problems, root, V2, R, claim.getKey());
+                noHistory(problems, root, format, R, claim.getKey());
             });
         }
-        run("uniqueness / valid bodies stay usable beside a withdrawn reservation", problems -> {
+        common("uniqueness / valid bodies stay usable beside a withdrawn reservation",
+                List.of(V2), (problems, format) -> {
             for (Header held : List.of(v2(2, live(A), boundCreating(R, 2, PKG_A)),
                     v2(2, live(A), boundCreating(R, 1, PKG_R)))) {
                 Path root = pairLayout(held);
                 slot(root, A, BODY_A);
-                NativeIdentityStore.Loaded view = loadedOf(root, V2);
+                NativeIdentityStore.Loaded view = loadedOf(root, format);
                 check(problems, view.history(R) == null && view.history(A) != null
                         && view.history(A).source == Source.BODY && view.bindingUsable(A),
                         "body withdrawn " + view.slots.get(A).status);
-                PackageManagerService pm = reopenOf(root, V2, Map.of());
+                PackageManagerService pm = reopenOf(root, format, Map.of());
                 check(problems, pm.mSettings.pins.reservedAppIds().equals(Set.of(A))
                         && pm.mSettings.isNativePrincipalAppIdLPr(R), "pins " + pm.mSettings.pins.reservedAppIds());
             }
         });
-        run("uniqueness / two reservations of one package both withdraw", problems -> {
+        common("uniqueness / two reservations of one package both withdraw",
+                List.of(V2), (problems, format) -> {
             Path root = pairLayout(v2(2, boundCreating(R, 1, PKG_R), boundCreating(D, 2, PKG_R)));
-            noHistory(problems, root, V2, R, "first");
-            noHistory(problems, root, V2, D, "second");
+            noHistory(problems, root, format, R, "first");
+            noHistory(problems, root, format, D, "second");
         });
-        run("uniqueness / an unavailable copy withdraws through the store gate", problems -> {
+        common("uniqueness / an unavailable copy withdraws through the store gate",
+                List.of(V2), (problems, format) -> {
             Path root = pairLayout(BESIDE_A);
             slot(root, A, bound(A, PKG_R, 1, false, 1));
             NativeIdentityStore.Loaded view = restricted(root.resolve("slots/" + A + "/record.bin.reservecopy"),
-                    "-w-------", () -> loadedOf(root, V2));
+                    "-w-------", () -> loadedOf(root, format));
             check(problems, view.unavailableFootprint && view.history(R) == null
                     && view.occupiedAppIds.contains(R), "view " + view.history(R));
         });
-        run("uniqueness / an unrelated sibling keeps the reservation", problems -> {
+        common("uniqueness / an unrelated sibling keeps the reservation", List.of(V2), (problems, format) -> {
             Path root = pairLayout(BESIDE_A);
             slot(root, A, BODY_A);
-            NativeIdentityStore.Loaded view = loadedOf(root, V2);
+            NativeIdentityStore.Loaded view = loadedOf(root, format);
             reservation(problems, view.history(R), R, 2, PKG_R, SIGNERS, "control");
             check(problems, view.history(A) != null && view.history(A).source == Source.BODY
                     && bodiesExact(view), "sibling " + view.history(A));
-            PackageManagerService pm = reopenOf(root, V2, Map.of());
+            PackageManagerService pm = reopenOf(root, format, Map.of());
             check(problems, pm.mSettings.pins.reservedAppIds().equals(Set.of(A, R)),
                     "pins " + pm.mSettings.pins.reservedAppIds());
         });
@@ -486,7 +524,7 @@ public final class NativeCreationHistoryTest {
 
     // The one shared restoration, its backstop, and the histories a live registry remembers.
     private static void restoration() {
-        run("restoration / a store view needs no backstop", problems -> {
+        common("restoration / a store view needs no backstop", List.of(V2), (problems, format) -> {
             List<Path> roots = new ArrayList<>();
             roots.add(reserved());
             Path beside = pairLayout(BESIDE_A);
@@ -496,7 +534,7 @@ public final class NativeCreationHistoryTest {
             roots.add(pairLayout(v2(3, boundCreating(A, 1, PKG_A), boundCreating(B, 2, PKG_B),
                     boundCreating(C, 3, PKG_C))));
             for (Path root : roots) {
-                NativeIdentityStore.Loaded view = loadedOf(root, V2);
+                NativeIdentityStore.Loaded view = loadedOf(root, format);
                 NativeIdentityPersistence.Restoration restored =
                         NativeIdentityPersistence.restoration(view.histories());
                 List<NativePrincipalPins.Record> expected = new ArrayList<>();
@@ -508,15 +546,16 @@ public final class NativeCreationHistoryTest {
                         && restored.records.equals(expected), root + " restoration " + restored.records);
             }
         });
-        run("restoration / the backstop withdraws only merged reservations", problems -> {
+        common("restoration / the backstop withdraws only merged reservations",
+                List.of(V2), (problems, format) -> {
             Path published = pairLayout(v2(1, live(A)));
             slot(published, A, BODY_A);
-            Map<Integer, History> bodies = loadedOf(published, V2).histories();
+            Map<Integer, History> bodies = loadedOf(published, format).histories();
             Map<Integer, History> packageOfA = loadedOf(pairLayout(v2(2, boundCreating(R, 2, PKG_A))),
-                    V2).histories();
-            Map<Integer, History> principalOne = loadedOf(reserved(), V2).histories();
+                    format).histories();
+            Map<Integer, History> principalOne = loadedOf(reserved(), format).histories();
             Map<Integer, History> packageOfR = loadedOf(pairLayout(v2(2, boundCreating(D, 2, PKG_R))),
-                    V2).histories();
+                    format).histories();
             check(problems, bodies.size() == 1 && packageOfA.size() == 1 && principalOne.size() == 1
                     && packageOfR.size() == 1, "fixture histories");
             List<Map<Integer, History>> seconds = List.of(packageOfA, principalOne);
@@ -541,9 +580,10 @@ public final class NativeCreationHistoryTest {
             check(problems, NativeIdentityPersistence.restoration(misplaced).withdrawnReservations
                     .equals(Set.of(D)), "a history under another app ID was restored");
         });
-        run("restoration / reservations restore PENDING under the selected counter", problems -> {
+        common("restoration / reservations restore PENDING under the selected counter",
+                List.of(V2), (problems, format) -> {
             Path root = reserved();
-            PackageManagerService pm = reopenOf(root, V2, Map.of());
+            PackageManagerService pm = reopenOf(root, format, Map.of());
             NativePrincipalPins.Pin pin = pm.mSettings.pins.find(PKG_R, 0);
             check(problems, pin != null && pin.phase() == Phase.PENDING && pin.issuance() == null
                     && pin.record().equals(recordR()) && pm.mSettings.pins.hasKnownCounter()
@@ -551,22 +591,23 @@ public final class NativeCreationHistoryTest {
                     && pm.mSettings.nativePrincipalCreationReadyLPr(), "restored " + pin);
             History stored = pm.mSettings.nativePrincipalStoredHistoryLPr(recordR());
             check(problems, stored != null && stored.source == Source.RESERVATION
-                    && stored.equals(loadedOf(root, V2).history(R)), "stored " + stored);
+                    && stored.equals(loadedOf(root, format).history(R)), "stored " + stored);
         });
-        run("restoration / an unknown counter restores R beside unselected X", problems -> {
+        common("restoration / an unknown counter restores R beside unselected X",
+                List.of(V2), (problems, format) -> {
             Header addition = v2(2, boundCreating(R, 1, PKG_R), boundCreating(D, 2, PKG_D));
             Path root = layout(bytes(RESERVED_R), bytes(addition), bytes(addition));
-            NativeIdentityStore.Loaded view = loadedOf(root, V2);
+            NativeIdentityStore.Loaded view = loadedOf(root, format);
             reservedR(problems, view, "beside an addition");
             check(problems, view.history(D) == null && view.unselectedFootprint && view.creationReady()
                     && !view.counterRestorable(), "view " + view.history(D));
-            PackageManagerService pm = reopenOf(root, V2, Map.of());
+            PackageManagerService pm = reopenOf(root, format, Map.of());
             check(problems, !pm.mSettings.pins.hasKnownCounter() && pm.mSettings.pins.find(PKG_R, 0) != null
                     && pm.mSettings.pins.find(PKG_D, 0) == null && pm.mSettings.isNativePrincipalAppIdLPr(D)
                     && !pm.mSettings.nativePrincipalCreationReadyLPr(), "registry");
         });
-        run("stored history / only the exact record is returned", problems -> {
-            PackageManagerService pm = reopenOf(reserved(), V2, Map.of());
+        common("stored history / only the exact record is returned", List.of(V2), (problems, format) -> {
+            PackageManagerService pm = reopenOf(reserved(), format, Map.of());
             check(problems, pm.mSettings.nativePrincipalStoredHistoryLPr(recordR()) != null
                     && pm.mSettings.nativePrincipalStoredHistoryLPr(
                             new NativePrincipalPins.Record(1, PKG_R, R, 0, SERIAL + 1)) == null
@@ -576,13 +617,13 @@ public final class NativeCreationHistoryTest {
                             new NativePrincipalPins.Record(1, PKG_R, A, 0, SERIAL)) == null,
                     "a partial match was returned");
         });
-        run("stored history / only an exact core pin is remembered", problems -> {
-            PackageManagerService pm = livePmOf(V2);
+        common("stored history / only an exact core pin is remembered", List.of(V2), (problems, format) -> {
+            PackageManagerService pm = livePmOf(format);
             NativePrincipalManager manager = new NativePrincipalManager(pm);
             manager.prepare(manager.select(PKG_B, 0));
             Path other = pairLayout(v2(1, live(C)));
             slot(other, C, bound(C, PKG_C, 1, false, 1));
-            pm.mSettings.observeNativeIdentityStoreLPw(loadedOf(other, V2));
+            pm.mSettings.observeNativeIdentityStoreLPw(loadedOf(other, format));
             check(problems, !pm.mSettings.mNativeRememberedBindings.containsKey(1L)
                     && pm.mSettings.nativePrincipalStoredHistoryLPr(record(1, PKG_B, B)) == null,
                     "another record's history was remembered for pin 1");
@@ -591,9 +632,10 @@ public final class NativeCreationHistoryTest {
 
     // Explicit designation rebinds a restored creation with its original ID and signers.
     private static void rebind() {
-        run("rebind / an explicit designation publishes the original ID", problems -> {
+        common("rebind / an explicit designation publishes the original ID",
+                List.of(V2), (problems, format) -> {
             Path root = reserved();
-            PackageManagerService pm = boot(root, V2, Map.of(PKG_R, R));
+            PackageManagerService pm = boot(root, format, Map.of(PKG_R, R));
             NativePrincipalManager manager = new NativePrincipalManager(pm);
             NativePrincipalManager.Handle restored = manager.find(PKG_R, 0);
             check(problems, restored != null && manager.phase(restored) == Phase.PENDING
@@ -604,36 +646,39 @@ public final class NativeCreationHistoryTest {
             check(problems, rebound == restored && pm.mSettings.pins.find(PKG_R, 0).issuance() == null,
                     "the rebind replaced the handle or invented issuance");
             check(problems, manager.commit(rebound) && manager.phase(rebound) == Phase.ACTIVE, "commit refused");
-            NativeIdentityStore.Loaded after = loadedOf(root, V2);
+            NativeIdentityStore.Loaded after = loadedOf(root, format);
             check(problems, v2(1, live(R)).equals(after.header.value) && BODY_R.equals(after.slots.get(R).value)
                     && after.history(R) != null && after.history(R).source == Source.BODY
                     && pm.mSettings.pins.snapshotForWrite().lastId == 1, "published " + after.header.value);
             check(problems, manager.currentIdentity(rebound).equals(recordR()), "current identity");
-            check(problems, reopenedPhase(root, V2, PKG_R) == Phase.PENDING, "reopened phase");
+            check(problems, reopenedPhase(root, format, PKG_R) == Phase.PENDING, "reopened phase");
         });
-        run("rebind / the next issuance advances the selected counter", problems -> {
+        common("rebind / the next issuance advances the selected counter",
+                List.of(V2), (problems, format) -> {
             Path root = reserved();
-            PackageManagerService pm = boot(root, V2, Map.of(PKG_R, R, PKG_B, B));
+            PackageManagerService pm = boot(root, format, Map.of(PKG_R, R, PKG_B, B));
             NativePrincipalManager manager = new NativePrincipalManager(pm);
             check(problems, manager.commit(manager.prepare(manager.select(PKG_R, 0))), "rebind refused");
             NativePrincipalManager.Handle b = manager.prepare(manager.select(PKG_B, 0));
             check(problems, manager.identity(b).id == 2 && manager.commit(b)
-                    && v2(2, live(B), live(R)).equals(storedOf(root, V2))
-                    && pm.mSettings.pins.snapshotForWrite().lastId == 2, "issuance " + storedOf(root, V2));
+                    && v2(2, live(B), live(R)).equals(storedOf(root, format))
+                    && pm.mSettings.pins.snapshotForWrite().lastId == 2, "issuance " + storedOf(root, format));
         });
-        run("rebind / a new package reserves beside an unrebound reservation", problems -> {
+        common("rebind / a new package reserves beside an unrebound reservation",
+                List.of(V2), (problems, format) -> {
             Path root = reserved();
-            PackageManagerService pm = boot(root, V2, Map.of(PKG_R, R, PKG_B, B));
+            PackageManagerService pm = boot(root, format, Map.of(PKG_R, R, PKG_B, B));
             NativePrincipalManager manager = new NativePrincipalManager(pm);
             NativePrincipalManager.Handle restored = manager.find(PKG_R, 0);
             NativePrincipalManager.Handle b = manager.prepare(manager.select(PKG_B, 0));
             check(problems, manager.identity(b).id == 2 && manager.commit(b)
-                    && v2(2, live(B), boundCreating(R, 1, PKG_R)).equals(storedOf(root, V2)),
-                    "beside " + storedOf(root, V2));
+                    && v2(2, live(B), boundCreating(R, 1, PKG_R)).equals(storedOf(root, format)),
+                    "beside " + storedOf(root, format));
             check(problems, manager.phase(restored) == Phase.PENDING && manager.find(PKG_R, 0) == restored
                     && pm.mSettings.pins.find(PKG_R, 0).issuance() == null, "the reservation changed");
         });
-        run("rebind / missing directory, empty directory and torn seed publish", problems -> {
+        common("rebind / missing directory, empty directory and torn seed publish",
+                List.of(V2), (problems, format) -> {
             for (String kind : List.of("missing", "empty", "torn")) {
                 Path root = reserved();
                 if (!kind.equals("missing")) {
@@ -643,22 +688,23 @@ public final class NativeCreationHistoryTest {
                                 Arrays.copyOf(NativeIdentityRecords.encodeSlot(BODY_R), 40));
                     }
                 }
-                PackageManagerService pm = boot(root, V2, Map.of(PKG_R, R));
+                PackageManagerService pm = boot(root, format, Map.of(PKG_R, R));
                 NativePrincipalManager manager = new NativePrincipalManager(pm);
                 NativePrincipalManager.Handle r = manager.prepare(manager.select(PKG_R, 0));
                 boolean committed = manager.commit(r);
-                NativeIdentityStore.Loaded after = loadedOf(root, V2);
+                NativeIdentityStore.Loaded after = loadedOf(root, format);
                 check(problems, committed && v2(1, live(R)).equals(after.header.value)
                         && BODY_R.equals(after.slots.get(R).value) && manager.identity(r).equals(recordR()),
                         kind + " " + after.header.value);
             }
         });
-        run("rebind / a mismatched intact seed refuses and keeps the reservation", problems -> {
+        common("rebind / a mismatched intact seed refuses and keeps the reservation",
+                List.of(V2), (problems, format) -> {
             Path root = reserved();
             Path seed = slotDirectory(root, R).resolve("record.bin-seed");
             byte[] foreign = NativeIdentityRecords.encodeSlot(userBody(R, PKG_R, 1, 0, OTHER_SIGNERS));
             Files.write(seed, foreign);
-            PackageManagerService pm = boot(root, V2, Map.of(PKG_R, R));
+            PackageManagerService pm = boot(root, format, Map.of(PKG_R, R));
             NativePrincipalManager manager = new NativePrincipalManager(pm);
             NativePrincipalManager.Handle r = manager.prepare(manager.select(PKG_R, 0));
             check(problems, !manager.commit(r) && manager.phase(r) == Phase.PENDING,
@@ -667,12 +713,13 @@ public final class NativeCreationHistoryTest {
                     && !Files.exists(root.resolve("slots/" + R + "/record.bin"), LinkOption.NOFOLLOW_LINKS)
                     && sameBytes(root.resolve("store.bin"), bytes(RESERVED_R))
                     && sameBytes(root.resolve("store.bin.reservecopy"), bytes(RESERVED_R)), "footprint");
-            reservedR(problems, loadedOf(root, V2), "after the refusal");
-            check(problems, reopenedPhase(root, V2, PKG_R) == Phase.PENDING, "reopened phase");
+            reservedR(problems, loadedOf(root, format), "after the refusal");
+            check(problems, reopenedPhase(root, format, PKG_R) == Phase.PENDING, "reopened phase");
         });
-        run("rebind / changed APK signers refuse without taking APK history", problems -> {
+        common("rebind / changed APK signers refuse without taking APK history",
+                List.of(V2), (problems, format) -> {
             Path root = reserved();
-            PackageManagerService pm = boot(root, V2, Map.of(PKG_R, R));
+            PackageManagerService pm = boot(root, format, Map.of(PKG_R, R));
             SigningDetails replaced = signing(5, 2);
             PackageSetting installed = pm.mSettings.packages.get(PKG_R);
             installed.signing = replaced;
@@ -684,14 +731,15 @@ public final class NativeCreationHistoryTest {
             History stored = pm.mSettings.nativePrincipalStoredHistoryLPr(recordR());
             check(problems, footprint(root).equals(before) && stored != null
                     && stored.signerSha256.equals(SIGNERS)
-                    && loadedOf(root, V2).history(R).signerSha256.equals(SIGNERS),
+                    && loadedOf(root, format).history(R).signerSha256.equals(SIGNERS),
                     "history took the APK signers");
             check(problems, !pm.mSettings.nativeScanBindingAllowedLPr(installed, replaced)
                     && pm.mSettings.nativeScanBindingAllowedLPr(installed, OWN), "scan took the APK signers");
         });
-        run("rebind / a changed serial, UID, mapping or shared user refuses", problems -> {
+        common("rebind / a changed serial, UID, mapping or shared user refuses",
+                List.of(V2), (problems, format) -> {
             Path root = reserved();
-            PackageManagerService serial = boot(root, V2, Map.of(PKG_R, R));
+            PackageManagerService serial = boot(root, format, Map.of(PKG_R, R));
             NativePrincipalManager first = new NativePrincipalManager(serial);
             USERS.info.serialNumber = 8;
             try {
@@ -700,26 +748,27 @@ public final class NativeCreationHistoryTest {
             } finally {
                 USERS.info.serialNumber = 7;
             }
-            PackageManagerService moved = boot(root, V2, Map.of(PKG_R, 10020));
+            PackageManagerService moved = boot(root, format, Map.of(PKG_R, 10020));
             NativePrincipalManager second = new NativePrincipalManager(moved);
             check(problems, moved.mSettings.nativePrincipalDesignationDeferredLPr(PKG_R)
                     && throwsType(() -> second.prepare(second.select(PKG_R, 0)), IllegalStateException.class),
                     "another UID rebound");
-            PackageManagerService unmapped = boot(root, V2, Map.of());
+            PackageManagerService unmapped = boot(root, format, Map.of());
             NativePrincipalManager third = new NativePrincipalManager(unmapped);
             check(problems, third.find(PKG_R, 0) != null
                     && throwsType(() -> third.select(PKG_R, 0), IllegalStateException.class), "unmapped");
-            PackageManagerService shared = boot(root, V2, Map.of(PKG_R, R));
+            PackageManagerService shared = boot(root, format, Map.of(PKG_R, R));
             shared.mSettings.packages.get(PKG_R).shared = true;
             NativePrincipalManager fourth = new NativePrincipalManager(shared);
             check(problems, throwsType(() -> fourth.select(PKG_R, 0), IllegalStateException.class),
                     "a shared user rebound");
-            reservedR(problems, loadedOf(root, V2), "after every refusal");
+            reservedR(problems, loadedOf(root, format), "after every refusal");
         });
-        run("rebind / an unknown counter rebinds but neither commits nor issues", problems -> {
+        common("rebind / an unknown counter rebinds but neither commits nor issues",
+                List.of(V2), (problems, format) -> {
             Header addition = v2(2, boundCreating(R, 1, PKG_R), boundCreating(D, 2, PKG_D));
             Path root = layout(bytes(RESERVED_R), bytes(addition), bytes(addition));
-            PackageManagerService pm = boot(root, V2, Map.of(PKG_R, R, PKG_C, C));
+            PackageManagerService pm = boot(root, format, Map.of(PKG_R, R, PKG_C, C));
             NativePrincipalManager manager = new NativePrincipalManager(pm);
             NativePrincipalManager.Handle r = manager.prepare(manager.select(PKG_R, 0));
             check(problems, manager.identity(r).equals(recordR()) && !pm.mSettings.pins.hasKnownCounter(),
@@ -732,35 +781,39 @@ public final class NativeCreationHistoryTest {
                     IllegalStateException.class) && pm.mSettings.pins.find(PKG_C, 0) == null
                     && footprint(root).equals(before), "issued without a counter");
         });
-        run("rebind / a protected target confirms beside its predecessors", problems -> {
+        common("rebind / a protected target confirms beside its predecessors",
+                List.of(V2), (problems, format) -> {
             Path root = protectedTarget();
-            PackageManagerService pm = boot(root, V2, Map.of(PKG_C, C));
+            PackageManagerService pm = boot(root, format, Map.of(PKG_C, C));
             NativePrincipalManager manager = new NativePrincipalManager(pm);
             NativePrincipalManager.Handle c = manager.prepare(manager.select(PKG_C, 0));
             check(problems, manager.identity(c).equals(record(3, PKG_C, C)) && manager.commit(c),
                     "rebind refused");
-            NativeIdentityStore.Loaded after = loadedOf(root, V2);
+            NativeIdentityStore.Loaded after = loadedOf(root, format);
             check(problems, v2(3, creating(A, 1, PKG_A), creating(B, 2, PKG_B), live(C))
                     .equals(after.header.value) && after.header.decodedCopies.size() == 2
                     && after.slots.get(C).status == Status.VALID
                     && pm.mSettings.pins.snapshotForWrite().lastId == 3, "result " + after.header.value);
         });
-        run("rebind / a body first creation completes its lost LIVE entry", problems -> {
+        common("rebind / a body first creation completes its lost LIVE entry",
+                List.of(V2), (problems, format) -> {
             Path root = pairLayout(v2(1, boundCreating(A, 1, PKG_A)));
             slot(root, A, BODY_A);
-            PackageManagerService pm = boot(root, V2, Map.of(PKG_A, A));
+            PackageManagerService pm = boot(root, format, Map.of(PKG_A, A));
             NativePrincipalManager manager = new NativePrincipalManager(pm);
             NativePrincipalManager.Handle a = manager.prepare(manager.select(PKG_A, 0));
-            check(problems, manager.commit(a) && v2(1, live(A)).equals(storedOf(root, V2))
-                    && BODY_A.equals(loadedOf(root, V2).slots.get(A).value), "completion " + storedOf(root, V2));
+            check(problems, manager.commit(a) && v2(1, live(A)).equals(storedOf(root, format))
+                    && BODY_A.equals(loadedOf(root, format).slots.get(A).value),
+                    "completion " + storedOf(root, format));
         });
     }
 
     // Published bindings and current identities come only from bodies.
     private static void bodyOnly() {
-        run("body only / no header only binding, current identity or ACTIVE exposure", problems -> {
+        common("body only / no header only binding, current identity or ACTIVE exposure",
+                List.of(V2), (problems, format) -> {
             Path root = reserved();
-            PackageManagerService pm = boot(root, V2, Map.of(PKG_R, R));
+            PackageManagerService pm = boot(root, format, Map.of(PKG_R, R));
             NativePrincipalManager manager = new NativePrincipalManager(pm);
             NativePrincipalManager.Handle r = manager.find(PKG_R, 0);
             check(problems, pm.mSettings.nativePrincipalBindingLPr(recordR()) == null
@@ -851,15 +904,17 @@ public final class NativeCreationHistoryTest {
 
     // The facade runs the exact scan fragment of the adapted Settings.
     private static void scan() {
-        run("scan / a mapped reservation is scanned with its recorded signers", problems -> {
-            PackageManagerService pm = boot(reserved(), V2, Map.of(PKG_R, R));
+        common("scan / a mapped reservation is scanned with its recorded signers",
+                List.of(V2), (problems, format) -> {
+            PackageManagerService pm = boot(reserved(), format, Map.of(PKG_R, R));
             PackageSetting candidate = pm.mSettings.packages.get(PKG_R);
             check(problems, pm.mSettings.nativeScanSubjectAllowedLPr(candidate)
                     && pm.mSettings.nativeScanBindingAllowedLPr(candidate, OWN)
                     && !pm.mSettings.nativeScanBindingAllowedLPr(candidate, signing(6, 1)), "scan");
         });
-        run("scan / signer, serial, retiring, mapping and shared negatives", problems -> {
-            PackageManagerService pm = boot(reserved(), V2, Map.of(PKG_R, R));
+        common("scan / signer, serial, retiring, mapping and shared negatives",
+                List.of(V2), (problems, format) -> {
+            PackageManagerService pm = boot(reserved(), format, Map.of(PKG_R, R));
             PackageSetting mapped = pm.mSettings.packages.get(PKG_R);
             USERS.info.serialNumber = 8;
             try {
@@ -886,29 +941,29 @@ public final class NativeCreationHistoryTest {
             pm.mSettings.mNativeRecoveryView = pm.mSettings.mNativeRecoveryView.defer(PKG_R, null);
             check(problems, !pm.mSettings.nativeScanSubjectAllowedLPr(candidate), "a deferred name");
             // Seeding defers the name. With that deferral cleared, the mapping rule alone refuses.
-            PackageManagerService foreignMapping = reopenOf(reserved(), V2, Map.of(PKG_X, R));
+            PackageManagerService foreignMapping = reopenOf(reserved(), format, Map.of(PKG_X, R));
             check(problems, foreignMapping.mSettings.nativePrincipalDesignationDeferredLPr(PKG_R),
                     "another mapped package was not deferred at seeding");
             foreignMapping.mSettings.mNativeRecoveryView = NativePrincipalRecovery.empty();
             check(problems, !foreignMapping.mSettings.nativeScanSubjectAllowedLPr(candidate),
                     "another mapped package");
-            PackageManagerService noMapping = reopenOf(reserved(), V2, Map.of());
+            PackageManagerService noMapping = reopenOf(reserved(), format, Map.of());
             check(problems, noMapping.mSettings.nativePrincipalDesignationDeferredLPr(PKG_R),
                     "no mapping was not deferred at seeding");
             noMapping.mSettings.mNativeRecoveryView = NativePrincipalRecovery.empty();
             check(problems, !noMapping.mSettings.nativeScanSubjectAllowedLPr(candidate), "no mapping");
             Path retiring = pairLayout(v2(1, live(A)));
             slot(retiring, A, bound(A, PKG_A, 1, true, 2));
-            PackageManagerService retiringPm = boot(retiring, V2, Map.of(PKG_A, A));
+            PackageManagerService retiringPm = boot(retiring, format, Map.of(PKG_A, A));
             check(problems, retiringPm.mSettings.nativePrincipalDesignationDeferredLPr(PKG_A),
                     "a retiring history was not deferred at seeding");
             retiringPm.mSettings.mNativeRecoveryView = NativePrincipalRecovery.empty();
             check(problems, !retiringPm.mSettings.nativeScanSubjectAllowedLPr(
                     retiringPm.mSettings.packages.get(PKG_A)), "a retiring history");
         });
-        run("scan / a withdrawn reservation defers its package", problems -> {
+        common("scan / a withdrawn reservation defers its package", List.of(V2), (problems, format) -> {
             Path root = pairLayout(v2(2, boundCreating(R, 1, PKG_R), boundCreating(D, 2, PKG_R)));
-            PackageManagerService pm = boot(root, V2, Map.of(PKG_R, R));
+            PackageManagerService pm = boot(root, format, Map.of(PKG_R, R));
             check(problems, pm.mSettings.nativePrincipalDesignationDeferredLPr(PKG_R)
                     && !pm.mSettings.nativeScanSubjectAllowedLPr(pm.mSettings.packages.get(PKG_R)),
                     "a withdrawn reservation was scanned");
@@ -918,8 +973,8 @@ public final class NativeCreationHistoryTest {
     // The harness runs the exact recovery seeding fragment over the same history view.
     private static void seeding() {
         File code = new File("/data/app/~~host/" + PKG_R + "-1");
-        run("seeding / a mapped reservation stays recoverable", problems -> {
-            NativeIdentityStore.Loaded view = loadedOf(reserved(), V2);
+        common("seeding / a mapped reservation stays recoverable", List.of(V2), (problems, format) -> {
+            NativeIdentityStore.Loaded view = loadedOf(reserved(), format);
             NativeHistoryHarness mapped = seeded(view, R,
                     new NativeHistoryHarness.PackageSetting(PKG_R, R, false));
             NativePrincipalRecovery recovery = mapped.mNativeRecoveryView;
@@ -928,16 +983,17 @@ public final class NativeCreationHistoryTest {
                     && !recovery.hasUnidentifiedCode()
                     && mapped.nativePrincipalPinsLPr().find(PKG_R, 0) != null, "view");
         });
-        run("seeding / an unmapped reservation keeps its hold and unidentified code", problems -> {
-            NativeIdentityStore.Loaded view = loadedOf(reserved(), V2);
+        common("seeding / an unmapped reservation keeps its hold and unidentified code",
+                List.of(V2), (problems, format) -> {
+            NativeIdentityStore.Loaded view = loadedOf(reserved(), format);
             NativePrincipalRecovery recovery = seeded(view, R, null).mNativeRecoveryView;
             check(problems, recovery.defersName(PKG_R) && recovery.protectsName(PKG_R)
                     && recovery.hasUnidentifiedCode() && recovery.protectsKeystore(R)
                     && recovery.preservesUnidentifiedCode(new File("/data/app/~~opaque/base.apk"),
                             new File("/data/app")), "view");
         });
-        run("seeding / shared and foreign mappings are deferred", problems -> {
-            NativeIdentityStore.Loaded view = loadedOf(reserved(), V2);
+        common("seeding / shared and foreign mappings are deferred", List.of(V2), (problems, format) -> {
+            NativeIdentityStore.Loaded view = loadedOf(reserved(), format);
             NativeHistoryHarness.SharedUserSetting sharedUser = new NativeHistoryHarness.SharedUserSetting();
             sharedUser.add(state("dev.andrix.shared"));
             NativePrincipalRecovery shared = seeded(view, R, sharedUser).mNativeRecoveryView;
@@ -952,8 +1008,9 @@ public final class NativeCreationHistoryTest {
             check(problems, sharedSetting.defersName(PKG_R), "a shared setting of the package");
         });
         NativeHistoryHarness.PackageSetting mappedR = new NativeHistoryHarness.PackageSetting(PKG_R, R, false);
-        run("seeding / a matching data owner keeps a mapped reservation recoverable", problems -> {
-            NativeIdentityStore.Loaded view = loadedOf(reserved(), V2);
+        common("seeding / a matching data owner keeps a mapped reservation recoverable",
+                List.of(V2), (problems, format) -> {
+            NativeIdentityStore.Loaded view = loadedOf(reserved(), format);
             NativeHistoryHarness booted = seeded(view, R, mappedR, Map.of(PKG_R, R), true);
             NativePrincipalRecovery recovery = booted.mNativeRecoveryView;
             check(problems, !recovery.defersName(PKG_R) && recovery.protectsName(PKG_R)
@@ -961,8 +1018,9 @@ public final class NativeCreationHistoryTest {
                     && fenced(recovery, R) && booted.nativePrincipalPinsLPr().find(PKG_R, 0) != null,
                     recoveryFacts(recovery));
         });
-        run("seeding / foreign, unreadable and unowned data owners are deferred", problems -> {
-            NativeIdentityStore.Loaded view = loadedOf(reserved(), V2);
+        common("seeding / foreign, unreadable and unowned data owners are deferred",
+                List.of(V2), (problems, format) -> {
+            NativeIdentityStore.Loaded view = loadedOf(reserved(), format);
             Map<String, Map<String, Integer>> owners = new TreeMap<>();
             owners.put("a foreign owner", Map.of(PKG_R, FOREIGN_OWNER_UID));
             owners.put("an unreadable owner", Map.of(PKG_R, -1));
@@ -979,19 +1037,21 @@ public final class NativeCreationHistoryTest {
                     && !unowned.defersName(PKG_R) && unowned.keepsCodePath(CODE_R) && fenced(unowned, R),
                     "an unowned name: " + recoveryFacts(unowned));
         });
-        run("seeding / an incomplete data owner enumeration keeps unidentified code", problems -> {
-            NativeIdentityStore.Loaded view = loadedOf(reserved(), V2);
+        common("seeding / an incomplete data owner enumeration keeps unidentified code",
+                List.of(V2), (problems, format) -> {
+            NativeIdentityStore.Loaded view = loadedOf(reserved(), format);
             NativePrincipalRecovery recovery = seeded(view, R, mappedR, Map.of(), false).mNativeRecoveryView;
             check(problems, recovery.hasUnidentifiedCode() && !recovery.defersName(PKG_R)
                     && recovery.keepsCodePath(CODE_R) && fenced(recovery, R)
                     && recovery.preservesUnidentifiedCode(new File("/data/app/~~opaque/base.apk"),
                             new File("/data/app")), recoveryFacts(recovery));
         });
-        run("seeding / a reservation seeds as its published body under every data owner", problems -> {
+        common("seeding / a reservation seeds as its published body under every data owner",
+                List.of(V2), (problems, format) -> {
             Path published = reserved();
             slot(published, R, BODY_R);
-            NativeIdentityStore.Loaded reservation = loadedOf(reserved(), V2);
-            NativeIdentityStore.Loaded body = loadedOf(published, V2);
+            NativeIdentityStore.Loaded reservation = loadedOf(reserved(), format);
+            NativeIdentityStore.Loaded body = loadedOf(published, format);
             check(problems, reservation.history(R).source == Source.RESERVATION
                     && body.history(R).source == Source.BODY, "fixture histories");
             Map<String, Map<String, Integer>> owners = new TreeMap<>();
@@ -1016,14 +1076,14 @@ public final class NativeCreationHistoryTest {
 
     // Every UID hold, package fence and keystore protection remains beside the histories.
     private static void holds() {
-        run("holds / every hold and fence remains", problems -> {
+        common("holds / every hold and fence remains", List.of(V2), (problems, format) -> {
             Header selected = v2(2, live(A), releasing(B), boundCreating(R, 2, PKG_R));
             Header addition = v2(3, live(A), releasing(B), boundCreating(R, 2, PKG_R),
                     boundCreating(D, 3, PKG_D));
             Path root = layout(bytes(selected), bytes(addition), bytes(addition));
             slot(root, A, BODY_A);
             slot(root, B, tombstone(B, PKG_B, 3));
-            PackageManagerService pm = boot(root, V2, Map.of(PKG_A, A, PKG_R, R));
+            PackageManagerService pm = boot(root, format, Map.of(PKG_A, A, PKG_R, R));
             Set<Integer> held = Set.of(A, B, R, D);
             for (int appId : held) {
                 check(problems, pm.mSettings.isNativePrincipalAppIdLPr(appId)

@@ -240,14 +240,27 @@ class LifecycleRecordSourceTests(unittest.TestCase):
         lifecycle = 'scripts/proof/native_lifecycle_record.py'
         self.assertEqual(len([row for row in rows if row[1] == lifecycle]), 8)
         # Elsewhere, the named V3 runs: the presence V3 step and the moved V3 cases of the binding
-        # runner, the header footprint module's V3 cases, the store module's entry points and the
-        # lab rehearsal; and code that constructs no store.
+        # runner, its production twins and production default check, the header footprint module's
+        # V3 cases, the store module's entry points, the production twins and parity of the history
+        # runner, the counter suite's production twins, the lab store fixture's Format.V3 reads and
+        # the lab rehearsal; and code that constructs no store.
         others = [row for row in rows if row[1] != lifecycle]
         v3 = [row for row in others if set(row[2]) <= set(runner.LIFECYCLE_FORMAT_HARNESSES.get(row[1], ()))]
         storeless = [row for row in others if set(row[2]) <= set(runner.STORELESS_HARNESSES.get(row[1], ()))]
-        self.assertEqual([row[1] for row in v3], [
-            'scripts/proof/native_creation_binding.py', 'scripts/proof/native_creation_binding.py',
-            'scripts/proof/tests/test_native_header_footprint.py', 'scripts/proof/tests/test_native_identity_store.py'])
+        self.assertEqual([(row[1], row[2]) for row in v3], [
+            ('scripts/proof/native_creation_binding.py', ('NativeIdentityPresenceTest',)),
+            ('scripts/proof/native_creation_binding.py',
+             ('NativeIdentityHeaderFootprintTest', 'NativeHeaderWriteFaultTest', 'NativeCreationBindingFaultTest')),
+            ('scripts/proof/native_creation_binding.py', ('NativeCreationBindingTest',)),
+            ('scripts/proof/native_creation_binding.py', ('NativeProductionDefaultTest',)),
+            ('scripts/proof/tests/test_native_header_footprint.py',
+             ('NativeIdentityHeaderFootprintTest', 'NativeHeaderWriteFaultTest')),
+            ('scripts/proof/tests/test_native_identity_store.py',
+             ('NativeIdentityFutureFormatTest', 'NativeIdentityVersionGateTest')),
+            ('scripts/proof/native_creation_history.py',
+             ('NativeCreationHistoryTest', 'NativeCreationHistoryFaultTest', 'NativeHistoryParity')),
+            ('scripts/proof/native_counter_admission.py', ('NativeCounterAdmissionTest',)),
+            ('scripts/proof/native_lab_history.py', ('LabHistoryStoreTest',))])
         self.assertEqual([row[1] for row in storeless], [
             'scripts/proof/tests/test_native_identity_store.py',
             'scripts/proof/tests/test_native_identity_persistence.py',
@@ -293,9 +306,10 @@ class LifecycleRecordSourceTests(unittest.TestCase):
                     self.assertTrue(runner.label_problems())
         # A production row of another harness, such as a suite that runs only the earlier formats,
         # is refused, and so is the retired label.
-        for row in (('production', 'scripts/proof/native_creation_binding.py', ('NativeCreationBindingTest',), 'x'),
-                    ('production', 'scripts/proof/native_lab_history.py', ('LabHistoryStoreTest',), 'x'),
-                    ('production', 'scripts/proof/native_counter_admission.py', ('NativeCounterAdmissionTest',), 'x')):
+        for row in (('production', 'scripts/proof/native_creation_binding.py', ('NativeCreationBindingLayouts',), 'x'),
+                    ('production', 'scripts/proof/native_creation_history.py', ('NativeRollbackSeedingCheck',), 'x'),
+                    ('production', 'scripts/proof/native_counter_admission.py', ('NativeHistoryParity',), 'x'),
+                    ('production', 'tests/native-identity/test_writer.py', ('NativePrincipalWriterFixtureTest',), 'x')):
             with self.subTest(row=row[1:3]), mock.patch.object(runner.b1, 'HARNESS_LABELS',
                                                                 runner.b1.HARNESS_LABELS + (row,)):
                 self.assertIn('the production label names another harness', runner.label_problems())

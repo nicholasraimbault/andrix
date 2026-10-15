@@ -87,10 +87,11 @@ ARCHIVED_SIDES = (BASE_0018, BASE_8949, CORRECTED)
 PHASES = ('candidates', 'focused', 'baselines', 'probes', 'parity', 'mutants', 'b2 runner')
 # The labels of this runner's guarded steps, as the B1 runner's HARNESS_LABELS name them: the
 # living focused suite and mutants on the current sources, under Format.V2 and Format.V1, the
-# previous and the legacy format, and the archived sides.
-STEP_LABELS = {'focused': ('previous', 'legacy'), 'baselines': ('archived-baseline',),
+# previous and the legacy format, with their production twins under Format.V3, and the archived
+# sides.
+STEP_LABELS = {'focused': ('previous', 'legacy', 'production'), 'baselines': ('archived-baseline',),
                'probes': ('archived-baseline',), 'parity': ('archived-baseline', 'rollback-reader'),
-               'mutants': ('previous', 'legacy')}
+               'mutants': ('previous', 'legacy', 'production')}
 # This runner's archived steps. Every other labelled step is living.
 ARCHIVED_STEP_NAMES = ('baselines', 'probes', 'parity')
 
@@ -130,6 +131,24 @@ FOCUSED_NAMES = (
     'manager / a lost BODY cannot be republished while the counter is blocked',
     'manager / a live registry refuses after observing a higher copy',
     'manager / holds and refusals survive reopening and lost replies')
+# The production twins of the focused suite: each common case runs under the earlier formats it
+# names, as above, then once more under Format.V3, the production format, as its own run named with
+# a V3 prefix. Format.V3 reads these slots and headers as Format.V2 does and bounds issuance by the
+# same counter, so a twin asserts the same outcome. FOCUSED_NAMES stays the list of the earlier
+# runs, which the lifecycle runner reads for their refusals. These cases have no twin: under
+# Format.V3 their retirement is the lifecycle runner's case, which the case map names.
+NO_TWIN = {name: 'a lifecycle refusal' for name in (
+    'residual / another lineage above the counter strands a later release',
+    'manager / a healthy body retires beside a blocked store',
+    'manager / a lost BODY cannot be republished while the counter is blocked')}
+PRODUCTION_TWINS = tuple('V3 / ' + name for name in FOCUSED_NAMES if name not in NO_TWIN)
+# Every run that the focused suite prints: each case, then its production twin.
+FOCUSED_RUNS = tuple(run for name in FOCUSED_NAMES
+                     for run in ((name,) if name in NO_TWIN else (name, 'V3 / ' + name)))
+# The production format regression of the B1 runner that this suite can see: it changes only
+# Format.V3's line of the store's Format enum, so only the production twins may catch it. The
+# reservation version regression is not run here: this suite asserts no new entry's binding.
+PRODUCTION_MUTANTS = ('production-header-ceiling-1',)
 # The archived sides' cases, frozen at 24bfb6a. The living list above follows the current suite;
 # this one never does.
 ARCHIVED_FOCUSED_NAMES = (
@@ -284,6 +303,8 @@ MUTANTS = {
         '                        || entry.getValue().unavailable\n' + _EVIDENCE_TAIL,
         '                        || entry.getValue().unavailable;\n'),)),
 }
+MUTANTS.update({name: (STORE, ((b1.PRODUCTION_ENUM, b1.PRODUCTION_MUTANTS[name]),))
+                for name in PRODUCTION_MUTANTS})
 
 
 def sha(data):
@@ -507,13 +528,22 @@ def source_checks():
     except ValueError as error:
         problems.append('mutant anchors: %s' % error)
     predictions = json.loads(PREDICTIONS.read_text())
-    names = set(FOCUSED_NAMES)
+    names = set(FOCUSED_RUNS)
     source = (ROOT / PLATFORM / (TEST + '.java')).read_text()
     for name in FOCUSED_NAMES:
         if source.count('"%s"' % name) != 1:
             problems.append('focused case not named once in its source: ' + name)
-    if len(names) != len(FOCUSED_NAMES):
+    # Each production twin is a V3 run of one earlier case, through the suite's one twin helper.
+    if (source.count('run("V3 / " + name, problems -> body.run(problems, V3));') != 1
+            or not set(NO_TWIN) <= set(FOCUSED_NAMES)
+            or len(PRODUCTION_TWINS) + len(NO_TWIN) != len(FOCUSED_NAMES)
+            or set(FOCUSED_RUNS) != set(FOCUSED_NAMES) | set(PRODUCTION_TWINS)):
+        problems.append('the production twins of the focused suite differ from its cases')
+    if len(names) != len(FOCUSED_RUNS):
         problems.append('duplicate check names')
+    for name in PRODUCTION_MUTANTS:
+        if not set(predictions['mutants_caught_at_least'].get(name, ())) <= set(PRODUCTION_TWINS):
+            problems.append('production mutant %s is not predicted against production twins alone' % name)
     if set(predictions['mutants_caught_at_least']) != set(MUTANTS):
         problems.append('mutant predictions do not list every mutant')
     for name, checks in predictions['mutants_caught_at_least'].items():
@@ -625,8 +655,9 @@ def suite_files(settings, names, override=None):
 
 
 def focused(work, settings, override=None):
-    """The living focused suite on the current sources, with at most one mutant override."""
-    return b1.outcome(b1.suite(work, suite_files(settings, [TEST], override), TEST), FOCUSED_NAMES)
+    """The living focused suite on the current sources, with its production twins and at most one
+    mutant override."""
+    return b1.outcome(b1.suite(work, suite_files(settings, [TEST], override), TEST), FOCUSED_RUNS)
 
 
 # ---------------------------------------------------------------- the 24bfb6a archive
@@ -831,11 +862,12 @@ def qualify(work, pinned, progress):
                 'fix': built['b2']}
     progress.done('candidates')
 
-    # Living: the current sources, every case exactly once, all passing, exit status 0.
+    # Living: the current sources, every case and production twin exactly once, all passing, exit
+    # status 0.
     progress.begin('focused')
     result = focused(work / 'focused', settings['fix'])
     steps['focused'] = result
-    red = b2.red_names(result, FOCUSED_NAMES)
+    red = b2.red_names(result, FOCUSED_RUNS)
     if red != set():
         problems.append('focused matrix: %s' % ('not a complete result' if red is None else sorted(red)))
     elif 'unqualified' not in result['run']['stdout']:
@@ -875,7 +907,7 @@ def qualify(work, pinned, progress):
         if 'error' in result:
             problems.append('mutant %s did not compile; not a red result' % name)
             continue
-        red = b2.red_names(result, FOCUSED_NAMES)
+        red = b2.red_names(result, FOCUSED_RUNS)
         if red is None:
             problems.append('mutant %s run is not a complete result; its failures are not counted' % name)
             continue
@@ -883,6 +915,10 @@ def qualify(work, pinned, progress):
         record['failed'] = sorted(red)
         if record['missed'] or not red:
             problems.append('mutant %s not caught: %s' % (name, record['missed']))
+        # A production format regression leaves every run under an earlier format passing.
+        if name in PRODUCTION_MUTANTS and not red <= set(PRODUCTION_TWINS):
+            problems.append('production mutant %s failed a run under an earlier format: %s'
+                            % (name, sorted(red - set(PRODUCTION_TWINS))[:5]))
         progress.write()
     report['labels'] = {step: list(STEP_LABELS[step]) for step in steps if step in STEP_LABELS}
     progress.done('mutants')

@@ -270,6 +270,10 @@
   ],
   "smallest-header-counter": [
    "selection / a predecessor counter is not the bound"
+  ],
+  "production-header-ceiling-1": [
+   "V3 / gate / a nonzero user above the counter",
+   "V3 / evidence / a failed binding keeps every higher copy"
   ]
  },
  "b1_changed_expectations": {
@@ -325,5 +329,41 @@
   "probes": {"0018": "RED", "8949": "RED", "24bf": "REFUSED"},
   "parity": "The pinned 24bfb6a side prints byte identical outcomes to 89491b9. Its Format.V1 runs are rollback-reader; its version 2 runs and the 89491b9 side are archived-baseline.",
   "living": "The current sources pass all 35 focused cases with exit status 0, and every one of the 15 mutants is caught."
+ },
+ "b2_checkpoint_2c": {
+  "status": "PREDICTED before any JVM run of these cases. No guarded result.",
+  "plan": "plans/2026-10-08-native-lifecycle-record.md",
+  "focused": {
+   "cases": 35,
+   "production_twins": 32,
+   "runs": 67,
+   "without_twin": 3,
+   "rule": [
+    "Each common case gains a production twin under Format.V3, named V3 / <case>.",
+    "The twin asserts the same outcome under the same counter bound.",
+    "The two Format.V1 registry cases gain twins too.",
+    "Format.V3 reads their version 1 headers alike.",
+    "The three cases whose retirement refuses have none.",
+    "Their Format.V3 halves are the lifecycle runner's cases, which the case map names."
+   ]
+  },
+  "production_mutants": [
+   "production-header-ceiling-1"
+  ],
+  "labels": {
+   "focused": [
+    "previous",
+    "legacy",
+    "production"
+   ],
+   "mutants": [
+    "previous",
+    "legacy",
+    "production"
+   ]
+  },
+  "unchanged": [
+   "Every earlier run, observation label, archived side, probe and parity."
+  ]
  }
 }

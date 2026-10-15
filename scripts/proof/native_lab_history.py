@@ -449,6 +449,31 @@ def store_fixture(work, predictions, pinned, record, problems, save):
     if (not record['without_assertions']['returncode'] or '-ea' not in record['without_assertions']['stderr']
             or unused.exists()):
         problems.append('store fixture test ran without Java assertions')
+    # The production control: the same suite over a store whose production format reads version 2
+    # headers as footprints. Every earlier read still passes and the production reads stop the run,
+    # so they catch a production format regression that the Format.V2 and Format.V1 reads cannot.
+    control = expected['production_control']
+    mutated = work / 'store-control-sources'
+    mutated.mkdir()
+    (mutated / 'NativeIdentityStore.java').write_text(b1.replace_once(
+        (FRAMEWORK / 'NativeIdentityStore.java').read_text(), b1.PRODUCTION_ENUM,
+        b1.PRODUCTION_MUTANTS[control['mutant']]))
+    record['production_control_compile'] = javac(work, [
+        FRAMEWORK / 'NativeIdentityRecords.java', mutated / 'NativeIdentityStore.java',
+        sources / 'ResilientAtomicFile.java', *facades, LAB_DIR / 'LabHistoryStore.java',
+        LAB_DIR / 'LabHistoryStoreTest.java'], work / 'store-control-classes')
+    save()
+    if record['production_control_compile']['returncode']:
+        problems.append('store fixture production control compilation failed')
+    else:
+        target = work / 'store-control'
+        target.mkdir()
+        result = record['production_control'] = java(work, 'com.android.server.pm.LabHistoryStoreTest', target,
+                                                      classes=work / 'store-control-classes')
+        save()
+        if (not result['returncode'] or re.findall(r'^PASS (.+)$', result['stdout'], re.M) != control['pass']
+                or 'java.lang.AssertionError: ' + control['failure'] not in result['stderr']):
+            problems.append('store fixture production control was not caught by the production reads alone')
     # The actual command line at a fresh random lineage with the fixed signer, against the oracle.
     observe = observer()
     generated, predicted = work / 'cli-generated', work / 'cli-prediction'

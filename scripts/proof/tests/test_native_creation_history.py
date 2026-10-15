@@ -109,21 +109,57 @@ class CreationHistorySourceTests(unittest.TestCase):
         self.assertEqual(set(sources), set(runner.MUTANTS))
         predictions = json.loads(runner.PREDICTIONS.read_text())
         self.assertIn('PREDICTED', predictions['status'])
-        names = set(runner.FOCUSED_NAMES) | set(runner.FAULT_NAMES)
+        names = set(runner.FOCUSED_RUNS) | set(runner.FAULT_RUNS)
         self.assertEqual(set(predictions['b2_mutants_caught_at_least']), set(runner.MUTANTS))
         for name, expected in predictions['b2_mutants_caught_at_least'].items():
             self.assertTrue(expected and set(expected) <= names, name)
             # The living probe run is retired: every mutant runs a living history suite.
             self.assertTrue(set(runner.MUTANTS[name][2]) <= {'focused', 'faults'}, name)
-            if set(expected) & set(runner.FAULT_NAMES):
+            if set(expected) & set(runner.FAULT_RUNS):
                 self.assertIn('faults', runner.MUTANTS[name][2], name)
         for name, (path, text, _) in sources.items():
             self.assertNotEqual(text, (runner.ROOT / path).read_text(), name)
         self.assertEqual((len(runner.FOCUSED_NAMES), len(runner.FAULT_NAMES), len(runner.LAYOUT_NAMES)),
                          (87, 40, 29))
         # Six retirement origin mutants moved to the lifecycle runner, whose Format.V3 cases catch them now
-        # that these suites' retirements refuse under the earlier formats.
-        self.assertEqual(len(runner.MUTANTS), 34)
+        # that these suites' retirements refuse under the earlier formats. Two production format
+        # regressions joined them at B2 checkpoint 2c, which only the production twins may catch.
+        self.assertEqual(len(runner.MUTANTS), 36)
+        production = set(runner.PRODUCTION_FOCUSED) | set(runner.PRODUCTION_FAULTS)
+        for name in runner.PRODUCTION_MUTANTS:
+            self.assertEqual(runner.MUTANTS[name], (runner.STORE, ((runner.b1.PRODUCTION_ENUM,
+                                                                    runner.b1.PRODUCTION_MUTANTS[name]),),
+                                                    ('focused', 'faults')))
+            self.assertTrue(set(predictions['b2_mutants_caught_at_least'][name]) <= production, name)
+
+    def test_production_twins_follow_their_cases(self):
+        predicted = json.loads(runner.PREDICTIONS.read_text())['b2_checkpoint_2c']
+        self.assertEqual((len(runner.PRODUCTION_FOCUSED), len(runner.FOCUSED_RUNS), len(runner.NO_TWIN)), (77, 164, 10))
+        self.assertEqual((len(runner.PRODUCTION_FAULTS), len(runner.FAULT_RUNS)), (24, 64))
+        self.assertEqual((predicted['focused']['cases'], predicted['focused']['production_twins'],
+                          predicted['focused']['runs'], predicted['focused']['without_twin']), (87, 77, 164, 10))
+        self.assertEqual((predicted['faults']['cases'], predicted['faults']['production_twins'],
+                          predicted['faults']['runs']), (40, 24, 64))
+        self.assertEqual(predicted['production_mutants'], list(runner.PRODUCTION_MUTANTS))
+        self.assertEqual(predicted['labels'], {step: list(runner.STEP_LABELS[step]) for step in predicted['labels']})
+        # Every twin is a V3 run of one earlier case, and the earlier runs keep their names, which
+        # the lifecycle runner's case map and refusals read.
+        self.assertEqual(set(runner.PRODUCTION_FOCUSED), {'V3 / ' + name for name in runner.FOCUSED_NAMES
+                                                          if name not in runner.NO_TWIN})
+        self.assertFalse(set(runner.PRODUCTION_FOCUSED) & set(runner.FOCUSED_NAMES))
+        self.assertEqual({name for name in runner.NO_TWIN if name.startswith('retirement / ')},
+                         {name for name in runner.FOCUSED_NAMES if name.startswith('retirement / ')})
+        # The two refused retirement sweeps keep no twin; the rebind sweeps do.
+        self.assertEqual(runner.PRODUCTION_FAULT_KINDS, runner.FAULT_KINDS[:3])
+        self.assertFalse(any('retirement' in kind for kind in runner.PRODUCTION_FAULT_KINDS))
+        focused = (runner.ROOT / runner.PLATFORM / 'NativeCreationHistoryTest.java').read_text()
+        faults = (runner.ROOT / runner.PLATFORM / 'NativeCreationHistoryFaultTest.java').read_text()
+        self.assertEqual(focused.count('run("V3 / " + name, problems -> body.run(problems, V3));'), 1)
+        self.assertEqual(faults.count('fault("V3 / " + name, problems -> body.run(problems, V3));'), 1)
+        for kind in runner.PRODUCTION_FAULT_KINDS:
+            self.assertEqual(faults.count('common("%s / " + step, (problems, format) -> {' % kind), 1, kind)
+        for kind in runner.FAULT_KINDS[3:]:
+            self.assertEqual(faults.count('fault("%s / " + step, problems -> {' % kind), 1, kind)
 
     def test_every_focused_and_fault_case_is_named_in_its_source(self):
         focused = (runner.ROOT / runner.PLATFORM / 'NativeCreationHistoryTest.java').read_text()
@@ -134,6 +170,11 @@ class CreationHistorySourceTests(unittest.TestCase):
         faults = (runner.ROOT / runner.PLATFORM / 'NativeCreationHistoryFaultTest.java').read_text()
         for kind in runner.FAULT_KINDS:
             self.assertIn('"%s / "' % kind, faults)
+        # Each production twin runs its case's own body through the suite's one twin helper.
+        for name in runner.PRODUCTION_FOCUSED:
+            prefix, _, rest = name[len('V3 / '):].partition(' / ')
+            self.assertTrue('"V3 / "' in focused and ('"%s"' % name[len('V3 / '):] in focused
+                                                      or ('"%s / "' % prefix in focused and rest in focused)), name)
 
     def test_harness_takes_each_side_text_and_fills_every_placeholder(self):
         settings = synthetic_settings()
@@ -237,26 +278,93 @@ class CreationHistorySourceTests(unittest.TestCase):
         files = runner.living_parity_files(settings)
         self.assertEqual(files['tests/NativeHistoryParity.java'],
                          runner.b1.pinned_bytes(runner.ARCHIVE, runner.ARCHIVED_PARITY))
-        # While the living parity compiles the pinned driver, the working-tree driver, which the living
-        # label rows name, keeps those bytes: an edit of it is refused, not silently left unrun.
-        self.assertEqual(runner.PARITY_DRIVER.read_bytes(), files['tests/NativeHistoryParity.java'])
+        # The living parity compiles the pinned driver. The working-tree driver, which the
+        # production parity compiles, is that driver but for its format selection: a comment is
+        # free, and any other edit is refused, not silently left unrun.
+        self.assertEqual(runner.parity_driver_problems(), [])
+        self.assertNotEqual(runner.PARITY_DRIVER.read_bytes(), files['tests/NativeHistoryParity.java'])
+        production = runner.production_parity_files(settings)
+        self.assertEqual(production['tests/NativeHistoryParity.java'], runner.PARITY_DRIVER.read_bytes())
+        self.assertEqual({name: data for name, data in production.items() if name != 'tests/NativeHistoryParity.java'},
+                         {name: data for name, data in files.items() if name != 'tests/NativeHistoryParity.java'})
         drifted = scratch(self) / 'NativeHistoryParity.java'
-        drifted.write_bytes(runner.PARITY_DRIVER.read_bytes().replace(b'\n}', b'\n    // edited\n}', 1))
-        self.assertNotEqual(drifted.read_bytes(), runner.PARITY_DRIVER.read_bytes())
+        commented = runner.PARITY_DRIVER.read_bytes().replace(b'\n}', b'\n    // edited\n}', 1)
+        drifted.write_bytes(commented)
         with mock.patch.object(runner, 'PARITY_DRIVER', drifted):
-            self.assertIn('parity driver differs from the pinned 24bfb6a driver that the living parity compiles',
-                          runner.source_checks())
-            self.assertEqual(runner.living_parity_files(settings)['tests/NativeHistoryParity.java'],
-                             files['tests/NativeHistoryParity.java'])
-        rows = [row for row in runner.b1.HARNESS_LABELS if row[1] == HISTORY and 'NativeHistoryParity' in row[2]
-                and row[0] in runner.b1.LIVING_RUN_LABELS]
-        self.assertEqual([row[0] for row in rows], ['previous', 'legacy'])
-        for row in rows:
-            self.assertIn('pinned driver', row[3])
+            self.assertEqual(runner.parity_driver_problems(), [])
+        for old, new in ((b'List.of(V1, V2);', b'List.of(V1, V2, V3);'), (b'"body-live"', b'"body-living"'),
+                         (b'formats = List.of(NativeIdentityStore.Format.V3)', b'formats = List.of(V2)')):
+            self.assertEqual(runner.PARITY_DRIVER.read_bytes().count(old), 1, old)
+            drifted.write_bytes(runner.PARITY_DRIVER.read_bytes().replace(old, new))
+            with mock.patch.object(runner, 'PARITY_DRIVER', drifted):
+                self.assertEqual(runner.parity_driver_problems(),
+                                 ['parity driver differs from the pinned 24bfb6a driver beyond its format selection'])
+                self.assertEqual(runner.living_parity_files(settings)['tests/NativeHistoryParity.java'],
+                                 files['tests/NativeHistoryParity.java'])
+        with mock.patch.object(runner, 'PARITY_DRIVER_CHANGES', (('no such text', 'x'),)):
+            self.assertEqual(runner.parity_driver_problems(),
+                             ['a parity driver change no longer anchors once in the pinned 24bfb6a driver'])
+        rows = {row[0]: row[3] for row in runner.b1.HARNESS_LABELS if row[1] == HISTORY
+                and 'NativeHistoryParity' in row[2] and row[0] in runner.b1.LIVING_RUN_LABELS}
+        self.assertEqual(set(rows), {'previous', 'legacy', 'production'})
+        for label in ('previous', 'legacy'):
+            self.assertIn('pinned driver', rows[label])
+        self.assertIn('working-tree driver under Format.V3', rows['production'])
         self.assertEqual(files['tests/NativeHistoryHarness.java'], runner.harness_source(settings, 'b2').encode())
         self.assertEqual(files['framework/NativeIdentityStore.java'], (runner.ROOT / runner.STORE).read_bytes())
         self.assertEqual(files['tests/NativeHeaderTestSupport.java'],
                          (runner.ROOT / runner.PLATFORM / 'NativeHeaderTestSupport.java').read_bytes())
+
+    def test_production_parity_rules(self):
+        relation = 'relation\tfuture-body\tsame\nrelation\tbody-live\tsame\n'
+        living = relation + '\n'.join((
+            parity_line('V1', 'body-live', 'restore', '-', 'counter=1'),
+            parity_line('V2', 'body-live', 'restore', '-', 'counter=1'),
+            parity_line('V2', 'future-body', 'restore', '-', 'counter=none'),
+            parity_line('V2', 'future-body~cleared', 'restore', '-', 'counter=none'))) + '\n'
+        production = relation + '\n'.join((
+            parity_line('V3', 'body-live', 'restore', '-', 'counter=1'),
+            parity_line('V3', 'future-body', 'restore', '-', 'counter=1'),
+            parity_line('V3', 'future-body~cleared', 'restore', '-', 'counter=1'))) + '\n'
+        predicted = {'apart_layouts': ['future-body'],
+                     'predicted_differences': ['future-body/restore/-', 'future-body~cleared/restore/-']}
+        self.assertEqual(runner.production_parity_differences(living, production),
+                         ['future-body/restore/-', 'future-body~cleared/restore/-'])
+        self.assertEqual(runner.predicted_production_parity(living, production, predicted),
+                         (['future-body/restore/-', 'future-body~cleared/restore/-'], [], []))
+        # Any difference outside an apart layout is unpredicted, and so is a relation or another
+        # format.
+        changed = production.replace(parity_line('V3', 'body-live', 'restore', '-', 'counter=1'),
+                                     parity_line('V3', 'body-live', 'restore', '-', 'counter=none'))
+        self.assertEqual(runner.predicted_production_parity(living, changed, predicted)[1], ['body-live/restore/-'])
+        relabeled = production.replace('relation\tbody-live\tsame\n', 'relation\tbody-live\tother\n')
+        self.assertEqual(runner.predicted_production_parity(living, relabeled, predicted)[1], ['relation/body-live'])
+        extra = production + parity_line('V2', 'future-body', 'body', '-', 'records=') + '\n'
+        self.assertEqual(runner.predicted_production_parity(living, extra, predicted)[1],
+                         ['format/V2/future-body/body/-'])
+        # A missing outcome differs too, and a predicted difference that did not occur is missing.
+        dropped = production.replace(parity_line('V3', 'body-live', 'restore', '-', 'counter=1') + '\n', '')
+        self.assertEqual(runner.predicted_production_parity(living, dropped, predicted)[1], ['body-live/restore/-'])
+        same = production.replace(parity_line('V3', 'future-body', 'restore', '-', 'counter=1'),
+                                  parity_line('V3', 'future-body', 'restore', '-', 'counter=none'))
+        self.assertEqual(runner.predicted_production_parity(living, same, predicted)[2], ['future-body/restore/-'])
+        # The predictions: two apart layouts, each restoring otherwise with its cleared twin.
+        parity = json.loads(runner.PREDICTIONS.read_text())['b2_checkpoint_2c']['production_parity']
+        self.assertEqual(parity['apart_layouts'], ['future-body', 'unsupported-slot-seed'])
+        self.assertEqual(parity['predicted_differences'], sorted(
+            '%s%s/restore/-' % (layout, twin) for layout in parity['apart_layouts'] for twin in ('', '~cleared')))
+        self.assertEqual(parity['control'], runner.PRODUCTION_PARITY_CONTROL[1])
+        self.assertIn(runner.PRODUCTION_PARITY_CONTROL[1], runner.b1.PRODUCTION_MUTANTS)
+        control = runner.production_parity_control_text()
+        current = (runner.ROOT / runner.STORE).read_text()
+        self.assertEqual([(a, b) for a, b in zip(control.split('\n'), current.split('\n')) if a != b],
+                         [(runner.b1.PRODUCTION_MUTANTS['production-header-ceiling-1'].rstrip('\n'),
+                           runner.b1.PRODUCTION_ENUM.rstrip('\n'))])
+        # The driver names exactly the two apart layouts' version 2 slot frames.
+        driver = runner.PARITY_DRIVER.read_text()
+        self.assertEqual(driver.count('relabeled(NativeIdentityRecords.encodeSlot('), 2)
+        for layout in parity['apart_layouts']:
+            self.assertEqual(driver.count('new Layout("%s"' % layout), 1, layout)
 
     def test_fresh_outside_refuses_repository_and_existing_paths(self):
         with self.assertRaises(ValueError):
@@ -337,12 +445,14 @@ class CreationHistorySourceTests(unittest.TestCase):
             self.assertTrue(labels and set(labels) <= set(allowed), step)
         # The current sources' Format.V1 reads are legacy; the archived 24bfb6a parity side's are the
         # rollback reader model's, like the 24bf-v1 reader.
-        # The living steps run the previous and the legacy format on the current sources, none of
-        # them production since the boot read constructs Format.V3.
-        self.assertEqual(runner.STEP_LABELS['b2 focused'], ('previous', 'legacy'))
+        # The living steps run the previous and the legacy format on the current sources; their
+        # production twins and the production parity run Format.V3, which the boot read constructs.
+        self.assertEqual(runner.STEP_LABELS['b2 focused'], ('previous', 'legacy', 'production'))
+        self.assertEqual(runner.STEP_LABELS['b2 faults'], ('previous', 'legacy', 'production'))
         self.assertEqual(runner.STEP_LABELS['living parity'], ('previous', 'legacy'))
+        self.assertEqual(runner.STEP_LABELS['production parity'], ('production',))
         self.assertEqual(runner.STEP_LABELS['readers'], ('previous', 'legacy'))
-        self.assertEqual(runner.STEP_LABELS['mutants'], ('previous', 'legacy'))
+        self.assertEqual(runner.STEP_LABELS['mutants'], ('previous', 'legacy', 'production'))
         self.assertEqual(runner.STEP_LABELS['parity'], ('archived-baseline', 'rollback-reader'))
         self.assertEqual(runner.STEP_LABELS['probe'], ('archived-baseline',))
         history = {}
@@ -350,10 +460,11 @@ class CreationHistorySourceTests(unittest.TestCase):
             if harness == HISTORY:
                 for name in classes:
                     history.setdefault(name, set()).add(label)
-        self.assertEqual(history['NativeCreationHistoryTest'], {'previous', 'legacy'})
-        # Every label but production and the floor model's: the parity runs Format.V1 and Format.V2
-        # alone, and the floor model reads only the lifecycle layouts.
-        self.assertEqual(history['NativeHistoryParity'], set(runner.b1.RUN_LABELS) - {'production', 'floor-model'})
+        self.assertEqual(history['NativeCreationHistoryTest'], {'previous', 'legacy', 'production'})
+        self.assertEqual(history['NativeCreationHistoryFaultTest'], {'previous', 'legacy', 'production'})
+        # Every label but the floor model's: the living parity runs Format.V1 and Format.V2, the
+        # production parity Format.V3, and the floor model reads only the lifecycle layouts.
+        self.assertEqual(history['NativeHistoryParity'], set(runner.b1.RUN_LABELS) - {'floor-model'})
         # The label rules: each break is refused.
         for change in ({'READER_LABELS': dict(runner.READER_LABELS, **{'b2-v1': 'rollback-reader'})},
                        {'READER_LABELS': {k: v for k, v in runner.READER_LABELS.items() if k != '24bf-v1'}},

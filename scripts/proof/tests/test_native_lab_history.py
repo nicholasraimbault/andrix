@@ -136,6 +136,27 @@ class LabHistoryRunnerTests(unittest.TestCase):
     def test_source_checks_pass(self):
         self.assertEqual(runner.source_checks(), [])
 
+    def test_store_fixture_reads_under_the_production_format(self):
+        # The store fixture reads its stores under Format.V3 too, after its earlier readers, and its
+        # production control fails exactly there: every earlier block passes first.
+        expected = runner.strict(runner.PREDICTIONS.read_text())['store_fixture']
+        production = 'the production format reads them as the previous format does'
+        self.assertEqual(expected['pass'][expected['pass'].index('readers classify the predictions') + 1], production)
+        control = expected['production_control']
+        self.assertEqual(control['pass'], expected['pass'][:expected['pass'].index(production)])
+        self.assertIn(control['mutant'], runner.b1.PRODUCTION_MUTANTS)
+        code = runner.b1.strip_java_comments((runner.LAB_DIR / 'LabHistoryStoreTest.java').read_text())
+        self.assertEqual(code.count('System.out.println("PASS %s");' % production), 1)
+        block = code[code.index('System.out.println("PASS readers classify the predictions");'):
+                     code.index('System.out.println("PASS %s");' % production)]
+        self.assertEqual(block.count('NativeIdentityStore.Format.V3'), 3)
+        self.assertNotRegex(block, r'Format\s*\.\s*V[12]\b')
+        self.assertEqual(code.count('"%s"' % control['failure']), 1)
+        self.assertIn('"%s"' % control['failure'], block)
+        # The control's store differs from the current one only in the production format's line.
+        store = (runner.FRAMEWORK / 'NativeIdentityStore.java').read_text()
+        self.assertEqual(store.count(runner.b1.PRODUCTION_ENUM), 1)
+
     def test_goldens_follow_the_documented_layout_and_match_the_java_test(self):
         goldens = runner.goldens()
         self.assertEqual({name: len(data) for name, data in goldens.items()},
