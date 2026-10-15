@@ -185,9 +185,9 @@
       "lab_only": false,
       "method": "/usr/bin/patch --batch --forward --fuzz=0 --no-backup-if-mismatch -p1",
       "profile": "patches/grapheneos-2026081300/native-principal-pins.json",
-      "profile_sha256": "37e180b0b4bf7576aee23be6d7298c4c1af9e1037688523be56c20d59547d8f2",
+      "profile_sha256": "55afa1c42ebb0b82f87944a82ff3a7cfbb7ec248c6db3eee87bc8a606c6d8081",
       "patch": "patches/grapheneos-2026081300/native-principal-pins.patch",
-      "patch_sha256": "59300e3d12a59dcb33acadc104894fd4b015e9fcc14bf456a09a07aee015a04e",
+      "patch_sha256": "1e3ace92192d5bca7e1cfd1b58fb863ba829d55a91dc84c8d401b3d2a0704531",
       "applies": true,
       "class": "moved",
       "files": [
@@ -206,8 +206,8 @@
           "base_sha256": "bff2de579d206a39be81ef0b798df8f6e845d2f28efbbcd63554ccffbddae5a1",
           "target_sha256": "bff2de579d206a39be81ef0b798df8f6e845d2f28efbbcd63554ccffbddae5a1",
           "offsets": [],
-          "pinned_candidate_sha256": "4d851032afedd43ddadacdbc026ac62e0ea22c218a8fb0c8f59a70d67a452eeb",
-          "candidate_sha256": "4d851032afedd43ddadacdbc026ac62e0ea22c218a8fb0c8f59a70d67a452eeb"
+          "pinned_candidate_sha256": "6c0e895d68c222436d1c34d123511875d8ede5f248c931ac843ff9ac2830c908",
+          "candidate_sha256": "6c0e895d68c222436d1c34d123511875d8ede5f248c931ac843ff9ac2830c908"
         },
         {
           "path": "services/core/java/com/android/server/pm/PackageManagerService.java",
@@ -667,10 +667,10 @@
   "generated": {
     "tool": "scripts/proof/grapheneos_carry.py",
     "tool_sha256": "88926c90154252066f49e26bd3ba62d499df6664a2118fb091242aa60d4c743d",
-    "at": "2026-10-11T20:13:34Z"
+    "at": "2026-10-15T00:41:28Z"
   },
   "seal": {
     "algorithm": "sha256 over canonical JSON of every other field",
-    "sha256": "96eac405c33cf399bad4a9d1b03109ac904904a0bda5fa59197543a92aa872ee"
+    "sha256": "6be89efc1117123edf3798991d4ff2aa3c966a13784aab46ed2fd5627b75f54d"
   }
 }
