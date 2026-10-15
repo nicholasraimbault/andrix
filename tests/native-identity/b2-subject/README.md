@@ -83,12 +83,20 @@ They do not change the accepted lifecycle policy or authorize work after lift.
   accepting either native schema opportunistically.
 - `stored.py`: strict selected records in decoded access, notification and job XML. No ABX
   decoder, service file writing, AtomicFile selector or stability assertion is hidden here.
+- `owner_stores.py`: each owner's own role rule over a complete captured namespace, capture
+  stability, binding of converter output to the raw digest, the subject's values from the
+  selected records and from the owner dumps, their agreement, and the expected state of each
+  setup stage. It judges one capture point and never issues a command.
 - `ledger.py`: durable setup ownership per guest instance and package. It commits the exact
   issue bytes in a separate claim record before returning argv. Complete refuses any change
   after claim, including harmless looking JSON reformatting. UNKNOWN blocks progress. It never
   submits commands. Mandatory setup_jar provenance binds the separate artifact/copy capture.
+  The read only `owned` check returns a ledger's verified request, contract and step records,
+  refuses any drift and reports an incomplete, unknown or partially claimed setup.
 - `fixtures.py`, `fixtures/compiled-manifest.txt`, `test_subject.py`: synthetic source templates,
   a pinned tool manifest dump shape, and host controls, including the old 1/0 result and reset.
+- `owner_fixtures.py`, `test_owner_stores.py`: synthetic namespace captures and dumps in the
+  frozen read grammar, and the owner store controls. They are not Android captures.
 - `test_setup_command.py`: actual command source run against an explicit host object model,
   with aliasing and clone bypass controls. Not an Android IPC/codec/service qualification.
 - `SETUP.md`: full setup path, rejected candidates, persistence, dump forms and remaining gates.
@@ -240,11 +248,65 @@ JobInfo must prove the two original marker strings. Pin UTC due time, not elapse
 
 Stored parsers accept complete decoded XML copies only. Refuse raw ABX rather than guessing its
 codec. The existing permission store reader covers permission flags only, not the new package
-operation or notification/job marker extraction. A separately qualified offline ABX to XML step
-and raw to decoded provenance binding remain necessary for binary files. Capture all actual
-primary, reserve, backup and pending siblings with stable metadata/hashes; select their roles in
-the vehicle. Do not combine main and backup as separate current jobs. Do not write decoded XML
-back. Whole store file hashes are not selected state invariants.
+operation or notification/job marker extraction. Do not combine main and backup as separate
+current jobs. Do not write decoded XML back. Whole store file hashes are not selected state
+invariants.
+
+## Owner stores from captured namespaces
+
+`owner_stores.py` reads each Android owner from a complete captured namespace, never from one
+file. A capture holds an owner family's directory stat before and after, its `find` listing
+before and after, and for each file a stat and `sha256sum` before and after its pull, the pulled
+bytes and, for binary XML only, the booted image's own `abx2xml FILE -` output between those
+bookends. `listing_argvs` and `file_argvs` give the exact command shapes. The vehicle owns the
+transport and the order, and its closure binds that order to the capture sequence.
+
+Each owner's own role rule selects the file its next read would use:
+
+- Package Manager settings and user 0 restrictions: main, temporary backup and reserve copy.
+  A backup is read first and removes the main, so a backup beside a main is a transaction.
+- The Access store, which holds the permission flags and both operation modes: `access.abx`,
+  AtomicFile `.new` and legacy `.bak`, and `.reservecopy`, a byte copy of the finished main.
+  The reserve is read only when parsing the main fails, never when the main is absent.
+- The notification policy: an AtomicFile base, `.new` and legacy `.bak`.
+- JobStore: exactly `jobs.xml` and `jobs_UID.xml` in `/data/system/job`, each an AtomicFile.
+  A `.new` or `.bak` whose base is absent is never read. One job identity in two files is
+  refused, since JobStore keeps whichever file it lists first.
+- The native store is captured as a tree for stability only. Its own copy rule belongs to the
+  native readers and is never applied to another owner.
+
+A transaction sibling, a missing or lagging reserve, or anything that moved or vanished during
+the capture raises `Unsettled`: a later bounded observation round may settle it. An unknown
+sibling, a link, an alias, a duplicate, a failed or incomplete command, a pull that is not the
+stable file, or converter output for another file is refused. Binary XML needs its converter
+output; text XML is read as captured and takes no converter run. The converter's codec is
+qualified on the guest, not here.
+
+Every owner's finished files are required. Package Manager and the Access store need their
+main and reserve, the notification policy needs its base and the job directory must exist. An
+empty family is refused, because those owners would read nothing and start from defaults. The
+only absences a caller may admit, and only explicitly for the phase that expects them, are a
+missing native store and a notification policy not yet written.
+
+The Access document is checked against its complete grammar at every stage, whatever value
+the stage expects: only the sections, owner elements and rows its parsers read, each once.
+Android ignores any other element, so a value under one would establish nothing.
+
+From the selected records `assess` reads the subject's values, and the same values from the owner
+dumps: both permission selectors, both appops queries, the notification preferences, and the
+unfiltered job dump with the guest wall clock. The disk record and the dump must agree, or the
+point is unsettled. For the job they agree on its identity and its UTC due time within 60
+seconds, never on elapsed display text. Each value is then compared with its setup stage:
+`baseline`, `initialized`, `granted`, `user-set`, `ignored` or `retained`. A difference is named
+for its finding, such as changed permission flags, a UID override, a reset or moved preference,
+or a lost, replaced or executed job. The existing strict readers also run at every stage they
+pin, so any other pinned field is caught. `comparable` and `selected_changes` compare a later
+observation with an earlier one. They leave out what a designed phase changes without any
+stored change: the job's component usability, false while deferred and true once admitted,
+the parcelled or map display of its extras, and the notification permission suffix that only a
+scanned package's row prints. Usability and the displayed extras are checked against each
+phase instead. The rounds, the single sync and the stop rules of a settled read belong to the
+vehicle; these functions judge one capture point.
 
 ## Guest sequence and limits
 
@@ -281,7 +343,7 @@ no cores, a bounded wall/CPU deadline and a 512 MiB Python address space ceiling
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 TMPDIR="$SCRATCH/tmp" nice -n 19 timeout 120 \
-  python3 -B -m unittest -v test_subject
+  python3 -B -m unittest -v test_subject test_owner_stores
 ```
 
 For the separate command source model, use a bounded 2 GiB parent address space, 120 CPU seconds
@@ -302,8 +364,12 @@ Tests cover two real host signatures, stale/tampered bindings, either replaced k
 duplicate/envelope refusals, contract and Java payload parity, source write path guards, exact
 permission/op scope and masks, full channel parsing, unfiltered job identity/timing/component/
 parcelled extras/execution exclusions, stored typed records and duplicate files, PM/native
-schemas, dummy file metadata, setup ledger ownership and producer prewrite refusals. The tests
-never run an Android runtime. Source guards and host crypto are not AndroidKeyStore or FBE evidence.
+schemas, dummy file metadata, setup ledger ownership and producer prewrite refusals. Owner store
+tests cover each owner's role rule, transaction siblings, a backup beside its main, a missing or
+lagging reserve, moving captures, refused evidence, converter binding, disk and dump agreement,
+every setup stage and every named finding, required files and explicit absence, the Access
+grammar at every stage, and the designed admission transitions. The tests never run an Android
+runtime. Source guards and host crypto are not AndroidKeyStore or FBE evidence.
 Guest shell entry and non SDK access, setup, output calibration, durability, service effects,
 actual signer build, suspension, lift, reboot and B1/B2 reversibility remain guest or artifact
 qualification gates.

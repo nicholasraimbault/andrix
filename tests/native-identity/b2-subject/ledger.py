@@ -152,6 +152,64 @@ def claim(directory, step, fresh_precondition_sha256):
     return argv
 
 
+STEP_RECORDS = ('issued', 'claim', 'outcome')
+
+
+def owned(directory):
+    """Read only: the verified setup ownership of one guest instance and package.
+
+    The directory holds exactly its prepared records and contiguous step records. Every claimed
+    issue must still be its committed bytes and the request's argv, and every outcome must bind
+    both. Drift raises. An incomplete, refused, unknown or partially claimed step is reported, and
+    no record may follow it. Returns the request, the contract and one record per step present.
+    """
+    directory = _root(directory)
+    seal = _prepared(directory)
+    request = _request(directory)
+    require(hex_value(request.get('instance_sha256'))
+            and directory.name == request['instance_sha256'] + '.' + PACKAGE,
+            'ledger directory owner')
+    contract = _read(directory / 'contract.json')
+    for field in ('ce_bytes', 'de_bytes', 'intent_bytes', 'contract_bytes'):
+        contract[field] = contract[field].encode('ascii')
+    validate_contract(contract)
+    names = {entry.name for entry in directory.iterdir()}
+    prepared = {'request.json', 'contract.json', 'prepared.json'}
+    require(prepared <= names <= prepared | {f'{step}.{kind}.json' for step in range(5)
+                                             for kind in STEP_RECORDS}, 'unexpected ledger record')
+    steps = []
+    for step in range(5):
+        present = {kind for kind in STEP_RECORDS if f'{step}.{kind}.json' in names}
+        if not present:
+            break
+        record = {'step': step, 'argv': _argv(request, step)}
+        if present == {'issued'}:
+            record['state'] = 'partial-claim'
+        else:
+            require({'issued', 'claim'} <= present, 'claim or outcome without its issue')
+            record['issue_sha256'] = _claimed_issue(directory, step, request,
+                                                    seal['request_sha256'])
+            record['state'] = 'claimed'
+            if 'outcome' in present:
+                outcome = _read(directory / f'{step}.outcome.json')
+                require(type(outcome) is dict and set(outcome) == {
+                    'outcome', 'capture_sha256', 'request_sha256', 'issue_sha256'}
+                    and outcome['outcome'] in ('observed-success', 'observed-refusal', 'unknown')
+                    and outcome['request_sha256'] == seal['request_sha256']
+                    and outcome['issue_sha256'] == record['issue_sha256']
+                    and hex_value(outcome['capture_sha256']), 'step outcome binding')
+                record['state'] = outcome['outcome']
+                record['capture_sha256'] = outcome['capture_sha256']
+        steps.append(record)
+        if record['state'] != 'observed-success':
+            break
+    require(not names & {f'{step}.{kind}.json' for step in range(len(steps), 5)
+                         for kind in STEP_RECORDS}, 'step record after an incomplete step')
+    return {'request': request, 'contract': contract, 'steps': steps,
+            'complete': len(steps) == 5
+            and all(record['state'] == 'observed-success' for record in steps)}
+
+
 def complete(directory, step, outcome, capture_sha256):
     directory = _root(directory)
     require(type(step) is int and 0 <= step <= 4 and outcome in

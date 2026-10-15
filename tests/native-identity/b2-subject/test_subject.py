@@ -571,6 +571,63 @@ class LedgerTests(unittest.TestCase):
                 with self.assertRaises(OSError):
                     ledger.claim(directory, 1, 'c' * 64)
 
+    def test_owned_reports_complete_incomplete_and_partial_setups(self):
+        prov = {k: 'a' * 64 for k in ('apk', 'pms', 'user', 'permissionmgr', 'appops',
+                                    'notification', 'jobscheduler', 'files', 'native', 'image',
+                                    'setup_jar')}
+        with tempfile.TemporaryDirectory(prefix='b2-owned-test-') as temp:
+            root = Path(temp).resolve()
+            directory = ledger.prepare(root, 'b' * 64, f.CONTRACT, prov, 'setup', f.GUEST)
+            self.assertEqual(ledger.owned(directory)['steps'], [])
+            for step in range(5):
+                ledger.claim(directory, step, 'c' * 64)
+                ledger.complete(directory, step, 'observed-success', 'd' * 64)
+            value = ledger.owned(directory)
+            self.assertTrue(value['complete'])
+            self.assertEqual(value['contract'], f.CONTRACT)
+            self.assertEqual([s['state'] for s in value['steps']], ['observed-success'] * 5)
+            self.assertEqual(value['steps'][0]['argv'], value['request']['initialize_argv'])
+            other = root / ('e' * 64 + '.' + p.PACKAGE)
+            directory.rename(other)
+            with self.assertRaisesRegex(ValueError, 'directory owner'):
+                ledger.owned(other)
+        with tempfile.TemporaryDirectory(prefix='b2-owned-test-') as temp:
+            directory = ledger.prepare(Path(temp).resolve(), 'b' * 64, f.CONTRACT, prov, 'setup',
+                                       f.GUEST)
+            ledger.claim(directory, 0, 'c' * 64)
+            ledger.complete(directory, 0, 'observed-success', 'd' * 64)
+            ledger.claim(directory, 1, 'c' * 64)
+            self.assertEqual(ledger.owned(directory)['steps'][1]['state'], 'claimed')
+            ledger.complete(directory, 1, 'unknown', 'd' * 64)
+            value = ledger.owned(directory)
+            self.assertFalse(value['complete'])
+            self.assertEqual([s['state'] for s in value['steps']], ['observed-success',
+                                                                    'unknown'])
+            # A record after the unknown issue can only be drift, never progress.
+            (directory / '2.issued.json').write_text('{}\n')
+            with self.assertRaisesRegex(ValueError, 'after an incomplete step'):
+                ledger.owned(directory)
+            (directory / '2.issued.json').unlink()
+            outcome = directory / '1.outcome.json'
+            data = json.loads(outcome.read_text())
+            outcome.write_text(json.dumps(dict(data, issue_sha256='f' * 64)) + '\n')
+            with self.assertRaisesRegex(ValueError, 'outcome binding'):
+                ledger.owned(directory)
+            outcome.write_text(json.dumps(data) + '\n')
+            (directory / 'notes.txt').write_text('x')
+            with self.assertRaisesRegex(ValueError, 'unexpected ledger record'):
+                ledger.owned(directory)
+        with tempfile.TemporaryDirectory(prefix='b2-owned-test-') as temp:
+            directory = ledger.prepare(Path(temp).resolve(), 'b' * 64, f.CONTRACT, prov, 'setup',
+                                       f.GUEST)
+            ledger.claim(directory, 0, 'c' * 64)
+            (directory / '0.claim.json').unlink()
+            self.assertEqual(ledger.owned(directory)['steps'][0]['state'], 'partial-claim')
+            request = directory / 'request.json'
+            request.write_bytes(request.read_bytes().replace(b'"uid":10123', b'"uid":10124'))
+            with self.assertRaises(ValueError):
+                ledger.owned(directory)
+
     def test_prepared_records_and_issued_commands_cannot_drift(self):
         with tempfile.TemporaryDirectory(prefix='b2-ledger-test-') as temp:
             prov = {k: 'a' * 64 for k in ('apk', 'pms', 'user', 'permissionmgr', 'appops',

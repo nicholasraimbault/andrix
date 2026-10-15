@@ -238,10 +238,91 @@ Do not use its in place mode or write a service file to make parsing succeed.
   implementation is outside the supplied Android roots; its exact string node form remains
   a decoder and guest calibration gate, not independently audited codec evidence here.
 
-Guest/vehicle gate: complete file namespace and roles, stable read only captures, decoded/raw
-hash binding, strict decoder behavior, correct sibling selection, durable setup reboot and
-selected row preservation. A parsed copy alone proves neither durability nor the next boot's
-file selection. Unstable captures are unavailable. Never force service read/write or publish XML.
+Guest/vehicle gate: actual capture forms, strict converter behavior, settled rounds, durable
+setup reboot and selected row preservation. A parsed copy alone proves neither durability nor
+the next boot's file selection. Unstable captures are unavailable. Never force service
+read/write or publish XML.
+
+### Owner roles, captures and agreement
+
+`owner_stores.py` applies each owner's own role rule to a complete captured namespace. The
+sources define these rules:
+
+- AtomicFile: `F/core/java/android/util/AtomicFile.java:84-90` names `.new` and `.bak`. A write
+  renames a legacy `.bak` back over the base, writes `.new` and renames it over the base,
+  `143-162,170-186`; a failed write deletes `.new`, `193-208`. A read renames a `.bak` over the
+  base and deletes a `.new` beside a base, `241-259`, so a `.new` alone is never read.
+- Access store: `P/AccessPersistence.kt:77-100,166-183` reads and writes the user's `access.abx`
+  through `P/util/AtomicFileExtensions.kt:29-70`. A main that fails to parse falls back to
+  `.reservecopy` through its own AtomicFile; an absent main does not, and is migrated instead.
+  A finished write deletes the reserve and copies the main into it byte for byte, so a settled
+  pair is byte equal. The user 0 directory comes from `P/util/PermissionApex.kt:31-32`,
+  `F/core/java/android/content/ApexEnvironment.java:79-83` and
+  `F/core/java/android/os/Environment.java:565-567`.
+- ResilientAtomicFile: a write moves the main to the temporary backup and deletes the reserve,
+  `PM/ResilientAtomicFile.java:84-122`, then finishes the main, deletes the backup and copies the
+  main into the reserve, `124-167`. A read takes the backup, then the main, then the reserve,
+  `185-231`, and removes the main beside a backup. With neither main nor reserve it returns no
+  stream, `212-230`, and Package Manager starts without settings, `PM/Settings.java:3586-3595`.
+  So an empty family is refused rather than settled. Package settings and user restrictions use
+  it, with mode 0660, at `PM/Settings.java:760-768,1693-1709`.
+- Notification policy: `N/NotificationManagerService.java:3406,3435-3436` builds its AtomicFile,
+  `1422-1447` reads it, `1451-1454` queues a save and `1465-1508` writes it.
+- JobStore: `J/JobStore.java:110-112,202-206` names its directory and files. A read lists the
+  directory, skips every name but `jobs.xml` and the split pattern, reads each through AtomicFile
+  and keeps the first of two equal identities, `1139-1243`. A write can leave `.new` after a
+  failure, `808-859`, and migration between split and legacy files runs at `537-545,786-806`.
+  Split files are the default at `J/JobSchedulerService.java:843,1073`.
+
+The Access grammar holds at every stage. Its root sections are read at
+`P/AccessPolicy.kt:342-410`; the owners and rows at
+`P/permission/AppIdPermissionPersistence.kt:149-192`,
+`P/permission/DevicePermissionPersistence.kt:44-109`, `P/appop/BaseAppOpPersistence.kt:41-54`,
+`P/appop/AppIdAppOpPersistence.kt:37-72`, `P/appop/PackageAppOpPersistence.kt:38-68` and
+`P/appfunction/AppIdAppFunctionAccessPersistence.kt:37-117`. Each ignores an unknown element
+with a warning, and a repeated owner or row replaces the earlier one, so the reader refuses both.
+
+Binary XML starts with the pinned serializer's magic `ABX` and a zero byte, as the offline
+permission store reader records in `tests/permission-store/PermissionStoreChecks.java:51-55`.
+Such a file needs the booted image's `abx2xml FILE -` output, which writes to stdout,
+`F/cmds/abx/src/com/android/commands/abx/Abx.java:40-62,64-106`. Text XML takes no converter.
+
+The disk record and the dump agree on these values:
+
+- Permission flags render in ascending bit order, an unnamed bit in hexadecimal,
+  `P/permission/PermissionFlags.kt:56-313,539-571` and `P/util/IntExtensions.kt:25-38`. The
+  rendered grant follows `PermissionFlags.kt:350-370`. Both selectors render one saved state,
+  `P/permission/PermissionService.kt:2191-2226,2306-2372`.
+- Mode names are `C/app/AppOpsManager.java:502-508,3924-3929`. The package query prints UID
+  operations before package operations, with optional access history, and the numeric UID
+  query prints UID operations only, `F/services/core/java/com/android/server/appop/`
+  `AppOpsService.java:6080-6176`.
+- Channel XML omits default values, and its reader restores them,
+  `C/app/NotificationChannel.java:280-288,1276-1337,1374-1480`. A preference restored without a
+  UID is stored with uid -1, `N/PreferencesHelper.java:741-746,806-813` and
+  `C/os/Process.java:73`. The dump also prints rows that hold only the notification permission,
+  `N/PreferencesHelper.java:2401-2421`, so UIDs compare among rows that hold channels.
+- The dump's earliest run time is relative to the elapsed clock,
+  `J/controllers/JobStatus.java:3112-3118,3637-3643`. The stored delay is UTC and is recomputed
+  from the wall clock whenever the job is written, `J/JobStore.java:979-1001`, and converted back
+  on restore, `1096-1106,1416-1418`. Due times therefore agree within 60 seconds. Run counters
+  print at `J/controllers/JobStatus.java:3644-3662`.
+
+Some rendered fields change at a designed phase without any stored change, so later
+observations compare without them and each phase checks them on its own:
+
+- Component usability prints apart from the job, `J/JobSchedulerService.java:6476-6492`, and a
+  job is kept while its service is unresolved, `J/controllers/ComponentController.java:150-190`.
+- Extras print parcelled until unparcelled, `C/os/PersistableBundle.java:428-437`. JobStore's
+  write reads their keys, `J/JobStore.java:897-919`, which unparcels them,
+  `C/os/BaseBundle.java:819-822`.
+- The importance and user set suffix of an AppSettings row comes from the notification
+  permission values, `N/PreferencesHelper.java:2352-2361`, which list installed packages,
+  `N/PermissionHelper.java:114-181`, and those are the scanned ones only,
+  `PM/ComputerEngine.java:1720-1790`. A deferred package's row prints without it.
+
+Guest gates: the Toybox `find`, `stat`, `sha256sum` and `date +%s` output forms, the adb pull
+transport and the converter's codec are outside these roots and need calibration on the guest.
 
 ## Dummy file tools and APK tools
 

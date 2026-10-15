@@ -127,7 +127,8 @@ CHANNEL_INTS = {'mImportance', 'mLockscreenVisibility', 'mLightColor', 'mDeleted
                 'mAllowBubbles', 'mOriginalImp', 'mLastNotificationUpdateTimeMs'}
 
 
-def channel_row(line):
+def channel_fields(line):
+    """One complete channel row's typed fields, before any comparison with the contract."""
     require(line.startswith('NotificationChannel{') and line.endswith('}'), 'channel envelope')
     body = line[len('NotificationChannel{'):-1]
     parts = re.split(r', (?=[a-zA-Z][a-zA-Z0-9_]*=)', body)
@@ -147,6 +148,11 @@ def channel_row(line):
     require(re.fullmatch('[0-9a-f]{1,8}', fields['mUserLockedFields']) is not None,
             'channel lock mask is hexadecimal')
     fields['mUserLockedFields'] = int(fields['mUserLockedFields'], 16)
+    return fields
+
+
+def channel_row(line):
+    fields = channel_fields(line)
     required = {'mId': "'" + CHANNEL + "'", 'mName': 'Andrix B2 state', 'mDescription': '',
                 'mImportance': 2, 'mSound': 'null', 'mVibrationPattern': 'null',
                 'mVibrationEffect': 'null', 'mLights': False, 'mVibrationEnabled': False,
