@@ -83,7 +83,8 @@ SUPPORT_0018 = {
     'native_header_api/b1/NativeHeaderApi.java':
         '674f66fb85586a68b0f9adb2f13facf30551ca47693f6ed3e1026ea8093bbc4b'}
 # R0 of the version 2 normal store routes the shared support's host facades through the adapter,
-# so the B1 adapter keeps them Format.V1 after the facade's default became the production V2.
+# so the B1 adapter keeps them Format.V1 after the facade's default became V2, then the production
+# format.
 # Comments aside, the 24bfb6a support is 0018a1d's with exactly these code replacements. Both are
 # pinned Git objects: archived sides compile the 24bfb6a support and the 0018a1d probe and parity
 # sides their own.
@@ -134,17 +135,19 @@ ROLLBACK_CHECKS = (('NativeRollbackReaderCheck', 'rollback reader'),
                    ('NativeRollbackSeedingCheck', 'rollback seeding'))
 # Every emitted history layout holds a version 2 header copy: each starts from version 2 copies.
 # The rollback checks assert this count. Their controls, the reservation and the rebound body, are
-# read again under the production Format.V2. The rebound retirement's layouts are the lifecycle
-# emitter's.
+# read again under Format.V2, the previous format. The rebound retirement's layouts are the
+# lifecycle emitter's.
 ROLLBACK_COPY_LAYOUTS = 29
 ROLLBACK_CONTROLS = ('history-rebound', 'history-reserved')
 # The labels of this runner's guarded steps and readers, as the B1 runner's HARNESS_LABELS name them.
-STEP_LABELS = {'b2 focused': ('production', 'legacy'), 'b2 faults': ('production', 'legacy'),
+# The living steps run Format.V2 and Format.V1 on the current sources: the previous and the legacy
+# format, neither of them production since the boot read constructs Format.V3.
+STEP_LABELS = {'b2 focused': ('previous', 'legacy'), 'b2 faults': ('previous', 'legacy'),
                'probe': ('archived-baseline',),
-               'parity': ('archived-baseline', 'rollback-reader'), 'living parity': ('production', 'legacy'),
-               'readers': ('production', 'legacy'),
+               'parity': ('archived-baseline', 'rollback-reader'), 'living parity': ('previous', 'legacy'),
+               'readers': ('previous', 'legacy'),
                'archived readers': ('archived-baseline', 'rollback-reader'),
-               'mutants': ('production', 'legacy')}
+               'mutants': ('previous', 'legacy')}
 # This runner's archived steps. Every other labelled step is living.
 ARCHIVED_STEP_NAMES = ('probe', 'parity', 'archived readers')
 READER_LABELS = {'b2-v1': 'legacy', '24bf-v1': 'rollback-reader', BASE: 'archived-baseline',
@@ -1602,7 +1605,7 @@ def qualify(work, pinned, progress):
                             % (len(unexpected), len(missing)))
     progress.done('living parity')
 
-    # Version 2 history layouts from the production writer on the current sources, read by the
+    # Version 2 history layouts from the Format.V2 writer on the current sources, read by the
     # legacy b2-v1 reader, the current sources under Format.V1, whose facade and recovery seeding
     # then read them again.
     progress.begin('readers')

@@ -28,7 +28,7 @@ import java.util.Set;
 
 /**
  * The store's named lifecycle transitions and the store transition rules of the lifecycle record
- * plan, on the actual store with host file facades. Under Format.V3, which no production text
+ * plan, on the actual store with host file facades. Under Format.V3, the format production
  * constructs, the suspend, lift, retire and confirm retired transitions each make only their own
  * change and apply the writer rules: scope bit 0, the reason registry and its actor classes, an
  * account user's own actor, the allotment of six entries to the account's user, a recovery hold

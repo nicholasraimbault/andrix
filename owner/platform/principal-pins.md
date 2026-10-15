@@ -68,14 +68,14 @@ memory still needs its own durable hold and marker, not omission from reservatio
 A reservation is a creation plan: the snapshot plus the original signer set of each issuance this
 manager owns, never current package signers. A truly new entry needs that row. Held entries and
 unselected additions stay exactly as durable state lists them. The store's format is fixed at
-construction. Production constructs version 2 once, at the boot read; version 1 remains the
-format of earlier images and of host rollback models. The version 2 format writes a new
-entry's complete binding, raises a version 1 header only for such an entry, and checks bodies
-against bindings only negatively. A body that fails its binding stays negative package and
-principal evidence for its siblings, also beside another conflict. Admission measures the exact
-encoding before any ID is issued. No normal image path writes the store: initialization has no
-production caller, the release finish only updates memory, and nothing in the normal image calls
-the native principal manager.
+construction. Production constructs Format.V3, the lifecycle format, once, at the boot read;
+Format.V1 and Format.V2 remain the formats of earlier images and of host rollback models.
+Format.V2 and Format.V3 write a new entry's complete binding, raise a version 1 header only for
+such an entry, and check bodies against bindings only negatively. A body that fails its binding
+stays negative package and principal evidence for its siblings, also beside another conflict.
+Admission measures the exact encoding before any ID is issued. No normal image path writes the
+store: initialization has no production caller, the release finish only updates memory, and
+nothing in the normal image calls the native principal manager.
 See the [creation binding plan](../../plans/2026-09-27-native-creation-binding.md) and the
 [version 2 normal store plan](../../plans/2026-10-02-native-store-v2-normal.md).
 
@@ -115,15 +115,16 @@ actor classes that may use it, and a code's number is never reused once B1's ima
 optional private note is named only by its salted digest.
 
 The store's format also fixes a slot ceiling. Format.V1 and Format.V2 read and write version 1
-slots, and Format.V3 reads and writes version 2 slots; no production text constructs Format.V3
-yet. Under a slot ceiling of 1, an intact version 2 frame is an unsupported footprint whatever it
-holds, and its decoded copies are only negative evidence: the identity predicate and recovery
-seeding protect its package name, a valid sibling naming its package or principal reads as a
-conflict, and nothing is restored from it. Every format reads the stable prefix of a slot frame
-above version 2 as the same evidence. A broken prefix gives none, and the frame stays a footprint.
-Every slot writer refuses a value above its format's ceiling before its first effect. A RETIRED
-body restores a RETIRING pin, and only a body in the policy's Eligible state, ELIGIBLE with no
-suspension entry, owns a scan or restores as a reservation.
+slots, and Format.V3 reads and writes version 2 slots. Production constructs Format.V3, so the
+normal image reads version 2 slots as supported state. Under a slot ceiling of 1, an intact
+version 2 frame is an unsupported footprint whatever it holds, and its decoded copies are only
+negative evidence: the identity predicate and recovery seeding protect its package name, a valid
+sibling naming its package or principal reads as a conflict, and nothing is restored from it.
+Every format reads the stable prefix of a slot frame above version 2 as the same evidence. A
+broken prefix gives none, and the frame stays a footprint. Every slot writer refuses a value above
+its format's ceiling before its first effect. A RETIRED body restores a RETIRING pin, and only a
+body in the policy's Eligible state, ELIGIBLE with no suspension entry, owns a scan or restores as
+a reservation.
 
 Under Format.V3 the store changes a lifecycle only through named transitions: suspend and lift
 change suspension entries, retire writes the retirement block, confirm retired discharges the
@@ -155,8 +156,8 @@ result, and a repeated suspension by the same actor confirms its entry unchanged
 result when the request differs from it. Each transaction refuses under Format.V1 and Format.V2
 before any effect, and under Format.V3 the version 1 marker and release refuse. Publication refuses
 a suspended binding itself, before its header changes, while the shared slot confirmation admits
-every lifecycle. Because no production text constructs Format.V3, the image still writes no
-lifecycle record.
+every lifecycle. Production constructs Format.V3, but nothing in the normal image calls a
+lifecycle transaction or Restore, so the image still writes no lifecycle record.
 
 ## Persistence and lock discipline
 

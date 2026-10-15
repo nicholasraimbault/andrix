@@ -339,7 +339,7 @@ public final class NativeIdentityVersionGateTest {
             return;
         }
         if (args.length == 2 && args[1].equals("V2")) {
-            // The production format's refusal controls: their own entry point, run under their own label.
+            // The previous format's refusal controls: their own entry point, under their own label.
             formatRefusals(Path.of(args[0]), NativeIdentityStore.Format.V2);
             return;
         }

@@ -34,10 +34,11 @@ import java.util.stream.Stream;
 
 /**
  * Host rehearsal of the lab version 2 header only arm through the unchanged writer fixture, the
- * actual manager and store and the host PMS facades. Format.V2 is constructed by this host test
- * only. A slot root that the real unprivileged writer can read and search but not change makes
- * the first commit return false after a complete CREATING header, without a body. A modeled cold
- * restart restores that creation PENDING, and an explicit rebind publishes the original ID.
+ * actual manager and store and the host PMS facades. Its facade boots construct Format.V3, the
+ * production format of the boot read. A slot root that the real unprivileged writer can read and
+ * search but not change makes the first commit return false after a complete CREATING header,
+ * without a body. A modeled cold restart restores that creation PENDING, and an explicit rebind
+ * publishes the original ID.
  * Transcript lines carry the actual fixture replies to the Python observers. No PackageSetting,
  * UID, pin, history or issuance is injected. Not Android, SELinux, crash or storage evidence.
  */
@@ -181,7 +182,7 @@ public final class NativeWriterLabRehearsal {
 
     // The facade's cold boot of this store: packages read first at their existing app IDs.
     private static PackageManagerService boot(Path store) {
-        PackageManagerService pm = new PackageManagerService(store, false, NativeIdentityStore.Format.V2);
+        PackageManagerService pm = new PackageManagerService(store, false, NativeIdentityStore.Format.V3);
         pm.mSettings.add(SUBJECT, APP_ID);
         pm.mSettings.restoreAfterPackageSettings();
         return pm;
@@ -485,7 +486,7 @@ public final class NativeWriterLabRehearsal {
     // A changed APK signer cannot rebind: the history keeps its original signers.
     private static void changedSignerControl(Path work, byte[] creating) throws Exception {
         Path store = work.resolve("changed-store");
-        PackageManagerService pm = new PackageManagerService(store, false, NativeIdentityStore.Format.V2);
+        PackageManagerService pm = new PackageManagerService(store, false, NativeIdentityStore.Format.V3);
         PackageSetting setting = pm.mSettings.add(SUBJECT, APP_ID);
         setting.signing = new SigningDetails(new Signature(new byte[]{9}));
         pm.mSettings.restoreAfterPackageSettings();

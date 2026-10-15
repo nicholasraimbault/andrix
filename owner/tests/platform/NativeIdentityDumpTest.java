@@ -24,7 +24,7 @@ import dev.andrix.proof.nativelab.LabHistoryStore;
  * facade, which carries the fragment verbatim, and in the candidate's own Settings text in its
  * history harness. Schema 2 under the existing formats names every deferred package as standard
  * padded Base64 in Java String order, after its exact count. Schema 3, which only the lifecycle
- * format's slot ceiling selects and no production text constructs, adds one slot row per hold with
+ * format's slot ceiling selects, the format production constructs, adds one slot row per hold with
  * positive state from a selected VALID body only. A malformed or oversized report is only the
  * unavailable envelope, and a Settings without live pins only the not live one. Expected text comes
  * from an independent encoder and Java String order, never from the fragment. Host facades only: not
@@ -285,7 +285,7 @@ public final class NativeIdentityDumpTest {
 
     // The guest rows G9 and G10, which the image step keeps as exact host controls: the guest
     // generator's own bytes through the actual codec, the subject mapped at its app ID as installed,
-    // and the facade's dump and scan rule under the production format.
+    // and the facade's dump and scan rule under Format.V2, the format of B1's image.
     private static final String GUEST_LINEAGE = "00112233445566778899aabbccddeeff";
     private static final int SUBJECT_ID = 10148, OTHER_ID = 10149;
     private static final long GUEST_SERIAL = 7;

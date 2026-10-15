@@ -82,9 +82,9 @@ public final class NativePrincipalManagerTest {
             if (Files.isDirectory(path)) Files.createDirectories(target);
             else Files.copy(path, target);
         }
-        PackageManagerService production = new PackageManagerService(copy, false, NativeIdentityStore.Format.V2);
-        production.mSettings.restoreAfterPackageSettings();
-        NativePrincipalManager manager = new NativePrincipalManager(production);
+        PackageManagerService twin = new PackageManagerService(copy, false, NativeIdentityStore.Format.V2);
+        twin.mSettings.restoreAfterPackageSettings();
+        NativePrincipalManager manager = new NativePrincipalManager(twin);
         NativePrincipalManager.Handle handle = manager.find(identity.packageName, identity.userId);
         if (handle == null) {
             NativeIdentityStore.ReadResult<NativeIdentityRecords.Slot> body = new NativeIdentityStore(copy.toFile(),

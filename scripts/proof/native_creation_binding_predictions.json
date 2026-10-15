@@ -777,5 +777,36 @@
       "Its code view equals the floor one line by line.",
       "Its class files are expected to equal the floor ones under one JDK."
     ]
+  },
+  "b2_checkpoint_2": {
+    "status": "PREDICTED. Run labels only; no case, count or mutant changes. No JVM result.",
+    "plan": "plans/2026-10-08-native-lifecycle-record.md",
+    "run_labels": [
+      "production",
+      "rollback-reader",
+      "archived-baseline",
+      "legacy",
+      "previous"
+    ],
+    "retired_labels": {
+      "new-format": "production"
+    },
+    "labels": [
+      "production: Format.V3, as the normal image's boot read constructs it.",
+      "production also names code that constructs no store, as before.",
+      "A production run of a lifecycle writer or of the release engine is host evidence only.",
+      "previous: Format.V2 runs of the current sources, which were production in B1.",
+      "They are earlier format regressions, not a model of B1's image.",
+      "legacy, rollback-reader and archived-baseline keep their meanings."
+    ],
+    "relabelled": [
+      "Every new-format row and step is production.",
+      "Every Format.V2 row and step of the current sources is previous.",
+      "Rows of code that constructs no store stay production.",
+      "The lab rehearsal constructs Format.V3 and stays production.",
+      "The lab store fixture's Format.V2 and Format.V1 reads become previous and legacy rows.",
+      "History and counter steps that ran production now run previous."
+    ],
+    "unchanged": "Every reader label and every archived row and step."
   }
 }

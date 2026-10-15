@@ -36,7 +36,7 @@ import java.util.TreeSet;
  * no eligibility or counter from around it. Links and special nodes are refused and never
  * followed. Each case isolates one store and restricts exactly one fixture path with real
  * unprivileged permissions, restoring that path's own mode afterwards. A run uses one store
- * format: the legacy version 1 by default, the production V2, which repeats every case with
+ * format: the legacy version 1 by default, the previous V2, which repeats every case with
  * version 2 headers whose CREATING entries carry the complete binding of their slot bodies, or the
  * lifecycle format V3, which repeats them again with the release engine's omission and the
  * lifecycle retirement. Under the earlier formats the release steps and the retiring flag are

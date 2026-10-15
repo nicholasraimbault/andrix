@@ -28,7 +28,7 @@ import java.util.TreeSet;
  * holds and withholds the counter. The reopened registry changes no byte.
  *
  * The caller predicts how many layouts hold a version 2 header copy, so no layout leaves that
- * branch unnoticed. It also names control layouts, which are read again under the production
+ * branch unnoticed. It also names control layouts, which are read again under the previous
  * Format.V2: there the same bytes give the history, pins and admission that the version 1 reader
  * withholds, so those refusals are effects of the format and not of the fixture. The harness
  * selects the reader's sources, and the support opens them under Format.V1. Host files only, not
@@ -126,7 +126,7 @@ public final class NativeRollbackReaderCheck {
     }
 
     /**
-     * The discrimination control: the same layout under the production Format.V2 gives each mapped
+     * The discrimination control: the same layout under the previous Format.V2 gives each mapped
      * package its history, its pin and admission by the facade's scan, and changes no byte.
      */
     private static void control(Path layout) {

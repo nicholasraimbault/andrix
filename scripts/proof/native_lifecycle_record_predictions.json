@@ -18,8 +18,8 @@
   },
   "reads_by_label": {
     "legacy": 20,
-    "production": 20,
-    "new-format": 20
+    "previous": 20,
+    "production": 20
   },
   "goldens": {
     "SUSPENDED": {
@@ -1057,14 +1057,14 @@
     "not_added": "A mutant that drops the actor serial from the order is the same defect as comparing the grant first: two entries of one class always differ in their grant references, so the same cases catch it and no case can tell them apart."
   },
   "store_by_label": {
-    "new-format": 48,
+    "production": 48,
     "legacy": 1,
-    "production": 1
+    "previous": 1
   },
   "transactions_by_label": {
-    "new-format": 55,
+    "production": 55,
     "legacy": 1,
-    "production": 1
+    "previous": 1
   },
   "p2a": {
     "changes": "The store gains the named lifecycle transitions addSuspension, liftSuspension, markSlotRetiring and markSlotRetired with their writer rules, and under Format.V3 its generic update keeps every lifecycle and drops no user. The persistence gains suspend, lift, markRetiring with a Retirement and markRetired, each refused under Format.V1 and V2 before any effect; the version 1 marker and release refuse under Format.V3; publish refuses a suspended binding itself. The read test's Format.V3 marker writer becomes the retire transition, its case names and count unchanged.",
@@ -1346,8 +1346,8 @@
   },
   "manager_by_label": {
     "legacy": 1,
-    "production": 1,
-    "new-format": 30
+    "previous": 1,
+    "production": 30
   },
   "p4_checkpoint_1": {
     "changes": "The manager gains its lifecycle operations beside the old ones: suspend, lift, beginRetirement with a retirement block, confirmRetired, beginDisposition, confirmDisposition and releaseUid, with Handle.released. Each refuses under a format without lifecycle records before any effect, including the closure and the pin change. Suspension closes admission in memory first, through Settings' deferral and a mark on the handle, and keeps it through a refused or uncertain write. Preparation, commit, currentIdentity and the published binding check refuse a suspended account. The pins gain finishRelease. The release rule gains releaseUid and finishRelease, and only the manager's gated release calls the engine, Settings' release finish and finishRelease.",
@@ -2270,5 +2270,96 @@
       "seeding-ignores-retired-accounts": "v2 / a retiring mapped body is deferred and named once"
     },
     "guest_controls": "G9 and G10 are exact host controls: the guest generator's creating header and its v2-beside-unrelated-body layout through the actual codec, the subject mapped at 10148, and the facade's schema 2 dump and scan rule under Format.V2. G9 predicts A MISSING and pinned, counter known, creation ready, no deferral, unidentified false, admitted; G10 predicts A VALID and pinned, B UNSUPPORTED and unmapped, counter unknown, creation not ready, unidentified true, no deferral, admitted, and its sibling discriminator conflicts and defers the subject."
+  },
+  "b2_checkpoint_2": {
+    "status": "PREDICTED. Labels and one case name follow what the runs construct; no JVM result.",
+    "plan": "plans/2026-10-08-native-lifecycle-record.md",
+    "format_labels": {
+      "V1": "legacy",
+      "V2": "previous",
+      "V3": "production"
+    },
+    "labels": [
+      "production: Format.V3, as the normal image's boot read constructs it.",
+      "production also names code that constructs no store, as before.",
+      "previous: Format.V2 runs of the current sources, which were production in B1.",
+      "They are earlier format regressions, not a model of B1's image.",
+      "Only B1's sources, pinned from Git objects, can model that image.",
+      "legacy: Format.V1, unchanged.",
+      "new-format is retired. Every Format.V3 case it named is production."
+    ],
+    "renamed_label_keys": {
+      "production": "previous",
+      "new-format": "production"
+    },
+    "renamed_cases": [
+      {
+        "before": "V2 / the production format gives no lifecycle fact",
+        "after": "V2 / the previous format gives no lifecycle fact"
+      }
+    ],
+    "step_labels": {
+      "codec": [
+        "production"
+      ],
+      "reads": [
+        "previous",
+        "legacy",
+        "production"
+      ],
+      "dump": [
+        "previous",
+        "legacy",
+        "production"
+      ],
+      "store": [
+        "previous",
+        "legacy",
+        "production"
+      ],
+      "transactions": [
+        "previous",
+        "legacy",
+        "production"
+      ],
+      "faults": [
+        "production"
+      ],
+      "settings": [
+        "previous",
+        "production"
+      ],
+      "manager": [
+        "previous",
+        "legacy",
+        "production"
+      ],
+      "pinned": [
+        "rollback-reader"
+      ],
+      "layouts": [
+        "production"
+      ],
+      "rollback": [
+        "rollback-reader"
+      ],
+      "readers": [
+        "previous",
+        "production"
+      ],
+      "mutants": [
+        "previous",
+        "legacy",
+        "production"
+      ]
+    },
+    "case_map": [
+      "Its targets are the lifecycle format's cases, chosen by format, not by label.",
+      "The read test's refusal targets stay chosen by format: Format.V1 and Format.V2."
+    ],
+    "unchanged": [
+      "Every case count, and every count by label under its new key.",
+      "Every layout, model, mutant and case map entry."
+    ]
   }
 }

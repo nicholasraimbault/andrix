@@ -17,11 +17,12 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 
 /**
- * B1's own readers over every layout that the lifecycle writers leave, with the current sources and
- * the candidate's exact Settings texts. Each layout is booted through the facade with its store
- * named packages mapped at their held app IDs.
+ * The readers of B1's format and of the production format over every layout that the lifecycle
+ * writers leave, with the current sources and the candidate's exact Settings texts. Each layout is
+ * booted through the facade with its store named packages mapped at their held app IDs. The
+ * current sources under Format.V2 are an earlier format regression, not a model of B1's image.
  *
- * <p>Under the production Format.V2 a version 2 slot is negative evidence only. Every hold stays,
+ * <p>Under Format.V2, B1's format, a version 2 slot is negative evidence only. Every hold stays,
  * the counter is withheld, and no version 2 slot gives a pin, a history or a VALID read. Every
  * package the store names is protected: the identity predicate names it, which is the first check of
  * a fresh app ID registration, so a package whose mapping is lost cannot register afresh. A mapped
@@ -31,7 +32,7 @@ import java.util.TreeSet;
  * slot are read as the old images read them, under either format: the positive controls and the
  * conflict of two readable siblings.
  *
- * <p>Under Format.V3, the lifecycle format that B1 builds but does not ship, the same bytes are
+ * <p>Under Format.V3, the lifecycle format that production constructs, the same bytes are
  * positive state: no unsupported footprint, no version 2 slot read as UNSUPPORTED unless it holds a
  * user other than user 0, which this stage reads as UNSUPPORTED under every format, and a history for
  * each one user account read VALID. That is the discrimination control: the refusals above are effects of the

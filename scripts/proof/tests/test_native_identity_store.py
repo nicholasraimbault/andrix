@@ -75,12 +75,12 @@ class NativeIdentityStoreTests(unittest.TestCase):
                  str(work), 'V3'], capture_output=True, text=True, timeout=60)
             self.assertEqual(gate.returncode, 0, gate.stdout + gate.stderr)
             self.assertIn('Lifecycle format refusal of the release primitives', gate.stdout)
-            # The production format's refusal controls: their own entry point, under the production label.
-            production = subprocess.run(
+            # The previous format's refusal controls: their own entry point and label.
+            previous = subprocess.run(
                 ['java', '-Xmx256m', '-ea', '-cp', str(work), 'com.android.server.pm.NativeIdentityVersionGateTest',
                  str(work), 'V2'], capture_output=True, text=True, timeout=60)
-            self.assertEqual(production.returncode, 0, production.stdout + production.stderr)
-            self.assertEqual(production.stdout, 'PASS V2 / every lifecycle write refused on a healthy layout\n')
+            self.assertEqual(previous.returncode, 0, previous.stdout + previous.stderr)
+            self.assertEqual(previous.stdout, 'PASS V2 / every lifecycle write refused on a healthy layout\n')
             for name in ['NativeIdentityRecordsTest', 'NativeIdentityVersionGateTest',
                          'NativeIdentityFutureFormatTest', 'NativeIdentityPresenceTest']:
                 negative = subprocess.run(

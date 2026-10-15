@@ -24,7 +24,7 @@ import java.util.Set;
  * and no byte changes.
  *
  * The caller predicts how many layouts hold a version 2 header copy, so no layout leaves that
- * branch unnoticed, and names control layouts. Booted again under the production Format.V2, a
+ * branch unnoticed, and names control layouts. Booted again under the previous Format.V2, a
  * control's mapped packages keep their pins, are not deferred and are admitted, so the version 1
  * deferral is an effect of the format and not of the fixture. Host files only, not Android boot.
  */
@@ -65,7 +65,7 @@ public final class NativeRollbackSeedingCheck {
     }
 
     /**
-     * The discrimination control: booted under the production Format.V2, the same layout restores
+     * The discrimination control: booted under the previous Format.V2, the same layout restores
      * each mapped package's pin, the recovery seeding defers none of them and the facade admits
      * them, and no byte changes.
      */

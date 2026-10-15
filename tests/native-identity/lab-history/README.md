@@ -11,11 +11,13 @@ completed; the plan records their scoped results.
 
 The lab image changed one byte of the exact adapted B2 `Settings.java`: the literal
 `NativeIdentityStore.Format.V1` of the boot store construction became `Format.V2`. Its own
-profile, patch and tool kept that token apart from every normal image. Since the
+profile, patch and tool kept that token apart from every normal image. From the
 [version 2 normal store](../../../plans/2026-10-02-native-store-v2-normal.md) step, the normal
-native patch constructs `Format.V2` itself, and its adapted Settings equals that lab output byte
-for byte. The token's tool, tests, profile and patch were removed. They stay in Git history and in
-the sealed records of the `23cede6` lab build. A later lab image gets a new reviewed vehicle.
+native patch constructed `Format.V2` itself, and its adapted Settings equalled that lab output byte
+for byte. The normal boot construction now passes `Format.V3`, the lifecycle format of the
+[lifecycle record plan](../../../plans/2026-10-08-native-lifecycle-record.md). The token's tool,
+tests, profile and patch were removed. They stay in Git history and in the sealed records of the
+`23cede6` lab build. A later lab image gets a new reviewed vehicle.
 
 ## Composition order
 
@@ -82,8 +84,9 @@ layout oracle. `lab_history_observe.assess_store` reads a staged copy against th
 ## Host rehearsal
 
 `NativeWriterLabRehearsal.java` drives the unchanged `NativePrincipalWriterFixture`, the real
-manager and store and the host PMS facades with `Format.V2`, the production format of the boot
-read, which the runner ties to the native patch's boot literal:
+manager and store and the host PMS facades with `Format.V3`, the production format of the boot
+read. The runner ties that format to the native patch's boot literal and refuses a rehearsal that
+names an earlier one. In order:
 
 - A fresh generated empty V1 store, then `info`, `select-new` and `prepare`, which captures ID 1,
   the facade app ID, user serial and signer.

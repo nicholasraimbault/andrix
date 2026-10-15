@@ -499,22 +499,32 @@ class PinnedWriterComposition(WriterComposition):
     real = True
 
     def test_old_adapted_settings_are_refused(self):
-        """The tree precondition: a checkout that holds the adapted Settings of the earlier profile,
-        with its version 1 boot literal, is unknown bytes to every tool. It needs a revert with
-        the old tools or a reviewed manual repair."""
+        """The tree precondition: a checkout that holds an earlier profile's adapted Settings is
+        unknown bytes to every tool. B1's, the rollback floor's, differs from the current one only
+        by its Format.V2 boot literal, and the profile before the version 2 store by its Format.V1
+        one. Either needs a revert with that profile's own tools or a reviewed manual repair."""
         c = self.checkout
         c.lab_ready()
         current = c.native_target[pins.SETTINGS]
-        old = current.replace((b1.CONSTRUCTION + b1.PRODUCTION).encode(), (b1.CONSTRUCTION + b1.RETIRED).encode(), 1)
-        self.assertEqual((sum(a != b for a, b in zip(old, current)), len(old)), (1, len(current)))
-        self.assertEqual(b1.r0_forward(old.decode()).encode(), current)
-        c.put(pins.SETTINGS, old)
-        with self.assertRaisesRegex(ValueError, 'unrecognized native principal modification'):
-            pins.inspect_files(c.project)
-        for module, extra in ((writer, (LAB,)), (writer, ()), (pins, ()), (lifecycle, ())):
-            self.refuse(module, 'check', 'unrecognized native principal modification', *extra)
-        self.refuse(pins, 'revert', 'unrecognized native principal modification')
-        self.assertEqual(((c.project / pins.SETTINGS).read_bytes(), self.replace.call_count), (old, 0))
+        for earlier in (b1.PREVIOUS, b1.RETIRED):
+            with self.subTest(earlier=earlier):
+                old = current.replace((b1.CONSTRUCTION + b1.PRODUCTION).encode(),
+                                      (b1.CONSTRUCTION + earlier).encode(), 1)
+                self.assertEqual((sum(a != b for a, b in zip(old, current)), len(old)), (1, len(current)))
+                if earlier == b1.PREVIOUS:
+                    # B1's adapted Settings, as the floor's pinned profile states it. The living
+                    # forward rule moves it to the current one.
+                    self.assertEqual(hashlib.sha256(old).hexdigest(), b1.FLOOR_SETTINGS_SHA256)
+                    self.assertEqual(b1.b2_forward(old.decode()).encode(), current)
+                else:
+                    self.assertIsNone(b1.b2_forward(old.decode()))
+                c.put(pins.SETTINGS, old)
+                with self.assertRaisesRegex(ValueError, 'unrecognized native principal modification'):
+                    pins.inspect_files(c.project)
+                for module, extra in ((writer, (LAB,)), (writer, ()), (pins, ()), (lifecycle, ())):
+                    self.refuse(module, 'check', 'unrecognized native principal modification', *extra)
+                self.refuse(pins, 'revert', 'unrecognized native principal modification')
+                self.assertEqual(((c.project / pins.SETTINGS).read_bytes(), self.replace.call_count), (old, 0))
 
     def test_pinned_outputs_are_the_profile_candidates(self):
         value = pins.profile()

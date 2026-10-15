@@ -95,7 +95,7 @@ ARCHIVED_ROLLBACK_READERS = ('24bf-v1', '7845')
 # The emitted layouts that hold a version 2 header copy, predicted from the writer protocol: all
 # 38 but the three seed-synced steps whose prior header copies are version 1, where only the
 # staging seed is version 2. The rollback checks assert this count, so no layout leaves the copy
-# branch unnoticed. The controls are read again under the production Format.V2. The retirement
+# branch unnoticed. The controls are read again under Format.V2, the previous format. The retirement
 # layouts are the lifecycle emitter's.
 ROLLBACK_COPY_LAYOUTS = 35
 ROLLBACK_CONTROLS = ('final-published', 'final-reserved')
@@ -450,21 +450,25 @@ LAYOUT_NAMES = tuple(sorted(
     + ['final-reserved', 'final-published', 'final-legacy-null']
     + ['bound-collision-' + kind for kind in ('package', 'principal', 'both')]))
 
-# Every host run carries one label. production: Format.V2, as the normal image's one boot read
-# constructs it, or code that constructs no store. legacy: Format.V1 writes or Format.V1 end to end,
-# which model no shipped reader since the normal image became version 2, and every Format.V1 read
-# by the current sources, which stop modelling 78456b3 once B1 edits them; they stay as regressions
-# of the version 1 paths, and none is retired. rollback-reader: an older image reading newer state as
-# its pinned objects do: Format.V1 reading version 2 state as the supported 78456b3 rollback reader
-# does, the pinned 78456b3 image and its twin, the pinned 24bfb6a sources, and the pinned 24bfb6a
-# image under its own production Format.V2 reading version 2 slots, in runs over pinned products only;
-# the lifecycle rollback check is the one working-tree class among them. archived-baseline: every other archived run, over pinned
-# Git objects of an earlier revision, compared as history, whose inputs and results no edit of the
-# working tree changes. new-format: Format.V3 runs of the current sources, the lifecycle format that
-# reads and writes version 2 slots, which B1 builds but no production text constructs.
-RUN_LABELS = ('production', 'rollback-reader', 'archived-baseline', 'legacy', 'new-format')
+# Every host run carries one label. production: Format.V3, the lifecycle format, as the normal
+# image's one boot read constructs it, or code that constructs no store. A production run of a
+# lifecycle writer or of the release engine is host evidence only: no production text calls either,
+# and the image step requires both to stay out of the final DEX. previous: Format.V2 runs of the
+# current sources, the format of the images from the version 2 normal store up to B1's, the rollback
+# floor; they stay as regressions of the version 2 paths. They are no model of B1's image, which
+# only its own sources, pinned from Git objects, can give. legacy: Format.V1 writes or Format.V1 end
+# to end, which model no shipped reader since the normal image became version 2, and every Format.V1
+# read by the current sources, which stop modelling 78456b3 once B1 edits them; they stay as
+# regressions of the version 1 paths, and none is retired. rollback-reader: an older image reading
+# newer state as its pinned objects do: Format.V1 reading version 2 state as the supported 78456b3
+# rollback reader does, the pinned 78456b3 image and its twin, the pinned 24bfb6a sources, and the
+# pinned 24bfb6a image under its own production Format.V2 reading version 2 slots, in runs over
+# pinned products only; the lifecycle rollback check is the one working-tree class among them.
+# archived-baseline: every other archived run, over pinned Git objects of an earlier revision,
+# compared as history, whose inputs and results no edit of the working tree changes.
+RUN_LABELS = ('production', 'rollback-reader', 'archived-baseline', 'legacy', 'previous')
 # Living runs carry only the living labels and archived runs only the archived ones.
-LIVING_RUN_LABELS = ('production', 'legacy', 'new-format')
+LIVING_RUN_LABELS = ('production', 'legacy', 'previous')
 ARCHIVED_RUN_LABELS = ('rollback-reader', 'archived-baseline')
 # Which harnesses run under each label: label, runner, the host classes it runs and which runs.
 # A harness that runs cases under more than one format is listed once per label. A living row's
@@ -486,110 +490,111 @@ HARNESS_LABELS = (
     ('production', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleCodecTest',),
      'the lifecycle record codec, its stable prefix reader and its goldens against the independent'
      ' encoder, which construct no store'),
-    ('production', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleReadTest',),
+    ('previous', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleReadTest',),
      'the Format.V2 reads of version 2 slots and later frames as negative evidence only, with the facade'
      ' identity predicate and the candidate seeding, and its version 2 slot write refusals'),
     ('legacy', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleReadTest',),
      'the same reads and refusals under Format.V1'),
-    ('new-format', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleReadTest',),
+    ('production', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleReadTest',),
      'the Format.V3 reads of version 2 slots as positive state, the discrimination controls, and its'
-     ' version 2 slot writes, which B1 builds but does not ship'),
-    ('production', 'scripts/proof/native_lifecycle_record.py', ('NativeIdentityDumpTest',),
+     ' version 2 slot writes'),
+    ('previous', 'scripts/proof/native_lifecycle_record.py', ('NativeIdentityDumpTest',),
      'the schema 2 diagnostic under Format.V2 in the facade and in the candidate Settings text, with its'
      ' deferred names, bounds and unavailable envelopes'),
     ('legacy', 'scripts/proof/native_lifecycle_record.py', ('NativeIdentityDumpTest',),
      'the same diagnostic under Format.V1'),
-    ('new-format', 'scripts/proof/native_lifecycle_record.py', ('NativeIdentityDumpTest',),
-     'the dormant schema 3 diagnostic under Format.V3, which B1 builds but does not ship'),
-    ('production', 'scripts/proof/native_lifecycle_record.py',
+    ('production', 'scripts/proof/native_lifecycle_record.py', ('NativeIdentityDumpTest',),
+     'the schema 3 diagnostic under Format.V3, whose slot ceiling selects it'),
+    ('previous', 'scripts/proof/native_lifecycle_record.py',
      ('NativeLifecycleStoreTest', 'NativeLifecycleTransactionTest'),
      'the Format.V2 refusals of every lifecycle store transition and transaction, disposition, Restore and the'
      ' release engine with its store primitives included, before any effect, and the version 1 marker and release'
      ' that still work there'),
     ('legacy', 'scripts/proof/native_lifecycle_record.py',
      ('NativeLifecycleStoreTest', 'NativeLifecycleTransactionTest'), 'the same refusals and controls under Format.V1'),
-    ('new-format', 'scripts/proof/native_lifecycle_record.py',
+    ('production', 'scripts/proof/native_lifecycle_record.py',
      ('NativeLifecycleStoreTest', 'NativeLifecycleTransactionTest', 'NativeLifecycleFaultTest'),
      'the Format.V3 lifecycle store transitions and transactions, the boot facts, disposition in a retired boot,'
      ' Restore and the gated release engine with its continuation from durable state, their writer rules and'
-     ' refusals, and the fault sweeps of every transaction at each writer step, which B1 builds but does not'
-     ' ship'),
-    ('production', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleSettingsTest',),
+     ' refusals, and the fault sweeps of every transaction at each writer step, as host code'
+     ' with no production caller'),
+    ('previous', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleSettingsTest',),
      'the Format.V2 seeding deferral of a version 1 retiring body and the absence of lifecycle boot facts, through'
      ' the facade and the history harness'),
-    ('new-format', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleSettingsTest',),
+    ('production', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleSettingsTest',),
      'the Format.V3 seeding of retiring, retired and suspended accounts, the boot facts, the retired boot rule and'
-     ' the release body in Settings, through the facade and the history harness, which B1 builds but does not'
-     ' ship'),
-    ('production', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleManagerTest',),
+     ' the release body in Settings, through the facade and the history harness, the release'
+     ' body with no production caller'),
+    ('previous', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleManagerTest',),
      'the Format.V2 refusals of every lifecycle operation of the manager before any effect, its closure and pin'
      ' change included'),
     ('legacy', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleManagerTest',),
      'the same refusals under Format.V1'),
-    ('new-format', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleManagerTest',),
+    ('production', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleManagerTest',),
      'the Format.V3 lifecycle operations of the manager, its suspension closure and every activation point\'s'
-     ' suspension refusal, which B1 builds but does not ship'),
+     ' suspension refusal, the operations with no production caller'),
     ('rollback-reader', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleRollbackCheck',),
      'the rollback models of 24bfb6a under Format.V2 and 78456b3 under Format.V1 over every lifecycle layout,'
      ' a working-tree check compiled only with their pinned products and their own harness texts'),
+    ('previous', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleReaderCheck',),
+     'the Format.V2 reads of every lifecycle layout by the current sources: names protected, the'
+     ' lost mapping unable to register afresh, and the sibling in CONFLICT; an earlier format'
+     ' regression, not a model of B1\'s image built from its pinned sources'),
     ('production', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleReaderCheck',),
-     'B1\'s Format.V2 reads of every lifecycle layout: names protected, the lost mapping unable to register'
-     ' afresh, and the sibling in CONFLICT'),
-    ('new-format', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleReaderCheck',),
-     'the Format.V3 reads of the same layouts as positive state, the discrimination control, which B1 builds'
-     ' but does not ship'),
-    ('new-format', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleLayouts',),
+     'the Format.V3 reads of the same layouts as positive state, and the discrimination control'),
+    ('production', 'scripts/proof/native_lifecycle_record.py', ('NativeLifecycleLayouts',),
      'the store layouts that the Format.V3 lifecycle writers leave, at each state and every writer step of each'
      ' transaction, with the values no writer of B1 writes and the companions, for the rollback models and'
-     ' B1\'s readers, which B1 builds but does not ship'),
+     ' the readers, from writers with no production caller'),
     ('production', 'scripts/proof/tests/test_native_identity_persistence.py', ('NativePrincipalRecoveryTest',),
      'the recovery view, which constructs no store'),
     ('legacy', 'scripts/proof/tests/test_native_identity_persistence.py', ('NativeIdentityPersistenceTest',),
      'Format.V1 transactions'),
-    ('production', 'scripts/proof/tests/test_native_identity_persistence.py', ('NativeIdentityPersistenceTest',),
+    ('previous', 'scripts/proof/tests/test_native_identity_persistence.py', ('NativeIdentityPersistenceTest',),
      'the Format.V2 twins of its version 1 refusals, over copies of the same version 1 states'),
-    ('production', 'scripts/proof/native_creation_binding.py', ('NativeIdentityPresenceTest',),
+    ('previous', 'scripts/proof/native_creation_binding.py', ('NativeIdentityPresenceTest',),
      'the presence and unavailable matrix under Format.V2, where the release steps and the retiring flag refuse'
      ' on their healthy layouts'),
-    ('production', 'scripts/proof/tests/test_native_identity_store.py', ('NativeIdentityVersionGateTest',),
+    ('previous', 'scripts/proof/tests/test_native_identity_store.py', ('NativeIdentityVersionGateTest',),
      'the version gate\'s Format.V2 entry point: every lifecycle write refused on a healthy version 2 layout'),
-    ('production', 'scripts/proof/tests/test_native_identity_store.py',
+    ('previous', 'scripts/proof/tests/test_native_identity_store.py',
      ('NativeIdentityStoreTest', 'NativeIdentityFutureFormatTest'),
      'the Format.V2 twins of their version 1 lifecycle write refusals, over the same version 1 states'),
-    ('new-format', 'scripts/proof/native_creation_binding.py', ('NativeIdentityPresenceTest',),
+    ('production', 'scripts/proof/native_creation_binding.py', ('NativeIdentityPresenceTest',),
      'the presence and unavailable matrix under Format.V3, with the release engine\'s omission and the'
-     ' lifecycle retirement, which B1 builds but does not ship'),
-    ('new-format', 'scripts/proof/native_creation_binding.py',
+     ' lifecycle retirement, which no production text calls'),
+    ('production', 'scripts/proof/native_creation_binding.py',
      ('NativeIdentityHeaderFootprintTest', 'NativeHeaderWriteFaultTest', 'NativeCreationBindingFaultTest'),
      'the V3 cases of the header footprint suites and the binding faults: the release header steps through the'
-     ' release engine\'s primitives and the lifecycle retirement\'s publication, which B1 builds but does not ship'),
-    ('new-format', 'scripts/proof/tests/test_native_header_footprint.py',
+     ' release engine\'s primitives and the lifecycle retirement\'s publication, with no production'
+     ' caller'),
+    ('production', 'scripts/proof/tests/test_native_header_footprint.py',
      ('NativeIdentityHeaderFootprintTest', 'NativeHeaderWriteFaultTest'),
-     'the V3 cases of the header footprint suites and their mutants, which B1 builds but does not ship'),
-    ('new-format', 'scripts/proof/tests/test_native_identity_store.py',
+     'the V3 cases of the header footprint suites and their mutants'),
+    ('production', 'scripts/proof/tests/test_native_identity_store.py',
      ('NativeIdentityFutureFormatTest', 'NativeIdentityVersionGateTest'),
      'the lifecycle entry points of the future format matrix and the version gate under Format.V3: the'
-     ' lifecycle writers and the release engine\'s primitives beside later frames, which B1 builds but does not'
-     ' ship'),
+     ' lifecycle writers and the release engine\'s primitives beside later frames, with no'
+     ' production caller'),
     ('production', 'scripts/proof/tests/test_native_principal_pins.py',
      ('NativePrincipalPinsTest', 'NativePrincipalAllocatorTest'), 'the core and allocator, with no store'),
     ('legacy', 'scripts/proof/tests/test_native_principal_pins.py',
      ('NativePrincipalManagerTest', 'NativePreparationAdmissionTest', 'NativePrincipalPersistenceTest'),
      'explicit Format.V1 facades, the XML pin codec that no image ships, and the last manager case: a'
      ' version 2 header copy read as a footprint by the Format.V1 facade'),
-    ('production', 'scripts/proof/tests/test_native_principal_pins.py',
+    ('previous', 'scripts/proof/tests/test_native_principal_pins.py',
      ('NativePrincipalManagerTest', 'NativePreparationAdmissionTest'),
      'the Format.V2 twins of their retirement refusals, reopened over copies of the same version 1 states'),
     ('legacy', 'scripts/proof/tests/test_native_preparation_faults.py',
      ('NativePreparationFaultTest', 'NativePreparationAdmissionTest'), 'explicit Format.V1 facades'),
-    ('production', 'scripts/proof/tests/test_native_preparation_faults.py', ('NativePreparationAdmissionTest',),
+    ('previous', 'scripts/proof/tests/test_native_preparation_faults.py', ('NativePreparationAdmissionTest',),
      'the Format.V2 twins of its retirement refusal, reopened over a copy of the same version 1 state'),
     ('production', 'scripts/proof/tests/test_native_recovery_boot.py', ('NativeRecoveryBootTest',),
      'the exact adapted boot fragments over constructed views, with no store'),
     ('legacy', 'scripts/proof/tests/test_native_header_footprint.py',
      ('NativeIdentityHeaderFootprintTest', 'NativeHeaderWriteFaultTest'),
      'the current header fence suites with direct current APIs: Format.V1 stores and facades'),
-    ('production', 'scripts/proof/tests/test_native_header_footprint.py',
+    ('previous', 'scripts/proof/tests/test_native_header_footprint.py',
      ('NativeIdentityHeaderFootprintTest', 'NativeHeaderWriteFaultTest'),
      'the Format.V2 twins of the B0 suite\'s refusals, over copies of its version 1 states'),
     ('archived-baseline', 'scripts/proof/native_creation_binding.py',
@@ -604,7 +609,7 @@ HARNESS_LABELS = (
      'current header fence suites on the current sources, the V1 writer and reader cases of b1 focused and its mutants, the'
      ' Format.V1 twins of the b1 retirement refusals, and the b1-v1 reader and facade rollback check of the'
      ' current layouts'),
-    ('production', 'scripts/proof/native_creation_binding.py',
+    ('previous', 'scripts/proof/native_creation_binding.py',
      ('NativeCreationBindingTest', 'NativeCreationBindingFaultTest', 'NativeCreationBindingLayouts',
       'NativeRollbackReaderCheck', 'NativeIdentityHeaderFootprintTest', 'NativeHeaderWriteFaultTest'),
      'the V2 cases of b1 focused, the b1 fault matrix, the layout emitter, the B1 mutants, the'
@@ -613,7 +618,7 @@ HARNESS_LABELS = (
     ('rollback-reader', 'scripts/proof/native_creation_binding.py',
      ('NativeCreationBindingReaderCheck', 'NativeRollbackReaderCheck'),
      'the pinned 24bf-v1 and 7845 readers of the archived layouts with their facade rollback checks'),
-    ('production', 'scripts/proof/native_creation_history.py',
+    ('previous', 'scripts/proof/native_creation_history.py',
      ('NativeCreationHistoryTest', 'NativeCreationHistoryFaultTest',
       'NativeHistoryParity', 'NativeCreationHistoryLayouts', 'NativeRollbackReaderCheck',
       'NativeRollbackSeedingCheck'),
@@ -638,7 +643,7 @@ HARNESS_LABELS = (
      'the 0018a1d and 24bfb6a probe sides, the 0018a1d parity side and the version 2 runs of the 24bfb6a'
      ' side, the pinned 24bfb6a emitter, the 0018 and c926 readers of its layouts and the version 2'
      ' controls of the archived rollback checks'),
-    ('production', 'scripts/proof/native_counter_admission.py', ('NativeCounterAdmissionTest',),
+    ('previous', 'scripts/proof/native_counter_admission.py', ('NativeCounterAdmissionTest',),
      'the V2 cases of the focused suite and its mutants on the current sources'),
     ('legacy', 'scripts/proof/native_counter_admission.py', ('NativeCounterAdmissionTest',),
      'the Format.V1 cases of the focused suite and its mutants on the current sources'),
@@ -651,21 +656,26 @@ HARNESS_LABELS = (
     ('legacy', 'tests/native-identity/test_writer.py',
      ('NativePrincipalWriterFixtureTest', 'NativePrincipalWriterFixtureFaultTest',
       'NativePrincipalWriterFixtureTranscript'), 'the writer fixture tests on explicit Format.V1 facades'),
-    ('production', 'scripts/proof/native_lab_history.py',
-     ('NativeWriterLabRehearsal', 'LabHistoryStoreTest', 'LabHistoryStore'),
-     'the lab rehearsal under Format.V2, and the codec controls, generator and predictor'),
+    ('production', 'scripts/proof/native_lab_history.py', ('NativeWriterLabRehearsal', 'LabHistoryStore'),
+     'the lab rehearsal under Format.V3, and the generator and predictor, which construct no'
+     ' store'),
+    ('previous', 'scripts/proof/native_lab_history.py', ('LabHistoryStoreTest',),
+     'the store fixture\'s Format.V2 reads of the generated store and of the predicted'
+     ' reservation and body'),
+    ('legacy', 'scripts/proof/native_lab_history.py', ('LabHistoryStoreTest',),
+     'the store fixture\'s Format.V1 initialization and reads'),
 )
 # The labels of this runner's steps, by step or by the step's first two words, and of its readers.
 STEP_LABELS = {'store classes': ('archived-baseline',),
                'b0 c926': ('archived-baseline',), 'b0 d104': ('archived-baseline',),
-               'b0 24bf': ('archived-baseline',), 'current header': ('legacy', 'production', 'new-format'),
-               'b1 focused': ('production', 'legacy'), 'b1 faults': ('production', 'legacy', 'new-format'),
-               'presence v2': ('production',), 'presence v3': ('new-format',),
-               'readers': ('production', 'legacy'),
-               'rollback': ('legacy', 'production'),
+               'b0 24bf': ('archived-baseline',), 'current header': ('legacy', 'previous', 'production'),
+               'b1 focused': ('previous', 'legacy'), 'b1 faults': ('previous', 'legacy', 'production'),
+               'presence v2': ('previous',), 'presence v3': ('production',),
+               'readers': ('previous', 'legacy'),
+               'rollback': ('legacy', 'previous'),
                'archived readers': ('archived-baseline', 'rollback-reader'),
                'archived rollback': ('rollback-reader', 'archived-baseline'),
-               'mutants': ('production', 'legacy')}
+               'mutants': ('previous', 'legacy')}
 # This runner's archived steps. Every other step is living.
 ARCHIVED_STEP_NAMES = ('store classes', 'b0 c926', 'b0 d104', 'b0 24bf', 'archived readers', 'archived rollback')
 READER_LABELS = {'b1-v1': 'legacy', '24bf-v1': 'rollback-reader', 'c926': 'archived-baseline',
@@ -2601,7 +2611,8 @@ def qualify(work):
             if not refused['returncode'] or '-ea' not in refused['stderr']:
                 problems.append('b1 %s ran without assertions' % kind)
 
-    # The complete presence and unavailable matrix under the host version 2 format.
+    # The complete presence and unavailable matrix under Format.V2, the previous format: its own
+    # step, under the previous label.
     presence = work / 'presence-v2'
     files = {**store_sources(), **test_sources(['NativeIdentityPresenceTest'])}
     presence.mkdir(parents=True)
@@ -2618,7 +2629,7 @@ def qualify(work):
                                     passed=len(run['passed']), run=run)
         if presence_problems(run, 'V2'):
             problems.append(presence_problems(run, 'V2'))
-        # The same matrix under the lifecycle format: its own step, under the new-format label.
+        # The same matrix under the lifecycle format: its own step, under the production label.
         with tempfile.TemporaryDirectory(prefix='b1p-', dir='/tmp') as state:
             run = execute(presence, 'NativeIdentityPresenceTest', [state, 'V3'])
         steps['presence v3'] = {'returncode': run['returncode'], 'failed': run['failed'],
@@ -2626,7 +2637,7 @@ def qualify(work):
         if presence_problems(run, 'V3'):
             problems.append(presence_problems(run, 'V3'))
 
-    # Version 2 layouts from the production host writer on the current sources, read by the legacy
+    # Version 2 layouts from the Format.V2 host writer on the current sources, read by the legacy
     # b1-v1 reader, the current sources under Format.V1.
     emitter = work / 'layouts-emitter'
     emitter.mkdir(parents=True)

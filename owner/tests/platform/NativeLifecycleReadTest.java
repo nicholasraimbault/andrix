@@ -41,8 +41,8 @@ import java.util.TreeMap;
  * whose slot ceiling is 1, read an intact version 2 frame as an unsupported footprint whose
  * decoded copies are negative evidence only: package names, principal IDs and sibling
  * conflicts. Every format reads the stable prefix of a frame above version 2 as the same
- * evidence, and a broken prefix as none, while the frame stays a footprint. Format.V3, which no
- * production text constructs, reads version 2 slots as positive state, the discrimination
+ * evidence, and a broken prefix as none, while the frame stays a footprint. Format.V3, which
+ * production constructs, reads version 2 slots as positive state, the discrimination
  * control. The identity predicate is the exact fragment in the host Settings facade, and the
  * seeding names are the candidate Settings text in its history harness. Host files and facades
  * only: not Android boot, PMS state or authority.

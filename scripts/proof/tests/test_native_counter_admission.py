@@ -437,20 +437,20 @@ class ArchivedCounterTests(unittest.TestCase):
                          {'baselines': ('archived-baseline',), 'probes': ('archived-baseline',),
                           'parity': ('archived-baseline', 'rollback-reader')})
         self.assertEqual({name: runner.STEP_LABELS[name] for name in ('focused', 'mutants')},
-                         {'focused': ('production', 'legacy'), 'mutants': ('production', 'legacy')})
+                         {'focused': ('previous', 'legacy'), 'mutants': ('previous', 'legacy')})
         rows = [row for row in runner.b1.HARNESS_LABELS if row[1] == COUNTER]
         labelled = {}
         for label, _, classes, _ in rows:
             for name in classes:
                 labelled.setdefault(name, set()).add(label)
         # The probes and parity run only on archived sides now; the focused suite on both.
-        self.assertEqual(labelled, {'NativeCounterAdmissionTest': {'production', 'legacy', 'archived-baseline'},
+        self.assertEqual(labelled, {'NativeCounterAdmissionTest': {'previous', 'legacy', 'archived-baseline'},
                                     'UnsupportedCounterProbe': {'archived-baseline'},
                                     'StaleSlotCounterProbe': {'archived-baseline'},
                                     'NativeHistoryParity': {'archived-baseline', 'rollback-reader'}})
         self.assertEqual(runner.b1.label_problems(), [])
         # The label rules: each break is refused.
-        for change in ({'STEP_LABELS': dict(runner.STEP_LABELS, focused=('production', 'rollback-reader'))},
+        for change in ({'STEP_LABELS': dict(runner.STEP_LABELS, focused=('previous', 'rollback-reader'))},
                        {'STEP_LABELS': dict(runner.STEP_LABELS, parity=('archived-baseline', 'legacy'))},
                        {'STEP_LABELS': dict(runner.STEP_LABELS, unknown=('production',))},
                        {'STEP_LABELS': {k: v for k, v in runner.STEP_LABELS.items() if k != 'probes'}},

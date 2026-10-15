@@ -76,7 +76,8 @@ with LF and every rendered byte is ASCII.
 
 - `andrix-native-identities-v1` is the historical form: eight scalars and the hold rows. Its parser
   is unchanged, and it names no deferred set. It is never read as an empty one.
-- `andrix-native-identities-v2` is the current form. It has the eight scalars in their order, then
+- `andrix-native-identities-v2` is the form of a store whose format reads version 1 slots only, as
+  on B1's image. It has the eight scalars in their order, then
   `deferred_count=N`, then one `hold=` row per held app ID in increasing order, then one
   `deferred=` line per deferred package name in Java String order. A deferred line holds one
   standard padded Base64 token of the name's UTF-8 bytes, with no tab columns. A name is nonempty,
@@ -86,13 +87,15 @@ with LF and every rendered byte is ASCII.
   `slot=<appId>\t<version>\t<lifecycle>\t<suspended>` row per hold, in the same order after the hold
   rows and before the deferred lines. Positive state comes only from a selected VALID body of user 0
   alone, or `TOMBSTONE` for a body with no user. Anything else reports `not-reported` in all three
-  columns. Only the lifecycle format's slot ceiling selects this schema, and no production text
-  constructs that format.
+  columns. Only the lifecycle format's slot ceiling selects this schema. Production now constructs
+  that format, so the normal image built from these sources reports schema 3, apart from the not
+  live envelope below, which keeps the schema 2 line.
 
 Two envelopes carry no records: `live_settings=false` for a Settings instance without live pins,
 and `observer_available=false` when a name, a count or the output exceeds its bounds. The parser
 refuses both as unavailable evidence. A caller that relies on the deferred names passes the schema
-it requires; B1 phase assessments require schema 2 through `lab_history_observe.assess_dump`.
+it requires; B1 phase assessments require schema 2 through `lab_history_observe.assess_dump`, which
+does not assess schema 3.
 
 ## Header copy reader inputs
 

@@ -70,9 +70,9 @@ call adapter injects wrapper failures while forwarding to real manager handles. 
 prepare results, abnormal exits, observation failures after acknowledgements and mismatched
 handles or records. This adapter is not an alternate production writer. They do not
 prove Android caller authentication, SELinux behavior, filesystem durability or crash recovery.
-These host tests construct their facades with `Format.V1` explicitly. Since the normal image
-constructs `Format.V2`, they are legacy version 1 writer runs; the lab rehearsal runs this fixture
-under `Format.V2`.
+These host tests construct their facades with `Format.V1` explicitly. The normal image has
+constructed a later format since the version 2 normal store, and now constructs `Format.V3`, so
+they are legacy version 1 writer runs; the lab rehearsal runs this fixture under `Format.V3`.
 
 A device run can qualify the real writer path, same instance retry and metadata restoration for
 this case. A clean restart is not power loss or a mid publication crash test. Partial CREATING

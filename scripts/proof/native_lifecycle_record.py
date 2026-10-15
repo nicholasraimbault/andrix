@@ -31,8 +31,9 @@ obligation state, tombstone, RELEASING tail, companion and writer step, each con
 them failing the check, and runs each deliberate defect against the suites predicted to catch it, a
 Settings fragment defect in the facade and the harness alike. It does not nest another runner.
 
-Host JVM evidence only: not Android, crash, power loss, storage or activation evidence. Format.V3
-is constructed only by host tests here; no production text constructs it."""
+Host JVM evidence only: not Android, crash, power loss, storage or activation evidence. Production
+constructs Format.V3 once, at the normal image's boot read, while its lifecycle operations and the
+release engine keep no production caller."""
 from pathlib import Path
 import argparse
 import hashlib
@@ -82,21 +83,23 @@ FRAGMENT = 'fragment:'
 PHASES = ('candidate', 'codec', 'reads', 'dump', 'store', 'transactions', 'faults', 'settings', 'manager', 'pinned',
           'layouts', 'rollback', 'readers', 'mutants')
 # Every step but the pinned one is living. The read, store and transaction tests run each store format
-# under its own label: Format.V1 is legacy, Format.V2 production and Format.V3 the new format, which B1
-# builds and does not ship. The fault sweeps and the layout emitter run Format.V3 only. The pinned step
-# assembles and compiles the rollback models' inputs from pinned Git objects only, under the rollback
-# reader label.
-STEP_LABELS = {'codec': ('production',), 'reads': ('production', 'legacy', 'new-format'),
-               'dump': ('production', 'legacy', 'new-format'),
-               'store': ('production', 'legacy', 'new-format'),
-               'transactions': ('production', 'legacy', 'new-format'), 'faults': ('new-format',),
-               'settings': ('production', 'new-format'), 'manager': ('production', 'legacy', 'new-format'),
-               'pinned': ('rollback-reader',), 'layouts': ('new-format',), 'rollback': ('rollback-reader',),
-               'readers': ('production', 'new-format'), 'mutants': ('production', 'legacy', 'new-format')}
+# under its own label: Format.V1 is legacy, Format.V2 previous and Format.V3 production, the
+# format of the normal image's boot read. The previous format's runs read the current sources:
+# they are earlier format regressions, not a model of B1's image, the rollback floor. The codec
+# test constructs no store. The fault sweeps and the layout emitter run Format.V3 only. The pinned
+# step assembles and compiles the rollback models' inputs from pinned Git objects only, under the
+# rollback reader label.
+STEP_LABELS = {'codec': ('production',), 'reads': ('previous', 'legacy', 'production'),
+               'dump': ('previous', 'legacy', 'production'),
+               'store': ('previous', 'legacy', 'production'),
+               'transactions': ('previous', 'legacy', 'production'), 'faults': ('production',),
+               'settings': ('previous', 'production'), 'manager': ('previous', 'legacy', 'production'),
+               'pinned': ('rollback-reader',), 'layouts': ('production',), 'rollback': ('rollback-reader',),
+               'readers': ('previous', 'production'), 'mutants': ('previous', 'legacy', 'production')}
 # The steps whose products are pinned Git objects only. They carry only archived labels. The rollback
 # step compiles one working-tree check, written against the old API, with those pinned products.
 PINNED_STEPS = ('pinned', 'rollback')
-FORMAT_LABELS = {'V1': 'legacy', 'V2': 'production', 'V3': 'new-format'}
+FORMAT_LABELS = {'V1': 'legacy', 'V2': 'previous', 'V3': 'production'}
 
 # ---------------------------------------------------------------- the independent encoder
 # Written from the plan's record section alone, never from the Java codec: field order, widths and
@@ -331,13 +334,14 @@ DUMP_NAMES = (
     'v2 / the existing formats never report schema 3 rows, whatever the bodies hold',
     "parity / the candidate's own Settings text gives the facade's report",
 )
-# Each case's run labels: by its prefix, with the cases that also run Format.V1 named. Schema 2 cases
-# run the production format, schema 3 cases the lifecycle format, and the parity case all three.
-DUMP_LABELS = {'v2': ('production',), 'v3': ('new-format',), 'parity': ('legacy', 'production', 'new-format'),
-               'g9': ('production',), 'g10': ('production',)}
+# Each case's run labels: by its prefix, with the cases that also run another format named. Schema 2
+# cases run the previous format, schema 3 cases the lifecycle format, which production constructs,
+# and the parity case all three.
+DUMP_LABELS = {'v2': ('previous',), 'v3': ('production',), 'parity': ('legacy', 'previous', 'production'),
+               'g9': ('previous',), 'g10': ('previous',)}
 DUMP_CASE_LABELS = {'v2 / the existing formats never report schema 3 rows, whatever the bodies hold':
-                    ('legacy', 'production'),
-                    'v2 / a Settings without live pins gives only the not live envelope': ('production', 'new-format')}
+                    ('legacy', 'previous'),
+                    'v2 / a Settings without live pins gives only the not live envelope': ('previous', 'production')}
 
 
 def dump_labels(name):
@@ -486,7 +490,7 @@ SETTINGS_NAMES = (
     'V3 / a retired account is a retired boot and is deferred',
     'V3 / the boot facts defer an unmapped ticketed tombstone',
     'V3 / the boot facts are recorded once and survive later reads',
-    'V2 / the production format gives no lifecycle fact',
+    'V2 / the previous format gives no lifecycle fact',
     'V3 / disposition needs an instance that began with the account RETIRED',
     'V3 / release needs an instance that began with the account RETIRED',
     'V3 / a durable release keeps the app ID held until a new instance',
@@ -531,12 +535,13 @@ MANAGER_NAMES = (
 # ---------------------------------------------------------------- the case map of the old flows
 # The flows of the existing formats that retire or release. Each old flow is named by its suite's
 # source, its case name and a literal that its source holds once at least: its case name, its family
-# prefix or its method. Its positive half moves to the lifecycle format under the new-format label:
-# CASE_MAP names the cases that carry it, each a case the guarded run requires to pass, or an emitted
-# layout. A target is a lifecycle case, or a V3 case of a living suite of the binding runner named
-# with its suite: the header footprint suites, through the release engine's primitives, and the
-# binding faults. CASE_MAP_TO_MOVE names the old flows whose lifecycle case is still to be written.
-# The refusal side of every old flow joins when the store refuses the old writes.
+# prefix or its method. Its positive half moves to the lifecycle format, Format.V3, which production
+# now constructs: CASE_MAP names the cases that carry it, each a case the guarded run requires to
+# pass, or an emitted layout. A target is a lifecycle case, or a V3 case of a living suite of the
+# binding runner named with its suite: the header footprint suites, through the release engine's
+# primitives, and the binding faults. CASE_MAP_TO_MOVE names the old flows whose lifecycle case is
+# still to be written. The refusal side of every old flow joins when the store refuses the old
+# writes.
 _STEPS = ('seed-synced', 'backup-renamed', 'backup-published', 'write-started', 'main-synced', 'reserve-synced',
           'backup-unlink', 'backup-unlinked')
 _RELEASE_SWEEPS = tuple('%s / %s' % (kind, step) for kind in (
@@ -770,16 +775,17 @@ V3_STEPS = {'presence: V3': 'presence v3'}
 
 
 def case_map_targets():
-    """Every name a case map entry may target: the new-format lifecycle cases and the layouts, the V3
+    """Every name a case map entry may target: the lifecycle format's cases and the layouts, the V3
     cases of the binding runner's living suites, each named with its suite, and the lifecycle arm of
-    an assertion suite, which its main must define and run."""
+    an assertion suite, which its main must define and run. The cases are chosen by their format,
+    whatever its run label."""
     targets = set(LAYOUT_NAMES)
     for _, names in SUITE_NAMES.items():
-        targets.update(name for name in names if case_label(name) == 'new-format')
+        targets.update(name for name in names if case_format(name) == 'V3')
     for suite, names in (('b0 focused', b1.b0.FOCUSED_NAMES), ('b0 faults', b1.b0.FAULT_NAMES),
                          ('binding focused', b1.FOCUSED_NAMES), ('binding faults', b1.FAULT_NAMES)):
         targets.update('%s: %s' % (suite, name) for name in names if name.startswith('V3 '))
-    targets.update(name for name, step in V3_STEPS.items() if b1.STEP_LABELS.get(step) == ('new-format',))
+    targets.update(name for name, step in V3_STEPS.items() if b1.STEP_LABELS.get(step) == (FORMAT_LABELS['V3'],))
     for suite, (test, methods) in ARM_SUITES.items():
         source = (ROOT / PLATFORM / (test + '.java')).read_text()
         main = source[source.find('public static void main('):]
@@ -972,7 +978,7 @@ def refusal_targets():
     if source.count('run("owned torn seed removal refused before any effect under V1 and V2"') == 1:
         targets.add('future format: owned torn seed removal refused before any effect under V1 and V2')
     # This runner's own read cases under the earlier formats.
-    targets.update('reads: ' + name for name in READ_NAMES if case_label(name) in ('legacy', 'production'))
+    targets.update('reads: ' + name for name in READ_NAMES if case_format(name) in ('V1', 'V2'))
     # The presence rows, which the store module checks under Format.V1 and this runner's presence step
     # under Format.V2.
     targets.update('presence %s: %s' % (format_name, name) for format_name in ('V1', 'V2')
@@ -1064,10 +1070,10 @@ def case_map_literal_problem(name, literal):
 
 
 def case_map_problems():
-    """Every old flow is named once, by a literal its suite's source holds, either with new-format cases
-    that exist in the suites the guarded run requires to pass or among the layouts, or among the flows
-    still to move. A mapped entry has exactly four fields and a non-empty tuple of targets; a codec
-    golden counts only beside another target."""
+    """Every old flow is named once, by a literal its suite's source holds, either with lifecycle
+    format cases that exist in the suites the guarded run requires to pass or among the layouts, or
+    among the flows still to move. A mapped entry has exactly four fields and a non-empty tuple of
+    targets; a codec golden counts only beside another target."""
     problems = []
     targets = case_map_targets()
     seen = set()
@@ -1101,7 +1107,7 @@ def case_map_problems():
         goldens = [target for target in chosen if target in CODEC_NAMES and target.startswith('golden / ')]
         for target in chosen:
             if target not in targets or (target in CODEC_NAMES and target not in goldens):
-                problems.append('case map target is no new-format case: %s -> %s' % (name, target))
+                problems.append('case map target is no lifecycle format case: %s -> %s' % (name, target))
         if len(goldens) == len(chosen):
             problems.append('case map entry with codec goldens alone: %s' % name)
     for entry in CASE_MAP_REMOVED:
@@ -3326,10 +3332,17 @@ LIFECYCLE_SUITES = {'store': (STORE_TEST, STORE_NAMES), 'transactions': (TRANSAC
                     'faults': (FAULT_TEST, FAULT_NAMES), 'manager': (MANAGER_TEST, MANAGER_NAMES)}
 
 
+def case_format(name):
+    """The store format of one case: the format its name starts with, or Format.V3 for a name with
+    none. A fault sweep runs that format only, and the codec and diagnostic cases, which carry no
+    format prefix, count with it."""
+    prefix = name.split(' / ', 1)[0]
+    return prefix if prefix in FORMAT_LABELS else 'V3'
+
+
 def case_label(name):
-    """The run label of one store, transaction or fault case: its format's, or new-format for a fault
-    sweep, which runs Format.V3 only."""
-    return FORMAT_LABELS.get(name.split(' / ', 1)[0], 'new-format')
+    """The run label of one store, transaction or fault case: its format's."""
+    return FORMAT_LABELS[case_format(name)]
 
 
 def lifecycle_name_problems():
@@ -3355,22 +3368,33 @@ def lifecycle_name_problems():
     return problems
 
 
-# The other runs that carry new-format cases, and their classes: the V3 cases moved beside the old
-# flows of the header footprint suites and the binding faults, the presence matrix's V3 step, and the
-# lifecycle entry points of the future format matrix and the version gate.
-NEW_FORMAT_HARNESSES = {
+# The other runs that carry Format.V3 cases, and their classes: the V3 cases moved beside the old
+# flows of the header footprint suites and the binding faults, the presence matrix's V3 step, the
+# lifecycle entry points of the future format matrix and the version gate, and the lab rehearsal.
+LIFECYCLE_FORMAT_HARNESSES = {
     'scripts/proof/native_creation_binding.py': ('NativeIdentityPresenceTest', 'NativeIdentityHeaderFootprintTest',
                                                  'NativeHeaderWriteFaultTest', 'NativeCreationBindingFaultTest'),
     'scripts/proof/tests/test_native_header_footprint.py': ('NativeIdentityHeaderFootprintTest',
                                                             'NativeHeaderWriteFaultTest'),
     'scripts/proof/tests/test_native_identity_store.py': ('NativeIdentityFutureFormatTest',
-                                                          'NativeIdentityVersionGateTest')}
+                                                          'NativeIdentityVersionGateTest'),
+    'scripts/proof/native_lab_history.py': ('NativeWriterLabRehearsal',)}
+# The other runs of code that constructs no store, which carry the production label too: the
+# record codec, the recovery view, the pins' core and allocator, the adapted boot fragments over
+# constructed views, and the lab's generator and predictor.
+STORELESS_HARNESSES = {
+    'scripts/proof/tests/test_native_identity_store.py': ('NativeIdentityRecordsTest',),
+    'scripts/proof/tests/test_native_identity_persistence.py': ('NativePrincipalRecoveryTest',),
+    'scripts/proof/tests/test_native_principal_pins.py': ('NativePrincipalPinsTest', 'NativePrincipalAllocatorTest'),
+    'scripts/proof/tests/test_native_recovery_boot.py': ('NativeRecoveryBootTest',),
+    'scripts/proof/native_lab_history.py': ('LabHistoryStore',)}
 
 
 def label_problems():
     """Every step but the pinned one is living and carries living labels, and the pinned step only
-    archived ones. This runner's harness rows name its tests, and the new-format label names only cases
-    that are not production in B1."""
+    archived ones. This runner's harness rows name its tests. Outside this runner the production
+    label, the label of the lifecycle format's runs, names only the known Format.V3 runs and code
+    that constructs no store, so no run of an earlier format passes for production."""
     problems = []
     for step, labels in STEP_LABELS.items():
         allowed = b1.ARCHIVED_RUN_LABELS if step in PINNED_STEPS else b1.LIVING_RUN_LABELS
@@ -3385,19 +3409,20 @@ def label_problems():
     if (labelled.get(CODEC_TEST) != {'production'} or labelled.get(READ_TEST) != every
             or labelled.get(DUMP_TEST) != every
             or labelled.get(STORE_TEST) != every or labelled.get(TRANSACTION_TEST) != every
-            or labelled.get(FAULT_TEST) != {'new-format'}
-            or labelled.get(SETTINGS_TEST) != {'production', 'new-format'}
-            or labelled.get(MANAGER_TEST) != every or labelled.get(LAYOUTS) != {'new-format'}
+            or labelled.get(FAULT_TEST) != {'production'}
+            or labelled.get(SETTINGS_TEST) != {'previous', 'production'}
+            or labelled.get(MANAGER_TEST) != every or labelled.get(LAYOUTS) != {'production'}
             or labelled.get(ROLLBACK_CHECK) != {'rollback-reader'}
-            or labelled.get(READER_CHECK) != {'production', 'new-format'} or set(labelled) != {
+            or labelled.get(READER_CHECK) != {'previous', 'production'} or set(labelled) != {
                 CODEC_TEST, READ_TEST, DUMP_TEST, STORE_TEST, TRANSACTION_TEST, FAULT_TEST, SETTINGS_TEST, MANAGER_TEST,
                 LAYOUTS, ROLLBACK_CHECK, READER_CHECK}):
         problems.append('harness labels of this runner differ: %s' % labelled)
-    if {row[0] for row in b1.HARNESS_LABELS if row[0] == 'new-format'} != {'new-format'} or any(
+    production = FORMAT_LABELS['V3']
+    if {row[0] for row in b1.HARNESS_LABELS if row[0] == production} != {production} or any(
             row[1] != 'scripts/proof/native_lifecycle_record.py'
-            and not set(row[2]) <= set(NEW_FORMAT_HARNESSES.get(row[1], ()))
-            for row in b1.HARNESS_LABELS if row[0] == 'new-format'):
-        problems.append('the new-format label names another harness')
+            and not set(row[2]) <= set(LIFECYCLE_FORMAT_HARNESSES.get(row[1], ()) + STORELESS_HARNESSES.get(row[1], ()))
+            for row in b1.HARNESS_LABELS if row[0] == production):
+        problems.append('the production label names another harness')
     if b1.LIVING_ROLLBACK_CHECKS != (ROLLBACK_CHECK,):
         problems.append('the living rollback check exception names %s' % (b1.LIVING_ROLLBACK_CHECKS,))
     return problems

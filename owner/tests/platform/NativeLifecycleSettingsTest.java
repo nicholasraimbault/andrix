@@ -179,7 +179,7 @@ final class NativeLifecycleSettingsTest {
                         && facts.ticketedTombstones.isEmpty(), copy + ": the facts changed");
             }
         });
-        run("V2 / the production format gives no lifecycle fact", problems -> {
+        run("V2 / the previous format gives no lifecycle fact", problems -> {
             for (String copy : COPIES) {
                 Copy booted = boot(copy, layout(slotA(3, retired(retiredBlock()))), V2, true);
                 check(problems, booted.facts().retired.isEmpty() && booted.facts().ticketedTombstones.isEmpty()

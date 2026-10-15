@@ -86,10 +86,11 @@ ARCHIVED_SIDES = (BASE_0018, BASE_8949, CORRECTED)
 # Every guarded phase in order. A run reports those it completed and those it did not.
 PHASES = ('candidates', 'focused', 'baselines', 'probes', 'parity', 'mutants', 'b2 runner')
 # The labels of this runner's guarded steps, as the B1 runner's HARNESS_LABELS name them: the
-# living focused suite and mutants on the current sources, and the archived sides.
-STEP_LABELS = {'focused': ('production', 'legacy'), 'baselines': ('archived-baseline',),
+# living focused suite and mutants on the current sources, under Format.V2 and Format.V1, the
+# previous and the legacy format, and the archived sides.
+STEP_LABELS = {'focused': ('previous', 'legacy'), 'baselines': ('archived-baseline',),
                'probes': ('archived-baseline',), 'parity': ('archived-baseline', 'rollback-reader'),
-               'mutants': ('production', 'legacy')}
+               'mutants': ('previous', 'legacy')}
 # This runner's archived steps. Every other labelled step is living.
 ARCHIVED_STEP_NAMES = ('baselines', 'probes', 'parity')
 

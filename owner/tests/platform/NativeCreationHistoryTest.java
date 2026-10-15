@@ -777,7 +777,7 @@ public final class NativeCreationHistoryTest {
         });
     }
 
-    // Retirement refuses under the production format before any effect, for owned, rebound and body
+    // Retirement refuses under Format.V2 before any effect, for owned, rebound and body
     // restored handles alike: the lifecycle record's retirement needs the lifecycle format, and the
     // version 1 marker and release no longer exist there. Their positive halves run under Format.V3.
     private static void retirement() {

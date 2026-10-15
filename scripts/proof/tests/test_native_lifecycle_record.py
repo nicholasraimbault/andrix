@@ -8,6 +8,7 @@ import inspect
 import io
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -102,9 +103,9 @@ class LifecycleRecordSourceTests(unittest.TestCase):
         self.assertEqual((len(runner.CODEC_NAMES), len(runner.READ_NAMES), len(runner.STORE_NAMES),
                           len(runner.TRANSACTION_NAMES), len(runner.FAULT_NAMES), len(runner.SETTINGS_NAMES),
                           len(runner.MANAGER_NAMES)), (47, 60, 50, 57, 136, 12, 32))
-        self.assertEqual(predictions['manager_by_label'], {'legacy': 1, 'production': 1, 'new-format': 30})
-        self.assertEqual(predictions['store_by_label'], {'new-format': 48, 'legacy': 1, 'production': 1})
-        self.assertEqual(predictions['transactions_by_label'], {'new-format': 55, 'legacy': 1, 'production': 1})
+        self.assertEqual(predictions['manager_by_label'], {'legacy': 1, 'previous': 1, 'production': 30})
+        self.assertEqual(predictions['store_by_label'], {'production': 48, 'legacy': 1, 'previous': 1})
+        self.assertEqual(predictions['transactions_by_label'], {'production': 55, 'legacy': 1, 'previous': 1})
         # P2b's fault kinds: the two disposition transactions and Restore, with and without an intact copy.
         self.assertEqual(runner.FAULT_KINDS[6:10], ('beginDisposition', 'confirmDisposition', 'restore',
                                                     'restore without an intact copy'))
@@ -113,7 +114,7 @@ class LifecycleRecordSourceTests(unittest.TestCase):
                                                    'release RELEASING', 'release RELEASING confirmation',
                                                    'release omission', 'release completion confirmation',
                                                    'release completion'))
-        self.assertEqual(predictions['reads_by_label'], {'legacy': 20, 'production': 20, 'new-format': 20})
+        self.assertEqual(predictions['reads_by_label'], {'legacy': 20, 'previous': 20, 'production': 20})
         for format_name in ('V1', 'V2', 'V3'):
             self.assertEqual(len(runner.read_names(format_name)), 20)
         # A failed case prints 'FAIL <name>: <problems>', read up to the first colon and space.
@@ -121,8 +122,17 @@ class LifecycleRecordSourceTests(unittest.TestCase):
             self.assertNotIn(': ', name)
         with mock.patch.object(runner, 'CODEC_NAMES', runner.CODEC_NAMES + ('bad: name',)):
             self.assertIn('a case name of NativeLifecycleCodecTest holds the failure separator', runner.source_checks())
-        # Every read case runs under each format's own label.
-        self.assertEqual(runner.FORMAT_LABELS, {'V1': 'legacy', 'V2': 'production', 'V3': 'new-format'})
+        # Every read case runs under each format's own label: Format.V3, which the boot read
+        # constructs, is production, and the earlier formats are previous and legacy.
+        self.assertEqual(runner.FORMAT_LABELS, {'V1': 'legacy', 'V2': 'previous', 'V3': 'production'})
+        b2 = predictions['b2_checkpoint_2']
+        self.assertEqual(runner.FORMAT_LABELS, b2['format_labels'])
+        self.assertEqual({step: list(labels) for step, labels in runner.STEP_LABELS.items()}, b2['step_labels'])
+        self.assertEqual([(row['before'], row['after']) for row in b2['renamed_cases']],
+                         [('V2 / the production format gives no lifecycle fact',
+                           'V2 / the previous format gives no lifecycle fact')])
+        self.assertIn(b2['renamed_cases'][0]['after'], runner.SETTINGS_NAMES)
+        self.assertNotIn(b2['renamed_cases'][0]['before'], runner.SETTINGS_NAMES)
         source = (ROOT / runner.PLATFORM / (runner.READ_TEST + '.java')).read_text()
         self.assertIn('private static final Format[] FORMATS = {Format.V1, Format.V2, Format.V3};', source)
 
@@ -210,18 +220,38 @@ class LifecycleRecordSourceTests(unittest.TestCase):
 
     def test_labels_name_only_living_runs(self):
         self.assertEqual(runner.label_problems(), [])
-        self.assertIn('new-format', runner.b1.LIVING_RUN_LABELS)
-        rows = [row for row in runner.b1.HARNESS_LABELS if row[0] == 'new-format']
-        # The read test's row, the diagnostic test's row, the store, transaction and fault tests' row, the
-        # Settings test's row, the manager test's row, the reader check's row and the layout emitter's
-        # row, all of this runner,
-        # and the named V3 runs of the other harnesses: the presence V3 step and the moved V3 cases of the
-        # binding runner, the header footprint module's V3 cases and the store module's entry points.
-        self.assertEqual([row[1] for row in rows], ['scripts/proof/native_lifecycle_record.py'] * 7 + [
+        # The B1 label of the lifecycle format's runs is retired: they are production now, and the
+        # runs of Format.V2 on the current sources are previous.
+        self.assertEqual(runner.b1.LIVING_RUN_LABELS, ('production', 'legacy', 'previous'))
+        self.assertNotIn('new-format', runner.b1.RUN_LABELS)
+        self.assertFalse([row for row in runner.b1.HARNESS_LABELS if row[0] == 'new-format'])
+        rows = [row for row in runner.b1.HARNESS_LABELS if row[0] == 'production']
+        # The codec's row and the Format.V3 rows of this runner: the read test's, the diagnostic
+        # test's, the store, transaction and fault tests', the Settings test's, the manager test's,
+        # the reader check's and the layout emitter's.
+        lifecycle = 'scripts/proof/native_lifecycle_record.py'
+        self.assertEqual(len([row for row in rows if row[1] == lifecycle]), 8)
+        # Elsewhere, the named V3 runs: the presence V3 step and the moved V3 cases of the binding
+        # runner, the header footprint module's V3 cases, the store module's entry points and the
+        # lab rehearsal; and code that constructs no store.
+        others = [row for row in rows if row[1] != lifecycle]
+        v3 = [row for row in others if set(row[2]) <= set(runner.LIFECYCLE_FORMAT_HARNESSES.get(row[1], ()))]
+        storeless = [row for row in others if set(row[2]) <= set(runner.STORELESS_HARNESSES.get(row[1], ()))]
+        self.assertEqual([row[1] for row in v3], [
             'scripts/proof/native_creation_binding.py', 'scripts/proof/native_creation_binding.py',
             'scripts/proof/tests/test_native_header_footprint.py', 'scripts/proof/tests/test_native_identity_store.py'])
-        for row in rows[7:]:
-            self.assertTrue(set(row[2]) <= set(runner.NEW_FORMAT_HARNESSES[row[1]]), row)
+        self.assertEqual([row[1] for row in storeless], [
+            'scripts/proof/tests/test_native_identity_store.py',
+            'scripts/proof/tests/test_native_identity_persistence.py',
+            'scripts/proof/tests/test_native_principal_pins.py', 'scripts/proof/tests/test_native_recovery_boot.py'])
+        # The lab row holds the rehearsal, a Format.V3 run, and the generator, which constructs no
+        # store.
+        lab = [row for row in others if row not in v3 + storeless]
+        self.assertEqual([(row[1], row[2]) for row in lab],
+                         [('scripts/proof/native_lab_history.py', ('NativeWriterLabRehearsal', 'LabHistoryStore'))])
+        # No harness is both a known V3 run and code that constructs no store.
+        for harness, classes in runner.LIFECYCLE_FORMAT_HARNESSES.items():
+            self.assertFalse(set(classes) & set(runner.STORELESS_HARNESSES.get(harness, ())), harness)
         # The rollback check is the one living source under an archived label.
         self.assertEqual(runner.b1.LIVING_ROLLBACK_CHECKS, (runner.ROLLBACK_CHECK,))
         self.assertEqual([row[0] for row in runner.b1.HARNESS_LABELS if runner.ROLLBACK_CHECK in row[2]],
@@ -231,7 +261,7 @@ class LifecycleRecordSourceTests(unittest.TestCase):
                           runner.b1.label_problems())
         # The pinned step carries only the archived rollback reader label, and no living one.
         self.assertEqual(runner.STEP_LABELS['pinned'], ('rollback-reader',))
-        with mock.patch.dict(runner.STEP_LABELS, {'pinned': ('new-format',)}):
+        with mock.patch.dict(runner.STEP_LABELS, {'pinned': ('production',)}):
             self.assertTrue(runner.label_problems())
         with mock.patch.dict(runner.STEP_LABELS, {'layouts': ('rollback-reader',)}):
             self.assertTrue(runner.label_problems())
@@ -239,10 +269,18 @@ class LifecycleRecordSourceTests(unittest.TestCase):
             for step in ('reads', 'store', 'transactions', 'faults'):
                 with mock.patch.dict(runner.STEP_LABELS, {step: label}):
                     self.assertTrue(runner.label_problems())
-        # A new-format row of another harness is refused.
+        # A production row of another harness, such as a suite that runs only the earlier formats,
+        # is refused, and so is the retired label.
+        for row in (('production', 'scripts/proof/native_creation_binding.py', ('NativeCreationBindingTest',), 'x'),
+                    ('production', 'scripts/proof/native_lab_history.py', ('LabHistoryStoreTest',), 'x'),
+                    ('production', 'scripts/proof/native_counter_admission.py', ('NativeCounterAdmissionTest',), 'x')):
+            with self.subTest(row=row[1:3]), mock.patch.object(runner.b1, 'HARNESS_LABELS',
+                                                                runner.b1.HARNESS_LABELS + (row,)):
+                self.assertIn('the production label names another harness', runner.label_problems())
         with mock.patch.object(runner.b1, 'HARNESS_LABELS', runner.b1.HARNESS_LABELS + (
-                ('new-format', 'scripts/proof/native_creation_binding.py', ('NativeCreationBindingTest',), 'x'),)):
-            self.assertIn('the new-format label names another harness', runner.label_problems())
+                ('new-format', 'scripts/proof/native_creation_binding.py', ('NativeIdentityPresenceTest',), 'x'),)):
+            self.assertIn('harness label row new-format scripts/proof/native_creation_binding.py',
+                          runner.b1.label_problems())
 
     def test_golden_and_result_checks(self):
         gold = scratch(self)
@@ -259,13 +297,28 @@ class LifecycleRecordSourceTests(unittest.TestCase):
         self.assertIsNone(runner.red_names(dict(complete, complete=False), ('x', 'y')))
         self.assertIsNone(runner.red_names({'error': 'compile failure'}, ('x',)))
 
-    def test_production_never_constructs_the_lifecycle_format(self):
-        # The B1 guard's v3 rule, over the production texts this runner relies on.
+    def test_production_constructs_the_lifecycle_format_exactly_at_the_boot_site(self):
+        # The binding runner's production format rule, over the production texts this runner relies
+        # on: the one anchored boot construction passes Format.V3, and no production text names a
+        # format anywhere else.
         texts = runner.b1.production_texts()
         self.assertEqual(runner.b1.format_violations(texts), [])
         self.assertEqual(runner.b1.boot_literal(texts), runner.b1.PRODUCTION)
-        for name, text in texts.items():
-            self.assertNotRegex(runner.b1.strip_java_comments(text), r'\bFormat\s*\.\s*V3\b', name)
+        self.assertEqual(runner.b1.PRODUCTION, 'NativeIdentityStore.Format.V3')
+        named = {name: re.findall(r'\bFormat\s*\.\s*V[0-9]+\b', runner.b1.strip_java_comments(text))
+                 for name, text in texts.items()}
+        settings = runner.b1.SETTINGS_SECTION
+        self.assertEqual({name: found for name, found in named.items() if found}, {settings: ['Format.V3']})
+        boot = runner.b1.CONSTRUCTION + runner.b1.PRODUCTION + ');\n' + runner.b1.BOOT_END
+        self.assertEqual(texts[settings].count(boot), 1)
+        # The lifecycle format's runs carry the production label, and the earlier formats' runs
+        # their own.
+        self.assertEqual(runner.FORMAT_LABELS['V3'], 'production')
+        self.assertNotIn('production', (runner.FORMAT_LABELS['V1'], runner.FORMAT_LABELS['V2']))
+        # The floor's boot literal, or a second construction, breaks the rule.
+        regressed = runner.b1.guard_mutants()['regression-to-v2'][0]
+        self.assertEqual(sorted(runner.b1.format_rules(regressed)), ['format', 'v2'])
+        self.assertEqual(runner.b1.format_rules(runner.b1.guard_mutants()['second-construction'][0]), {'sites'})
 
 
 class LifecycleTransitionSourceTests(unittest.TestCase):
@@ -280,43 +333,54 @@ class LifecycleTransitionSourceTests(unittest.TestCase):
             self.assertIn('removed old flow still in its suite: %s %s' % (suite, name), runner.case_map_problems())
         with mock.patch.object(runner, 'CASE_MAP_REMOVED', ((suite, name, literal, ('no-such-layout',)),)):
             self.assertIn('removed old flow without its lifecycle layouts: %s' % name, runner.case_map_problems())
-        # Every target is a lifecycle case under the new-format label, an emitted layout, or a V3 case
-        # of a living suite of the binding runner, named with its suite.
+        # Every target is a case of the lifecycle format, chosen by its format whatever its label,
+        # an emitted layout, or a V3 case of a living suite of the binding runner, named with its
+        # suite.
         for _, _, _, targets in runner.CASE_MAP:
             for target in targets:
                 suite, _, name = target.partition(': ')
-                self.assertTrue(target in runner.LAYOUT_NAMES or runner.case_label(target) == 'new-format'
+                self.assertTrue(target in runner.LAYOUT_NAMES or runner.case_format(target) == 'V3'
                                 or (suite in ('b0 focused', 'b0 faults', 'binding faults') and name.startswith('V3 '))
                                 or (suite in runner.ARM_SUITES and name in runner.ARM_SUITES[suite][1])
                                 or target in runner.V3_STEPS,
                                 target)
-        self.assertIn('b0 focused: V3 removeReleasingSlot refused', runner.case_map_targets())
-        self.assertNotIn('b0 focused: removeReleasingSlot refused', runner.case_map_targets())
+        targets_now = runner.case_map_targets()
+        self.assertIn('b0 focused: V3 removeReleasingSlot refused', targets_now)
+        self.assertNotIn('b0 focused: removeReleasingSlot refused', targets_now)
         suite, name, literal, targets = runner.CASE_MAP[0]
         with mock.patch.object(runner, 'CASE_MAP', runner.CASE_MAP + ((suite, name, literal, targets),)):
             self.assertIn('old flow named twice in the case map: %s %s' % (suite, name), runner.case_map_problems())
         with mock.patch.object(runner, 'CASE_MAP', ((suite, name, '"no such case"', targets),)):
             self.assertIn('old flow not in its suite: %s %s' % (suite, name), runner.case_map_problems())
         with mock.patch.object(runner, 'CASE_MAP', ((suite, name, literal, ('V3 / no such case',)),)):
-            self.assertIn('case map target is no new-format case: %s -> V3 / no such case' % name,
+            self.assertIn('case map target is no lifecycle format case: %s -> V3 / no such case' % name,
                           runner.case_map_problems())
         with mock.patch.object(runner, 'CASE_MAP', ((suite, name, literal, ()),)):
             self.assertIn('case map entry without a lifecycle case: %s' % name, runner.case_map_problems())
-        # Exact shapes, new-format targets only, codec goldens only beside another target, and literals
-        # that name the flow.
+        # Exact shapes, lifecycle format targets only, codec goldens only beside another target, and
+        # literals that name the flow.
         with mock.patch.object(runner, 'CASE_MAP', ((suite, name, literal),)):
             self.assertIn('case map entry of the wrong shape: %r' % ((suite, name),), runner.case_map_problems())
         with mock.patch.object(runner, 'CASE_MAP', ((suite, name, literal, targets[0]),)):
             self.assertIn('case map entry without a lifecycle case: %s' % name, runner.case_map_problems())
         earlier = 'V1 / every lifecycle transaction refuses before any effect'
         with mock.patch.object(runner, 'CASE_MAP', ((suite, name, literal, targets + (earlier,)),)):
-            self.assertIn('case map target is no new-format case: %s -> %s' % (name, earlier),
+            self.assertIn('case map target is no lifecycle format case: %s -> %s' % (name, earlier),
                           runner.case_map_problems())
         with mock.patch.object(runner, 'CASE_MAP', ((suite, name, literal, ('golden / retiring',)),)):
             self.assertIn('case map entry with codec goldens alone: %s' % name, runner.case_map_problems())
         codec = 'one encoding / every version 1 value is refused in version 2'
         with mock.patch.object(runner, 'CASE_MAP', ((suite, name, literal, targets + (codec,)),)):
-            self.assertIn('case map target is no new-format case: %s -> %s' % (name, codec), runner.case_map_problems())
+            self.assertIn('case map target is no lifecycle format case: %s -> %s' % (name, codec),
+                          runner.case_map_problems())
+        # The targets do not follow the label: under the retired B1 labels the same cases are
+        # chosen.
+        with mock.patch.dict(runner.FORMAT_LABELS, {'V1': 'legacy', 'V2': 'production', 'V3': 'new-format'}), \
+                mock.patch.dict(runner.b1.STEP_LABELS, {'presence v3': ('new-format',)}):
+            self.assertEqual(runner.case_map_targets(), targets_now)
+        # The previous format's read cases are refusal targets, and the production format's are not.
+        self.assertIn('reads: V2 / a suspended version 2 slot', runner.refusal_targets())
+        self.assertNotIn('reads: V3 / a suspended version 2 slot', runner.refusal_targets())
         self.assertIsNotNone(runner.case_map_literal_problem(name, 'run('))
         self.assertIsNotNone(runner.case_map_literal_problem(name, '"another case"'))
         self.assertIsNone(runner.case_map_literal_problem('x / y', '"x / "'))
@@ -374,12 +438,13 @@ class LifecycleTransitionSourceTests(unittest.TestCase):
         self.assertEqual(runner.PHASES, ('candidate', 'codec', 'reads', 'dump', 'store', 'transactions', 'faults',
                                          'settings', 'manager', 'pinned', 'layouts', 'rollback', 'readers', 'mutants'))
         self.assertEqual({runner.case_label(name) for name in runner.MANAGER_NAMES},
-                         {'legacy', 'production', 'new-format'})
+                         {'legacy', 'previous', 'production'})
         self.assertEqual({runner.FORMAT_LABELS[name.split(' / ', 1)[0]] for name in runner.SETTINGS_NAMES},
-                         {'production', 'new-format'})
-        self.assertEqual({runner.case_label(name) for name in runner.FAULT_NAMES}, {'new-format'})
+                         {'previous', 'production'})
+        self.assertEqual({runner.case_label(name) for name in runner.FAULT_NAMES}, {'production'})
+        self.assertEqual({runner.case_format(name) for name in runner.FAULT_NAMES}, {'V3'})
         for names in (runner.STORE_NAMES, runner.TRANSACTION_NAMES):
-            self.assertEqual({runner.case_label(name) for name in names}, {'legacy', 'production', 'new-format'})
+            self.assertEqual({runner.case_label(name) for name in names}, {'legacy', 'previous', 'production'})
         # A case missing from its source, or a fault kind swept twice, is reported.
         with mock.patch.object(runner, 'STORE_NAMES', runner.STORE_NAMES + ('V3 / absent',)):
             self.assertIn('NativeLifecycleStoreTest case not named once in its source: V3 / absent',
@@ -420,22 +485,22 @@ class LifecycleTransitionSourceTests(unittest.TestCase):
             if harness == 'scripts/proof/native_lifecycle_record.py':
                 for name in classes:
                     labelled.setdefault(name, set()).add(label)
-        every = {'production', 'legacy', 'new-format'}
+        every = {'production', 'legacy', 'previous'}
         self.assertEqual(labelled, {runner.CODEC_TEST: {'production'}, runner.READ_TEST: every,
                                     runner.DUMP_TEST: every,
                                     runner.STORE_TEST: every, runner.TRANSACTION_TEST: every,
-                                    runner.FAULT_TEST: {'new-format'},
-                                    runner.SETTINGS_TEST: {'production', 'new-format'},
-                                    runner.MANAGER_TEST: every, runner.LAYOUTS: {'new-format'},
+                                    runner.FAULT_TEST: {'production'},
+                                    runner.SETTINGS_TEST: {'previous', 'production'},
+                                    runner.MANAGER_TEST: every, runner.LAYOUTS: {'production'},
                                     runner.ROLLBACK_CHECK: {'rollback-reader'},
-                                    runner.READER_CHECK: {'production', 'new-format'}})
+                                    runner.READER_CHECK: {'previous', 'production'}})
         # Every Settings fragment mutant changes the facade and the harness alike.
         for name, (edits, suites) in runner.MUTANTS.items():
             if any(target.startswith(runner.FRAGMENT) for target, _, _ in edits):
                 changed, harness, _ = runner.mutant_texts()[name]
                 self.assertIn(runner.FACADE, changed, name)
                 self.assertTrue(harness, name)
-        self.assertEqual(runner.STEP_LABELS['faults'], ('new-format',))
+        self.assertEqual(runner.STEP_LABELS['faults'], ('production',))
         # A defect names cases of the suites it runs, and every suite runs some defect.
         used = {suite for _, suites in runner.MUTANTS.values() for suite in suites}
         self.assertEqual(used, set(runner.SUITE_NAMES))
@@ -785,7 +850,7 @@ class LifecycleModelTests(unittest.TestCase):
         self.assertRegex(code, r'\bboot\(root, format, mapped\)')
         self.assertRegex(code, r'new NativeIdentityStore\(root\.toFile\(\), format\)')
         self.assertEqual(runner.STEP_LABELS['rollback'], ('rollback-reader',))
-        self.assertEqual(runner.STEP_LABELS['readers'], ('production', 'new-format'))
+        self.assertEqual(runner.STEP_LABELS['readers'], ('previous', 'production'))
         self.assertIn('rollback', runner.PINNED_STEPS)
 
 

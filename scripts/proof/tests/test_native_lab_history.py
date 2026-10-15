@@ -162,6 +162,8 @@ class LabHistoryRunnerTests(unittest.TestCase):
                          'rebooted.mSettings.persistence.reservePending(null);', 'Files.write(store, new byte[0]);',
                          'rebooted.mSettings.store.initializeNew("0");', 'rebooted.mSettings.mNativeIdentityLoaded = null;',
                          'Object x = NativeIdentityStore.Format.V1;',
+                         'Object x = NativeIdentityStore.Format.V2;',
+                         'Object x = NativeIdentityStore.Format . V2;',
                          'Object x = NativeIdentityStore.Format.V3;',
                          'rebooted.manager.releaseUid(null, null);',
                          'rebooted.mSettings.pins.finishRelease(null);',
@@ -577,9 +579,19 @@ class LabHistoryRunnerTests(unittest.TestCase):
     def test_rehearsal_runs_the_production_boot_format(self):
         text = (runner.LAB_DIR / 'NativeWriterLabRehearsal.java').read_text()
         self.assertEqual(runner.b1.boot_literal(), runner.b1.PRODUCTION)
+        self.assertEqual(runner.b1.PRODUCTION, 'NativeIdentityStore.Format.V3')
         self.assertEqual(runner.rehearsal_problems(text), [])
-        with mock.patch.object(runner.b1, 'boot_literal', return_value=runner.b1.RETIRED):
-            self.assertEqual(runner.rehearsal_problems(text), ['rehearsal format selection'])
+        # Its two facade boots construct the production format, and no other text names a format.
+        code = runner.b1.strip_java_comments(text)
+        self.assertEqual(code.count(runner.b1.PRODUCTION), 2)
+        self.assertEqual(re.findall(r'\bFormat\s*\.\s*V[0-9]+\b', code), ['Format.V3'] * 2)
+        # A rehearsal under either earlier format, or a boot literal naming one, is refused.
+        for earlier in (runner.b1.PREVIOUS, runner.b1.RETIRED):
+            with self.subTest(earlier=earlier):
+                self.assertEqual(runner.rehearsal_problems(text.replace(runner.b1.PRODUCTION, earlier)),
+                                 ['rehearsal format selection'])
+                with mock.patch.object(runner.b1, 'boot_literal', return_value=earlier):
+                    self.assertEqual(runner.rehearsal_problems(text), ['rehearsal format selection'])
 
     def test_source_checks_take_no_work_pinned_copies_or_evidence(self):
         directory = scratch(self)

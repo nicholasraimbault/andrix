@@ -122,7 +122,7 @@ class CreationHistorySourceTests(unittest.TestCase):
         self.assertEqual((len(runner.FOCUSED_NAMES), len(runner.FAULT_NAMES), len(runner.LAYOUT_NAMES)),
                          (87, 40, 29))
         # Six retirement origin mutants moved to the lifecycle runner, whose Format.V3 cases catch them now
-        # that these suites' retirements refuse under the production format.
+        # that these suites' retirements refuse under the earlier formats.
         self.assertEqual(len(runner.MUTANTS), 34)
 
     def test_every_focused_and_fault_case_is_named_in_its_source(self):
@@ -250,7 +250,7 @@ class CreationHistorySourceTests(unittest.TestCase):
                              files['tests/NativeHistoryParity.java'])
         rows = [row for row in runner.b1.HARNESS_LABELS if row[1] == HISTORY and 'NativeHistoryParity' in row[2]
                 and row[0] in runner.b1.LIVING_RUN_LABELS]
-        self.assertEqual([row[0] for row in rows], ['production', 'legacy'])
+        self.assertEqual([row[0] for row in rows], ['previous', 'legacy'])
         for row in rows:
             self.assertIn('pinned driver', row[3])
         self.assertEqual(files['tests/NativeHistoryHarness.java'], runner.harness_source(settings, 'b2').encode())
@@ -337,9 +337,12 @@ class CreationHistorySourceTests(unittest.TestCase):
             self.assertTrue(labels and set(labels) <= set(allowed), step)
         # The current sources' Format.V1 reads are legacy; the archived 24bfb6a parity side's are the
         # rollback reader model's, like the 24bf-v1 reader.
-        self.assertEqual(runner.STEP_LABELS['b2 focused'], ('production', 'legacy'))
-        self.assertEqual(runner.STEP_LABELS['living parity'], ('production', 'legacy'))
-        self.assertEqual(runner.STEP_LABELS['readers'], ('production', 'legacy'))
+        # The living steps run the previous and the legacy format on the current sources, none of
+        # them production since the boot read constructs Format.V3.
+        self.assertEqual(runner.STEP_LABELS['b2 focused'], ('previous', 'legacy'))
+        self.assertEqual(runner.STEP_LABELS['living parity'], ('previous', 'legacy'))
+        self.assertEqual(runner.STEP_LABELS['readers'], ('previous', 'legacy'))
+        self.assertEqual(runner.STEP_LABELS['mutants'], ('previous', 'legacy'))
         self.assertEqual(runner.STEP_LABELS['parity'], ('archived-baseline', 'rollback-reader'))
         self.assertEqual(runner.STEP_LABELS['probe'], ('archived-baseline',))
         history = {}
@@ -347,9 +350,9 @@ class CreationHistorySourceTests(unittest.TestCase):
             if harness == HISTORY:
                 for name in classes:
                     history.setdefault(name, set()).add(label)
-        self.assertEqual(history['NativeCreationHistoryTest'], {'production', 'legacy'})
-        # Every label but new-format, which only the lifecycle record runner's Format.V3 cases carry.
-        self.assertEqual(history['NativeHistoryParity'], set(runner.b1.RUN_LABELS) - {'new-format'})
+        self.assertEqual(history['NativeCreationHistoryTest'], {'previous', 'legacy'})
+        # Every label but production: the parity runs Format.V1 and Format.V2 alone.
+        self.assertEqual(history['NativeHistoryParity'], set(runner.b1.RUN_LABELS) - {'production'})
         # The label rules: each break is refused.
         for change in ({'READER_LABELS': dict(runner.READER_LABELS, **{'b2-v1': 'rollback-reader'})},
                        {'READER_LABELS': {k: v for k, v in runner.READER_LABELS.items() if k != '24bf-v1'}},
@@ -359,7 +362,7 @@ class CreationHistorySourceTests(unittest.TestCase):
                                                       (runner.ROLLBACK, runner.ROLLBACK))},
                        {'ARCHIVED_ROLLBACK_READERS': runner.ARCHIVED_ROLLBACK_READERS + (('b2-v1', None),)},
                        {'LEGACY_ROLLBACK': ((runner.ROLLBACK, runner.ROLLBACK),)},
-                       {'STEP_LABELS': dict(runner.STEP_LABELS, **{'b2 focused': ('production', 'rollback-reader')})},
+                       {'STEP_LABELS': dict(runner.STEP_LABELS, **{'b2 focused': ('previous', 'rollback-reader')})},
                        {'STEP_LABELS': dict(runner.STEP_LABELS, **{'living parity': ('rollback-reader',)})},
                        {'STEP_LABELS': dict(runner.STEP_LABELS, parity=('archived-baseline', 'production'))},
                        {'STEP_LABELS': dict(runner.STEP_LABELS, unknown=('production',))},

@@ -409,23 +409,39 @@ class CreationBindingSourceTests(unittest.TestCase):
         for label, _, classes, _ in runner.HARNESS_LABELS:
             for name in classes:
                 labels.setdefault(name, set()).add(label)
+        # The lab rehearsal constructs Format.V3, the production format; the lab store fixture reads
+        # under Format.V2 and Format.V1, and the generator constructs no store.
         self.assertEqual(labels['NativeWriterLabRehearsal'], {'production'})
+        self.assertEqual(labels['LabHistoryStoreTest'], {'previous', 'legacy'})
+        self.assertEqual(labels['LabHistoryStore'], {'production'})
+        # B1's label of the lifecycle format's runs is retired. Its runs are production, and the
+        # Format.V2 runs of the current sources, production in B1, are previous.
+        self.assertEqual(runner.RUN_LABELS,
+                         ('production', 'rollback-reader', 'archived-baseline', 'legacy', 'previous'))
+        self.assertEqual(runner.LIVING_RUN_LABELS, ('production', 'legacy', 'previous'))
+        predicted = json.loads(runner.PREDICTIONS.read_text())['b2_checkpoint_2']
+        self.assertEqual(tuple(predicted['run_labels']), runner.RUN_LABELS)
+        self.assertEqual(predicted['retired_labels'], {'new-format': 'production'})
         # The rollback checks read under Format.V1, and their discrimination controls under Format.V2,
         # each on the current sources and on archived objects.
-        everything = {'rollback-reader', 'production', 'legacy', 'archived-baseline'}
+        everything = {'rollback-reader', 'previous', 'legacy', 'archived-baseline'}
         self.assertEqual(labels['NativeRollbackReaderCheck'], everything)
         self.assertEqual(labels['NativeRollbackSeedingCheck'], everything)
         # Every Format.V1 read by the current sources is legacy: no living class is rollback-reader.
-        # Their lifecycle entry points, their own runs under Format.V3, are new-format. The version
+        # Their lifecycle entry points, their own runs under Format.V3, are production. The version
         # gate's format refusal control under Format.V2, its own entry point, and the future format's
-        # Format.V2 refusal twins are production.
-        self.assertEqual(labels['NativeIdentityFutureFormatTest'], {'legacy', 'production', 'new-format'})
-        self.assertEqual(labels['NativeIdentityVersionGateTest'], {'legacy', 'production', 'new-format'})
-        self.assertEqual(labels['NativeIdentityPresenceTest'], {'legacy', 'production', 'new-format'})
+        # Format.V2 refusal twins are previous.
+        self.assertEqual(labels['NativeIdentityFutureFormatTest'], {'legacy', 'previous', 'production'})
+        self.assertEqual(labels['NativeIdentityVersionGateTest'], {'legacy', 'previous', 'production'})
+        self.assertEqual(labels['NativeIdentityPresenceTest'], {'legacy', 'previous', 'production'})
         # Its retirement refusals have Format.V2 twins over copies of the same version 1 states.
-        self.assertEqual(labels['NativePrincipalManagerTest'], {'legacy', 'production'})
-        self.assertEqual(labels['NativeCreationBindingTest'], {'production', 'legacy'})
-        self.assertEqual(labels['NativeCreationHistoryTest'], {'production', 'legacy'})
+        self.assertEqual(labels['NativePrincipalManagerTest'], {'legacy', 'previous'})
+        self.assertEqual(labels['NativeCreationBindingTest'], {'previous', 'legacy'})
+        self.assertEqual(labels['NativeCreationHistoryTest'], {'previous', 'legacy'})
+        # The presence matrix runs one step per format: Format.V2's is previous, and Format.V3's
+        # production.
+        self.assertEqual(runner.step_labels('presence v2'), ('previous',))
+        self.assertEqual(runner.step_labels('presence v3'), ('production',))
         for label, _, classes, _ in runner.HARNESS_LABELS:
             if label == 'rollback-reader':
                 for name in classes:
@@ -438,20 +454,20 @@ class CreationBindingSourceTests(unittest.TestCase):
         self.assertEqual(labels['NativeLifecycleRollbackCheck'], {'rollback-reader'})
         self.assertIsNotNone(runner.harness_class('NativeLifecycleRollbackCheck'))
         self.assertIsNone(runner.harness_class('NativeLifecycleRollbackCheck', archived=True))
-        self.assertEqual(runner.step_labels('b1 focused'), ('production', 'legacy'))
-        self.assertEqual(runner.step_labels('mutants'), ('production', 'legacy'))
-        self.assertEqual(runner.step_labels('rollback'), ('legacy', 'production'))
+        self.assertEqual(runner.step_labels('b1 focused'), ('previous', 'legacy'))
+        self.assertEqual(runner.step_labels('mutants'), ('previous', 'legacy'))
+        self.assertEqual(runner.step_labels('rollback'), ('legacy', 'previous'))
         self.assertEqual(runner.step_labels('archived rollback'), ('rollback-reader', 'archived-baseline'))
-        self.assertEqual(runner.step_labels('readers'), ('production', 'legacy'))
+        self.assertEqual(runner.step_labels('readers'), ('previous', 'legacy'))
         self.assertEqual(runner.step_labels('archived readers'), ('archived-baseline', 'rollback-reader'))
         for name in ('NativePrincipalWriterFixtureTest', 'NativePrincipalManagerTest', 'NativeIdentityStoreTest'):
             self.assertIn('legacy', labels[name], name)
         self.assertEqual(runner.step_labels('b0 c926 focused'), ('archived-baseline',))
         self.assertEqual(runner.step_labels('b0 24bf faults'), ('archived-baseline',))
         # The refusals' format twins: b0 b1-v1 refuses again under Format.V2, and b1 faults under
-        # Format.V1, on copies of the refused states.
-        self.assertEqual(runner.step_labels('current header faults'), ('legacy', 'production', 'new-format'))
-        self.assertEqual(runner.step_labels('b1 faults'), ('production', 'legacy', 'new-format'))
+        # Format.V1, on copies of the refused states. Their V3 cases are production.
+        self.assertEqual(runner.step_labels('current header faults'), ('legacy', 'previous', 'production'))
+        self.assertEqual(runner.step_labels('b1 faults'), ('previous', 'legacy', 'production'))
         # Every step a guarded run records carries labels of its kind: archived or living.
         steps = ['store classes', 'b1 focused', 'b1 faults', 'presence v2', 'readers', 'rollback',
                  'archived readers', 'archived rollback', 'mutants',
@@ -473,7 +489,8 @@ class CreationBindingSourceTests(unittest.TestCase):
                        {'READERS': (('b1-v1', 'c926', 'b1'),)},
                        {'ARCHIVED_ROLLBACK_READERS': runner.ARCHIVED_ROLLBACK_READERS + ('b1-v1',)},
                        {'LEGACY_ROLLBACK': ('7845',)},
-                       {'STEP_LABELS': dict(runner.STEP_LABELS, **{'b1 focused': ('production', 'rollback-reader')})},
+                       {'STEP_LABELS': dict(runner.STEP_LABELS, **{'b1 focused': ('previous', 'rollback-reader')})},
+                       {'STEP_LABELS': dict(runner.STEP_LABELS, **{'b1 focused': ('new-format', 'legacy')})},
                        {'STEP_LABELS': dict(runner.STEP_LABELS, **{'archived readers': ('production',)})},
                        {'HARNESS_LABELS': runner.HARNESS_LABELS + (
                            ('rollback-reader', 'scripts/proof/native_creation_binding.py',

@@ -144,7 +144,7 @@ public final class NativeCreationHistoryFaultTest {
         }
     }
 
-    // A rebound reservation's retirement refuses under the production format before its publication:
+    // A rebound reservation's retirement refuses under Format.V2 before its publication:
     // no writer step is reached and nothing changes. The lifecycle format's sweep covers the steps.
     private static void retirementPublication() {
         for (String step : STEPS) {

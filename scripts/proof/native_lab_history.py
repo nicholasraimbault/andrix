@@ -20,8 +20,9 @@ the unfinished phases, and the run is NOT_COMPLETE. Nothing is retried.
 
 This qualifies host tools, guards and a host facade rehearsal only. It is not Android, SELinux,
 crash, storage, activation or V2 publication evidence, and it admits no Android build. The lab
-format token it once checked is retired: the normal image now constructs Format.V2 itself, and
-the production format guard of the B1 runner checks that construction.
+format token it once checked is retired: the normal image constructed Format.V2 itself from the
+version 2 normal store on, and it now constructs Format.V3, the lifecycle format. The production
+format guard of the B1 runner checks that construction, and the rehearsal constructs the same.
 """
 from pathlib import Path
 import argparse
@@ -242,8 +243,8 @@ def labels_in(text):
 
 def rehearsal_problems(text):
     """The rehearsal observes the actual writer. It injects no pin, history, issuance, hold or
-    store bytes, and constructs exactly the production format of the boot read, Format.V2, only
-    for its own facade boots."""
+    store bytes, and constructs exactly the production format of the boot read, Format.V3, only
+    for its own facade boots. It names neither earlier format."""
     code = b1.strip_java_comments(text)
     problems = ['rehearsal injects state: ' + item for item in INJECTIONS if item in code]
     members = ('suspend', 'lift', 'beginRetirement', 'confirmRetired', 'beginDisposition',
@@ -253,7 +254,7 @@ def rehearsal_problems(text):
     for member in members:
         if re.search(r'\b' + re.escape(member) + r'\s*\(|::\s*' + re.escape(member) + r'\b', code):
             problems.append('rehearsal exposes lifecycle or release: ' + member)
-    if (code.count(b1.PRODUCTION) != 2 or re.search(r'\bFormat\s*\.\s*V[13]\b', code)
+    if (code.count(b1.PRODUCTION) != 2 or re.search(r'\bFormat\s*\.\s*V[12]\b', code)
             or b1.boot_literal() != b1.PRODUCTION):
         problems.append('rehearsal format selection')
     return problems

@@ -34,7 +34,7 @@ import java.util.Set;
 
 /**
  * The lifecycle transactions of Package Manager's native identity persistence, on the actual
- * persistence and store with host file facades. Under Format.V3, which no production text
+ * persistence and store with host file facades. Under Format.V3, the format production
  * constructs: suspend with one entry per actor, a repeated suspension's confirmation with a
  * distinct result when the request differs, and the explicit refusal of a fifth grant or a seventh
  * actor while the account's user keeps its place; lift of exactly the entry its actor placed,

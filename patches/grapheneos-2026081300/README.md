@@ -35,12 +35,13 @@ runtime are separate gates.
 account identity lifetime. Use `scripts/proof/native_principal_pins.py`. The
 [implementation and limits](../../owner/platform/principal-pins.md) distinguish checked settings
 persistence and allocator fencing from the still disabled native account/factory path. Its one
-boot read constructs the version 2 store format, `Format.V2`, as the
-[version 2 normal store plan](../../plans/2026-10-02-native-store-v2-normal.md) describes. The
+boot read constructs the lifecycle store format, `Format.V3`, as B2 of the
+[lifecycle record plan](../../plans/2026-10-08-native-lifecycle-record.md) describes. The
 production format guard in `scripts/proof/native_creation_binding.py` reads every patch here per
-file section. It requires that one anchored construction and refuses `Format.V1` in any of them.
-A checkout that still holds the earlier adapted bytes, with the version 1 boot literal, is refused
-as unknown bytes. It needs a revert with the earlier tools or a reviewed manual repair.
+file section. It requires that one anchored construction and refuses the earlier formats,
+`Format.V2` and `Format.V1`, in any of them. A checkout that still holds earlier adapted bytes,
+with the `Format.V2` boot literal of B1's image or an older literal, is refused as unknown bytes.
+It needs a revert with the earlier tools or a reviewed manual repair.
 
 `native-identity-writer.*` is a separate lab test adaptation. It adds one fixed subject writer
 route to the package shell and the [test helper](../../tests/native-identity/writer/README.md).
@@ -56,8 +57,10 @@ does not enable the native execution factory. Reverse this fixture before revers
 principal companion.
 
 The earlier lab native store format token changed the boot literal to `Format.V2` in a marked lab
-image only. It is retired, because the normal image now constructs `Format.V2` itself. Its tool,
-tests, profile and patch stay in Git history and in the sealed records of the `23cede6` lab build.
+image only. It is retired: the normal image constructed `Format.V2` itself from the
+[version 2 normal store](../../plans/2026-10-02-native-store-v2-normal.md) on, and now constructs
+`Format.V3`. Its tool, tests, profile and patch stay in Git history and in the sealed records of
+the `23cede6` lab build.
 
 All framework inspectors check the complete known change set. Recognizing the companion
 requires its exact original or candidate bytes. Unknown changes, staged changes and
