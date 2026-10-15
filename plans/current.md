@@ -181,6 +181,17 @@ empty. Its reinstall was refused, and an ordinary install took exactly the next 
 image a lost mapping strands an account's UID and data safely, without restoring them. Every planned
 session of the guest stage has now run.
 
+The record's second step makes the lifecycle format the normal image's production format, so the
+boot reader constructs it. On the host, the source switch and its exact guards are in place, with a
+closed model of the first step's image pinned as the rollback floor, the common host paths covered
+under the production format, and inputs for every planned guest layout with both readers'
+predictions. The image of this step is now built. Its final code differs from the first step's
+image by that one operand, and its partitions only by the predicted build identity outputs. An
+independent assessment found no blocking issue. Its guest stage is designed and being prepared:
+each layout is read on this image, on the first step's image after an offline switch of the same
+guest, and on this image again, and a test package's keys, data and Android settings are carried
+through suspension, rollback, return and lift.
+
 The [installer durability assessment](2026-09-27-package-installer-durability.md) retains an
 unclean stop failure and a separate Android file comparison. The checked writing descriptor sync
 is now compiled into the actual Package Installer. The corrected image retained original probe
