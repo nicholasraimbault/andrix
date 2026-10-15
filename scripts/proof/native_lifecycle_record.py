@@ -37,8 +37,11 @@ B1's own reader check under Format.V2 over every layout with its swap, cross-for
 controls. The guests step generates the inputs of B2's guest stage with the guest generator and
 B1's codec, holds every byte to the independent oracle, and reads each with the production reader
 under Format.V3; the floor step reads them with the floor model under Format.V2. Each reading is
-compared with that reader's exact prediction, with swap and cross controls. No reader changes a
-byte, file or file identity of the emitted layouts or the guest inputs. It runs each deliberate
+compared with that reader's exact prediction, with swap and cross controls. Each reader then applies
+the adapted scan wrapper with its own deferral fragment, and its post scan view is compared with
+the post scan adapter's frozen predictions, beside the unadapted seeded view, which must fail
+exactly where the wrapper defers. No reader changes a byte, file or file identity of the emitted
+layouts or the guest inputs. It runs each deliberate
 defect against the suites predicted to catch it, a Settings fragment defect in the facade and the
 harness alike. It does not nest another runner.
 
@@ -67,6 +70,7 @@ import native_principal_pins as integration  # noqa: E402
 import native_creation_binding as b1  # noqa: E402
 import native_creation_history as b2  # noqa: E402
 import native_lab_history as lab  # noqa: E402
+import native_lifecycle_post_scan as post_scan  # noqa: E402
 
 PREDICTIONS = ROOT / 'scripts/proof/native_lifecycle_record_predictions.json'
 PLAN = ROOT / 'plans/2026-10-08-native-lifecycle-record.md'
@@ -2669,13 +2673,12 @@ def guest_input_problems(inputs=None, predicted=None):
     return problems
 
 
-def guest_reading(value, schema):
-    """One input's facts as a guest check reported them, in the form of its predictions. The raw
-    diagnostic is parsed by the independent observer at the reader's schema, never another, and its
-    allocator search start, which only the guest reports, is left out. Each hold reads 'app ID,
-    cached slot, pinned or unpinned, mapping kind, mapping or -', and each slot row 'app ID,
-    version, lifecycle, suspended'."""
-    rows = lab.observer().dump.parse_reservations(value['dump'], schema=schema)
+def guest_rows(text, schema):
+    """One raw diagnostic in the form of the predictions' diagnostic rows, parsed by the independent
+    observer at the reader's schema, never another, its allocator search start, which only the
+    guest reports, left out. Each hold reads 'app ID, cached slot, pinned or unpinned, mapping
+    kind, mapping or -', and each slot row 'app ID, version, lifecycle, suspended'."""
+    rows = lab.observer().dump.parse_reservations(text, schema=schema)
     if (rows['fields']['live_settings'], rows['fields']['authority']) != ('true', 'not-reported'):
         raise ValueError('a diagnostic of no live settings or with authority')
     dump = {'schema': rows['schema_version'],
@@ -2686,8 +2689,19 @@ def guest_reading(value, schema):
     if schema == 3:
         dump['slots'] = ['%d %s %s %s' % (app, slot['version'], slot['lifecycle'], slot['suspended'])
                          for app, slot in rows['slots'].items()]
+    return dump
+
+
+def guest_reading(value, schema):
+    """One input's facts as a guest check reported them, in the form of its predictions, with its
+    post scan view: the deferred names and the diagnostic after the reader's scan wrapper."""
+    post = value['post_scan']
+    if type(post) is not dict or set(post) != {'deferred', 'dump'}:
+        raise ValueError('the post scan facts of a guest reading: %s' % (sorted(post) if type(post) is dict else post))
     return {'lifecycle': value['lifecycle'], 'pin phase': value['pins'], 'deferred set': value['deferred'],
-            'scan outcome': value['scan'], 'boot facts': value['boot_facts'], 'schema 3 rows': dump}
+            'scan outcome': value['scan'], 'boot facts': value['boot_facts'],
+            'schema 3 rows': guest_rows(value['dump'], schema),
+            'post scan': {'deferred set': post['deferred'], 'schema 3 rows': guest_rows(post['dump'], schema)}}
 
 
 def guest_readings(stdout, schema):
@@ -2701,7 +2715,7 @@ def guest_readings(stdout, schema):
         if len(words) != 3 or words[1] in readings:
             raise ValueError('a guest reading line: %s' % line[:80])
         value = strict(words[2])
-        if set(value) != {'lifecycle', 'pins', 'deferred', 'scan', 'boot_facts', 'dump'}:
+        if set(value) != {'lifecycle', 'pins', 'deferred', 'scan', 'boot_facts', 'dump', 'post_scan'}:
             raise ValueError('the facts of a guest reading: %s' % sorted(value))
         readings[words[1]] = guest_reading(value, schema)
     return readings
@@ -2964,6 +2978,36 @@ def guest_controls(readings, section, reader, record, problems):
                         % (reader, other, record['cross control']))
 
 
+def guest_post_scan_mismatches(readings, predicted, reader):
+    """Each (input, check) whose post scan reading differs from its prediction for this reader, in
+    input order, and each input without a reading."""
+    found = []
+    for name in GUEST_INPUTS:
+        if name not in readings:
+            found.append((name, 'no reading'))
+            continue
+        for check in post_scan.CHECKS:
+            if readings[name]['post scan'][check] != predicted[name][reader][check]:
+                found.append((name, 'post scan ' + check))
+    return found
+
+
+def guest_post_scan(readings, section, frozen, reader, record, problems):
+    """One reader's post scan view against the frozen post scan predictions, then the unadapted
+    control: the seeded predictions taken as post scan ones fail exactly at the inputs whose view
+    the wrapper changes for this reader."""
+    record['post scan mismatches'] = guest_post_scan_mismatches(readings, frozen['reads'], reader)
+    problems += ['guest input %s: the %s %s differs from its prediction' % (name, reader, check)
+                 for name, check in record['post scan mismatches']]
+    seeded = {name: {reader: {check: section['reads'][name][reader][check] for check in post_scan.CHECKS}}
+              for name in section['reads']}
+    record['post scan unadapted control'] = mismatched_inputs(guest_post_scan_mismatches(readings, seeded, reader))
+    changed = sorted(item['input'] for item in frozen['changes'] if item['reader'] == reader)
+    if record['post scan unadapted control'] != changed:
+        problems.append('the %s post scan view against the seeded predictions failed %s, not %s'
+                        % (reader, record['post scan unadapted control'], changed))
+
+
 def guests_phase(work, predictions, settings, steps, problems):
     """Generate the guest inputs and read them with the production reader. Returns the generated
     inputs and their footprint before any read, or None."""
@@ -2990,6 +3034,7 @@ def guests_phase(work, predictions, settings, steps, problems):
     if readings is not None:
         record['readings'] = readings
         guest_controls(readings, section, 'production', record, problems)
+        guest_post_scan(readings, section, post_scan.section(predictions), 'production', record, problems)
     refused = b1.execute(build, GUEST_CHECK, [str(generated[0]), str(build / 'no-assertions'), 'V3',
                                               str(generated[1]), str(generated[2])], assertions=False, timeout=120)
     if not refused['returncode'] or '-ea' not in refused['stderr']:
@@ -2998,7 +3043,7 @@ def guests_phase(work, predictions, settings, steps, problems):
     return generated, before
 
 
-def guest_floor(work, section, files, steps, record, problems):
+def guest_floor(work, section, files, steps, record, problems, frozen=None):
     """The floor model's reads of the guest inputs: its pinned compile set and the guest check, the
     one living input, read under Format.V2 against the floor's predictions, with the swap and cross
     controls, and under Format.V3, the wrong model, whose readings must be the production reader's
@@ -3030,6 +3075,8 @@ def guest_floor(work, section, files, steps, record, problems):
     readings = guest_read(build, inputs, GUEST_FORMATS['floor'], 'run', record, problems)
     if readings is not None:
         guest_controls(readings, section, 'floor', record, problems)
+        guest_post_scan(readings, section, post_scan.section() if frozen is None else frozen, 'floor', record,
+                        problems)
     wrong = guest_read(build, inputs, GUEST_FORMATS['production'], 'wrong model', record, problems)
     if wrong is not None:
         record['wrong model']['equals production'] = wrong == production
@@ -4682,6 +4729,9 @@ def source_checks():
         problems.append('the guest inputs do not read every guest generator mode in the observer\'s order')
     problems += guest_coverage_problems()
     problems += guest_prediction_problems(guest_section(predictions))
+    # The post scan view of the guest boots: the adapter's frozen predictions over the unchanged
+    # predictions above, the sources they are bound to and the extracted wrapper control.
+    problems += ['post scan: ' + item for item in post_scan.prediction_problems(predictions)]
     lineage, app_id, other_app_id, serial = lab.GUEST_VALUES
     problems += maximum_problems(lab.lifecycle_goldens('maximum-beside-eligible', lineage, app_id, other_app_id,
                                                        serial)['slots/%d/record.bin' % other_app_id])
@@ -5202,7 +5252,8 @@ def floor_phase(work, predictions, pinned, settings, pinned_halves, emitted, ste
     if not refused['returncode'] or '-ea' not in refused['stderr']:
         problems.append('floor model ran without assertions')
     # The B2 guest inputs, through the hook: the floor's own compile set with the guest check.
-    guest_floor(work, guest_section(predictions), files, steps, record['guest_inputs'], problems)
+    guest_floor(work, guest_section(predictions), files, steps, record['guest_inputs'], problems,
+                post_scan.section(predictions))
 
 
 

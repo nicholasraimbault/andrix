@@ -7,6 +7,7 @@ import android.content.pm.Signature;
 import android.content.pm.SigningDetails;
 import android.system.Os;
 import com.android.server.LocalServices;
+import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -30,9 +31,12 @@ import java.util.TreeSet;
  * stable prefixes name; the restored pins and their phases; the deferred names; the scan outcome of
  * each mapped package, its subject check and its signer check with the subject's certificate;
  * whether each named package is protected in a boot of the same store that maps nothing; the boot
- * facts; and the candidate text's raw diagnostic. The runner compares them with its exact
- * predictions. Nothing here predicts: it reads and reports. No byte, file or time of an input
- * changes.
+ * facts; and the candidate text's raw diagnostic. Then the post scan view: the adapted scan
+ * wrapper defers a mapped package whose scanned code fails the subject or the signer check, at its
+ * absolute code path, before the scan throws. The reader's own deferral fragment applies it, and
+ * the line reports the deferred names and the candidate text's diagnostic after it. The runner
+ * compares them with its exact predictions. Nothing here predicts: it reads and reports. No byte,
+ * file or time of an input changes.
  *
  * <p>The same source compiles with the current sources, read under Format.V3, the production
  * format, and with B1's sources pinned from their Git objects, read under Format.V2, B1's boot
@@ -321,6 +325,25 @@ public final class NativeLifecycleGuestCheck {
         check(problems, withoutSearchStart(dump).equals(withoutSearchStart(pm.mSettings.nativeIdentityDumpLPr())),
                 "the facade's diagnostic differs from the candidate text's");
         reading.put("dump", dump);
+        // The scan wrapper over the same view, in its own order: the subject check, then the signer
+        // check, each failure deferring the package at the absolute path of its scanned code before
+        // the scan throws. Only the deferral fragment changes the view.
+        for (String name : packages.keySet()) {
+            PackageSetting setting = pm.mSettings.getPackageLPr(name);
+            if (!pm.mSettings.nativeScanSubjectAllowedLPr(setting)
+                    || !pm.mSettings.nativeScanBindingAllowedLPr(setting, signer)) {
+                pm.mSettings.deferNativePackage(name, new File("/data/app/" + name + "-scanned"));
+            }
+        }
+        harness.mNativeRecoveryView = pm.mSettings.mNativeRecoveryView;
+        String scanned = harness.nativeIdentityDumpLPr();
+        check(problems, withoutSearchStart(scanned).equals(withoutSearchStart(pm.mSettings.nativeIdentityDumpLPr())),
+                "the facade's post scan diagnostic differs from the candidate text's");
+        Map<String, Object> post = new TreeMap<>();
+        post.put("deferred", new ArrayList<Object>(new TreeSet<>(
+                harness.mNativeRecoveryView.deferredPackageNames())));
+        post.put("dump", scanned);
+        reading.put("post_scan", post);
         check(problems, footprint(root).equals(before), "the reads changed the store");
         System.out.println("GUEST " + input.getFileName() + " " + json(reading));
     }

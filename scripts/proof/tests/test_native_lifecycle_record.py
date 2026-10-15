@@ -1846,12 +1846,20 @@ def rendered(rows):
     return '\n'.join(lines) + '\n'
 
 
-def guest_line(name, reading):
-    """The line a guest check prints for this reading."""
+def guest_line(name, reading, post):
+    """The line a guest check prints for this reading and its post scan view."""
     value = {'lifecycle': reading['lifecycle'], 'pins': reading['pin phase'], 'deferred': reading['deferred set'],
              'scan': reading['scan outcome'], 'boot_facts': reading['boot facts'],
-             'dump': rendered(reading['schema 3 rows'])}
+             'dump': rendered(reading['schema 3 rows']),
+             'post_scan': {'deferred': post['deferred set'], 'dump': rendered(post['schema 3 rows'])}}
     return 'GUEST %s %s' % (name, json.dumps(value, separators=(',', ':')))
+
+
+def guest_stdout(reader):
+    """A guest check's output for one reader, every input at its exact and post scan predictions."""
+    reads, post = runner.guest_section()['reads'], runner.post_scan.section()['reads']
+    return '\n'.join(['PASS x'] + [guest_line(name, reads[name][reader], post[name][reader])
+                                   for name in runner.GUEST_INPUTS])
 
 
 class LifecycleGuestInputTests(unittest.TestCase):
@@ -1932,9 +1940,9 @@ class LifecycleGuestInputTests(unittest.TestCase):
 
     def test_readings_are_compared_exactly_with_their_predictions(self):
         reads = runner.guest_section()['reads']
+        post = runner.post_scan.section()['reads']
         for reader, schema in runner.GUEST_SCHEMAS.items():
-            stdout = '\n'.join(['PASS x'] + [guest_line(name, reads[name][reader]) for name in runner.GUEST_INPUTS])
-            readings = runner.guest_readings(stdout, schema)
+            readings = runner.guest_readings(guest_stdout(reader), schema)
             self.assertEqual(runner.guest_mismatches(readings, reads, reader), [])
             # Another reader's predictions fail beyond the schema exactly where predicted.
             other = 'floor' if reader == 'production' else 'production'
@@ -1958,12 +1966,56 @@ class LifecycleGuestInputTests(unittest.TestCase):
             missing = {name: value for name, value in readings.items() if name != 'reservation'}
             self.assertEqual(runner.guest_mismatches(missing, reads, reader), [('reservation', 'no reading')])
         # A diagnostic of the other schema, a repeated reading or unknown facts are refused.
-        line = guest_line('lift-v1', reads['lift-v1']['production'])
+        line = guest_line('lift-v1', reads['lift-v1']['production'], post['lift-v1']['production'])
         repeated = line.replace('"boot_facts":[]', '"boot_facts":[],"boot_facts":[]')
+        floor = guest_line('lift-v1', reads['lift-v1']['floor'], post['lift-v1']['floor'])
+        mixed = guest_line('lift-v1', reads['lift-v1']['production'], post['lift-v1']['floor'])
         for stdout, schema in ((line, 2), (line + '\n' + line, 3), (line.replace('"pins"', '"pin"'), 3),
-                               (repeated, 3), (guest_line('lift-v1', reads['lift-v1']['floor']), 3)):
+                               (repeated, 3), (floor, 3), (mixed, 3)):
             with self.subTest(stdout=stdout[:60], schema=schema), self.assertRaises(ValueError):
                 runner.guest_readings(stdout, schema)
+
+    def test_post_scan_views_are_compared_with_the_frozen_predictions(self):
+        section, frozen = runner.guest_section(), runner.post_scan.section()
+        for reader, schema in runner.GUEST_SCHEMAS.items():
+            readings = runner.guest_readings(guest_stdout(reader), schema)
+            record, problems = {}, []
+            runner.guest_post_scan(readings, section, frozen, reader, record, problems)
+            self.assertEqual(problems, [])
+            self.assertEqual(record['post scan mismatches'], [])
+            # The seeded view taken as the post scan one fails at the scanned wrong serial alone.
+            self.assertEqual(record['post scan unadapted control'], ['reservation-wrong-serial'])
+            # A reader that applied no wrapper reports its seeded view twice, and fails there.
+            unwrapped = json.loads(json.dumps(readings))
+            wrong = unwrapped['reservation-wrong-serial']
+            wrong['post scan'] = {check: wrong[check] for check in runner.post_scan.CHECKS}
+            record, problems = {}, []
+            runner.guest_post_scan(unwrapped, section, frozen, reader, record, problems)
+            self.assertEqual(record['post scan mismatches'], [('reservation-wrong-serial', 'post scan deferred set'),
+                                                              ('reservation-wrong-serial', 'post scan schema 3 rows')])
+            self.assertTrue(problems)
+            # One changed post scan fact fails its input and check alone; a missing reading is
+            # named.
+            changed = json.loads(json.dumps(readings))
+            changed['v2-slot']['post scan']['schema 3 rows']['deferred'] = []
+            self.assertEqual(runner.guest_post_scan_mismatches(changed, frozen['reads'], reader),
+                             [('v2-slot', 'post scan schema 3 rows')])
+            missing = {name: value for name, value in readings.items() if name != 'lift-v1'}
+            self.assertEqual(runner.guest_post_scan_mismatches(missing, frozen['reads'], reader),
+                             [('lift-v1', 'no reading')])
+        # A line without its post scan view, or with another post scan fact, is refused.
+        line = guest_stdout('production').splitlines()[1]
+        value = json.loads(line.split(' ', 2)[2])
+        for post in (None, {'deferred': []}, dict(value['post_scan'], extra=1), [], 'post'):
+            broken = dict(value, post_scan=post) if post is not None else {
+                key: item for key, item in value.items() if key != 'post_scan'}
+            with self.subTest(post=post), self.assertRaises(ValueError):
+                runner.guest_readings('GUEST x ' + json.dumps(broken, separators=(',', ':')), 3)
+
+    def test_the_post_scan_predictions_are_the_adapters(self):
+        self.assertEqual(runner.post_scan.prediction_problems(), [])
+        # Checkpoint 3a's guest predictions are the base, unchanged.
+        self.assertEqual(runner.post_scan.base_section(), runner.guest_section())
 
     def test_the_independent_prefix_decoder(self):
         lineage, app_id, other_app_id, serial = runner.lab.GUEST_VALUES

@@ -97,6 +97,18 @@ refuses both as unavailable evidence. A caller that relies on the deferred names
 it requires; B1 phase assessments require schema 2 through `lab_history_observe.assess_dump`, which
 does not assess schema 3.
 
+The reader step's guest phases, on either image, use `b2_dump_assess.assess_phase_dump` instead.
+It takes the image and schema from the phase plan: B2's image must render schema 3 and B1's
+schema 2, and a dump of the other schema or of version 1 is refused as wrong schema evidence. Both
+envelopes, a malformed or truncated dump and a missing capture are unavailable, never an empty
+store. The phase's prediction states all eight scalars, including the allocator's search start that
+only the guest reports, every hold in order, the exact deferred names and, on B2, every slot row;
+on B1 it has none. `expectation` turns a reading's diagnostic rows from the host predictions into
+that prediction at the guest's own app IDs, and `missing_store` gives the prediction of an absent
+store. The guest boots' rows come from the post scan adapter,
+`scripts/proof/native_lifecycle_post_scan.py`: the host readers' seeded readings with the scan
+wrapper's deferral applied, so the scanned wrong serial subject is deferred after its scan.
+
 ## Header copy reader inputs
 
 `HeaderFootprintFixture.java` generates a fresh host directory with the actual record codec:

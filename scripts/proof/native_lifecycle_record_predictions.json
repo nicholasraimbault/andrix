@@ -5570,5 +5570,1721 @@
       "first runs, and every control failed as predicted. Later edits changed only the form of a",
       "reading, its labels and runs of IDs, each checked to keep every predicted value."
     ]
+  },
+  "b2_checkpoint_3b": {
+    "status": "PREDICTED before any guest boot: the post scan view of the B2 guest boots",
+    "plan": "plans/2026-10-08-native-lifecycle-record.md, B2",
+    "post_scan": {
+      "base": {
+        "section": "b2_checkpoint_3a.guest_inputs",
+        "sha256": "0b130721dbd26d857afc1a1c1a4631735bae9694974c261dd504fffe86ded998"
+      },
+      "sources": {
+        "images": {
+          "B2": {
+            "files": [
+              {
+                "path": "patches/grapheneos-2026081300/native-principal-pins.patch",
+                "sha256": "1e3ace92192d5bca7e1cfd1b58fb863ba829d55a91dc84c8d401b3d2a0704531"
+              },
+              {
+                "path": "owner/tests/platform/native_recovery_fragments/deferral.java.inc",
+                "sha256": "ac1e3b8e4ef98fb593224673824d0942f7bb38d3b9986f0cb7d59eef0909a8dd"
+              },
+              {
+                "path": "owner/tests/platform/native_recovery_fragments/diagnostic-dump.java.inc",
+                "sha256": "17a8d470177321e79918c057a96fe6084cc9041ad124db334abda1417bd50f03"
+              },
+              {
+                "path": "owner/platform/framework/NativePrincipalRecovery.java",
+                "sha256": "e6370a2bc822c78602c97b3a04803916184095a6dc796d1360a48b47791fbda8"
+              }
+            ],
+            "wrapper_lines": {
+              "subject": 4432,
+              "binding": 4444,
+              "handler": 4241
+            }
+          },
+          "B1": {
+            "files": [
+              {
+                "path": "patches/grapheneos-2026081300/native-principal-pins.patch",
+                "sha256": "59300e3d12a59dcb33acadc104894fd4b015e9fcc14bf456a09a07aee015a04e"
+              },
+              {
+                "path": "owner/tests/platform/native_recovery_fragments/deferral.java.inc",
+                "sha256": "ac1e3b8e4ef98fb593224673824d0942f7bb38d3b9986f0cb7d59eef0909a8dd"
+              },
+              {
+                "path": "owner/tests/platform/native_recovery_fragments/diagnostic-dump.java.inc",
+                "sha256": "17a8d470177321e79918c057a96fe6084cc9041ad124db334abda1417bd50f03"
+              },
+              {
+                "path": "owner/platform/framework/NativePrincipalRecovery.java",
+                "sha256": "e6370a2bc822c78602c97b3a04803916184095a6dc796d1360a48b47791fbda8"
+              }
+            ],
+            "wrapper_lines": {
+              "subject": 4432,
+              "binding": 4444,
+              "handler": 4241
+            }
+          }
+        },
+        "candidate": {
+          "path": "services/core/java/com/android/server/pm/InstallPackageHelper.java",
+          "sha256": "b69490503c616c32190231b0234f8c1a489ab938be873a4faaf66b12956a6e9f"
+        },
+        "profile": {
+          "path": "patches/grapheneos-2026081300/native-principal-pins.json",
+          "sha256": "55afa1c42ebb0b82f87944a82ff3a7cfbb7ec248c6db3eee87bc8a606c6d8081"
+        },
+        "floor_revision": "da790b1748b14cfa7cec1db4ee44b20f608bdf5a"
+      },
+      "checks": [
+        "deferred set",
+        "schema 3 rows"
+      ],
+      "changes": [
+        {
+          "input": "reservation-wrong-serial",
+          "reader": "production",
+          "image": "B2",
+          "seeded": [],
+          "post_scan": [
+            "dev.andrix.proof.principalclosed"
+          ],
+          "added": [
+            "dev.andrix.proof.principalclosed"
+          ]
+        },
+        {
+          "input": "reservation-wrong-serial",
+          "reader": "floor",
+          "image": "B1",
+          "seeded": [],
+          "post_scan": [
+            "dev.andrix.proof.principalclosed"
+          ],
+          "added": [
+            "dev.andrix.proof.principalclosed"
+          ]
+        }
+      ],
+      "reads": {
+        "damaged-disposing-work": {
+          "production": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 DAMAGED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 not-reported not-reported not-reported"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "damaged-retired-unknown-inventory": {
+          "production": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 DAMAGED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 not-reported not-reported not-reported"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "damaged-v2-of-v1": {
+          "production": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 DAMAGED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 not-reported not-reported not-reported"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "eligible-v1": {
+          "production": {
+            "deferred set": [],
+            "schema 3 rows": {
+              "deferred": [],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 1 ELIGIBLE false"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [],
+            "schema 3 rows": {
+              "deferred": [],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "empty-v1": {
+          "production": {
+            "deferred set": [],
+            "schema 3 rows": {
+              "deferred": [],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [],
+              "schema": 3,
+              "slots": []
+            }
+          },
+          "floor": {
+            "deferred set": [],
+            "schema 3 rows": {
+              "deferred": [],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [],
+              "schema": 2
+            }
+          }
+        },
+        "legacy-continuation-interrupted": {
+          "production": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 1 RETIRING false"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "lift-v1": {
+          "production": {
+            "deferred set": [],
+            "schema 3 rows": {
+              "deferred": [],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 1 ELIGIBLE false"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [],
+            "schema 3 rows": {
+              "deferred": [],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "maximum-beside-eligible": {
+          "production": {
+            "deferred set": [],
+            "schema 3 rows": {
+              "deferred": [],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=true"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed",
+                "10149 UNSUPPORTED unpinned empty -"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 1 ELIGIBLE false",
+                "10149 not-reported not-reported not-reported"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [],
+            "schema 3 rows": {
+              "deferred": [],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=true"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed",
+                "10149 UNSUPPORTED unpinned empty -"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "mixed-lift-backup": {
+          "production": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 2 ELIGIBLE true"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "mixed-lift-conflict": {
+          "production": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 CONFLICT unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 not-reported not-reported not-reported"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "mixed-suspend-backup": {
+          "production": {
+            "deferred set": [],
+            "schema 3 rows": {
+              "deferred": [],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 1 ELIGIBLE false"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "mixed-suspend-conflict": {
+          "production": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 CONFLICT unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 not-reported not-reported not-reported"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "releasing-without-directory": {
+          "production": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 MISSING unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 not-reported not-reported not-reported"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 MISSING unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "reservation": {
+          "production": {
+            "deferred set": [],
+            "schema 3 rows": {
+              "deferred": [],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 MISSING pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 not-reported not-reported not-reported"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [],
+            "schema 3 rows": {
+              "deferred": [],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 MISSING pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "reservation-wrong-serial": {
+          "production": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 MISSING pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 not-reported not-reported not-reported"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 MISSING pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "retiring-v1": {
+          "production": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 1 RETIRING false"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "tombstone-live": {
+          "production": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 2 TOMBSTONE false"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "tombstone-releasing": {
+          "production": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 2 TOMBSTONE false"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "v2-beside-reservation": {
+          "production": {
+            "deferred set": [
+              "dev.andrix.proof.lifecycleother"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.lifecycleother"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=true"
+              ],
+              "holds": [
+                "10148 MISSING pinned package dev.andrix.proof.principalclosed",
+                "10149 VALID pinned empty -"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 not-reported not-reported not-reported",
+                "10149 2 ELIGIBLE true"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=true"
+              ],
+              "holds": [
+                "10148 MISSING unpinned package dev.andrix.proof.principalclosed",
+                "10149 UNSUPPORTED unpinned empty -"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "v2-beside-sibling": {
+          "production": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=true"
+              ],
+              "holds": [
+                "10148 CONFLICT unpinned package dev.andrix.proof.principalclosed",
+                "10149 CONFLICT unpinned empty -"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 not-reported not-reported not-reported",
+                "10149 not-reported not-reported not-reported"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=true"
+              ],
+              "holds": [
+                "10148 CONFLICT unpinned package dev.andrix.proof.principalclosed",
+                "10149 UNSUPPORTED unpinned empty -"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "v2-beside-unrelated-body": {
+          "production": {
+            "deferred set": [
+              "dev.andrix.proof.lifecycleother"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.lifecycleother"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=true"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed",
+                "10149 VALID pinned empty -"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 1 ELIGIBLE false",
+                "10149 2 ELIGIBLE true"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [],
+            "schema 3 rows": {
+              "deferred": [],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=true"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed",
+                "10149 UNSUPPORTED unpinned empty -"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "v2-disposing": {
+          "production": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 2 RETIRED false"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "v2-grant": {
+          "production": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 2 ELIGIBLE true"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "v2-legacy-suspended": {
+          "production": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 2 RETIRING true"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "v2-noted": {
+          "production": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 2 ELIGIBLE true"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "v2-recovery-hold": {
+          "production": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 2 ELIGIBLE true"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "v2-recovery-scope-2": {
+          "production": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 2 ELIGIBLE true"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "v2-recovery-scope-3": {
+          "production": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 2 ELIGIBLE true"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "v2-retired": {
+          "production": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 2 RETIRED false"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "v2-retiring": {
+          "production": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 2 RETIRING false"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "v2-scope-1": {
+          "production": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 2 ELIGIBLE true"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "v2-slot": {
+          "production": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 VALID pinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 2 ELIGIBLE true"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "v2-slot-mapping-lost": {
+          "production": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=true",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=true",
+                "unidentified_code=true"
+              ],
+              "holds": [
+                "10148 VALID pinned empty -"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 2 ELIGIBLE true"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=true"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned empty -"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "v3-prefix-broken": {
+          "production": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 not-reported not-reported not-reported"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          }
+        },
+        "v3-prefix-valid": {
+          "production": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 3,
+              "slots": [
+                "10148 not-reported not-reported not-reported"
+              ]
+            }
+          },
+          "floor": {
+            "deferred set": [
+              "dev.andrix.proof.principalclosed"
+            ],
+            "schema 3 rows": {
+              "deferred": [
+                "dev.andrix.proof.principalclosed"
+              ],
+              "fields": [
+                "counter_known=false",
+                "cached_header=VALID",
+                "cached_enumeration_complete=true",
+                "creation_ready=false",
+                "unidentified_code=false"
+              ],
+              "holds": [
+                "10148 UNSUPPORTED unpinned package dev.andrix.proof.principalclosed"
+              ],
+              "schema": 2
+            }
+          }
+        }
+      }
+    },
+    "basis": [
+      "Written from the adapted scan wrapper and its failure handler in both images' native",
+      "principal patch, the deferral fragment and the recovery view, before any reader applied",
+      "the wrapper: a scanned subject that the subject or signer check refuses is deferred at its",
+      "absolute code path, and nothing else of the view changes. Checkpoint 3a's predictions",
+      "are the base, unchanged. The adapter derives these readings from them; the extracted",
+      "wrapper control derives the same deferred sets from the source statements."
+    ]
   }
 }
