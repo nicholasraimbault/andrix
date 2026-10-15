@@ -74,7 +74,8 @@ def image(kind, release, stock=None, sha=None):
 
 
 def stable_file(release):
-    """caiman-stable as script/generate-metadata writes it: build number, timestamp, device, channel."""
+    """caiman-stable as script/generate-metadata writes it: build number, timestamp, device,
+    channel."""
     return f'{release} 1791000000 caiman stable\n'.encode()
 
 
@@ -83,7 +84,7 @@ def utc_seconds(text):
 
 
 def first(name='s1', release='2026100600', now='2026-10-09T10:00:00Z', build=None):
-    """A first session record, started from the current stable release fetched five minutes before."""
+    """A first session record, from the current stable release fetched five minutes before."""
     return vc.start_session(name, now[:10], first=True, stable=stable_file(release),
                             stable_fetched_at=later(now, -5), build_number=build or release, now=now)
 
@@ -1543,6 +1544,87 @@ class CommandLineTests(unittest.TestCase):
         with mock.patch.object(vc, 'stock_image', side_effect=AssertionError('no image check in decide')):
             status, result = self.decide('named', sha=before)
         self.assertEqual((status, result['verdict'], result['artifact']['sha256']), (0, 'ALLOW', self.digest))
+
+    def test_stock_verify_and_desk_refuse_non_regular_files_without_waiting(self):
+        self.begin(verify=False)
+        before = self.paths['session'].read_bytes()
+        fifo = Path(self.tmp.name) / 'fifo'
+        os.mkfifo(fifo)
+        paths = (fifo, Path(os.devnull), Path(self.tmp.name))
+        for command, path in itertools.product(('verify', 'desk'), paths):
+            with self.subTest(command=command, path=path.name):
+                done = threading.Event()
+                writer = threading.Thread(target=unblock_later, args=(fifo, done), daemon=True)
+                writer.start()
+                started = time.monotonic()
+                try:
+                    arguments = (['--session', str(self.paths['session']), '--record-sha256',
+                                  self.record_sha] if command == 'verify' else
+                                 ['--base-tag', '2026100600'])
+                    result = self.call(command, *self.tables(), '--image', 'stock', '--zip',
+                                       str(path), *arguments)
+                finally:
+                    done.set()
+                    writer.join(1)
+                pattern = 'Is a directory' if path.is_dir() else 'not a regular file'
+                self.refused(pattern, result)
+                self.assertLess(time.monotonic() - started, 2)
+                self.assertEqual(self.paths['session'].read_bytes(), before)
+
+    def test_scratch_reaches_both_verifiers_and_decide(self):
+        self.begin(verify=False)
+        root = Path(self.tmp.name) / 'scratch'
+        root.mkdir()
+        kit_path = kit_zip(Path(self.tmp.name) / 'kit', '2026100600', 'CP3A.261005.005',
+                           '2026100600')
+        item = image('grapheneos', '2026100600', sha=hashlib.sha256(kit_path.read_bytes()).hexdigest())
+        for kind, verifier in (('grapheneos', 'check'), ('andrix', 'andrix_identity')):
+            with self.subTest(kind=kind):
+                calls = []
+
+                def check(path, **options):
+                    calls.append((path, options.get('scratch')))
+                    return {'verdict': 'PASS', 'sha256': item.sha256, 'checks': {
+                        'release_identity': {'detail': {'build_number': '2026100600',
+                                                       'stock_build': item.stock_build}},
+                        'android_info': {'detail': item.android_info.as_dict()}}, 'firmware': {}}
+
+                def identity(path, **options):
+                    calls.append((path, options.get('scratch')))
+                    return {'sha256': item.sha256, 'base_tag': '2026100600',
+                            'stock_build': item.stock_build, 'android_info': item.android_info,
+                            'firmware': {}}
+                for command in ('verify', 'desk'):
+                    options = (['--session', str(self.paths['session']), '--record-sha256',
+                                self.record_sha] if command == 'verify' else
+                               ['--base-tag', '2026100600'])
+                    with mock.patch.object(install_zip, 'check', check), \
+                            mock.patch.object(install_zip, 'andrix_identity', identity):
+                        status, result = self.call(
+                            command, *self.tables(), '--image', kind, '--zip', str(kit_path),
+                            '--stable', 'synthetic', '--avbtool', 'synthetic', '--official-kit',
+                            str(kit_path), '--scratch', str(root), *options)
+                    # Different kinds under one digest may refuse after their verification.
+                    self.assertIn(result['verdict'], ('VERIFIED', 'PASS', 'REFUSE'))
+                self.assertTrue(calls)
+                self.assertTrue(all(Path(value) == root for _, value in calls))
+        value = session('2026081300')
+        value['verified'][item.sha256] = vc.identity_entry(item, '2026-10-09T10:01:00Z')
+        # Use the real copy and identity reader, not a forwarding stand in, for decide.
+        with mock.patch.object(vc, 'locked_record', return_value=value), \
+                mock.patch.object(vc, 'decide', return_value={'verdict': 'ALLOW'}), \
+                mock.patch.object(install_zip, 'ZipCopy', wraps=install_zip.ZipCopy) as copied:
+            taken = Path(self.tmp.name) / 'scratch-readings'
+            taken.write_bytes(samples.synthetic(samples.AUGUST, taken_at=vc.utc_now()))
+            status, result = self.call(
+                'decide', *self.tables(), '--image', 'grapheneos', '--zip', str(kit_path),
+                '--session', str(self.paths['session']), '--record-sha256', self.record_sha,
+                '--readings', str(taken), '--stage', '8', '--os-booted', 'yes',
+                '--update-pending', 'no', '--channel', 'stable', '--security-previews', 'no',
+                '--approval', str(self.paths['named']), '--scratch', str(root))
+        self.assertEqual((status, result['verdict']), (0, 'ALLOW'))
+        copied.assert_called_once_with(str(kit_path), str(root))
+        self.assertEqual(list(root.iterdir()), [])
 
     def test_a_file_that_changed_since_verify_is_refused(self):
         self.begin()

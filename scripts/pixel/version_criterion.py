@@ -647,7 +647,8 @@ class Image:
 
 
 def file_sha256(path):
-    with open(path, 'rb') as handle:
+    import install_zip
+    with install_zip.open_regular(path) as handle:
         return handle_sha256(handle)
 
 
@@ -665,7 +666,7 @@ def identity_entry(image, at):
             'wipes_data': image.wipes_data, 'at': at}
 
 
-def verified_image(session, path, kind, table):
+def verified_image(session, path, kind, table, scratch=None):
     """The identity verify kept for this file's SHA-256, checked against the records and, for a
     kit or zip, against the identity the zip states itself.
 
@@ -680,7 +681,7 @@ def verified_image(session, path, kind, table):
     if kind == 'stock':
         with install_zip.open_regular(path) as handle:
             return kept_image(session, path, kind, handle_sha256(handle), table)
-    with install_zip.ZipCopy(path) as copy:
+    with install_zip.ZipCopy(path, scratch) as copy:
         image = kept_image(session, path, kind, copy.sha256, table)
         check_own_identity(image, copy.path)
     return image
@@ -795,7 +796,8 @@ def grapheneos_kit(path, kit):
     report = install_zip.check(path, signature=kit.get('signature') or f'{path}.sig',
                                signers=kit['signers'], release=match.group(1), stable=kit['stable'],
                                security_patch=kit.get('security_patch'), record=record,
-                               avbtool=kit['avbtool'], tools=kit.get('tools'))
+                               avbtool=kit['avbtool'], tools=kit.get('tools'),
+                               scratch=kit.get('scratch'))
     if report['verdict'] != 'PASS':
         refuse(f'{name} does not pass the checks that need no phone: ' + '; '.join(report['reasons']))
     identity = report['checks']['release_identity']['detail']
@@ -815,7 +817,8 @@ def andrix_image(path, kit, table):
     verified bytes. The kit is not opened again after its check.
     """
     import install_zip
-    identity = install_zip.andrix_identity(path, avbtool=kit['avbtool'], tools=kit.get('tools'))
+    identity = install_zip.andrix_identity(path, avbtool=kit['avbtool'], tools=kit.get('tools'),
+                                            scratch=kit.get('scratch'))
     base = caiman.parse_release(identity['base_tag'], allow_preview=False, what='base tag')
     if base.base not in table.versions:
         refuse(f'no adevtool record for the Andrix base tag {base}')
@@ -1109,7 +1112,8 @@ def start(args):
 def verify(args):
     """Verifies a kit or zip once in this session and keeps its identity in the session record.
 
-    The slow checks run here, under the record's lock. decide later only hashes the file again.
+    The slow checks run here, under the record's lock. decide later hashes a zip into a private
+    copy and reads its identity again, or only hashes a stock image.
     """
     lock = lock_session(args.session)
     try:
@@ -1141,6 +1145,8 @@ def _tables(sub):
     sub.add_argument('--allowed-signers', required=True, help='the file upstream/bases pins')
     sub.add_argument('--image', required=True, choices=KINDS)
     sub.add_argument('--zip', required=True, help='the image file; its identity is read from it')
+    sub.add_argument('--scratch', help='an existing directory for private zip copies and extracted '
+                     'images; default: the system temporary directory (TMPDIR)')
 
 
 def _common(sub):
@@ -1158,6 +1164,7 @@ def _image(args, table, records):
         return stock_image(args.zip, table)
     kit = {'records': records, 'signers': args.allowed_signers, 'stable': args.stable,
            'signature': args.sig, 'avbtool': args.avbtool, 'official': args.official_kit,
+           'scratch': args.scratch,
            'tools': {'simg2img': args.simg2img, 'lpunpack': args.lpunpack}}
     if not args.stable or not args.avbtool:
         refuse('a GrapheneOS kit or an Andrix zip needs --stable and --avbtool')
@@ -1233,7 +1240,7 @@ def main(argv=None):
             base = caiman.parse_release(args.base_tag, allow_preview=False, what='base tag')
             tags = signed_tags(args.manifests, args.allowed_signers, base, image.release)
             return report(desk(image, table=table, tags=tags, base_tag=args.base_tag), None, 0)
-        image = verified_image(session, args.zip, args.image, table)
+        image = verified_image(session, args.zip, args.image, table, args.scratch)
         reference = phone_release(session)
         tags = signed_tags(args.manifests, args.allowed_signers,
                            min(known_releases(session) + [image.release], key=lambda r: int(r.base)),

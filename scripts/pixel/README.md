@@ -97,8 +97,9 @@ No identity and no session fact is typed.
 - **One read of a kit's bytes.** `install_zip.py` reads a GrapheneOS install zip, and an Andrix
   zip alike, once from its start to its end into a private copy: a new file that only the user can
   read and write, in a new directory that only the user can enter. That directory is made in the
-  scratch directory that a caller such as the neverallow gate gives, or else in the system's
-  temporary directory (`TMPDIR`), which needs room for one more zip. The SHA-256 it reports is
+  existing scratch directory selected with `--scratch` or given by a caller such as the neverallow
+  gate, or else in the system's temporary directory (`TMPDIR`). It needs room for the zip's full
+  logical size, even if the source is sparse and uses less disk space. The SHA-256 it reports is
   that of the bytes copied, hashed as they were copied. The bytes that `ssh-keygen` verifies,
   every check of the archive and the SHA-256 of the bootloader and radio images all come from that
   copy, so each concerns exactly the bytes that the SHA-256 names. A zip changed or replaced after
@@ -110,52 +111,57 @@ No identity and no session fact is typed.
   removed before the check returns, also when it refuses or fails. `PrivateDirectory` in
   `install_zip.py` makes each private directory under a random name of 128 bits. Anything that
   exists at that path already is refused and left as it is, before the path is the check's to
-  remove. After an interruption the directory is removed too: by its cleanup, or where no
-  handler can run, as entering the directory ends or while it is removed, by a backstop, a
-  `weakref.finalize`, when its `PrivateDirectory` object is dropped or at the interpreter's
-  exit. From the moment the path is the check's until a removal of it succeeded, it is in a
-  registry of owned directories, and one exit sweep, which `install_zip.py` registers with
-  `atexit`, removes at the interpreter's exit every directory still there. So a second
-  interruption that stops a backstop at its very first instruction, where no handler can take
-  it, leaves its directory to the sweep, also when it comes at the exit and stops the other
-  backstops there. Each directory has its own handler in the sweep, so an interruption or a
-  failure on one goes on to the next. A copy that cannot be removed is a refusal, or else a
-  warning of the backstop or of the exit sweep, within the limits that the next item states.
-  Only a passing report names the firmware digests. The manifest's signed tags are verified the
-  same way, against a private copy of the allowed signers bytes that were read once and checked.
+  remove. After an interruption the directory is removed too: by its cleanup, or where no handler
+  can run, as entering the directory ends or while it is removed, by a backstop, a
+  `weakref.finalize`, when its `PrivateDirectory` object is dropped or at the interpreter's exit.
+  From the moment the path is the check's until a removal of it succeeded, it is in a registry of
+  owned directories, and one exit sweep, which `install_zip.py` registers with `atexit`, removes
+  at the interpreter's exit every directory still there. So a second interruption that stops a
+  backstop at its very first instruction, where no handler can take it, leaves its directory to
+  the sweep, also when it comes at the exit and stops the other backstops there. Each directory
+  has its own handler in the sweep, so an interruption or a failure on one goes on to the next. A
+  copy that cannot be removed is a refusal, or else a warning of the backstop or of the exit
+  sweep, within the limits that the next item states. Only a passing report names the firmware
+  digests. The manifest's signed tags are verified the same way, against a private copy of the
+  allowed signers bytes that were read once and checked.
 - **What can still leave a private copy.** A process ended without Python's cleanup leaves its
   private copies behind: one killed by SIGKILL, or by a signal that Python does not handle by
-  default such as SIGTERM, or one that calls os._exit. So does an interruption at the very
-  first instruction of the exit sweep itself, or of the new start that an earlier interruption
-  gives it, which no Python handler can cover and only blocking SIGINT could close: the
-  directories that the sweep did not reach stay, unnamed, unless a backstop that runs after it
-  removes them. Every other directory that the cleanup cannot remove is named. A strict
-  removal, at the end of a with block or after a failed entry, refuses, and its refusal names
-  the directory. The backstop and the exit sweep cannot refuse: a directory that they cannot
-  remove, also when an interruption stops its removal, stays, and a warning on stderr names it.
-  At the exit, the sweep tries each directory that stays, and writes once more a warning that
-  stderr did not take, as when an interruption stopped it; only a stderr that is closed or
-  fails, or a second interruption of the same warning, loses the warning. A directory whose
-  strict removal refused stays owned, so the backstop and the exit sweep try it again: it can be
-  named in the refusal, then again in the backstop's warning and in the exit sweep's, when they
-  cannot remove it either. One case remains theoretical: another process that makes a directory
-  of the same random name after PrivateDirectory found the path free. If an interruption came
-  before the path was given up, after that check but before mkdir made the directory, or after a
-  removal ended but before the path left the registry of owned directories, while the backstop
-  and the exit sweep are still armed for it, the cleanup could remove that directory.
+  default such as SIGTERM, or one that calls os._exit. So does an interruption at the very first
+  instruction of the exit sweep itself, or of the new start that an earlier interruption gives it,
+  which no Python handler can cover and only blocking SIGINT could close: the directories that the
+  sweep did not reach stay, unnamed, unless a backstop that runs after it removes them. Every
+  other directory that the cleanup cannot remove is named. A strict removal, at the end of a with
+  block or after a failed entry, refuses, and its refusal names the directory. The backstop and
+  the exit sweep cannot refuse: a directory that they cannot remove, also when an interruption
+  stops its removal, stays, and a warning on stderr names it. At the exit, the sweep tries each
+  directory that stays, and writes once more a warning that stderr did not take, as when an
+  interruption stopped it; only a stderr that is closed or fails, or a second interruption of the
+  same warning, loses the warning. A directory whose strict removal refused stays owned, so the
+  backstop and the exit sweep try it again: it can be named in the refusal, then again in the
+  backstop's warning and in the exit sweep's, when they cannot remove it either. Even without a
+  strict refusal, both can warn of the same directory. A sweep that starts again can repeat
+  earlier warnings. An interruption after a removal succeeded but before the path left the
+  registry can warn of a directory already gone. The sweep has no bound on how often it starts
+  again after interruptions. At process exit it removes owned directories even if a daemon thread
+  still uses them. One case remains theoretical: another process that makes a directory of the
+  same random name after PrivateDirectory found the path free. If an interruption came before the
+  path was given up, after that check but before mkdir made the directory, or after a removal
+  ended but before the path left the registry of owned directories, while the backstop and the
+  exit sweep are still armed for it, the cleanup could remove that directory.
 - **The zip's own identity, read again.** For a GrapheneOS kit or an Andrix zip, `decide` also
   reads the zip's own `android-info.txt` and `vbmeta.img` again. It reads the zip once into a
-  private copy, as `install_zip.py` does, in the system's temporary directory (`TMPDIR`), which
-  needs room for one more zip. It hashes the bytes as it copies them and looks that SHA-256 up
-  in the session record. Both small reads come only from that copy, so they are the bytes whose
-  SHA-256 names the kept identity, whatever happens to the file meanwhile. The copy is removed
-  before the decision, and a copy that cannot be removed refuses. Google's image is identified
-  by its SHA-256 alone, so `decide` only hashes it. A path that is not a regular file is refused
-  without waiting, whatever the image. No signature is checked again. The release that the
-  vbmeta names, as the build number of its fingerprints or as an Andrix zip's base tag property,
-  the stock build of its fingerprints and the `android-info.txt` must equal the kept identity. So
-  an identity edited in the record is refused even when the record's SHA-256 was computed again
-  by hand.
+  private copy, as `install_zip.py` does, under `--scratch` or else in the system's temporary
+  directory (`TMPDIR`). It needs room for the zip's full logical size. It hashes the bytes as it
+  copies them and looks that SHA-256 up in the session record. Both small reads come only from
+  that copy, so they are the bytes whose SHA-256 names the kept identity, whatever happens to the
+  file meanwhile. The copy is removed before the decision, and a copy that cannot be removed
+  refuses. Google's image is identified by its SHA-256 alone, so `decide` only hashes it. A path
+  that is not a regular file is refused without waiting, whatever the image. Stock inputs to
+  `verify` and `desk` use the same regular file opener and hash to EOF without a copy. No
+  signature is checked again in `decide`. The release that the vbmeta names, as the build number
+  of its fingerprints or as an Andrix zip's base tag property, the stock build of its fingerprints
+  and the `android-info.txt` must equal the kept identity. So an identity edited in the record is
+  refused even when the record's SHA-256 was computed again by hand.
 - **An Andrix zip** must also meet four conditions:
   - Its vbmeta must verify against the workshop key whose SHA-256 `install_zip.py` records
     (`WORKSHOP_PKMD_SHA256`).
@@ -257,9 +263,15 @@ No identity and no session fact is typed.
     `desk` give `--stable` to the install zip checks, which compare the zip's release with it.
   - The patch level for the rollback index comes from `upstream/bases/TAG.json` where that
     exists.
-- **Disk space.** Rebuilding the dynamic partitions from the super splits needs several GB
-  under `TMPDIR`: the splits, the merged super image and the unpacked partitions, about three
-  times the size of super.
+- **Disk space.** `install_zip.py` and `version_criterion.py verify`, `desk` and `decide` take
+  `--scratch DIR`, an existing directory for private zip copies and extracted images. When work is
+  needed, a missing or unusable directory refuses, without falling back elsewhere. Without it they
+  use the system temporary directory (`TMPDIR`). Keep enough free space for the zip's full logical
+  size, not only its allocated blocks: copying expands sparse holes. `verify`, `desk` and the
+  neverallow gate also need space for extracted images. Rebuilding the super splits needs the
+  splits, the merged super image and unpacked partitions, about three times the size of super, as
+  well as the zip copy. Out of space is a refusal, not an incomplete successful check. Small
+  signed tag copies still use `TMPDIR`, independently of `--scratch`.
 
 ## A session, step by step
 
@@ -580,6 +592,10 @@ provenance checks `release_record`, `image`, `expanded_rule_file` and `official_
 
 **Limits.**
 
+- The gate and policy checks own their work directories through `install_zip.PrivateDirectory`,
+  including kept images and policy files. They remove them on success, refusal and failure.
+  A creation or strict cleanup failure is a named `work_directory` refusal. Backstop and exit
+  sweep behavior, including their limits and repeated notices, is the same as for zip copies.
 - No real install zip is read yet. `debugfs`, `simg2img` and `lpunpack` are not pinned in
   `install_zip.py` and the workshop key is not recorded, so the gate refuses every real zip. The
   tests stand in for `install_zip.py`'s verification and read real ext4 images with the pinned
@@ -591,7 +607,9 @@ provenance checks `release_record`, `image`, `expanded_rule_file` and `official_
 - The gate reads the partitions' policy directories, not the boot images. A
   `userdebug_plat_sepolicy.cil` in a debug ramdisk is not seen. The flash script check keeps
   debug boot images off the phone.
-- Step F compares warnings by their text, which names the undefined name but not the rule.
+- Step F compares warning text and counts, since both runs read the same rules. A warning
+  names an undefined name, not its rule. Passing reports list the rules naming each warned
+  name in `warning_rules`, including names warned of only on the official policy.
 - Step G compares expressions as text, after the generated names are expanded. It cannot see a
   change in the members of a named attribute, such as Andrix domains in `domain`, because both
   runs print the same name. Steps D and F cover the Andrix rules and the AOSP rules for that.
@@ -600,6 +618,10 @@ provenance checks `release_record`, `image`, `expanded_rule_file` and `official_
   weakened through a macro that a hunk outside those places changes in another way. It follows
   m4's quotes and comments, and counts every parenthesis outside quotes, which is stricter than
   m4, which counts them only inside a macro call.
+- The generated definition reader is not a full CIL validator. It treats line metadata as
+  comments and reads a definition inside a block or macro like a top level one. Step G always
+  runs secilc too, which refuses invalid metadata. This is not qualification of arbitrary
+  nested definition scopes.
 - The stage 1 corpus, the Andrix Cuttlefish product, cannot pass the gate, which reads only
   install zips. Corpus mode checks it without ever passing.
 
@@ -615,8 +637,9 @@ provenance checks `release_record`, `image`, `expanded_rule_file` and `official_
   - A real install zip is refused, because its dynamic partitions live only in the super
     splits.
   - Every Andrix zip is refused, until both the tools and the key are recorded.
-  - The tests use stand-ins. The tool command lines follow the tools' usage texts and were not
-    run with the real tools.
+  - Super reconstruction tests use stand ins for simg2img and lpunpack. Policy image tests
+    use the pinned tree's actual mke2fs and debugfs on synthetic ext4 images. None qualifies
+    extraction from a real install kit.
 - **The base tag property.** Andrix's release signing does not add `com.andrix.build.base_tag`
   yet (design item 6).
 - **The fetch time of caiman-stable** is the saved file's modification time, which `curl -o`
@@ -653,3 +676,7 @@ The neverallow cases of steps B and D to G need `sepolicy-analyze`, `secilc` and
 from the pinned tree's host output, through `ANDRIX_PIXEL_TREES`. The cases that read ext4
 images need `mke2fs` and `debugfs` from the same output.
 `tests/fixtures/README.md` lists where each fixture comes from.
+Valid zip variants cover archive comments, regular file links, local and complete ZIP64
+records, and more than 65535 members. The complete ZIP64 size and offset records use a
+lowered writer threshold on small fixtures, restored before reading. They are not a
+qualification of a real multi GB install kit.

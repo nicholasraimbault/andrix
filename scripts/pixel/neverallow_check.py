@@ -43,7 +43,6 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import shlex
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -1233,7 +1232,38 @@ def check_aosp_rules(tools, policy, official, rules, work):
         refuse('; '.join(problems))
     return {'rules': len(rules),
             'vendor_findings': [f'allow {s} {t}:{c} {p}' for s, t, c, p in sorted(ours & theirs)],
-            'warnings_on_both': sorted(set(our_warnings) & set(their_warnings))}
+            'warnings_on_both': sorted(set(our_warnings) & set(their_warnings)),
+            'warning_rules': warning_rules(rules, our_warnings + their_warnings)}
+
+
+# A policy identifier: a letter, then letters, digits, underscores, hyphens and, in qualified
+# names, dots (external/selinux/checkpolicy/policy_scan.l IDENTIFIER, libsepol cil_verify_name).
+_IDENTIFIER = r'[A-Za-z][A-Za-z0-9_.\-]*'
+_IDENTIFIER_RUN = re.compile(r'[A-Za-z0-9_.\-]+')
+
+
+def _identifiers(rule):
+    """The whole identifiers a rule names. A leading hyphen is the exclusion operator, never part
+    of a name, so it is dropped; any other hyphen or dot belongs to the name around it."""
+    return {token.lstrip('-') for token in _IDENTIFIER_RUN.findall(rule)}
+
+
+def warning_rules(rules, warnings):
+    """The rules naming each undefined name in a passing Step F report. These are textual
+    references, not an attribution of a warning to one rule. Both runs use the same rules.
+    Warning forms follow system/sepolicy/tools/sepolicy-analyze/neverallow.c:116,250,341.
+    Names are whole identifiers: missing-file is one name, and missing_file is not named by a
+    rule that names only missing_file-extra.
+    """
+    names = set()
+    for warning in warnings:
+        match = re.match(r'Warning!  (?:Type or attribute|Class|Permission) (%s) '
+                         r'used in neverallow undefined ' % _IDENTIFIER, warning)
+        if match:
+            names.add(match.group(1))
+    named = [(rule, _identifiers(rule)) for rule in rules]
+    return {name: [rule for rule, identifiers in named if name in identifiers]
+            for name in sorted(names)}
 
 
 _UNIT_HEAD = re.compile(r'(neverallowx?) check failed at .*')
@@ -1542,74 +1572,74 @@ def gate(zip_path, *, official_kit, release_record, expanded, variant, tools, ki
         except (Refusal, OSError, UnicodeDecodeError) as error:
             checks[name] = {'ok': False, 'reason': str(error)}
 
-    work = Path(tempfile.mkdtemp(prefix='neverallow-gate-', dir=scratch))
     try:
-        def record():
-            state['record'] = load_release_record(release_record)
-            return {'base_tag': state['record'][0], 'sha256': state['record'][1]}
+        with install_zip.PrivateDirectory('neverallow-gate-', scratch) as work:
+            def record():
+                state['record'] = load_release_record(release_record)
+                return {'base_tag': state['record'][0], 'sha256': state['record'][1]}
 
-        def image():
-            if 'record' not in state:
-                refuse('the release record did not pass, so the zip is bound to no build')
-            keep = work / 'andrix-images'
-            keep.mkdir()
-            identity = install_zip.andrix_identity(zip_path, avbtool=kit.get('avbtool'), tools=images,
-                                                   scratch=work, bases=kit.get('bases'), keep=keep)
-            tag, digests = state['record']
-            if identity['sha256'] != digests['install_zip']:
-                refuse(f'the zip hashes to {identity["sha256"]}, not the {digests["install_zip"]} '
-                       'that the release record names')
-            if identity['base_tag'] != tag:
-                refuse(f'the zip carries the signed base tag {identity["base_tag"]}, not the '
-                       f'release record\'s {tag}')
-            partitions = read_image_policy(kit.get('debugfs'), keep, work / 'andrix')
-            state['inputs'], state['tag'] = Inputs.from_directory(partitions), tag
-            return {'sha256': identity['sha256'], 'base_tag': tag}
+            def image():
+                if 'record' not in state:
+                    refuse('the release record did not pass, so the zip is bound to no build')
+                keep = work / 'andrix-images'
+                keep.mkdir()
+                identity = install_zip.andrix_identity(zip_path, avbtool=kit.get('avbtool'), tools=images,
+                                                       scratch=work, bases=kit.get('bases'), keep=keep)
+                tag, digests = state['record']
+                if identity['sha256'] != digests['install_zip']:
+                    refuse(f'the zip hashes to {identity["sha256"]}, not the {digests["install_zip"]} '
+                           'that the release record names')
+                if identity['base_tag'] != tag:
+                    refuse(f'the zip carries the signed base tag {identity["base_tag"]}, not the '
+                           f'release record\'s {tag}')
+                partitions = read_image_policy(kit.get('debugfs'), keep, work / 'andrix')
+                state['inputs'], state['tag'] = Inputs.from_directory(partitions), tag
+                return {'sha256': identity['sha256'], 'base_tag': tag}
 
-        def expanded_file():
-            if 'record' not in state:
-                refuse('the release record did not pass, so the expanded rule file is bound to '
-                       'no build')
-            # read once: the steps check the very text whose digest the record names
-            text = read_expanded(expanded)
-            digest = caiman.sha256(text.encode('utf-8'))
-            wanted = state['record'][1]['expanded_rule_file']
-            if digest != wanted:
-                refuse(f'the expanded rule file hashes to {digest}, not the {wanted} that the '
-                       'release record names')
-            state['expanded'] = text
-            return {'sha256': digest}
+            def expanded_file():
+                if 'record' not in state:
+                    refuse('the release record did not pass, so the expanded rule file is bound to '
+                           'no build')
+                # read once: the steps check the very text whose digest the record names
+                text = read_expanded(expanded)
+                digest = caiman.sha256(text.encode('utf-8'))
+                wanted = state['record'][1]['expanded_rule_file']
+                if digest != wanted:
+                    refuse(f'the expanded rule file hashes to {digest}, not the {wanted} that the '
+                           'release record names')
+                state['expanded'] = text
+                return {'sha256': digest}
 
-        def official():
-            if 'tag' not in state:
-                refuse('the zip did not pass, so its base tag is not known')
-            keep = work / 'official-images'
-            keep.mkdir()
-            report = install_zip.check(official_kit, signature=kit.get('signature') or
-                                       f'{official_kit}.sig', signers=kit.get('signers'),
-                                       release=state['tag'], stable=kit.get('stable'),
-                                       record=kit.get('record'), avbtool=kit.get('avbtool'),
-                                       tools=images, scratch=work, bases=kit.get('bases'),
-                                       keep=keep)
-            if report['verdict'] != 'PASS':
-                refuse('the official kit does not pass install_zip.py: '
-                       + '; '.join(report['reasons'][:6]))
-            partitions = read_image_policy(kit.get('debugfs'), keep, work / 'official')
-            state['official'] = Inputs.from_directory(partitions)
-            return {'sha256': report['sha256'], 'release': state['tag']}
+            def official():
+                if 'tag' not in state:
+                    refuse('the zip did not pass, so its base tag is not known')
+                keep = work / 'official-images'
+                keep.mkdir()
+                report = install_zip.check(official_kit, signature=kit.get('signature') or
+                                           f'{official_kit}.sig', signers=kit.get('signers'),
+                                           release=state['tag'], stable=kit.get('stable'),
+                                           record=kit.get('record'), avbtool=kit.get('avbtool'),
+                                           tools=images, scratch=work, bases=kit.get('bases'),
+                                           keep=keep)
+                if report['verdict'] != 'PASS':
+                    refuse('the official kit does not pass install_zip.py: '
+                           + '; '.join(report['reasons'][:6]))
+                partitions = read_image_policy(kit.get('debugfs'), keep, work / 'official')
+                state['official'] = Inputs.from_directory(partitions)
+                return {'sha256': report['sha256'], 'release': state['tag']}
 
-        run('release_record', record)
-        run('image', image)
-        run('expanded_rule_file', expanded_file)
-        run('official_kit', official)
-        if 'inputs' in state:
-            bound = state.get('expanded', Refusal(UNBOUND_EXPANDED))
-            checks.update(_checks(state['inputs'], corpus=False, expanded=expanded, variant=variant,
-                                  tools=tools, witnesses=witnesses, source_root=source_root,
-                                  base_tag=state['tag'], tree=tree, scratch=work,
-                                  official=state.get('official'), bound=bound, image=True))
-    finally:
-        shutil.rmtree(work, ignore_errors=True)
+            run('release_record', record)
+            run('image', image)
+            run('expanded_rule_file', expanded_file)
+            run('official_kit', official)
+            if 'inputs' in state:
+                bound = state.get('expanded', Refusal(UNBOUND_EXPANDED))
+                checks.update(_checks(state['inputs'], corpus=False, expanded=expanded, variant=variant,
+                                      tools=tools, witnesses=witnesses, source_root=source_root,
+                                      base_tag=state['tag'], tree=tree, scratch=work,
+                                      official=state.get('official'), bound=bound, image=True))
+    except (Refusal, OSError) as error:
+        checks['work_directory'] = {'ok': False, 'reason': str(error)}
     return _finish(checks, 'gate')
 
 
@@ -1649,101 +1679,101 @@ def _checks(inputs, *, corpus, expanded, variant, tools, witnesses, source_root,
             refuse(str(state['expanded']))
         return state['expanded']
 
-    work = Path(tempfile.mkdtemp(prefix='neverallow-', dir=scratch))
     try:
-        run('tools', lambda: {'pinned': sorted(tool_set())})
+        with install_zip.PrivateDirectory('neverallow-', scratch) as work:
+            run('tools', lambda: {'pinned': sorted(tool_set())})
 
-        def loaded():
-            if corpus:
-                return check_corpus_policy(inputs, variant, state)
-            return check_loaded_policy(inputs, variant, state)
+            def loaded():
+                if corpus:
+                    return check_corpus_policy(inputs, variant, state)
+                return check_loaded_policy(inputs, variant, state)
 
-        def owner():
-            if 'policy' not in state:
-                refuse('step A found no precompiled policy')
-            return check_owner_domains(tool_set(), state['policy'])
+            def owner():
+                if 'policy' not in state:
+                    refuse('step A found no precompiled policy')
+                return check_owner_domains(tool_set(), state['policy'])
 
-        def rules():
-            table = load_witnesses(witnesses)
-            text = expanded_text()
-            policy_dirs = owner_policy_dirs(source_root)
-            patch_dirs = patch_dirs_for(source_root, base_tag)
-            problems = []
-            detail = {'policy_dirs': policy_dirs, 'patch_dirs': patch_dirs}
-            for name, function in (
-                    ('expanded_sources', lambda: check_expanded_sources(text, policy_dirs)),
-                    ('sources', lambda: check_rule_sources(table, source_root, policy_dirs,
-                                                           patch_dirs, text, variant, corpus)),
-                    ('changes', lambda: check_rule_changes(table, source_root, policy_dirs,
-                                                           patch_dirs, tree))):
-                try:
-                    detail[name] = function()
-                except Refusal as error:
-                    problems.append(str(error))
-            if problems:
-                refuse('; '.join(problems))
-            state['table'] = table
-            return detail
+            def rules():
+                table = load_witnesses(witnesses)
+                text = expanded_text()
+                policy_dirs = owner_policy_dirs(source_root)
+                patch_dirs = patch_dirs_for(source_root, base_tag)
+                problems = []
+                detail = {'policy_dirs': policy_dirs, 'patch_dirs': patch_dirs}
+                for name, function in (
+                        ('expanded_sources', lambda: check_expanded_sources(text, policy_dirs)),
+                        ('sources', lambda: check_rule_sources(table, source_root, policy_dirs,
+                                                               patch_dirs, text, variant, corpus)),
+                        ('changes', lambda: check_rule_changes(table, source_root, policy_dirs,
+                                                               patch_dirs, tree))):
+                    try:
+                        detail[name] = function()
+                    except Refusal as error:
+                        problems.append(str(error))
+                if problems:
+                    refuse('; '.join(problems))
+                state['table'] = table
+                return detail
 
-        def on_policy():
-            if 'policy' not in state:
-                refuse('step A found no precompiled policy')
-            if 'table' not in state:
-                refuse('step C did not pass, so the rules are not known')
-            rules = [entry['expansion'][variant] for entry in state['table']['rules']]
-            detail = check_rules_on_policy(tool_set(), state['policy'], rules, work)
-            if corpus and variant == 'userdebug':
-                detail['user_rules'] = check_userdebug_exception(tool_set(), state['policy'],
-                                                                 state['table'], work)
-            return detail
+            def on_policy():
+                if 'policy' not in state:
+                    refuse('step A found no precompiled policy')
+                if 'table' not in state:
+                    refuse('step C did not pass, so the rules are not known')
+                rules = [entry['expansion'][variant] for entry in state['table']['rules']]
+                detail = check_rules_on_policy(tool_set(), state['policy'], rules, work)
+                if corpus and variant == 'userdebug':
+                    detail['user_rules'] = check_userdebug_exception(tool_set(), state['policy'],
+                                                                     state['table'], work)
+                return detail
 
-        def control():
-            if not checks.get('A_loaded_policy', {}).get('ok'):
-                refuse('step A did not pass, so the CIL files are not those of the loaded policy')
-            if 'table' not in state:
-                refuse('step C did not pass, so the witnesses are not known')
-            return check_control_and_mutants(tool_set(), inputs, state['cil_files'], state['policy'],
-                                             state['table'], variant, work)
-
-        run('A_loaded_policy', loaded)
-        run('B_owner_domains', owner)
-        run('C_rule_sources', rules)
-        run('D_rules_on_policy', on_policy)
-        run('E_control_and_mutants', control)
-
-        def official_set():
-            if official is None:
-                refuse('no official policy of the base tag was given, so nothing tells vendor '
-                       'findings from Andrix ones')
-            if 'official' not in state:
-                state['official'] = baseline_policy(official)
-            return state['official']
-
-        def aosp():
-            official_policy, _ = official_set()
-            if 'policy' not in state:
-                refuse('step A found no precompiled policy')
-            if 'table' not in state:
-                refuse('step C did not pass, so the Andrix rules cannot be told apart')
-            rules = aosp_rules(expanded_text(), state['table'], variant)
-            return check_aosp_rules(tool_set(), state['policy'], official_policy, rules, work)
-
-        def extended():
-            if corpus:
+            def control():
                 if not checks.get('A_loaded_policy', {}).get('ok'):
                     refuse('step A did not pass, so the CIL files are not those of the loaded policy')
-                return check_corpus_extended_rules(tool_set(), inputs, state['cil_files'], work)
-            _, official_files = official_set()
-            if not checks.get('A_loaded_policy', {}).get('ok'):
-                refuse('step A did not pass, so the CIL files are not those of the loaded policy')
-            return check_extended_rules(tool_set(), inputs, state['cil_files'], official,
-                                        official_files, work)
+                if 'table' not in state:
+                    refuse('step C did not pass, so the witnesses are not known')
+                return check_control_and_mutants(tool_set(), inputs, state['cil_files'], state['policy'],
+                                                 state['table'], variant, work)
 
-        if not corpus:
-            run('F_aosp_rules', aosp)
-        run('G_extended_rules', extended)
-    finally:
-        shutil.rmtree(work, ignore_errors=True)
+            run('A_loaded_policy', loaded)
+            run('B_owner_domains', owner)
+            run('C_rule_sources', rules)
+            run('D_rules_on_policy', on_policy)
+            run('E_control_and_mutants', control)
+
+            def official_set():
+                if official is None:
+                    refuse('no official policy of the base tag was given, so nothing tells vendor '
+                           'findings from Andrix ones')
+                if 'official' not in state:
+                    state['official'] = baseline_policy(official)
+                return state['official']
+
+            def aosp():
+                official_policy, _ = official_set()
+                if 'policy' not in state:
+                    refuse('step A found no precompiled policy')
+                if 'table' not in state:
+                    refuse('step C did not pass, so the Andrix rules cannot be told apart')
+                rules = aosp_rules(expanded_text(), state['table'], variant)
+                return check_aosp_rules(tool_set(), state['policy'], official_policy, rules, work)
+
+            def extended():
+                if corpus:
+                    if not checks.get('A_loaded_policy', {}).get('ok'):
+                        refuse('step A did not pass, so the CIL files are not those of the loaded policy')
+                    return check_corpus_extended_rules(tool_set(), inputs, state['cil_files'], work)
+                _, official_files = official_set()
+                if not checks.get('A_loaded_policy', {}).get('ok'):
+                    refuse('step A did not pass, so the CIL files are not those of the loaded policy')
+                return check_extended_rules(tool_set(), inputs, state['cil_files'], official,
+                                            official_files, work)
+
+            if not corpus:
+                run('F_aosp_rules', aosp)
+            run('G_extended_rules', extended)
+    except (Refusal, OSError) as error:
+        checks['work_directory'] = {'ok': False, 'reason': str(error)}
     return checks
 
 

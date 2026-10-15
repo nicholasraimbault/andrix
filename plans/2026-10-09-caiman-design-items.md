@@ -748,10 +748,12 @@ configuration without `CONFIG_MEMCG`, a command line with `cgroup_disable=memory
 - `BUILD_ID` must be the stock build
   (`vendor/adevtool/vendor-skels/google_devices/caiman/caiman.mk:6-8`). Andrix's install zip checker
   requires a caiman `release-keys` fingerprint naming one stock build, and accepts any build number
-  of a plain form in an Andrix zip (`scripts/pixel/install_zip.py:65-67`, `:600-608`).
+  of a plain form in an Andrix zip (`_ANDRIX_FINGERPRINT` and `andrix_stock_build` in
+  `scripts/pixel/install_zip.py`).
 - Stop point 1 records the build number shown in Settings. The session checker parses it as a
-  GrapheneOS release number (`scripts/pixel/version_criterion.py:297`, `:362`), which refuses
-  anything that is not ten digits (`scripts/pixel/caiman.py:50-52`).
+  GrapheneOS release number (`stable_start` and `check_stable_entry` in
+  `scripts/pixel/version_criterion.py`), which refuses anything that is not ten digits
+  (`parse_release` in `scripts/pixel/caiman.py`).
 - The setup wizard greets with "Welcome to GrapheneOS"
   (`packages/apps/SetupWizard2/res/values/strings.xml:5`).
 - GrapheneOS's FAQ, anchor `trademark`, asks derivatives that are published or redistributed to
@@ -774,7 +776,8 @@ configuration without `CONFIG_MEMCG`, a command line with `cgroup_disable=memory
     records. Settings then shows `andrix.2026100600.1 release-keys`.
   - The fingerprint becomes
     `google/andrix_caiman/caiman:17/CP3A.261005.005/andrix.2026100600.1:user/release-keys`. It
-    differs from Google's and from GrapheneOS's. It passes `scripts/pixel/install_zip.py:66-67`.
+    differs from Google's and from GrapheneOS's. It passes `_ANDRIX_FINGERPRINT` in
+    `scripts/pixel/install_zip.py`.
   - The phone then advertises no `grapheneos.version`, which is honest, because it is not that
     GrapheneOS release. This also follows GrapheneOS's branding position, since the phone's build
     identity does not present it as GrapheneOS. The setup text still names GrapheneOS, which owner
@@ -793,7 +796,7 @@ configuration without `CONFIG_MEMCG`, a command line with `cgroup_disable=memory
     GrapheneOS's branding position makes the change required before any published build.
 - **A design item for the Pixel checkers.** The session checker must learn the Andrix build number.
   On a phone that runs Andrix, stop point 1 reads a build number such as `andrix.2026100600.1`.
-  `scripts/pixel/caiman.py:50-52` refuses it today, so a session that passes it to the checker is
+  `parse_release` in `scripts/pixel/caiman.py` refuses it today, so a session that passes it is
   refused, which fails closed. The change: when the session chain records an Andrix build as the
   last image written, the checker accepts a build number of the Andrix form only if it equals that
   build's number. The phone's release stays what the chain carries, where an Andrix build counts as
@@ -880,13 +883,13 @@ configuration without `CONFIG_MEMCG`, a command line with `cgroup_disable=memory
   and boot patch levels equal the platform level
   (`vendor/adevtool/config/mk/google_devices/common/device-common.mk:7` and `:10`). Each
   partition's patch level is a vbmeta property (`build/make/core/Makefile:4887-4971`).
-- `scripts/pixel/install_zip.py` takes the base tag from the single signed
-  `com.andrix.build.base_tag` property (`:591-597`) and refuses every Andrix zip until the workshop
-  key digest is recorded (`:55`). Its Andrix reader needs an install zip: it reads `avb_pkmd.bin`,
-  `vbmeta.img`, `android-info.txt`, `flash-all.sh` and the firmware images (`:568-584`).
+- `andrix_base_tag` in `scripts/pixel/install_zip.py` takes the base tag from the single signed
+  `com.andrix.build.base_tag` property. `andrix_identity` refuses every Andrix zip until
+  `WORKSHOP_PKMD_SHA256` is recorded. It needs an install zip: it reads `avb_pkmd.bin`,
+  `vbmeta.img`, `android-info.txt`, `flash-all.sh` and the firmware images.
 - The version criterion knows three kinds of image: a GrapheneOS install zip, an Andrix install zip
-  and Google's stock image (`scripts/pixel/version_criterion.py:50`, `:1112`). An OTA is none of
-  them, so stop point 4 refuses an OTA today.
+  and Google's stock image (`KINDS` and `_image` in `scripts/pixel/version_criterion.py`).
+  An OTA is none of them, so stop point 4 refuses an OTA today.
 - An OTA for caiman writes firmware partitions as well as the OS. Beside the OS images,
   `AB_OTA_PARTITIONS` lists abl, bl1, bl2, bl31, gcf, gsa, gsa_bl1, ldfw, modem, pbl and tzsw
   (`vendor/adevtool/vendor-skels/google_devices/caiman/BoardConfig.mk:68-92`).
@@ -1013,7 +1016,7 @@ tag property. It also carries the Updater, which is one more reason it is never 
 
 **g. The workshop key digest.** The workshop key set is generated at stage 6, with the owner. The
 SHA-256 of its `avb_pkmd.bin` is recorded as `WORKSHOP_PKMD_SHA256` right then, before the gate
-runs (`scripts/pixel/install_zip.py:53-55`). Until it is recorded, every Andrix zip is refused,
+runs (`andrix_identity` in `scripts/pixel/install_zip.py`). Until then every Andrix zip is refused,
 which fails closed.
 
 ### Qualification and failing controls

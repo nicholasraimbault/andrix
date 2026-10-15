@@ -55,8 +55,8 @@ KEY_FINGERPRINT = 'SHA256:AhgHif0mei+9aNyKLfMZBh2yptHdw/aN7Tlh/j2eFwM'
 PKMD_SHA256 = 'f729cab861da1b83fdfab402fc9480758f2ae78ee0b61c1f2137dd1ab7076e86'
 # external/avb/avbtool.py in the pinned tree, GrapheneOS 2026081300
 AVBTOOL_SHA256 = '1aa6f2b462aa67aa3fdf488bee83ab517de8ad9d8228c7b45c35267ab2cf6781'
-# simg2img and lpunpack built from the pinned tree. Neither is built yet, so the rebuild of the
-# dynamic partitions refuses until their SHA-256 values are recorded here.
+# simg2img and lpunpack from the reviewed host tool set. The dynamic partition rebuild refuses
+# until their reviewed SHA-256 values are recorded here.
 SIMG2IMG_SHA256 = None
 LPUNPACK_SHA256 = None
 # debugfs reads files out of the verified ext4 images (neverallow_check.py). It is pinned with the
@@ -307,8 +307,13 @@ class PrivateDirectory:
     stopped it; only a stderr that is closed or fails, or a second interruption of the same
     warning, loses the warning. A directory whose strict removal refused stays owned, so the
     backstop and the exit sweep try it again: it can be named in the refusal, then again in the
-    backstop's warning and in the exit sweep's, when they cannot remove it either. One case
-    remains theoretical: another process that makes a directory of the same random name after
+    backstop's warning and in the exit sweep's, when they cannot remove it either. Even without
+    a strict refusal, both can warn of the same directory. A sweep that starts again can repeat
+    earlier warnings. An interruption after a removal succeeded but before the path left the
+    registry can warn of a directory already gone. The sweep has no bound on how often it starts
+    again after interruptions. At process exit it removes owned directories even if a daemon
+    thread still uses them. One case remains theoretical: another process that makes a directory
+    of the same random name after
     PrivateDirectory found the path free. If an interruption came before the path was given up,
     after that check but before mkdir made the directory, or after a removal ended but before the
     path left the registry of owned directories, while the backstop and the exit sweep are still
@@ -637,7 +642,7 @@ def _pinned_tool(tools, name, pinned):
     if not path:
         refuse(f'rebuilding the dynamic partitions needs the pinned {name}')
     if pinned is None:
-        refuse(f'{name} is not built and pinned yet, so the dynamic partitions cannot be rebuilt')
+        refuse(f'{name} is not reviewed and pinned yet, so the dynamic partitions cannot be rebuilt')
     if caiman.sha256(Path(path).read_bytes()) != pinned:
         refuse(f'{path} is not the pinned {name}')
     return str(path)
@@ -1007,6 +1012,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     parser.add_argument('--zip', required=True, help='caiman-install-RELEASE.zip')
     parser.add_argument('--sig', help='its signature; default ZIP.sig')
+    parser.add_argument('--scratch', help='an existing directory for private copies and extracted '
+                        'images; default: the system temporary directory (TMPDIR)')
     parser.add_argument('--allowed-signers', required=True)
     parser.add_argument('--release', required=True, help='the expected release')
     parser.add_argument('--stable', required=True, help='caiman-stable, as read at this moment')
@@ -1026,7 +1033,8 @@ def main(argv=None):
         report = check(args.zip, signature=args.sig or args.zip + '.sig',
                        signers=args.allowed_signers, release=args.release, stable=args.stable,
                        security_patch=args.security_patch, record=record, avbtool=args.avbtool,
-                       tools={'simg2img': args.simg2img, 'lpunpack': args.lpunpack})
+                       tools={'simg2img': args.simg2img, 'lpunpack': args.lpunpack},
+                       scratch=args.scratch)
     except Refusal as error:    # the zip's private copy could not be removed
         report = {'verdict': 'REFUSE', 'reasons': [str(error)], 'checks': {}}
     sys.stdout.write(caiman.dump(report))

@@ -443,14 +443,14 @@ def copied_by(copier, kit, path, root):
 
 
 # The members that a valid variant of a zip holds beyond the zip's own (valid_variants): enough
-# that a cap on their number would show, few enough to stay cheap.
-MORE_MEMBERS = 10000
+# to cross the real ZIP64 member count boundary, without large members.
+MORE_MEMBERS = 65536
 
 
 def valid_variants(make, plain):
-    """Three valid zips that differ from the zip at plain only where a valid zip may: an archive
-    comment, MORE_MEMBERS more members, and a path that is a link. make takes Kit.zip's comment
-    and entries, and writes the zip as it wrote plain but with them. The link has plain's name
+    """Valid zips that differ from the zip at plain only where a valid zip may: an archive
+    comment, MORE_MEMBERS more members, ZIP64 records, and a path that is a link. make takes
+    Kit.zip's options and writes the zip as it wrote plain but with them. The link has plain's name
     and names a regular file of plain's bytes with another name, in another directory. Beside
     it, a link of the signature's name names plain's signature, if plain has one. Each variant's
     path by what it varies."""
@@ -464,6 +464,8 @@ def valid_variants(make, plain):
         Path(f'{link}.sig').symlink_to(f'{plain}.sig')
     return {'an archive comment': make(comment=b'an archive comment, signed with the zip'),
             'more members': make(entries=entries),
+            'ZIP64 local headers': make(zip64='local'),
+            'ZIP64 central and end records': make(zip64='full'),
             'a link to a zip of another name': link}
 
 
@@ -1222,7 +1224,7 @@ class Kit:
         return (self.work / 'vbmeta.img').read_bytes()
 
     def zip(self, release=RELEASE, name=None, prefix=None, sign=True, namespace='factory images',
-            entries=(), comment=b'', **changes):
+            entries=(), comment=b'', zip64=None, **changes):
         self.count += 1
         folder = self.work / f'zip{self.count}'
         folder.mkdir()
@@ -1235,10 +1237,18 @@ class Kit:
                 members[member] = data
         path = folder / (name or f'caiman-install-{release}.zip')
         prefix = prefix if prefix is not None else f'caiman-install-{release}/'
-        with zipfile.ZipFile(path, 'w') as archive, warnings.catch_warnings():
+        with contextlib.ExitStack() as stack:
+            if zip64 == 'full':
+                stack.enter_context(mock.patch.object(zipfile, 'ZIP64_LIMIT', 0))
+            archive = stack.enter_context(zipfile.ZipFile(path, 'w'))
+            stack.enter_context(warnings.catch_warnings())
             warnings.simplefilter('ignore')   # a duplicate entry is one of the controls
             for member, data in members.items():
-                archive.writestr(prefix + member, data)
+                if zip64:
+                    with archive.open(prefix + member, 'w', force_zip64=True) as handle:
+                        handle.write(data)
+                else:
+                    archive.writestr(prefix + member, data)
             for info, data in entries:
                 archive.writestr(info, data)
             archive.comment = comment   # the archive's own, written before the zip is signed
@@ -2268,7 +2278,7 @@ class ChecksWithoutVbmetaTests(unittest.TestCase):
         path.unlink()
 
     def test_valid_variants_of_a_zip_are_checked_as_the_plain_zip(self):
-        # A zip with an archive comment, one with MORE_MEMBERS more members, and a link under the
+        # Zips with an archive comment, MORE_MEMBERS more members, ZIP64 records, and a link under
         # zip's name to a regular zip of another name (valid_variants). check reports each as it
         # reports the plain zip, on the SHA-256 of its bytes, and ZipCopy's copy has that digest.
         # andrix_identity and decide refuse each where they refuse the plain zip, once its
@@ -2288,6 +2298,17 @@ class ChecksWithoutVbmetaTests(unittest.TestCase):
         variants = valid_variants(kit.zip, plain)
         with zipfile.ZipFile(variants['an archive comment']) as archive:
             self.assertTrue(archive.comment)
+        for variant in ('more members', 'ZIP64 central and end records'):
+            data = variants[variant].read_bytes()
+            self.assertIn(zipfile.stringEndArchive64, data)
+            self.assertIn(zipfile.stringEndArchive64Locator, data)
+        with zipfile.ZipFile(variants['more members']) as archive:
+            self.assertGreater(len(archive.infolist()), zipfile.ZIP_FILECOUNT_LIMIT)
+        local = variants['ZIP64 local headers'].read_bytes()
+        self.assertEqual(local[18:26], b'\xff' * 8)
+        with zipfile.ZipFile(variants['ZIP64 central and end records']) as archive:
+            self.assertTrue(all(info.extra.startswith(b'\x01\x00')
+                                for info in archive.infolist()))
         link = variants['a link to a zip of another name']
         self.assertTrue(link.is_symlink() and link.resolve().is_file())
         self.assertNotEqual(link.resolve().name, link.name)
@@ -2301,6 +2322,13 @@ class ChecksWithoutVbmetaTests(unittest.TestCase):
                     result = outcome(lambda: copied_by(copier, kit, path, root))
                     self.assertEqual((type(result), str(result)), (Refusal, refusal))
                 self.assertEqual(list(root.iterdir()), [])
+
+
+class OpenFlagsTests(unittest.TestCase):
+    def test_the_opener_cannot_wait_or_take_a_controlling_terminal(self):
+        with mock.patch.object(iz.os, 'open', return_value=123) as opened:
+            self.assertEqual(iz._without_waiting('synthetic', os.O_RDONLY), 123)
+        opened.assert_called_once_with('synthetic', os.O_RDONLY | os.O_NONBLOCK | os.O_NOCTTY)
 
 
 class FailingCopy(iz.ZipCopy):
@@ -2828,7 +2856,7 @@ class FullKitTests(unittest.TestCase):
         self.assertEqual(report['checks']['vbmeta']['detail']['kernel_cmdline_descriptors'], 1)
 
     def fake_tools(self, system, b_copy=b'', extra=None, fail=False):
-        """Synthetic stand-ins for simg2img and lpunpack; neither real tool is built yet."""
+        """Synthetic stand ins for simg2img and lpunpack, whose reviewed pins are unset."""
         directory = Path(tempfile.mkdtemp(dir=self.kit.work))
         prepared = directory / 'system-prepared.img'
         prepared.write_bytes(system)
@@ -2853,7 +2881,7 @@ class FullKitTests(unittest.TestCase):
         system = kit.image('system', size=16384, kind='hashtree')
         vbmeta = kit.vbmeta(include=STATIC + ('system',))
         self.refused(kit.zip(vbmeta__img=vbmeta), 'vbmeta', 'needs the pinned simg2img')
-        self.refused(kit.zip(vbmeta__img=vbmeta), 'vbmeta', 'simg2img is not built and pinned yet',
+        self.refused(kit.zip(vbmeta__img=vbmeta), 'vbmeta', 'simg2img is not reviewed and pinned yet',
                      tools=self.fake_tools(system))
         self.assertEqual(kit.check(kit.zip(vbmeta__img=vbmeta, system__img=system))['verdict'], 'PASS')
 
@@ -3510,6 +3538,43 @@ class CommandLineTests(unittest.TestCase):
             report = json.loads(output.getvalue())
             self.assertEqual((status, report['verdict']), (1, 'REFUSE'))
             self.assertTrue(report['checks']['signature']['ok'])
+
+    def test_the_command_line_places_private_copies_in_scratch(self):
+        with tempfile.TemporaryDirectory() as work:
+            kit = Kit(work, avb=False)
+            path = kit.zip()
+            record = Path(work) / 'record.json'
+            record.write_text(json.dumps(RECORD))
+            root = Path(work) / 'scratch'
+            root.mkdir()
+            made, mkdir = [], os.mkdir
+
+            def recording(directory, *args, **kwargs):
+                made.append(Path(directory))
+                return mkdir(directory, *args, **kwargs)
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output), \
+                    mock.patch.object(iz, 'KEY_FINGERPRINT', kit.fingerprint), \
+                    mock.patch.object(iz, 'BASES', kit.bases), \
+                    mock.patch.object(iz.os, 'mkdir', recording):
+                status = iz.main(['--zip', str(path), '--allowed-signers', str(kit.signers),
+                                  '--release', RELEASE, '--stable', str(kit.stable),
+                                  '--record', str(record), '--avbtool', 'unused',
+                                  '--scratch', str(root)])
+            report = json.loads(output.getvalue())
+            self.assertEqual((status, report['verdict']), (1, 'REFUSE'))
+            self.assertTrue(report['checks']['signature']['ok'])
+            self.assertEqual({item.name.split('-')[0] for item in made}, {'zip', 'signature'})
+            self.assertTrue(all(item.parent == root for item in made))
+            self.assertEqual(list(root.iterdir()), [])
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output), mock.patch.object(iz, 'BASES', kit.bases):
+                status = iz.main(['--zip', str(path), '--allowed-signers', str(kit.signers),
+                                  '--release', RELEASE, '--stable', str(kit.stable),
+                                  '--record', str(record), '--avbtool', 'unused',
+                                  '--scratch', str(root / 'absent')])
+            self.assertEqual((status, json.loads(output.getvalue())['verdict']), (1, 'REFUSE'))
+            self.assertEqual(list(root.iterdir()), [])
 
     def test_a_copy_that_cannot_be_removed_is_a_refusal(self):
         # check raises Refusal only when the zip's private copy cannot be removed

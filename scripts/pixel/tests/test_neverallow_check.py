@@ -16,6 +16,8 @@ upstream domain.te of each named tree.
 import contextlib
 import copy
 import difflib
+import gc
+import itertools
 import hashlib
 import io
 import json
@@ -1526,6 +1528,136 @@ class ProvenanceTests(Work):
                          'debugfs is not pinned yet, so no file of an install zip is read')
         with self.assertRaisesRegex(Refusal, 'the release record cannot be read'):
             nc.load_release_record(self.work / 'none.json')
+
+    def test_step_f_lists_rules_naming_each_warned_name(self):
+        rules = ['neverallow shell missing_file:file read;',
+                 'neverallow missing_file kernel:process transition;',
+                 'neverallow shell missing_file_extra:file read;',
+                 'neverallow shell kernel:missing_class read;',
+                 'neverallow shell kernel:file missing_permission;']
+        warnings = ['Warning!  Type or attribute missing_file used in neverallow undefined in '
+                    'policy being checked.',
+                    'Warning!  Class missing_class used in neverallow undefined in policy being '
+                    'checked.',
+                    'Warning!  Permission missing_permission used in neverallow undefined in '
+                    'class file in policy being checked.']
+        result = lambda lines: {'status': 0, 'stdout': '', 'stderr': '', 'violations': [],
+                                'warnings': lines}
+        with mock.patch.object(nc, 'analyze', side_effect=[result(warnings), result(warnings)]):
+            detail = nc.check_aosp_rules({}, 'ours', 'theirs', rules, self.work)
+        self.assertEqual(detail['warning_rules'], {'missing_file': rules[:2],
+                                                  'missing_class': [rules[3]],
+                                                  'missing_permission': [rules[4]]})
+        # Warnings only on the official side remain visible without refusing, and a new warning
+        # on our side is still refused. No name is hidden by a longer token containing it.
+        with mock.patch.object(nc, 'analyze', side_effect=[result([]), result(warnings)]):
+            official = nc.check_aosp_rules({}, 'ours', 'theirs', rules, self.work)
+        self.assertEqual(official['warning_rules'], detail['warning_rules'])
+        with mock.patch.object(nc, 'analyze', side_effect=[result(warnings), result([])]), \
+                self.assertRaisesRegex(Refusal, 'warnings the official policy does not give'):
+            nc.check_aosp_rules({}, 'ours', 'theirs', rules, self.work)
+
+    def test_step_f_warning_names_are_whole_identifiers(self):
+        # Policy identifiers may hold hyphens and, qualified, dots; a leading hyphen in a rule is
+        # the exclusion operator. A name matches only a whole identifier.
+        rules = ['neverallow shell missing_file:file read;',
+                 'neverallow shell missing_file-extra:file read;',
+                 'neverallow shell missing-file:file read;',
+                 'neverallow { domain -missing-file } kernel:file read;',
+                 'neverallow shell missing.qualified:file read;',
+                 'neverallow shell missing:file read;']
+        warning = ('Warning!  Type or attribute %s used in neverallow undefined in policy being '
+                   'checked.')
+        names = ['missing_file', 'missing-file', 'missing_file-extra', 'missing.qualified', 'missing']
+        self.assertEqual(nc.warning_rules(rules, [warning % name for name in names]),
+                         {'missing_file': [rules[0]], 'missing_file-extra': [rules[1]],
+                          'missing-file': rules[2:4], 'missing.qualified': [rules[4]],
+                          'missing': [rules[5]]})
+        # A warning only on the official side keeps its hyphenated name in the passing report.
+        result = lambda lines: {'status': 0, 'stdout': '', 'stderr': '', 'violations': [],
+                                'warnings': lines}
+        official_only = [result([]), result([warning % 'missing-file'])]
+        with mock.patch.object(nc, 'analyze', side_effect=official_only):
+            detail = nc.check_aosp_rules({}, 'ours', 'theirs', rules, self.work)
+        self.assertEqual(detail['warning_rules'], {'missing-file': rules[2:4]})
+
+    def test_own_work_directories_are_private_and_removed(self):
+        made, mkdir = [], os.mkdir
+
+        def recording(path, mode=0o777, *args, **kwargs):
+            if Path(path).name.startswith(('neverallow-', 'neverallow-gate-')):
+                made.append((Path(path), mode))
+            return mkdir(path, mode, *args, **kwargs)
+        with mock.patch.object(os, 'mkdir', recording):
+            self.gate()
+        self.assertTrue(any(path.name.startswith('neverallow-gate-') for path, _ in made))
+        self.assertTrue(any(path.name.startswith('neverallow-') and
+                            not path.name.startswith('neverallow-gate-') for path, _ in made))
+        self.assertTrue(all(mode == 0o700 and not path.exists() for path, mode in made))
+
+    def test_own_cleanup_failures_refuse_and_name_the_directory(self):
+        real = shutil.rmtree
+        for prefix, failure in itertools.product(
+                ('neverallow-gate-', 'neverallow-'),
+                (PermissionError(13, 'synthetic removal error'),
+                 OSError(5, 'synthetic removal error'))):
+            with self.subTest(prefix=prefix, failure=type(failure).__name__):
+                left = []
+
+                def failing(path, *args, **kwargs):
+                    name = Path(path).name
+                    matches = name.startswith(prefix) and (prefix != 'neverallow-' or
+                                                           not name.startswith('neverallow-gate-'))
+                    if matches:
+                        left.append(Path(path))
+                        if kwargs.get('ignore_errors'):
+                            return None
+                        raise failure
+                    return real(path, *args, **kwargs)
+                with mock.patch.object(shutil, 'rmtree', failing), \
+                        contextlib.redirect_stderr(io.StringIO()):
+                    report = self.gate()
+                self.assertTrue(left)
+                self.assertEqual(report['verdict'], 'REFUSE')
+                self.assertTrue(any(str(left[0]) in reason and 'could not be removed' in reason
+                                    for reason in report['reasons']), report['reasons'])
+                # Drop the synthetic failure before retrying the same shared cleanup mechanism.
+                nc.install_zip.sweep_at_exit()
+                self.assertTrue(all(not path.exists() for path in left))
+
+    def test_an_interruption_cleans_own_work_directories(self):
+        made = []
+
+        def interrupted(path):
+            made.extend(self.work.glob('neverallow-gate-*'))
+            raise KeyboardInterrupt
+        with mock.patch.object(nc, 'load_release_record', interrupted), \
+                self.assertRaises(KeyboardInterrupt):
+            self.gate()
+        self.assertEqual(len(made), 1)
+        self.assertFalse(made[0].exists())
+
+    def test_own_work_has_cleanup_ownership_at_entry_and_exit(self):
+        import test_install_zip as copies
+        for prefix, boundary in itertools.product(
+                ('neverallow-gate-', 'neverallow-'),
+                ('the return of __enter__', 'the start of __exit__')):
+            with self.subTest(prefix=prefix, boundary=boundary):
+                with copies.at_boundary(boundary, prefix, copies.interrupt) as reached, \
+                        copies.default_interruptions(), self.assertRaises(KeyboardInterrupt):
+                    self.gate()
+                gc.collect()
+                self.assertEqual(reached, [boundary])
+                self.assertEqual(list(self.work.glob('neverallow-gate-*')), [])
+                nc.install_zip.sweep_at_exit()
+
+    def test_an_unusable_scratch_directory_is_a_named_refusal(self):
+        path = self.work / 'not-a-directory'
+        path.write_bytes(b'synthetic')
+        report = nc.check(nc.Inputs({}, True), expanded='x', variant='user', tools={},
+                          base_tag='2026081300', scratch=path)
+        self.assertEqual(report['verdict'], 'REFUSE')
+        self.assertIn(str(path), report['reasons'][0])
 
     def test_each_mode_takes_only_its_own_inputs(self):
         common = {'expanded': 'x', 'variant': 'user', 'sepolicy-analyze': 'x', 'secilc': 'x',
