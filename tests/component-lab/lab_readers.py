@@ -30,8 +30,11 @@ user's full health composition and the whole global session inventory. They retu
 projections, not observation facts: the broker records the raw captures, checks each projection's
 form and joins, and builds every fact itself. The full user readers (full_users.py) read the typed
 inventory from the whole user forms, and with it the user limits and each user's genuine main
-SystemUI process; `ObserverAdapter` admits them when it is given `users=True`. The parsers of the
-other guest forms are later packages, so `ObserverAdapter` admits none of them."""
+SystemUI process; `ObserverAdapter` admits them when it is given `users=True`. The health package
+reads a user's baseline (health_baseline.BaselineReader) and full composition
+(health_compose.Composer) through the same run function; `ObserverAdapter` admits them when it
+is given both, beside the full user readers. The notice fixture's provider rows and the global
+session inventory are later packages, so `ObserverAdapter` admits neither."""
 import hashlib
 
 import lab_target
@@ -129,14 +132,17 @@ class ReaderAdapter:
         raise NotImplementedError
 
     def health_baseline(self, context):
-        """One user's health baseline: {'user', 'serial', 'facts'}. Called only when
-        `health_admitted`."""
+        """One user's health baseline: {'user', 'serial', 'facts'}, the facts of the exact form
+        health_records.baseline_facts_problem checks. Called only when `health_admitted`."""
         raise NotImplementedError
 
     def health_composition(self, context):
         """One user's full probe from fresh reads: {'user', 'serial', 'rows', 'witness'}, with seven
         rows in bit order, each its status, reason, the positions of the commands it judged, and the
-        preparation or baseline it used. Called only when `health_admitted`."""
+        preparation or baseline it used. The context names the ticket, plan, user, serial, window,
+        the offered preparations and their results, the baseline relied on, the pinned active
+        APK, the serial's expected identity and the CE nonce origin. Called only when
+        `health_admitted`."""
         raise NotImplementedError
 
     # Whether the whole global session inventory is admitted. Confirmations and direct controls
@@ -169,8 +175,10 @@ class ReaderAdapter:
         raise NotImplementedError
 
     def rederive(self, name, captures, inventory=None):
-        """The typed reading a group's recorded captures give when read again, for a reopening's
-        check, or NotImplemented when this reader cannot read them again."""
+        """What a group's recorded captures give when read again, for a reopening's check: a typed
+        reading, or for the factory and active reads their facts, whose observation IDs and wall
+        times are not the recorded ones. `captures` are (command, exit status or None, stdout,
+        stderr) in order. NotImplemented when this reader cannot read them again."""
         return NotImplemented
 
 
@@ -179,7 +187,7 @@ class ObserverAdapter(ReaderAdapter):
     `checkpoint` a callable that reads the checkpoint through the observer, or None."""
 
     def __init__(self, observer, installation, component, checkpoint=None, checkpoint_allowed=None,
-                 new_id=None, wall=None, target=False, users=False):
+                 new_id=None, wall=None, target=False, users=False, composer=None, baseline=None):
         self._module = observer
         self.installation, self.component = installation, component
         self._run_now = None
@@ -190,6 +198,14 @@ class ObserverAdapter(ReaderAdapter):
             import full_users
             self._users = full_users
             self.users_admitted = self.inventory_admitted = True
+        # The health readers, admitted together and only beside the full user readers: the witness
+        # reader is admitted exactly when the composer has one.
+        self._composer, self._baseline = composer, baseline
+        if composer is not None or baseline is not None:
+            if not users or composer is None or baseline is None:
+                raise ValueError('the health readers need the full user readers, a composer and a baseline reader')
+            self.health_admitted = True
+            self.witness_admitted = composer.hooks[1] is not None and baseline.witness is not None
         options = {}
         if new_id is not None:
             options['new_id'] = new_id
@@ -203,7 +219,9 @@ class ObserverAdapter(ReaderAdapter):
     def allowed(self, command):
         return bool(self._module.allowed(command) or self._checkpoint_allowed(command)
                     or (self.target_admitted and command == lab_target.COMMAND)
-                    or (self._users is not None and self._users.read_allowed(command)))
+                    or (self._users is not None and self._users.read_allowed(command))
+                    or (self._composer is not None and self._composer.allowed(command))
+                    or (self._baseline is not None and self._baseline.allowed(command)))
 
     def bind(self, run):
         self._run_now = run
@@ -272,6 +290,34 @@ class ObserverAdapter(ReaderAdapter):
         return self._user_reader().processes(inventory)
 
     def rederive(self, name, captures, inventory=None):
+        if name in ('factory', 'active'):
+            # The public observer reads the recorded replies again, in order: a capture of another
+            # command, one that did not complete, or one left over refuses.
+            queue = list(captures)
+
+            def run(command):
+                if not queue or queue[0][0] != command:
+                    raise Unclassified('the captures are not the reads a %s fact makes' % name)
+                _, code, stdout, stderr = queue.pop(0)
+                if code is None:
+                    raise Unavailable('a capture did not complete')
+                return code, stdout, stderr
+            observer = self._module.ShellObserver(run, self.installation, self.component, new_id=lambda: '00' * 16,
+                                                  wall=lambda: 0)
+            fact = self._call(getattr(observer, name))
+            if queue:
+                raise Unclassified('captures beyond the reads a %s fact makes' % name)
+            return [fact]
         if self._users is None:
             return NotImplemented
         return self._users.rederive(name, captures, inventory)
+
+    def health_baseline(self, context):
+        if self._baseline is None:
+            raise Unavailable('no health baseline reader is admitted')
+        return self._baseline.read(self._run, context)
+
+    def health_composition(self, context):
+        if self._composer is None:
+            raise Unavailable('no health composer is admitted')
+        return self._composer.compose(self._run, context)

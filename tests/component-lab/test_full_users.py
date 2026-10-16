@@ -1291,13 +1291,10 @@ class AdmissionTests(unittest.TestCase):
         for name, specs in cases.items():
             with self.subTest(name), self.assertRaises(lab_actions.AdmissionError):
                 lab_actions.check_specs(specs, labtest.INSTALLATION)
-        # The PIN and the CE sentinel complete the sequence and are the health package's: named, and
-        # refused by name until it defines them.
-        self.assertEqual(lab_actions.USER_SEQUENCE, lab_actions.USER_TYPES + tuple(lab_actions.RESERVED))
-        for reserved in lab_actions.RESERVED:
-            later = dict(labtest.action_spec('3a' * 16, 'USER_START', user_selector=CREATED), type=reserved)
-            with self.subTest(reserved), self.assertRaisesRegex(lab_actions.AdmissionError, "health package's"):
-                lab_actions.check_specs(good + [later], labtest.INSTALLATION)
+        # The PIN and the CE sentinel complete the sequence; the health package defines them, so the
+        # user types are the whole sequence. Their own specs are checked in test_health.py.
+        self.assertEqual(lab_actions.USER_SEQUENCE, lab_actions.USER_TYPES)
+        self.assertEqual(lab_actions.USER_TYPES[-2:], ('USER_PIN', 'CE_SENTINEL'))
 
 
 if __name__ == '__main__':

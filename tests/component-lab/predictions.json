@@ -5,14 +5,15 @@
   "ProtocolTest": 11,
   "test_capture_ledger": 14,
   "test_full_users": 37,
+  "test_health": 53,
   "test_lab_bridge": 25,
   "test_lab_broker": 103,
-  "test_lab_crossings": 11,
+  "test_lab_crossings": 12,
   "test_lab_driver": 35,
   "test_lab_loss": 54,
   "test_lab_next": 46,
   "test_lab_protocol": 15,
-  "test_shell_transport": 24
+  "test_shell_transport": 25
  },
  "mutants_caught_at_least": {
   "action-before-its-predecessor": [
@@ -55,6 +56,24 @@
   "attempt-faults-not-admitted": [
    "test_lab_driver.DriverEndToEnd.test_the_loss_cells_run_in_order_to_their_predicted_ends"
   ],
+  "baseline-after-the-first-probe": [
+   "test_health.BaselineTests.test_a_newly_unlocked_users_baseline_is_taken_before_its_first_full_probe"
+  ],
+  "baseline-complete-without-witness": [
+   "test_health.BaselineTests.test_baseline_facts_of_no_known_form_are_unclassified",
+   "test_health.CodecTests.test_baseline_facts"
+  ],
+  "baseline-incomplete-relied-on": [
+   "test_health.BaselineTests.test_a_newly_unlocked_users_baseline_is_taken_before_its_first_full_probe",
+   "test_health.BaselineTests.test_a_stale_reused_late_or_later_framework_baseline_is_never_relied_on"
+  ],
+  "baseline-span-start-ignored": [
+   "test_health.BaselineTests.test_a_newly_unlocked_users_baseline_is_taken_before_its_first_full_probe",
+   "test_health.BaselineTests.test_a_newly_unlocked_users_baseline_through_the_broker"
+  ],
+  "baseline-unavailable-resets": [
+   "test_health.BaselineTests.test_unavailable_output_never_resets_the_last_whole_baseline"
+  ],
   "bound-fraction-started": [
    "test_lab_broker.LabActionTests.test_a_fraction_of_a_second_left_starts_no_command"
   ],
@@ -79,6 +98,15 @@
   "buffered-stream-accepted": [
    "test_lab_broker.StreamAndReapTests.test_a_buffered_generation_stream_is_refused_before_any_read"
   ],
+  "capture-foreground-unchecked": [
+   "test_health.MarkerTests.test_the_capture_conditions_must_hold_before_and_after_and_an_unavailable_answer_never_does"
+  ],
+  "capture-insecure-unlock-accepted": [
+   "test_health.MarkerTests.test_the_capture_conditions_must_hold_before_and_after_and_an_unavailable_answer_never_does"
+  ],
+  "capture-unavailable-taken-as-awake": [
+   "test_health.MarkerTests.test_the_capture_conditions_must_hold_before_and_after_and_an_unavailable_answer_never_does"
+  ],
   "cell-acts-again": [
    "test_lab_broker.FaultTests.test_a_point_cell_halts_once",
    "test_lab_broker.FaultTests.test_a_dropped_reply_runs_once_and_is_escrowed_never_given"
@@ -92,12 +120,28 @@
   "checkpoint-not-required": [
    "DriverTest.baseline / T0 without a committed checkpoint is refused"
   ],
+  "clock-first-of-several-taken": [
+   "test_health.MarkerTests.test_the_clock_must_be_one_visible_node_of_a_status_bar_window_with_no_notice_in_view"
+  ],
+  "clock-notice-in-view-accepted": [
+   "test_health.MarkerTests.test_the_clock_must_be_one_visible_node_of_a_status_bar_window_with_no_notice_in_view"
+  ],
   "clock-read-before-the-confirmation": [
    "test_lab_broker.GateTests.test_a_grant_that_expires_during_the_confirmation_launches_nothing",
    "test_lab_bridge.BridgeEndToEnd.test_a_grant_that_expires_during_the_confirmation_never_commits"
   ],
+  "clock-window-type-unchecked": [
+   "test_health.MarkerTests.test_the_clock_must_be_one_visible_node_of_a_status_bar_window_with_no_notice_in_view"
+  ],
   "cohort-control-not-contradicted": [
    "test_lab_driver.DriverEndToEnd.test_the_loss_cells_run_in_order_to_their_predicted_ends"
+  ],
+  "composer-hook-assumed-held": [
+   "test_health.ComposerTests.test_an_honest_probe_holds_bits_0_2_and_3_and_leaves_the_hooks_unknown",
+   "test_health.ConstantTests.test_every_composition_declares_all_seven_criteria_and_readers_emit_no_fact"
+  ],
+  "composer-unadmitted-command-read-as-unavailable": [
+   "test_health.ComposerTests.test_an_unavailable_read_is_unknown_never_false_and_an_unadmitted_command_has_no_form"
   ],
   "compound-emission-taken-from-its-summary": [
    "test_lab_next.ReceiptTests.test_an_erased_emission_refuses_the_reopening_and_the_scale_never_falls",
@@ -326,8 +370,7 @@
    "test_lab_next.HealthTests.test_partial_and_missing_forms_are_kept_and_never_held"
   ],
   "health-witness-assumed": [
-   "test_lab_next.HealthTests.test_partial_and_missing_forms_are_kept_and_never_held",
-   "test_lab_next.HealthTests.test_bad_rows_and_a_witnessed_crash_follow_the_rows"
+   "test_health.ComposerTests.test_a_partial_hold_is_doubt_and_never_held"
   ],
   "hello-without-config": [
    "BridgeTest.hello / binds the configuration, and a stopped broker ends the generation"
@@ -360,6 +403,36 @@
   ],
   "identified-record-unchecked-at-reopening": [
    "test_full_users.RecordTests.test_changed_copies_of_each_new_record_refuse_the_reopening"
+  ],
+  "identity-any-active-copy": [
+   "test_health.IdentityBaselineTests.test_the_first_qualified_identity_of_a_serial_stands"
+  ],
+  "identity-app-id-unchecked": [
+   "test_health.IdentityTests.test_the_genuine_process_against_its_serials_factory_identity"
+  ],
+  "identity-conflict-unrecorded": [
+   "test_health.IdentityBaselineTests.test_the_first_qualified_identity_of_a_serial_stands"
+  ],
+  "identity-conflicts-unchecked-at-reopening": [
+   "test_health.ReopeningTests.test_changed_copies_of_each_new_record_refuse_the_reopening"
+  ],
+  "identity-context-unchecked": [
+   "test_health.IdentityBaselineTests.test_a_probe_compares_its_users_process_with_its_serials_identity",
+   "test_health.IdentityTests.test_the_genuine_process_against_its_serials_factory_identity",
+   "test_health.ReopeningTests.test_a_consistently_rewritten_identity_projection_refuses_the_reopening"
+  ],
+  "identity-plan-base-unchecked": [
+   "test_health.IdentityTests.test_the_system_user_is_also_held_to_the_plans_base"
+  ],
+  "identity-process-loss-as-failure": [
+   "test_health.IdentityTests.test_doubt_is_unknown_and_process_loss_alone_is_no_failure"
+  ],
+  "identity-projection-not-rederived": [
+   "test_health.IdentityBaselineTests.test_an_identity_baseline_its_reader_cannot_read_again_gives_no_expectation",
+   "test_health.ReopeningTests.test_a_consistently_rewritten_identity_projection_refuses_the_reopening"
+  ],
+  "identity-system-process-unchecked": [
+   "test_health.IdentityBaselineTests.test_the_system_users_process_must_be_the_one_the_active_read_names"
   ],
   "incomplete-listing-accepted": [
    "test_lab_broker.LabActionTests.test_an_incomplete_listing_never_admits_a_restart"
@@ -451,6 +524,12 @@
    "test_lab_loss.FenceTests.test_a_managed_commit_launches_nothing_before_a_qualified_f0_whatever_its_fault",
    "test_lab_loss.FenceTests.test_an_honest_n2_n3_direct_sequence_commits_before_f0_and_a_managed_commit_does_not"
   ],
+  "marker-elsewhere-accepted": [
+   "test_health.MarkerTests.test_a_marker_elsewhere_or_a_contrary_clock_does_not_qualify"
+  ],
+  "marker-text-alone-accepted": [
+   "test_health.MarkerTests.test_a_marker_elsewhere_or_a_contrary_clock_does_not_qualify"
+  ],
   "milestone-progress-as-entry": [
    "test_lab_loss.MilestoneTests.test_the_milestone_enum_is_fixed_and_its_rule_one_table"
   ],
@@ -481,6 +560,22 @@
   "pending-checkpoint-accepted": [
    "DriverTest.baseline / a pending checkpoint in T0 is refused"
   ],
+  "pin-not-a-user-action": [
+   "test_health.TransitionTests.test_the_pin_and_the_sentinel_wait_for_an_earlier_boot_transition_to_settle"
+  ],
+  "pin-output-not-withheld": [
+   "test_health.PinTests.test_a_malformed_oversized_or_cut_private_reply_never_puts_the_pin_in_the_ledger",
+   "test_health.PinTests.test_an_uncertain_or_refused_effect_settles_only_on_its_readback"
+  ],
+  "pin-repeated-for-a-serial": [
+   "test_health.PinTests.test_the_pin_is_set_through_private_input_and_never_enters_the_ledger"
+  ],
+  "pin-replaces-a-credential": [
+   "test_health.PinTests.test_the_pin_is_refused_without_its_preconditions_and_launches_nothing"
+  ],
+  "pin-set-without-its-readback": [
+   "test_health.PinTests.test_an_uncertain_or_refused_effect_settles_only_on_its_readback"
+  ],
   "plan-not-admitted": [
    "test_lab_driver.DriverEndToEnd.test_a_plan_the_host_configuration_does_not_name_is_refused"
   ],
@@ -509,11 +604,25 @@
   "preflight-instance-ignored": [
    "test_lab_broker.CrossingTests.test_preflight_refuses_a_changed_boot_or_framework"
   ],
+  "preparation-result-path-unchecked": [
+   "test_health.CodecTests.test_preparation_results",
+   "test_health.ComposerTests.test_a_preparation_result_of_no_known_form_or_of_another_user_settles_nothing"
+  ],
+  "preparation-result-unchecked": [
+   "test_health.ComposerTests.test_a_preparation_result_of_no_known_form_or_of_another_user_settles_nothing"
+  ],
+  "preparation-result-user-unchecked": [
+   "test_health.CodecTests.test_preparation_results",
+   "test_health.ComposerTests.test_a_preparation_result_of_no_known_form_or_of_another_user_settles_nothing"
+  ],
   "preparation-uncertainty-dropped": [
    "test_lab_next.ActionTests.test_a_preparation_without_a_qualified_settlement_is_never_repeated"
   ],
   "preparation-unrecognized-settled": [
    "test_lab_next.ActionTests.test_a_preparation_without_a_qualified_settlement_is_never_repeated"
+  ],
+  "private-residual-public": [
+   "test_health.PinTests.test_a_malformed_oversized_or_cut_private_reply_never_puts_the_pin_in_the_ledger"
   ],
   "process-denied-read-as-absence": [
    "test_full_users.ProcessTests.test_quiet_absence_is_not_a_denied_proc_or_a_lost_reply"
@@ -728,6 +837,15 @@
   "selection-not-current-accepted": [
    "DriverTest.selection / a plan only from the factory choice found current at revision 0"
   ],
+  "sentinel-another-nonce-accepted": [
+   "test_health.SentinelTests.test_an_uncertain_or_contrary_sentinel_never_becomes_an_origin"
+  ],
+  "sentinel-framework-ce-unchecked": [
+   "test_health.SentinelTests.test_the_sentinel_is_refused_without_ce_storage_unlocked_or_its_fixture_adapter"
+  ],
+  "sentinel-rewritten": [
+   "test_health.SentinelTests.test_the_sentinel_is_refused_without_ce_storage_unlocked_or_its_fixture_adapter"
+  ],
   "serials-forgotten-on-reopening": [
    "test_full_users.RecordTests.test_serials_and_created_users_survive_reopening"
   ],
@@ -742,6 +860,12 @@
   ],
   "settles-before-staging": [
    "test_lab_driver.DriverEndToEnd.test_a_ticket_closes_applied_with_the_real_signer_and_publication"
+  ],
+  "setup-readback-unchecked": [
+   "test_health.ReopeningTests.test_changed_copies_of_each_new_record_refuse_the_reopening"
+  ],
+  "setup-settlement-without-its-intent": [
+   "test_health.ReopeningTests.test_changed_copies_of_each_new_record_refuse_the_reopening"
   ],
   "setup-with-ce-locked": [
    "test_full_users.ActionTests.test_setup_settles_only_on_the_setup_android_records"
@@ -837,6 +961,40 @@
   ],
   "typed-reading-not-rederived": [
    "test_full_users.RecordTests.test_changed_copies_of_each_new_record_refuse_the_reopening"
+  ],
+  "ui-state-end-marker-unchecked": [
+   "test_health.UiStateFormTests.test_a_contrary_reply_has_no_known_form"
+  ],
+  "ui-state-helper-bytes-not-read-again": [
+   "test_health.UiStateFormTests.test_the_helper_runs_only_between_reads_of_the_shell_user_and_its_pinned_bytes"
+  ],
+  "ui-state-helper-bytes-unchecked": [
+   "test_health.PinTests.test_the_pin_is_refused_without_its_preconditions_and_launches_nothing",
+   "test_health.UiStateFormTests.test_the_helper_runs_only_between_reads_of_the_shell_user_and_its_pinned_bytes"
+  ],
+  "ui-state-invocation-unbounded": [
+   "test_health.UiStateFormTests.test_only_one_bounded_invocation_is_admitted"
+  ],
+  "ui-state-unavailable-read-as-false": [
+   "test_health.UiStateFormTests.test_a_whole_reply_parses_and_an_unavailable_answer_is_never_false"
+  ],
+  "ui-state-user-unchecked": [
+   "test_health.UiStateFormTests.test_a_contrary_reply_has_no_known_form"
+  ],
+  "unlock-current-ce-unchecked": [
+   "test_health.UnlockTests.test_the_current_ce_state_and_the_nonce_decide_and_an_exception_is_never_false"
+  ],
+  "unlock-insecure-dismissal-accepted": [
+   "test_health.UnlockTests.test_an_insecure_dismissal_or_no_genuine_lock_is_never_a_credential_unlock"
+  ],
+  "unlock-left-locked-accepted": [
+   "test_health.UnlockTests.test_an_unlock_that_leaves_the_user_or_ce_storage_locked_is_bad"
+  ],
+  "unlock-nonce-unchecked": [
+   "test_health.UnlockTests.test_the_current_ce_state_and_the_nonce_decide_and_an_exception_is_never_false"
+  ],
+  "unlock-without-a-genuine-lock": [
+   "test_health.UnlockTests.test_an_insecure_dismissal_or_no_genuine_lock_is_never_a_credential_unlock"
   ],
   "unreadable-features-unlisted": [
    "test_lab_broker.FeatureTests.test_unreadable_features_launch_nothing_and_are_asked_again",

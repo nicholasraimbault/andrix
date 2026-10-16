@@ -178,6 +178,43 @@ class AdapterTests(unittest.TestCase):
         with self.assertRaises(lab_readers.Unclassified):
             adapter.checkpoint()
 
+    def test_the_factory_and_active_facts_are_read_again_from_their_captures(self):
+        # A reopening's check of an identity baseline: the public observer reads a group's recorded
+        # replies again, in order, to the same facts but for their observation IDs and wall times.
+        # A reply of another form gives another fact; captures of other reads, one that did not
+        # complete or one left over refuse. Driven by the base's own captured guest replies.
+        from scripts.proof.tests import test_systemui_observer as captured
+        shell = captured.Shell(captured.device())
+        adapter = lab_readers.ObserverAdapter(systemui_observer, captured.INSTALLATION, 'com.android.systemui')
+        recorded = []
+
+        def run(command):
+            reply = shell(command)
+            recorded.append((command,) + tuple(reply))
+            return reply
+
+        def same(fact):
+            return {k: v for k, v in fact.items() if k not in ('observation', 'wall')}
+        for name in ('factory', 'active'):
+            recorded.clear()
+            adapter.bind(run)
+            fact = getattr(adapter, name)()[0]
+            captures = list(recorded)
+            self.assertEqual([same(f) for f in adapter.rederive(name, captures)], [same(fact)])
+            with self.assertRaises(lab_readers.Unclassified):
+                adapter.rederive(name, captures + [captures[-1]])
+            with self.assertRaises(lab_readers.Unclassified):
+                adapter.rederive(name, [captures[1], captures[0]] + captures[2:])
+            with self.assertRaises(lab_readers.Unavailable):
+                adapter.rederive(name, [(captures[0][0], None) + captures[0][2:]] + captures[1:])
+        context = [c for c in captures if c[0] == 'cat /proc/1839/attr/current']
+        self.assertEqual(len(context), 1)
+        other = [(c, code, out.replace('c512,', 'c600,') if c == context[0][0] else out, err)
+                 for c, code, out, err in captures]
+        self.assertEqual(adapter.rederive('active', other)[0]['facts']['context'],
+                         fact['facts']['context'].replace('c512,', 'c600,'))
+        self.assertIs(adapter.rederive('clock', captures), NotImplemented)
+
     def test_the_raw_digest_is_the_observers(self):
         captures = [('cat /proc/uptime', 0, b'812.34 1610.22\n', b''),
                     ('pidof com.android.systemui', 1, b'', b''),

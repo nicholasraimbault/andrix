@@ -1,0 +1,120 @@
+{
+  "schema": "andrix-ui-state-read-signatures-v1",
+  "root": "frameworks/base",
+  "calls": [
+    {
+      "capability": "interactive",
+      "service": "power",
+      "interface": "android.os.IPowerManager",
+      "method": "isInteractive",
+      "parameters": [],
+      "arguments": [],
+      "returns": "boolean",
+      "aidl": {
+        "path": "core/java/android/os/IPowerManager.aidl",
+        "sha256": "65f500d310f80ff4e7846dd41d7272bff26c3cc4c7dd4e9c75afcfd7efd336b9",
+        "line": 65,
+        "declaration": "    boolean isInteractive();"
+      }
+    },
+    {
+      "capability": "keyguard_locked",
+      "service": "window",
+      "interface": "android.view.IWindowManager",
+      "method": "isKeyguardLocked",
+      "parameters": [],
+      "arguments": [],
+      "returns": "boolean",
+      "aidl": {
+        "path": "core/java/android/view/IWindowManager.aidl",
+        "sha256": "cade034b5f37b8174ffb8ced2593e209b38d0a418d1f303540d7560d8bc1c231",
+        "line": 262,
+        "declaration": "    boolean isKeyguardLocked();"
+      }
+    },
+    {
+      "capability": "keyguard_secure",
+      "service": "window",
+      "interface": "android.view.IWindowManager",
+      "method": "isKeyguardSecure",
+      "parameters": ["int"],
+      "arguments": ["user"],
+      "returns": "boolean",
+      "aidl": {
+        "path": "core/java/android/view/IWindowManager.aidl",
+        "sha256": "cade034b5f37b8174ffb8ced2593e209b38d0a418d1f303540d7560d8bc1c231",
+        "line": 264,
+        "declaration": "    boolean isKeyguardSecure(int userId);"
+      }
+    },
+    {
+      "capability": "device_locked",
+      "service": "trust",
+      "interface": "android.app.trust.ITrustManager",
+      "method": "isDeviceLocked",
+      "parameters": ["int", "int"],
+      "arguments": ["user", "default_device"],
+      "returns": "boolean",
+      "aidl": {
+        "path": "core/java/android/app/trust/ITrustManager.aidl",
+        "sha256": "7b53dfcc041947d269467392e7cd054f8c586a38a5e58c7b49cb360e86c1a65d",
+        "line": 38,
+        "declaration": "    boolean isDeviceLocked(int userId, int deviceId);"
+      }
+    },
+    {
+      "capability": "device_secure",
+      "service": "trust",
+      "interface": "android.app.trust.ITrustManager",
+      "method": "isDeviceSecure",
+      "parameters": ["int", "int"],
+      "arguments": ["user", "default_device"],
+      "returns": "boolean",
+      "aidl": {
+        "path": "core/java/android/app/trust/ITrustManager.aidl",
+        "sha256": "7b53dfcc041947d269467392e7cd054f8c586a38a5e58c7b49cb360e86c1a65d",
+        "line": 39,
+        "declaration": "    boolean isDeviceSecure(int userId, int deviceId);"
+      }
+    },
+    {
+      "capability": "ce_unlocked",
+      "service": "mount",
+      "interface": "android.os.storage.IStorageManager",
+      "method": "isCeStorageUnlocked",
+      "parameters": ["int"],
+      "arguments": ["user"],
+      "returns": "boolean",
+      "aidl": {
+        "path": "core/java/android/os/storage/IStorageManager.aidl",
+        "sha256": "01c230e09901621cae04f437331b5a60d47c7a09c5cc335a5d32f5d246a0b6c4",
+        "line": 138,
+        "declaration": "    boolean isCeStorageUnlocked(int userId) = 65;"
+      }
+    }
+  ],
+  "constants": {
+    "default_device": {
+      "value": 0,
+      "path": "core/java/android/content/Context.java",
+      "line": 164,
+      "declaration": "    public static final int DEVICE_ID_DEFAULT = 0;"
+    },
+    "max_user": {
+      "value": 21473,
+      "path": "core/java/android/os/UserHandle.java",
+      "line": 134,
+      "declaration": "    public static final int MAX_SECONDARY_USER_ID ="
+    }
+  },
+  "services": {
+    "power": {"path": "core/java/android/content/Context.java", "line": 4943,
+              "declaration": "    public static final String POWER_SERVICE = \"power\";"},
+    "window": {"path": "core/java/android/content/Context.java", "line": 4996,
+               "declaration": "    public static final String WINDOW_SERVICE = \"window\";"},
+    "trust": {"path": "core/java/android/content/Context.java", "line": 6394,
+              "declaration": "    public static final String TRUST_SERVICE = \"trust\";"},
+    "mount": {"path": "core/java/android/os/storage/StorageManager.java", "line": 322,
+              "declaration": "                            ServiceManager.getService(\"mount\"));"}
+  }
+}

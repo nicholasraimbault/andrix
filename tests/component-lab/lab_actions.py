@@ -15,7 +15,7 @@ recipient of the stored ticket's issued notice. An inventory that is not whole, 
 being removed, partial or precreated, another type or another serial resolves nothing. Nothing is
 guessed: no current user and no user ID that the inventory did not show.
 
-The registry has eleven types. NOTICE_VISIBILITY captures and reads the current visibility of an
+The registry has thirteen types. NOTICE_VISIBILITY captures and reads the current visibility of an
 issued notice for one required recipient, through the notice adapter. HEALTH_PREPARATION runs the
 UI, user and work steps that a full health probe of one user needs, through the health adapter,
 under a fresh preparation ID and challenge. PLAIN_KERNEL_CONFIRM is a plain kernel reboot that
@@ -30,14 +30,18 @@ only native commits before F0, and only in their admitted order.
 FRAMEWORK_RESTART, version 2's `am restart`, is withdrawn from this profile: a spec naming it is
 refused by name.
 
-The five user setup types are the lab's own user administration, under LAB_USER_ADMIN, with the
-fixed commands and reply forms of full_users.py. USER_CREATE creates the one full secondary user:
-one spec, used once, the only creating type, so a CREATED_BY selector names it. USER_START
-starts that user in the background, USER_SWITCH brings a user to the foreground, USER_SETUP
-drives the image's own setup with admitted key and tap steps and settles only on the setup that
-Android records, and USER_FIXTURE installs an admitted ordinary fixture, already installed for the
-system user with its pinned bytes, for the created user and enables it. None stops or removes a
-user, sets a credential or writes to the settings provider."""
+The seven user setup types are the lab's own user administration, under LAB_USER_ADMIN, with the
+fixed commands and reply forms of full_users.py and health_records.py. USER_CREATE creates the one
+full secondary user: one spec, used once, the only creating type, so a CREATED_BY selector names
+it. USER_START starts that user in the background, USER_SWITCH brings a user to the foreground,
+USER_SETUP drives the image's own setup with admitted key and tap steps and settles only on the
+setup that Android records, and USER_FIXTURE installs an admitted ordinary fixture, already
+installed for the system user with its pinned bytes, for the created user and enables it.
+USER_PIN sets a disposable lab PIN that the broker generates itself, through `locksettings` and
+private standard input, so the PIN never enters a command, a capture or the ledger; it never
+replaces a credential. CE_SENTINEL has the work fixture keep a fresh nonce in its own CE storage
+and settles on reading that nonce back: the origin that bit 3 compares the fixture's CE storage
+with after an unlock. None stops or removes a user or writes to the settings provider."""
 import re
 
 import lab_evidence
@@ -117,17 +121,24 @@ TYPES = {
                      'inputs': 'fixture', 'effect': 'fixture',
                      'preconditions': ['WHOLE_USER_INVENTORY', 'FIXTURE_INSTALLED_FOR_SYSTEM_USER', 'PINNED_BYTES'],
                      'after_uncertain': False, 'adapter': None, 'phase': 'F0'},
+    'USER_PIN': {'authority': 'LAB_USER_ADMIN', 'selectors': ('CREATED_BY', 'SYSTEM_USER'),
+                 'parameters': {'digits': 'pin_digits'}, 'inputs': 'none', 'effect': 'admin',
+                 'preconditions': ['WHOLE_USER_INVENTORY', 'TARGET_CE_UNLOCKED', 'UI_STATE_ADMITTED',
+                                   'NO_SECURE_CREDENTIAL', 'NO_EARLIER_PIN', 'PRIVATE_STORE'],
+                 'after_uncertain': False, 'adapter': None, 'phase': 'F0'},
+    'CE_SENTINEL': {'authority': 'LAB_USER_ADMIN', 'selectors': ('CREATED_BY', 'SYSTEM_USER'),
+                    'parameters': {'package': 'package'}, 'inputs': 'none', 'effect': 'fixture',
+                    'preconditions': ['WHOLE_USER_INVENTORY', 'TARGET_CE_UNLOCKED', 'UI_STATE_ADMITTED',
+                                      'NO_EARLIER_SENTINEL'],
+                    'after_uncertain': False, 'adapter': 'work', 'phase': 'F0'},
 }
-# The full user setup types, which read the full user forms instead of the global sessions.
-USER_TYPES = ('USER_CREATE', 'USER_START', 'USER_SWITCH', 'USER_SETUP', 'USER_FIXTURE')
+# The full user setup types, in the order of a user's setup, which read the full user forms
+# instead of the global sessions. The last two end the sequence: the disposable lab PIN, and the
+# CE sentinel the fixture keeps in CE storage.
+USER_TYPES = ('USER_CREATE', 'USER_START', 'USER_SWITCH', 'USER_SETUP', 'USER_FIXTURE', 'USER_PIN', 'CE_SENTINEL')
+USER_SEQUENCE = USER_TYPES
 # Types this profile names only to refuse them: the shell framework restart is not admitted.
 WITHDRAWN = ('FRAMEWORK_RESTART',)
-# The setup steps that follow USER_FIXTURE for the created user and belong to the health package,
-# named here so that the sequence is whole: the disposable lab PIN, and the CE sentinel the fixture
-# keeps in CE storage. Until that package defines them, a spec naming one is refused by name.
-RESERVED = {'USER_PIN': 'the disposable lab PIN', 'CE_SENTINEL': 'the CE sentinel'}
-USER_SEQUENCE = ('USER_CREATE', 'USER_START', 'USER_SWITCH', 'USER_SETUP', 'USER_FIXTURE', 'USER_PIN',
-                 'CE_SENTINEL')
 # The steps of one direct negative control, in order.
 DIRECT_STEPS = ('DIRECT_STAGE', 'DIRECT_COMMIT', 'NEGATIVE_ACTIVATION')
 # The direct negative roles, in their admitted order, each with its payload's members and the
@@ -147,6 +158,9 @@ UI_KEYS = ('KEYCODE_WAKEUP', 'KEYCODE_ENTER', 'KEYCODE_TAB', 'KEYCODE_SPACE', 'K
            'KEYCODE_MOVE_HOME', 'KEYCODE_MOVE_END')
 MAX_STEPS = 32
 MAX_TAP = 10000
+# A disposable lab PIN's length: at least the six digits of LockPatternUtils.
+# MIN_AUTO_PIN_REQUIREMENT_LENGTH (core/java/com/android/internal/widget/LockPatternUtils.java:137).
+PIN_DIGITS = (6, 16)
 BOOT_POLICY_KEYS = ('activation_services', 'confirmation_services', 'observed_boots', 'poll_interval_ms',
                     'settle_ms', 'negative_settle_ms', 'unexpected_boot')
 BRANCHES = ('FULL', 'LIMITED', 'REFUSED')
@@ -197,9 +211,6 @@ def check_specs(specs, installation):
             _fail('an action ID is admitted once')
         if spec['type'] in WITHDRAWN:
             _fail('the %s action is withdrawn from this profile' % spec['type'])
-        if spec['type'] in RESERVED:
-            _fail('the %s action, %s, is the health package\'s and not admitted yet'
-                  % (spec['type'], RESERVED[spec['type']]))
         kind = TYPES.get(spec['type'])
         if kind is None:
             _fail('an action of no registered type')
@@ -356,6 +367,8 @@ def _parameters(parameters, kind):
         elif form == 'package':
             if not isinstance(value, str) or not PACKAGE.fullmatch(value) or value == 'com.android.systemui':
                 _fail('a fixture is an ordinary package, never the component')
+        elif form == 'pin_digits':
+            _int(value, PIN_DIGITS[0], PIN_DIGITS[1], 'the PIN digits')
         else:
             raise AssertionError(form)
 

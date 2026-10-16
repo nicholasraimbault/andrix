@@ -20,7 +20,13 @@ follows at once, so a poll may never see the rejecting boot.
 
 With `enable_user_forms`, the users are sim_users.py's model instead: the guest then answers the
 user commands of full_users.py in their source derived forms, and the fake reads above see the same
-users."""
+users.
+
+For the health package the guest also answers the fixed UI state helper in its exact form from a
+model of the display, the keyguard and each user's disposable PIN and lock; the shell user's `id`;
+a fresh hierarchy file a fake UI preparation dumps, with the status bar clock the active APK draws;
+`locksettings set-pin` given on private standard input; and the work fixture's fake CE sentinel
+write and read. Every one is a test fake of the form, not Android evidence."""
 from dataclasses import dataclass, field
 import hashlib
 import json
@@ -28,6 +34,7 @@ import os
 import re
 
 import full_users
+import health_compose
 import lab_crossings
 import lab_evidence
 import lab_readers
@@ -57,6 +64,22 @@ SYSTEM_TYPE = 'android.os.usertype.full.SYSTEM'
 SECONDARY_TYPE = 'android.os.usertype.full.SECONDARY'
 NO_CHALLENGE = '00' * 16
 APP_ID = 10123
+# The health package's fakes: the UI preparation's effects, the work fixture's CE sentinel, the PIN
+# script on private standard input, the shell user's `id` as a guest printed it, and the notice
+# fixture whose window a dump may show.
+SIM_UI = re.compile(r'sim:(relock|credential-unlock [0-9]+|dump-windows (\S+))')
+SENTINEL = re.compile(r'sim:sentinel-(write [0-9]+ [0-9a-f]{32}|read [0-9]+)')
+PIN_SCRIPT = re.compile(r'f\(\)\{ exec locksettings set-pin --user ([0-9]+) ([0-9]{6,16}) </dev/null >/dev/null '
+                        r'2>&1; \}; f\n')
+SHELL_ID = (b'uid=2000(shell) gid=2000(shell) groups=2000(shell),1004(input),1007(log),1011(adb),1015(sdcard_rw),'
+            b'1028(sdcard_r),1078(ext_data_rw),1079(ext_obb_rw),3001(net_bt_admin),3002(net_bt),3003(inet),'
+            b'3006(net_bw_stats),3009(readproc),3011(uhid),3012(readtracefs) context=u:r:shell:s0\n')
+NOTICE_PACKAGE = 'dev.andrix.lab.notice'
+
+
+def streams(reply):
+    """A broker command's reply as a reader sees it: (exit status, stdout, stderr) as text."""
+    return reply.exit, reply.stdout.decode('utf-8', 'surrogateescape'), reply.stderr.decode('utf-8', 'surrogateescape')
 
 
 def result(command, code=0, stdout=b'', stderr=b'', completion='exited', launch='launched', transport='ok',
@@ -147,6 +170,19 @@ class SimAndroid:
         self.hooks = []
         self.apks = {}
         self.features = ('cmd', 'shell_v2', 'stat_v2')
+        # The health package: whether the UI state helper's pinned bytes are at their path, the
+        # keyguard, each user's disposable PIN and lock, UI state answers a test makes unavailable,
+        # the APKs that draw variant A's marker, and the work fixture's CE sentinels.
+        self.ui_helper = True
+        self.keyguard_locked = False
+        self.pins = {}
+        self.locked_users = set()
+        self.ui_unavailable = {}
+        self.marker_apks = set()
+        self.ce_sentinels = {}
+        self.private_scripts = []
+        self.clock = ('10:42', '10:42 PM')
+        self.hierarchy_change = None
         # The full user forms' model, when a test enables it.
         self.forms = None
 
@@ -165,6 +201,9 @@ class SimAndroid:
         self.instance = 4000 + self.boots if getattr(self, 'next_instance', None) is None else self.next_instance
         self.next_instance = None
         self.framework = True
+        if getattr(self, 'pins', None):
+            self.locked_users = set(self.pins)
+            self.keyguard_locked = 0 in self.pins
         if getattr(self, 'forms', None) is not None:
             self.forms.boot()
 
@@ -204,7 +243,7 @@ class SimAndroid:
                 return outcomes.pop(0)
         return None
 
-    def shell(self, command, timeout, stdout_max, stderr_max, may_send=None):
+    def shell(self, command, timeout, stdout_max, stderr_max, may_send=None, private=None):
         for hook in list(self.hooks):
             hook(command)
         # The hooks stand for the transport's connection and device selection; the launch deadline
@@ -212,12 +251,16 @@ class SimAndroid:
         if may_send is not None and not may_send():
             return result(command, completion='not-started', launch='not-launched', transport='launch-deadline',
                           error='the launch deadline passed before the service request')
-        scripted = self._script(command)
+        # A command given private input takes its scripted outcome only from `private_scripts`.
+        if private is not None:
+            scripted = self.private_scripts.pop(0) if self.private_scripts else None
+        else:
+            scripted = self._script(command)
         if callable(scripted):
             return scripted(command)
         if scripted == 'before':
             return result(command, completion='eof-before-exit', transport='closed', error='scripted loss')
-        reply = self._run(command)
+        reply = self._private(command, private) if private is not None else self._run(command)
         if scripted == 'after':
             return result(command, completion='eof-before-exit', transport='closed', error='scripted loss')
         if scripted == 'timeout':
@@ -262,6 +305,9 @@ class SimAndroid:
             return result(command, 0, b'937\n') if self.framework else result(command, 1)
         if command in SIM_READS or command in NEXT_READS or PER_USER_READ.fullmatch(command):
             return result(command, 0, json.dumps(self._read(command), sort_keys=True).encode() + b'\n')
+        reply = self._health(command)
+        if reply is not None:
+            return reply
         if self.forms is not None:
             reply = self.forms.run(command)
             if reply is not None:
@@ -365,6 +411,142 @@ class SimAndroid:
                     'challenge': prepared['challenge'] if prepared else None, 'witness': self.witness.get(user)}
         return {'boot': self.boot, 'elapsed': self.uptime, 'instance': self.instance,
                 'users': [list(u) for u in self.users]}
+
+    # ------------------------------------------------ the health package's guest
+
+    def user_unlocked(self, user):
+        """Whether a user runs with CE storage unlocked, in whichever user model is on."""
+        if self.forms is not None:
+            u = self.forms.users.get(user)
+            return u is not None and u.state == 'RUNNING_UNLOCKED'
+        return any(u == user and state == 'RUNNING_UNLOCKED' for u, _, state in self.users)
+
+    def _current(self):
+        return self.forms.current if self.forms is not None else self.current_user
+
+    def _private(self, command, data):
+        """`sh` given its input on private standard input. Only the PIN script's exact form does
+        anything: it sets the user's PIN unless the user has a credential or does not run with CE
+        storage unlocked, and every stream of `locksettings` is discarded. Anything else fails as a
+        shell would. `private_echo` stands for a guest whose output still shows the PIN."""
+        self.calls.append(('private', command))
+        match = PIN_SCRIPT.fullmatch(data.decode('ascii', 'replace'))
+        if command != 'sh' or match is None:
+            return result(command, 1, b'', b'sh: syntax error\n')
+        user, pin = int(match[1]), match[2]
+        if user in self.pins or not self.user_unlocked(user):
+            return result(command, 255)
+        self.pins[user] = pin
+        if getattr(self, 'private_echo', False):
+            return result(command, 0, b"Pin set to '%s'\n" % pin.encode())
+        return result(command, 0)
+
+    def _ui_state(self, command, user):
+        """The UI state helper's reply from the model, in its exact form."""
+        values = {'interactive': self.awake, 'keyguard_locked': self.keyguard_locked,
+                  'keyguard_secure': user in self.pins, 'device_locked': user in self.locked_users,
+                  'device_secure': user in self.pins, 'ce_unlocked': self.user_unlocked(user)}
+        lines = [health_compose.UI_STATE_HEADER, 'user=%d' % user,
+                 'capabilities=' + ','.join(health_compose.UI_STATE_CAPABILITIES)]
+        for name in health_compose.UI_STATE_CAPABILITIES:
+            missing = self.ui_unavailable.get(name)
+            lines.append('%s=%s' % (name, 'unavailable:' + missing if missing else 'true' if values[name] else 'false'))
+        complete = not self.ui_unavailable
+        lines += ['status=' + ('complete' if complete else 'unavailable'), 'end=' + health_compose.UI_STATE_HEADER]
+        return result(command, 0 if complete else 5, ('\n'.join(lines) + '\n').encode())
+
+    def hierarchy(self):
+        """A dump of all windows of the default display as the dumper writes one: the status bar
+        with its clock as the active APK draws it, the launcher, and the notice fixture's window
+        when a notice shows on the current user's display. `hierarchy_change` may rewrite it."""
+        from xml.sax.saxutils import quoteattr
+        text, description = self.clock
+        if self.active[1] in self.marker_apks:
+            text, description = text + ' WS-A', description + ' WS-A'
+
+        def node(index, text, ident, kind, package, description, bounds, inner=''):
+            return ('<node index="%d" text=%s resource-id=%s class=%s package=%s content-desc=%s checkable="false" '
+                    'checked="false" clickable="false" enabled="true" focusable="false" focused="false" '
+                    'scrollable="false" long-clickable="false" password="false" selected="false" bounds=%s '
+                    'drawing-order="0" hint="">%s</node>' % (index, quoteattr(text), quoteattr(ident), quoteattr(kind),
+                                                              quoteattr(package), quoteattr(description),
+                                                              quoteattr(bounds), inner))
+
+        def window(index, title, bounds, active, kind, nodes):
+            return ('<window index="%d" title=%s bounds=%s active="%s" focused="%s" accessibility-focused="false" '
+                    'id="%d" layer="%d" type="%s"><hierarchy rotation="0">%s</hierarchy></window>'
+                    % (index, quoteattr(title), quoteattr(bounds), active, active, 7 + index, 3 - index, kind, nodes))
+        clock = node(0, text, health_compose.CLOCK_ID, 'android.widget.TextView', PACKAGE, description, '[42,0][150,63]')
+        windows = [window(0, 'StatusBar', '[0,0][1080,63]', 'false', 'TYPE_SYSTEM',
+                          node(0, '', '', 'android.widget.FrameLayout', PACKAGE, '', '[0,0][1080,63]', clock))]
+        shown = self.shown.get(self._current())
+        if shown is not None:
+            windows.append(window(len(windows), 'Notice', '[0,0][1080,2400]', 'true', 'TYPE_APPLICATION',
+                                  node(0, shown['challenge'], '', 'android.widget.TextView', NOTICE_PACKAGE, '',
+                                       '[0,600][1080,900]')))
+        windows.append(window(len(windows), 'Launcher', '[0,0][1080,2400]', 'false' if shown else 'true',
+                              'TYPE_APPLICATION', node(0, '', '', 'android.widget.FrameLayout', 'com.android.launcher3',
+                                                       '', '[0,0][1080,2400]')))
+        xml = ("<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><displays><display id=\"0\">%s</display>"
+               "</displays>" % ''.join(windows))
+        return self.hierarchy_change(xml) if self.hierarchy_change else xml
+
+    def _health(self, command):
+        """The health package's forms and fakes, or None for another command."""
+        if command == health_compose.SHELL_IDENTITY:
+            return result(command, 0, SHELL_ID)
+        if command == health_compose.HELPER_DIGEST:
+            if not self.ui_helper:
+                return result(command, 1, b'', ('sha256sum: %s: No such file or directory\n'
+                                                % health_compose.UI_STATE_HELPER).encode())
+            digest = health_compose.UI_STATE_HELPER_SHA256 if self.ui_helper is True else self.ui_helper
+            return result(command, 0, ('%s  %s\n' % (digest, health_compose.UI_STATE_HELPER)).encode())
+        match = health_compose._UI_STATE.fullmatch(command)
+        if match:
+            self.calls.append(('ui-state', int(match[1])))
+            return self._ui_state(command, int(match[1]))
+        if health_compose._HIERARCHY_READ.fullmatch(command):
+            path = command[len('cat '):]
+            if path not in self.files:
+                return result(command, 1, b'', ('cat: %s: No such file or directory\n' % path).encode())
+            return result(command, 0, self.files[path])
+        match = SIM_UI.fullmatch(command)
+        if match:
+            self.calls.append(('ui', match[1].split(' ')[0]))
+            current = self._current()
+            if match[1] == 'relock':
+                if current in self.pins:
+                    self.keyguard_locked = True
+                    self.locked_users.add(current)
+            elif match[1].startswith('credential-unlock'):
+                user = int(match[1].split(' ')[1])
+                if user != current or user not in self.pins:
+                    return result(command, 1, b'', b'no credential prompt\n')
+                self.keyguard_locked = False
+                self.locked_users.discard(user)
+                if self.forms is not None and self.forms.users[user].state == 'RUNNING_LOCKED':
+                    self.forms.users[user].state = 'RUNNING_UNLOCKED'
+                    self.forms.sync()
+            else:
+                path = match[2]
+                self.files[path] = self.hierarchy().encode('utf-8')
+                return result(command, 0, ('UI hierchary dumped to: %s\n' % path).encode())
+            return result(command, 0)
+        match = SENTINEL.fullmatch(command)
+        if match:
+            parts = match[1].split(' ')
+            user = int(parts[1])
+            self.calls.append(('sentinel', parts[0], user))
+            if parts[0] == 'write':
+                if not self.user_unlocked(user):
+                    return result(command, 1, b'', b'locked\n')
+                self.ce_sentinels[user] = parts[2]
+                return result(command, 0, b'written\n')
+            if not self.user_unlocked(user):
+                return result(command, 1, b'', b'locked\n')
+            found = self.ce_sentinels.get(user)
+            return result(command, 0, ('nonce=%s\n' % found).encode() if found else b'absent\n')
+        return None
 
     # ------------------------------------------------ the next profile's guest
 
@@ -473,13 +655,104 @@ class SimHealth:
         return 'PREPARED' if (done.exit, done.stdout, done.stderr) == (0, b'prepared\n', b'') else 'UNRECOGNIZED'
 
 
+class SimUiPreparation:
+    """A test health adapter for the real composer: a credential unlock (criterion 3) from a
+    relocked keyguard, then a fresh dump of all windows (criterion 2) under the operation's own
+    path, each between reads of the current user and the UI state helper, and for the unlock of a
+    whole inventory, returning the result their readers judge. Its effects are test fakes; its
+    reads are the forms the composer reads. `changes` may rewrite the result, for a contrary one."""
+
+    def __init__(self, changes=None, relock=True):
+        self.changes, self.relock = changes, relock
+
+    def allowed(self, command):
+        return bool(command in (full_users.CURRENT, full_users.DUMP, full_users.LIST, health_compose.SHELL_IDENTITY,
+                                health_compose.HELPER_DIGEST) or health_compose._UI_STATE.fullmatch(command)
+                    or SIM_UI.fullmatch(command))
+
+    def prepare(self, effect, read, binding):
+        user, criteria = binding['id'], binding['criteria']
+
+        def run(command):
+            return streams(read(command))
+
+        def condition(with_state):
+            value = {'current_user': full_users.parse_current(*run(full_users.CURRENT)),
+                     'ui_state': health_compose.read_ui_state(run, user)}
+            if with_state:
+                found = full_users.find(full_users.UserReader(run).inventory(), user)
+                value['state'] = found[0]['state'] if found else 'NOT_RUNNING'
+            return value
+        parts = {}
+        if 3 in criteria:
+            if self.relock:
+                effect('sim:relock')
+            before = condition(True)
+            effect('sim:credential-unlock %d' % user)
+            parts['3'] = {'route': 'CREDENTIAL_UI', 'before': before, 'after': condition(True)}
+        if 2 in criteria:
+            before = condition(False)
+            path = health_compose.hierarchy_path(binding['operation'])
+            done = effect('sim:dump-windows ' + path)
+            parts['2'] = {'path': path, 'acknowledged': streams(done) == (0, 'UI hierchary dumped to: %s\n' % path, ''),
+                          'before': before, 'after': condition(False)}
+        result_ = {'schema': 'andrix-health-preparation-result-v1', 'user': user, 'serial': binding['serial'],
+                   'criteria': parts}
+        if self.changes is not None:
+            result_ = self.changes(result_)
+        return 'PREPARED', result_
+
+
+class SimWork:
+    """A test work fixture adapter: CE_SENTINEL's fixed write and read only readback, test
+    fakes of the work fixture that is a later package."""
+
+    def allowed(self, command):
+        return bool(SENTINEL.fullmatch(command))
+
+    def write_sentinel(self, effect, read, binding):
+        done = effect('sim:sentinel-write %d %s' % (binding['id'], binding['nonce']))
+        if streams(done) == (0, 'written\n', ''):
+            return 'WRITTEN'
+        if streams(done) == (1, '', 'locked\n'):
+            return 'REFUSED'
+        return 'UNRECOGNIZED'
+
+    def read_sentinel(self, read, binding):
+        return self.parse_sentinel(*streams(read('sim:sentinel-read %d' % binding['id'])), binding)
+
+    @staticmethod
+    def parse_sentinel(code, stdout, stderr, binding):
+        match = re.fullmatch(r'nonce=([0-9a-f]{32})\n', stdout) if isinstance(stdout, str) else None
+        if code == 0 and stderr == '' and match:
+            return {'status': 'PRESENT', 'nonce': match[1]}
+        if (code, stdout, stderr) == (0, 'absent\n', ''):
+            return {'status': 'ABSENT'}
+        if code == 1 and stderr == 'locked\n':
+            raise lab_readers.Unavailable('the fixture cannot read its CE storage now')
+        raise lab_readers.Unclassified('a sentinel read of no known form')
+
+
+class SimCeReader:
+    """The composer's CE nonce hook over the same fake read: the work fixture's own read only
+    readback, a later package's."""
+
+    def allowed(self, command):
+        return bool(re.fullmatch(r'sim:sentinel-read [0-9]+', command))
+
+    def read(self, calls, context):
+        return SimWork.parse_sentinel(*calls.run('sim:sentinel-read %d' % context['user']), context)
+
+
 class SimTransport:
     """The broker's transport over the simulated guest."""
 
     def __init__(self, sim):
         self.sim = sim
 
-    def shell(self, command, timeout, stdout_max, stderr_max, may_send=None):
+    def shell(self, command, timeout, stdout_max, stderr_max, may_send=None, private=None):
+        if private is not None:
+            return self.sim.shell(command, timeout, stdout_max, stderr_max, may_send, private)
         return self.sim.shell(command, timeout, stdout_max, stderr_max, may_send)
 
     def push(self, data, path, mode, mtime, timeout):
@@ -501,7 +774,7 @@ class SimReader(lab_readers.ReaderAdapter):
     """Facts from the simulated guest, through the broker's run function."""
 
     def __init__(self, installation, component=PACKAGE, ids=None, receipts=False, target=False, inventory=False,
-                 health=False, witness=False, global_sessions=False, users=False):
+                 health=False, witness=False, global_sessions=False, users=False, composer=None, baseline=None):
         self.installation, self.component = installation, component
         # A receipt reader is admitted only when a test asks for one; the target reader likewise,
         # and the next profile's inventory, health and witness readers. With `users`, the full
@@ -517,11 +790,16 @@ class SimReader(lab_readers.ReaderAdapter):
         self._captures = []
         self._count = 0
         self._ids = ids
+        # The health package's real readers over the simulated guest's forms, when a test gives
+        # them.
+        self.composer, self.baseline_reader = composer, baseline
 
     def allowed(self, command):
         return (command in SIM_READS or command in NEXT_READS or bool(PER_USER_READ.fullmatch(command))
                 or (self.target_admitted and command == lab_target.COMMAND)
-                or (self.users_admitted and full_users.read_allowed(command)))
+                or (self.users_admitted and full_users.read_allowed(command))
+                or (self.composer is not None and self.composer.allowed(command))
+                or (self.baseline_reader is not None and self.baseline_reader.allowed(command)))
 
     def target(self):
         if self._run is None:
@@ -550,13 +828,15 @@ class SimReader(lab_readers.ReaderAdapter):
             return self._ids(self._count)
         return os.urandom(16).hex()
 
-    def _fact(self, value, kind, classification, component=None, instance=-1, user=-10000, serial=-1, facts=None):
-        return {'installation': self.installation, 'observation': self._id(),
+    def _fact(self, value, kind, classification, component=None, instance=-1, user=-10000, serial=-1, facts=None,
+              captures=None):
+        # A fact read again from recorded captures takes no observation ID from the sequence.
+        return {'installation': self.installation, 'observation': self._id() if captures is None else '00' * 16,
                 'component': self.component if component is None else component, 'boot': value['boot'],
                 'user': user, 'serial': serial, 'kind': kind, 'route': 'SHELL', 'instance': instance,
                 'elapsed': value['elapsed'], 'wall': WALL_BASE + value['elapsed'],
-                'raw': lab_readers.raw_digest(self._captures), 'classification': classification,
-                'facts': facts or {}}
+                'raw': lab_readers.raw_digest(self._captures if captures is None else captures),
+                'classification': classification, 'facts': facts or {}}
 
     def clock(self):
         value = self._read('sim:clock')
@@ -570,14 +850,22 @@ class SimReader(lab_readers.ReaderAdapter):
         value = self._read('sim:checkpoint')
         return [self._fact(value, 'CHECKPOINT', value['state'], '')]
 
-    def factory(self):
-        value = self._read('sim:factory')
-        return [self._fact(value, 'FACTORY', 'PRESENT', facts={'apk': value['apk'], 'version': value['version']})]
+    def factory(self, captures=None):
+        value = self._read('sim:factory') if captures is None else self._again('sim:factory', captures)
+        return [self._fact(value, 'FACTORY', 'PRESENT', facts={'apk': value['apk'], 'version': value['version']},
+                           captures=captures)]
 
-    def active(self):
-        value = self._read('sim:active')
+    def active(self, captures=None):
+        value = self._read('sim:active') if captures is None else self._again('sim:active', captures)
         return [self._fact(value, 'ACTIVE', value['kind'], facts={'apk': value['apk'], 'version': value['version'],
-                                                                   'uid': UID, 'context': CONTEXT})]
+                                                                   'uid': UID, 'context': CONTEXT}, captures=captures)]
+
+    @staticmethod
+    def _again(command, captures):
+        """A fake read's value from its one recorded capture, which must be that read, whole."""
+        if len(captures) != 1 or captures[0][0] != command or captures[0][1] != 0:
+            raise lab_readers.Unclassified('the captures are not the reads a %s fact makes' % command)
+        return json.loads(captures[0][2])
 
     def sessions(self):
         value = self._read('sim:sessions')
@@ -623,6 +911,11 @@ class SimReader(lab_readers.ReaderAdapter):
         return full_users.UserReader(self._raw).processes(inventory)
 
     def rederive(self, name, captures, inventory=None):
+        if name in ('factory', 'active'):
+            # The fake factory and active reads again, from their recorded bytes.
+            return getattr(self, name)([(command, code, stdout.encode('utf-8', 'surrogateescape'),
+                                         stderr.encode('utf-8', 'surrogateescape'))
+                                        for command, code, stdout, stderr in captures])
         if not self.users_admitted:
             return NotImplemented
         return full_users.rederive(name, captures, inventory)
@@ -639,13 +932,27 @@ class SimReader(lab_readers.ReaderAdapter):
         return rows
 
     def health_baseline(self, context):
+        """The real baseline reader when a test gives one; otherwise one fake read, in the strict
+        facts form, whose witness parts stand for a witness reader only when one is admitted."""
+        if self.baseline_reader is not None:
+            return self.baseline_reader.read(self._raw, context)
         value = self._read('sim:baseline %d' % context['user'])
-        return {'user': context['user'], 'serial': context['serial'], 'facts': value}
+        uid = context['user'] * full_users.PER_USER_RANGE + UID
+        part = ({'status': 'OK', 'schema': 'andrix-sim-witness-v1', 'reading': {'errors': value['errors']}}
+                if self.witness_admitted else {'status': 'NOT_ADMITTED'})
+        process = {'pid': value['pid'], 'start_ticks': value['start_ticks'], 'uid': uid, 'uids': [uid] * 4,
+                   'name': PACKAGE, 'comm': full_users.COMM, 'context': CONTEXT}
+        facts = {'schema': 'andrix-health-baseline-facts-v1', 'user': context['user'], 'serial': context['serial'],
+                 'state': 'RUNNING_UNLOCKED', 'app_id': UID, 'uid': uid, 'process': process, 'absent': False,
+                 'history': part, 'current_errors': part, 'complete': self.witness_admitted}
+        return {'user': context['user'], 'serial': context['serial'], 'facts': facts}
 
     def health_composition(self, context):
-        """Seven rows from one fresh read: each row names that read. The UI marker, unlock and
-        native work rows name the offered preparation whose challenge the guest shows; the no
-        crash row the offered baseline."""
+        """The real composer when a test gives one. Otherwise seven rows from one fresh read: each
+        row names that read. The UI marker, unlock and native work rows name the offered
+        preparation whose challenge the guest shows; the no crash row the offered baseline."""
+        if self.composer is not None:
+            return self.composer.compose(self._raw, context)
         at = len(self._captures)
         value = self._read('sim:health %d' % context['user'])
         rows = []

@@ -32,6 +32,9 @@ closure are later packages.
 | `lab_readers.py` | The injectable reader adapter and its adapter for the public shell observer |
 | `lab_actions.py` | The next campaign profile's typed lab actions: registry, exact specs, user resolution |
 | `full_users.py` | The full user setup package: the whole user forms' parsers, the typed inventory and limits, the setup actions' commands, replies and records, and the genuine main SystemUI process join |
+| `health_compose.py` | The health composition: the composer, the readers of bits 0, 2 and 3, the forms of the UI state helper and of a fresh dump of all windows, the hooks of bits 1, 4, 5 and 6, and the driver's declared starting values |
+| `health_baseline.py` | The health baselines: one user's process, history and current error baseline, which one a probe relies on, and each serial's expected SystemUI identity |
+| `health_records.py` | The health package's side metadata codec: the UI state reading, baseline facts, identity baselines, preparation results and the PIN and sentinel setup records |
 | `lab_evidence.py` | Strict canonical side records: compound manifests and retained action specs |
 | `lab_losses.py` | The next profile's fault schedule and its read and round loss addresses |
 | `lab_records.py` | Strict readers of a stored plan and ticket, for where a compound fact may be placed |
@@ -41,9 +44,9 @@ closure are later packages.
 | `cells.py` | The loss cells as one ordered sequence of attempts on one plan, each with its faults and prediction |
 | `driver/` | Java: `LabDriverMain`, the driver's coordinator process and store setup, and `LabHost`, the real host signer, artifact store and bundle builder |
 | `driver-tests/` | Java: `DriverTest`, unit checks of the driver's baseline, selection, host configuration and approval guards |
-| `sim_android.py`, `sim_users.py`, `labtest.py` | Host test support: a small simulated guest, its users in the full user forms, and a client |
+| `sim_android.py`, `sim_users.py`, `labtest.py` | Host test support: a small simulated guest, its users in the full user forms, the health package's forms and fakes, and a client |
 | `fixtures/full-users/` | The full user forms, source derived, with their commands, statuses and sources |
-| `test_*.py` | The host suites; `test_lab_next.py`, `test_lab_loss.py` and `test_full_users.py` are the next campaign profile's broker suites |
+| `test_*.py` | The host suites; `test_lab_next.py`, `test_lab_loss.py`, `test_full_users.py` and `test_health.py` are the next campaign profile's broker suites |
 
 ## Process model
 
@@ -482,10 +485,35 @@ every crossing names, as under version 2.
   the bracket. A row whose reason no side record can hold is of no known form. The classification
   follows the rows. A probe that ends after the window is kept as evidence outside it and emits
   nothing. A missing, partial or unreadable composition keeps its captures and reason and emits
-  nothing; an UNKNOWN row gives INCONCLUSIVE, never HELD.
-- **Health baselines.** `health_baseline` reads one user's baseline between generations, for a user
-  a whole inventory shows running and unmarked, as a compound group that is never a deployment
-  fact. An unavailable read is kept and never replaces the last good baseline.
+  nothing; an UNKNOWN row gives INCONCLUSIVE, never HELD. The composer is told each offered
+  preparation's result, which the manifest binds by its digest, the identity baseline of the
+  user's serial, the stored plan's base UID and context for the system user, and the CE nonce
+  CE_SENTINEL settled for the serial.
+- **Health baselines** (`health_baseline.py`). `health_baseline` reads one user's process, history
+  and current error baseline between generations, outside any round, for a user a whole inventory
+  shows running and unmarked, as a compound group that is never a deployment fact. Its facts have
+  an exact form: the user's genuine main SystemUI process from the process discovery, and the
+  witness reader's two parts, NOT_ADMITTED until that later part is admitted, so a baseline is
+  complete only with the process present and both parts read whole. Which baseline a probe relies
+  on is `select`'s rule alone: the last whole one of the probe's boot and framework instance,
+  completed by the window's start, or, for a user that a whole listing after the window began and
+  before its first observed unlock showed locked, stopped or absent, the last whole one taken after
+  that listing and before the user's first full probe, as the reconciler starts such a user's
+  span; and complete. Output that is unavailable or of no known form is kept and never replaces a
+  whole one, and a baseline taken later never rescues a window.
+- **Identity baselines.** `identity_baseline` reads, between generations and inside one clock
+  bracket, the factory and active copies, a whole inventory and the process discovery, as a
+  compound group. It qualifies only with the factory copy active, its bytes the factory's, and the
+  system user's process the one the active read names; then each listed user's process is its
+  serial's expected identity: UID, app ID and exact context. The first qualified identity of a
+  serial stands for bit 0; a later one that differs is named as a conflict and never replaces it.
+  The group's bracket, status and projection are what its children's own recorded captures give
+  when the reader reads them again, the factory and active facts through the observer, the
+  inventory and the processes through `full_users.py`, both when it is written and on every
+  reopening. Each child must be that read's own group, in its order. A projection that its
+  children do not give, even with its manifest rewritten to match, refuses the reopening, so a
+  changed copy never puts in an identity the factory reads did not show. A reader that cannot
+  read the children again gives an unclassified group and no expectation.
 - **Typed lab actions** (`lab_actions.py`). Each spec has exactly its ID, registered type, phase,
   cell, runtime, installation, authority, user selector, typed parameters, pinned inputs, its type's
   preconditions, predecessor, successors, uses, timeout and output bounds. Authority is the type's
@@ -507,18 +535,17 @@ every crossing names, as under version 2.
   it uncertain, so it is observed or halted, never repeated. A reopening records a LOST END for a
   BEGIN without one, and that action is never run again to find out.
 
-The registry has eleven types. FRAMEWORK_RESTART is withdrawn: an admission that names it is refused
-by that name, since the next profile admits no framework restart; version 2's driver keeps its
-own. PLAIN_KERNEL_CONFIRM, DIRECT_STAGE, DIRECT_COMMIT and NEGATIVE_ACTIVATION are below. The old
-action map is never reinterpreted. NOTICE_VISIBILITY captures and reads one required
+The registry has thirteen types. FRAMEWORK_RESTART is withdrawn: an admission that names it is
+refused by that name, since the next profile admits no framework restart; version 2's driver keeps
+its own. PLAIN_KERNEL_CONFIRM, DIRECT_STAGE, DIRECT_COMMIT and NEGATIVE_ACTIVATION are below. The
+old action map is never reinterpreted. NOTICE_VISIBILITY captures and reads one required
 recipient's display through the notice adapter; it qualifies only in the notice's boot with one
 running framework through its bracket, for the recipient as the display's current user, awake and
 focused, showing the issue's challenge. HEALTH_PREPARATION runs the health adapter's UI, user and
 work steps for its criteria under a fresh challenge. USER_CREATE, USER_START, USER_SWITCH,
 USER_SETUP and USER_FIXTURE, the full user setup, are below; USER_CREATE is the creating type that
-a created user selector names. USER_PIN and CE_SENTINEL, the disposable
-lab PIN and the CE sentinel that end the sequence, are the health package's: an admission that
-names either is refused by name until it defines them.
+a created user selector names. USER_PIN and CE_SENTINEL, the disposable lab PIN and the CE sentinel
+that end the sequence, are the health package's, below.
 
 - **Round boundaries.** A ROUND_DONE is taken only after a round began with its CLOCK in this
   generation and named no other ticket. The broker reads the stored ticket, plan and selection
@@ -615,6 +642,52 @@ names either is refused by name until it defines them.
   one of no listed user, refuse the read; a process set or start identity that changed is
   unavailable. Only pidof's quiet failure, twice, shows no process; a refused /proc read or a lost
   reply is unavailable. The context is kept exactly as read.
+- **The health composer** (`health_compose.py`). Every composition declares all seven criteria,
+  the mask 127, and is one full probe of one user and serial. Its criterion readers are pure
+  functions over whole reads, each giving one row and never a fact; only the broker emits, at most
+  one HEALTH for a completed probe. Bit 0 compares the user's genuine main SystemUI process with
+  its serial's identity baseline, and for the system user with the plan's base too: a changed UID,
+  app ID or context of a process that is there is BAD, and no baseline, no process or a read that
+  is not whole is UNKNOWN, so process loss alone is no failure. Bit 2 reads the fresh dump of all
+  windows a UI preparation wrote under a path named by its operation, and judges its one visible
+  SystemUI clock node in a status bar window of the default display: variant A's ` WS-A` in both
+  its text and content description, or the original time with no workshop marker anywhere on the
+  display, the notice fixture out of view, and the capture taken with the user in the foreground,
+  awake and unlocked with a secure credential before and after it. Bit 3 needs a preparation's
+  credential unlock from a genuine locked state of a user with a secure credential, the user and
+  CE storage unlocked after it, and now the framework's CE state, the whole listing's
+  RUNNING_UNLOCKED and the fixture's nonce read from its own CE storage, equal to its recorded
+  origin. Bits 1, 4, 5 and 6 are hooks of later parts, UNKNOWN until admitted. An unavailable answer
+  is unknown, never false; a command the composer's reader does not admit gives the composition no
+  form, since it has no capture of its own.
+- **The UI state helper.** The fixed read only helper of `tests/ui-state-read` answers six questions
+  for one bounded user through the services' own Binder proxies, never through KeyguardManager's
+  convenience returns: interactive, keyguard locked and secure, device locked and secure, and CE
+  storage unlocked. It runs only between reads of the shell user and of its pinned bytes, before
+  and after it, and a reply cut short, of another user or build, or without its end marker has no
+  known form. An exception is unavailable with its class, never false.
+- **The disposable lab PIN.** USER_PIN, under LAB_USER_ADMIN, needs a user with CE storage unlocked
+  and no secure credential, read by the UI state helper; a credential is never replaced or guessed,
+  and no old credential is ever passed. The broker generates the PIN itself, so no caller and no
+  personal credential supplies it, and keeps it in the private store, a directory outside the
+  broker's evidence, before anything else; then PIN_INTENT names that private record by a fresh
+  name, never the PIN. Only then is the effect sent: the constant `sh`, given `locksettings set-pin`
+  on private standard input inside a function its last token calls, so a cut input never runs a
+  partial command, with every stream discarded. The capture records only that it had private
+  input. None of its output reaches the ledger: any byte of it, in either stream or undecoded in
+  the shell protocol's residual of a malformed, oversized or cut reply, withholds every field
+  that holds output, the decoder's account of the stream included, and they are kept privately;
+  the capture keeps its launch, transport, completion and exit, and the sizes withheld. PIN_SET
+  follows only a reply of success and the helper then reading the user secure. An uncertain effect
+  stays uncertain, its PIN kept, and is never repeated; a serial gets one PIN attempt.
+- **The CE sentinel.** CE_SENTINEL, under LAB_USER_ADMIN, needs a user whose CE storage a whole
+  inventory and the framework both read unlocked. SENTINEL_INTENT records a fresh nonce before the
+  work fixture's fixed write; SENTINEL_SET only when the fixture's own read only readback shows
+  exactly that nonce. That record is the CE origin bit 3 compares the fixture's CE storage with. A
+  serial gets one sentinel, never rewritten. The work fixture's write and readback forms are a
+  later package's; its adapter is a hook here. Both setup types wait for every boot transition to
+  settle, as the full user setup does, and a reopening checks each of their records against the
+  captures it names.
 - **Kept records latch the writer.** A record this profile keeps by digest outside the compound
   writer latches the broker's stop when its write or sync fails, as a manifest does. These are a
   boundary's records, a point's, a confirmation's issuing records, F0's capability record and the
@@ -695,7 +768,9 @@ and any receipt reader are not exposed. The next profile's readers, the typed in
 fixture's provider rows, the health baseline and the health composer, and its notice and health
 adapters, are interfaces here; the simulated guest implements them for host tests. With
 `users=True`, `ObserverAdapter` admits the full user readers of `full_users.py`, which read the
-guest's own user forms; the other guest forms are later packages, and it admits none of them.
+guest's own user forms. Given a composer and a baseline reader beside them, it admits the health
+readers too, and the witness reader exactly when both have one. The notice fixture's provider rows
+and the global session inventory are later packages, and it admits neither.
 
 ## Running the checks
 
@@ -721,8 +796,10 @@ partial.
   start and switch users on the selected image, its effective limits and restrictions, whether a
   secondary user's main SystemUI process runs and how long, its context, the setup the image shows
   and the steps that finish it, and the fixtures' installation for the user need a guest.
-- No guest notice route, receipt reader, visibility capture, health composer, preparation step or
-  crash witness exists here. The next profile's mechanisms join, order and bound
+- No guest notice route, receipt reader, visibility capture, UI preparation step, native work or
+  crash witness exists here. The health composer's readers of bits 0, 2 and 3 read source derived
+  forms; the UI preparation's capture and credential unlock, the work fixture's CE nonce and the
+  readers of bits 1, 4, 5 and 6 are hooks. The next profile's mechanisms join, order and bound
   what such readers return, on the simulated guest only. Whether a notice is visible on a locked or
   unlocked display, an app row survives Android loss, a provider read authenticates the shell, the
   elapsed scales agree, a preparation unlocks and returns CE, a native child runs and a witness
@@ -740,4 +817,11 @@ partial.
   no Android form is qualified by them.
 - The native target scope's fresh form is the one captured on the selected producer image. It
   establishes nothing on another image, and no guest of this package has read it yet.
+- The UI state helper's answers, its permissions as the shell user and its reply on a guest are
+  unqualified; host runs show only its own code on stub services. The status bar window's type,
+  the clock's time forms beyond the default locales and a dump of all windows on the guest need a
+  capture. The private standard input of USER_PIN rests on the adb daemon's STDIN and CLOSE_STDIN
+  handling, outside the inspected sources, and `cmd`'s exit status for a refusal is
+  frameworks/native's: both need a guest check before a PIN relies on them. These checks do not
+  exclude every logger or process inspection on the guest.
 - A process crash is not power loss, and directory times are not durability evidence.

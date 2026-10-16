@@ -251,6 +251,44 @@ class ShellTests(unittest.TestCase):
         result = client(FakeServer()).shell('id', 5, 1024, 1024)
         self.assertEqual((result.launch, result.transport, result.exit), ('not-launched', 'connect-failed', None))
 
+    def test_private_input_follows_the_open_service_and_is_never_in_the_result(self):
+        seen = {}
+
+        def script(sock, server):
+            transport_ok(sock, server)
+            request(sock, server)
+            sock.sendall(b'OKAY')
+            header = exact(sock, st.PACKET_HEADER)
+            seen['stdin'] = (header[0], exact(sock, struct.unpack('<I', header[1:])[0]))
+            seen['close'] = exact(sock, st.PACKET_HEADER)
+            sock.sendall(EXIT0)
+        server = FakeServer(script)
+        result = client(server).shell('sh', 5, 1024, 1024, private=b'f(){ exec run secret; }; f\n')
+        server.join()
+        self.assertEqual(server.received, ['host:tport:serial:127.0.0.1:6520', 'shell,v2,raw:sh'])
+        self.assertEqual(seen['stdin'], (st.ID_STDIN, b'f(){ exec run secret; }; f\n'))
+        self.assertEqual(seen['close'], bytes([st.ID_CLOSE_STDIN]) + struct.pack('<I', 0))
+        self.assertEqual((result.launch, result.completion, result.exit), ('launched', 'exited', 0))
+        self.assertNotIn('secret', repr(result) + repr(result.summary()))
+        # A refused service is sent no input, and input that cannot be sent whole ends the call:
+        # launched, with no status.
+        server = FakeServer(shell_script(service_status=b'FAIL0006closed'))
+        result = client(server).shell('sh', 5, 1024, 1024, private=b'secret')
+        self.assertEqual((result.launch, result.transport, result.exit), ('not-launched', 'service-failed', None))
+
+        class Breaks(ScriptedSocket):
+            def sendall(self, data):
+                if bytes(data[:1]) == bytes([st.ID_STDIN]):
+                    raise BrokenPipeError('the peer closed')
+                super().sendall(data)
+        sock = Breaks(b'OKAY' + struct.pack('<Q', 7) + b'OKAY')
+        result = st.AdbClient('127.0.0.1:6520', lambda timeout: sock).shell('sh', 5, 1024, 1024, private=b'secret')
+        self.assertEqual((result.launch, result.transport, result.completion, result.exit),
+                         ('launched', 'io-error', 'input-failed', None))
+        for bad in (b'', b'x' * (st.PRIVATE_INPUT_MAX + 1)):
+            with self.assertRaises(ValueError):
+                client(FakeServer()).shell('sh', 5, 1024, 1024, private=bad)
+
     def test_an_adb_error_message_with_a_closed_stream_is_not_exit_1(self):
         server = FakeServer(shell_script(packet(ERR, b'error: device offline\n')))
         result = client(server).shell('pidof com.android.systemui', 5, 1024, 1024)

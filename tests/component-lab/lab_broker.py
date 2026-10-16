@@ -49,6 +49,9 @@ for _path in (str(HERE), str(ROOT)):
 
 import capture_ledger as ledgers  # noqa: E402
 import full_users  # noqa: E402
+import health_baseline  # noqa: E402
+import health_compose  # noqa: E402
+import health_records  # noqa: E402
 import lab_actions  # noqa: E402
 import lab_crossings as crossings  # noqa: E402
 import lab_evidence as evidence  # noqa: E402
@@ -120,7 +123,8 @@ COMPOUND = 'compound'
 SCHEMAS = {'notice-visibility': 'andrix-notice-visibility-v1', 'receipts': 'andrix-receipt-read-v1',
            'health-baseline': 'andrix-health-baseline-v1', 'health': 'andrix-health-composition-v1',
            'confirmation-preflight': 'andrix-confirmation-preflight-v1',
-           'activation-preflight': 'andrix-activation-preflight-v1'}
+           'activation-preflight': 'andrix-activation-preflight-v1',
+           'identity-baseline': 'andrix-identity-baseline-v1'}
 UNKEPT = 'the compound manifest could not be kept: '
 # The environment variable through which a version 3 broker tells each generation how many round
 # boundaries of each ticket it has recorded, so the bridge can name the next checkpoint ordinal.
@@ -232,9 +236,27 @@ def _hex(value, width):
 # Each typed action type's run request: what the controller names beyond the action and its reason.
 REQUESTS = {'NOTICE_VISIBILITY': ('ticket', 'index', 'serial'), 'HEALTH_PREPARATION': (),
             'PLAIN_KERNEL_CONFIRM': ('ticket',), 'DIRECT_STAGE': (), 'DIRECT_COMMIT': (), 'NEGATIVE_ACTIVATION': (),
-            'USER_CREATE': (), 'USER_START': (), 'USER_SWITCH': (), 'USER_SETUP': (), 'USER_FIXTURE': ()}
+            'USER_CREATE': (), 'USER_START': (), 'USER_SWITCH': (), 'USER_SETUP': (), 'USER_FIXTURE': (),
+            'USER_PIN': (), 'CE_SENTINEL': ()}
+# USER_PIN's one effect: a constant command, `sh`, given the credential dependent command on its
+# private standard input. The command sits in a function that the input's last token calls, so an
+# input cut short in transit never runs a partial command: cut inside the body, it is a syntax
+# error at the end of input; cut before the call, the function is never called. Every stream of
+# `locksettings` is discarded, since it prints the PIN it set (services/core/java/com/android/
+# server/locksettings/LockSettingsShellCommand.java:299-306).
+PRIVATE_COMMAND = 'sh'
+PIN_INPUT = 'f(){ exec locksettings set-pin --user %d %s </dev/null >/dev/null 2>&1; }; f\n'
+# The private store's directory and record names: a fresh name, never derived from the PIN.
+PRIVATE_PIN = 'pin-%s'
+# A private command's output kept privately: at most this many bytes of each field.
+PRIVATE_KEEP = 2048
+WITHHELD = 'withheld with the output of a command given private input'
 # The typed readings of the full user reads: what each group records instead of facts.
 USER_READINGS = ('inventory', 'user-limits', 'systemui-processes')
+# An identity baseline's children in the order it reads them, each with its reader.
+IDENTITY_CHILDREN = (('begin', 'clock'), ('factory', 'factory'), ('active', 'active'), ('inventory', 'inventory'),
+                     ('processes', 'systemui-processes'), ('end', 'clock'))
+UNREAD = 'the reader cannot read the children of an identity baseline again'
 # A user action settles by reading again: at most this many whole reads, this far apart, within
 # its own deadline.
 USER_POLLS = 10
@@ -284,6 +306,20 @@ def _side(value):
     except evidence.SideError:
         text = ''.join(c if 0x20 <= ord(c) <= 0x7e else '?' for c in repr(value))
         return {'unencodable': text[:2000]}
+
+
+def _result_digest(result):
+    """The SHA-256 of a preparation's result as a side record, or None without one."""
+    return None if result is None else evidence.digest({'result': result})
+
+
+def _pin_reply(code, stdout, stderr):
+    """USER_PIN's reply: SET, FAILED or UNRECOGNIZED. Every stream of its command is discarded, so a
+    whole reply is its exit status alone, both streams empty: 0 is success and any other status a
+    refusal. Which status `cmd` gives a refusal is frameworks/native's, not pinned here."""
+    if type(code) is not int or stdout not in (b'', '') or stderr not in (b'', ''):
+        return 'UNRECOGNIZED'
+    return 'SET' if code == 0 else 'FAILED'
 
 
 def _side_text(value):
@@ -535,7 +571,7 @@ class Broker:
     @classmethod
     def open(cls, root, source_root, transport, reader, notice=None, wall=time.time_ns, monotonic=time.monotonic_ns,
              sleep=time.sleep, ids=os.urandom, processes=None, sync=True, target=None, target_read=False, health=None,
-             fsync=None):
+             fsync=None, work=None, private=None):
         """Opens a broker directory. The native target scope is read at HELLO and at every
         crossing's gate. With `target_read`, the reader's admitted target reader reads it from
         the guest as the broker's own recorded group, and the scope is established empty only
@@ -545,13 +581,18 @@ class Broker:
         `health`, under a version 3 admission, is the health adapter whose fixed commands a
         HEALTH_PREPARATION runs. `fsync`, when given, is the one sync of every file and directory
         the broker and its ledger make durable, so a test can record their order; otherwise the
-        broker syncs with os.fsync and the ledger with its own."""
+        broker syncs with os.fsync and the ledger with its own. `work` is the work fixture's
+        adapter, whose fixed commands CE_SENTINEL runs. `private` is the private store, a directory
+        outside the broker's evidence that only USER_PIN writes: the disposable lab PIN it
+        generates, which never enters the ledger."""
         if target_read and (target is not None or not getattr(reader, 'target_admitted', False)):
             raise BrokerError("a target read needs the reader's admitted target reader and no host target")
         self = object.__new__(cls)
         self._fsync = fsync
         self.root = Path(root)
         self.transport, self.reader, self.notice, self.health = transport, reader, notice, health
+        self.work = work
+        self._private = None if private is None else Path(private)
         self._target = target
         self._target_read = bool(target_read)
         self._source_root = Path(source_root)
@@ -688,6 +729,12 @@ class Broker:
         # The full user setup: each create action's CREATED and IDENTIFIED records, and every
         # serial a typed inventory has listed, which no later user may reuse.
         self.created, self.serials_seen = {}, {}
+        # The health package: each serial's expected SystemUI identity and the identity baselines
+        # that contradicted it, each boot's whole user listings, each user's probe begins, and each
+        # serial's PIN and CE sentinel setup records.
+        self.identities, self.identity_conflicts = {}, {}
+        self.listings, self.probe_begins = {}, {}
+        self.pins, self.sentinels = {}, {}
         for entry in self.ledger.entries:
             if not entry.complete:
                 continue
@@ -720,6 +767,7 @@ class Broker:
             elif kind == 'group' and c.get('reader') == 'clock' and 'offered' in c and c['status'] == 'facts':
                 # A probe's begin bracket: the preparations it offered are used from then on.
                 self.used_preparations.update(c['offered'])
+                self._probe_begun(c)
             if kind == 'generation':
                 self.generation = c['generation']
                 self.open_generation = c
@@ -760,6 +808,7 @@ class Broker:
                 self.consumed.add(c['cell'])
             elif kind == 'group':
                 self._users(c)
+                self._listing(c)
                 if c['emitted']:
                     for item in c['observations']:
                         self._scaled(item)
@@ -837,12 +886,47 @@ class Broker:
             for row in c['rows']:
                 if c['status'] == 'facts' and row['judgment'] == 'EMITTED':
                     self.proofs.setdefault(row['key'], row['proof'])
-        elif reader == 'health-baseline' and c['status'] == 'facts':
+        elif reader == 'health-baseline' and c['brackets'] is not None:
+            # Every bracketed baseline is kept: which one a probe relies on is the rule of
+            # health_baseline.select alone, so output that is unavailable or of no known form
+            # never replaces a whole one.
             self.baselines.setdefault((c['brackets']['boot'], c['user'], c['serial']), []).append(c)
         elif reader == 'health':
             self.used_preparations.update(c['preparations'])
+        elif reader == 'identity-baseline':
+            # Each serial's first qualified identity stands; a later one that differs is a conflict
+            # the group names, never a new expectation.
+            self._identity_record(c)
         if c['emitted']:
             self._scaled(c['brackets']['end'])
+
+    def _identity_record(self, c):
+        """One identity baseline's expectations, from its children alone: its bracket, status and
+        projection must be exactly what its named children's own captures give when read again,
+        and its conflicts what that projection makes against the identities before it. Only then
+        does a qualified projection give expectations. A group whose children the reader cannot
+        read again is unclassified and gives none. Anything else refuses the reopening: a changed
+        copy never puts in an identity that the factory reads did not show."""
+        brackets, derived = self._identity_derived(c['children'], c['number'])
+        if derived is NotImplemented:
+            derived = ('unclassified', None)
+            if c['status'] != 'unclassified' or c['reason'] != UNREAD:
+                raise BrokerError('identity baseline %d: the reader cannot read its children again' % c['number'])
+        if ledgers.encode_json([brackets, list(derived)]) != ledgers.encode_json([c['brackets'],
+                                                                                [c['status'], c['projection']]]):
+            raise BrokerError("identity baseline %d is not what its children's captures give" % c['number'])
+        if c['status'] != 'facts':
+            if c['conflicts'] != []:
+                raise BrokerError('identity baseline %d names conflicts without a projection' % c['number'])
+            return
+        known = {serial: kept['identity'] for serial, kept in self.identities.items()}
+        found, conflicts = health_baseline.expected(known, c['projection'])
+        if conflicts != c['conflicts']:
+            raise BrokerError('identity baseline %d names other conflicts than its projection makes' % c['number'])
+        for serial in conflicts:
+            self.identity_conflicts.setdefault(serial, []).append(c['number'])
+        for serial, identity in found.items():
+            self.identities.setdefault(serial, {'identity': identity, 'group': c['number']})
 
     def _pin_rows(self, c):
         """The first bytes of every row a receipt read judged, from its ledger group, whether or
@@ -991,6 +1075,25 @@ class Broker:
                 self.users_seen.pop(key, None)
             else:
                 self.users_seen[key] = (item['user'], item['serial'])
+
+    def _listing(self, group):
+        """A whole user listing a users group read: its boot, time and each user's state. The USER
+        reader gives every user or none, so a user it does not show running is locked, stopped or
+        absent, as the reconciler reads it."""
+        if group.get('reader') != 'users' or group.get('status') != 'facts':
+            return
+        items = [o for o in group.get('observations', ()) if o['kind'] == 'USER']
+        if not items:
+            return
+        states = {(o['user'], o['serial']): o['classification'] for o in items}
+        self.listings.setdefault(items[0]['boot'], []).append((items[0]['elapsed'], states))
+
+    def _probe_begun(self, group):
+        """A probe's begin bracket, read: the user's probe begins in that boot."""
+        reading = group['reading']
+        if type(group.get('user')) is int and type(group.get('serial')) is int:
+            self.probe_begins.setdefault((reading['boot'], group['user'], group['serial']), []).append(
+                reading['elapsed'])
 
     def _scaled(self, item):
         if not item:
@@ -1344,7 +1447,7 @@ class Broker:
             if not settled:
                 raise BrokerError('the predecessor action has no settled use')
             checkpoint = settled[-1]['number']
-        adapter = {'notice': self.notice, 'health': self.health, None: None}[kind['adapter']]
+        adapter = {'notice': self.notice, 'health': self.health, 'work': self.work, None: None}[kind['adapter']]
         if kind['adapter'] is not None and adapter is None:
             raise BrokerError('no %s adapter is admitted' % kind['adapter'])
         if not self.reader.inventory_admitted:
@@ -1410,6 +1513,10 @@ class Broker:
                 result = self._act_user_setup(context, command, begin, spec, user)
             elif spec['type'] == 'USER_FIXTURE':
                 result = self._act_user_fixture(context, command, begin, spec, user)
+            elif spec['type'] == 'USER_PIN':
+                result = self._act_user_pin(context, command, begin, spec, user)
+            elif spec['type'] == 'CE_SENTINEL':
+                result = self._act_ce_sentinel(context, command, begin, spec, user)
             elif spec['type'] == 'NOTICE_VISIBILITY':
                 result = self._act_visibility(context, command, begin, issue, user)
             elif spec['type'] == 'HEALTH_PREPARATION':
@@ -1489,8 +1596,12 @@ class Broker:
         adapter's allowlisted form, an effect only within the effect limits, every command fenced
         and refused once less than BOUND_COMMAND_MIN_S of the action's deadline is left, with the
         spec's output bounds."""
-        def command(operation, text):
-            allowed = self._own_command(spec, text, user) if adapter is None else adapter.allowed(text)
+        def command(operation, text, private=None):
+            # A type's own fixed forms first, then its adapter's. Private input only for USER_PIN's
+            # one constant effect, whose input never enters the intent, a capture or the ledger.
+            allowed = self._own_command(spec, text, user) or (adapter is not None and adapter.allowed(text))
+            if private is not None:
+                allowed = spec['type'] == 'USER_PIN' and operation == 'lab-action-effect' and text == PRIVATE_COMMAND
             if not allowed:
                 raise readers.Unclassified('a command outside the %s allowlist' % (kind['adapter'] or spec['type']))
             if operation == 'lab-action-effect':
@@ -1504,7 +1615,7 @@ class Broker:
                           left / 1_000_000_000)
             capture, result = self._shell(operation, text, dict(context, effect_class=kind['effect'], phase=spec['phase']),
                                           timeout, spec['stdout_max'], spec['stderr_max'], not_after_ns=deadline,
-                                          bound_ns=deadline)
+                                          bound_ns=deadline, private=private)
             if not result.completed or result.overflow is not None:
                 raise readers.Unavailable('action capture %d did not complete: %s' % (capture, result.completion))
             return result
@@ -2200,7 +2311,10 @@ class Broker:
         just before it, with the users and every serial known then. An IDENTIFIED record must
         follow its CREATED record and name a later whole inventory group that identifies exactly
         that user. Anything else refuses the reopening: a changed copy never moves or invents a
-        created user."""
+        created user. USER_PIN's and CE_SENTINEL's records are checked by their own rules."""
+        if c.get('record') in health_records.SETUP_RECORDS:
+            self._health_setup_record(c)
+            return
         why = full_users.setup_problem(c)
         spec = self.specs.get(c.get('action_id')) if why is None else None
         begin = self._entry(c.get('begin'), 'lab-action', c['number']) if why is None else None
@@ -2263,12 +2377,7 @@ class Broker:
         rederive = getattr(self.reader, 'rederive', None)
         if c.get('status') != 'facts' or rederive is None:
             return
-        captures = []
-        for n in c.get('captures', ()):
-            if type(n) is not int or not 0 < n < c['number'] or self.ledger.entries[n - 1].kind != 'capture':
-                raise BrokerError('the typed reading of group %d names no capture of its own' % c['number'])
-            entry = self.ledger.entries[n - 1]
-            captures.append(((entry.content.get('intent') or {}).get('command'),) + self._capture_reply(entry))
+        captures = self._group_captures(c, 'the typed reading of group %d names no capture of its own')
         inventory = None
         if c['reader'] == 'systemui-processes':
             source = self._entry(c.get('inventory_group'), 'group', c['number'])
@@ -2280,6 +2389,18 @@ class Broker:
                               % (c['number'], error)) from error
         if value is not NotImplemented and ledgers.encode_json(value) != ledgers.encode_json(c.get('reading')):
             raise BrokerError('the typed reading of group %d is not what its captures give' % c['number'])
+
+    def _group_captures(self, c, refusal):
+        """A group's recorded captures as its reader saw them, in order: (command, exit status or
+        None, standard output, standard error). A number that is no capture before the group
+        refuses the reopening with `refusal`, formatted with the group's number."""
+        captures = []
+        for n in c.get('captures', ()):
+            if type(n) is not int or not 0 < n < c['number'] or self.ledger.entries[n - 1].kind != 'capture':
+                raise BrokerError(refusal % c['number'])
+            entry = self.ledger.entries[n - 1]
+            captures.append(((entry.content.get('intent') or {}).get('command'),) + self._capture_reply(entry))
+        return captures
 
     def _user_commands(self, spec, user):
         """Every fixed command a user action may send for its resolved user."""
@@ -2296,6 +2417,12 @@ class Broker:
         if kind == 'USER_SETUP':
             return ({full_users.step_command(step) for step in parameters['steps']}
                     | {full_users.CURRENT, full_users.setup_command(target)})
+        if kind in ('USER_PIN', 'CE_SENTINEL'):
+            # The UI state helper's admitted reads for the user. USER_PIN's one effect is its
+            # private constant command, which only the private input rule admits; CE_SENTINEL's
+            # effect and readback are the work fixture's.
+            return {health_compose.SHELL_IDENTITY, health_compose.HELPER_DIGEST,
+                    health_compose.ui_state_command(target)}
         package = parameters['package']
         return {full_users.install_existing_command(target, package), full_users.enable_command(target, package),
                 full_users.package_uid_command(0, package), full_users.package_uid_command(target, package),
@@ -2590,6 +2717,281 @@ class Broker:
         return 'UNEXPECTED', outcome, 'the fixture is not read installed and enabled for the user with its pinned ' \
             'bytes', True, []
 
+    # ---------------------------------------------- the disposable lab PIN and the CE sentinel
+
+    def _ui_state(self, command, user):
+        """One user's UI state through the fixed helper, as an action reads it for itself, between
+        reads of the shell user and the helper's pinned bytes: (reading, the helper's capture,
+        None) or (None, None, why). An unavailable answer is None in the reading, never false."""
+        captures = []
+
+        def run(text):
+            result = command('lab-action-read', text)
+            captures.append((text, self.ledger.last.number))
+            return (result.exit,) + self._streams(result)
+        try:
+            reading = health_compose.read_ui_state(run, user)
+        except (readers.Unavailable, readers.Unclassified, ValueError) as error:
+            return None, None, '%s: %s' % (type(error).__name__, error)
+        helper = [n for text, n in captures if text == health_compose.ui_state_command(user)]
+        return reading, helper[0], None
+
+    def _new_pin(self, digits):
+        """A fresh disposable lab PIN of that many digits, from the broker's own random source: no
+        caller supplies it, so no personal credential can enter."""
+        value = int.from_bytes(self._ids(16), 'big') % (10 ** digits)
+        return '%0*d' % (digits, value)
+
+    def _keep_private(self, name, value):
+        """Writes one private record, exclusively, synced and its name synced, in the private store,
+        a directory outside the broker's evidence that it creates on first use."""
+        directory = self._private
+        if not directory.is_dir():
+            os.makedirs(directory, mode=0o700, exist_ok=True)
+            self._sync_dir(directory.parent)
+        data = evidence.canonical(value)
+        fd = os.open(directory / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+        try:
+            os.write(fd, data)
+            self._sync_fd(fd)
+        finally:
+            os.close(fd)
+        self._sync_dir(directory)
+
+    def private_pin(self, serial):
+        """The disposable lab PIN USER_PIN generated for one serial, from the private store, for
+        a later credential unlock: (PIN, its intent record) or None. It never enters the ledger."""
+        intent = self.pins.get(serial, {}).get('PIN_INTENT')
+        if intent is None or self._private is None:
+            return None
+        data = _regular_bytes(self._private / intent['private'], 4096)
+        try:
+            value = evidence.parse(data or b'')
+        except evidence.SideError:
+            return None
+        if (value.get('user'), value.get('serial'), value.get('begin')) != (intent['user'], serial, intent['begin']):
+            return None
+        return value['pin'], intent
+
+    def _write_health_setup(self, record, **fields):
+        """Records one USER_PIN or CE_SENTINEL setup step durably, and returns it."""
+        value = dict(fields, record=record, wall_ns=self._wall())
+        why = health_records.setup_problem(value)
+        if why is not None:
+            raise BrokerError(why)
+        number = self.ledger.record('user-setup', value)
+        value = dict(value, number=number, kind='user-setup')
+        target = self.pins if record.startswith('PIN_') else self.sentinels
+        target.setdefault(value['serial'], {})[record] = value
+        return value
+
+    def _act_user_pin(self, context, command, begin, spec, user):
+        """USER_PIN: a disposable lab PIN for a user with CE storage unlocked and no secure
+        credential, through `locksettings set-pin`, which actually changes the credential
+        (LockSettingsShellCommand.java:299-306; LockSettingsService.java:3180-3201). The broker
+        generates the PIN and keeps it in the private store before anything else, then records
+        PIN_INTENT naming that private record by a fresh name, never the PIN; only then is the
+        effect sent, the constant `sh` given the command on private standard input. A user with a
+        secure credential, or one whose state is unknown, is refused: a PIN is never replaced or
+        guessed, and no old credential is ever passed. The UI state helper's device secure answer
+        decides: PIN_SET only when it reads true after a reply of success. An uncertain effect
+        stays uncertain and is never repeated; its PIN stays in the private store. The effect's
+        output, which success never has, is withheld from the ledger whole, decoded or not."""
+        deadline = begin['deadline_monotonic_ns']
+        serial = user['serial']
+        if self._private is None:
+            return 'REFUSED', None, 'no private store is admitted for the disposable PIN', True, []
+        if self.pins.get(serial):
+            return 'REFUSED', None, 'a PIN was already attempted for this serial: it is never replaced', True, []
+        inventory = self._read('inventory', dict(context, purpose='user-precondition', part='pin-inventory'), deadline)
+        groups = [inventory.number]
+        state = full_users.condition(inventory.reading, user['id']) if inventory.ok else None
+        if state is None or not state['ce_unlocked']:
+            return 'REFUSED', {'groups': groups}, 'a whole inventory does not show the user with CE storage unlocked', \
+                True, groups
+        before, readback, why = self._ui_state(command, user['id'])
+        if before is None:
+            return 'REFUSED', {'groups': groups}, 'the UI state is unavailable: %s' % why, True, groups
+        if before['values']['device_secure'] is not False:
+            return 'REFUSED', {'groups': groups, 'device_secure': before['values']['device_secure']}, \
+                'the user has a secure credential, or whether it has one is unknown: none is replaced', True, groups
+        digits = spec['parameters']['digits']
+        pin = self._new_pin(digits)
+        name = PRIVATE_PIN % proto.fresh_id(self._ids)
+        try:
+            self._keep_private(name, {'action_id': spec['id'], 'begin': begin['number'], 'user': user['id'],
+                                      'serial': serial, 'pin': pin})
+        except (OSError, evidence.SideError) as error:
+            raise self._writer_failed('the private PIN record could not be kept: %s' % error) from error
+        intent = self._write_health_setup('PIN_INTENT', action_id=spec['id'], begin=begin['number'], user=user['id'],
+                                          serial=serial, digits=digits, private=name, readback=readback)
+
+        def withheld(output):
+            # The effect's withheld output, up to PRIVATE_KEEP bytes of each field, with its sizes.
+            error = (output['error'] or '').encode('utf-8', 'backslashreplace')
+            self._keep_private(name + '-withheld', {
+                'stdout_hex': output['stdout'][:PRIVATE_KEEP].hex(), 'stdout_bytes': len(output['stdout']),
+                'stderr_hex': output['stderr'][:PRIVATE_KEEP].hex(), 'stderr_bytes': len(output['stderr']),
+                'residual_hex': output['residual'][:PRIVATE_KEEP].hex(), 'residual_bytes': output['residual_bytes'],
+                'error_hex': error[:PRIVATE_KEEP].hex()})
+        private = {'input': (PIN_INPUT % (user['id'], pin)).encode('ascii'), 'keep': withheld}
+        outcome = {'intent': intent['number']}
+        try:
+            result = command('lab-action-effect', PRIVATE_COMMAND, private=private)
+        except readers.Unavailable as error:
+            return 'UNKNOWN', outcome, 'the PIN effect did not complete: %s' % error, False, groups
+        entry = self.ledger.last
+        outcome.update(capture=entry.number, withheld=bool(entry.content['result'].get('withheld')))
+        outcome['reply'] = 'UNRECOGNIZED' if outcome['withheld'] else _pin_reply(result.exit, result.stdout,
+                                                                                    result.stderr)
+        after, readback, why = self._ui_state(command, user['id'])
+        if after is None:
+            return 'UNKNOWN', outcome, 'the UI state after the PIN is unavailable: %s' % why, False, groups
+        outcome['device_secure'] = secure = after['values']['device_secure']
+        if outcome['reply'] == 'UNRECOGNIZED' or secure is None:
+            return 'UNKNOWN', outcome, 'whether the PIN was set is unknown', False, groups
+        if outcome['reply'] == 'SET' and secure:
+            done = self._write_health_setup('PIN_SET', action_id=spec['id'], begin=begin['number'],
+                                            intent=intent['number'], user=user['id'], serial=serial,
+                                            capture=entry.number, readback=readback)
+            outcome['set'] = done['number']
+            return 'OK', outcome, None, True, groups
+        if outcome['reply'] == 'FAILED' and not secure:
+            return 'FAILED', outcome, 'the PIN was refused, and the user has no secure credential', True, groups
+        return 'UNEXPECTED', outcome, 'the PIN reply and the credential the helper reads disagree', True, groups
+
+    def _act_ce_sentinel(self, context, command, begin, spec, user):
+        """CE_SENTINEL: the work fixture keeps a fresh nonce in its own CE storage, for a user whose
+        CE storage a whole inventory and the framework both read unlocked. SENTINEL_INTENT records
+        the nonce before the effect, the fixture's fixed write; SENTINEL_SET only when the
+        fixture's own read only readback shows exactly that nonce. That record is the origin bit 3
+        compares the fixture's CE storage with after an unlock. A serial gets one sentinel, never
+        rewritten. An uncertain write stays uncertain and is never repeated."""
+        deadline = begin['deadline_monotonic_ns']
+        serial, package = user['serial'], spec['parameters']['package']
+        if self.sentinels.get(serial):
+            return 'REFUSED', None, 'a CE sentinel was already attempted for this serial: it is never rewritten', True, []
+        inventory = self._read('inventory', dict(context, purpose='user-precondition', part='sentinel-inventory'),
+                               deadline)
+        groups = [inventory.number]
+        state = full_users.condition(inventory.reading, user['id']) if inventory.ok else None
+        if state is None or not state['ce_unlocked']:
+            return 'REFUSED', {'groups': groups}, 'a whole inventory does not show the user with CE storage unlocked', \
+                True, groups
+        before, readback, why = self._ui_state(command, user['id'])
+        if before is None or before['values']['ce_unlocked'] is not True:
+            return 'REFUSED', {'groups': groups}, 'the framework does not read CE storage unlocked: %s' % (
+                why or 'it reads %s' % before['values']['ce_unlocked']), True, groups
+        nonce = proto.fresh_id(self._ids)
+        intent = self._write_health_setup('SENTINEL_INTENT', action_id=spec['id'], begin=begin['number'],
+                                          user=user['id'], serial=serial, package=package, nonce=nonce,
+                                          readback=readback)
+        binding = {'id': user['id'], 'serial': serial, 'type': user['type'], 'package': package, 'nonce': nonce}
+        outcome = {'intent': intent['number']}
+        outcome['reply'] = self.work.write_sentinel(lambda c: command('lab-action-effect', c),
+                                                    lambda c: command('lab-action-read', c), binding)
+        if outcome['reply'] not in ('WRITTEN', 'REFUSED'):
+            return 'UNKNOWN', outcome, 'the sentinel write gave no qualified reply: its effect is unknown', False, groups
+        captures = []
+
+        def read(text):
+            result = command('lab-action-read', text)
+            captures.append(self.ledger.last.number)
+            return result
+        try:
+            found = self.work.read_sentinel(read, binding)
+        except (readers.Unavailable, readers.Unclassified, ValueError) as error:
+            return 'UNKNOWN', outcome, 'the sentinel readback is unavailable: %s' % error, False, groups
+        outcome['found'] = found
+        if len(captures) != 1:
+            return 'UNKNOWN', outcome, 'the sentinel readback is not one read', False, groups
+        if outcome['reply'] == 'WRITTEN' and found == {'status': 'PRESENT', 'nonce': nonce}:
+            done = self._write_health_setup('SENTINEL_SET', action_id=spec['id'], begin=begin['number'],
+                                            intent=intent['number'], user=user['id'], serial=serial, nonce=nonce,
+                                            readback=captures[0])
+            outcome['set'] = done['number']
+            return 'OK', outcome, None, True, groups
+        if outcome['reply'] == 'REFUSED' and found.get('status') == 'ABSENT':
+            return 'FAILED', outcome, 'the fixture refused the sentinel, and its CE storage holds none', True, groups
+        return 'UNEXPECTED', outcome, "the fixture's CE readback is not the sentinel it was given", True, groups
+
+    def _health_setup_record(self, c):
+        """One USER_PIN or CE_SENTINEL setup record into the broker's state, checked against what it
+        names. An intent must follow its own BEGIN of an admitted spec of its type, be the first of
+        its serial, and name the action's own helper read before it, whose reply reads the user
+        without a secure credential, or with CE storage unlocked. A settlement must follow its
+        intent, name the action's own effect and a later readback whose reply proves it: the
+        helper reading the user secure, or the fixture's readback showing exactly the nonce.
+        Anything else refuses the reopening: a changed copy never moves or invents a credential
+        or a CE origin."""
+        why = health_records.setup_problem(c)
+        kind = 'USER_PIN' if c.get('record', '').startswith('PIN_') else 'CE_SENTINEL'
+        spec = self.specs.get(c.get('action_id')) if why is None else None
+        begin = self._entry(c.get('begin'), 'lab-action', c['number']) if why is None else None
+        if why is None and (spec is None or spec['type'] != kind or begin is None or begin.get('record') != 'BEGIN'
+                            or begin.get('action_id') != c['action_id']
+                            or (begin['resolved_user']['id'], begin['resolved_user']['serial']) != (c['user'],
+                                                                                                   c['serial'])):
+            why = 'it names no use of an admitted %s of its user' % kind
+        target = self.pins if kind == 'USER_PIN' else self.sentinels
+        kept = target.get(c['serial'], {}) if why is None else {}
+        intent_name = 'PIN_INTENT' if kind == 'USER_PIN' else 'SENTINEL_INTENT'
+        if why is None and c['record'] == intent_name:
+            why = ('a second intent for the serial' if kept else
+                   self._readback_problem(c, c['begin'], kind, before=True))
+        elif why is None:
+            intent = kept.get(intent_name)
+            if intent is None or c['intent'] != intent['number'] or len(kept) != 1 or intent['begin'] != c['begin']:
+                why = 'a settlement without its intent, or a second one'
+            elif kind == 'CE_SENTINEL' and c['nonce'] != intent['nonce']:
+                why = 'a settlement of another nonce than its intent'
+            else:
+                why = self._readback_problem(c, intent['number'], kind, before=False)
+        if why is not None:
+            raise BrokerError('the ledger holds health setup record %d that its evidence does not make: %s'
+                              % (c['number'], why))
+        target.setdefault(c['serial'], {})[c['record']] = c
+
+    def _readback_problem(self, c, after, kind, before):
+        """Why a health setup record's named captures do not prove it, or None."""
+        def own(number, low):
+            entry = self.ledger.entries[number - 1] if type(number) is int and low < number < c['number'] else None
+            intent = (entry.content.get('intent') or {}) if entry is not None and entry.kind == 'capture' else {}
+            return entry if entry is not None and entry.complete and intent.get('lab_action') == c['begin'] else None
+        readback = own(c['readback'], after)
+        if readback is None:
+            return 'its readback is not a whole capture of its own action after its intent'
+        command = readback.content['intent']['command']
+        code, stdout, stderr = self._capture_reply(readback)
+        if kind == 'CE_SENTINEL' and not before:
+            if self.work is None:
+                return 'the work fixture adapter that reads the sentinel is not admitted'
+            try:
+                found = self.work.parse_sentinel(code, stdout, stderr, {'id': c['user'], 'serial': c['serial'],
+                                                                         'nonce': c['nonce']})
+            except (readers.Unavailable, readers.Unclassified, ValueError) as error:
+                return 'its readback has no known form: %s' % error
+            return None if found == {'status': 'PRESENT', 'nonce': c['nonce']} else 'its readback shows another nonce'
+        if command != health_compose.ui_state_command(c['user']):
+            return 'its readback is not the UI state helper for its user'
+        try:
+            reading = health_compose.parse_ui_state(code, stdout, stderr, c['user'])
+        except readers.Unclassified as error:
+            return 'its readback has no known form: %s' % error
+        wanted = {('USER_PIN', True): ('device_secure', False), ('USER_PIN', False): ('device_secure', True),
+                  ('CE_SENTINEL', True): ('ce_unlocked', True)}[(kind, before)]
+        if reading['values'][wanted[0]] is not wanted[1]:
+            return 'its readback does not read %s %s' % wanted
+        if kind == 'USER_PIN' and not before:
+            effect = own(c['capture'], after)
+            intent = (effect.content.get('intent') or {}) if effect is not None else {}
+            if (effect is None or intent.get('operation') != 'lab-action-effect' or intent.get('command') != PRIVATE_COMMAND
+                    or intent.get('private_input') is not True or not effect.number < c['readback']
+                    or effect.content['result'].get('withheld')
+                    or _pin_reply(*self._capture_reply(effect)) != 'SET'):
+                return 'its effect is not its own private PIN command, replying success, before its readback'
+        return None
+
     def systemui_processes(self, purpose):
         """Each listed user's genuine main SystemUI process, read between generations: a whole
         typed inventory, then the process discovery over it, each the broker's own recorded group
@@ -2676,9 +3078,21 @@ class Broker:
         end = self._clock_group(dict(context, purpose='lab-action-read', part='end'), begin.reading['boot'],
                                 emitted=False, deadline_ns=deadline)
         brackets = self._brackets(begin, end)
+        # The adapter may name what it established, the capture conditions and the credential unlock
+        # bits 2 and 3 judge, as one result of its exact form. A result of no known form settles
+        # nothing: the use is unrecognized.
+        result = None
+        if isinstance(classification, tuple) and len(classification) == 2:
+            classification, result = classification
+            if classification == 'PREPARED' and health_records.preparation_problem(
+                    result, user['id'], user['serial'], binding['criteria'], begin_record['operation']) is not None:
+                classification = 'UNRECOGNIZED'
+            if classification != 'PREPARED':
+                result = None
         if classification not in ('PREPARED', 'REFUSED', 'UNRECOGNIZED'):
             return 'UNKNOWN', None, 'the preparation gave no qualified form', False, [begin.number, end.number]
         outcome = {'classification': classification, 'criteria': binding['criteria'], 'challenge': binding['challenge'],
+                   'result': result,
                    'interval': None if brackets is None else {
                        'boot': brackets['boot'], 'instance': brackets['instance'], 'begin': brackets['begin']['elapsed'],
                        'end': brackets['end']['elapsed'], 'begin_wall': brackets['begin']['wall'],
@@ -2696,11 +3110,14 @@ class Broker:
 
     def health_baseline(self, ticket, plan, user, serial, purpose):
         """One user's health baseline, read between generations by the admitted composer between
-        two clock reads and kept as a compound group that is never a deployment fact. The user
-        must show running and unmarked in a whole typed inventory. A probe relies only on a
-        baseline completed by its window's start in its own framework instance, so take it before
-        the round that opens the window. An unavailable read is kept and never replaces the last
-        good one. Returns its group."""
+        two clock reads and kept as a compound group that is never a deployment fact: the user's
+        process, history and current error baseline (health_baseline.py), whose facts must have
+        their exact form (health_records.py). The user must show running and unmarked in a whole
+        typed inventory. A probe relies only on the last whole baseline that health_baseline.select
+        admits: completed by its window's start in its own framework instance, so taken before the
+        round that opens the window, or for a user newly unlocked in the window, taken after that
+        and before its first full probe; and complete. An unavailable read is kept and never
+        replaces the last whole one. Returns its group."""
         if self.admission['version'] != 3 or not self.reader.health_admitted or not self.reader.inventory_admitted:
             raise BrokerError('a health baseline needs a version 3 admission and its admitted readers')
         if self.open_generation is not None:
@@ -2731,15 +3148,152 @@ class Broker:
         if status == 'facts' and (not isinstance(projection, dict) or set(projection) != {'user', 'serial', 'facts'}
                                   or (projection['user'], projection['serial']) != (user, serial)):
             status, reason = 'unclassified', 'a baseline of another form or user'
+        if status == 'facts':
+            why = health_records.baseline_facts_problem(projection['facts'], user, serial)
+            if why is not None:
+                status, reason = 'unclassified', 'baseline facts of no known form: %s' % why
         number, _ = self._compound('health-baseline', context, [c[0] for c in captured],
                                    {'inventory': inventory.number, 'begin': begin.number,
                                     'end': end.number if end is not None else None},
                                    status, reason, brackets, {'projection': _side(projection)},
                                    extra={'user': user, 'serial': serial,
-                                          'projection': _side(projection) if status == 'facts' else None})
+                                          'projection': _side(projection) if status == 'facts' else None,
+                                          'complete': status == 'facts' and projection['facts']['complete']})
         if status == 'stopped':
             raise Stopped(reason)
         return number
+
+    def identity_baseline(self, purpose):
+        """Each listed user's expected SystemUI identity, read between generations while the
+        factory copy is active, kept as a compound group that is never a deployment fact: between
+        two clock reads of one boot and framework instance, the factory and active copies, a whole
+        typed inventory and the process discovery over it (health_baseline.identity_projection). It
+        qualifies only with the factory copy active, its bytes the factory's, and the system user's
+        process the one the active read names. Each serial's first qualified identity is bit 0's
+        expectation from then on; a later one that differs is named as a conflict and never
+        replaces it, and no boot or framework change touches it. Returns its group."""
+        if self.admission['version'] != 3 or not self.reader.users_admitted or not self.reader.health_admitted:
+            raise BrokerError('an identity baseline needs a version 3 admission, its full user reader and its '
+                              'health reader')
+        if self.open_generation is not None:
+            raise BrokerError('an identity baseline is never read beside a generation')
+        if not isinstance(purpose, str) or not purpose.strip():
+            raise BrokerError('an identity baseline names its purpose')
+        self._fence()
+        context = {'request': None, 'generation': None, 'purpose': 'identity-baseline', 'reason': purpose}
+        begin = self._clock_group(dict(context, part='begin'), None, emitted=False)
+        groups, end = {}, None
+        if begin.ok:
+            boot = begin.reading['boot']
+            for name in ('factory', 'active'):
+                groups[name] = self._group(name, getattr(self.reader, name), dict(context, part=name), boot,
+                                           emitted=False)
+            groups['inventory'] = self._group('inventory', self.reader.inventory, dict(context, part='inventory'),
+                                              None, emitted=False)
+            if groups['inventory'].ok:
+                listed = groups['inventory'].reading
+                groups['processes'] = self._group(
+                    'systemui-processes', lambda: self.reader.systemui_processes(listed),
+                    dict(context, part='processes', inventory_group=groups['inventory'].number), None, emitted=False)
+            end = self._clock_group(dict(context, part='end'), boot, emitted=False)
+        children = {name: group.number for name, group in groups.items()}
+        children.update(begin=begin.number, end=end.number if end is not None else None)
+        # The projection is what the children's own recorded captures give when the reader reads
+        # them again, exactly as a reopening reads them: nothing the live reads returned decides it.
+        brackets, derived = self._identity_derived(children, None)
+        projection, status, reason = None, 'unavailable', 'the read bracket changed or did not complete'
+        if derived is NotImplemented:
+            status, reason = 'unclassified', UNREAD
+        elif brackets is not None:
+            status, projection = derived
+            reason = None if status == 'facts' else 'an identity baseline of no known form'
+        known = {serial: kept['identity'] for serial, kept in self.identities.items()}
+        conflicts = health_baseline.expected(known, projection)[1] if projection is not None else []
+        number, _ = self._compound('identity-baseline', context, [], children, status, reason, brackets,
+                                   {'projection': projection}, extra={'projection': projection, 'conflicts': conflicts})
+        return number
+
+    def _identity_derived(self, children, number):
+        """An identity baseline's bracket, and its (status, projection) as its named children's own
+        captures give it when the reader reads them again: health_baseline.identity_projection
+        over the factory and active facts, the inventory and the process discovery over it, each
+        read again from its recorded replies. The status and projection are NotImplemented when
+        the reader cannot read a child again. `number` is the group's own ledger number, or None
+        for one not yet written. The children must be this read's own groups: each a group of its
+        reader, part and purpose, in the order they were read, the processes over that inventory,
+        with no other identity baseline read among them. A child of another form, a child's
+        summary that its captures do not give, or a reading they do not give refuses."""
+        limit = len(self.ledger.entries) + 1 if number is None else number
+        names = [name for name, _ in IDENTITY_CHILDREN]
+        if (not isinstance(children, dict) or set(children) - set(names) or 'begin' not in children
+                or 'end' not in children):
+            raise BrokerError('an identity baseline names children of no known form')
+        groups, last = {}, 0
+        for name, reader in IDENTITY_CHILDREN:
+            n = children.get(name)
+            if n is None:
+                continue
+            entry = self.ledger.entries[n - 1] if type(n) is int and last < n < limit else None
+            c = entry.content if entry is not None and entry.complete and entry.kind == 'group' else None
+            if (c is None or c.get('reader') != reader or c.get('purpose') != 'identity-baseline'
+                    or c.get('part') != name or c.get('request') is not None or c.get('generation') is not None
+                    or (name == 'processes' and c.get('inventory_group') != children.get('inventory'))):
+                raise BrokerError('an identity baseline names a child that is not its own %s read' % name)
+            groups[name], last = c, n
+        begun = groups.get('begin', {}).get('status') == 'facts'
+        wanted = ({'begin', 'factory', 'active', 'inventory', 'end'} if begun else {'begin'})
+        if begun and groups.get('inventory', {}).get('status') == 'facts':
+            wanted.add('processes')
+        if set(groups) != wanted or (children['end'] is None) == begun:
+            raise BrokerError('an identity baseline names other children than its read makes')
+        for n in range(children['begin'] + 1, limit):
+            entry = self.ledger.entries[n - 1]
+            if (entry.kind == 'group' and entry.complete and entry.content.get('purpose') == 'identity-baseline'
+                    and n not in children.values()):
+                raise BrokerError('another identity baseline read lies among the children of one')
+
+        def clock(name):
+            c = groups.get(name)
+            return None if c is None else Group(c['number'], [], [], c['status'], None, c.get('reading'))
+        brackets = self._brackets(clock('begin'), clock('end'))
+        if brackets is None:
+            return None, ('unavailable', None)
+        rederive = getattr(self.reader, 'rederive', None)
+        if rederive is None:
+            return brackets, NotImplemented
+
+        def again(name, inventory=None):
+            c = groups.get(name)
+            if c is None or c['status'] != 'facts':
+                return None
+            reader = dict(IDENTITY_CHILDREN)[name]
+            try:
+                value = rederive(reader, self._group_captures(c, 'an identity baseline child %d names no capture of '
+                                                                 'its own'), inventory)
+            except (readers.Unavailable, readers.Unclassified, ValueError, KeyError, TypeError) as error:
+                raise BrokerError('the %s read of an identity baseline is not what its captures give: %s'
+                                  % (name, error)) from error
+            if value is NotImplemented:
+                return value
+            if reader in USER_READINGS:
+                if ledgers.encode_json(value) != ledgers.encode_json(c.get('reading')):
+                    raise BrokerError('the %s read of an identity baseline is not what its captures give' % name)
+                return value
+            summary = c.get('observations')
+            keys = ('kind', 'classification', 'boot', 'instance', 'elapsed', 'user', 'serial')
+            if (not isinstance(value, list) or not isinstance(summary, list) or len(value) != len(summary)
+                    or any([f.get(k) for k in keys] != [o.get(k) for k in keys] or f.get('raw') != c.get('raw')
+                           for f, o in zip(value, summary))):
+                raise BrokerError('the %s read of an identity baseline is not what its captures give' % name)
+            return value[0] if len(value) == 1 else None
+        factory, active, inventory = again('factory'), again('active'), again('inventory')
+        processes = again('processes', inventory) if inventory is not NotImplemented else None
+        if any(value is NotImplemented for value in (factory, active, inventory, processes)):
+            return brackets, NotImplemented
+        projection = health_baseline.identity_projection(factory, active, inventory, processes)
+        if health_records.identity_projection_problem(projection) is not None:
+            return brackets, ('unclassified', None)
+        return brackets, ('facts', projection)
 
     def _retain_records(self, m):
         """The exact store records a crossing names, kept by digest in the broker's records: the ticket
@@ -3048,6 +3602,10 @@ class Broker:
                       started_wall_ns=self._wall(), started_monotonic_ns=self._monotonic())
         if not_after_ns is not None:
             intent['not_after_monotonic_ns'] = not_after_ns
+        # A command given private input names that it had some, never what it was.
+        private = getattr(call, 'private', None)
+        if private is not None:
+            intent['private_input'] = True
         entry = self.ledger.begin_capture(intent)
         # The final launch gate, once the intent is durable: a launch whose deadline has passed since
         # the gate's clock reading (an activation grant that may have expired, or a bound) sends nothing.
@@ -3062,7 +3620,30 @@ class Broker:
                                                          'ended_wall_ns': self._wall()})
             raise
         stdout, stderr = result.streams()
-        self.ledger.finish_capture(entry, stdout, stderr, dict(result.summary(), ended_monotonic_ns=self._monotonic()))
+        summary = dict(result.summary(), ended_monotonic_ns=self._monotonic())
+        kept = True
+        residual = bytes(getattr(result, 'residual', b'') or b'')
+        if private is not None and (stdout or stderr or residual):
+            # A command given private input has none of its output in the ledger: any byte of it, in
+            # either stream or undecoded in the residual, withholds every field that holds output,
+            # the decoder's account of the stream included, since it may quote header bytes. They
+            # are kept privately, as sensitive operating material. The capture names what was
+            # withheld and its size; its launch, transport, completion and exit stay, so its
+            # outcome is classified as it would be without them.
+            withheld = {'stdout': stdout, 'stderr': stderr, 'residual': residual,
+                        'residual_bytes': summary.get('residual_bytes', len(residual)), 'error': summary.get('error')}
+            try:
+                private['keep'](withheld)
+            except Exception:  # The capture still ends without them, and the writer latches.
+                kept = False
+            stdout, stderr = b'', b''
+            summary = dict(summary, residual_hex='', residual_bytes=0, withheld=True, withheld_kept=kept,
+                           withheld_bytes={'stdout': len(withheld['stdout']), 'stderr': len(withheld['stderr']),
+                                           'residual': withheld['residual_bytes']},
+                           error=None if withheld['error'] is None else WITHHELD)
+        self.ledger.finish_capture(entry, stdout, stderr, summary)
+        if not kept:
+            raise self._writer_failed('withheld private output could not be kept privately')
         if (not_after_ns is not None and getattr(result, 'launch', None) == 'not-launched'
                 and getattr(result, 'transport', None) == 'launch-deadline'):
             error = _NotLaunched('the activation grant may have expired before the service request, or its bound passed')
@@ -3087,15 +3668,22 @@ class Broker:
             return None
         return lambda: self._monotonic() < not_after_ns
 
-    def _shell(self, operation, command, context, timeout, stdout_max, stderr_max, not_after_ns=None, bound_ns=None):
+    def _shell(self, operation, command, context, timeout, stdout_max, stderr_max, not_after_ns=None, bound_ns=None,
+               private=None):
         """One shell command. With `bound_ns`, the transport's timeout is what is left of that bound at
-        the moment of the call, never more than `timeout`."""
+        the moment of the call, never more than `timeout`. With `private`, USER_PIN's {'input',
+        'keep'}, the constant command is given its input on private standard input; the capture
+        records only that it had private input, and none of its output is written to the ledger:
+        any byte of it is withheld and given to `keep` (_record_command)."""
         gate = self._may_send(not_after_ns)
         extra = {} if gate is None else {'may_send': gate}
+        if private is not None:
+            extra['private'] = private['input']
 
         def call():
             allowed = timeout if bound_ns is None else min(timeout, max(0.0, (bound_ns - self._monotonic()) / 1_000_000_000))
             return self.transport.shell(command, allowed, stdout_max, stderr_max, **extra)
+        call.private = private
         return self._capture(operation, command, context, call, timeout, not_after_ns)
 
     # ------------------------------------------------ groups of reads
@@ -3151,6 +3739,7 @@ class Broker:
         number = self.ledger.record('group', record)
         self._read_record(dict(record, number=number))
         self._users(record)
+        self._listing(record)
         if name == 'inventory' and status == 'facts':
             self._serials(reading)
         if record['emitted']:
@@ -3822,17 +4411,16 @@ class Broker:
         return envelopes, numbers, marked
 
     def _baseline(self, boot, user, serial, window, instance):
-        """The last good baseline of one user in this boot that completed by the window's start,
-        in the current read's framework instance, or None. A baseline read after the window
-        opened is never one, and a later framework instance invalidates it: the continuity it
-        witnesses is lost."""
-        found = None
-        for group in self.baselines.get((boot, user, serial), ()):
-            if group['brackets']['end']['elapsed'] <= window['start']:
-                found = group
-        if found is None or found['brackets']['instance'] != instance:
-            return None
-        return found
+        """The baseline of one user in this boot that a probe in the current read's framework
+        instance relies on, by health_baseline.select, or None, and why not: the last whole one
+        completed by the window's start, or for a user newly unlocked in the window the last
+        whole one taken after that and before its first full probe; complete, and of this
+        framework instance, since a later one invalidates the continuity it witnesses."""
+        chosen, rule = health_baseline.select(self.baselines.get((boot, user, serial), []),
+                                              self.listings.get(boot, []),
+                                              self.probe_begins.get((boot, user, serial), []), window, user, serial,
+                                              instance)
+        return (chosen, None) if chosen is not None else (None, rule)
 
     def _health_group(self, m, context, window, user, serial, fresh, marker=None):
         """One user's full probe: fresh current reads by the admitted composer between two clock
@@ -3850,7 +4438,12 @@ class Broker:
                     'challenge': p['begin']['challenge'], 'max_probe_ms': p['begin']['parameters']['max_probe_ms'],
                     'instance': p['end']['outcome']['interval']['instance'],
                     'begin': p['end']['outcome']['interval']['begin'], 'end': p['end']['outcome']['interval']['end'],
-                    'action_end': p['end']['number']} for p in fresh]
+                    'action_end': p['end']['number'],
+                    'result_sha256': _result_digest(p['end']['outcome'].get('result'))} for p in fresh]
+        # Each preparation's result, which the manifest binds by its digest: the capture conditions
+        # and the credential unlock that bits 2 and 3 judge.
+        results = {p['begin']['operation']: p['end']['outcome']['result'] for p in fresh
+                   if p['end']['outcome'].get('result') is not None}
         # The begin bracket's own group names the preparations offered to the composer. Once it is
         # read they are used, whatever becomes of the probe's reads, rows or manifest, and a
         # reopening restores that use from the same group.
@@ -3858,15 +4451,18 @@ class Broker:
                                   emitted=False)
         if begin.ok:
             self.used_preparations.update(p['operation'] for p in offered)
+            self._probe_begun({'reading': begin.reading, 'user': user, 'serial': serial})
         status, reason, candidate, captured, end = 'unavailable', 'the read bracket did not begin', None, [], None
-        baseline = None
+        baseline, baseline_why = None, None
         if begin.ok:
-            baseline = self._baseline(m['boot'], user, serial, window, begin.reading['instance'])
+            baseline, baseline_why = self._baseline(m['boot'], user, serial, window, begin.reading['instance'])
             reader_context = {'ticket': m['ticket'], 'plan': m['plan'], 'user': user, 'serial': serial,
                               'window': dict(window), 'preparations': offered,
                               'baseline': None if baseline is None else {'digest': baseline['compound']['sha256'],
                                                                          'projection': baseline['projection']},
-                              'active_apk': self._pinned_apk(m['plan'])}
+                              'active_apk': self._pinned_apk(m['plan']), 'results': results,
+                              'identity': self._expected_identity(m['plan'], user, serial),
+                              'ce_origin': self._ce_origin(serial)}
             candidate, captured, status, reason = self._call_reader(
                 'health', lambda: self.reader.health_composition(reader_context), context, None, lambda v: v)
             if status == 'facts':
@@ -3877,7 +4473,8 @@ class Broker:
             status, reason = 'unavailable', 'the read bracket changed or did not complete'
         rows, used, problem = None, [], None
         if status == 'facts':
-            rows, used, problem = self._health_rows(candidate, user, serial, captures, offered, baseline, brackets)
+            rows, used, problem = self._health_rows(candidate, user, serial, captures, offered, baseline, brackets,
+                                                    baseline_why)
             if problem is not None:
                 status, reason = 'unclassified', problem
         facts, emitted, extra = [], status == 'facts', {'user': user, 'serial': serial, 'preparations': []}
@@ -3923,7 +4520,7 @@ class Broker:
             raise Stopped(reason)
         return envelopes, number
 
-    def _health_rows(self, candidate, user, serial, captures, offered, baseline, brackets):
+    def _health_rows(self, candidate, user, serial, captures, offered, baseline, brackets, baseline_why=None):
         """The composer's seven rows as the broker accepts them, the preparations they used, or
         why the candidate is of no known form. Each row's child is its judged captures, its
         preparation or baseline, its reason and, for a witnessed failure, the witness."""
@@ -3961,7 +4558,8 @@ class Broker:
                 elif status == 'HELD' and witness is not None:
                     status, why = 'UNKNOWN', 'a %s witness decision leaves the row in doubt' % witness['decision']
                 elif status == 'HELD' and (baseline is None or row['baseline'] != baseline['compound']['sha256']):
-                    status, why = 'UNKNOWN', 'no valid baseline from before the window in this framework instance'
+                    status, why = 'UNKNOWN', 'no valid baseline relied on: %s' % (
+                        baseline_why or 'the row names another baseline')
                 elif status == 'HELD':
                     base = baseline['compound']['sha256']
             elif uses == 'preparation' and status != 'UNKNOWN':
@@ -3984,6 +4582,25 @@ class Broker:
     def _pinned_apk(self, plan):
         pinned = self.pinned.get(plan)
         return pinned['base.apk']['sha256'] if pinned else None
+
+    def _expected_identity(self, plan, user, serial):
+        """Bit 0's expectations for one serial: its first qualified identity baseline, and for the
+        system user the stored plan's own base UID and context."""
+        kept = self.identities.get(serial)
+        base = None
+        if user == 0:
+            try:
+                stored = records.decode_plan(_regular_bytes(Path(self.admission['store']) / 'plans'
+                                                            / (plan + STORE_SUFFIX)) or b'')
+                base = {'uid': stored['baseUid'], 'context': stored['baseContext']}
+            except records.RecordError:
+                base = None
+        return {'expected': None if kept is None else kept['identity'], 'plan_base': base}
+
+    def _ce_origin(self, serial):
+        """The CE nonce CE_SENTINEL settled for one serial, with its record, or None."""
+        kept = self.sentinels.get(serial, {}).get('SENTINEL_SET')
+        return None if kept is None else {'nonce': kept['nonce'], 'record': kept['number']}
 
     def _pinned_publication(self, plan):
         return self.publications.get(plan)

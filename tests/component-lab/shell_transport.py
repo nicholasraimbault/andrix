@@ -45,6 +45,8 @@ SYNC_DATA_MAX = 64 * 1024
 MAX_REQUEST = 0xffff
 MAX_FAIL_MESSAGE = 64 * 1024
 REBOOT_MESSAGE_MAX = 4096
+# The private input a constant command may be given on its standard input, in one STDIN packet.
+PRIVATE_INPUT_MAX = 4096
 
 
 class _Timeout(Exception):
@@ -440,10 +442,23 @@ class AdbClient:
         finally:
             self._close(sock)
 
-    def shell(self, command, timeout, stdout_max, stderr_max, may_send=None):
-        """One command through shell protocol v2, raw, with no input."""
+    def shell(self, command, timeout, stdout_max, stderr_max, may_send=None, private=None):
+        """One command through shell protocol v2, raw, with no input.
+
+        With `private`, bytes, the command is a constant one given private input on its standard
+        input: once the service is open, the input is sent whole in one STDIN packet, then
+        CLOSE_STDIN, and the output is read as without it. The service request names only the
+        constant command, and the input is never kept in the result. When the input cannot be sent
+        whole, the call ends there with the transport failure, launched and with no status: the
+        caller's input must be inert unless it arrives whole. The daemon's handling of STDIN and
+        CLOSE_STDIN is in the adb module, outside this package's inspected scope, so a guest check
+        must confirm this form before any private input relies on it."""
         if not command or any(ord(c) < 0x20 or ord(c) > 0x7e for c in command):
             raise ValueError('a shell command is printable ASCII')
+        if private is not None:
+            private = bytes(private)
+            if not private or len(private) > PRIVATE_INPUT_MAX:
+                raise ValueError('private input is 1 to %d bytes' % PRIVATE_INPUT_MAX)
         service = SHELL_PREFIX + command
         started_wall, started = self._wall(), self._monotonic()
         deadline = started + int(timeout * 1e9)
@@ -452,6 +467,8 @@ class AdbClient:
         transport, completion = 'ok', None
         if failure is not None:
             transport, completion = failure, 'not-started'
+        elif private is not None and not self._input(sock, deadline, private):
+            transport, completion, error = 'io-error', 'input-failed', 'the private input was not sent whole'
         else:
             try:
                 while decoder.state not in ('malformed', 'overflow'):
@@ -484,6 +501,16 @@ class AdbClient:
                            bytes(decoder.stderr), decoder.overflow, decoder.partial, fail, error, started_wall,
                            self._wall(), ended - started, decoder.partial_stream, decoder.residual,
                            decoder.residual_bytes)
+
+    def _input(self, sock, deadline, data):
+        """Sends one STDIN packet with the whole input, then CLOSE_STDIN: whether it was sent
+        whole."""
+        try:
+            sock.settimeout(self._remaining(deadline))
+            sock.sendall(struct.pack('<BI', ID_STDIN, len(data)) + data + struct.pack('<BI', ID_CLOSE_STDIN, 0))
+        except (_Timeout, OSError):
+            return False
+        return True
 
     def reboot(self, timeout, may_send=None):
         started_wall, started = self._wall(), self._monotonic()

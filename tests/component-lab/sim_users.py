@@ -122,8 +122,9 @@ class SimUsers:
     def boot(self):
         """A kernel boot: every user but the system user stops, the system user is current again,
         and every SystemUI process has a new identity."""
+        # A user with a disposable PIN runs with CE storage locked until its credential unlock.
         for u in self.users.values():
-            u.state = 'RUNNING_UNLOCKED' if u.id == 0 else '-1'
+            u.state = ('RUNNING_LOCKED' if u.id in self.sim.pins else 'RUNNING_UNLOCKED') if u.id == 0 else '-1'
         self.current = 0
         self.processes = {0: [1839 + self.sim.boots, 9120 + self.sim.boots]}
         self.lru = [0]
@@ -330,7 +331,7 @@ class SimUsers:
         if user not in self.users or self.running(user):
             return result(command, 0, b'', b'Error: could not start user\n')
         u = self.users[user]
-        u.state = 'RUNNING_UNLOCKED'
+        u.state = 'RUNNING_LOCKED' if user in self.sim.pins else 'RUNNING_UNLOCKED'
         u.flags |= full_users.FLAG_INITIALIZED
         u.logged_in = True
         self.lru.append(user)

@@ -39,7 +39,9 @@ LAB_FILES = ('tests/component-lab/lab_protocol.py', 'tests/component-lab/lab_bro
              'tests/component-lab/lab_readers.py', 'tests/component-lab/shell_transport.py',
              'tests/component-lab/source_manifest.py', 'tests/component-lab/lab_actions.py',
              'tests/component-lab/lab_evidence.py', 'tests/component-lab/lab_records.py',
-             'tests/component-lab/lab_losses.py', 'tests/component-lab/full_users.py')
+             'tests/component-lab/lab_losses.py', 'tests/component-lab/full_users.py',
+             'tests/component-lab/health_records.py', 'tests/component-lab/health_baseline.py',
+             'tests/component-lab/health_compose.py')
 LIMITS = {'read_timeout_s': 30, 'mutation_timeout_s': 60, 'commit_timeout_s': 150, 'push_timeout_s': 300,
           'reboot_timeout_s': 10, 'read_stdout_max': 4 << 20, 'read_stderr_max': 65536, 'reply_stdout_max': 65536,
           'reply_stderr_max': 65536, 'generation_idle_s': 30, 'drain_grace_s': 5, 'exit_grace_s': 30}
@@ -117,6 +119,26 @@ def user_specs(steps=None, settle_ms=5000, start_uses=3):
         action_spec(FIXTURE_ACTION, 'USER_FIXTURE', cell='f0-user-fixture', user_selector=created,
                     parameters={'package': FIXTURE_PACKAGE}, inputs=pin),
         action_spec(HOME_ACTION, 'USER_SWITCH', cell='f0-switch-home', user_selector={'kind': 'SYSTEM_USER'})]
+
+
+# The health package's setup actions: the disposable lab PIN and the CE sentinel, for the system
+# user and for the created user, each after its user's fixture.
+PIN_ACTION, SENTINEL_ACTION, HOME_PIN_ACTION, HOME_SENTINEL_ACTION = '2b' * 16, '2c' * 16, '2d' * 16, '2e' * 16
+WORK_PACKAGE = 'dev.andrix.lab.work'
+
+
+def health_specs(digits=6, uses=1):
+    """The user specs, then USER_PIN and CE_SENTINEL for the created user and the system user."""
+    created = {'kind': 'CREATED_BY', 'action': CREATE_ACTION}
+    return user_specs() + [
+        action_spec(PIN_ACTION, 'USER_PIN', cell='f0-user-pin', user_selector=created, max_uses=uses,
+                    parameters={'digits': digits}),
+        action_spec(SENTINEL_ACTION, 'CE_SENTINEL', cell='f0-ce-sentinel', user_selector=created, max_uses=uses,
+                    parameters={'package': WORK_PACKAGE}),
+        action_spec(HOME_PIN_ACTION, 'USER_PIN', cell='f0-home-pin', user_selector={'kind': 'SYSTEM_USER'},
+                    max_uses=uses, parameters={'digits': digits}),
+        action_spec(HOME_SENTINEL_ACTION, 'CE_SENTINEL', cell='f0-home-sentinel', user_selector={'kind': 'SYSTEM_USER'},
+                    max_uses=uses, parameters={'package': WORK_PACKAGE})]
 
 
 def schedule(faults, installation=INSTALLATION):
@@ -375,11 +397,15 @@ class Harness:
 
     def __init__(self, directory=None, sim=None, cells=(), pins=True, notice=None, processes=None, sync=False,
                  target=None, source_root=None, target_read=False, next_profile=False, specs=None, reader=None,
-                 health=None, publication=None, fsync=None, **changes):
+                 health=None, publication=None, fsync=None, work=None, private=None, **changes):
         self._temp = None
         self.target = target
         self.target_read = target_read
         self.source_root = source_root or REPO
+        # The work fixture's adapter and the private store, outside the broker's directory; True
+        # stands for a store under the harness's directory.
+        self.work = work
+        self._private = private
         if directory is None:
             self._temp = tempfile.TemporaryDirectory()
             directory = self._temp.name
@@ -430,6 +456,10 @@ class Harness:
         self.state = None
         self.requests = 0
 
+    @property
+    def private(self):
+        return self.directory / 'private' if self._private is True else (self._private or None)
+
     def pin(self, plan, apk, idsig, publication=None):
         members = {}
         for member, data in (('base.apk', apk), ('base.apk.idsig', idsig)):
@@ -446,7 +476,8 @@ class Harness:
                                              wall=self.clock.wall_ns, monotonic=self.clock.monotonic_ns,
                                              sleep=self.clock.sleep, ids=lambda n: os.urandom(n),
                                              processes=self.processes, sync=self.sync, target=self.target,
-                                             target_read=self.target_read, health=self.health, fsync=self.fsync)
+                                             target_read=self.target_read, health=self.health, fsync=self.fsync,
+                                             work=self.work, private=self.private)
         return self.broker
 
     def open_at(self, root):
@@ -456,7 +487,7 @@ class Harness:
                                       notice=self.notice, wall=self.clock.wall_ns, monotonic=self.clock.monotonic_ns,
                                       sleep=self.clock.sleep, ids=lambda n: os.urandom(n), processes=self.processes,
                                       sync=self.sync, target=self.target, target_read=self.target_read,
-                                      health=self.health)
+                                      health=self.health, work=self.work, private=self.private)
 
     def pin_payloads(self, roles=('N2', 'N3')):
         """Pins each direct control's negative payload, and makes N2's APK one of another signer."""
