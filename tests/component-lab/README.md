@@ -32,6 +32,7 @@ closure are later packages.
 | `lab_readers.py` | The injectable reader adapter and its adapter for the public shell observer |
 | `lab_actions.py` | The next campaign profile's typed lab actions: registry, exact specs, user resolution |
 | `lab_evidence.py` | Strict canonical side records: compound manifests and retained action specs |
+| `lab_losses.py` | The next profile's fault schedule and its read and round loss addresses |
 | `lab_records.py` | Strict readers of a stored plan and ticket, for where a compound fact may be placed |
 | `lab_target.py` | The native target scope read: the selected image's exact fresh form of Package Manager's native identity diagnostic |
 | `source_manifest.py` | The exact source manifest a broker is admitted with |
@@ -40,7 +41,7 @@ closure are later packages.
 | `driver/` | Java: `LabDriverMain`, the driver's coordinator process and store setup, and `LabHost`, the real host signer, artifact store and bundle builder |
 | `driver-tests/` | Java: `DriverTest`, unit checks of the driver's baseline, selection, host configuration and approval guards |
 | `sim_android.py`, `labtest.py` | Host test support: a small simulated guest and a client |
-| `test_*.py` | The host suites; `test_lab_next.py` is the next campaign profile's broker suite |
+| `test_*.py` | The host suites; `test_lab_next.py` and `test_lab_loss.py` are the next campaign profile's broker suites |
 
 ## Process model
 
@@ -154,8 +155,40 @@ The read bracket is `id read_boot, i64 read_instance, i64 read_begin_elapsed, i6
 the current read's own boot, running framework instance and elapsed times, which the compound fact
 also carries. A health classification follows its rows at both ends: a BAD no crash or ANR row,
 which only a qualified failure witness gives, is CRASH; any other BAD row is DEGRADED; seven HELD
-rows are HELD; anything else is INCONCLUSIVE. The goldens pin a version 2 frame and each form of
-the new OBSERVE reply; both codecs produce the same bytes.
+rows are HELD; anything else is INCONCLUSIVE.
+
+Version 2 also has the round boundary, which version 1 does not have:
+
+| Type | Body | Relations |
+| --- | --- | --- |
+| 15 ROUND_DONE | `id ticket, id plan, i32 attempt, u32 checkpoint_ordinal, u8 milestone, d32 ticket_digest, d32 selection_digest` | Every ID and digest nonzero, attempt and ordinal at least 1, the milestone a code of the table below or 0 for none |
+| 16 ROUND_DONE reply | `u8 status, u32 record, text reason` | OK naming the checkpoint record, HALT naming the consumed fault record, STOPPED or REFUSED with record 0 |
+
+The bridge sends ROUND_DONE after each public round of a ticket returns, before any next round or
+report, and a settle is one round at a time, each with its boundary. It names the stored ticket and
+selection by their SHA-256, the ticket's next checkpoint ordinal and the milestone the round
+reached. The broker tells each generation, in `ANDRIX_LAB_CHECKPOINTS`, every ticket's recorded
+boundaries as `ticket:count` pairs in ticket order; the bridge counts on from there, and a version 2
+generation that was told nothing refuses to run. A HALT ends the generation with exit 99, a
+STOPPED with 125, and a REFUSED fails it.
+
+| Code | Milestone | The round reached it when |
+| --- | --- | --- |
+| 1 | READY | the stored state is READY and the round began in another state |
+| 2 | BOOT_OBSERVED | the same for BOOT_OBSERVED |
+| 3 | APPLIED_PROVISIONAL | the same for APPLIED_PROVISIONAL |
+| 4 | APPLIED | the same for APPLIED |
+| 5 | HEALTH_WINDOW_ENTRY | the stored state is HEALTH_WINDOW and the round began in another state |
+| 6 | HEALTH_WINDOW_PROGRESS | the round began and ended in HEALTH_WINDOW |
+| 7 | TERMINAL | the stored state is terminal and the round began in a state that is not |
+| 8 | REPAIR_SIGNING_SKIPPED | a repair plan without signing reached SIGNED, its ledger with no SIGN entry |
+| 9 | REPAIR_PUBLICATION_BOUND | a repair plan reached PUBLISHED |
+
+A round's starting state is the stored ticket at its first ticket observation, else the last
+checkpoint's; with neither it is unknown, and an end in a milestone state then counts as reaching
+it. Both codecs hold the same rule (`boundary_milestone`, `boundaryMilestone`). The goldens pin a
+version 2 frame, each form of the new OBSERVE reply, ROUND_DONE and each form of its reply; both
+codecs produce the same bytes.
 
 ## Transport
 
@@ -357,7 +390,10 @@ cell before anything acts, so a cell acts at most once, across reopenings too.
   the closure. It is never given to any generation and never settles an observation.
 - **loss-between-members.** WRITE writes the first member, a fault record follows, and the broker
   answers HALT. The second member is never written, then or after a reopening.
-- **halt.** At the coordinator's BETWEEN_WRITES point, a fault record, then HALT.
+- **halt.** At the coordinator's BETWEEN_WRITES point, a fault record, then HALT. Under a version 3
+  admission the broker first keeps the stored ticket, still the old one, and the new selection
+  under `records/<sha256>`, and the fault record names both. A point whose records cannot be read
+  whole answers REFUSED and does not halt.
 
 A HOST BEGIN is recorded before the bridge calls the host signer or publisher, and its END after,
 each with the broker's own wall and monotonic times as it handles them: they bracket the host
@@ -386,7 +422,7 @@ every crossing names, as under version 2.
   control action effects, and of each phase's action effects. Zero forbids; nothing is unlimited.
   Effects are counted from the ledger's captures that may have launched, an interrupted intent
   included, never from replies or END records, and a reopening never resets them. A crossing past
-  its cap, or a REBOOT past the boot policy's activation services, launches nothing.
+  its cap, or a reboot past the boot policy's service allowances, launches nothing.
 - **Compound groups.** A receipt read, a notice visibility, a health baseline and a health
   composition are each one compound group. Its children, every capture and clock read, are in the
   ledger first; then its manifest, a canonical side record (`lab_evidence.py`) with its schema,
@@ -469,13 +505,77 @@ every crossing names, as under version 2.
   it uncertain, so it is observed or halted, never repeated. A reopening records a LOST END for a
   BEGIN without one, and that action is never run again to find out.
 
-Version 1 of the registry has three types. FRAMEWORK_RESTART is version 2's restart as one typed
-use; the old action map is never reinterpreted. NOTICE_VISIBILITY captures and reads one required
+The registry has six types. FRAMEWORK_RESTART is withdrawn: an admission that names it is refused
+by that name, since the next profile admits no framework restart; version 2's driver keeps its
+own. PLAIN_KERNEL_CONFIRM, DIRECT_STAGE, DIRECT_COMMIT and NEGATIVE_ACTIVATION are below. The old
+action map is never reinterpreted. NOTICE_VISIBILITY captures and reads one required
 recipient's display through the notice adapter; it qualifies only in the notice's boot with one
 running framework through its bracket, for the recipient as the display's current user, awake and
 focused, showing the issue's challenge. HEALTH_PREPARATION runs the health adapter's UI, user and
 work steps for its criteria under a fresh challenge. No type creates a user yet, so no spec may
 select a created user.
+
+- **Round boundaries.** A ROUND_DONE is taken only after a round began with its CLOCK in this
+  generation and named no other ticket. The broker reads the stored ticket, plan and selection
+  whole and checks their identities, both digests, the ordinal against its own count and the
+  milestone against the rule from the round's start. It keeps the three records' exact bytes, and
+  the round start's as its first observation read them, under `records/<sha256>`, then writes the
+  `checkpoint` record. A refused boundary records nothing, and a stop answers STOPPED. A boundary
+  is never a deployment hook and never decides for a ticket.
+- **Read and round losses** (`lab_losses.py`). Under a version 3 admission every fault comes from
+  one canonical schedule, `andrix-fault-schedule-v1`, whose SHA-256 the admission binds, admitted
+  once between generations; `admit_faults` is refused. Besides the crossing, host and point cells
+  it holds read and round losses at a whole address: plan, attempt, operation, milestone, ordinal
+  and occurrence. The broker derives every address from its own history and the store, never from
+  a caller. A round loss acts at ROUND_DONE once the checkpoint of its milestone's occurrence is
+  durable: a fault record, then HALT naming it. A read loss acts in a ticket's OBSERVE whose stored
+  state is at its milestone (`read_milestone`), once the selected reader's raw child completed:
+  ordinals 0 to 5 are the boot, checkpoint, factory, active, sessions and users groups, 6 the
+  receipt read and 7 the health compositions, and the occurrence counts that reader's completed
+  runs. A health read loss acts at the first completed user composition: no later user's
+  composition is read and no later preparation is used. A malformed, foreign or already passed
+  fault is refused at admission. A reopening takes the faults from the schedule's kept canonical
+  bytes alone and refuses a ledger summary that differs from them. While a read loss is admitted
+  for a plan, an observation whose address cannot be derived is refused, never read past.
+  A loss named due whose decision a stop or a lost broker prevented is recorded as not acted, so it
+  never acts at a later address. The bridge records nothing of a halted round or observation.
+- **Confirmations.** PLAIN_KERNEL_CONFIRM runs between generations for a ticket that waits in
+  SESSION_INTENT, COMMIT_INTENT or ABANDON_INTENT, unchanged since its last checkpoint and below its
+  boot limit. Its preflight reads the clock, boot, a COMMITTED checkpoint, the factory and active
+  copies, the whole SystemUI listing, the whole global session inventory and any admitted target
+  read. A live session that is committed, ready, foreign, of an unexpected family or of unknown
+  commitment refuses it, so no reboot can activate an unapproved armed session. A
+  `boot-transition` BEGIN with the preflight, old boot, ordinal, caps and poll bound is synced
+  before the reboot service, and PROGRESS keeps the service's acknowledgement, which proves no
+  boot. Polls then wait for a new boot with a completed BOOT and a COMMITTED checkpoint and renew
+  the factory, active, listing, users, inventory and admitted target reads of that boot. The same
+  boot never settles. A second new boot, a boot past the observed allowance or no new boot within
+  the bound ends the transition UNEXPECTED or UNKNOWN, and that holds every later crossing, reboot
+  and F0 decision. A confirmation spends no ACTIVATE and writes no managed REBOOT entry; the boot
+  policy caps its services apart from activations.
+- **Direct negative controls.** DIRECT_STAGE, DIRECT_COMMIT and NEGATIVE_ACTIVATION are the N2 and
+  N3 controls' own steps under the referrer `andrix-lab-control:<id>`, never a ticket. A control's
+  payload is pinned by digest first: N2 is the wrong signer APK with its sidecar, N3 the APK
+  without one. Each step runs once, in order and only before F0, a commit only after the control's
+  recorded consent, and N3 only after N2's activation settled. An inventory that is not whole
+  joins no control's session, so nothing is created, written or committed on it.
+  NEGATIVE_ACTIVATION is a boot transition that admits the native recovery's second boot and
+  settles only on the intended rejection with no live session left.
+- **The F0 fence.** `record_f0` keeps F0's capability record once, between generations, under an
+  admitted branch. Until F0 qualifies, FULL or an admitted LIMITED, no managed COMMIT launches and
+  the branches' positive attempt is never created, armed or observed, whatever the fault schedule
+  holds: an M0 COMMIT whose before effect fault was consumed or is absent launches nothing and no
+  reply is invented. `gate_positive` records each check. Only the direct N2 and N3 commits are
+  excepted, under their own gates. A reopening restores the qualification only from a decision
+  whose kept capability record is whole and canonical and still makes, under this admission, the
+  branch, qualification and predicate the decision records, after the negative activations and
+  boot transitions its writer required. Otherwise the opening is refused.
+- **Kept records latch the writer.** A record this profile keeps by digest outside the compound
+  writer latches the broker's stop when its write or sync fails, as a manifest does. These are a
+  boundary's records, a point's, a confirmation's issuing records, F0's capability record and the
+  schedule. The boundary then answers STOPPED and the point REFUSED; the action, the F0 decision
+  and the admission raise Stopped. Nothing that would name those bytes is recorded, and no later
+  command or effect starts, after a reopening too.
 
 ## Lab driver
 
@@ -577,11 +677,15 @@ partial.
   unlocked display, an app row survives Android loss, a provider read authenticates the shell, the
   elapsed scales agree, a preparation unlocks and returns CE, a native child runs and a witness
   qualifies a crash needs a guest.
-- The read and round loss addresses and the round boundary messages are not part of version 2 yet:
-  no broker path answers an OBSERVE with HALT.
-- The framework restart is source derived. Whether `am restart` gives a later instance in the same
-  boot within the settle bound and keeps uncommitted sessions, as the simulated guest does, needs a
-  guest check before any cell relies on it; the 300 second bound is a proposal, not a measurement.
+- The global session inventory, the reboot's native recovery boot and the rejection causes are
+  the simulated guest's. No Android form of the whole staged session listing, of an abort recovery
+  or of a direct control's error text is parsed here; each needs a guest capture and a parser.
+- A milestone is checkpointed only where the bridge's rounds reach it. A guest run must show which
+  milestones it reached; one it did not reach is not captured, never inferred.
+- Version 2's framework restart is source derived. Whether `am restart` gives a later instance in
+  the same boot within the settle bound and keeps uncommitted sessions, as the simulated guest
+  does, needs a guest check before any cell relies on it; the 300 second bound is a proposal, not a
+  measurement.
   The cell sequence's predictions come from the design's cell table and hold on the simulated guest;
   no Android form is qualified by them.
 - The native target scope's fresh form is the one captured on the selected producer image. It

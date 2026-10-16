@@ -24,11 +24,12 @@ allowlist already holds. Until a reader is injected, no CHECKPOINT fact exists, 
 issues no crossing. The observer's partial health probe is not exposed, and never will be: it is not
 a full probe.
 
-The next campaign profile adds four readers, each admitted by its own flag and called only then:
-the whole typed user inventory, the notice fixture's provider rows, a user's health baseline and a
-user's full health composition. They return typed projections, not observation facts: the broker
-records the raw captures, checks each projection's form and joins, and builds every fact itself.
-The parsers of the guest's forms are later packages, so `ObserverAdapter` admits none of them."""
+The next campaign profile adds five readers, each admitted by its own flag and called only then:
+the whole typed user inventory, the notice fixture's provider rows, a user's health baseline, a
+user's full health composition and the whole global session inventory. They return typed
+projections, not observation facts: the broker records the raw captures, checks each projection's
+form and joins, and builds every fact itself. The parsers of the guest's forms are later
+packages, so `ObserverAdapter` admits none of them."""
 import hashlib
 
 import lab_target
@@ -134,6 +135,17 @@ class ReaderAdapter:
         """One user's full probe from fresh reads: {'user', 'serial', 'rows', 'witness'}, with seven
         rows in bit order, each its status, reason, the positions of the commands it judged, and the
         preparation or baseline it used. Called only when `health_admitted`."""
+        raise NotImplementedError
+
+    # Whether the whole global session inventory is admitted. Confirmations and direct controls
+    # need it.
+    global_admitted = False
+
+    def global_sessions(self):
+        """Every installer session of every package from one whole dump, parsed whole before any
+        SystemUI projection, as lab_actions.check_global defines it: each session's section, ID,
+        package, referrer, family, commitment, readiness and end, and the class of a failure's
+        recorded cause. Called only when `global_admitted`."""
         raise NotImplementedError
 
     def target(self):

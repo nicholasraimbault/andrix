@@ -31,7 +31,8 @@ import stat
 MARKER = b'andrix-lab-ledger 1\n'
 MARKER_NAME = 'LEDGER'
 KINDS = ('open', 'generation', 'generation-end', 'capture', 'group', 'crossing', 'outcome', 'fault', 'escrow',
-         'host', 'quarantine', 'stop', 'faults', 'artifacts', 'report', 'lab-action', 'notice-issue')
+         'host', 'quarantine', 'stop', 'faults', 'artifacts', 'report', 'lab-action', 'notice-issue', 'checkpoint',
+         'boot-transition', 'direct-control', 'consent', 'qualification')
 NAME = re.compile(r'([0-9]{6})-([a-z][a-z-]*)')
 MAX_ENTRIES = 999999
 CAPTURE_FILES = ('intent.json', 'stdout', 'stderr', 'result.json')

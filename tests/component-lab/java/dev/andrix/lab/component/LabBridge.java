@@ -7,7 +7,9 @@ import dev.andrix.lab.component.LabProtocol.Message;
 import dev.andrix.lab.component.LabProtocol.Type;
 import dev.andrix.server.deployment.Coordinator;
 import dev.andrix.server.deployment.DeploymentRecords.Authorization;
+import dev.andrix.server.deployment.DeploymentRecords;
 import dev.andrix.server.deployment.DeploymentRecords.CoordinatorClass;
+import dev.andrix.server.deployment.DeploymentRecords.Crossing;
 import dev.andrix.server.deployment.DeploymentRecords.Entry;
 import dev.andrix.server.deployment.DeploymentRecords.Observation;
 import dev.andrix.server.deployment.DeploymentRecords.Plan;
@@ -24,8 +26,12 @@ import java.io.IOException;
 import java.nio.file.Paths;
 import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.regex.Pattern;
 
 /**
  * The lab's public entry to one component's coordinator on the shell route. One instance serves one
@@ -43,10 +49,21 @@ import java.util.Objects;
  * gives the coordinator's VOID_TARGET rule, and unknown refuses to round at all. The cohort check
  * needs neither.
  *
+ * <p>On protocol version 2 every public round of a ticket ends with its boundary, ROUND_DONE, after
+ * the round returned and before any next round or report: the ticket, plan and attempt, the next
+ * checkpoint ordinal, the milestone the round reached from its starting state, and the SHA-256 of
+ * the stored ticket and selection. The broker tells each generation, in its environment, how
+ * many boundaries of each ticket it has recorded; the bridge counts on from there and the broker
+ * verifies every ordinal. A halt order at the boundary ends the generation. A settle on version 2
+ * is one public round at a time, each with its boundary, under the coordinator's own stop rule.
+ *
  * <p>Exit statuses: 0 done, 2 failed, 64 usage, 99 an ordered halt, 125 stopped by a fence.
  */
 public final class LabBridge {
     public static final int EXIT_OK = 0, EXIT_FAILED = 2, EXIT_USAGE = 64, EXIT_STOPPED = 125;
+    /** Where a version 3 broker tells a generation its recorded boundaries: the environment. */
+    public static final String CHECKPOINTS = "ANDRIX_LAB_CHECKPOINTS";
+    private static final Pattern TOLD = Pattern.compile("[0-9a-f]{32}:[1-9][0-9]{0,9}");
 
     /** Makes the host signer and publisher that the fault wrapper delegates to. */
     public interface HostFactory {
@@ -62,11 +79,15 @@ public final class LabBridge {
     private final long generation;
     private final int target;
     private final boolean hosted;
+    // Each ticket's recorded round boundaries: as the broker told this generation, then counted on.
+    private final Map<String, Long> checkpoints;
     private Ticket rounding;
 
     private LabBridge(LabConfig config, DeploymentStore store, BrokerChannel channel, ShellDevice device,
-            Coordinator.Host host, Halter halter, long generation, int target, boolean hosted, SecureRandom random) {
+            Coordinator.Host host, Halter halter, long generation, int target, boolean hosted, SecureRandom random,
+            Map<String, Long> checkpoints) {
         this.config = config;
+        this.checkpoints = new HashMap<>(checkpoints);
         this.store = store;
         this.channel = channel;
         this.device = device;
@@ -95,6 +116,15 @@ public final class LabBridge {
      */
     public static LabBridge open(LabConfig config, BrokerChannel.Transport transport, HostFactory hosts,
             Halter halter, SecureRandom random) throws IOException {
+        return open(config, transport, hosts, halter, random, Collections.emptyMap());
+    }
+
+    /**
+     * As {@link #open(LabConfig, BrokerChannel.Transport, HostFactory, Halter, SecureRandom)}, with
+     * the recorded boundaries of each ticket that the broker told this generation.
+     */
+    public static LabBridge open(LabConfig config, BrokerChannel.Transport transport, HostFactory hosts,
+            Halter halter, SecureRandom random, Map<String, Long> checkpoints) throws IOException {
         // A version 3 configuration's generation speaks protocol version 2, and only it.
         BrokerChannel channel = new BrokerChannel(transport, config.manifest, random, config.protocol);
         Message reply = channel.call(channel.request(Type.HELLO).id("installation", config.installation)
@@ -116,7 +146,29 @@ public final class LabBridge {
         ShellDevice device = new ShellDevice(channel, config, store, halter);
         Coordinator.Host host = hosts == null ? new RefusingHost() : hosts.host(store, config);
         return new LabBridge(config, store, channel, device, host, halter, reply.number("generation"),
-                (int) reply.number("target"), hosts != null, random);
+                (int) reply.number("target"), hosts != null, random, checkpoints);
+    }
+
+    /**
+     * The recorded boundaries a broker told a generation: comma separated {@code ticket:count}
+     * pairs in ticket order, the empty text for none. Null when nothing was told. Anything else is
+     * refused.
+     */
+    static Map<String, Long> checkpoints(String told) {
+        if (told == null) return null;
+        Map<String, Long> counts = new HashMap<>();
+        if (told.isEmpty()) return counts;
+        String last = null;
+        for (String pair : told.split(",", -1)) {
+            if (!TOLD.matcher(pair).matches()) throw new IllegalArgumentException("a checkpoint count of no known form");
+            String ticket = pair.substring(0, 32);
+            if (ticket.equals(LabProtocol.ZERO_ID) || (last != null && ticket.compareTo(last) <= 0)) {
+                throw new IllegalArgumentException("checkpoint counts of nonzero tickets in order, each once");
+            }
+            last = ticket;
+            counts.put(ticket, Long.parseLong(pair.substring(33)));
+        }
+        return counts;
     }
 
     public Coordinator coordinator() { return coordinator; }
@@ -127,16 +179,65 @@ public final class LabBridge {
 
     public long generation() { return generation; }
 
-    /** One coordinator round of a ticket this coordinator owns. */
+    /** One coordinator round of a ticket this coordinator owns, on version 2 with its boundary. */
     public Reconciler.Step round(String ticketId) {
-        prepare(ticketId);
-        return coordinator.round(ticketId);
+        Ticket before = prepare(ticketId);
+        Reconciler.Step step = coordinator.round(ticketId);
+        if (channel.version() == LabProtocol.VERSION_2) roundDone(before);
+        return step;
     }
 
-    /** Rounds until a round changes nothing and issues nothing, or the bound is reached. */
+    /**
+     * Rounds until a round changes nothing and issues nothing, or the bound is reached. On version
+     * 2 one public round at a time, each with its boundary, so no milestone hides inside a loop.
+     */
     public Reconciler.Step settle(String ticketId, int maxRounds) {
-        prepare(ticketId);
-        return coordinator.settle(ticketId, maxRounds);
+        if (channel.version() != LabProtocol.VERSION_2) {
+            prepare(ticketId);
+            return coordinator.settle(ticketId, maxRounds);
+        }
+        Reconciler.Step step = null;
+        for (int i = 0; i < maxRounds; i++) {
+            Ticket before = prepare(ticketId);
+            step = coordinator.round(ticketId);
+            roundDone(before);
+            if (step.issue == null && step.ticket.equals(before)) return step;
+        }
+        return step;
+    }
+
+    // The boundary of the round that began at `before`: the stored ticket and selection by their
+    // SHA-256, the next ordinal, and the milestone the round reached by the shared rule.
+    void roundDone(Ticket before) {
+        Read<Ticket> stored = store.ticket(before.ticketId);
+        Read<Plan> plan = store.plan(before.planId);
+        Read<Selection> selection = store.selection(config.component);
+        if (stored.found != Found.RECORD || plan.found != Found.RECORD || selection.found != Found.RECORD) {
+            throw new BridgeRefusal("the round's ticket, plan or selection cannot be read for its boundary");
+        }
+        Ticket after = stored.value;
+        Plan p = plan.value;
+        String milestone = LabProtocol.boundaryMilestone(before.state.name(), after.state.name(),
+                after.count(Crossing.SIGN) > 0, !p.repairs.equals(DeploymentRecords.NO_ID) && p.signing == 0);
+        long ordinal = checkpoints.getOrDefault(after.ticketId, 0L) + 1;
+        Message reply = channel.call(channel.request(Type.ROUND_DONE).id("ticket", after.ticketId)
+                .id("plan", after.planId).number("attempt", after.attempt).number("checkpoint_ordinal", ordinal)
+                .number("milestone", LabProtocol.milestoneCode(milestone))
+                .id("ticket_digest", LabProtocol.sha256Hex(DeploymentRecords.encodeTicket(after)))
+                .id("selection_digest", LabProtocol.sha256Hex(DeploymentRecords.encodeSelection(selection.value)))
+                .build());
+        switch (reply.status()) {
+            case OK:
+                checkpoints.put(after.ticketId, ordinal);
+                return;
+            case HALT:
+                halter.halt(Halter.STATUS);
+                throw new IllegalStateException("the halter returned");
+            case STOPPED:
+                throw new GenerationStopped(reply.text("reason"));
+            default:
+                throw new BridgeRefusal("the broker refused ROUND_DONE: " + reply.text("reason"));
+        }
     }
 
     /** The cohort check of the component with no ticket. */
@@ -170,11 +271,12 @@ public final class LabBridge {
         return t;
     }
 
-    // Package private for the bridge's own checks.
-    void prepare(String ticketId) {
+    // Package private for the bridge's own checks. Returns the ticket as the round begins.
+    Ticket prepare(String ticketId) {
         if (!hosted) throw new BridgeRefusal("no host is wired: a round would query it");
         if (target == LabProtocol.TARGET_UNKNOWN) throw new BridgeRefusal("the native target scope is not established");
         rounding = owned(ticketId);
+        return rounding;
     }
 
     // The coordinator's lab point. At BETWEEN_WRITES the broker decides, from its admitted fault cells,
@@ -225,12 +327,21 @@ public final class LabBridge {
         FileOutputStream frames = new FileOutputStream(FileDescriptor.out);
         System.setOut(System.err);
         return run(args, hosts, BrokerChannel.streams(new FileInputStream(FileDescriptor.in), frames),
-                Halter.runtime(), new SecureRandom());
+                Halter.runtime(), new SecureRandom(), System.getenv(CHECKPOINTS));
     }
 
-    /** As {@link #run(String[], HostFactory)}, over a given transport and halter. */
+    /** As {@link #run(String[], HostFactory)}, over a transport and halter, told no boundary. */
     public static int run(String[] args, HostFactory hosts, BrokerChannel.Transport transport, Halter halter,
             SecureRandom random) {
+        return run(args, hosts, transport, halter, random, "");
+    }
+
+    /**
+     * As {@link #run(String[], HostFactory)}, with the checkpoint counts the broker told: a
+     * version 2 generation refuses to run without them.
+     */
+    public static int run(String[] args, HostFactory hosts, BrokerChannel.Transport transport, Halter halter,
+            SecureRandom random, String told) {
         Objects.requireNonNull(halter, "halter");
         if (args.length < 2) return usage("arguments: CONFIG check | round TICKET | settle TICKET ROUNDS"
                 + " | cancel TICKET | report TICKET");
@@ -249,9 +360,19 @@ public final class LabBridge {
             }
             if (rounds < 1 || rounds > 1000) return usage("ROUNDS is 1 to 1000");
         }
+        Map<String, Long> counts;
+        try {
+            counts = checkpoints(told);
+        } catch (IllegalArgumentException error) {
+            return usage("the checkpoint counts the broker told are of no known form");
+        }
         try {
             LabConfig config = LabConfig.read(Paths.get(args[0]));
-            LabBridge bridge = open(config, transport, hosts, halter, random);
+            if (config.protocol == LabProtocol.VERSION_2 && counts == null) {
+                return usage("a version 2 generation is told its checkpoint counts by its broker");
+            }
+            LabBridge bridge = open(config, transport, hosts, halter, random,
+                    counts == null ? Collections.emptyMap() : counts);
             switch (operation) {
                 case "check":
                     bridge.check();

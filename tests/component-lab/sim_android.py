@@ -12,7 +12,11 @@ A notice receipt carries the guest's boot and uptime of the moment the fixture f
 event time, never the time a later read happens. For the next campaign profile the guest also has
 a typed user inventory, a notice fixture that writes one immutable row per notice and user when it
 presents, a display whose current visibility a capture records, and per user health state that a
-preparation, a baseline and a probe read."""
+preparation, a baseline and a probe read. Its whole global session inventory lists every session of
+every package with its referrer, commitment and end. A kernel boot keeps uncommitted sessions,
+applies a ready managed one, and rejects a ready direct negative control's payload: a wrong signer
+or a missing sidecar fails the session, the factory copy stays active, and a native recovery boot
+follows at once, so a poll may never see the rejecting boot."""
 from dataclasses import dataclass, field
 import hashlib
 import json
@@ -37,7 +41,7 @@ NOTICE_COMMAND = 'sim:notice'
 SIM_READS = ('sim:clock', 'sim:boot', 'sim:checkpoint', 'sim:factory', 'sim:active', 'sim:sessions', 'sim:users',
              'sim:receipts', 'pidof system_server')
 # The next profile's fake reads and the fixture fakes' fixed command forms.
-NEXT_READS = ('sim:inventory', 'sim:rows')
+NEXT_READS = ('sim:inventory', 'sim:rows', 'sim:global-sessions')
 PER_USER_READ = re.compile(r'sim:(baseline|health) ([0-9]+)')
 PRESENT = re.compile(r'sim:present ([0-9]+) ([0-9a-f]{32}) ([0-9a-f]{32}) ([0-9]+) ([0-9a-f]{32}) ([0-9a-f]{32}) '
                      r'([0-9a-f]{32}) ([0-9a-f]{64})')
@@ -80,6 +84,10 @@ class Session:
     state: str = 'OPEN'
     members: dict = field(default_factory=dict)
     instance: int = 0
+    # A direct negative control's ID when its referrer is the control's, never a ticket's nonce.
+    control: str = None
+    package: str = PACKAGE
+    cause: str = None
 
 
 class SimAndroid:
@@ -116,6 +124,17 @@ class SimAndroid:
         self.files = {}
         self.calls = []
         self.next_session = 1189842383 + seed
+        # The global session inventory: whether a dump is whole, and rows of other packages or
+        # families a test adds as they stand.
+        self.global_whole = True
+        self.foreign_sessions = []
+        # Kernel boots: whether the boot completed, the framework instance a next boot starts at
+        # when a test sets it, base.apk digests signed by another key, and whether a rejected
+        # activation's native recovery boots again at once.
+        self.boot_completed = True
+        self.next_instance = None
+        self.wrong_signer = set()
+        self.recovery_boots = True
         # command prefix -> list of scripted outcomes, consumed in order: 'before' (no effect, no reply),
         # 'after' (effect, no reply), or a callable(command) returning a ShellResult.
         self.scripts = {}
@@ -129,7 +148,8 @@ class SimAndroid:
         self.boots += 1
         self.boot = hashlib.sha256(b'boot-%d-%d' % (self.seed, self.boots)).hexdigest()[:32]
         self.uptime = 30_000
-        self.instance = 4000 + self.boots
+        self.instance = 4000 + self.boots if getattr(self, 'next_instance', None) is None else self.next_instance
+        self.next_instance = None
         self.framework = True
 
     def tick(self, ms):
@@ -141,13 +161,24 @@ class SimAndroid:
         self.uptime += 1000
 
     def reboot(self):
-        """A kernel boot: a ready session applies its bundle."""
+        """A kernel boot: a ready session applies its bundle, unless it is a direct control's
+        negative payload, which fails with its cause and leaves the factory copy active; its
+        native recovery then boots again at once. Uncommitted sessions are kept."""
+        rejected = False
         for s in self.sessions.values():
-            if s.state == 'READY':
-                apk = s.members.get('base.apk')
+            if s.state != 'READY':
+                continue
+            apk = s.members.get('base.apk')
+            if s.control is not None and 'base.apk.idsig' not in s.members:
+                s.state, s.cause, rejected = 'FAILED', 'FS_VERITY', True
+            elif s.control is not None and apk in self.wrong_signer:
+                s.state, s.cause, rejected = 'FAILED', 'SIGNATURE', True
+            else:
                 self.active = ('DATA_COPY', apk, self.apks.get(apk, 40))
                 s.state = 'APPLIED'
         self.new_boot()
+        if rejected and self.recovery_boots:
+            self.new_boot()
 
     # ------------------------------------------------ transport
 
@@ -239,12 +270,14 @@ class SimAndroid:
                 return result(command, 1, b'', b'sha256sum: %s: No such file or directory\n' % path.encode())
             digest = hashlib.sha256(self.files[path]).hexdigest()
             return result(command, 0, ('%s  %s\n' % (digest, path)).encode())
-        match = re.fullmatch(r'pm install-create --user 0 -r --pkg (\S+) --staged --referrer andrix-ticket:([0-9a-f]{32})',
-                             command)
+        match = re.fullmatch(r'pm install-create --user 0 -r --pkg (\S+) --staged --referrer '
+                             r'andrix-(ticket|lab-control):([0-9a-f]{32})', command)
         if match:
-            self.calls.append(('CREATE', match[2]))
+            control = match[2] == 'lab-control'
+            self.calls.append(('CREATE', match[3]))
             self.next_session += 7
-            s = Session(self.next_session, WALL_BASE + self.uptime, match[2], instance=self.instance)
+            s = Session(self.next_session, WALL_BASE + self.uptime, None if control else match[3], instance=self.instance,
+                        control=match[3] if control else None)
             self.sessions[s.identity] = s
             return result(command, 0, b'Success: created install session [%d]\n' % s.identity)
         match = re.fullmatch(r'pm install-write ([0-9]+) (base\.apk|base\.apk\.idsig) (\S+)', command)
@@ -278,7 +311,8 @@ class SimAndroid:
         if command == 'sim:clock':
             return {'boot': self.boot, 'instance': self.instance if self.framework else -1, 'elapsed': self.uptime}
         if command == 'sim:boot':
-            return {'boot': self.boot, 'elapsed': self.uptime, 'fingerprint': FINGERPRINT}
+            return {'boot': self.boot, 'elapsed': self.uptime, 'fingerprint': FINGERPRINT,
+                    'state': 'COMPLETED' if self.boot_completed else 'BOOTING'}
         if command == 'sim:checkpoint':
             return {'boot': self.boot, 'elapsed': self.uptime, 'state': self.checkpoint}
         if command == 'sim:factory':
@@ -289,11 +323,14 @@ class SimAndroid:
         if command == 'sim:sessions':
             live = [s for s in self.sessions.values() if s.state not in ('ABANDONED',)]
             return {'boot': self.boot, 'elapsed': self.uptime, 'instance': self.instance,
-                    'sessions': [[s.identity, s.created, s.nonce, s.state] for s in sorted(live, key=lambda x: x.identity)]}
+                    'sessions': [[s.identity, s.created, s.nonce, s.state] for s in sorted(live, key=lambda x: x.identity)
+                                 if s.package == PACKAGE]}
         if command == 'sim:receipts':
             return {'boot': self.boot, 'elapsed': self.uptime, 'receipts': list(self.receipts)}
         if command == 'sim:inventory':
             return self.inventory()
+        if command == 'sim:global-sessions':
+            return self.global_sessions()
         if command == 'sim:rows':
             return {'rows': [dict(row) for row in self.rows]}
         match = PER_USER_READ.fullmatch(command)
@@ -312,6 +349,20 @@ class SimAndroid:
 
     def serial(self, user):
         return [s for u, s, _ in self.users if u == user][0]
+
+    def global_sessions(self):
+        """Every session in the global inventory's projected form, then the rows a test added."""
+        rows = []
+        for s in sorted(self.sessions.values(), key=lambda x: x.identity):
+            live = s.state in ('OPEN', 'READY')
+            rows.append({'section': 'ACTIVE' if live else 'FINALIZED', 'id': s.identity, 'package': s.package,
+                         'referrer': ('andrix-lab-control:%s' % s.control) if s.control else 'andrix-ticket:%s' % s.nonce,
+                         'staged': True, 'multi_package': False, 'parent': -1, 'children': [],
+                         'sealed': s.state != 'OPEN', 'committed': s.state not in ('OPEN', 'ABANDONED'),
+                         'ready': s.state == 'READY', 'applied': s.state == 'APPLIED', 'failed': s.state == 'FAILED',
+                         'destroyed': s.state == 'ABANDONED', 'created': s.created, 'installer': 2000,
+                         'cause': s.cause})
+        return {'whole': self.global_whole, 'sessions': rows + [dict(row) for row in self.foreign_sessions]}
 
     def inventory(self):
         users = []
@@ -429,7 +480,7 @@ class SimReader(lab_readers.ReaderAdapter):
     """Facts from the simulated guest, through the broker's run function."""
 
     def __init__(self, installation, component=PACKAGE, ids=None, receipts=False, target=False, inventory=False,
-                 health=False, witness=False):
+                 health=False, witness=False, global_sessions=False):
         self.installation, self.component = installation, component
         # A receipt reader is admitted only when a test asks for one; the target reader likewise,
         # and the next profile's inventory, health and witness readers.
@@ -438,6 +489,7 @@ class SimReader(lab_readers.ReaderAdapter):
         self.inventory_admitted = inventory
         self.health_admitted = health
         self.witness_admitted = witness
+        self.global_admitted = global_sessions
         self._run = None
         self._captures = []
         self._count = 0
@@ -488,7 +540,7 @@ class SimReader(lab_readers.ReaderAdapter):
 
     def boot(self):
         value = self._read('sim:boot')
-        return [self._fact(value, 'BOOT', 'COMPLETED', '', facts={'fingerprint': value['fingerprint']})]
+        return [self._fact(value, 'BOOT', value['state'], '', facts={'fingerprint': value['fingerprint']})]
 
     def checkpoint(self):
         value = self._read('sim:checkpoint')
@@ -509,7 +561,9 @@ class SimReader(lab_readers.ReaderAdapter):
         facts = [self._fact(value, 'LISTING', 'SESSIONS_FOR_PACKAGE' if rows else 'NONE_FOR_PACKAGE',
                             instance=value['instance'], facts={'count': len(rows)})]
         for identity, created, nonce, state in rows:
-            reference = (31, identity, created, '/data/app-staging/session_%d' % identity, 2000, nonce)
+            # A direct control's session has no ticket nonce: its reference names none.
+            reference = (31 if nonce else 15, identity, created, '/data/app-staging/session_%d' % identity, 2000,
+                         nonce or '00' * 16)
             facts.append(self._fact(value, 'SESSION', state, instance=value['instance'],
                                     facts={'reference': reference}))
         return facts
@@ -526,6 +580,9 @@ class SimReader(lab_readers.ReaderAdapter):
 
     def inventory(self):
         return self._read('sim:inventory')
+
+    def global_sessions(self):
+        return self._read('sim:global-sessions')
 
     def receipt_rows(self, ticket):
         """Every row the provider returns, each with its exact bytes: the canonical form the fake

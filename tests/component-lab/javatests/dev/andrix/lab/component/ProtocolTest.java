@@ -68,6 +68,11 @@ public final class ProtocolTest {
         GOLDENS.put("V2_OBSERVE_REPLY_HEALTH", "02e1bccb844388b74c22cbdcac5a48422877731d879898c36ad72273ea42af35");
         GOLDENS.put("V2_OBSERVE_REPLY_HALT", "6c4068854ca984bb686f868056b2242dc851911b6c9a1f2185499bae74b460d7");
         GOLDENS.put("V2_OBSERVE_REPLY_STOPPED", "25b4529be3d26438f63d06478c037730a94744d468428ccc856d2fcb75f11e0f");
+        GOLDENS.put("V2_ROUND_DONE", "fa07d1bf6599b63d9d2643c8ab7328f633e6c7ad588fb33c5c1346663bc4125e");
+        GOLDENS.put("V2_ROUND_DONE_REPLY_OK", "3f759f98823e3f91751719cfb1518413f120519268f1c40a3ff9765dc30cb271");
+        GOLDENS.put("V2_ROUND_DONE_REPLY_HALT", "ff1166bd2b41c6886ccd0f9ce4297f60be96da722872c750e8f44d35088e3362");
+        GOLDENS.put("V2_ROUND_DONE_REPLY_STOPPED", "2759109d5ace24f48318aeabeaa650a2481ece29cbf07437437a2a96a05baaa0");
+        GOLDENS.put("V2_ROUND_DONE_REPLY_REFUSED", "ba8673cad95c20ba93b2811526e19e13c18c070e91eac2065de83984d05053dc");
     }
 
     static final String INSTALLATION = "00112233445566778899aabbccddeeff";
@@ -175,7 +180,23 @@ public final class ProtocolTest {
                 .envelopes("envelopes", Collections.emptyList()).text("reason", "admitted read loss").build());
         m.put("V2_OBSERVE_REPLY_STOPPED", of2(Type.OBSERVE_REPLY).number("status", 3).number("control_record", 0)
                 .envelopes("envelopes", Collections.emptyList()).text("reason", "the stop file exists").build());
+        m.put("V2_ROUND_DONE", roundDone().build());
+        m.put("V2_ROUND_DONE_REPLY_OK", roundReply(1, 47, "").build());
+        m.put("V2_ROUND_DONE_REPLY_HALT", roundReply(4, 48, "admitted round loss").build());
+        m.put("V2_ROUND_DONE_REPLY_STOPPED", roundReply(3, 0, "the stop file exists").build());
+        m.put("V2_ROUND_DONE_REPLY_REFUSED", roundReply(7, 0, "a boundary of another ticket").build());
         return m;
+    }
+
+    /** The round boundary golden: a round that reached BOOT_OBSERVED at checkpoint ordinal 3. */
+    static LabProtocol.Builder roundDone() {
+        return of2(Type.ROUND_DONE).id("ticket", "04".repeat(16)).id("plan", "01".repeat(16)).number("attempt", 2)
+                .number("checkpoint_ordinal", 3).number("milestone", LabProtocol.milestoneCode("BOOT_OBSERVED"))
+                .id("ticket_digest", "11".repeat(32)).id("selection_digest", "55".repeat(32));
+    }
+
+    static LabProtocol.Builder roundReply(int status, long record, String reason) {
+        return of2(Type.ROUND_DONE_REPLY).number("status", status).number("record", record).text("reason", reason);
     }
 
     static Map<String, Object> with(Map<String, Object> block, String name, Object value) {
@@ -466,6 +487,104 @@ public final class ProtocolTest {
                 changed[at - LabProtocol.HEADER] = (byte) 219;
                 return changed;
             }), 2)), "a block of another length");
+        });
+
+        cases.run("protocol / the milestone codes are fixed", problems -> {
+            List<String> names = Arrays.asList("READY", "BOOT_OBSERVED", "APPLIED_PROVISIONAL", "APPLIED",
+                    "HEALTH_WINDOW_ENTRY", "HEALTH_WINDOW_PROGRESS", "TERMINAL", "REPAIR_SIGNING_SKIPPED",
+                    "REPAIR_PUBLICATION_BOUND");
+            LabCases.check(problems, LabProtocol.MILESTONES.equals(names), "the milestone table");
+            for (int i = 0; i < names.size(); i++) {
+                LabCases.check(problems, LabProtocol.milestoneCode(names.get(i)) == i + 1, names.get(i));
+            }
+            LabCases.check(problems, LabProtocol.milestoneCode(null) == 0, "no milestone");
+            boolean unknown;
+            try {
+                LabProtocol.milestoneCode("SIGNED");
+                unknown = false;
+            } catch (IllegalArgumentException expected) {
+                unknown = true;
+            }
+            LabCases.check(problems, unknown, "a state that is no milestone has a code");
+            // The boundary table the Python suite checks: before ("-" when unknown), after, signed,
+            // repair and the milestone ("-" for none).
+            String[][] table = {
+                {"-", "READY", "0", "0", "READY"}, {"COMMIT_INTENT", "READY", "0", "0", "READY"},
+                {"READY", "READY", "0", "0", "-"}, {"REBOOT_INTENT", "READY", "0", "0", "READY"},
+                {"REBOOT_INTENT", "BOOT_OBSERVED", "0", "0", "BOOT_OBSERVED"},
+                {"BOOT_OBSERVED", "APPLIED_PROVISIONAL", "0", "0", "APPLIED_PROVISIONAL"},
+                {"APPLIED_PROVISIONAL", "APPLIED", "0", "0", "APPLIED"},
+                {"APPLIED", "HEALTH_WINDOW", "0", "0", "HEALTH_WINDOW_ENTRY"},
+                {"HEALTH_WINDOW", "HEALTH_WINDOW", "0", "0", "HEALTH_WINDOW_PROGRESS"},
+                {"HEALTH_WINDOW", "CLOSED_APPLIED", "0", "0", "TERMINAL"},
+                {"NO_SESSION", "CLOSED_FAILED", "0", "0", "TERMINAL"},
+                {"CLOSED_FAILED", "CLOSED_FAILED", "0", "0", "-"},
+                {"SIGNING", "SIGNED", "0", "1", "REPAIR_SIGNING_SKIPPED"}, {"SIGNING", "SIGNED", "1", "1", "-"},
+                {"SIGNING", "SIGNED", "0", "0", "-"},
+                {"SIGNED", "PUBLISHED", "0", "1", "REPAIR_PUBLICATION_BOUND"}, {"SIGNED", "PUBLISHED", "1", "0", "-"},
+                {"PUBLISHED", "SESSION_INTENT", "0", "0", "-"}, {"WRITTEN", "COMMIT_INTENT", "0", "0", "-"},
+                {"-", "HEALTH_WINDOW", "0", "0", "HEALTH_WINDOW_ENTRY"}};
+            for (String[] row : table) {
+                String found = LabProtocol.boundaryMilestone(row[0].equals("-") ? null : row[0], row[1],
+                        row[2].equals("1"), row[3].equals("1"));
+                LabCases.check(problems, (found == null ? "-" : found).equals(row[4]), String.join(" ", row));
+            }
+        });
+
+        cases.run("protocol / the round boundary and its reply", problems -> {
+            for (int milestone = 0; milestone <= LabProtocol.MILESTONES.size(); milestone++) {
+                Message m = roundDone().number("milestone", milestone).build();
+                LabCases.check(problems, LabProtocol.decode(LabProtocol.encode(m), 2).equals(m), "milestone " + milestone);
+            }
+            Map<String, UnaryOperator<LabProtocol.Builder>> bad = new LinkedHashMap<>();
+            bad.put("a zero ticket", b -> b.id("ticket", LabProtocol.ZERO_ID));
+            bad.put("a zero plan", b -> b.id("plan", LabProtocol.ZERO_ID));
+            bad.put("a zero ticket digest", b -> b.id("ticket_digest", LabProtocol.ZERO_DIGEST));
+            bad.put("a zero selection digest", b -> b.id("selection_digest", LabProtocol.ZERO_DIGEST));
+            bad.put("attempt 0", b -> b.number("attempt", 0));
+            bad.put("a negative attempt", b -> b.number("attempt", -1));
+            bad.put("checkpoint ordinal 0", b -> b.number("checkpoint_ordinal", 0));
+            bad.put("a milestone of no code", b -> b.number("milestone", LabProtocol.MILESTONES.size() + 1));
+            bad.put("a milestone beyond a byte", b -> b.number("milestone", 256));
+            for (Map.Entry<String, UnaryOperator<LabProtocol.Builder>> e : bad.entrySet()) {
+                LabCases.check(problems, refused(() -> e.getValue().apply(roundDone()).build()), e.getKey() + " accepted");
+            }
+            Map<String, Runnable> replies = new LinkedHashMap<>();
+            replies.put("OK without its checkpoint record", () -> roundReply(1, 0, "").build());
+            replies.put("OK with a reason", () -> roundReply(1, 47, "x").build());
+            replies.put("HALT without its fault record", () -> roundReply(4, 0, "x").build());
+            replies.put("STOPPED naming a record", () -> roundReply(3, 47, "x").build());
+            replies.put("REFUSED naming a record", () -> roundReply(7, 47, "x").build());
+            replies.put("REFUSED without a reason", () -> roundReply(7, 0, "").build());
+            replies.put("a withheld boundary", () -> roundReply(5, 47, "x").build());
+            replies.put("a boundary without a reply", () -> roundReply(6, 47, "x").build());
+            replies.put("an unavailable boundary", () -> roundReply(2, 0, "x").build());
+            for (Map.Entry<String, Runnable> e : replies.entrySet()) {
+                LabCases.check(problems, refused(e.getValue()), e.getKey() + " accepted");
+            }
+            // The request's fields in the contract's order and widths, in bytes.
+            byte[] data = LabProtocol.encode(roundDone().build());
+            ByteBuffer expected = ByteBuffer.allocate(16 + 16 + 4 + 4 + 1 + 32 + 32).order(ByteOrder.LITTLE_ENDIAN);
+            for (int i = 0; i < 16; i++) expected.put((byte) 0x04);
+            for (int i = 0; i < 16; i++) expected.put((byte) 0x01);
+            expected.putInt(2).putInt(3).put((byte) 2);
+            for (int i = 0; i < 32; i++) expected.put((byte) 0x11);
+            for (int i = 0; i < 32; i++) expected.put((byte) 0x55);
+            LabCases.check(problems, Arrays.equals(Arrays.copyOfRange(data, LabProtocol.HEADER,
+                    data.length - LabProtocol.CHECKSUM), expected.array()), "the request's layout");
+            // Neither type exists in version 1, built or read.
+            LabCases.check(problems, refused(() -> of(Type.ROUND_DONE).id("ticket", "04".repeat(16)).build()),
+                    "a version 1 round boundary");
+            LabCases.check(problems, refused(() -> of(Type.ROUND_DONE_REPLY).number("status", 1).build()),
+                    "a version 1 round boundary reply");
+            for (String name : Arrays.asList("V2_ROUND_DONE", "V2_ROUND_DONE_REPLY_OK")) {
+                byte[] two = LabProtocol.encode(goldens2().get(name));
+                byte[] one = two.clone();
+                one[4] = 1;
+                byte[] sum = LabProtocol.sha256(Arrays.copyOf(one, one.length - LabProtocol.CHECKSUM));
+                System.arraycopy(sum, 0, one, one.length - LabProtocol.CHECKSUM, LabProtocol.CHECKSUM);
+                LabCases.check(problems, refused(() -> LabProtocol.decode(one)), name + " read on a version 1 channel");
+            }
         });
 
         cases.run("protocol / the health classification follows the rows", problems -> {

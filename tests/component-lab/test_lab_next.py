@@ -71,6 +71,15 @@ class NextBase(unittest.TestCase):
     def envelopes(self, reply, mode):
         return [e for e in reply['envelopes'] if e['mode'] == mode]
 
+    def waiting(self, h, state='SESSION_INTENT'):
+        """The ticket waits in a state a later boot resolves, its round's boundary recorded: what a
+        plain kernel confirmation needs."""
+        self.store(h, labtest.ticket_record(h.sim, state), labtest.plan_record())
+        self.generation(h)
+        self.assertEqual(h.observe(state=labtest.state_code(state))['status'], STATUS['OK'])
+        self.assertEqual(h.round_done()['status'], STATUS['OK'])
+        self.between(h)
+
     def groups(self, h, reader):
         return [e.content for e in h.entries('group') if e.content.get('reader') == reader]
 
@@ -131,7 +140,7 @@ class AdmissionTests(NextBase):
 
             def spec(at, **changes):
                 return [dict(s, **changes) if i == at else s for i, s in enumerate(specs)]
-            restart, visibility, preparation = specs
+            confirm, visibility, preparation = specs
             bad = {
                 'a missing key': {k: v for k, v in good.items() if k != 'boot_policy'},
                 'an extra key': dict(good, extra=1),
@@ -146,7 +155,7 @@ class AdmissionTests(NextBase):
                 'a selector the type does not admit': dict(good, lab_actions=spec(0, user_selector={'kind': 'NOTICE_RECIPIENT'})),
                 'a selector naming a user': dict(good, lab_actions=spec(0, user_selector={'kind': 'SYSTEM_USER', 'user': 10})),
                 'a created user without a create action': dict(good, lab_actions=spec(2, user_selector={
-                    'kind': 'CREATED_BY', 'action': restart['id']})),
+                    'kind': 'CREATED_BY', 'action': confirm['id']})),
                 'an unprepared criterion': dict(good, lab_actions=spec(2, parameters={'criteria': [1], 'max_probe_ms': 1})),
                 'unsorted criteria': dict(good, lab_actions=spec(2, parameters={'criteria': [5, 2], 'max_probe_ms': 1})),
                 'no probe width': dict(good, lab_actions=spec(2, parameters={'criteria': [2], 'max_probe_ms': 0})),
@@ -155,7 +164,7 @@ class AdmissionTests(NextBase):
                 'other preconditions': dict(good, lab_actions=spec(0, preconditions=[])),
                 'an unknown predecessor': dict(good, lab_actions=spec(0, predecessor='9a' * 16)),
                 'a successor not naming its predecessor': dict(good, lab_actions=spec(0, successors=[visibility['id']])),
-                'a predecessor not listing its successor': dict(good, lab_actions=spec(1, predecessor=restart['id'])),
+                'a predecessor not listing its successor': dict(good, lab_actions=spec(1, predecessor=confirm['id'])),
                 'no use': dict(good, lab_actions=spec(0, max_uses=0)),
                 'too many uses': dict(good, lab_actions=spec(0, max_uses=101)),
                 'no timeout': dict(good, lab_actions=spec(0, timeout_ms=0)),
@@ -163,7 +172,7 @@ class AdmissionTests(NextBase):
                 'another runtime': dict(good, lab_actions=spec(1, runtime='e2' * 16)),
                 'another installation': dict(good, lab_actions=spec(0, installation='99' * 16)),
                 'an unknown phase': dict(good, lab_actions=spec(0, phase='G1A')),
-                'an action twice': dict(good, lab_actions=[restart, restart]),
+                'an action twice': dict(good, lab_actions=[confirm, confirm]),
                 'an uncapped crossing': dict(good, effect_limits=dict(good['effect_limits'], crossings={'CREATE': 1})),
                 'a negative cap': dict(good, effect_limits=dict(good['effect_limits'], admin=-1)),
                 'an uncapped phase': dict(good, effect_limits=dict(good['effect_limits'], phases={'A': 1})),
@@ -181,8 +190,8 @@ class AdmissionTests(NextBase):
                 with self.subTest(name), self.assertRaises(lab_broker.BrokerError):
                     lab_broker.check_admission(value)
             # A predecessor and its successor name each other.
-            lab_broker.check_admission(dict(good, lab_actions=[dict(restart, successors=[visibility['id']]),
-                                                               dict(visibility, predecessor=restart['id']),
+            lab_broker.check_admission(dict(good, lab_actions=[dict(confirm, successors=[visibility['id']]),
+                                                               dict(visibility, predecessor=confirm['id']),
                                                                preparation]))
 
     def test_version_2s_action_map_is_never_reinterpreted(self):
@@ -193,7 +202,7 @@ class AdmissionTests(NextBase):
         v2 = Harness()
         self.addCleanup(v2.close)
         with self.assertRaisesRegex(lab_broker.BrokerError, 'version 3'):
-            v2.broker.run_action(labtest.RESTART_ACTION, 'a typed action under version 1')
+            v2.broker.run_action(labtest.CONFIRM_ACTION, 'a typed action under version 1')
 
     def test_a_version_3_pin_names_its_publication_and_only_it(self):
         h = self.harness(generation=False, pins=False)
@@ -1156,13 +1165,17 @@ class HealthTests(NextBase):
 
 
 class ActionTests(NextBase):
-    def restart(self, h, action=labtest.RESTART_ACTION):
+    def confirm(self, h, action=labtest.CONFIRM_ACTION):
+        if TICKET not in h.broker.checkpoints:
+            self.waiting(h)
         self.between(h)
-        return h.broker.run_action(action, 'a later framework instance')
+        return h.broker.run_action(action, 'a later boot confirms the wait', ticket=TICKET)
 
     def test_a_typed_action_pins_its_spec_authority_and_user_before_any_effect(self):
         h = self.harness()
-        end = self.restart(h)
+        self.waiting(h)
+        old = h.sim.boot
+        end = self.confirm(h)
         begin = self.actions(h, 'BEGIN')[-1]
         inventory = h.broker.ledger.entries[begin['resolved_user']['inventory_group'] - 1]
         captures = [e for e in h.entries('capture') if e.content['intent'].get('lab_action') == begin['number']]
@@ -1172,18 +1185,18 @@ class ActionTests(NextBase):
             'record', 'action_id', 'type', 'operation', 'spec_sha256', 'authority', 'resolved_user', 'input_digests',
             'predecessor_checkpoint', 'phase', 'cell', 'use', 'reason', 'request', 'parameters',
             'deadline_monotonic_ns', 'wall_ns', 'monotonic_ns'})
-        spec = h.broker.specs[labtest.RESTART_ACTION]
+        spec = h.broker.specs[labtest.CONFIRM_ACTION]
         kept = (h.root / 'records' / begin['spec_sha256']).read_bytes()
         self.assertEqual(kept, lab_actions.spec_bytes(spec))
-        self.assertEqual((begin['authority'], begin['phase'], begin['cell']), ('LAB_CONTROL', 'F0', 'f0-control'))
+        self.assertEqual((begin['authority'], begin['phase'], begin['cell']), ('LAB_CONTROL', 'CELLS', 'c0-confirm'))
         self.assertEqual(begin['resolved_user'], {'id': 0, 'serial': 0, 'type': sim_android.SYSTEM_TYPE,
                                                   'inventory_group': inventory.number})
         effects = [c for c in captures if c.content['intent']['operation'] == 'lab-action-effect']
         self.assertEqual([(c.content['intent']['command'], c.content['intent']['effect_class']) for c in effects],
-                         [('am restart', 'control')])
+                         [(lab_broker.REBOOT_LABEL, 'control')])
         self.assertEqual((end['status'], end['settled'], end['captures']), ('OK', True, [c.number for c in captures]))
         self.assertEqual(end['counts']['effects_launched'], 1)
-        self.assertEqual([c for c in h.sim.calls if c[0] == 'am restart'], [('am restart', h.sim.boot)])
+        self.assertEqual([c for c in h.sim.calls if c[0] == 'reboot'], [('reboot', old)])
 
     def test_requests_outside_the_admission_are_refused_before_anything_is_recorded(self):
         h = self.harness()
@@ -1191,8 +1204,8 @@ class ActionTests(NextBase):
         before = len(h.broker.ledger.entries)
         refusals = {
             'an action never admitted': lambda: h.broker.run_action('9a' * 16, 'reason'),
-            'no reason': lambda: h.broker.run_action(labtest.RESTART_ACTION, ' '),
-            'caller text in a request': lambda: h.broker.run_action(labtest.RESTART_ACTION, 'r', command='reboot'),
+            'no reason': lambda: h.broker.run_action(labtest.CONFIRM_ACTION, ' '),
+            'caller text in a request': lambda: h.broker.run_action(labtest.CONFIRM_ACTION, 'r', command='reboot'),
             'a visibility without its entry': lambda: h.broker.run_action(labtest.VISIBILITY_ACTION, 'r',
                                                                           ticket=TICKET, serial=5),
             'a visibility of a notice never issued': lambda: h.broker.run_action(labtest.VISIBILITY_ACTION, 'r',
@@ -1203,7 +1216,7 @@ class ActionTests(NextBase):
                 call()
         h.begin()
         with self.assertRaisesRegex(lab_broker.BrokerError, 'beside a generation'):
-            h.broker.run_action(labtest.RESTART_ACTION, 'during a generation')
+            h.broker.run_action(labtest.CONFIRM_ACTION, 'during a generation')
         h.end(0)
         self.assertEqual([e.kind for e in h.broker.ledger.entries[before:]], ['generation', 'generation-end'])
         bare = self.harness(health=None)
@@ -1215,42 +1228,45 @@ class ActionTests(NextBase):
         specs = labtest.default_specs()
         specs[0] = dict(specs[0], max_uses=1)
         h = self.harness(specs=specs)
-        self.assertEqual(self.restart(h)['status'], 'OK')
+        self.assertEqual(self.confirm(h)['status'], 'OK')
         for reopened in (False, True):
             if reopened:
                 h.reopen()
             with self.assertRaisesRegex(lab_broker.BrokerError, 'uses of the action are spent'):
-                self.restart(h)
-        specs = labtest.default_specs() + [labtest.action_spec('0d' * 16, 'FRAMEWORK_RESTART')]
+                self.confirm(h)
+        specs = labtest.default_specs() + [labtest.action_spec('0d' * 16, 'PLAIN_KERNEL_CONFIRM', phase='CELLS',
+                                                               cell='b1-confirm')]
         for limits in (dict(labtest.effect_limits(), control=1), dict(labtest.effect_limits(), phases=dict(
-                labtest.effect_limits()['phases'], F0=1))):
+                labtest.effect_limits()['phases'], CELLS=1))):
             with self.subTest(limits['control']):
                 h = self.harness(specs=specs, effect_limits=limits)
-                self.assertEqual(self.restart(h)['status'], 'OK')
+                self.assertEqual(self.confirm(h)['status'], 'OK')
                 h.reopen()
-                end = self.restart(h, '0d' * 16)
+                end = self.confirm(h, '0d' * 16)
                 self.assertEqual((end['status'], end['settled'], end['counts']['effects_launched']), ('REFUSED', True, 0))
                 self.assertIn('spent', end['uncertainty'])
-                self.assertEqual(len([c for c in h.sim.calls if c[0] == 'am restart']), 1)
+                self.assertEqual(len([c for c in h.sim.calls if c[0] == 'reboot']), 1)
 
     def test_an_interrupted_action_is_closed_lost_and_never_repeated(self):
         h = self.harness()
-        self.between(h)
+        self.waiting(h)
 
         def lose(command):
-            if command == 'am restart':
+            if command == lab_broker.REBOOT_LABEL:
                 raise KeyboardInterrupt('the broker is lost during the action')
         h.sim.hooks.append(lose)
         with self.assertRaises(KeyboardInterrupt):
-            h.broker.run_action(labtest.RESTART_ACTION, 'a restart that is lost')
+            h.broker.run_action(labtest.CONFIRM_ACTION, 'a confirmation that is lost', ticket=TICKET)
         h.sim.hooks.clear()
         h.broker.close()
         h.open()
         end = self.actions(h, 'END')[-1]
         self.assertEqual((end['status'], end['settled'], end['counts']['effects_uncertain']), ('LOST', False, 1))
         with self.assertRaisesRegex(lab_broker.BrokerError, 'did not settle'):
-            self.restart(h)
-        # An idempotent capture and read may follow its own uncertain use.
+            self.confirm(h)
+        # An idempotent capture and read may follow its own uncertain use. A lost boot transition
+        # holds every crossing, so this part has a guest of its own.
+        h = self.harness()
         h.sim.users.append((10, 5, 'RUNNING_UNLOCKED'))
         self.generation(h)
         self.notice(h)
@@ -1267,15 +1283,15 @@ class ActionTests(NextBase):
 
     def test_a_stop_ends_an_action_and_no_command_follows(self):
         h = self.harness()
-        self.between(h)
+        self.waiting(h)
         stop = Path(h.admission['fences']['stop_file'])
-        h.sim.hooks.append(lambda command: command == 'am restart' and stop.write_text('stop\n'))
+        h.sim.hooks.append(lambda command: command == lab_broker.REBOOT_LABEL and stop.write_text('stop\n'))
         with self.assertRaises(lab_broker.Stopped):
-            h.broker.run_action(labtest.RESTART_ACTION, 'a restart that is stopped')
+            h.broker.run_action(labtest.CONFIRM_ACTION, 'a confirmation that is stopped', ticket=TICKET)
         end = self.actions(h, 'END')[-1]
         self.assertEqual((end['status'], end['settled']), ('STOPPED', False))
         commands = [e.content['intent']['command'] for e in h.entries('capture')]
-        self.assertEqual(commands[-1], 'am restart')
+        self.assertEqual(commands[-1], lab_broker.REBOOT_LABEL)
         with self.assertRaises(lab_broker.Stopped):
             h.broker.run_action(labtest.VISIBILITY_ACTION, 'r', ticket=TICKET, index=2, serial=5)
         self.assertEqual([e.content['intent']['command'] for e in h.entries('capture')], commands)
@@ -1306,19 +1322,19 @@ class ActionTests(NextBase):
         h = self.harness()
         h.sim.user_marks[0] = {'partial': True}
         with self.assertRaisesRegex(lab_broker.BrokerError, 'resolves no user'):
-            self.restart(h)
-        self.assertNotIn('am restart', [c[0] for c in h.sim.calls])
+            self.confirm(h)
+        self.assertNotIn('reboot', [c[0] for c in h.sim.calls])
 
     def test_a_successor_runs_only_after_its_predecessor_settled(self):
         specs = labtest.default_specs()
         specs[0] = dict(specs[0], successors=[labtest.PREPARATION_ACTION])
-        specs[2] = dict(specs[2], predecessor=labtest.RESTART_ACTION)
+        specs[2] = dict(specs[2], predecessor=labtest.CONFIRM_ACTION)
         h = self.harness(specs=specs)
         self.between(h)
         with self.assertRaisesRegex(lab_broker.BrokerError, 'predecessor'):
             h.broker.run_action(labtest.PREPARATION_ACTION, 'too early')
-        end = self.restart(h)
-        h.broker.run_action(labtest.PREPARATION_ACTION, 'after the restart')
+        end = self.confirm(h)
+        h.broker.run_action(labtest.PREPARATION_ACTION, 'after the confirmation')
         self.assertEqual(self.actions(h, 'BEGIN')[-1]['predecessor_checkpoint'], end['number'])
 
     def test_crossing_effect_limits_launch_nothing_past_their_caps(self):
@@ -1330,8 +1346,7 @@ class ActionTests(NextBase):
         self.assertEqual(reply['status'], STATUS['NO_REPLY'])
         self.assertIn('limit of 1 CREATE crossings', reply['reason'])
         self.assertEqual(len([c for c in h.sim.calls if c[0] == 'CREATE']), 1)
-        h = self.harness(boot_policy={'activation_services': 0, 'observed_boots': 8, 'poll_interval_ms': 5000,
-                                      'settle_ms': 600_000, 'unexpected_boot': 'HALT'})
+        h = self.harness(boot_policy=dict(labtest.BOOT_POLICY, activation_services=0))
         reply = h.cross('REBOOT', 5, entry_instance=-1, **DIGESTS)
         self.assertEqual(reply['status'], STATUS['NO_REPLY'])
         self.assertIn('activation services', reply['reason'])
@@ -1341,11 +1356,11 @@ class ActionTests(NextBase):
         specs = labtest.default_specs()
         specs[0] = dict(specs[0], timeout_ms=1500)
         h = self.harness(specs=specs)
-        self.between(h)
+        self.waiting(h)
         h.sim.hooks.append(lambda command: command == 'sim:clock' and setattr(h.clock, 'mono', h.clock.mono + 2 * 10 ** 9))
-        end = h.broker.run_action(labtest.RESTART_ACTION, 'a slow restart')
+        end = h.broker.run_action(labtest.CONFIRM_ACTION, 'a slow confirmation', ticket=TICKET)
         self.assertEqual((end['status'], end['counts']['effects_launched']), ('REFUSED', 0))
-        self.assertNotIn('am restart', [c[0] for c in h.sim.calls])
+        self.assertNotIn('reboot', [c[0] for c in h.sim.calls])
 
     def test_a_preparation_without_a_qualified_settlement_is_never_repeated(self):
         # The honest control: a settled use, then after a reopening a second one.

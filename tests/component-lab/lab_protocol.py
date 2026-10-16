@@ -31,7 +31,14 @@ deployment observation record. SIMPLE_CURRENT carries a current fact with an emp
 RECEIPT_EVENT carries one notice receipt whose time is the proven delivery event, with the current
 provider read's bracket and the event's provenance. COMPOSED_HEALTH carries one full health probe
 of one user, with its read bracket, window, publication, baseline, preparations and seven criterion
-rows. A channel speaks exactly one version: a frame of the other is refused, never converted."""
+rows. A channel speaks exactly one version: a frame of the other is refused, never converted.
+
+Version 2 also has the round boundary: ROUND_DONE, type 15, which the bridge sends after each
+public round of a ticket, and its reply, type 16. The request names the ticket, plan and attempt,
+the boundary's checkpoint ordinal, the milestone the round reached and the SHA-256 of the stored
+ticket and selection. The reply is OK naming the checkpoint record, HALT naming the consumed
+fault record, or STOPPED or REFUSED with record 0. Milestones are a fixed enum: `MILESTONES`,
+where 0 is a boundary that reached none of them. Neither type exists in version 1."""
 import hashlib
 import re
 import struct
@@ -55,7 +62,7 @@ NO_USER = -10000
 
 TYPES = {'HELLO': 1, 'HELLO_REPLY': 2, 'CLOCK': 3, 'CLOCK_REPLY': 4, 'OBSERVE': 5, 'OBSERVE_REPLY': 6,
          'CROSS': 7, 'CROSS_REPLY': 8, 'POINT': 9, 'POINT_REPLY': 10, 'HOST': 11, 'HOST_REPLY': 12,
-         'REPORT': 13, 'REPORT_REPLY': 14}
+         'REPORT': 13, 'REPORT_REPLY': 14, 'ROUND_DONE': 15, 'ROUND_DONE_REPLY': 16}
 TYPE_NAMES = {code: name for name, code in TYPES.items()}
 STATUSES = {'OK': 1, 'UNAVAILABLE': 2, 'STOPPED': 3, 'HALT': 4, 'WITHHELD': 5, 'NO_REPLY': 6, 'REFUSED': 7}
 STATUS_NAMES = {code: name for name, code in STATUSES.items()}
@@ -113,9 +120,24 @@ BODIES = {
 INTEGERS = {'u8': '<B', 'u16': '<H', 'u32': '<I', 'i32': '<i', 'i64': '<q'}
 
 # Version 2: the OBSERVE reply carries envelopes. HALT names the consumed fault record and carries
-# no envelope; STOPPED and REFUSED carry neither. There is no WITHHELD observation.
+# no envelope; STOPPED and REFUSED carry neither. There is no WITHHELD observation. The round
+# boundary, types 15 and 16, exists only here.
 BODIES_2 = dict(BODIES, OBSERVE_REPLY=(('status', 'u8'), ('control_record', 'u32'), ('envelopes', 'envelopes'),
-                                       ('reason', 'text')))
+                                       ('reason', 'text')),
+                ROUND_DONE=(('ticket', 'id'), ('plan', 'id'), ('attempt', 'i32'), ('checkpoint_ordinal', 'u32'),
+                            ('milestone', 'u8'), ('ticket_digest', 'd32'), ('selection_digest', 'd32')),
+                ROUND_DONE_REPLY=(('status', 'u8'), ('record', 'u32'), ('reason', 'text')))
+# The forward milestones of record only steps, each a stable code. A round boundary that reached
+# none of them carries 0. HEALTH_WINDOW's entry and its progress are two milestones: the entry is
+# the round that opened the window, a progress round one that began and ended in it.
+MILESTONES = {'READY': 1, 'BOOT_OBSERVED': 2, 'APPLIED_PROVISIONAL': 3, 'APPLIED': 4, 'HEALTH_WINDOW_ENTRY': 5,
+              'HEALTH_WINDOW_PROGRESS': 6, 'TERMINAL': 7, 'REPAIR_SIGNING_SKIPPED': 8,
+              'REPAIR_PUBLICATION_BOUND': 9}
+MILESTONE_NAMES = {code: name for name, code in MILESTONES.items()}
+NO_MILESTONE = 0
+TERMINAL_STATES = ('CLOSED_APPLIED', 'CLOSED_FAILED', 'CANCELLED', 'VOID', 'DIVERGED', 'SUPERSEDED')
+# The states a milestone records on entry.
+ENTERED = ('READY', 'BOOT_OBSERVED', 'APPLIED_PROVISIONAL', 'APPLIED')
 MODES = {'SIMPLE_CURRENT': 1, 'RECEIPT_EVENT': 2, 'COMPOSED_HEALTH': 3}
 MODE_NAMES = {code: name for name, code in MODES.items()}
 ROW_STATUSES = {'HELD': 1, 'BAD': 2, 'UNKNOWN': 3}
@@ -155,6 +177,51 @@ def bodies(version):
     if version == VERSION_2:
         return BODIES_2
     _fail('protocol version %r is not 1 or 2' % (version,))
+
+
+def _layout(version, kind):
+    """One type's body layout in one protocol version, refused when the version has no such type."""
+    layout = bodies(version).get(kind)
+    if layout is None:
+        _fail('type %s is not of protocol version %d' % (kind, version))
+    return layout
+
+
+def boundary_milestone(before, after, signed, repair):
+    """The milestone a round boundary reached, by its name, or None. `before` is the ticket's state
+    when the round began, None when unknown; `after` its stored state at the boundary; `signed`
+    whether the stored ledger holds a SIGN entry; `repair` whether the plan repairs another plan
+    without signing. The bridge and the broker apply the same rule."""
+    if after in TERMINAL_STATES:
+        return None if before in TERMINAL_STATES else 'TERMINAL'
+    if after == 'HEALTH_WINDOW':
+        return 'HEALTH_WINDOW_PROGRESS' if before == 'HEALTH_WINDOW' else 'HEALTH_WINDOW_ENTRY'
+    if before == after:
+        return None
+    if after in ENTERED:
+        return after
+    if repair and after == 'SIGNED' and not signed:
+        return 'REPAIR_SIGNING_SKIPPED'
+    if repair and after == 'PUBLISHED':
+        return 'REPAIR_PUBLICATION_BOUND'
+    return None
+
+
+def read_milestone(state, signed, repair):
+    """The milestone of a ticket's observation, by its name, or None: the milestone whose state the
+    ticket is in when it is read. A read in the health window is the window's progress; no read
+    is the window's entry."""
+    if state in TERMINAL_STATES:
+        return 'TERMINAL'
+    if state == 'HEALTH_WINDOW':
+        return 'HEALTH_WINDOW_PROGRESS'
+    if state in ENTERED:
+        return state
+    if repair and state == 'SIGNED' and not signed:
+        return 'REPAIR_SIGNING_SKIPPED'
+    if repair and state == 'PUBLISHED':
+        return 'REPAIR_PUBLICATION_BOUND'
+    return None
 
 
 def block_size(mode):
@@ -371,6 +438,21 @@ def _relations(m, version=VERSION):
     elif kind == 'REPORT_REPLY':
         if _status(m, ('OK',)) == 'OK' and m['record'] < 1:
             _fail('a report names its record')
+    elif kind == 'ROUND_DONE':
+        for name in ('ticket', 'plan'):
+            _hex(m[name], 16, name, False)
+        for name in ('ticket_digest', 'selection_digest'):
+            _hex(m[name], 32, name, False)
+        if m['attempt'] < 1 or m['checkpoint_ordinal'] < 1:
+            _fail('an attempt and a checkpoint ordinal of at least 1')
+        if m['milestone'] != NO_MILESTONE and m['milestone'] not in MILESTONE_NAMES:
+            _fail('a milestone of no known code')
+    elif kind == 'ROUND_DONE_REPLY':
+        status = _status(m, ('OK', 'HALT', 'STOPPED'))
+        if status in ('OK', 'HALT') and m['record'] < 1:
+            _fail('an accepted or halted boundary names its record')
+        if status in ('STOPPED', 'REFUSED') and m['record'] != 0:
+            _fail('a stopped or refused boundary names no record')
 
 
 def _observe_reply_2(m):
@@ -608,7 +690,7 @@ def encode(message, version=VERSION):
     kind = message.get('type')
     if kind not in TYPES:
         _fail('an unknown message type')
-    layout = bodies(version)[kind]
+    layout = _layout(version, kind)
     names = {'type', 'request', 'manifest'} | {name for name, _ in layout}
     if set(message) != names:
         _fail('the fields of %s are not exactly its layout' % kind)
@@ -740,7 +822,7 @@ def decode(data, version=VERSION):
     _hex(message['request'], 16, 'request', False)
     _hex(message['manifest'], 32, 'manifest', False)
     reader = _Reader(data, len(data) - CHECKSUM)
-    for name, field in bodies(version)[kind]:
+    for name, field in _layout(version, kind):
         message[name] = reader.field(field, name)
     if reader.at != reader.end:
         _fail('trailing bytes after the body')

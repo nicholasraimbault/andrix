@@ -15,6 +15,7 @@ import unittest
 import labtest
 from labtest import PLAN, REPO, TICKET
 import lab_broker
+import lab_losses
 import sim_android
 
 JAVA = os.environ.get('ANDRIX_LAB_JAVA')
@@ -34,11 +35,19 @@ def cell(name, on='cross', mode='drop-reply', attempt=1, **key):
     return value
 
 
+def loss(name, on, milestone, occurrence=1, reader=None):
+    """A read or round loss of the next profile's schedule, at its whole address."""
+    ordinal = 0 if reader is None else lab_losses.READERS.index(reader)
+    return {'cell': name, 'on': on, 'plan': PLAN, 'attempt': 1, 'operation': lab_losses.OPERATIONS[on],
+            'milestone': milestone, 'ordinal': ordinal, 'occurrence': occurrence, 'mode': 'halt'}
+
+
 class World:
     """A store made by the Java fixtures, a broker over a simulated guest, and the generations.
     With `next_profile`, the next campaign profile: a version 3 admission and bridge
     configuration, so the generations speak protocol version 2, the fixture fakes and the readers
-    of receipts, inventory and health, and the scripted host's publication bound in the pin."""
+    of receipts, inventory, health and the global session inventory, the scripted host's
+    publication bound in the pin, and the cells as the fault schedule the admission binds."""
 
     def __init__(self, cells=(), window=120_000, activate=None, target=None, notice=None, receipts=False,
                  next_profile=False):
@@ -57,8 +66,10 @@ class World:
             setup.append(str(activate))
         config = self.java(*setup).strip()
         self.config = self.dir / 'bridge.config'
-        self.admission = (labtest.admission3(self.dir, store=self.store, config=config) if next_profile
-                          else labtest.admission(self.dir, config=config))
+        self.schedule = labtest.schedule(cells) if next_profile else None
+        self.admission = (labtest.admission3(self.dir, store=self.store, config=config,
+                                             fault_schedule_sha256=hashlib.sha256(self.schedule).hexdigest())
+                          if next_profile else labtest.admission(self.dir, config=config))
         lab_broker.Broker.initialize(self.dir / 'broker', self.admission, manifest)
         self.open()
         self.apk, self.idsig = b'A' * 4096 + b'variant', b'S' * 512 + b'sidecar'
@@ -72,14 +83,16 @@ class World:
         publication = hashlib.sha256(('publication ' + PLAN).encode('ascii')).hexdigest() if next_profile else None
         self.broker.pin_artifacts(PLAN, members, publication)
         self.sim.apks[self.bundle_apk] = 40
-        if cells:
+        if next_profile:
+            self.broker.admit_schedule(self.schedule)
+        elif cells:
             self.broker.admit_faults(list(cells))
         self.generations = []
 
     def open(self):
         options = {'receipts': self.receipts}
         if self.next:
-            options = {'receipts': True, 'inventory': True, 'health': True, 'witness': True}
+            options = {'receipts': True, 'inventory': True, 'health': True, 'witness': True, 'global_sessions': True}
         self.broker = lab_broker.Broker.open(self.dir / 'broker', REPO, sim_android.SimTransport(self.sim),
                                              sim_android.SimReader(labtest.INSTALLATION, **options),
                                              notice=self.notice, sync=False, target=self.target,
@@ -145,6 +158,13 @@ class World:
 
     def groups(self, reader):
         return [e.content for e in self.entries('group') if e.content.get('reader') == reader]
+
+    def checkpoints(self, ticket=TICKET):
+        return [e.content for e in self.entries('checkpoint') if e.content['ticket'] == ticket]
+
+    def losses(self):
+        """The decided read and round losses."""
+        return [e.content for e in self.entries('fault') if e.content['on'] in lab_losses.OPERATIONS]
 
 
 @unittest.skipUnless(JAVA and CLASSES, 'needs ANDRIX_LAB_JAVA and ANDRIX_LAB_CLASSES')
@@ -586,9 +606,12 @@ class BridgeEndToEnd(unittest.TestCase):
         self.assertEqual((w.stored_facts(12), w.calls('CREATE'), w.calls('reboot')), ([], [], []))
         self.assertLessEqual(len(w.calls('present')), 4)
 
-    def window_probes(self, w, unknown_at=None):
+    def window_probes(self, w, unknown_at=None, halt_allowed=False):
         """Rounds one generation at a time to APPLIED, takes the system user's baseline before
-        the window opens, then prepares and probes every 20 s until the ticket closes."""
+        the window opens, then prepares and probes every 20 s until the ticket closes. F0 is
+        decided first: no managed COMMIT launches before it qualifies. With `halt_allowed` a
+        generation may end in an ordered halt, after which the next one goes on."""
+        w.broker.record_f0(labtest.f0_record('FULL'), 'the window probes need a managed commit')
         for _ in range(30):
             w.generation('round', TICKET)
             if w.inspect()['state'] == 'APPLIED':
@@ -618,11 +641,83 @@ class BridgeEndToEnd(unittest.TestCase):
         self.assertEqual(len(probes), 6)
         self.assertEqual({f['classification'] for f in probes}, {1})
         self.assertEqual({g['status'] for g in w.generations}, {'COMPLETE'})
+        # Every round ended with its boundary, each ordinal once and in order, and the forward
+        # milestones the ticket reached were each verified once from the stored bytes, in order.
+        # The simulated checkpoint commits after the first read of the new boot, so this guest
+        # shows APPLIED_PROVISIONAL; a guest need not.
+        checkpoints = w.checkpoints()
+        self.assertEqual([c['ordinal'] for c in checkpoints], list(range(1, len(checkpoints) + 1)))
+        reached = [c['milestone'] for c in checkpoints if c['milestone'] is not None]
+        progress = reached.count('HEALTH_WINDOW_PROGRESS')
+        self.assertEqual(reached, ['READY', 'BOOT_OBSERVED', 'APPLIED_PROVISIONAL', 'APPLIED', 'HEALTH_WINDOW_ENTRY']
+                         + ['HEALTH_WINDOW_PROGRESS'] * progress + ['TERMINAL'])
+        self.assertGreaterEqual(progress, 5)
         # One probe with an unknown criterion is a doubt the window keeps: never healthy.
         w = self.world(next_profile=True)
         state = self.window_probes(w, unknown_at=2)
         self.assertEqual((state['state'], state['health']), ('CLOSED_APPLIED', '0/0/INCONCLUSIVE,'))
         self.assertEqual(sorted(f['classification'] for f in w.stored_facts(9)), [1, 1, 1, 1, 1, 4])
+
+    def test_next_a_c0_confirmation_settles_in_its_new_boot_and_a_terminal_round_loss_halts(self):
+        """C0: CREATE lost before its effect, then a plain kernel confirmation. The new boot's
+        whole listing settles NO_SESSION then CLOSED_FAILED with one boot counted, which the same
+        boot's emptiness never did. The round that closes the ticket halts at its TERMINAL
+        boundary once its checkpoint and fault are durable; the next generation counts on."""
+        w = self.world([cell('c0-create', mode='loss-before', crossing='CREATE', occurrence=1),
+                        loss('terminal-round', 'round', 'TERMINAL')], next_profile=True)
+        w.generation('settle', TICKET, '40')
+        self.assertEqual(w.inspect()['state'], 'SESSION_INTENT')
+        for _ in range(2):
+            w.sim.tick(40_000)
+            w.generation('settle', TICKET, '40')
+            self.assertEqual(w.inspect()['state'], 'SESSION_INTENT')
+        self.assertEqual((w.calls('CREATE'), w.calls('reboot')), ([], []))
+        end = w.broker.run_action(labtest.CONFIRM_ACTION, 'C0: a later boot confirms the lost CREATE', ticket=TICKET)
+        self.assertEqual((end['status'], end['settled']), ('OK', True))
+        transition = w.broker.transitions[end['outcome']['transition']]
+        self.assertEqual((transition['begin']['transition_kind'], transition['end']['status'],
+                          len(transition['end']['new_boots'])), ('CONFIRMATION', 'OK', 1))
+        w.sim.tick(1000)
+        w.generation('settle', TICKET, '40')
+        state = w.inspect()
+        self.assertEqual((state['state'], state['boots']), ('CLOSED_FAILED', '1'))
+        w.generation('settle', TICKET, '40')
+        self.assertEqual([g['status'] for g in w.generations],
+                         ['DELIBERATE_HALT', 'COMPLETE', 'COMPLETE', 'DELIBERATE_HALT', 'COMPLETE'])
+        self.assertEqual((w.calls('CREATE'), len(w.calls('reboot'))), ([], 1))
+        # The halt came after the TERMINAL checkpoint and the consumed fault were recorded, and
+        # the next generation went on from the told count without a gap or a repeat.
+        checkpoints = w.checkpoints()
+        self.assertEqual([c['ordinal'] for c in checkpoints], list(range(1, len(checkpoints) + 1)))
+        self.assertEqual([c['milestone'] for c in checkpoints].count('TERMINAL'), 1)
+        terminal = next(e for e in w.entries('checkpoint') if e.content['milestone'] == 'TERMINAL')
+        [decided] = w.losses()
+        self.assertEqual((decided['cell'], decided['decision'], decided['milestone']),
+                         ('terminal-round', 'halt', 'TERMINAL'))
+        fault = next(e for e in w.entries('fault') if e.content.get('cell') == 'terminal-round')
+        self.assertLess(terminal.number, fault.number)
+        self.assertEqual(checkpoints[-1]['milestone'], None)
+
+    def test_next_a_read_loss_in_the_window_halts_after_its_health_child(self):
+        """A read loss of the health reader at the window's second progress read: the broker
+        completes that child, records the fault, and orders the halt; the bridge records nothing
+        of that observation, and the next generations read again and finish the window."""
+        w = self.world([loss('window-read', 'read', 'HEALTH_WINDOW_PROGRESS', occurrence=2, reader='health')],
+                       next_profile=True)
+        state = self.window_probes(w, halt_allowed=True)
+        self.assertEqual(state['state'], 'CLOSED_APPLIED')
+        self.assertEqual([g['status'] for g in w.generations].count('DELIBERATE_HALT'), 1)
+        [decided] = w.losses()
+        self.assertEqual((decided['cell'], decided['decision'], decided['ordinal']),
+                         ('window-read', 'halt', lab_losses.HEALTH))
+        fault = next(e for e in w.entries('fault') if e.content.get('cell') == 'window-read')
+        health = [e for e in w.entries('group') if e.content.get('reader') == 'health'
+                  and e.number < fault.number]
+        self.assertTrue(health)
+        self.assertEqual(decided['groups'][-1], health[-1].number)
+        # Each later observation read its health afresh; the halted round sent no ordinal.
+        checkpoints = w.checkpoints()
+        self.assertEqual([c['ordinal'] for c in checkpoints], list(range(1, len(checkpoints) + 1)))
 
 
 if __name__ == '__main__':

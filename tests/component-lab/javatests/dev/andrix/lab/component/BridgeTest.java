@@ -789,6 +789,98 @@ public final class BridgeTest {
             LabCases.check(problems, rig.store.observations().values.size() == before, "a halted observation recorded facts");
         });
 
+        cases.run("round v2 / each public round ends with its boundary, and the broker's answer decides", problems -> {
+            Rig rig = new Rig(base, "round2", true);
+            String t = rig.ticket.ticketId;
+            LabBridge bridge = LabBridge.open(rig.config, rig.broker, rig.hosts(), rig.halter, new SecureRandom(),
+                    Collections.singletonMap(t, 2L));
+            bridge.round(t);
+            Message last = rig.broker.requests.get(rig.broker.requests.size() - 1);
+            Ticket after = rig.stored();
+            byte[] selection = DeploymentRecords.encodeSelection(rig.store.selection(LabFixtures.COMPONENT).value);
+            LabCases.check(problems, last.type == Type.ROUND_DONE && last.id("ticket").equals(t)
+                    && last.id("plan").equals(rig.plan.planId) && last.number("attempt") == after.attempt
+                    && last.number("checkpoint_ordinal") == 3
+                    && last.id("ticket_digest").equals(LabProtocol.sha256Hex(DeploymentRecords.encodeTicket(after)))
+                    && last.id("selection_digest").equals(LabProtocol.sha256Hex(selection)),
+                    "the boundary names the stored records and the ordinal after the told count");
+            bridge.round(t);
+            LabCases.check(problems, rig.broker.last(Type.ROUND_DONE).number("checkpoint_ordinal") == 4,
+                    "the ordinal counts on after an accepted boundary");
+            // The milestone is the shared rule's, from the round's starting state to the stored
+            // one: TERMINAL only for the round that closed the ticket.
+            LabCases.check(problems, bridge.cancel(t), "the cancellation was not recorded");
+            List<Long> milestones = new ArrayList<>();
+            for (int i = 0; i < 10 && !rig.stored().state.terminal(); i++) {
+                bridge.round(t);
+                milestones.add(rig.broker.last(Type.ROUND_DONE).number("milestone"));
+            }
+            bridge.round(t);
+            milestones.add(rig.broker.last(Type.ROUND_DONE).number("milestone"));
+            long terminal = LabProtocol.milestoneCode("TERMINAL");
+            LabCases.check(problems, rig.stored().state == State.CANCELLED && milestones.size() >= 2
+                    && milestones.get(milestones.size() - 2) == terminal && milestones.get(milestones.size() - 1) == 0
+                    && Collections.frequency(milestones, terminal) == 1, "TERMINAL once, at the closing round");
+            LabCases.check(problems, rig.broker.last(Type.ROUND_DONE).number("checkpoint_ordinal")
+                    == 4 + milestones.size(), "the ordinals went on without a gap");
+            rig.broker.scripts.put(Type.ROUND_DONE, r -> rig.broker.status(r, Status.STOPPED, "the stop file exists"));
+            LabCases.check(problems, throwsType(GenerationStopped.class, () -> bridge.round(t)), "a stop went on");
+            rig.broker.scripts.put(Type.ROUND_DONE, r -> rig.broker.status(r, Status.REFUSED, "a stale digest"));
+            LabCases.check(problems, throwsType(BridgeRefusal.class, () -> bridge.round(t)), "a refusal went on");
+            rig.broker.scripts.put(Type.ROUND_DONE, r -> rig.broker.status(r, Status.HALT, "admitted round loss")
+                    .number("record", 9));
+            int before2 = rig.broker.requests.size();
+            LabCases.check(problems, throwsType(Halted.class, () -> bridge.round(t)), "no halt");
+            LabCases.check(problems, rig.halts.equals(Collections.singletonList(99)), "halted with 99 once");
+            LabCases.check(problems, rig.broker.requests.size() > before2
+                    && rig.broker.requests.get(rig.broker.requests.size() - 1).type == Type.ROUND_DONE,
+                    "nothing was sent after the halt order");
+            Rig one = new Rig(base, "round1");
+            one.open().round(one.ticket.ticketId);
+            LabCases.check(problems, one.broker.count(Type.ROUND_DONE) == 0, "a version 1 round sent ROUND_DONE");
+        });
+
+        cases.run("round v2 / a settle is one public round at a time, each with its boundary", problems -> {
+            Rig rig = new Rig(base, "settle2", true);
+            rig.open().settle(rig.ticket.ticketId, 30);
+            List<Message> boundaries = new ArrayList<>();
+            for (Message m : rig.broker.requests) if (m.type == Type.ROUND_DONE) boundaries.add(m);
+            boolean ordered = boundaries.size() >= 2;
+            for (int i = 0; i < boundaries.size(); i++) {
+                ordered &= boundaries.get(i).number("checkpoint_ordinal") == i + 1;
+            }
+            LabCases.check(problems, ordered, "the ordinals 1 to n, one for each round");
+            Message lastRound = boundaries.get(boundaries.size() - 1);
+            Message previous = boundaries.get(boundaries.size() - 2);
+            LabCases.check(problems, rig.stored().state == State.SESSION_INTENT
+                    && lastRound.id("ticket_digest").equals(previous.id("ticket_digest")),
+                    "the settle stopped after a round that changed nothing");
+            LabCases.check(problems, rig.broker.count(Type.CLOCK) >= boundaries.size(), "a round without its clock");
+        });
+
+        cases.run("bridge / the checkpoint counts a broker tells, and a version 2 generation needs them", problems -> {
+            String a = "0a".repeat(16), b = "0b".repeat(16);
+            LabCases.check(problems, LabBridge.checkpoints(null) == null, "nothing told");
+            LabCases.check(problems, LabBridge.checkpoints("").isEmpty(), "none recorded");
+            Map<String, Long> two = LabBridge.checkpoints(a + ":3," + b + ":12");
+            LabCases.check(problems, two.size() == 2 && two.get(a) == 3L && two.get(b) == 12L, "two tickets");
+            for (String bad : Arrays.asList(a + ":0", a + ":03", a.toUpperCase() + ":1", a + "1", b + ":1," + a + ":1",
+                    a + ":1," + a + ":2", LabProtocol.ZERO_ID + ":1", a + ":1,", "," + a + ":1", a + ":12345678901")) {
+                LabCases.check(problems, throwsType(IllegalArgumentException.class, () -> LabBridge.checkpoints(bad)),
+                        bad + " was read");
+            }
+            Rig rig = new Rig(base, "told2", true);
+            String config = rig.dir.resolve("bridge.config").toString();
+            SecureRandom random = new SecureRandom();
+            LabCases.check(problems, LabBridge.run(new String[] {config, "check"}, null, rig.broker, rig.halter, random,
+                    null) == 64, "a version 2 generation told nothing ran");
+            LabCases.check(problems, LabBridge.run(new String[] {config, "check"}, null, rig.broker, rig.halter, random,
+                    a + ":0") == 64, "counts of no known form were taken");
+            LabCases.check(problems, LabBridge.run(new String[] {config, "check"}, null, rig.broker, rig.halter, random,
+                    "") == 0, "a version 2 generation told no boundary yet");
+            LabCases.check(problems, rig.broker.count(Type.HELLO) == 1, "a refused generation said HELLO");
+        });
+
         cases.finish("Lab bridge checks passed");
     }
 }

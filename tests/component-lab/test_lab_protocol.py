@@ -73,6 +73,11 @@ GOLDENS_2 = {
     'V2_OBSERVE_REPLY_HEALTH': '02e1bccb844388b74c22cbdcac5a48422877731d879898c36ad72273ea42af35',
     'V2_OBSERVE_REPLY_HALT': '6c4068854ca984bb686f868056b2242dc851911b6c9a1f2185499bae74b460d7',
     'V2_OBSERVE_REPLY_STOPPED': '25b4529be3d26438f63d06478c037730a94744d468428ccc856d2fcb75f11e0f',
+    'V2_ROUND_DONE': 'fa07d1bf6599b63d9d2643c8ab7328f633e6c7ad588fb33c5c1346663bc4125e',
+    'V2_ROUND_DONE_REPLY_OK': '3f759f98823e3f91751719cfb1518413f120519268f1c40a3ff9765dc30cb271',
+    'V2_ROUND_DONE_REPLY_HALT': 'ff1166bd2b41c6886ccd0f9ce4297f60be96da722872c750e8f44d35088e3362',
+    'V2_ROUND_DONE_REPLY_STOPPED': '2759109d5ace24f48318aeabeaa650a2481ece29cbf07437437a2a96a05baaa0',
+    'V2_ROUND_DONE_REPLY_REFUSED': 'ba8673cad95c20ba93b2811526e19e13c18c070e91eac2065de83984d05053dc',
 }
 
 
@@ -116,7 +121,8 @@ def health_envelope(classification='HELD', statuses=(1,) * 7, **block_changes):
 
 
 def golden_messages_2():
-    """Version 2's goldens: a frame of the new version, and each form of the new OBSERVE reply."""
+    """Version 2's goldens: a frame of the new version, each form of the new OBSERVE reply, the
+    round boundary and each form of its reply."""
     m = proto.message
     simple = {'group': 18, 'mode': 1, 'evidence': '33' * 32, 'block': {}, 'observation': observation()}
     return {
@@ -132,7 +138,23 @@ def golden_messages_2():
                                    reason='admitted read loss'),
         'V2_OBSERVE_REPLY_STOPPED': m('OBSERVE_REPLY', REQUEST, MANIFEST, status=3, control_record=0, envelopes=[],
                                       reason='the stop file exists'),
+        'V2_ROUND_DONE': round_done(),
+        'V2_ROUND_DONE_REPLY_OK': m('ROUND_DONE_REPLY', REQUEST, MANIFEST, status=1, record=47, reason=''),
+        'V2_ROUND_DONE_REPLY_HALT': m('ROUND_DONE_REPLY', REQUEST, MANIFEST, status=4, record=48,
+                                      reason='admitted round loss'),
+        'V2_ROUND_DONE_REPLY_STOPPED': m('ROUND_DONE_REPLY', REQUEST, MANIFEST, status=3, record=0,
+                                         reason='the stop file exists'),
+        'V2_ROUND_DONE_REPLY_REFUSED': m('ROUND_DONE_REPLY', REQUEST, MANIFEST, status=7, record=0,
+                                         reason='a boundary of another ticket'),
     }
+
+
+def round_done(**changes):
+    """The round boundary golden: a round that reached BOOT_OBSERVED at checkpoint ordinal 3."""
+    fields = dict(ticket='04' * 16, plan='01' * 16, attempt=2, checkpoint_ordinal=3,
+                  milestone=proto.MILESTONES['BOOT_OBSERVED'], ticket_digest='11' * 32, selection_digest='55' * 32)
+    fields.update(changes)
+    return proto.message('ROUND_DONE', REQUEST, MANIFEST, **fields)
 
 
 def reframe(data, body_change):
@@ -272,6 +294,65 @@ class ProtocolTests(unittest.TestCase):
                            ('an envelope cut short', lambda b: b[:-10])):
             with self.assertRaises(proto.ProtocolError, msg=name):
                 proto.decode(reframe(data, body), 2)
+
+    def test_the_milestone_codes_are_fixed(self):
+        self.assertEqual(proto.MILESTONES, {
+            'READY': 1, 'BOOT_OBSERVED': 2, 'APPLIED_PROVISIONAL': 3, 'APPLIED': 4, 'HEALTH_WINDOW_ENTRY': 5,
+            'HEALTH_WINDOW_PROGRESS': 6, 'TERMINAL': 7, 'REPAIR_SIGNING_SKIPPED': 8, 'REPAIR_PUBLICATION_BOUND': 9})
+        self.assertEqual(proto.NO_MILESTONE, 0)
+        self.assertEqual({proto.MILESTONES[name]: name for name in proto.MILESTONES}, proto.MILESTONE_NAMES)
+
+    def test_round_done_relations(self):
+        for milestone in range(len(proto.MILESTONES) + 1):
+            message = round_done(milestone=milestone)
+            self.assertEqual(proto.decode(proto.encode(message, 2), 2), message)
+        bad = {
+            'a zero ticket': round_done(ticket=proto.ZERO_ID),
+            'a zero plan': round_done(plan=proto.ZERO_ID),
+            'a zero ticket digest': round_done(ticket_digest=proto.ZERO_DIGEST),
+            'a zero selection digest': round_done(selection_digest=proto.ZERO_DIGEST),
+            'attempt 0': round_done(attempt=0),
+            'a negative attempt': round_done(attempt=-1),
+            'checkpoint ordinal 0': round_done(checkpoint_ordinal=0),
+            'a milestone of no code': round_done(milestone=len(proto.MILESTONES) + 1),
+            'a milestone beyond a byte': round_done(milestone=256),
+        }
+        for name, message in bad.items():
+            with self.assertRaises(proto.ProtocolError, msg=name):
+                proto.encode(message, 2)
+        m = proto.message
+        replies = {
+            'OK without its checkpoint record': m('ROUND_DONE_REPLY', REQUEST, MANIFEST, status=1, record=0, reason=''),
+            'OK with a reason': m('ROUND_DONE_REPLY', REQUEST, MANIFEST, status=1, record=47, reason='x'),
+            'HALT without its fault record': m('ROUND_DONE_REPLY', REQUEST, MANIFEST, status=4, record=0, reason='x'),
+            'STOPPED naming a record': m('ROUND_DONE_REPLY', REQUEST, MANIFEST, status=3, record=47, reason='x'),
+            'REFUSED naming a record': m('ROUND_DONE_REPLY', REQUEST, MANIFEST, status=7, record=47, reason='x'),
+            'REFUSED without a reason': m('ROUND_DONE_REPLY', REQUEST, MANIFEST, status=7, record=0, reason=''),
+            'a withheld boundary': m('ROUND_DONE_REPLY', REQUEST, MANIFEST, status=5, record=47, reason='x'),
+            'a boundary without a reply': m('ROUND_DONE_REPLY', REQUEST, MANIFEST, status=6, record=47, reason='x'),
+            'an unavailable boundary': m('ROUND_DONE_REPLY', REQUEST, MANIFEST, status=2, record=0, reason='x'),
+        }
+        for name, message in replies.items():
+            with self.assertRaises(proto.ProtocolError, msg=name):
+                proto.encode(message, 2)
+        # The request's fields in the contract's order and widths: 16, 16, 4, 4, 1, 32 and 32 bytes.
+        data = proto.encode(round_done(), 2)
+        body = data[proto.HEADER:-proto.CHECKSUM]
+        self.assertEqual(body, bytes.fromhex('04' * 16 + '01' * 16) + struct.pack('<iIB', 2, 3, 2)
+                         + bytes.fromhex('11' * 32 + '55' * 32))
+        self.assertEqual(proto.decode(data, 2)['milestone'], proto.MILESTONES['BOOT_OBSERVED'])
+
+    def test_the_round_boundary_is_version_2_only(self):
+        for name in ('V2_ROUND_DONE', 'V2_ROUND_DONE_REPLY_OK'):
+            message = golden_messages_2()[name]
+            with self.assertRaises(proto.ProtocolError, msg=name):
+                proto.encode(message, 1)
+            data = proto.encode(message, 2)
+            one = data[:4] + struct.pack('<H', 1) + data[6:-proto.CHECKSUM]
+            with self.assertRaises(proto.ProtocolError, msg=name):
+                proto.decode(one + hashlib.sha256(one).digest(), 1)
+        self.assertNotIn('ROUND_DONE', proto.bodies(1))
+        self.assertEqual((proto.TYPES['ROUND_DONE'], proto.TYPES['ROUND_DONE_REPLY']), (15, 16))
 
     def test_health_classification_follows_the_rows(self):
         codes = proto.HEALTH_CLASSIFICATIONS

@@ -123,3 +123,17 @@ def classify_digest(result, path):
         return None
     match = re.fullmatch(rb'([0-9a-f]{64})  ' + re.escape(path.encode('ascii')) + rb'\n', result.stdout)
     return match[1].decode('ascii') if match else None
+
+
+# A direct negative control's session is created under its own referrer namespace, never a
+# ticket's: a separate exact parser reads it, and no ticket's nonce can name it.
+CONTROL_SCHEME = 'andrix-lab-control:'
+
+
+def control_create_command(component, control):
+    """The create of a direct negative control's staged session, referred by its control ID."""
+    if not PACKAGE.fullmatch(component):
+        raise ValueError('not a package')
+    if not re.fullmatch(r'[0-9a-f]{32}', control) or control == '0' * 32:
+        raise ValueError('not a control ID')
+    return 'pm install-create --user 0 -r --pkg %s --staged --referrer %s%s' % (component, CONTROL_SCHEME, control)

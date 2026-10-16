@@ -15,19 +15,28 @@ recipient of the stored ticket's issued notice. An inventory that is not whole, 
 being removed, partial or precreated, another type or another serial resolves nothing. Nothing is
 guessed: no current user and no user ID that the inventory did not show.
 
-Version 1 of this registry has three types. FRAMEWORK_RESTART is the broker's own `am restart`,
-with its precondition and its settle wait. NOTICE_VISIBILITY captures and reads the current
-visibility of an issued notice for one required recipient, through the notice adapter.
-HEALTH_PREPARATION runs the UI, user and work steps that a full health probe of one user needs,
-through the health adapter, under a fresh preparation ID and challenge. No type creates a user, so
-no spec may yet select one by its create action."""
+The registry has six types. NOTICE_VISIBILITY captures and reads the current visibility of an
+issued notice for one required recipient, through the notice adapter. HEALTH_PREPARATION runs the
+UI, user and work steps that a full health probe of one user needs, through the health adapter,
+under a fresh preparation ID and challenge. PLAIN_KERNEL_CONFIRM is a plain kernel reboot that
+confirms a ticket's wait in a later boot: its preflight proves from a whole global session
+inventory that no armed or unknown session could activate, and it settles on a new boot ID, a
+completed boot and a committed checkpoint. DIRECT_STAGE, DIRECT_COMMIT and NEGATIVE_ACTIVATION
+are the steps of one admitted direct negative control, N2 or N3: a staged session of its pinned
+negative payload under its own referrer, its commit after explicit per control consent, and its
+activating reboot, which settles only on the intended rejection and a safe recovery. They are the
+only native commits before F0, and only in their admitted order.
+
+FRAMEWORK_RESTART, version 2's `am restart`, is withdrawn from this profile: a spec naming it is
+refused by name. No type creates a user, so no spec may yet select one by its create action."""
 import re
 
 import lab_evidence
 
 # The next campaign profile, as the admission and the bridge configuration name it.
 PROFILE = 'd5-next-vehicle-1'
-PHASES = ('ENTRY', 'N1', 'N2', 'N3', 'F0', 'A', 'R', 'FINAL')
+# CELLS is the carried G1a cells' phase: the cohort refusal and the five preactivation attempts.
+PHASES = ('ENTRY', 'CELLS', 'N1', 'N2', 'N3', 'F0', 'A', 'R', 'FINAL')
 AUTHORITIES = ('LAB_USER_ADMIN', 'LAB_CONTROL')
 SELECTORS = ('SYSTEM_USER', 'CREATED_BY', 'NOTICE_RECIPIENT')
 EFFECT_CLASSES = ('direct', 'admin', 'fixture', 'control')
@@ -45,25 +54,53 @@ HEX16 = re.compile(r'[0-9a-f]{32}')
 HEX32 = re.compile(r'[0-9a-f]{64}')
 # Criteria a preparation may serve: the UI marker, unlock with CE return, and ordinary native work.
 PREPARED_CRITERIA = (2, 3, 5)
-# Each registered type: its authority, the selectors it admits, its parameters and their kinds, the
-# effect class its effect commands count against, its preconditions, whether a use may follow a use
-# whose effect stayed uncertain (only an idempotent capture and read), and the adapter of its
-# family.
+# Each registered type: its authority, the selectors it admits, its parameters and their kinds, its
+# pinned inputs, the effect class its effect commands count against, its preconditions, whether a
+# use may follow a use whose effect stayed uncertain (only an idempotent capture and read), the
+# adapter of its family, and the phase its specs belong to (None: any).
 TYPES = {
-    'FRAMEWORK_RESTART': {'authority': 'LAB_CONTROL', 'selectors': ('SYSTEM_USER',), 'parameters': {},
-                          'effect': 'control', 'preconditions': ['WHOLE_LISTING', 'NO_COMMITTED_SESSION'],
-                          'after_uncertain': False, 'adapter': None},
     'NOTICE_VISIBILITY': {'authority': 'LAB_CONTROL', 'selectors': ('NOTICE_RECIPIENT',), 'parameters': {},
-                          'effect': 'fixture', 'preconditions': ['NOTICE_ISSUED'], 'after_uncertain': True,
-                          'adapter': 'notice'},
+                          'inputs': 'none', 'effect': 'fixture', 'preconditions': ['NOTICE_ISSUED'],
+                          'after_uncertain': True, 'adapter': 'notice', 'phase': None},
     'HEALTH_PREPARATION': {'authority': 'LAB_CONTROL', 'selectors': ('SYSTEM_USER', 'CREATED_BY'),
-                           'parameters': {'criteria': 'criteria', 'max_probe_ms': 'milliseconds'},
-                           'effect': 'fixture', 'preconditions': [], 'after_uncertain': False,
-                           'adapter': 'health'},
+                           'parameters': {'criteria': 'criteria', 'max_probe_ms': 'milliseconds'}, 'inputs': 'none',
+                           'effect': 'fixture', 'preconditions': [], 'after_uncertain': False, 'adapter': 'health',
+                           'phase': None},
+    'PLAIN_KERNEL_CONFIRM': {'authority': 'LAB_CONTROL', 'selectors': ('SYSTEM_USER',), 'parameters': {},
+                             'inputs': 'none', 'effect': 'control',
+                             'preconditions': ['ISSUING_TICKET_WAITS', 'CHECKPOINT_RECORDED', 'WITHIN_BOOT_LIMIT',
+                                               'WHOLE_GLOBAL_SESSIONS', 'NO_ARMED_SESSION', 'CHECKPOINT_COMMITTED',
+                                               'TARGET_ESTABLISHED'],
+                             'after_uncertain': False, 'adapter': None, 'phase': 'CELLS'},
+    'DIRECT_STAGE': {'authority': 'LAB_CONTROL', 'selectors': ('SYSTEM_USER',),
+                     'parameters': {'control': 'id', 'role': 'role'}, 'inputs': 'payload', 'effect': 'direct',
+                     'preconditions': ['BEFORE_F0', 'PAYLOAD_PINNED', 'NO_LIVE_SESSION', 'CHECKPOINT_COMMITTED'],
+                     'after_uncertain': False, 'adapter': None, 'phase': 'role'},
+    'DIRECT_COMMIT': {'authority': 'LAB_CONTROL', 'selectors': ('SYSTEM_USER',),
+                      'parameters': {'control': 'id', 'role': 'role'}, 'inputs': 'none', 'effect': 'direct',
+                      'preconditions': ['BEFORE_F0', 'CONSENT', 'OWN_SESSION_OPEN', 'FACTORY_ACTIVE',
+                                        'CHECKPOINT_COMMITTED'],
+                      'after_uncertain': False, 'adapter': None, 'phase': 'role'},
+    'NEGATIVE_ACTIVATION': {'authority': 'LAB_CONTROL', 'selectors': ('SYSTEM_USER',),
+                            'parameters': {'control': 'id', 'role': 'role'}, 'inputs': 'none', 'effect': 'direct',
+                            'preconditions': ['BEFORE_F0', 'CONSENT', 'OWN_SESSION_READY', 'NO_OTHER_ARMED_SESSION',
+                                              'CHECKPOINT_COMMITTED'],
+                            'after_uncertain': False, 'adapter': None, 'phase': 'role'},
 }
+# Types this profile names only to refuse them: the shell framework restart is not admitted.
+WITHDRAWN = ('FRAMEWORK_RESTART',)
+# The steps of one direct negative control, in order.
+DIRECT_STEPS = ('DIRECT_STAGE', 'DIRECT_COMMIT', 'NEGATIVE_ACTIVATION')
+# The direct negative roles, in their admitted order, each with its payload's members and the
+# rejection cause its activation must end in.
+ROLES = ('N2', 'N3')
+ROLE_MEMBERS = {'N2': ('base.apk', 'base.apk.idsig'), 'N3': ('base.apk',)}
+ROLE_CAUSES = {'N2': 'SIGNATURE', 'N3': 'FS_VERITY'}
+CONTROL_REFERRER = 'andrix-lab-control:'
 # Types whose settled END names the user they created. None yet.
 CREATING_TYPES = ()
-BOOT_POLICY_KEYS = ('activation_services', 'observed_boots', 'poll_interval_ms', 'settle_ms', 'unexpected_boot')
+BOOT_POLICY_KEYS = ('activation_services', 'confirmation_services', 'observed_boots', 'poll_interval_ms',
+                    'settle_ms', 'negative_settle_ms', 'unexpected_boot')
 BRANCHES = ('FULL', 'LIMITED', 'REFUSED')
 # The typed user inventory's states and the full user types the profile resolves.
 USER_STATES = ('RUNNING_UNLOCKED', 'RUNNING_LOCKED', 'NOT_RUNNING')
@@ -110,6 +147,8 @@ def check_specs(specs, installation):
         _hex16(spec['id'], 'an action ID')
         if spec['id'] in by_id:
             _fail('an action ID is admitted once')
+        if spec['type'] in WITHDRAWN:
+            _fail('the %s action is withdrawn from this profile' % spec['type'])
         kind = TYPES.get(spec['type'])
         if kind is None:
             _fail('an action of no registered type')
@@ -125,8 +164,13 @@ def check_specs(specs, installation):
             _fail("an action's authority is its type's lab authority")
         _selector(spec['user_selector'], kind, by_id)
         _parameters(spec['parameters'], kind)
-        if spec['inputs'] != []:
-            _fail('no registered type pins an input yet')
+        if kind['phase'] is not None and spec['phase'] != (spec['parameters']['role'] if kind['phase'] == 'role'
+                                                           else kind['phase']):
+            _fail("a %s action belongs to its phase" % spec['type'])
+        if kind['inputs'] == 'payload':
+            _payload(spec['inputs'], spec['parameters']['role'])
+        elif spec['inputs'] != []:
+            _fail('only a direct stage pins inputs: its negative payload')
         if spec['preconditions'] != kind['preconditions']:
             _fail("an action's preconditions are exactly its type's")
         if spec['predecessor'] is not None:
@@ -147,7 +191,50 @@ def check_specs(specs, installation):
                 _fail("a successor names this action as its predecessor")
         if spec['predecessor'] is not None and spec['id'] not in by_id[spec['predecessor']]['successors']:
             _fail("a predecessor lists the action among its successors")
+    _direct_controls(by_id)
     return {ident: {k: v for k, v in spec.items() if k != 'order'} for ident, spec in by_id.items()}
+
+
+def _payload(inputs, role):
+    """A direct stage's pinned negative payload: exactly its role's members, in order, each its
+    SHA-256 and size. N2 is a wrong signer APK with its matching sidecar, N3 an APK and explicitly
+    no sidecar."""
+    members = ROLE_MEMBERS[role]
+    if not isinstance(inputs, list) or [i.get('role') if isinstance(i, dict) else None for i in inputs] != list(members):
+        _fail('a %s payload pins exactly %s' % (role, ', '.join(members)))
+    for item in inputs:
+        if set(item) != {'role', 'sha256', 'bytes'}:
+            _fail('a pinned member is its role, SHA-256 and size')
+        _hex32(item['sha256'], 'a pinned member digest')
+        _int(item['bytes'], 1, 1 << 30, 'a pinned member size')
+
+
+def _direct_controls(by_id):
+    """The admitted direct negative controls are exact: each control is one stage, one commit
+    and one activation of one role, each used once, chained in that order; at most one control
+    of each role; and N3 only after N2's activation."""
+    controls = {}
+    for spec in sorted(by_id.values(), key=lambda s: s['order']):
+        if spec['type'] in DIRECT_STEPS:
+            controls.setdefault(spec['parameters']['control'], []).append(spec)
+    roles = {}
+    for control, steps in controls.items():
+        if [s['type'] for s in steps] != list(DIRECT_STEPS) or len({s['parameters']['role'] for s in steps}) != 1:
+            _fail('a direct control is exactly one stage, commit and activation of one role')
+        if any(s['max_uses'] != 1 for s in steps):
+            _fail('each step of a direct control runs once')
+        if steps[1]['predecessor'] != steps[0]['id'] or steps[2]['predecessor'] != steps[1]['id']:
+            _fail("a direct control's steps follow each other")
+        role = steps[0]['parameters']['role']
+        if role in roles:
+            _fail('one direct control of each role')
+        roles[role] = steps
+    for control, steps in controls.items():
+        first = steps[0]['predecessor']
+        if first is not None and by_id[first]['type'] in DIRECT_STEPS and steps[0]['parameters']['role'] != 'N3':
+            _fail('only N3 follows another direct control')
+    if 'N3' in roles and ('N2' not in roles or roles['N3'][0]['predecessor'] != roles['N2'][2]['id']):
+        _fail("N3 follows N2's activation")
 
 
 def _selector(selector, kind, by_id):
@@ -174,6 +261,11 @@ def _parameters(parameters, kind):
                 _fail('prepared criteria are a sorted list of distinct bits from %s' % (PREPARED_CRITERIA,))
         elif form == 'milliseconds':
             _int(value, 1, MAX_TIMEOUT_MS, name)
+        elif form == 'id':
+            _hex16(value, name)
+        elif form == 'role':
+            if value not in ROLES:
+                _fail('a direct control is N2 or N3')
         else:
             raise AssertionError(form)
 
@@ -197,14 +289,18 @@ def check_effect_limits(value, crossings):
 
 
 def check_boot_policy(value):
-    """The activation service allowance, the observed boot allowance, the poll and settle bounds of
-    a boot transition, and the halt on an unexpected boot."""
+    """The activation and confirmation service allowances, the observed boot allowance, the poll
+    bound, the settle bounds of a confirmation and of a negative activation with its native
+    recovery, and the halt on an unexpected boot. Activations are the managed REBOOT crossings and
+    the negative activations; confirmations are the plain kernel reboots."""
     if not isinstance(value, dict) or set(value) != set(BOOT_POLICY_KEYS):
         _fail('a boot policy has exactly its keys')
     _int(value['activation_services'], 0, 16, 'activation_services')
+    _int(value['confirmation_services'], 0, 16, 'confirmation_services')
     _int(value['observed_boots'], 1, 64, 'observed_boots')
     _int(value['poll_interval_ms'], 1, 600_000, 'poll_interval_ms')
     _int(value['settle_ms'], 1, MAX_TIMEOUT_MS, 'settle_ms')
+    _int(value['negative_settle_ms'], 1, MAX_TIMEOUT_MS, 'negative_settle_ms')
     if value['unexpected_boot'] != 'HALT':
         _fail('an unexpected boot halts')
     return value
@@ -212,9 +308,15 @@ def check_boot_policy(value):
 
 def check_branches(value, specs):
     """The F0 branches: FULL and REFUSED, and LIMITED or null when it is not admitted. Each binds
-    its frozen predicate's SHA-256 and the ordered actions it admits."""
-    if not isinstance(value, dict) or set(value) != set(BRANCHES):
-        _fail('branches are exactly FULL, LIMITED and REFUSED')
+    its frozen predicate's SHA-256 and the ordered actions it admits. `positive` names the plan
+    and attempt that only a qualified F0 admits: positive A attempt 6."""
+    if not isinstance(value, dict) or set(value) != set(BRANCHES) | {'positive'}:
+        _fail('branches are exactly FULL, LIMITED and REFUSED, and the positive attempt they gate')
+    positive = value['positive']
+    if not isinstance(positive, dict) or set(positive) != {'plan', 'attempt'}:
+        _fail('the positive attempt is a plan and an attempt')
+    _hex16(positive['plan'], 'the positive plan')
+    _int(positive['attempt'], 1, (1 << 31) - 1, 'the positive attempt')
     for name in BRANCHES:
         branch = value[name]
         if branch is None and name == 'LIMITED':
@@ -318,3 +420,165 @@ def notice_recipients(reading):
             return None, 'a running user %d that is not a usable full secondary user' % u['id']
         required.append({'user': u['id'], 'serial': u['serial'], 'type': u['type']})
     return required, None
+
+
+# ---------------------------------------------------------------- the global session inventory
+
+# One whole installer session dump as a reader projects it before any SystemUI projection: every
+# session of every package, in every section, with its referrer, family and commitment. A field the
+# reader could not establish is None, which never counts as safe.
+GLOBAL_KEYS = ('whole', 'sessions')
+SESSION_KEYS = ('section', 'id', 'package', 'referrer', 'staged', 'multi_package', 'parent', 'children', 'sealed',
+                'committed', 'ready', 'applied', 'failed', 'destroyed', 'created', 'installer', 'cause')
+SECTIONS = ('ACTIVE', 'FINALIZED', 'HISTORICAL')
+FLAGS = ('staged', 'multi_package', 'sealed', 'committed', 'ready', 'applied', 'failed', 'destroyed')
+CAUSES = ('SIGNATURE', 'FS_VERITY', 'OTHER')
+PACKAGE = re.compile(r'[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+')
+NO_PARENT = -1
+MAX_SESSIONS = 256
+
+
+def check_global(reading):
+    """A global session inventory of exact form, or why not."""
+    if not isinstance(reading, dict) or set(reading) != set(GLOBAL_KEYS) or type(reading['whole']) is not bool:
+        return 'a global inventory is whether it is whole and its sessions'
+    rows = reading['sessions']
+    if not isinstance(rows, list) or len(rows) > MAX_SESSIONS:
+        return 'a global inventory lists at most %d sessions' % MAX_SESSIONS
+    seen = set()
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != set(SESSION_KEYS):
+            return 'a session has exactly its fields'
+        if row['section'] not in SECTIONS or type(row['id']) is not int or not 0 < row['id'] <= 0x7fffffff:
+            return 'a session names its section and ID'
+        if row['id'] in seen:
+            return 'a session listed twice'
+        seen.add(row['id'])
+        if row['package'] is not None and (not isinstance(row['package'], str) or not PACKAGE.fullmatch(row['package'])):
+            return 'a session package of no known form'
+        if row['referrer'] is not None and (not isinstance(row['referrer'], str) or len(row['referrer']) > 255
+                                            or any(ord(c) < 0x21 or ord(c) > 0x7e for c in row['referrer'])):
+            return 'a session referrer of no known form'
+        if any(row[name] is not None and type(row[name]) is not bool for name in FLAGS):
+            return 'session flags are booleans or unknown'
+        if row['parent'] is not None and (type(row['parent']) is not int or row['parent'] < NO_PARENT):
+            return 'a session parent of no known form'
+        if row['children'] is not None and (not isinstance(row['children'], list)
+                                            or any(type(c) is not int or c <= 0 for c in row['children'])):
+            return 'session children of no known form'
+        for name in ('created', 'installer'):
+            if row[name] is not None and (type(row[name]) is not int or row[name] < 0):
+                return 'a session %s of no known form' % name
+        if row['cause'] is not None and row['cause'] not in CAUSES:
+            return 'a session cause of no known class'
+    return None
+
+
+def terminal(row):
+    """Whether a session can never activate: finalized or historical, applied, failed or destroyed.
+    None when its section says active but a flag that decides it is unknown."""
+    if row['section'] != 'ACTIVE' or True in (row['applied'], row['failed'], row['destroyed']):
+        return True
+    if None in (row['applied'], row['failed'], row['destroyed']):
+        return None
+    return False
+
+
+def single(row, component):
+    """Whether a session is one staged session of the component: no family."""
+    return (row['package'] == component and row['staged'] is True and row['multi_package'] is False
+            and row['parent'] == NO_PARENT and row['children'] == [])
+
+
+def uncommitted(row, component):
+    """Whether a live session is positively uncommitted: one staged session of the component, open
+    or sealed, with commitment and readiness read false."""
+    return single(row, component) and row['sealed'] in (True, False) and row['committed'] is False \
+        and row['ready'] is False
+
+
+def control_referrer(control):
+    return CONTROL_REFERRER + control
+
+
+def confirmation_safety(reading, component):
+    """Why a plain kernel reboot is not safe now, or None: the inventory must be whole, and every
+    live session positively uncommitted. A committed, ready or unknown session, a foreign package
+    or an unexpected family refuses: no reboot may activate an unapproved armed session."""
+    if not reading['whole']:
+        return 'the global session inventory is not whole'
+    for row in reading['sessions']:
+        state = terminal(row)
+        if state is None:
+            return 'session %d: whether it can still activate is unknown' % row['id']
+        if state:
+            continue
+        if row['package'] != component:
+            return 'session %d: a live session of another package' % row['id']
+        if not single(row, component):
+            return 'session %d: a live session of an unexpected or unknown family' % row['id']
+        if not uncommitted(row, component):
+            return 'session %d: a live session committed, ready or of unknown commitment' % row['id']
+    return None
+
+
+def live_rows(reading):
+    """The sessions that are not terminal, unknown ones included."""
+    return [row for row in reading['sessions'] if terminal(row) is not True]
+
+
+def own_row(reading, control, component, reference=None):
+    """The one live session of a direct control in a whole inventory: its referrer, the
+    component, staged and single, and, when a reference is known, its ID, creation time and
+    installer. Returns (row, None) or (None, why). An inventory that is not whole joins nothing:
+    it cannot show that no other live session exists, so nothing is armed or written by it."""
+    if not reading.get('whole'):
+        return None, 'the global session inventory is not whole'
+    found = [row for row in live_rows(reading) if row['referrer'] == control_referrer(control)]
+    if len(found) != 1:
+        return None, 'no single live session of the control'
+    row = found[0]
+    if not single(row, component):
+        return None, "the control's session is not one staged session of the component"
+    if reference is not None and (row['id'], row['created'], row['installer']) != (
+            reference['id'], reference['created'], reference['installer']):
+        return None, "the control's live session is not the one its stage created"
+    return row, None
+
+
+def activation_safety(reading, control, component, reference):
+    """Why a direct control's activating reboot is not safe now, or None: the inventory whole, its
+    own session committed and ready, every other session terminal or positively uncommitted."""
+    if not reading['whole']:
+        return 'the global session inventory is not whole'
+    row, why = own_row(reading, control, component, reference)
+    if row is None:
+        return why
+    if row['committed'] is not True or row['ready'] is not True:
+        return "the control's session is not committed and ready"
+    for other in reading['sessions']:
+        if other['id'] == row['id']:
+            continue
+        state = terminal(other)
+        if state is None or (not state and not uncommitted(other, component)):
+            return 'session %d: another live session committed, ready, foreign or unknown' % other['id']
+    return None
+
+
+def rejection(reading, control, component, reference, role):
+    """Why a direct control's activation did not end in its intended rejection, or None: its own
+    session terminal and failed with its role's cause, and no live session left."""
+    if not reading['whole']:
+        return 'the global session inventory is not whole'
+    if live_rows(reading):
+        return 'a session is still live'
+    found = [row for row in reading['sessions'] if row['referrer'] == control_referrer(control)
+             and row['id'] == reference['id']]
+    if len(found) != 1:
+        return "the control's session is not in the inventory"
+    row = found[0]
+    if row['failed'] is not True or row['applied'] is not False:
+        return "the control's session did not fail"
+    if row['cause'] != ROLE_CAUSES[role]:
+        return "the control's session failed for another cause than its role's"
+    return None

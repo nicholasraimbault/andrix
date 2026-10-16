@@ -33,6 +33,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import select
 import signal
 import stat
@@ -50,6 +51,7 @@ import capture_ledger as ledgers  # noqa: E402
 import lab_actions  # noqa: E402
 import lab_crossings as crossings  # noqa: E402
 import lab_evidence as evidence  # noqa: E402
+import lab_losses as losses  # noqa: E402
 import lab_protocol as proto  # noqa: E402
 import lab_readers as readers  # noqa: E402
 import lab_records as records  # noqa: E402
@@ -115,8 +117,54 @@ ADMISSION_3 = ('profile', 'cells_sha256', 'fixtures_sha256', 'payloads_sha256', 
 # in its own record of one it could not keep, whose reason begins with UNKEPT.
 COMPOUND = 'compound'
 SCHEMAS = {'notice-visibility': 'andrix-notice-visibility-v1', 'receipts': 'andrix-receipt-read-v1',
-           'health-baseline': 'andrix-health-baseline-v1', 'health': 'andrix-health-composition-v1'}
+           'health-baseline': 'andrix-health-baseline-v1', 'health': 'andrix-health-composition-v1',
+           'confirmation-preflight': 'andrix-confirmation-preflight-v1',
+           'activation-preflight': 'andrix-activation-preflight-v1'}
 UNKEPT = 'the compound manifest could not be kept: '
+# The environment variable through which a version 3 broker tells each generation how many round
+# boundaries of each ticket it has recorded, so the bridge can name the next checkpoint ordinal.
+# The broker verifies every ordinal against its own ledger.
+CHECKPOINT_ENV = 'ANDRIX_LAB_CHECKPOINTS'
+# The states in which a ticket waits for a later boot to show what a lost crossing did: a plain
+# kernel confirmation may be issued only for a ticket in one of them.
+CONFIRM_WAITS = ('SESSION_INTENT', 'COMMIT_INTENT', 'ABANDON_INTENT')
+# The boot transitions the broker runs itself: a plain kernel confirmation and a direct negative
+# control's activation with its native recovery, and the most new boot IDs each may show.
+TRANSITIONS = {'CONFIRMATION': 1, 'NEGATIVE_ACTIVATION': 2}
+# The ticket flag the reconciler sets at a ticket's boot limit.
+FLAG_BOOT_LIMIT = 2
+# The next profile's ledger records and their exact keys, by kind and, where a kind has several
+# records, by record.
+CHECKPOINT_KEYS = ('ticket', 'plan', 'attempt', 'ordinal', 'milestone', 'milestone_code', 'state', 'ticket_sha256',
+                   'selection_sha256', 'plan_sha256', 'round_start', 'occurrence', 'loss_cell', 'request', 'generation',
+                   'wall_ns', 'monotonic_ns')
+NEXT_RECORDS = {
+    'checkpoint': CHECKPOINT_KEYS,
+    'consent': ('control', 'role', 'reason', 'wall_ns'),
+    'boot-transition': {
+        'BEGIN': ('record', 'transition', 'transition_kind', 'action', 'action_id', 'cell', 'phase', 'preflight', 'old',
+                  'ordinal', 'caps', 'poll', 'subject', 'wall_ns', 'monotonic_ns'),
+        'PROGRESS': ('record', 'transition', 'capture', 'launch', 'acknowledgement', 'stream_end', 'wall_ns',
+                     'monotonic_ns'),
+        'END': ('record', 'transition', 'status', 'new_boots', 'polls', 'settled_poll', 'reason', 'wall_ns',
+                'monotonic_ns')},
+    'direct-control': {
+        'PAYLOAD': ('record', 'control', 'role', 'members', 'wall_ns'),
+        'CREATED': ('record', 'control', 'role', 'action', 'capture', 'join_group', 'reference', 'wall_ns'),
+        'WRITTEN': ('record', 'control', 'role', 'action', 'members', 'wall_ns'),
+        'COMMITTED': ('record', 'control', 'role', 'action', 'capture', 'classification', 'wall_ns')},
+    'qualification': {
+        'DECISION': ('record', 'branch', 'qualified', 'capabilities_sha256', 'predicate_sha256', 'reason', 'wall_ns'),
+        'GATE': ('record', 'plan', 'attempt', 'allowed', 'reason', 'purpose', 'wall_ns')},
+}
+DIRECT_RECORDS = ('PAYLOAD', 'CREATED', 'WRITTEN', 'COMMITTED')
+# A read or round loss's decision record: a halt after its child or boundary, or not acted when
+# the observation or boundary it was due at ended first.
+LOSS_RECORD_KEYS = ('cell', 'on', 'decision', 'evidence', 'ticket', 'plan', 'attempt', 'operation', 'milestone',
+                    'ordinal', 'occurrence', 'request', 'generation', 'groups', 'reason')
+LOSS_DECISIONS = ('halt', 'not-acted')
+# The F0 capability record the trial writes: these keys at least, its schema and its branch.
+F0_SCHEMA = 'andrix-f0-capabilities-v1'
 # The notice text a ticket's NOTICE shows, bound by its SHA-256 in the issue before any launch.
 NOTICE_TEXT = ('Andrix will restart this device to change %s. The device owner approved it. Notice %s, ticket %s, '
                'entry %d.')
@@ -181,7 +229,8 @@ def _hex(value, width):
 
 
 # Each typed action type's run request: what the controller names beyond the action and its reason.
-REQUESTS = {'FRAMEWORK_RESTART': (), 'NOTICE_VISIBILITY': ('ticket', 'index', 'serial'), 'HEALTH_PREPARATION': ()}
+REQUESTS = {'NOTICE_VISIBILITY': ('ticket', 'index', 'serial'), 'HEALTH_PREPARATION': (),
+            'PLAIN_KERNEL_CONFIRM': ('ticket',), 'DIRECT_STAGE': (), 'DIRECT_COMMIT': (), 'NEGATIVE_ACTIVATION': ()}
 
 
 def _request_problem(kind, request):
@@ -193,6 +242,8 @@ def _request_problem(kind, request):
             not _hex(request['ticket'], 16) or request['ticket'] == proto.ZERO_ID or type(request['index']) is not int
             or not 0 <= request['index'] < proto.MAX_LEDGER or type(request['serial']) is not int or request['serial'] < 0):
         return 'a visibility request names a ticket, its notice entry and a recipient serial'
+    if kind == 'PLAIN_KERNEL_CONFIRM' and (not _hex(request['ticket'], 16) or request['ticket'] == proto.ZERO_ID):
+        return 'a confirmation names the ticket whose wait it confirms'
     return None
 
 
@@ -475,7 +526,8 @@ class Broker:
 
     @classmethod
     def open(cls, root, source_root, transport, reader, notice=None, wall=time.time_ns, monotonic=time.monotonic_ns,
-             sleep=time.sleep, ids=os.urandom, processes=None, sync=True, target=None, target_read=False, health=None):
+             sleep=time.sleep, ids=os.urandom, processes=None, sync=True, target=None, target_read=False, health=None,
+             fsync=None):
         """Opens a broker directory. The native target scope is read at HELLO and at every
         crossing's gate. With `target_read`, the reader's admitted target reader reads it from
         the guest as the broker's own recorded group, and the scope is established empty only
@@ -483,10 +535,13 @@ class Broker:
         callable that returns the scope as it stands (ESTABLISHED_EMPTY, HELD or UNKNOWN), and
         without either the admitted scope stands. A target that cannot be read is UNKNOWN.
         `health`, under a version 3 admission, is the health adapter whose fixed commands a
-        HEALTH_PREPARATION runs."""
+        HEALTH_PREPARATION runs. `fsync`, when given, is the one sync of every file and directory
+        the broker and its ledger make durable, so a test can record their order; otherwise the
+        broker syncs with os.fsync and the ledger with its own."""
         if target_read and (target is not None or not getattr(reader, 'target_admitted', False)):
             raise BrokerError("a target read needs the reader's admitted target reader and no host target")
         self = object.__new__(cls)
+        self._fsync = fsync
         self.root = Path(root)
         self.transport, self.reader, self.notice, self.health = transport, reader, notice, health
         self._target = target
@@ -513,13 +568,29 @@ class Broker:
             os.close(self._lock)
             self._lock = None
 
+    def _sync_fd(self, fd):
+        """Syncs one descriptor through the injected sync, or os.fsync as it stands at the call."""
+        (self._fsync or os.fsync)(fd)
+
+    def _sync_dir(self, path):
+        """Syncs one directory, so the names it holds are durable: through the injected sync when
+        one was given, else through the module's `_sync_directory` as it stands at the call."""
+        if self._fsync is None:
+            _sync_directory(path)
+            return
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        try:
+            self._fsync(fd)
+        finally:
+            os.close(fd)
+
     def _open(self, source_root, sync):
         # Every opening syncs the directory holding the broker's name, and the broker's own, before
         # anything relies on the durable history, so a barrier that an interrupted initialization or
         # an earlier failed sync never reached is never skipped.
         try:
-            _sync_directory(self.root.parent)
-            _sync_directory(self.root)
+            self._sync_dir(self.root.parent)
+            self._sync_dir(self.root)
         except OSError as error:
             raise BrokerError('the broker directory cannot be made durable: %s' % error) from error
         raw = (self.root / ADMISSION).read_bytes()
@@ -544,7 +615,8 @@ class Broker:
                       if self.admission['version'] == 3 else {})
         self.fences = Fences(self.admission['fences'], self._wall)
         try:
-            self.ledger = ledgers.Ledger.open(self.root / LEDGER, sync=sync)
+            self.ledger = (ledgers.Ledger.open(self.root / LEDGER, sync=sync) if self._fsync is None
+                           else ledgers.Ledger.open(self.root / LEDGER, sync=sync, fsync=self._fsync))
         except ledgers.LedgerDamaged as error:
             raise BrokerError('the ledger is damaged: %s' % error) from error
         except OSError as error:
@@ -598,6 +670,13 @@ class Broker:
         self.baselines = {}
         self.preparations, self.used_preparations = {}, set()
         self.action_begins, self.action_ends, self.open_actions = {}, {}, {}
+        # Losses, round boundaries, boot transitions, direct controls and F0.
+        self.schedule = None
+        self.checkpoints, self.boundary_counts, self.read_counts = {}, {}, {}
+        self.loss_evidence, self.loss_records = {}, {}
+        self.transitions, self.observed_boots = {}, set()
+        self.consents, self.direct, self.payloads = {}, {}, {}
+        self.f0 = None
         for entry in self.ledger.entries:
             if not entry.complete:
                 continue
@@ -605,6 +684,11 @@ class Broker:
             kind = entry.kind
             if kind == 'group' and self.admission['version'] == 3:
                 self._check_unkept_compound(c)
+            if kind in NEXT_RECORDS:
+                self._next_record(kind, c)
+                continue
+            if kind == 'group':
+                self._read_record(c)
             if kind == 'notice-issue':
                 self.issues[(c['ticket'], c['index'])] = c
             elif kind == 'lab-action' and c.get('record') in ('BEGIN', 'END', 'REFUSED'):
@@ -626,7 +710,8 @@ class Broker:
             elif kind == 'stop':
                 self.stopped = c['reason']
             elif kind == 'faults':
-                self.cells.extend(c['cells'])
+                # A version 3 broker's faults come only from its admitted schedule's own bytes.
+                self.cells.extend(self._schedule_record(c) if self.admission['version'] == 3 else c['cells'])
             elif kind == 'artifacts':
                 self.pinned[c['plan']] = c['members']
                 if 'publication' in c:
@@ -648,6 +733,12 @@ class Broker:
                 else:
                     self.host_ended.add(key)
             elif kind == 'fault':
+                if c.get('on') in losses.OPERATIONS:
+                    self._loss_record(c)
+                if c.get('on') == 'point' and self.admission['version'] == 3 and any(
+                        self._kept_problem(c.get(name)) for name in ('ticket_sha256', 'selection_sha256')):
+                    raise BrokerError('the point fault %d names a ticket or selection the broker did not keep'
+                                      % c['number'])
                 self.consumed.add(c['cell'])
             elif kind == 'group':
                 self._users(c)
@@ -683,6 +774,14 @@ class Broker:
                                             'reason': 'the broker was lost during the host call',
                                             'wall_ns': self._wall(), 'monotonic_ns': self._monotonic()})
                 self.host_ended.add(key)
+        # A boot transition a lost broker left open: its reboot may have run, and it is never sent
+        # again. A loss that an observation or boundary named due, and that was never decided, is
+        # recorded as not acted: it never acts later at another address.
+        for ident, transition in sorted(self.transitions.items()):
+            if transition['end'] is None:
+                self._end_transition(ident, 'LOST', [], [], None,
+                                     'the broker was lost during the transition; whether it rebooted is unknown')
+        self._settle_unacted('the broker was lost before the loss acted')
         # A typed action that a lost broker left without its END: its effect is unknown, and it is
         # never run again to find out. Its captures, an interrupted one included, are its uncertain
         # effects.
@@ -734,6 +833,137 @@ class Broker:
             if row['key'] is not None:
                 self.rows_seen.setdefault(row['key'], row['sha256'])
 
+    # ------------------------------------------ the next profile's records, rebuilt and checked
+
+    def _next_record(self, kind, c):
+        """One complete checkpoint, boot transition, direct control step, consent or F0 record into
+        the broker's state. A record that breaks the rules its writer keeps refuses the reopening:
+        an ordinal out of sequence, retained bytes that are missing or differ, a second END or
+        decision, a consent given twice, or a step of an unadmitted control."""
+        keys = NEXT_RECORDS[kind] if isinstance(NEXT_RECORDS[kind], tuple) else NEXT_RECORDS[kind].get(c.get('record'))
+        if keys is None or set(c) != set(keys) | {'number', 'kind'}:
+            raise BrokerError('the ledger holds a %s record %d of no known form' % (kind, c.get('number')))
+        if kind == 'checkpoint':
+            ticket = c['ticket']
+            if c['ordinal'] != len(self.checkpoints.get(ticket, [])) + 1:
+                raise BrokerError('the ledger holds checkpoint %d out of its ticket\'s sequence' % c['number'])
+            if c['milestone'] is not None and c['milestone'] not in proto.MILESTONES:
+                raise BrokerError('the ledger holds checkpoint %d of no known milestone' % c['number'])
+            start = c['round_start']
+            digests = [c[name] for name in ('ticket_sha256', 'selection_sha256', 'plan_sha256')]
+            if start is not None and (not isinstance(start, dict) or set(start) != {'sha256', 'state', 'source'}
+                                      or start['source'] not in ('observe', 'checkpoint')):
+                raise BrokerError('the ledger holds checkpoint %d of no known round start' % c['number'])
+            for digest in digests + ([start['sha256']] if start is not None else []):
+                if self._kept_problem(digest) is not None:
+                    raise BrokerError('checkpoint %d names bytes the broker did not keep' % c['number'])
+            self.checkpoints.setdefault(ticket, []).append(c)
+            if c['milestone'] is not None:
+                key = (ticket, c['milestone'])
+                self.boundary_counts[key] = self.boundary_counts.get(key, 0) + 1
+            if c['loss_cell'] is not None:
+                self.loss_evidence[c['loss_cell']] = c['number']
+        elif kind == 'boot-transition':
+            self._transition_record(c)
+        elif kind == 'consent':
+            if c['control'] in self.consents or c['control'] not in self._controls():
+                raise BrokerError('the ledger holds consent %d given twice or for no admitted control' % c['number'])
+            self.consents[c['control']] = c
+        elif kind == 'direct-control':
+            if c.get('control') not in self._controls() or c.get('record') not in DIRECT_RECORDS:
+                raise BrokerError('the ledger holds direct control record %d of no admitted control' % c['number'])
+            if c['record'] == 'PAYLOAD':
+                if c['control'] in self.payloads:
+                    raise BrokerError('the ledger holds a second payload of one direct control')
+                self.payloads[c['control']] = c
+            else:
+                self.direct.setdefault(c['control'], {})[c['record']] = c
+        elif kind == 'qualification':
+            if c.get('record') == 'DECISION':
+                if self.f0 is not None or c['branch'] not in lab_actions.BRANCHES:
+                    raise BrokerError('the ledger holds a second or unknown F0 decision')
+                # The fence's qualification is restored only from a decision its kept capability
+                # record still makes, never from the ledger's summary of it.
+                why = self._decision_problem(c)
+                if why is not None:
+                    raise BrokerError('the ledger holds F0 decision %d that its record does not make: %s'
+                                      % (c['number'], why))
+                self.f0 = c
+            elif c.get('record') != 'GATE':
+                raise BrokerError('the ledger holds an F0 record of no known form')
+
+    def _kept_problem(self, digest):
+        """Why bytes the ledger names by their SHA-256 are not kept whole under RECORDS, or None."""
+        data = _regular_bytes(self.root / RECORDS / str(digest)) if _hex(digest, 32) else None
+        if data is None or hashlib.sha256(data).hexdigest() != digest:
+            return 'the bytes of %s are not kept whole' % digest
+        return None
+
+    def _transition_record(self, c):
+        record, ident = c.get('record'), c.get('transition')
+        if record == 'BEGIN':
+            if ident in self.transitions or c.get('transition_kind') not in TRANSITIONS:
+                raise BrokerError('the ledger holds a boot transition begun twice or of no known kind')
+            self.transitions[ident] = {'begin': c, 'progress': [], 'end': None}
+        elif record in ('PROGRESS', 'END') and ident in self.transitions and self.transitions[ident]['end'] is None:
+            self.transitions[ident]['progress' if record == 'PROGRESS' else 'end'] = (
+                self.transitions[ident]['progress'] + [c] if record == 'PROGRESS' else c)
+        else:
+            raise BrokerError('the ledger holds boot transition record %d without its BEGIN, or after its END'
+                              % c['number'])
+
+    def _read_record(self, c):
+        """A group's clock reading among the observed boots, and its read marker: the completed run
+        of one reader of a ticket's observation at a milestone, and a loss it was due for."""
+        if c.get('reader') == 'clock' and c.get('status') == 'facts' and c.get('reading'):
+            self.observed_boots.add(c['reading']['boot'])
+        read = c.get('read')
+        if read is None:
+            return
+        if c.get('status') != 'stopped':
+            key = (c['ticket'], read['milestone'], read['ordinal'])
+            self.read_counts[key] = self.read_counts.get(key, 0) + 1
+        if read.get('loss_cell') is not None:
+            self.loss_evidence[read['loss_cell']] = c['number']
+
+    def _schedule_record(self, c):
+        """The admitted faults on reopening, from the schedule's kept canonical bytes alone: they
+        must hash to the digest the admission binds and parse as one schedule of this
+        installation and profile, and the ledger's summary of them must be exactly those faults.
+        A summary that differs refuses the reopening: it never moves or adds a fault."""
+        if (set(c) != {'cells', 'schedule_sha256', 'number', 'kind'} or self.schedule is not None
+                or c['schedule_sha256'] != self.admission.get('fault_schedule_sha256')):
+            raise BrokerError('the ledger holds a second schedule, or one the admission does not bind')
+        data = _regular_bytes(self.root / RECORDS / c['schedule_sha256'])
+        if data is None or hashlib.sha256(data).hexdigest() != c['schedule_sha256']:
+            raise BrokerError('the admitted schedule is not kept whole')
+        try:
+            faults = [dict(f) for f in losses.parse(data, self.admission['installation'], lab_actions.PROFILE)]
+        except losses.ScheduleError as error:
+            raise BrokerError('the admitted schedule: %s' % error) from error
+        if c['cells'] != faults:
+            raise BrokerError("the ledger's summary of the schedule is not the admitted schedule")
+        self.schedule = c['schedule_sha256']
+        return faults
+
+    def _loss_record(self, c):
+        """A read or round loss's decision: of an admitted cell of its kind, decided once, and a
+        halt only after the record that named it due."""
+        if set(c) != set(LOSS_RECORD_KEYS) | {'number', 'kind'}:
+            raise BrokerError('the ledger holds loss record %d of no known form' % c['number'])
+        cell = next((x for x in self.cells if x['cell'] == c['cell']), None)
+        if cell is None or cell['on'] != c['on'] or c['cell'] in self.loss_records:
+            raise BrokerError('the ledger holds loss record %d of no admitted cell, or a cell consumed twice'
+                              % c['number'])
+        if c['decision'] not in LOSS_DECISIONS or self.loss_evidence.get(c['cell']) != c['evidence']:
+            raise BrokerError('the ledger holds loss record %d without the record that named it due' % c['number'])
+        self.loss_records[c['cell']] = c['number']
+
+    def _controls(self):
+        """The admitted direct negative controls: control ID to role."""
+        return {s['parameters']['control']: s['parameters']['role'] for s in self.specs.values()
+                if s['type'] in lab_actions.DIRECT_STEPS}
+
     def _users(self, group):
         for item in group.get('observations', ()):
             if item['kind'] != 'USER':
@@ -759,7 +989,10 @@ class Broker:
     # ------------------------------------------------ controller operations, never reachable by a generation
 
     def admit_faults(self, cells):
-        """Admits fault cells. A cell names its own ID, where it acts, its key and its mode."""
+        """Admits fault cells. A cell names its own ID, where it acts, its key and its mode. A
+        version 3 broker admits faults only from the schedule its admission binds."""
+        if self.admission['version'] == 3:
+            raise BrokerError('a version 3 broker admits faults only from its bound schedule')
         known = {cell['cell'] for cell in self.cells}
         checked = []
         for cell in cells:
@@ -788,6 +1021,129 @@ class Broker:
             checked.append(dict(cell))
         self.ledger.record('faults', {'cells': checked})
         self.cells.extend(checked)
+
+    def admit_schedule(self, data):
+        """Admits the fault schedule a version 3 admission binds, once, between generations: its
+        exact canonical bytes must hash to the admitted digest. Every fault is checked before any
+        is admitted, and the whole schedule is refused for one that is malformed, foreign or
+        wrongly timed: a cell that is not new, an address named twice, a crossing cell of no known
+        form, a read loss of a reader this broker does not admit, a plan of another installation
+        or component in the store, or an address its history has already passed. Nothing is
+        skipped: an admitted fault either acts at its address or stays visibly unconsumed."""
+        if self.admission['version'] != 3:
+            raise BrokerError('a fault schedule needs a version 3 admission')
+        if self.open_generation is not None:
+            raise BrokerError('a schedule is admitted only between generations')
+        if self.schedule is not None:
+            raise BrokerError('the schedule is admitted once')
+        data = bytes(data)
+        digest = hashlib.sha256(data).hexdigest()
+        if digest != self.admission['fault_schedule_sha256']:
+            raise BrokerError('the schedule is not the one the admission binds')
+        try:
+            faults = losses.parse(data, self.admission['installation'], lab_actions.PROFILE)
+        except losses.ScheduleError as error:
+            raise BrokerError('the fault schedule: %s' % error) from error
+        known = {cell['cell'] for cell in self.cells}
+        addresses = set()
+        for fault in faults:
+            if fault['cell'] in known:
+                raise BrokerError('a fault cell ID is new and named once: %s' % fault['cell'])
+            known.add(fault['cell'])
+            if fault['on'] in losses.OPERATIONS:
+                key = losses.address(fault)
+            else:
+                self._check_cell(fault)
+                key = tuple(fault[k] for k in ('on', 'plan', 'attempt') + CELL_KEYS[fault['on']][2:])
+            if key in addresses:
+                raise BrokerError('an address named twice: %s' % fault['cell'])
+            addresses.add(key)
+            problem = self._fault_problem(fault)
+            if problem is not None:
+                raise BrokerError('fault %s: %s' % (fault['cell'], problem))
+        try:
+            self._keep(digest, data)
+        except (BrokerError, OSError) as error:
+            raise self._writer_failed('the fault schedule could not be kept: %s' % error) from error
+        cells = [dict(f) for f in faults]
+        self.ledger.record('faults', {'cells': cells, 'schedule_sha256': digest})
+        self.schedule = digest
+        self.cells.extend(cells)
+
+    def _check_cell(self, cell):
+        """A crossing, host or point cell of its version 1 and 2 form, as admit_faults checks it."""
+        on = cell.get('on')
+        if on not in CELL_KEYS or set(cell) != {'cell', 'on', 'mode'} | set(CELL_KEYS[on]):
+            raise BrokerError('a fault cell of no known form')
+        if (cell['mode'] not in CELL_MODES[on] or not _hex(cell['plan'], 16) or not isinstance(cell['attempt'], int)
+                or isinstance(cell['attempt'], bool) or cell['attempt'] < 1):
+            raise BrokerError('a fault cell mode, plan or attempt')
+        if on == 'point' and cell['point'] not in proto.POINTS:
+            raise BrokerError('an unknown lab point')
+        if on in ('cross', 'host') and (not isinstance(cell['occurrence'], int) or isinstance(cell['occurrence'], bool)):
+            raise BrokerError('an occurrence is an integer')
+        if on == 'cross':
+            if cell['crossing'] not in proto.DEVICE_CROSSINGS or cell['occurrence'] < 1:
+                raise BrokerError('a cross cell names a device crossing and an occurrence')
+            if cell['mode'] == 'loss-between-members' and cell['crossing'] != 'WRITE':
+                raise BrokerError('only WRITE has two members')
+            if cell['crossing'] not in self._launches and cell['mode'] != 'loss-before':
+                raise BrokerError('a cell that needs a launch, on a crossing this guest may not launch')
+        if on == 'host' and (cell['crossing'] not in proto.HOST_CROSSINGS or cell['occurrence'] not in (1, 2)):
+            raise BrokerError('a host cell names SIGN or PUBLISH and an occurrence')
+
+    def _fault_problem(self, fault):
+        """Why a well formed fault is foreign or wrongly timed for this broker, or None."""
+        plan = _regular_bytes(Path(self.admission['store']) / 'plans' / (fault['plan'] + STORE_SUFFIX))
+        if plan is not None:
+            try:
+                stored = records.decode_plan(plan)
+            except records.RecordError:
+                return 'its plan in the store cannot be read'
+            if (stored['installation'], stored['component']) != (self.admission['installation'],
+                                                                 self.admission['component']):
+                return 'a plan of another installation or component'
+        on = fault['on']
+        if on == 'read' and fault['ordinal'] == losses.RECEIPTS and not self.reader.receipts_admitted:
+            return 'no receipt reader is admitted'
+        if on == 'read' and fault['ordinal'] == losses.HEALTH and not self.reader.health_admitted:
+            return 'no health reader is admitted'
+        tickets = self._tickets_of(fault['plan'], fault['attempt'])
+        if on == 'round':
+            passed = sum(self.boundary_counts.get((t, fault['milestone']), 0) for t in tickets)
+        elif on == 'read':
+            passed = sum(self.read_counts.get((t, fault['milestone'], fault['ordinal']), 0) for t in tickets)
+        elif on == 'cross':
+            passed = sum(1 for e in self.ledger.entries if e.kind == 'crossing' and e.complete
+                         and (e.content['plan'], e.content['attempt'], e.content['crossing'],
+                              e.content['occurrence']) == (fault['plan'], fault['attempt'], fault['crossing'],
+                                                           fault['occurrence']))
+            passed = fault['occurrence'] if passed else 0
+        elif on == 'host':
+            passed = sum(1 for e in self.ledger.entries if e.kind == 'host' and e.complete
+                         and e.content['phase'] == 'BEGIN'
+                         and (e.content['plan'], e.content['attempt'], e.content['crossing'],
+                              e.content['occurrence']) == (fault['plan'], fault['attempt'], fault['crossing'],
+                                                           fault['occurrence']))
+            passed = fault['occurrence'] if passed else 0
+        else:
+            passed = 0
+        if passed >= fault.get('occurrence', 1) and on != 'point':
+            return 'its address has already passed'
+        return None
+
+    def _tickets_of(self, plan, attempt):
+        """The tickets of a plan's attempt that the broker's records name."""
+        found = set()
+        for ticket, records_ in self.checkpoints.items():
+            if any((c['plan'], c['attempt']) == (plan, attempt) for c in records_):
+                found.add(ticket)
+        for entry in self.ledger.entries:
+            c = entry.content
+            if entry.kind == 'group' and entry.complete and c.get('read') and (
+                    c['read']['plan'], c['read']['attempt']) == (plan, attempt):
+                found.add(c['ticket'])
+        return found
 
     def framework_restart(self, reason):
         """Asks Android for a later framework instance in the same boot, with `am restart`, between
@@ -974,6 +1330,11 @@ class Broker:
             raise BrokerError('no %s adapter is admitted' % kind['adapter'])
         if not self.reader.inventory_admitted:
             raise BrokerError('no typed user inventory is admitted')
+        if kind['adapter'] is None and not self.reader.global_admitted:
+            raise BrokerError('no global session inventory is admitted')
+        gate = self._direct_gate(spec)
+        if gate is not None:
+            raise BrokerError(gate)
         issue = None
         if spec['type'] == 'NOTICE_VISIBILITY':
             issue = self.issues.get((request['ticket'], request['index']))
@@ -1015,12 +1376,18 @@ class Broker:
                    'action_id': action_id}
         command = self._action_commands(spec, kind, adapter, context, begin['deadline_monotonic_ns'])
         try:
-            if spec['type'] == 'FRAMEWORK_RESTART':
-                result = self._act_restart(context, command)
-            elif spec['type'] == 'NOTICE_VISIBILITY':
+            if spec['type'] == 'NOTICE_VISIBILITY':
                 result = self._act_visibility(context, command, begin, issue, user)
-            else:
+            elif spec['type'] == 'HEALTH_PREPARATION':
                 result = self._act_preparation(context, command, begin, spec, user)
+            elif spec['type'] == 'PLAIN_KERNEL_CONFIRM':
+                result = self._act_confirm(context, begin, spec, request)
+            elif spec['type'] == 'DIRECT_STAGE':
+                result = self._act_direct_stage(context, command, begin, spec)
+            elif spec['type'] == 'DIRECT_COMMIT':
+                result = self._act_direct_commit(context, command, begin, spec)
+            else:
+                result = self._act_negative_activation(context, begin, spec)
         except Stopped as error:
             self._end_action(begin, number, 'STOPPED', None, str(error), False, [])
             raise
@@ -1032,6 +1399,26 @@ class Broker:
             status = 'UNKNOWN' if uncertain else 'REFUSED' if isinstance(error, _NotLaunched) else 'UNAVAILABLE'
             result = (status, None, '%s: %s' % (type(error).__name__, error), not uncertain, [])
         return self._end_action(begin, number, *result)
+
+    def _direct_gate(self, spec):
+        """Why a direct control's step is refused before anything is recorded, from the ledger
+        alone, or None: no direct step after F0's decision, a stage only with its payload pinned, a
+        commit only after the control's consent and written members, an activation only after its
+        commit. A refused step spends no use."""
+        if spec['type'] not in lab_actions.DIRECT_STEPS:
+            return None
+        control, steps = spec['parameters']['control'], self.direct.get(spec['parameters']['control'], {})
+        if self.f0 is not None:
+            return 'a direct negative control runs only before F0'
+        if spec['type'] == 'DIRECT_STAGE' and control not in self.payloads:
+            return 'no payload is pinned for the control'
+        if spec['type'] != 'DIRECT_STAGE' and control not in self.consents:
+            return 'no consent was given before arming'
+        if spec['type'] == 'DIRECT_COMMIT' and 'WRITTEN' not in steps:
+            return "the control's stage did not complete"
+        if spec['type'] == 'NEGATIVE_ACTIVATION' and 'COMMITTED' not in steps:
+            return "the control's commit is not recorded"
+        return None
 
     def _resolve(self, spec, reading, issue, request):
         selector = spec['user_selector']['kind']
@@ -1047,7 +1434,7 @@ class Broker:
         and refused once less than BOUND_COMMAND_MIN_S of the action's deadline is left, with the
         spec's output bounds."""
         def command(operation, text):
-            allowed = text == FRAMEWORK_RESTART if adapter is None else adapter.allowed(text)
+            allowed = self._own_command(spec, text) if adapter is None else adapter.allowed(text)
             if not allowed:
                 raise readers.Unclassified('a command outside the %s allowlist' % (kind['adapter'] or spec['type']))
             if operation == 'lab-action-effect':
@@ -1066,6 +1453,22 @@ class Broker:
                 raise readers.Unavailable('action capture %d did not complete: %s' % (capture, result.completion))
             return result
         return command
+
+    def _own_command(self, spec, text):
+        """Whether a shell command is one of the broker's own fixed forms for this action: a
+        direct control's create under its own referrer, its staged member's digest read and write,
+        and its commit. Reboots are services, never shell text."""
+        control = spec['parameters'].get('control')
+        if spec['type'] == 'DIRECT_STAGE':
+            path = re.escape('%s/control-%s/' % (self.admission['device_dir'], control))
+            return (text == crossings.control_create_command(self.admission['component'], control)
+                    or bool(re.fullmatch(r'sha256sum %s(base\.apk|base\.apk\.idsig)' % path, text))
+                    or bool(re.fullmatch(r'pm install-write [1-9][0-9]{0,9} (base\.apk|base\.apk\.idsig) %s\1' % path,
+                                         text)))
+        if spec['type'] == 'DIRECT_COMMIT':
+            return bool(re.fullmatch(r'pm install-commit --staged-ready-timeout %d [1-9][0-9]{0,9}'
+                                     % crossings.COMMIT_READY_TIMEOUT_MS, text))
+        return False
 
     def _effect_spent(self, effect_class, phase):
         """Why the admitted effect limits refuse one more action effect command of a class in a
@@ -1087,12 +1490,14 @@ class Broker:
     def _action_counts(self, number):
         """One use's effect and read captures by what they may have done: launched, uncertain (an
         interrupted intent or an unknown launch) or not launched."""
-        counts = {'effects_launched': 0, 'effects_uncertain': 0, 'effects_not_launched': 0, 'reads': 0}
+        counts = {'effects_launched': 0, 'effects_uncertain': 0, 'effects_not_launched': 0, 'reads': 0, 'pushes': 0}
         for e in self.ledger.entries:
             intent = e.content.get('intent') if e.kind == 'capture' else None
             if not intent or intent.get('lab_action') != number:
                 continue
-            if intent.get('operation') != 'lab-action-effect':
+            if intent.get('operation') == 'lab-action-push':
+                counts['pushes'] += 1
+            elif intent.get('operation') != 'lab-action-effect':
                 counts['reads'] += 1
             elif e.state == 'interrupted' or (e.complete and e.content['result'].get('launch') == 'unknown'):
                 counts['effects_uncertain'] += 1
@@ -1116,19 +1521,558 @@ class Broker:
         self._action_record(record)
         return record
 
-    def _act_restart(self, context, command):
-        """FRAMEWORK_RESTART: the version 2 restart's precondition, command and settle wait, as one
-        typed use. A restart that does not settle stays uncertain."""
-        refused, before = self._restart_refusal(dict(context, purpose='lab-action-precondition'))
-        if refused is not None:
-            return 'REFUSED', {'refused': refused}, None, True, []
-        result = command('lab-action-effect', FRAMEWORK_RESTART)
-        later, polls, why = self._restart_settle(dict(context, purpose='lab-action-settle'), before)
-        outcome = {'before': {'boot': before[0], 'instance': before[1]}, 'exit': result.exit, 'settled': later,
-                   'polls': len(polls['polls']), 'settle': polls}
-        if later is None:
-            return 'UNKNOWN', outcome, why, False, []
-        return 'OK', outcome, None, True, [later['clock'], later['sessions']]
+    # ---------------------------------------------- confirmations and direct negative controls
+
+    def consent(self, control, reason):
+        """The lab operator's explicit consent to arm and activate one admitted direct negative
+        control, given once, between generations, before its commit. It is a lab record, never a
+        deployment authorization and never an ACTIVATE grant."""
+        if self.admission['version'] != 3:
+            raise BrokerError('a consent needs a version 3 admission')
+        if self.open_generation is not None:
+            raise BrokerError('a consent is given only between generations')
+        controls = self._controls()
+        if control not in controls:
+            raise BrokerError('not an admitted direct negative control')
+        if control in self.consents:
+            raise BrokerError('a consent is given once')
+        if not isinstance(reason, str) or not reason.strip():
+            raise BrokerError('a consent names its reason')
+        record = {'control': control, 'role': controls[control], 'reason': reason, 'wall_ns': self._wall()}
+        number = self.ledger.record('consent', record)
+        self.consents[control] = dict(record, number=number, kind='consent')
+        return number
+
+    def pin_payload(self, control, members):
+        """Pins a direct control's negative payload once: each member's host path, SHA-256 and
+        size, exactly the members and digests its admitted stage pins. The guest paths follow from
+        the admitted staging directory."""
+        if self.admission['version'] != 3:
+            raise BrokerError('a payload needs a version 3 admission')
+        controls = self._controls()
+        if control not in controls or control in self.payloads:
+            raise BrokerError('a payload of an admitted direct control, pinned once')
+        stage = next(s for s in self.specs.values() if s['type'] == 'DIRECT_STAGE'
+                     and s['parameters']['control'] == control)
+        expected = {item['role']: (item['sha256'], item['bytes']) for item in stage['inputs']}
+        if not isinstance(members, dict) or set(members) != set(expected):
+            raise BrokerError('a payload pins exactly the members its stage admits')
+        pinned = {}
+        for member, spec in members.items():
+            if (not isinstance(spec, dict) or set(spec) != {'host', 'sha256', 'bytes'}
+                    or (spec['sha256'], spec['bytes']) != expected[member] or not str(spec['host']).startswith('/')):
+                raise BrokerError('a pinned member names its host path and its admitted digest and size')
+            pinned[member] = dict(spec, guest=crossings.staged_path('%s/control-%s/%s' % (
+                self.admission['device_dir'], control, member)))
+        record = {'record': 'PAYLOAD', 'control': control, 'role': controls[control], 'members': pinned,
+                  'wall_ns': self._wall()}
+        number = self.ledger.record('direct-control', record)
+        self.payloads[control] = dict(record, number=number, kind='direct-control')
+
+    def _read(self, name, context, deadline, expect_boot=None):
+        """One reader group an action reads for itself, never given to a coordinator, within the
+        action's deadline."""
+        if name == 'clock':
+            return self._clock_group(context, expect_boot, emitted=False, deadline_ns=deadline)
+        if name == 'target':
+            return self._group('target', self.reader.target, context, None, emitted=False, deadline_ns=deadline)
+        if name == 'global-sessions':
+            return self._group('global-sessions', self.reader.global_sessions, context, None, emitted=False,
+                               deadline_ns=deadline)
+        if name == 'users':
+            return self._group('users', lambda: self.reader.users(sorted(self.users_seen.values())), context,
+                               expect_boot, emitted=False, deadline_ns=deadline)
+        return self._group(name, getattr(self.reader, name), context, expect_boot, emitted=False, deadline_ns=deadline)
+
+    @staticmethod
+    def _one(group, kind, classification=None):
+        """The one fact of a kind a group read, of a classification when given, or None."""
+        found = [f for f in group.facts if f['kind'] == kind] if group.ok else []
+        if len(found) != 1 or (classification is not None and found[0]['classification'] != classification):
+            return None
+        return found[0]
+
+    def _captures_of(self, numbers):
+        """Every capture of the given groups, in order."""
+        return [n for g in numbers if g is not None for n in self.ledger.entries[g - 1].content.get('captures', [])]
+
+    def _issuing(self, ticket):
+        """The ticket a confirmation confirms, from the store and the ledger: (facts, None) or
+        (facts so far, why not). It must be of this installation and component, in a wait a later
+        boot resolves, unchanged since its last recorded boundary, below its boot limit, and not
+        the positive attempt before a qualified F0. Its ticket, plan, selection and the grant of
+        its last granted entry are kept by digest; a failed keep latches the writer's stop."""
+        store, facts = Path(self.admission['store']), {'ticket': ticket}
+        tdata = _regular_bytes(store / 'tickets' / (ticket + STORE_SUFFIX))
+        if tdata is None:
+            return facts, 'the stored ticket cannot be read whole'
+        try:
+            t = records.decode_ticket(tdata)
+            pdata = _regular_bytes(store / 'plans' / (t['plan'] + STORE_SUFFIX)) or b''
+            p = records.decode_plan(pdata)
+        except records.RecordError as error:
+            return facts, 'the stored ticket or plan: %s' % error
+        sdata = _regular_bytes(store / 'selections' / (self.admission['component'] + STORE_SUFFIX))
+        facts.update(plan=t['plan'], attempt=t['attempt'], state=t['state'], boot_count=t['bootCount'],
+                     boot_limit=p['bootLimit'])
+        if (t['installation'], t['component']) != (self.admission['installation'], self.admission['component']):
+            return facts, 'a ticket of another installation or component'
+        if t['state'] not in CONFIRM_WAITS:
+            return facts, 'the ticket is %s, not in a wait a later boot resolves' % t['state']
+        found = self.checkpoints.get(ticket, [])
+        if not found or found[-1]['ticket_sha256'] != hashlib.sha256(tdata).hexdigest():
+            return facts, "the stored ticket is not the one its last recorded boundary kept"
+        facts['predecessor_checkpoint'] = found[-1]['number']
+        if t['flags'] & FLAG_BOOT_LIMIT or t['bootCount'] + 1 >= p['bootLimit']:
+            return facts, "a confirmation would reach the ticket's boot limit"
+        problem = self._positive_problem(t['plan'], t['attempt'])
+        if problem is not None:
+            return facts, problem
+        grants = [entry[4] for entry in t['ledger'] if entry[4] != proto.ZERO_ID]
+        gdata = (_regular_bytes(store / 'authorizations' / (grants[-1] + STORE_SUFFIX)) if grants else None)
+        if sdata is None or (grants and gdata is None):
+            return facts, 'the stored selection or grant cannot be read whole'
+        retained = {}
+        try:
+            for name, data in (('ticket', tdata), ('plan', pdata), ('selection', sdata), ('grant', gdata)):
+                if data is not None:
+                    retained[name] = hashlib.sha256(data).hexdigest()
+                    self._keep(retained[name], data)
+        except (BrokerError, OSError) as error:
+            raise self._writer_failed('the issuing records could not be kept: %s' % error) from error
+        facts['retained'] = retained
+        return facts, None
+
+    def _boot_budget(self, kind, spec, current=None):
+        """The reboot services and observed boots a transition of one kind would use, and why
+        the admission does not allow one more, or None: its action's effect caps, its kind's
+        service allowance, the observed boot allowance, or an unsettled earlier transition."""
+        policy, services = self.admission['boot_policy'], self._reboot_services()
+        budget = {'services': services, 'observed': len(self.observed_boots), 'problem': None}
+        spent = self._effect_spent(lab_actions.TYPES[spec['type']]['effect'], spec['phase'])
+        if spent is not None:
+            budget['problem'] = spent
+        elif kind == 'CONFIRMATION' and services['CONFIRMATION'] >= policy['confirmation_services']:
+            budget['problem'] = 'the admitted %d confirmation services are spent' % policy['confirmation_services']
+        elif kind == 'NEGATIVE_ACTIVATION' and (services['MANAGED_ACTIVATION'] + services['NEGATIVE_ACTIVATION']
+                                                >= policy['activation_services']):
+            budget['problem'] = 'the admitted %d activation services are spent' % policy['activation_services']
+        elif len(self.observed_boots) + TRANSITIONS[kind] > policy['observed_boots']:
+            budget['problem'] = 'the transition could pass the admitted %d observed boots' % policy['observed_boots']
+        else:
+            budget['problem'] = self._unsettled_transition(current)
+        return budget
+
+    def _preflight(self, kind, context, groups, why, projection):
+        """A transition's preflight as one compound group: every read it judged, kept before the
+        judgment, and the judgment, recorded for a refusal too."""
+        number, _ = self._compound(kind, context, self._captures_of(groups.values()), groups,
+                                   'facts' if why is None else 'refused', why, None, dict(projection, why=why),
+                                   extra={'judged': why is None})
+        return number
+
+    def _act_confirm(self, context, begin, spec, request):
+        """PLAIN_KERNEL_CONFIRM: a plain kernel reboot that confirms the issuing ticket's wait in a
+        later boot. Its preflight reads the clock, the completed boot, the checkpoint, the factory
+        and active copies, the SystemUI listing, the whole global session inventory and the target,
+        and refuses unless the ticket waits as its last boundary recorded, below its boot limit, the
+        checkpoint is COMMITTED, the target established, every live session positively
+        uncommitted, the SystemUI listing joins the global inventory, and the admitted services and
+        observed boots allow it. The reboot is then a boot transition."""
+        deadline = begin['deadline_monotonic_ns']
+        pre = dict(context, purpose='confirmation-preflight')
+        issuing, why = self._issuing(request['ticket'])
+        reads, groups = {}, {}
+        names = ('clock', 'boot', 'checkpoint', 'factory', 'active', 'sessions', 'global-sessions')
+        for name in names + (('target',) if self._target_read else ()):
+            boot = reads['clock'].reading['boot'] if name in ('boot', 'checkpoint', 'factory', 'active', 'sessions') \
+                and reads['clock'].ok else None
+            reads[name] = self._read(name, dict(pre, part=name), deadline, boot)
+            groups[name] = reads[name].number
+        why = why or self._confirm_problem(reads)
+        budget = self._boot_budget('CONFIRMATION', spec)
+        why = why or budget['problem']
+        preflight = self._preflight('confirmation-preflight', pre, groups, why,
+                                    {'issuing': issuing, 'budget': budget, 'reason': begin['reason']})
+        if why is not None:
+            return 'REFUSED', {'preflight': preflight, 'refused': why}, why, True, []
+        clock = reads['clock'].reading
+        old = {'boot': clock['boot'], 'instance': clock['instance'], 'elapsed': clock['elapsed']}
+        subject = {'ticket': issuing['ticket'], 'plan': issuing['plan'], 'attempt': issuing['attempt'],
+                   'state': issuing['state'], 'predecessor_checkpoint': issuing['predecessor_checkpoint'],
+                   'retained': issuing['retained']}
+        return self._boot_transition('CONFIRMATION', begin, spec, dict(context, purpose='confirmation'), deadline, old,
+                                     preflight, subject, self._confirmed)
+
+    def _confirm_problem(self, reads):
+        """Why a confirmation's preflight reads do not make a reboot safe now, or None."""
+        clock = reads['clock']
+        if not clock.ok or clock.reading['instance'] < 0:
+            return 'the clock is unavailable or no framework is running'
+        if self._one(reads['boot'], 'BOOT', 'COMPLETED') is None:
+            return 'the boot is not read completed'
+        if self._one(reads['checkpoint'], 'CHECKPOINT', 'COMMITTED') is None:
+            return 'the checkpoint is not read COMMITTED'
+        if self._one(reads['factory'], 'FACTORY') is None or self._one(reads['active'], 'ACTIVE') is None:
+            return 'the factory or active copy is not read'
+        if not reads['sessions'].ok or not _whole_listing(reads['sessions'].facts, clock.reading['instance']):
+            return "the SystemUI listing is not whole in the clock's framework instance"
+        if not reads['global-sessions'].ok:
+            return 'the global session inventory is unavailable (%s)' % reads['global-sessions'].reason
+        inventory = reads['global-sessions'].reading
+        problem = lab_actions.confirmation_safety(inventory, self.admission['component'])
+        if problem is not None:
+            return problem
+        listed = {f['facts']['reference'][1] for f in reads['sessions'].facts
+                  if f['kind'] == 'SESSION' and f['classification'] in LIVE}
+        live = {row['id'] for row in lab_actions.live_rows(inventory) if row['package'] == self.admission['component']}
+        if listed != live:
+            return 'the SystemUI listing and the global session inventory disagree'
+        if 'target' in reads and (not reads['target'].ok or reads['target'].reading['scope'] != 'ESTABLISHED_EMPTY'):
+            return 'the native target scope is not read established empty'
+        return None
+
+    def _confirmed(self, boot, clock, poll, context, deadline):
+        """A confirmation settles in its new boot on a completed BOOT and a COMMITTED checkpoint,
+        then renews the factory, active, SystemUI listing, users, global inventory and target
+        reads of that boot. A pending or unknown checkpoint is a read only wait."""
+        reads = {}
+        for name in ('boot', 'checkpoint'):
+            reads[name] = self._read(name, dict(context, part=name), deadline, boot)
+            poll['groups'].append(reads[name].number)
+        if self._one(reads['boot'], 'BOOT', 'COMPLETED') is None:
+            poll['missing'] = 'the new boot is not read completed'
+            return None
+        if self._one(reads['checkpoint'], 'CHECKPOINT', 'COMMITTED') is None:
+            poll['missing'] = 'the checkpoint is pending or unknown: a read only wait'
+            return None
+        renewed = {}
+        for name in ('factory', 'active', 'sessions', 'users', 'global-sessions') + (
+                ('target',) if self._target_read else ()):
+            group = self._read(name, dict(context, part=name), deadline,
+                               boot if name not in ('global-sessions', 'target') else None)
+            poll['groups'].append(group.number)
+            renewed[name] = {'group': group.number, 'status': group.status}
+        outcome = {'new_boot': boot, 'instance': clock.reading['instance'], 'boot_group': reads['boot'].number,
+                   'checkpoint_group': reads['checkpoint'].number, 'renewed': renewed}
+        return 'OK', outcome, [reads['boot'].number, reads['checkpoint'].number] + [r['group'] for r in renewed.values()]
+
+    def _boot_transition(self, kind, action, spec, context, deadline, old, preflight, subject, settle):
+        """One boot transition the broker owns. Its BEGIN, with its preflight, old boot, ordinal,
+        caps and poll bound, is written and synced before the reboot service, which is a fenced,
+        effect limited capture with its own launch deadline. PROGRESS records the service's
+        acknowledgement, which proves no boot. Then a poll every interval, within the transition's
+        bound: a clock group, and in a new boot what `settle` reads. The same boot never settles;
+        more new boots than the kind admits, or a boot past the observed allowance, is
+        unexpected and halts. The END names every poll, the new boots and the settling poll.
+        Returns the action's END fields."""
+        policy = self.admission['boot_policy']
+        bound_ms = policy['settle_ms'] if kind == 'CONFIRMATION' else policy['negative_settle_ms']
+        started = self._monotonic()
+        settle_deadline = min(deadline, started + bound_ms * 1_000_000)
+        ident = proto.fresh_id(self._ids)
+        begin = {'record': 'BEGIN', 'transition': ident, 'transition_kind': kind, 'action': action['number'],
+                 'action_id': action['action_id'], 'cell': spec['cell'], 'phase': spec['phase'], 'preflight': preflight,
+                 'old': old, 'ordinal': self._reboot_services()['total'] + 1,
+                 'caps': {'activation_services': policy['activation_services'],
+                          'confirmation_services': policy['confirmation_services'],
+                          'reboot_services': policy['activation_services'] + policy['confirmation_services'],
+                          'observed_boots': policy['observed_boots']},
+                 'poll': {'interval_ms': policy['poll_interval_ms'], 'settle_ms': bound_ms,
+                          'started_monotonic_ns': started, 'deadline_monotonic_ns': settle_deadline},
+                 'subject': subject, 'wall_ns': self._wall(), 'monotonic_ns': started}
+        self._fence()
+        number = self.ledger.record('boot-transition', begin)
+        self._transition_record(dict(begin, number=number, kind='boot-transition'))
+        context = dict(context, transition=ident)
+        new_boots, polls = [], []
+        try:
+            try:
+                capture, result = self._reboot_effect(action, spec, context, deadline, ident, kind)
+            except _NotLaunched as error:
+                reason = '%s: nothing launched' % error
+                self._end_transition(ident, 'REFUSED', [], [], None, reason)
+                return 'REFUSED', {'transition': ident}, reason, True, []
+            progress = {'record': 'PROGRESS', 'transition': ident, 'capture': capture, 'launch': result.launch,
+                        'acknowledgement': result.acknowledgement, 'stream_end': result.stream_end,
+                        'wall_ns': self._wall(), 'monotonic_ns': self._monotonic()}
+            progress_number = self.ledger.record('boot-transition', progress)
+            self._transition_record(dict(progress, number=progress_number, kind='boot-transition'))
+            if result.launch == 'not-launched':
+                reason = 'the reboot service was not launched (%s)' % result.transport
+                self._end_transition(ident, 'REFUSED', [], [], None, reason)
+                return 'REFUSED', {'transition': ident, 'capture': capture}, reason, True, []
+            status, reason, outcome, postreads, settled_poll = None, None, None, [], None
+            while self._monotonic() < settle_deadline:
+                poll = {'started_monotonic_ns': self._monotonic(), 'groups': [], 'boot': None, 'missing': None}
+                polls.append(poll)
+                clock = self._read('clock', dict(context, purpose='boot-poll'), settle_deadline)
+                poll['groups'].append(clock.number)
+                if not clock.ok:
+                    poll['missing'] = 'the clock is unavailable (%s)' % clock.reason
+                elif clock.reading['boot'] == old['boot']:
+                    poll['missing'] = 'the same boot: no new boot is observed yet'
+                else:
+                    poll['boot'] = boot = clock.reading['boot']
+                    if boot not in new_boots:
+                        new_boots.append(boot)
+                    if len(new_boots) > TRANSITIONS[kind] or boot != new_boots[-1]:
+                        status, reason = 'UNEXPECTED', 'an unexpected boot: %d new boots where %d are admitted' % (
+                            len(new_boots), TRANSITIONS[kind])
+                    elif len(self.observed_boots) > policy['observed_boots']:
+                        status, reason = 'UNEXPECTED', 'a boot past the admitted %d observed boots' % (
+                            policy['observed_boots'])
+                    else:
+                        found = settle(boot, clock, poll, dict(context, purpose='boot-poll'), settle_deadline)
+                        if found is not None:
+                            status, outcome, postreads = found
+                            reason = outcome.get('why')
+                            settled_poll = len(polls)
+                poll['ended_monotonic_ns'] = self._monotonic()
+                if status is not None:
+                    break
+                remaining = (settle_deadline - self._monotonic()) / 1_000_000_000
+                if remaining <= 0:
+                    break
+                self._sleep(min(policy['poll_interval_ms'] / 1000, remaining))
+        except Stopped as error:
+            # A poll the stop interrupted keeps its stopped group and says so.
+            if polls and polls[-1]['missing'] is None:
+                last = self.ledger.last
+                if last.kind == 'group' and last.content.get('transition') == ident and \
+                        last.number not in polls[-1]['groups']:
+                    polls[-1]['groups'].append(last.number)
+                polls[-1].update(missing='stopped: %s' % error, ended_monotonic_ns=self._monotonic())
+            self._end_transition(ident, 'STOPPED', new_boots, polls, None, str(error))
+            raise
+        if status is None:
+            status, reason = 'UNKNOWN', 'no settled new boot within the %d ms bound' % bound_ms
+        self._end_transition(ident, status, new_boots, polls, settled_poll, reason)
+        outcome = dict(outcome or {}, transition=ident, new_boots=new_boots, polls=len(polls))
+        return status, outcome, reason, status in ('OK', 'UNEXPECTED') and settled_poll is not None, postreads
+
+    def _end_transition(self, ident, status, new_boots, polls, settled_poll, reason):
+        record = {'record': 'END', 'transition': ident, 'status': status, 'new_boots': list(new_boots), 'polls': polls,
+                  'settled_poll': settled_poll, 'reason': reason, 'wall_ns': self._wall(),
+                  'monotonic_ns': self._monotonic()}
+        number = self.ledger.record('boot-transition', record)
+        self._transition_record(dict(record, number=number, kind='boot-transition'))
+
+    def _reboot_effect(self, action, spec, context, deadline, ident, kind):
+        """The reboot service of a transition as one effect capture: within the effect limits, the
+        transition's service allowance and the action's deadline, fenced, its intent synced first,
+        and refused by the transport once the deadline passed. Returns (capture, result)."""
+        effect_class = lab_actions.TYPES[spec['type']]['effect']
+        budget = self._boot_budget(kind, spec, ident)
+        if budget['problem'] is not None:
+            raise _NotLaunched(budget['problem'])
+        left = deadline - self._monotonic()
+        if left < BOUND_COMMAND_MIN_S * 1_000_000_000:
+            raise _NotLaunched("too little of the action's bound remains for the reboot")
+        timeout = min(self.limits['reboot_timeout_s'], left / 1_000_000_000)
+        gate = self._may_send(deadline)
+        return self._capture('lab-action-effect', REBOOT_LABEL,
+                             dict(context, effect_class=effect_class, phase=spec['phase'], transition_kind=kind),
+                             lambda: self.transport.reboot(timeout, may_send=gate), timeout, deadline)
+
+    def _act_direct_stage(self, context, command, begin, spec):
+        """DIRECT_STAGE: one staged session of a direct control's pinned negative payload under its
+        own referrer, before F0, with no other live session: the create, its whole reference
+        joined from the global inventory, then each member pushed, read back by digest and
+        written, the exact session read again before each write."""
+        control, role = spec['parameters']['control'], spec['parameters']['role']
+        deadline, component = begin['deadline_monotonic_ns'], self.admission['component']
+        if self.f0 is not None:
+            return 'REFUSED', None, 'a direct negative control runs only before F0', True, []
+        payload = self.payloads.get(control)
+        if payload is None:
+            return 'REFUSED', None, 'no payload is pinned for the control', True, []
+        pre = dict(context, purpose='direct-precondition')
+        reads = {name: self._read(name, dict(pre, part=name), deadline) for name in ('clock', 'checkpoint',
+                                                                                     'global-sessions')}
+        groups = [g.number for g in reads.values()]
+        why = None
+        if not reads['clock'].ok or reads['clock'].reading['instance'] < 0:
+            why = 'the clock is unavailable or no framework is running'
+        elif self._one(reads['checkpoint'], 'CHECKPOINT', 'COMMITTED') is None:
+            why = 'the checkpoint is not read COMMITTED'
+        elif not reads['global-sessions'].ok or not reads['global-sessions'].reading['whole']:
+            why = 'the global session inventory is not read whole'
+        elif lab_actions.live_rows(reads['global-sessions'].reading):
+            why = 'a session is live: a direct control stages alone'
+        if why is not None:
+            return 'REFUSED', {'groups': groups}, why, True, groups
+        result = command('lab-action-effect', crossings.control_create_command(component, control))
+        capture = self.ledger.last.number
+        classification, session = crossings.classify_create(result)
+        if classification != 'SUCCESS':
+            return 'UNKNOWN', {'capture': capture}, 'the create gave no qualified reply: its effect is unknown', False, []
+        join = self._read('global-sessions', dict(pre, part='join'), deadline)
+        row, why = lab_actions.own_row(join.reading, control, component) if join.ok else (None, join.reason)
+        reference = row and {'id': row['id'], 'created': row['created'], 'installer': row['installer'],
+                             'referrer': row['referrer']}
+        if row is None or row['id'] != session or None in reference.values():
+            return 'UNKNOWN', {'capture': capture}, 'the created session is not joined whole: %s' % why, False, [
+                join.number]
+        self._direct_record('CREATED', control, role, action=begin['number'], capture=capture,
+                            join_group=join.number, reference=reference)
+        written = []
+        for member in lab_actions.ROLE_MEMBERS[role]:
+            pin = payload['members'][member]
+            data = _regular_bytes(pin['host'], 1 << 30)
+            if data is None or (hashlib.sha256(data).hexdigest(), len(data)) != (pin['sha256'], pin['bytes']):
+                return 'UNEXPECTED', {'reference': reference}, 'the pinned %s has other bytes' % member, True, []
+            pushed, _ = self._capture('lab-action-push', None, dict(context, member=member, path=pin['guest'],
+                                                                     data_sha256=pin['sha256']),
+                                      lambda d=data, p=pin['guest']: self.transport.push(d, p, MEMBER_MODE, 0,
+                                                                                         self.limits['push_timeout_s']),
+                                      self.limits['push_timeout_s'], deadline)
+            check = command('lab-action-read', crossings.digest_command(pin['guest']))
+            if crossings.classify_digest(check, pin['guest']) != pin['sha256']:
+                return 'UNEXPECTED', {'reference': reference}, 'the staged %s does not read back exactly' % member, \
+                    True, []
+            again = self._read('global-sessions', dict(pre, part='revalidation', member=member), deadline)
+            row, why = lab_actions.own_row(again.reading, control, component, reference) if again.ok else (
+                None, again.reason)
+            if row is None or not lab_actions.uncommitted(row, component):
+                return 'UNEXPECTED', {'reference': reference}, 'the session cannot be written: %s' % (
+                    why or 'it is not open and uncommitted'), True, [again.number]
+            result = command('lab-action-effect', crossings.write_command(reference['id'], member, pin['guest']))
+            classification = crossings.classify_write(result, pin['bytes'])
+            if classification != 'SUCCESS':
+                return 'UNKNOWN', {'reference': reference}, 'the write of %s gave no qualified reply' % member, \
+                    False, []
+            written.append({'member': member, 'push': pushed, 'write': self.ledger.last.number})
+        self._direct_record('WRITTEN', control, role, action=begin['number'], members=written)
+        return 'OK', {'reference': reference, 'members': written}, None, True, [join.number]
+
+    def _act_direct_commit(self, context, command, begin, spec):
+        """DIRECT_COMMIT: the one native commit before F0, of a direct control's own staged
+        session only, after its consent, with its whole reference read again open and uncommitted,
+        no other live session, the factory copy active and the checkpoint COMMITTED. A managed
+        crossing never takes this path."""
+        control, role = spec['parameters']['control'], spec['parameters']['role']
+        deadline, component = begin['deadline_monotonic_ns'], self.admission['component']
+        steps = self.direct.get(control, {})
+        why = None
+        if self.f0 is not None:
+            why = 'a direct negative control commits only before F0'
+        elif control not in self.consents:
+            why = 'no consent was given before arming'
+        elif 'WRITTEN' not in steps:
+            why = "the control's stage did not complete"
+        if why is not None:
+            return 'REFUSED', None, why, True, []
+        reference = steps['CREATED']['reference']
+        pre = dict(context, purpose='direct-precondition')
+        reads = {}
+        for name in ('clock', 'checkpoint', 'factory', 'active', 'global-sessions'):
+            boot = reads['clock'].reading['boot'] if name != 'clock' and name != 'global-sessions' \
+                and reads['clock'].ok else None
+            reads[name] = self._read(name, dict(pre, part=name), deadline, boot)
+        groups = [g.number for g in reads.values()]
+        inventory = reads['global-sessions'].reading if reads['global-sessions'].ok else None
+        row, why = lab_actions.own_row(inventory, control, component, reference) if inventory else (
+            None, 'the global session inventory is unavailable')
+        if not reads['clock'].ok or reads['clock'].reading['instance'] < 0:
+            why = 'the clock is unavailable or no framework is running'
+        elif self._one(reads['checkpoint'], 'CHECKPOINT', 'COMMITTED') is None:
+            why = 'the checkpoint is not read COMMITTED'
+        elif self._one(reads['factory'], 'FACTORY') is None or self._one(reads['active'], 'ACTIVE',
+                                                                         'FACTORY_COPY') is None:
+            why = 'the factory copy is not read active'
+        elif row is not None and not lab_actions.uncommitted(row, component):
+            why = "the control's session is not open and uncommitted"
+        elif row is not None and len(lab_actions.live_rows(inventory)) != 1:
+            why = 'another session is live'
+        if why is not None or row is None:
+            return 'REFUSED', {'groups': groups}, why, True, groups
+        result = command('lab-action-effect', crossings.commit_command(reference['id']))
+        capture = self.ledger.last.number
+        classification = crossings.classify_commit(result)
+        self._direct_record('COMMITTED', control, role, action=begin['number'], capture=capture,
+                            classification=classification)
+        if classification not in ('READY', 'ACCEPTED', 'PENDING'):
+            return 'UNKNOWN', {'capture': capture}, 'the commit gave no qualified reply: its effect is unknown', False, []
+        return 'OK', {'classification': classification, 'capture': capture}, None, True, groups
+
+    def _act_negative_activation(self, context, begin, spec):
+        """NEGATIVE_ACTIVATION: a direct control's activating reboot under its consent, before F0,
+        only with its own session committed and ready and every other session positively
+        uncommitted. It settles only on its intended rejection and a safe recovery: a completed
+        boot, a COMMITTED checkpoint, the factory copy active, its session failed for its role's
+        cause and no session live. Its native recovery may show a second new boot."""
+        control, role = spec['parameters']['control'], spec['parameters']['role']
+        deadline, component = begin['deadline_monotonic_ns'], self.admission['component']
+        steps = self.direct.get(control, {})
+        if self.f0 is not None or control not in self.consents or 'COMMITTED' not in steps:
+            return 'REFUSED', None, 'a negative activation needs its consent and its commit, before F0', True, []
+        reference = steps['CREATED']['reference']
+        pre = dict(context, purpose='activation-preflight')
+        reads = {}
+        for name in ('clock', 'checkpoint', 'global-sessions'):
+            boot = reads['clock'].reading['boot'] if name == 'checkpoint' and reads['clock'].ok else None
+            reads[name] = self._read(name, dict(pre, part=name), deadline, boot)
+        groups = {name: group.number for name, group in reads.items()}
+        why = None
+        if not reads['clock'].ok or reads['clock'].reading['instance'] < 0:
+            why = 'the clock is unavailable or no framework is running'
+        elif self._one(reads['checkpoint'], 'CHECKPOINT', 'COMMITTED') is None:
+            why = 'the checkpoint is not read COMMITTED'
+        elif not reads['global-sessions'].ok:
+            why = 'the global session inventory is unavailable'
+        else:
+            why = lab_actions.activation_safety(reads['global-sessions'].reading, control, component, reference)
+        budget = self._boot_budget('NEGATIVE_ACTIVATION', spec)
+        why = why or budget['problem']
+        preflight = self._preflight('activation-preflight', pre, groups, why,
+                                    {'control': control, 'role': role, 'reference': reference,
+                                     'consent': self.consents[control]['number'], 'budget': budget,
+                                     'reason': begin['reason']})
+        if why is not None:
+            return 'REFUSED', {'preflight': preflight, 'refused': why}, why, True, []
+        clock = reads['clock'].reading
+        old = {'boot': clock['boot'], 'instance': clock['instance'], 'elapsed': clock['elapsed']}
+        subject = {'control': control, 'role': role, 'consent': self.consents[control]['number'],
+                   'reference': reference}
+        return self._boot_transition('NEGATIVE_ACTIVATION', begin, spec, dict(context, purpose='activation'),
+                                     deadline, old, preflight, subject, self._rejected(control, role, reference))
+
+    def _rejected(self, control, role, reference):
+        """The settle reads of a negative activation in a new boot."""
+        component = self.admission['component']
+
+        def settle(boot, clock, poll, context, deadline):
+            reads = {}
+            for name in ('boot', 'checkpoint', 'factory', 'active', 'global-sessions'):
+                reads[name] = self._read(name, dict(context, part=name), deadline,
+                                         boot if name != 'global-sessions' else None)
+                poll['groups'].append(reads[name].number)
+            if self._one(reads['boot'], 'BOOT', 'COMPLETED') is None:
+                poll['missing'] = 'the new boot is not read completed'
+                return None
+            if self._one(reads['checkpoint'], 'CHECKPOINT', 'COMMITTED') is None:
+                poll['missing'] = 'the checkpoint is pending or unknown: recovery may still run'
+                return None
+            active = self._one(reads['active'], 'ACTIVE')
+            if active is None or self._one(reads['factory'], 'FACTORY') is None or not reads['global-sessions'].ok:
+                poll['missing'] = 'the active copy, the factory copy or the global inventory is not read'
+                return None
+            postreads = [g.number for g in reads.values()]
+            outcome = {'new_boot': boot, 'instance': clock.reading['instance'], 'active': active['classification']}
+            if active['classification'] != 'FACTORY_COPY':
+                return 'UNEXPECTED', dict(outcome, why='the negative payload is active: no safe recovery'), postreads
+            why = lab_actions.rejection(reads['global-sessions'].reading, control, component, reference, role)
+            if why is not None:
+                return 'UNEXPECTED', dict(outcome, why='not the intended rejection: %s' % why), postreads
+            return 'OK', outcome, postreads
+        return settle
+
+    def _direct_record(self, record, control, role, **fields):
+        value = dict(fields, record=record, control=control, role=role, wall_ns=self._wall())
+        number = self.ledger.record('direct-control', value)
+        self.direct.setdefault(control, {})[record] = dict(value, number=number, kind='direct-control')
+        return number
 
     def _act_visibility(self, context, command, begin_record, issue, user):
         """NOTICE_VISIBILITY: the notice adapter's fixed capture and read of one required
@@ -1295,12 +2239,12 @@ class Broker:
             directory.mkdir(mode=0o700)
         # The broker root holds the records directory's name: synced every time, so a sync that an
         # earlier call could not finish is never skipped.
-        _sync_directory(self.root)
+        self._sync_dir(self.root)
         if os.path.lexists(path):
             if _regular_bytes(path) != data:
                 raise BrokerError('a retained record differs from its digest')
             # A name found here may come from a rename whose directory sync never ran: sync it now.
-            _sync_directory(directory)
+            self._sync_dir(directory)
             return
         temporary = directory / ('.%s.%s' % (digest, os.urandom(8).hex()))
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
@@ -1311,13 +2255,13 @@ class Broker:
                 if written <= 0:
                     raise BrokerError('a retained record could not be written whole')
                 view = view[written:]
-            os.fsync(fd)
+            self._sync_fd(fd)
         finally:
             os.close(fd)
         if _regular_bytes(temporary) != data:
             raise BrokerError('a retained record did not read back whole')
         os.rename(temporary, path)
-        _sync_directory(directory)
+        self._sync_dir(directory)
         if _regular_bytes(path) != data:
             raise BrokerError('a retained record differs after it was kept')
 
@@ -1351,6 +2295,139 @@ class Broker:
         self.pinned[plan] = pinned
         if publication is not None:
             self.publications[plan] = publication
+
+    # ---------------------------------------------- the F0 commit fence of the next profile
+
+    def record_f0(self, capabilities, reason):
+        """Records F0's decision once, between generations: the trial's capability record, a
+        canonical side record of this profile and installation naming its branch, is kept by
+        digest. FULL qualifies, and LIMITED only when the admission admits it; REFUSED never does.
+        F0 comes after N2 and N3: every admitted negative activation must have settled its
+        intended rejection and safe recovery first, and no boot transition may be unsettled. The
+        decision never changes once recorded."""
+        if self.admission['version'] != 3:
+            raise BrokerError('F0 needs a version 3 admission')
+        if self.open_generation is not None:
+            raise BrokerError('F0 is decided only between generations')
+        if self.f0 is not None:
+            raise BrokerError('F0 is decided once')
+        if not isinstance(reason, str) or not reason.strip():
+            raise BrokerError('an F0 decision names its reason')
+        data = bytes(capabilities)
+        branch = self._capability_branch(data)
+        branches = self.admission['branches']
+        problem = self._f0_order_problem()
+        if problem is not None:
+            raise BrokerError(problem)
+        digest = hashlib.sha256(data).hexdigest()
+        try:
+            self._keep(digest, data)
+        except (BrokerError, OSError) as error:
+            raise self._writer_failed('the F0 capability record could not be kept: %s' % error) from error
+        record = {'record': 'DECISION', 'branch': branch, 'qualified': branch in ('FULL', 'LIMITED'),
+                  'capabilities_sha256': digest, 'predicate_sha256': branches[branch]['predicate_sha256'],
+                  'reason': reason, 'wall_ns': self._wall()}
+        number = self.ledger.record('qualification', record)
+        self.f0 = dict(record, number=number, kind='qualification')
+        return dict(record, number=number)
+
+    def gate_positive(self, plan, attempt, purpose):
+        """The gate a driver passes before it creates the positive attempt or grants its STAGE:
+        recorded either way, and refused unless F0 qualified."""
+        positive = self.admission['branches']['positive'] if self.admission['version'] == 3 else None
+        if positive is None or (plan, attempt) != (positive['plan'], positive['attempt']):
+            raise BrokerError('not the positive attempt the admission gates')
+        if not isinstance(purpose, str) or not purpose.strip():
+            raise BrokerError('a gate names its purpose')
+        problem = self._positive_problem(plan, attempt)
+        self.ledger.record('qualification', {'record': 'GATE', 'plan': plan, 'attempt': attempt, 'allowed': problem is None,
+                                  'reason': problem, 'purpose': purpose, 'wall_ns': self._wall()})
+        if problem is not None:
+            raise BrokerError(problem)
+
+    def _capability_branch(self, data):
+        """The branch an F0 capability record names, or BrokerError: the record is one canonical
+        side record of the F0 schema, this profile and this installation, and its branch is one
+        the admission admits. Its content rules beyond these are C3's."""
+        try:
+            value = evidence.parse(data)
+        except evidence.SideError as error:
+            raise BrokerError('the F0 capability record: %s' % error) from error
+        if (value.get('schema'), value.get('profile'), value.get('installation')) != (
+                F0_SCHEMA, lab_actions.PROFILE, self.admission['installation']):
+            raise BrokerError('a capability record of another schema, profile or installation')
+        branch = value.get('branch')
+        if branch not in lab_actions.BRANCHES or self.admission['branches'][branch] is None:
+            raise BrokerError('a branch the admission does not admit')
+        return branch
+
+    def _f0_order_problem(self):
+        """Why F0 may not be decided now, or None: every admitted negative activation must have
+        settled its intended rejection, and no boot transition may be unsettled."""
+        pending = [s['id'] for s in self.specs.values() if s['type'] == 'NEGATIVE_ACTIVATION'
+                   and not self._settled_ok(s['id'])]
+        if pending:
+            return 'N2 and N3 settle their intended rejection and safe recovery before F0'
+        return self._unsettled_transition()
+
+    def _decision_problem(self, c):
+        """Why a recorded F0 decision cannot restore the fence, or None: the capability record it
+        names must be kept whole under its digest and still decide on its own, under this
+        admission, the branch, qualification and predicate the decision records, and the
+        decision must follow the negative activations and boot transitions before it, as its
+        writer required."""
+        why = self._kept_problem(c['capabilities_sha256'])
+        if why is not None:
+            return 'its capability record: %s' % why
+        try:
+            branch = self._capability_branch(_regular_bytes(self.root / RECORDS / c['capabilities_sha256']))
+        except BrokerError as error:
+            return 'its capability record: %s' % error
+        if (c['branch'], c['qualified'], c['predicate_sha256']) != (
+                branch, branch in ('FULL', 'LIMITED'), self.admission['branches'][branch]['predicate_sha256']):
+            return 'its branch, qualification or predicate is not the one its capability record decides'
+        return self._f0_order_problem()
+
+    def _f0_qualified(self):
+        return self.f0 is not None and self.f0['qualified']
+
+    def _positive_problem(self, plan, attempt):
+        """Why the positive attempt may not act yet, or None: before a qualified F0 it stays
+        uncreated and unarmed, whatever the fault schedule holds."""
+        if self.admission['version'] != 3:
+            return None
+        positive = self.admission['branches']['positive']
+        if (plan, attempt) != (positive['plan'], positive['attempt']) or self._f0_qualified():
+            return None
+        return ('positive attempt %d of plan %s before a qualified F0: it stays uncreated and unarmed'
+                % (attempt, plan))
+
+    def _commit_fence(self, name, m):
+        """Why a version 3 managed crossing launches nothing, whatever the fault schedule holds:
+        the positive attempt before a qualified F0, any managed COMMIT before it, or any crossing
+        while a boot transition is unsettled."""
+        problem = self._positive_problem(m['plan'], m['attempt'])
+        if problem is not None:
+            return problem
+        if name == 'COMMIT' and not self._f0_qualified():
+            return 'no managed COMMIT launches before F0 qualifies'
+        return self._unsettled_transition()
+
+    def _settled_ok(self, action_id):
+        return any(n in self.action_ends and self.action_ends[n]['settled'] and self.action_ends[n]['status'] == 'OK'
+                   for n in self.action_begins.get(action_id, []))
+
+    def _unsettled_transition(self, current=None):
+        """Why no forward effect may follow now, or None: a boot transition, other than the one
+        being run, did not end settled with its intended outcome. Nothing continues while one is
+        uncertain."""
+        for ident, transition in self.transitions.items():
+            end = transition['end']
+            if ident == current:
+                continue
+            if end is None or end['status'] not in ('OK', 'REFUSED'):
+                return 'boot transition %s is unsettled or unexpected: nothing continues' % ident
+        return None
 
     def _target_scope(self, context):
         """The native target scope as it stands now. A target that cannot be read, or reads as no
@@ -1493,13 +2570,13 @@ class Broker:
         BOUND_COMMAND_MIN_S of it left; the deadline is then each command's launch deadline (a fresh
         broker's feature query included), refused after its durable intent and by the transport right
         before its request, and each command is given only what is left of it. A clock, target or
-        typed inventory group records a reading instead of facts."""
+        typed inventory or global session inventory group records a reading instead of facts."""
         def project(value):
             if name == 'clock':
                 return [], {'boot': value[0], 'instance': value[1], 'elapsed': value[2], 'wall': value[3]}
             if name == 'target':
                 return [], {'scope': value}
-            if name == 'inventory':
+            if name in ('inventory', 'global-sessions'):
                 return [], value
             return list(value), None
         projected, captures, status, reason = self._call_reader(name, call, context, deadline_ns, project)
@@ -1514,11 +2591,13 @@ class Broker:
                 problem = None if reading['scope'] in TARGET_SCOPES else 'a target scope of no known name'
             elif name == 'inventory':
                 problem = lab_actions.check_inventory(reading)
+            elif name == 'global-sessions':
+                problem = lab_actions.check_global(reading)
             else:
                 problem = self._facts_problem(name, facts, raw, expect_boot)
             if problem is not None:
                 status, reason, frames = 'refused', problem, []
-            elif name not in ('clock', 'target', 'inventory'):
+            elif name not in ('clock', 'target', 'inventory', 'global-sessions'):
                 frames = [encoder.observation(f) for f in facts]
         if status != 'facts':
             facts, frames, reading = [], [], None
@@ -1529,6 +2608,7 @@ class Broker:
         record = dict(context, reader=name, captures=[c[0] for c in captures], status=status, reason=reason,
                       raw=raw, observations=observations, reading=reading, emitted=emitted and status == 'facts')
         number = self.ledger.record('group', record)
+        self._read_record(dict(record, number=number))
         self._users(record)
         if record['emitted']:
             for item in observations:
@@ -1681,6 +2761,7 @@ class Broker:
         record = dict(context, reader=reader, compound=kept, status=status, reason=reason, captures=list(captures),
                       children=children, brackets=brackets, observations=observations, emitted=emitted, **extra)
         number = self.ledger.record('group', record)
+        self._read_record(dict(record, number=number))
         if kept is not None:
             self._compound_record(dict(record, number=number))
         elif reader == 'receipts':
@@ -1793,26 +2874,57 @@ class Broker:
         names = ['boot', 'checkpoint', 'factory', 'active'] + (['sessions', 'users'] if ticket else [])
         context = {'request': m['request'], 'generation': state['generation'], 'purpose': 'observe',
                    'ticket': m['ticket'] if ticket else None}
-        envelopes, users, changed = [], None, False
+        # A ticket's read address comes from the stored ticket and plan. A read loss admitted for
+        # the plan is never skipped because the store cannot be read: the observation is refused.
+        address, due = None, {}
+        if ticket:
+            address, why = self._read_address(m, state)
+            if address is None and any(c['on'] == 'read' and c['plan'] == m['plan'] and c['cell'] not in self.consumed
+                                       for c in self.cells):
+                return self._reply(m, 'REFUSED', reason='a read loss is admitted for this plan, and the read '
+                                   'address cannot be derived: %s' % why)
+            if address is not None:
+                problem = self._positive_problem(m['plan'], address['attempt'])
+                if problem is not None:
+                    return self._reply(m, 'REFUSED', reason=problem)
+                due = self._due_reads(m['ticket'], address)
+        envelopes, users, changed, groups = [], None, False, []
         try:
-            for name in names:
+            for ordinal, name in enumerate(names):
                 if name == 'users':
                     call = lambda: self.reader.users(sorted(self.users_seen.values()))  # noqa: E731
                 else:
                     call = getattr(self.reader, name)
-                group = self._group(name, call, context, m['boot'])
+                group = self._group(name, call, dict(context, **self._marker(m, address, ordinal, due)), m['boot'])
+                groups.append(group.number)
                 envelopes += [self._simple_envelope(group.number, f, frame) for f, frame in zip(group.facts, group.frames)]
                 if name == 'users' and group.ok:
                     users = group.facts
-                if group.status == 'refused' and group.reason == 'the boot changed':
-                    changed = True
+                changed = group.status == 'refused' and group.reason == 'the boot changed'
+                halt = self._read_loss(m, state, due, ordinal, group.number, groups)
+                if halt is not None:
+                    return halt
+                if changed:
                     break
             if ticket and not changed and self.reader.receipts_admitted:
-                envelopes += self._receipt_group(m, context)
+                found, number = self._receipt_group(m, context, self._marker(m, address, losses.RECEIPTS, due))
+                envelopes += found
+                groups.append(number)
+                halt = self._read_loss(m, state, due, losses.RECEIPTS, number, groups)
+                if halt is not None:
+                    return halt
             if (ticket and not changed and m['state'] == HEALTH_WINDOW_STATE and self.reader.health_admitted
                     and users is not None):
-                envelopes += self._health_groups(m, context, users)
+                found, numbers, marked = self._health_groups(m, context, users,
+                                                             self._marker(m, address, losses.HEALTH, due))
+                envelopes += found
+                groups += numbers
+                if marked is not None:
+                    halt = self._read_loss(m, state, due, losses.HEALTH, marked, groups)
+                    if halt is not None:
+                        return halt
         except Stopped as error:
+            self._settle_unacted('the observation was stopped before its read loss acted')
             return self._reply(m, 'STOPPED', reason=str(error))
         if len(envelopes) > proto.MAX_FRAMES:
             return self._reply(m, 'REFUSED', reason='the observation holds %d facts, above its bound of %d: none is cut'
@@ -1824,9 +2936,107 @@ class Broker:
             return self._reply(m, 'REFUSED', reason='the observation does not fit one frame: %s' % error)
         return reply
 
+    # ------------------------------------------------ read losses
+
+    def _read_address(self, m, state):
+        """A ticket observation's read address from the stored ticket and plan, (address, None) or
+        (None, why): the plan, the stored attempt, OBSERVE and the milestone whose state the stored
+        ticket is in, which the request's state must name. The first one of a round also takes the
+        stored ticket as the round's start: its digest and state, and its bytes, which the round's
+        boundary keeps with its own records before its checkpoint names them. An observation
+        writes nothing of its own here."""
+        store = Path(self.admission['store'])
+        tdata = _regular_bytes(store / 'tickets' / (m['ticket'] + STORE_SUFFIX))
+        pdata = _regular_bytes(store / 'plans' / (m['plan'] + STORE_SUFFIX))
+        if tdata is None or pdata is None:
+            return None, 'the stored ticket or plan cannot be read whole'
+        try:
+            t, p = records.decode_ticket(tdata), records.decode_plan(pdata)
+        except records.RecordError as error:
+            return None, 'the stored ticket or plan: %s' % error
+        a = self.admission
+        if ((t['ticket'], t['plan'], t['installation'], t['component'])
+                != (m['ticket'], m['plan'], a['installation'], a['component'])
+                or (p['plan'], p['installation'], p['component']) != (m['plan'], a['installation'], a['component'])):
+            return None, "the stored ticket or plan is not the observation's"
+        if encoder.STATES.index(t['state']) + 1 != m['state']:
+            return None, 'the observation names another state than the stored ticket'
+        signed, repair = self._signed_repair(t, p)
+        round_ = state.get('round')
+        if round_ is not None and round_['start'] is None and round_['ticket'] == m['ticket']:
+            round_['start'] = {'sha256': hashlib.sha256(tdata).hexdigest(), 'state': t['state'], 'source': 'observe'}
+            round_['start_bytes'] = tdata
+        return {'plan': m['plan'], 'attempt': t['attempt'], 'operation': 'OBSERVE',
+                'milestone': proto.read_milestone(t['state'], signed, repair)}, None
+
+    @staticmethod
+    def _signed_repair(ticket, plan):
+        """Whether a decoded ticket's ledger holds a SIGN, and whether its plan repairs another plan
+        without signing."""
+        return (any(entry[0] == 'SIGN' for entry in ticket['ledger']),
+                plan['repairs'] != proto.ZERO_ID and plan['signing'] == 0)
+
+    def _due_reads(self, ticket, address):
+        """The admitted read losses due in this observation, by reader ordinal: of this plan,
+        attempt and milestone, whose occurrence is the reader's next completed run."""
+        due = {}
+        if address['milestone'] is None:
+            return due
+        for cell in self.cells:
+            if cell['on'] != 'read' or cell['cell'] in self.consumed:
+                continue
+            if (cell['plan'], cell['attempt'], cell['milestone']) != (address['plan'], address['attempt'],
+                                                                     address['milestone']):
+                continue
+            if cell['occurrence'] == self.read_counts.get((ticket, address['milestone'], cell['ordinal']), 0) + 1:
+                due[cell['ordinal']] = cell
+        return due
+
+    def _marker(self, m, address, ordinal, due):
+        """The read marker a reader's completing group carries: its address with the reader's
+        ordinal and occurrence, and the loss due at it. Nothing without a milestone."""
+        if address is None or address['milestone'] is None:
+            return {}
+        count = self.read_counts.get((m['ticket'], address['milestone'], ordinal), 0)
+        return {'read': dict(address, ordinal=ordinal, occurrence=count + 1,
+                             loss_cell=due[ordinal]['cell'] if ordinal in due else None)}
+
+    def _read_loss(self, m, state, due, ordinal, child, groups):
+        """The HALT of a read loss due at this reader, once its raw child completed and drained:
+        the decision is written and synced first, and the reply names it and carries nothing of
+        the observation. None when no loss is due here."""
+        cell = due.get(ordinal)
+        if cell is None:
+            return None
+        number = self._decide_loss(cell, 'halt', child, m['ticket'], m['request'], state['generation'], list(groups),
+                                   'the observation halts after its selected reader; nothing of it is replied')
+        return self._reply(m, 'HALT', control_record=number, reason='admitted read loss %s' % cell['cell'])
+
+    def _decide_loss(self, cell, decision, evidence, ticket, request, generation, groups, reason):
+        """Records a read or round loss's one decision and consumes its cell. Returns its record."""
+        number = self.ledger.record('fault', {
+            'cell': cell['cell'], 'on': cell['on'], 'decision': decision, 'evidence': evidence, 'ticket': ticket,
+            'plan': cell['plan'], 'attempt': cell['attempt'], 'operation': cell['operation'],
+            'milestone': cell['milestone'], 'ordinal': cell['ordinal'], 'occurrence': cell['occurrence'],
+            'request': request, 'generation': generation, 'groups': groups, 'reason': reason})
+        self.consumed.add(cell['cell'])
+        self.loss_records[cell['cell']] = number
+        return number
+
+    def _settle_unacted(self, reason):
+        """Records every loss that a recorded group or checkpoint named due and that was never
+        decided as not acted, so it never acts at a later address."""
+        for cell_id, evidence in sorted(self.loss_evidence.items(), key=lambda item: item[1]):
+            if cell_id in self.consumed:
+                continue
+            cell = next(c for c in self.cells if c['cell'] == cell_id)
+            named = self.ledger.entries[evidence - 1].content
+            self._decide_loss(cell, 'not-acted', evidence, named.get('ticket'), named.get('request'),
+                              named.get('generation'), [], reason)
+
     # ------------------------------------------------ receipts past the clock guard
 
-    def _receipt_group(self, m, context):
+    def _receipt_group(self, m, context, marker=None):
         """One whole read of the notice fixture's provider between two clock reads of one boot
         and one framework instance, as a compound receipt read. A row becomes a RECEIPT_EVENT
         only with its issued notice, its unchanged first bytes and its first qualified visibility
@@ -1873,11 +3083,12 @@ class Broker:
                      'delivery_end': proof['delivery_end']}
             facts.append((proto.MODES['RECEIPT_EVENT'], fact, block))
         children = {'begin': begin.number, 'end': end.number if end is not None else None}
-        _, envelopes = self._compound('receipts', context, captures, children, status, reason, brackets,
-                                      {'rows': judged}, facts, emitted=True, extra={'rows': judged})
+        number, envelopes = self._compound('receipts', context, captures, children, status, reason, brackets,
+                                           {'rows': judged}, facts, emitted=True,
+                                           extra=dict({'rows': judged}, **(marker or {})))
         if status == 'stopped':
             raise Stopped(reason)
-        return envelopes
+        return envelopes, number
 
     def _row_problem(self, row):
         """Why a provider row's projection is of no known form, or None."""
@@ -2038,24 +3249,34 @@ class Broker:
                 fresh.append(prep)
         return fresh
 
-    def _health_groups(self, m, context, users):
+    def _health_groups(self, m, context, users, marker=None):
         """A prepared full probe of each running user that this observation's whole listing
         shows. No preparation, no probe: an unprepared user gives nothing, which leaves a gap,
-        never a claim."""
+        never a claim. Returns the envelopes, the groups recorded and the one that carries the
+        health reader's read marker, the first, or None when the reader recorded nothing."""
         window, why = self._store_window(m)
         if window is None or window['boot'] != m['boot']:
-            self._compound('health', dict(context, purpose='health'), [], {}, 'refused',
-                           why or "the window is of another boot than the round's", None, {}, extra={
-                               'preparations': [], 'user': None, 'serial': None})
-            return []
-        envelopes = []
+            number, _ = self._compound('health', dict(context, purpose='health'), [], {}, 'refused',
+                                       why or "the window is of another boot than the round's", None, {},
+                                       extra=dict({'preparations': [], 'user': None, 'serial': None}, **(marker or {})))
+            return [], [number], number if marker else None
+        envelopes, numbers, marked = [], [], None
         running = sorted({(f['user'], f['serial']) for f in users
                           if f['classification'] in ('RUNNING_UNLOCKED', 'RUNNING_LOCKED')})
         for user, serial in running:
             fresh = self._fresh_preparations(user, serial, window)
             if fresh:
-                envelopes += self._health_group(m, context, window, user, serial, fresh)
-        return envelopes
+                selected = marker if not numbers else None
+                found, number = self._health_group(m, context, window, user, serial, fresh, selected)
+                envelopes += found
+                numbers.append(number)
+                if selected and selected['read']['loss_cell'] is not None:
+                    # A read loss is due at this completed child: it acts now, so no later user's
+                    # composition is read and no later preparation is used.
+                    break
+        if numbers and marker:
+            marked = numbers[0]
+        return envelopes, numbers, marked
 
     def _baseline(self, boot, user, serial, window, instance):
         """The last good baseline of one user in this boot that completed by the window's start,
@@ -2070,7 +3291,7 @@ class Broker:
             return None
         return found
 
-    def _health_group(self, m, context, window, user, serial, fresh):
+    def _health_group(self, m, context, window, user, serial, fresh, marker=None):
         """One user's full probe: fresh current reads by the admitted composer between two clock
         reads, joined to the preparations it used and the baseline it relied on. The broker
         checks each row and only ever lowers it to UNKNOWN: a HELD or BAD row needs the current
@@ -2149,14 +3370,15 @@ class Broker:
                 emitted, reason = False, 'the plan has no pinned publication: no window fact is placed'
             else:
                 facts.append((proto.MODES['COMPOSED_HEALTH'], fact, block))
-        _, envelopes = self._compound('health', context, captures,
-                                      {'begin': begin.number, 'end': end.number if end is not None else None},
-                                      status, reason, brackets,
-                                      {'purpose': 'TICKET_WINDOW', 'candidate': _side(candidate), 'rows': rows,
-                                       'offered': offered, 'window': window}, facts, emitted=emitted, extra=extra)
+        number, envelopes = self._compound('health', context, captures,
+                                           {'begin': begin.number, 'end': end.number if end is not None else None},
+                                           status, reason, brackets,
+                                           {'purpose': 'TICKET_WINDOW', 'candidate': _side(candidate), 'rows': rows,
+                                            'offered': offered, 'window': window}, facts, emitted=emitted,
+                                           extra=dict(extra, **(marker or {})))
         if status == 'stopped':
             raise Stopped(reason)
-        return envelopes
+        return envelopes, number
 
     def _health_rows(self, candidate, user, serial, captures, offered, baseline, brackets):
         """The composer's seven rows as the broker accepts them, the preparations they used, or
@@ -2226,9 +3448,15 @@ class Broker:
     # ------------------------------------------------ serving a generation
 
     def run_generation(self, argv, env=None, cwd=None):
-        """Spawns one coordinator generation, serves it to its end, and reaps it."""
+        """Spawns one coordinator generation, serves it to its end, and reaps it. A version 3
+        broker tells the generation, in its environment, how many round boundaries of each ticket
+        it has recorded, so the bridge names each next checkpoint ordinal; every ordinal is
+        verified against the ledger."""
         if self.open_generation is not None:
             raise BrokerError('a generation is still open')
+        if self.admission['version'] == 3:
+            env = dict(os.environ if env is None else env)
+            env[CHECKPOINT_ENV] = self.checkpoint_counts()
         stderr_path = self.root / JVM / ('%06d.stderr' % (self.generation + 1))
         with open(stderr_path, 'xb') as err:
             # Unbuffered pipes: a frame is never held in a buffer that select cannot see.
@@ -2255,6 +3483,11 @@ class Broker:
                 raise BrokerError('the generation process was not reaped after its kill') from error
         data = stderr_path.read_bytes()
         return self._end_generation(state, code, killed, hashlib.sha256(data).hexdigest(), len(data))
+
+    def checkpoint_counts(self):
+        """Each ticket's recorded round boundaries as `ticket:count` pairs in ticket order, joined
+        by commas: what a generation is told."""
+        return ','.join('%s:%d' % (ticket, len(found)) for ticket, found in sorted(self.checkpoints.items()))
 
     def begin_generation(self, pid=None, start_ticks=None):
         """Records the start of one generation, after every earlier one ended. Returns its state."""
@@ -2419,7 +3652,7 @@ class Broker:
     def handle(self, request, state):
         """One request to its one reply."""
         kind = request['type']
-        if kind not in ('HELLO', 'CLOCK', 'OBSERVE', 'CROSS', 'POINT', 'HOST', 'REPORT'):
+        if kind not in ('HELLO', 'CLOCK', 'OBSERVE', 'CROSS', 'POINT', 'HOST', 'REPORT', 'ROUND_DONE'):
             state['violation'] = 'a reply type sent as a request'
             return self._reply({'type': 'HELLO', 'request': request['request']}, 'REFUSED', reason='not a request')
         if request['manifest'] != self.admission['manifest']:
@@ -2437,8 +3670,10 @@ class Broker:
         if not state['hello']:
             state['violation'] = 'a request before HELLO'
             return self._reply(request, 'REFUSED', reason='HELLO first')
+        if self.protocol == proto.VERSION_2:
+            self._track_round(request, state)
         handler = {'CLOCK': self._clock, 'OBSERVE': self._observe, 'CROSS': self._cross, 'POINT': self._point,
-                   'HOST': self._host, 'REPORT': self._report}[kind]
+                   'HOST': self._host, 'REPORT': self._report, 'ROUND_DONE': self._round_done}[kind]
         reply = handler(request, state)
         status = proto.STATUS_NAMES[reply['status']]
         if status == 'HALT':
@@ -2446,6 +3681,25 @@ class Broker:
         if status == 'STOPPED':
             state['stopped_sent'] = True
         return reply
+
+    @staticmethod
+    def _track_round(m, state):
+        """A round begins at its CLOCK, which the coordinator reads first in every round, and ends
+        at its ROUND_DONE. The first ticket a request of the round names is the round's ticket; a
+        request naming another one is remembered, so the round's ROUND_DONE is refused."""
+        kind = m['type']
+        if kind == 'CLOCK':
+            state['round'] = {'ticket': None, 'others': False, 'start': None, 'start_bytes': None}
+            return
+        round_ = state.get('round')
+        named = m['ticket'] if kind in ('CROSS', 'POINT', 'HOST') or (
+            kind == 'OBSERVE' and m['scope'] == proto.SCOPES['TICKET']) else None
+        if round_ is None or named is None:
+            return
+        if round_['ticket'] is None:
+            round_['ticket'] = named
+        elif round_['ticket'] != named:
+            round_['others'] = True
 
     def _hello(self, m, state):
         if state['hello']:
@@ -2513,14 +3767,59 @@ class Broker:
         return None
 
     def _point(self, m, state):
+        """The coordinator's lab point. An admitted point cell halts the generation there. Under a
+        version 3 admission the broker first keeps the store as the point left it, the old ticket
+        and the new selection between their writes, and the fault record names both by SHA-256: a
+        point whose records cannot be read whole launches no halt, and a failed write or sync of
+        them latches the writer's stop. Both answers are REFUSED, the only other answer a point
+        has, and neither consumes the cell."""
+        problem = self._positive_problem(m['plan'], m['attempt'])
+        if problem is not None:
+            return self._reply(m, 'REFUSED', reason=problem)
         cell = self._match('point', plan=m['plan'], attempt=m['attempt'], point=m['point'])
         if cell is None:
             return self._reply(m, 'OK')
+        retained = {}
+        if self.admission['version'] == 3:
+            try:
+                self._fence()
+            except Stopped as error:
+                return self._reply(m, 'REFUSED', reason=str(error))
+            retained, why = self._point_records(m)
+            if why is not None:
+                return self._reply(m, 'REFUSED', reason='%s: the point does not halt' % why)
+            try:
+                for name in ('ticket', 'selection'):
+                    self._keep(*retained[name])
+            except (BrokerError, OSError) as error:
+                stopped = self._writer_failed("the point's records could not be kept: %s" % error)
+                return self._reply(m, 'REFUSED', reason=str(stopped))
         self.consumed.add(cell['cell'])
-        number = self.ledger.record('fault', {'cell': cell['cell'], 'on': 'point', 'decision': 'halt',
-                                              'ticket': m['ticket'], 'plan': m['plan'], 'point': m['point'],
-                                              'request': m['request'], 'generation': state['generation']})
+        record = {'cell': cell['cell'], 'on': 'point', 'decision': 'halt', 'ticket': m['ticket'], 'plan': m['plan'],
+                  'point': m['point'], 'request': m['request'], 'generation': state['generation']}
+        if retained:
+            record.update(ticket_sha256=retained['ticket'][0], selection_sha256=retained['selection'][0])
+        number = self.ledger.record('fault', record)
         return self._reply(m, 'HALT', record=number, reason='admitted fault cell %s at %s' % (cell['cell'], m['point']))
+
+    def _point_records(self, m):
+        """The stored ticket and selection at a point, each as (SHA-256, bytes), or why not: both
+        read whole, the ticket the point's own, of this installation and component."""
+        store = Path(self.admission['store'])
+        tdata = _regular_bytes(store / 'tickets' / (m['ticket'] + STORE_SUFFIX))
+        sdata = _regular_bytes(store / 'selections' / (self.admission['component'] + STORE_SUFFIX))
+        if tdata is None or sdata is None:
+            return {}, 'the stored ticket or selection cannot be read whole'
+        try:
+            t = records.decode_ticket(tdata)
+        except records.RecordError as error:
+            return {}, 'the stored ticket: %s' % error
+        a = self.admission
+        if (t['ticket'], t['plan'], t['attempt'], t['installation'], t['component']) != (
+                m['ticket'], m['plan'], m['attempt'], a['installation'], a['component']):
+            return {}, "the stored ticket is not the point's"
+        return {'ticket': (hashlib.sha256(tdata).hexdigest(), tdata),
+                'selection': (hashlib.sha256(sdata).hexdigest(), sdata)}, None
 
     def _host(self, m, state):
         name = 'SIGN' if m['crossing'] == proto.HOST_CROSSINGS['SIGN'] else 'PUBLISH'
@@ -2533,6 +3832,9 @@ class Broker:
         if m['phase'] == proto.HOST_PHASES['BEGIN']:
             if key in self.host_begun:
                 return self._reply(m, 'REFUSED', reason='a host call of one ledger entry begins once')
+            problem = self._positive_problem(m['plan'], m['attempt'])
+            if problem is not None:
+                return self._reply(m, 'REFUSED', reason=problem)
             cell = self._match('host', plan=m['plan'], attempt=m['attempt'], crossing=name, occurrence=m['occurrence'])
             if cell is not None:
                 self.consumed.add(cell['cell'])
@@ -2567,6 +3869,94 @@ class Broker:
                                                'cause': m['cause'], 'ledger': m['ledger'], 'note': m['note'],
                                                'request': m['request'], 'generation': state['generation']})
         return self._reply(m, 'OK', record=number)
+
+    # ------------------------------------------------ round boundaries
+
+    def _round_done(self, m, state):
+        """One public round's boundary, after the round returned and before any next round or
+        report. It is a boundary of the lab bridge, never a deployment hook and never a decision
+        about the ticket. Refused unless a round began since the last boundary and named no other
+        ticket, the stored ticket, plan and selection are the ones the request names by its
+        identity and digests, the ordinal is the ticket's next recorded boundary, and the milestone
+        is the one the stored bytes show the round reached. The broker then keeps the exact
+        ticket, selection and plan bytes, and the round start's that its first observation read,
+        writes the checkpoint, and only then consumes a round loss due at this boundary, ordering
+        the halt by the decision's record. A failed write or sync of those bytes latches the
+        writer's stop: the answer is STOPPED, and no checkpoint, loss or later effect follows."""
+        try:
+            self._fence()
+        except Stopped as error:
+            return self._reply(m, 'STOPPED', reason=str(error))
+        round_, state['round'] = state.get('round'), None
+        if round_ is None:
+            return self._reply(m, 'REFUSED', reason='no round began since the last boundary: one ROUND_DONE ends one '
+                                                    'round')
+        if round_['others'] or round_['ticket'] not in (None, m['ticket']):
+            return self._reply(m, 'REFUSED', reason='a ROUND_DONE of another ticket than its round named')
+        problem = self._positive_problem(m['plan'], m['attempt'])
+        if problem is not None:
+            return self._reply(m, 'REFUSED', reason=problem)
+        store = Path(self.admission['store'])
+        tdata = _regular_bytes(store / 'tickets' / (m['ticket'] + STORE_SUFFIX))
+        pdata = _regular_bytes(store / 'plans' / (m['plan'] + STORE_SUFFIX))
+        sdata = _regular_bytes(store / 'selections' / (self.admission['component'] + STORE_SUFFIX))
+        if tdata is None or pdata is None or sdata is None:
+            return self._reply(m, 'REFUSED', reason='the stored ticket, plan or selection cannot be read whole')
+        try:
+            t, p = records.decode_ticket(tdata), records.decode_plan(pdata)
+        except records.RecordError as error:
+            return self._reply(m, 'REFUSED', reason='the stored ticket or plan: %s' % error)
+        a = self.admission
+        if ((t['ticket'], t['plan'], t['attempt'], t['installation'], t['component'])
+                != (m['ticket'], m['plan'], m['attempt'], a['installation'], a['component'])
+                or (p['plan'], p['installation'], p['component']) != (m['plan'], a['installation'], a['component'])):
+            return self._reply(m, 'REFUSED', reason='a ROUND_DONE of another ticket, plan or attempt than the store holds')
+        digests = {'ticket': hashlib.sha256(tdata).hexdigest(), 'selection': hashlib.sha256(sdata).hexdigest(),
+                   'plan': hashlib.sha256(pdata).hexdigest()}
+        if (digests['ticket'], digests['selection']) != (m['ticket_digest'], m['selection_digest']):
+            return self._reply(m, 'REFUSED', reason='stale digests: the stored ticket or selection is not the one the '
+                                                    'ROUND_DONE names')
+        found = self.checkpoints.get(m['ticket'], [])
+        if m['checkpoint_ordinal'] != len(found) + 1:
+            return self._reply(m, 'REFUSED', reason='checkpoint %d is not the ticket\'s next boundary, %d'
+                               % (m['checkpoint_ordinal'], len(found) + 1))
+        start = round_['start']
+        if start is None and found:
+            start = {'sha256': found[-1]['ticket_sha256'], 'state': found[-1]['state'], 'source': 'checkpoint'}
+        signed, repair = self._signed_repair(t, p)
+        milestone = proto.boundary_milestone(start and start['state'], t['state'], signed, repair)
+        code = proto.MILESTONES[milestone] if milestone else proto.NO_MILESTONE
+        if m['milestone'] != code:
+            return self._reply(m, 'REFUSED', reason='the round reached %s, not the milestone the ROUND_DONE names'
+                               % (milestone or 'no milestone'))
+        kept = [(digests[name], data) for name, data in (('ticket', tdata), ('selection', sdata), ('plan', pdata))]
+        if start is not None and start['source'] == 'observe':
+            kept.append((start['sha256'], round_['start_bytes']))
+        try:
+            for digest, data in kept:
+                self._keep(digest, data)
+        except (BrokerError, OSError) as error:
+            # A failed write or sync of the boundary's own evidence latches the writer: no
+            # checkpoint, no loss and no later command or effect.
+            stopped = self._writer_failed("the boundary's records could not be kept: %s" % error)
+            return self._reply(m, 'STOPPED', reason=str(stopped))
+        occurrence = self.boundary_counts.get((m['ticket'], milestone), 0) + 1 if milestone else None
+        due = next((c for c in self.cells if c['on'] == 'round' and c['cell'] not in self.consumed
+                    and (c['plan'], c['attempt'], c['milestone'], c['occurrence'])
+                    == (m['plan'], m['attempt'], milestone, occurrence)), None) if milestone else None
+        record = {'ticket': m['ticket'], 'plan': m['plan'], 'attempt': m['attempt'], 'ordinal': len(found) + 1,
+                  'milestone': milestone, 'milestone_code': code, 'state': t['state'],
+                  'ticket_sha256': digests['ticket'], 'selection_sha256': digests['selection'],
+                  'plan_sha256': digests['plan'], 'round_start': start, 'occurrence': occurrence,
+                  'loss_cell': due and due['cell'], 'request': m['request'], 'generation': state['generation'],
+                  'wall_ns': self._wall(), 'monotonic_ns': self._monotonic()}
+        number = self.ledger.record('checkpoint', record)
+        self._next_record('checkpoint', dict(record, number=number, kind='checkpoint'))
+        if due is None:
+            return self._reply(m, 'OK', record=number)
+        fault = self._decide_loss(due, 'halt', number, m['ticket'], m['request'], state['generation'], [],
+                                  'the generation halts after its durable boundary')
+        return self._reply(m, 'HALT', record=fault, reason='admitted round loss %s' % due['cell'])
 
     # ------------------------------------------------ crossings
 
@@ -2616,6 +4006,13 @@ class Broker:
             # The admitted launch set is a fence of its own, whatever the fault schedule holds.
             if name not in self._launches:
                 reason = 'the crossing is not admitted to launch on this guest: nothing launched'
+                self._outcome(number, 'NO_REPLY', captures, None, cell, reason)
+                return self._reply(m, 'NO_REPLY', record=number, reason=reason)
+            # The next profile's commit fence, independent of any fault: the positive attempt and
+            # every managed COMMIT wait for a qualified F0, and nothing follows an unsettled boot.
+            fenced = self._commit_fence(name, m) if self.admission['version'] == 3 else None
+            if fenced is not None:
+                reason = '%s: nothing launched' % fenced
                 self._outcome(number, 'NO_REPLY', captures, None, cell, reason)
                 return self._reply(m, 'NO_REPLY', record=number, reason=reason)
             # A version 3 admission also caps each crossing's effects, counted from the ledger.
@@ -2837,22 +4234,38 @@ class Broker:
         """Why a version 3 admission's effect limit refuses one more crossing of a name, or None.
         The crossings of that name whose effect commands may have launched, completed or
         interrupted, are counted from the ledger's captures, never from replies; a REBOOT also
-        counts against the boot policy's activation services."""
+        counts against the boot policy's activation services, which the negative activations
+        share."""
         names = {e.number: e.content['crossing'] for e in self.ledger.entries if e.kind == 'crossing' and e.complete}
-        effective, services = set(), 0
+        effective = set()
         for e in self.ledger.entries:
             intent = e.content.get('intent') if e.kind == 'capture' else None
             if (intent and intent.get('operation') in ('mutation', 'push', 'reboot', 'notice')
                     and intent.get('crossing') in names and self._may_have_launched(e)):
                 effective.add(intent['crossing'])
-                services += intent['operation'] == 'reboot'
         limit = self.admission['effect_limits']['crossings'][name]
         if sum(1 for number in effective if names[number] == name) >= limit:
             return 'the admitted limit of %d %s crossings with an effect is reached' % (limit, name)
         allowed = self.admission['boot_policy']['activation_services']
-        if name == 'REBOOT' and services >= allowed:
+        services = self._reboot_services()
+        if name == 'REBOOT' and services['MANAGED_ACTIVATION'] + services['NEGATIVE_ACTIVATION'] >= allowed:
             return 'the admitted %d activation services are spent' % allowed
         return None
+
+    def _reboot_services(self):
+        """The reboot services that may have launched, by kind: the managed REBOOT crossings, the
+        plain confirmations and the negative activations, counted from the ledger's captures."""
+        counts = {'MANAGED_ACTIVATION': 0, 'CONFIRMATION': 0, 'NEGATIVE_ACTIVATION': 0}
+        for e in self.ledger.entries:
+            intent = e.content.get('intent') if e.kind == 'capture' else None
+            if not intent or not self._may_have_launched(e):
+                continue
+            if intent.get('operation') == 'reboot':
+                counts['MANAGED_ACTIVATION'] += 1
+            elif intent.get('operation') == 'lab-action-effect' and intent.get('command') == REBOOT_LABEL:
+                counts[intent['transition_kind']] += 1
+        counts['total'] = sum(counts.values())
+        return counts
 
     def _confirm(self, m, context, states):
         """None when the ticket's exact session is the one live session with its ID in the entry's

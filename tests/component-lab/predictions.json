@@ -1,15 +1,16 @@
 {
  "cases": {
-  "BridgeTest": 19,
+  "BridgeTest": 22,
   "DriverTest": 27,
-  "ProtocolTest": 9,
+  "ProtocolTest": 11,
   "test_capture_ledger": 14,
-  "test_lab_bridge": 23,
+  "test_lab_bridge": 25,
   "test_lab_broker": 103,
   "test_lab_crossings": 11,
   "test_lab_driver": 35,
+  "test_lab_loss": 54,
   "test_lab_next": 46,
-  "test_lab_protocol": 12,
+  "test_lab_protocol": 15,
   "test_shell_transport": 24
  },
  "mutants_caught_at_least": {
@@ -17,7 +18,7 @@
    "test_lab_next.ActionTests.test_a_successor_runs_only_after_its_predecessor_settled"
   ],
   "action-effects-uncapped": [
-   "test_lab_next.ActionTests.test_uses_and_effect_limits_are_counted_from_the_ledger_and_survive_reopening"
+   "test_lab_loss.FenceTests.test_direct_steps_launch_nothing_past_their_effect_caps"
   ],
   "action-lost-left-open": [
    "test_lab_next.ActionTests.test_an_interrupted_action_is_closed_lost_and_never_repeated"
@@ -63,6 +64,9 @@
   "bound-timeout-fixed-at-intent": [
    "test_lab_broker.LabActionTests.test_the_transport_is_given_only_what_the_bound_has_left"
   ],
+  "boundary-keep-failure-not-latched": [
+   "test_lab_loss.WriterLatchTests.test_a_failed_keep_at_a_boundary_stops_and_records_no_checkpoint_or_loss"
+  ],
   "broker-name-unsynced-at-opening": [
    "test_lab_broker.BrokerDirectoryTests.test_the_brokers_name_is_synced_when_made_and_at_every_opening",
    "test_lab_broker.BrokerDirectoryTests.test_a_failed_sync_of_the_brokers_name_refuses_the_opening_until_it_completes"
@@ -80,6 +84,9 @@
   ],
   "checked-not-t0": [
    "DriverTest.baseline / a selection checked in another boot than T0 is refused"
+  ],
+  "checkpoint-bytes-unchecked-at-reopening": [
+   "test_lab_loss.ChangedCopyTests.test_changed_copies_of_each_new_record_refuse_the_reopening"
   ],
   "checkpoint-not-required": [
    "DriverTest.baseline / T0 without a committed checkpoint is refused"
@@ -110,6 +117,15 @@
   "config-host-unchecked": [
    "BridgeTest.config / version 2 names the host configuration's digest, every line checked"
   ],
+  "confirmation-beside-a-committed-session": [
+   "test_lab_loss.ConfirmationTests.test_no_reboot_beside_an_armed_unknown_or_foreign_session"
+  ],
+  "confirmation-same-boot-taken": [
+   "test_lab_loss.ConfirmationTests.test_no_new_boot_within_the_bound_or_a_second_boot_holds_every_crossing"
+  ],
+  "confirmation-second-boot-taken": [
+   "test_lab_loss.ConfirmationTests.test_no_new_boot_within_the_bound_or_a_second_boot_holds_every_crossing"
+  ],
   "controller-read-during-generation": [
    "test_lab_broker.ControllerTests.test_controller_reads_are_recorded_groups_between_generations"
   ],
@@ -137,6 +153,12 @@
   "diagnostic-of-any-name": [
    "test_lab_broker.ControllerTests.test_a_diagnostic_is_a_fixed_fenced_capture"
   ],
+  "direct-step-after-f0": [
+   "test_lab_loss.FenceTests.test_the_direct_exception_has_its_own_gates_and_order"
+  ],
+  "direct-step-without-consent": [
+   "test_lab_loss.FenceTests.test_the_direct_exception_has_its_own_gates_and_order"
+  ],
   "drain-forgets-quarantined-captures": [
    "test_lab_broker.ReopenTests.test_a_drain_survives_a_crash_after_its_quarantine"
   ],
@@ -161,6 +183,15 @@
   ],
   "exit-length-unchecked": [
    "test_shell_transport.DecoderTests.test_a_second_or_malformed_exit_is_malformed"
+  ],
+  "f0-capability-unchecked-at-reopening": [
+   "test_lab_loss.FenceTests.test_a_reopened_fence_restores_f0_only_from_its_kept_capability_record"
+  ],
+  "f0-decision-relation-unchecked": [
+   "test_lab_loss.FenceTests.test_a_reopened_fence_restores_f0_only_from_its_kept_capability_record"
+  ],
+  "f0-keep-failure-not-latched": [
+   "test_lab_loss.WriterLatchTests.test_a_failed_keep_of_f0_or_the_schedule_stops_and_records_neither"
   ],
   "fact-boot-unchecked": [
    "BridgeTest.device / frames are decoded strictly and checked against the round"
@@ -206,6 +237,9 @@
   ],
   "health-late-baseline": [
    "test_lab_next.HealthTests.test_only_a_baseline_completed_before_the_window_in_this_framework_is_relied_on"
+  ],
+  "health-loss-reads-every-user": [
+   "test_lab_loss.ReadLossTests.test_a_health_loss_stops_at_its_selected_child_beside_a_second_prepared_user"
   ],
   "health-outside-a-full-window": [
    "test_lab_next.HealthTests.test_health_needs_its_window_from_the_store_and_a_ticket"
@@ -276,6 +310,22 @@
   "interrupted-read-as-not-launched": [
    "test_lab_broker.ReopenTests.test_an_interrupted_capture_is_quarantined_drained_and_never_repeated"
   ],
+  "issuing-keep-failure-not-latched": [
+   "test_lab_loss.WriterLatchTests.test_a_failed_keep_of_a_confirmations_issuing_records_stops_before_any_reboot"
+  ],
+  "java-milestone-progress-as-entry": [
+   "ProtocolTest.protocol / the milestone codes are fixed"
+  ],
+  "java-round-halt-ignored": [
+   "BridgeTest.round v2 / each public round ends with its boundary, and the broker's answer decides"
+  ],
+  "java-round-ordinal-not-counted": [
+   "BridgeTest.round v2 / each public round ends with its boundary, and the broker's answer decides",
+   "BridgeTest.round v2 / a settle is one public round at a time, each with its boundary"
+  ],
+  "java-round-reply-record-unchecked": [
+   "ProtocolTest.protocol / the round boundary and its reply"
+  ],
   "java-session-by-id-alone": [
    "ProtocolTest.protocol / cross relations"
   ],
@@ -287,6 +337,9 @@
   ],
   "java-v2-version-unchecked": [
    "ProtocolTest.protocol / version 2 has one encoding, and a channel speaks one version"
+  ],
+  "java-version-2-runs-untold": [
+   "BridgeTest.bridge / the checkpoint counts a broker tells, and a version 2 generation needs them"
   ],
   "launch-deadline-not-given-to-the-transport": [
    "test_lab_broker.GateTests.test_a_launch_is_refused_once_its_grant_may_have_expired_in_transit"
@@ -322,11 +375,24 @@
   "loss-before-launches": [
    "test_lab_broker.FaultTests.test_a_loss_before_the_effect_launches_nothing_and_is_consumed_before_the_halt"
   ],
+  "loss-stopped-left-due": [
+   "test_lab_loss.ReadLossTests.test_a_stop_at_the_selected_reader_records_the_loss_not_acted"
+  ],
   "lost-generation-left-running": [
    "test_lab_broker.ReopenTests.test_a_lost_generation_process_is_ended_before_another_is_served"
   ],
   "lost-read-as-quiet-1": [
    "test_lab_broker.GroupTests.test_a_lost_read_never_reads_as_no_framework"
+  ],
+  "managed-commit-fenced-only-by-its-fault": [
+   "test_lab_loss.FenceTests.test_a_managed_commit_launches_nothing_before_a_qualified_f0_whatever_its_fault"
+  ],
+  "managed-commit-unfenced": [
+   "test_lab_loss.FenceTests.test_a_managed_commit_launches_nothing_before_a_qualified_f0_whatever_its_fault",
+   "test_lab_loss.FenceTests.test_an_honest_n2_n3_direct_sequence_commits_before_f0_and_a_managed_commit_does_not"
+  ],
+  "milestone-progress-as-entry": [
+   "test_lab_loss.MilestoneTests.test_the_milestone_enum_is_fixed_and_its_rule_one_table"
   ],
   "not-published-is-failure": [
    "test_lab_driver.DriverEndToEnd.test_a_publication_lost_before_its_effect_waits_then_stages_the_republication"
@@ -345,6 +411,9 @@
    "DriverTest.baseline / a later incomplete check's facts are refused",
    "test_lab_driver.DriverEndToEnd.test_a_store_with_facts_of_another_boot_gives_no_plan_whatever_the_wall_times"
   ],
+  "own-row-takes-a-partial-inventory": [
+   "test_lab_loss.FenceTests.test_a_direct_commit_arms_nothing_on_an_incomplete_inventory"
+  ],
   "partial-payload-dropped": [
    "test_shell_transport.DecoderTests.test_received_partial_payload_is_kept_without_completion",
    "test_shell_transport.ShellTests.test_a_timeout_inside_a_packet_keeps_its_received_payload"
@@ -358,6 +427,21 @@
   "point-halt-ignored": [
    "BridgeTest.points / BETWEEN_WRITES asks the broker once and halts on its order",
    "test_lab_bridge.BridgeEndToEnd.test_a_loss_between_the_selection_and_ticket_writes_moves_the_choice_once"
+  ],
+  "point-keep-failure-not-latched": [
+   "test_lab_loss.PointTests.test_a_point_that_cannot_keep_its_records_does_not_halt"
+  ],
+  "point-kept-bytes-unchecked-at-reopening": [
+   "test_lab_loss.PointTests.test_a_point_keeps_the_old_ticket_and_the_new_selection_before_its_halt"
+  ],
+  "point-of-another-ticket-halts": [
+   "test_lab_loss.PointTests.test_a_point_that_cannot_keep_its_records_does_not_halt"
+  ],
+  "point-records-not-kept": [
+   "test_lab_loss.PointTests.test_a_point_keeps_the_old_ticket_and_the_new_selection_before_its_halt"
+  ],
+  "positive-attempt-unfenced": [
+   "test_lab_loss.FenceTests.test_a_refused_f0_leaves_the_positive_attempt_uncreated_and_unarmed"
   ],
   "prediction-not-compared": [
    "test_lab_driver.DriverEndToEnd.test_a_prediction_the_records_do_not_meet_stops_the_driver"
@@ -395,6 +479,13 @@
   ],
   "publication-not-pinned": [
    "test_lab_driver.DriverEndToEnd.test_a_ticket_closes_applied_with_the_real_signer_and_publication"
+  ],
+  "read-loss-before-its-child": [
+   "test_lab_loss.ReadLossTests.test_a_read_loss_at_each_milestone_halts_after_its_selected_child",
+   "test_lab_loss.BarrierTests.test_a_read_loss_halts_only_after_its_child_and_decision_are_durable"
+  ],
+  "read-loss-skipped-unaddressed": [
+   "test_lab_loss.ReadLossTests.test_a_read_loss_is_never_skipped_when_the_store_cannot_be_read"
   ],
   "reap-unbounded": [
    "test_lab_broker.StreamAndReapTests.test_a_generation_whose_kill_does_not_take_stays_open"
@@ -502,6 +593,43 @@
   "retention-single-write": [
    "test_lab_broker.GuestAdmissionTests.test_a_short_write_is_completed_before_the_record_is_kept"
   ],
+  "round-done-milestone-unverified": [
+   "test_lab_loss.RoundBoundaryTests.test_every_milestone_is_verified_from_the_stored_bytes"
+  ],
+  "round-done-of-another-ticket": [
+   "test_lab_loss.RoundBoundaryTests.test_contrary_boundaries_are_refused_and_record_nothing"
+  ],
+  "round-done-ordinal-unchecked": [
+   "test_lab_loss.RoundBoundaryTests.test_contrary_boundaries_are_refused_and_record_nothing"
+  ],
+  "round-done-stale-digests-taken": [
+   "test_lab_loss.RoundBoundaryTests.test_contrary_boundaries_are_refused_and_record_nothing"
+  ],
+  "round-done-without-its-round": [
+   "test_lab_loss.RoundBoundaryTests.test_contrary_boundaries_are_refused_and_record_nothing"
+  ],
+  "round-loss-at-every-occurrence": [
+   "test_lab_loss.RoundLossTests.test_a_round_loss_acts_at_its_occurrence_only_and_once"
+  ],
+  "round-loss-before-its-checkpoint": [
+   "test_lab_loss.RoundLossTests.test_a_round_loss_at_each_milestone_halts_after_its_durable_checkpoint",
+   "test_lab_loss.BarrierTests.test_a_round_loss_halts_only_after_its_checkpoint_and_decision_are_durable"
+  ],
+  "round-reply-record-unchecked": [
+   "test_lab_protocol.ProtocolTests.test_round_done_relations"
+  ],
+  "round-start-bytes-not-kept": [
+   "test_lab_loss.WriterLatchTests.test_a_failed_keep_at_a_boundary_stops_and_records_no_checkpoint_or_loss"
+  ],
+  "schedule-keep-failure-not-latched": [
+   "test_lab_loss.WriterLatchTests.test_a_failed_keep_of_f0_or_the_schedule_stops_and_records_neither"
+  ],
+  "schedule-passed-address-taken": [
+   "test_lab_loss.ScheduleTests.test_a_fault_whose_address_has_passed_is_refused"
+  ],
+  "schedule-summary-unchecked": [
+   "test_lab_loss.ChangedCopyTests.test_a_changed_schedule_summary_never_moves_an_admitted_fault"
+  ],
   "sdk-range-unchecked": [
    "test_lab_driver.DriverEndToEnd.test_a_configured_sdk_range_other_than_the_inputs_declared_range_is_refused"
   ],
@@ -591,6 +719,9 @@
   "unreadable-features-unlisted": [
    "test_lab_broker.FeatureTests.test_unreadable_features_launch_nothing_and_are_asked_again",
    "test_lab_broker.LabActionTests.test_a_fresh_brokers_feature_query_is_refused_by_the_transport_once_the_bound_passes"
+  ],
+  "unsettled-transition-ignored": [
+   "test_lab_loss.ConfirmationTests.test_no_new_boot_within_the_bound_or_a_second_boot_holds_every_crossing"
   ],
   "v2-compound-read-before-the-clock": [
    "BridgeTest.device v2 / a receipt keeps its proven time only with its notice's provenance",

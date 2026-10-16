@@ -4,9 +4,11 @@ a client that sends exact protocol frames, and a small reader of observation rec
 import hashlib
 import os
 from pathlib import Path
+import shutil
 import struct
 import sys
 import tempfile
+import unittest.mock
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
@@ -16,9 +18,12 @@ for _path in (str(HERE), str(REPO)):
 
 import lab_actions  # noqa: E402
 import lab_broker  # noqa: E402
+import lab_evidence  # noqa: E402
+import lab_losses  # noqa: E402
 import lab_protocol as proto  # noqa: E402
 import sim_android  # noqa: E402
 import source_manifest  # noqa: E402
+from scripts.proof import component_transaction_records as encoder  # noqa: E402
 
 INSTALLATION = '00112233445566778899aabbccddeeff'
 COORDINATOR = 'c0' * 16
@@ -33,7 +38,8 @@ LAB_FILES = ('tests/component-lab/lab_protocol.py', 'tests/component-lab/lab_bro
              'tests/component-lab/capture_ledger.py', 'tests/component-lab/lab_crossings.py',
              'tests/component-lab/lab_readers.py', 'tests/component-lab/shell_transport.py',
              'tests/component-lab/source_manifest.py', 'tests/component-lab/lab_actions.py',
-             'tests/component-lab/lab_evidence.py', 'tests/component-lab/lab_records.py')
+             'tests/component-lab/lab_evidence.py', 'tests/component-lab/lab_records.py',
+             'tests/component-lab/lab_losses.py')
 LIMITS = {'read_timeout_s': 30, 'mutation_timeout_s': 60, 'commit_timeout_s': 150, 'push_timeout_s': 300,
           'reboot_timeout_s': 10, 'read_stdout_max': 4 << 20, 'read_stderr_max': 65536, 'reply_stdout_max': 65536,
           'reply_stderr_max': 65536, 'generation_idle_s': 30, 'drain_grace_s': 5, 'exit_grace_s': 30}
@@ -56,10 +62,16 @@ def admission(directory, **changes):
 
 
 # The next campaign profile: one runtime, three admitted typed actions and generous effect limits.
+# The plain kernel confirmation is the profile's control action; the shell framework restart is
+# withdrawn from it.
 RUNTIME = 'e1' * 16
-RESTART_ACTION, VISIBILITY_ACTION, PREPARATION_ACTION = '0a' * 16, '0b' * 16, '0c' * 16
-PARAMETERS = {'FRAMEWORK_RESTART': {}, 'NOTICE_VISIBILITY': {},
+CONFIRM_ACTION, VISIBILITY_ACTION, PREPARATION_ACTION = '0a' * 16, '0b' * 16, '0c' * 16
+PARAMETERS = {'PLAIN_KERNEL_CONFIRM': {}, 'NOTICE_VISIBILITY': {},
               'HEALTH_PREPARATION': {'criteria': [2, 3, 5], 'max_probe_ms': 120_000}}
+# The positive attempt the F0 decision gates: the plan's attempt 6.
+POSITIVE_ATTEMPT = 6
+BOOT_POLICY = {'activation_services': 4, 'confirmation_services': 6, 'observed_boots': 13, 'poll_interval_ms': 5000,
+               'settle_ms': 1_200_000, 'negative_settle_ms': 2_400_000, 'unexpected_boot': 'HALT'}
 
 
 def action_spec(ident, kind, phase='F0', cell='f0-control', **changes):
@@ -68,7 +80,7 @@ def action_spec(ident, kind, phase='F0', cell='f0-control', **changes):
     value = {'id': ident, 'type': kind, 'phase': phase, 'cell': cell, 'runtime': RUNTIME, 'installation': INSTALLATION,
              'authority': lab_actions.TYPES[kind]['authority'],
              'user_selector': {'kind': lab_actions.TYPES[kind]['selectors'][0]},
-             'parameters': dict(PARAMETERS[kind]), 'inputs': [],
+             'parameters': dict(PARAMETERS.get(kind, {})), 'inputs': [],
              'preconditions': list(lab_actions.TYPES[kind]['preconditions']), 'predecessor': None, 'successors': [],
              'max_uses': 10, 'timeout_ms': 600_000, 'stdout_max': 65536, 'stderr_max': 65536}
     value.update(changes)
@@ -76,8 +88,15 @@ def action_spec(ident, kind, phase='F0', cell='f0-control', **changes):
 
 
 def default_specs():
-    return [action_spec(RESTART_ACTION, 'FRAMEWORK_RESTART'), action_spec(VISIBILITY_ACTION, 'NOTICE_VISIBILITY'),
+    return [action_spec(CONFIRM_ACTION, 'PLAIN_KERNEL_CONFIRM', phase='CELLS', cell='c0-confirm'),
+            action_spec(VISIBILITY_ACTION, 'NOTICE_VISIBILITY'),
             action_spec(PREPARATION_ACTION, 'HEALTH_PREPARATION', phase='A', cell='a-window')]
+
+
+def schedule(faults, installation=INSTALLATION):
+    """The canonical bytes of a fault schedule of the next profile."""
+    return lab_evidence.canonical({'schema': lab_losses.SCHEMA, 'profile': lab_actions.PROFILE,
+                                   'installation': installation, 'faults': list(faults)})
 
 
 def effect_limits(cap=100):
@@ -93,12 +112,202 @@ def admission3(directory, store=None, specs=None, **changes):
                  profile=lab_actions.PROFILE, cells_sha256='c1' * 32, fixtures_sha256='f1' * 32,
                  payloads_sha256='a1' * 32, fault_schedule_sha256='b1' * 32, lab_actions=specs,
                  branches={'FULL': {'predicate_sha256': 'd1' * 32, 'actions': [s['id'] for s in specs]},
-                           'LIMITED': None, 'REFUSED': {'predicate_sha256': 'd2' * 32, 'actions': []}},
-                 effect_limits=effect_limits(), boot_policy={'activation_services': 4, 'observed_boots': 8,
-                                                             'poll_interval_ms': 5000, 'settle_ms': 600_000,
-                                                             'unexpected_boot': 'HALT'})
+                           'LIMITED': None, 'REFUSED': {'predicate_sha256': 'd2' * 32, 'actions': []},
+                           'positive': {'plan': PLAN, 'attempt': POSITIVE_ATTEMPT}},
+                 effect_limits=effect_limits(), boot_policy=dict(BOOT_POLICY))
     value.update(changes)
     return value
+
+
+def plan_record(plan=PLAN, **changes):
+    """A whole stored plan of the independent encoder, of this installation and component."""
+    return encoder.plan(dict(encoder.base_plan(1), plan=plan, **changes))
+
+
+def ticket_record(sim, state, ticket=TICKET, plan=PLAN, attempt=1, ledger=None, **changes):
+    """A whole stored ticket of the independent encoder in one state, its boot the guest's, by
+    default after a CREATE entry under the STAGE grant with the ticket's nonce."""
+    value = dict(encoder.base_ticket(1, plan), ticket=ticket, attempt=attempt, state=state, boot=sim.boot,
+                 reference=(16, 0, 0, '', 0, NONCE))
+    value['ledger'] = ([('CREATE', sim.boot, sim.instance, 5000, GRANT, NONCE, encoder.TIME)] if ledger is None
+                       else ledger)
+    value.update(changes)
+    return encoder.ticket(value)
+
+
+def f0_record(branch, installation=INSTALLATION, **extra):
+    """An F0 capability record of the next profile naming its branch: the fields the broker's fence
+    reads. The trial's whole record is a later package's."""
+    return lab_evidence.canonical(dict({'schema': lab_broker.F0_SCHEMA, 'profile': lab_actions.PROFILE,
+                                        'installation': installation, 'branch': branch}, **extra))
+
+
+def state_code(name):
+    """A ticket state's code, as an OBSERVE names it."""
+    return encoder.STATES.index(name) + 1
+
+
+# Two direct negative controls, N2 and N3, each a stage, a commit and an activation, in order.
+N2_CONTROL, N3_CONTROL = 'a2' * 16, 'a3' * 16
+N2_PAYLOAD = (('base.apk', b'N' * 2048 + b'signed by another key'), ('base.apk.idsig', b'S' * 256 + b'its sidecar'))
+N3_PAYLOAD = (('base.apk', b'M' * 2048 + b'correctly signed, no sidecar'),)
+DIRECT_IDS = {('N2', 'DIRECT_STAGE'): 'd1' * 16, ('N2', 'DIRECT_COMMIT'): 'd2' * 16,
+              ('N2', 'NEGATIVE_ACTIVATION'): 'd3' * 16, ('N3', 'DIRECT_STAGE'): 'd4' * 16,
+              ('N3', 'DIRECT_COMMIT'): 'd5' * 16, ('N3', 'NEGATIVE_ACTIVATION'): 'd6' * 16}
+
+
+def direct_specs(roles=('N2', 'N3')):
+    """The admitted specs of the direct negative controls of these roles, chained in order."""
+    specs, previous = [], None
+    for role in roles:
+        control, payload = (N2_CONTROL, N2_PAYLOAD) if role == 'N2' else (N3_CONTROL, N3_PAYLOAD)
+        for kind in lab_actions.DIRECT_STEPS:
+            ident = DIRECT_IDS[(role, kind)]
+            inputs = [{'role': m, 'sha256': hashlib.sha256(d).hexdigest(), 'bytes': len(d)} for m, d in payload]
+            specs.append(action_spec(ident, kind, phase=role, cell='%s-%s' % (role.lower(), kind.lower().replace('_', '-')),
+                                     parameters={'control': control, 'role': role},
+                                     inputs=inputs if kind == 'DIRECT_STAGE' else [], max_uses=1, predecessor=previous))
+            if previous is not None:
+                specs[-2]['successors'] = [ident]
+            previous = ident
+    return specs
+
+
+class SyncTrace:
+    """Records, in order, every file created, written and synced, every directory made and
+    synced and every rename under one root, through the broker's injected sync and the os calls,
+    and builds the image a power loss at a mark would leave: a path whose name, and its parents'
+    names, were synced in their directories after they appeared, and a file whose content was
+    synced after its last write. Content that was not synced is lost."""
+
+    def __init__(self, root):
+        self.root, self.events, self.fds = str(root), [], {}
+        self._real = {name: getattr(os, name) for name in ('open', 'write', 'rename', 'mkdir', 'fsync', 'close')}
+        self._patches = []
+
+    def _under(self, path):
+        path = os.path.abspath(str(path))
+        return path == self.root or path.startswith(self.root + os.sep)
+
+    def fsync(self, fd):
+        path = self.fds.get(fd) or os.readlink('/proc/self/fd/%d' % fd)
+        if self._under(path):
+            self.events.append(('fsync-dir' if os.path.isdir(path) else 'fsync-file', path))
+        return self._real['fsync'](fd)
+
+    def __enter__(self):
+        real = self._real
+
+        def opened(path, flags, *args, **kwargs):
+            fd = real['open'](path, flags, *args, **kwargs)
+            full = os.path.abspath(os.fspath(path))
+            if self._under(full):
+                self.fds[fd] = full
+                if flags & os.O_CREAT:
+                    self.events.append(('create', full))
+            return fd
+
+        def written(fd, data):
+            count = real['write'](fd, data)
+            if fd in self.fds:
+                self.events.append(('write', self.fds[fd]))
+            return count
+
+        def renamed(src, dst, *args, **kwargs):
+            real['rename'](src, dst, *args, **kwargs)
+            if self._under(dst):
+                self.events.append(('rename', os.path.abspath(os.fspath(src)), os.path.abspath(os.fspath(dst))))
+
+        def made(path, *args, **kwargs):
+            real['mkdir'](path, *args, **kwargs)
+            if self._under(path):
+                self.events.append(('mkdir', os.path.abspath(os.fspath(path))))
+
+        def closed(fd):
+            self.fds.pop(fd, None)
+            return real['close'](fd)
+        for name, fake in (('open', opened), ('write', written), ('rename', renamed), ('mkdir', made),
+                           ('close', closed), ('fsync', self.fsync)):
+            patch = unittest.mock.patch.object(os, name, fake)
+            patch.start()
+            self._patches.append(patch)
+        return self
+
+    def __exit__(self, *failure):
+        for patch in reversed(self._patches):
+            patch.stop()
+        self._patches = []
+
+    def mark(self, label):
+        self.events.append(('mark', label))
+
+    def at(self, label):
+        return self.events.index(('mark', label))
+
+    def durable(self, upto):
+        """(durable names, files whose content is durable, names that appeared) of the events
+        before index `upto`."""
+        born, named, content, dirty = {}, set(), set(), set()
+        for at, event in enumerate(self.events[:upto]):
+            kind = event[0]
+            if kind in ('create', 'mkdir'):
+                born[event[1]] = at
+                if kind == 'create':
+                    dirty.add(event[1])
+            elif kind == 'write':
+                dirty.add(event[1])
+                content.discard(event[1])
+            elif kind == 'fsync-file':
+                if event[1] in dirty:
+                    dirty.discard(event[1])
+                content.add(event[1])
+            elif kind == 'rename':
+                src, dst = event[1], event[2]
+                born[dst] = at
+                named.discard(src)
+                if src in content:
+                    content.discard(src)
+                    content.add(dst)
+                dirty.discard(src)
+            elif kind == 'fsync-dir':
+                for path, when in born.items():
+                    if os.path.dirname(path) == event[1] and when < at:
+                        named.add(path)
+        return named, content, set(born)
+
+    def image(self, label, target):
+        """Copies under `target` what a loss right at the mark would leave of the root. Paths the
+        trace saw made, written or renamed are kept only when durable, and a file whose content
+        was not synced is left empty; what existed before the trace is kept as it was."""
+        named, content, born = self.durable(self.at(label))
+        changed = {e[1] for e in self.events if e[0] in ('create', 'write')} | {e[2] for e in self.events
+                                                                                 if e[0] == 'rename'}
+        made = {e[1] for e in self.events if e[0] == 'mkdir'}
+
+        def reachable(path):
+            # A name that appeared during the trace needs its directory's sync; one that was
+            # already there is as durable as it was.
+            while path != self.root:
+                if path in born and path not in named:
+                    return False
+                path = os.path.dirname(path)
+            return True
+        target = Path(target)
+        shutil.copytree(self.root, target, symlinks=True)
+        for directory, dirs, files in os.walk(target, topdown=False):
+            for name in files:
+                copy = Path(directory) / name
+                source = os.path.join(self.root, os.path.relpath(copy, target))
+                if source in changed and not reachable(source):
+                    copy.unlink()
+                elif source in changed and source not in content:
+                    copy.write_bytes(b'')
+            for name in dirs:
+                copy = Path(directory) / name
+                source = os.path.join(self.root, os.path.relpath(copy, target))
+                if source in made and not reachable(source):
+                    shutil.rmtree(copy)
+        return target
 
 
 class Clock:
@@ -140,7 +349,7 @@ class Harness:
 
     def __init__(self, directory=None, sim=None, cells=(), pins=True, notice=None, processes=None, sync=False,
                  target=None, source_root=None, target_read=False, next_profile=False, specs=None, reader=None,
-                 health=None, publication=None, **changes):
+                 health=None, publication=None, fsync=None, **changes):
         self._temp = None
         self.target = target
         self.target_read = target_read
@@ -152,20 +361,26 @@ class Harness:
         self.root = self.directory / 'broker'
         self.sim = sim or sim_android.SimAndroid()
         self.clock = Clock()
-        # The next profile admits its typed actions, and its reader the inventory, receipts and
-        # health.
-        self.reader_options = dict(reader or ({'inventory': True, 'receipts': True, 'health': True, 'witness': True}
-                                              if next_profile else {}))
+        # The next profile admits its typed actions, and its reader the inventory, receipts, health
+        # and the global session inventory. Its faults come only from the schedule it binds.
+        self.reader_options = dict(reader or ({'inventory': True, 'receipts': True, 'health': True, 'witness': True,
+                                               'global_sessions': True} if next_profile else {}))
         self.health = health
+        self.schedule = schedule(cells) if next_profile and cells else None
+        if self.schedule is not None:
+            changes.setdefault('fault_schedule_sha256', hashlib.sha256(self.schedule).hexdigest())
         self.admission = (admission3(self.directory, specs=specs, **changes) if next_profile
                           else admission(self.directory, **changes))
         self.manifest = self.admission['manifest']
         self.notice = notice
         self.processes = processes or Processes()
         self.sync = sync
+        self.fsync = fsync
         lab_broker.Broker.initialize(self.root, self.admission, manifest_bytes())
         self.open()
-        if cells:
+        if self.schedule is not None:
+            self.broker.admit_schedule(self.schedule)
+        elif cells:
             self.broker.admit_faults(list(cells))
         self.apk = b'A' * 4096 + b'variant'
         self.idsig = b'S' * 512 + b'sidecar'
@@ -190,8 +405,29 @@ class Harness:
                                              wall=self.clock.wall_ns, monotonic=self.clock.monotonic_ns,
                                              sleep=self.clock.sleep, ids=lambda n: os.urandom(n),
                                              processes=self.processes, sync=self.sync, target=self.target,
-                                             target_read=self.target_read, health=self.health)
+                                             target_read=self.target_read, health=self.health, fsync=self.fsync)
         return self.broker
+
+    def open_at(self, root):
+        """A broker on another directory, such as a copy, over the same guest and clocks."""
+        return lab_broker.Broker.open(root, self.source_root, sim_android.SimTransport(self.sim),
+                                      sim_android.SimReader(INSTALLATION, target=self.target_read, **self.reader_options),
+                                      notice=self.notice, wall=self.clock.wall_ns, monotonic=self.clock.monotonic_ns,
+                                      sleep=self.clock.sleep, ids=lambda n: os.urandom(n), processes=self.processes,
+                                      sync=self.sync, target=self.target, target_read=self.target_read,
+                                      health=self.health)
+
+    def pin_payloads(self, roles=('N2', 'N3')):
+        """Pins each direct control's negative payload, and makes N2's APK one of another signer."""
+        for role in roles:
+            control, payload = (N2_CONTROL, N2_PAYLOAD) if role == 'N2' else (N3_CONTROL, N3_PAYLOAD)
+            members = {}
+            for member, data in payload:
+                path = self.directory / ('%s-%s' % (control, member))
+                path.write_bytes(data)
+                members[member] = {'host': str(path), 'sha256': hashlib.sha256(data).hexdigest(), 'bytes': len(data)}
+            self.broker.pin_payload(control, members)
+        self.sim.wrong_signer.add(hashlib.sha256(N2_PAYLOAD[0][1]).hexdigest())
 
     def reopen(self):
         self.broker.close()
@@ -262,6 +498,21 @@ class Harness:
                          reference=NONCE if crossing == 'CREATE' else proto.ZERO_ID, native=native,
                          bundle_apk=bundle_apk, actor=(2 if granted else 0) if actor is None else actor,
                          granted=granted_at, window=window)
+
+    def round_done(self, ticket=TICKET, plan=PLAN, attempt=1, ordinal=None, milestone=0, **changes):
+        """One ROUND_DONE naming the stored ticket and selection by their SHA-256 and, unless given,
+        the ticket's next checkpoint ordinal."""
+        store = Path(self.admission['store'])
+        fields = {'ticket': ticket, 'plan': plan, 'attempt': attempt, 'milestone': milestone,
+                  'checkpoint_ordinal': (len(self.broker.checkpoints.get(ticket, [])) + 1 if ordinal is None
+                                         else ordinal)}
+        fields.update(changes)
+        if 'ticket_digest' not in fields:
+            fields['ticket_digest'] = hashlib.sha256((store / 'tickets' / (ticket + '.rec')).read_bytes()).hexdigest()
+        if 'selection_digest' not in fields:
+            fields['selection_digest'] = hashlib.sha256((store / 'selections' / (sim_android.PACKAGE + '.rec'))
+                                                        .read_bytes()).hexdigest()
+        return self.call('ROUND_DONE', **fields)
 
     def bound(self, nonce=NONCE):
         """The shell route's whole reference of the session that carries the nonce, as a ticket binds it."""

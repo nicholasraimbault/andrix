@@ -36,10 +36,11 @@ import java.util.regex.Pattern;
  * bound, the absence of trailing bytes and every relation of the type. It never repairs input, and
  * every valid message has exactly one encoding. The goldens of both codecs are the same bytes.
  *
- * <p>Version 2, the next campaign profile's, differs only in the OBSERVE reply: a status, a control
+ * <p>Version 2, the next campaign profile's, differs in the OBSERVE reply: a status, a control
  * record, a list of {@link Envelope}s and a reason. An envelope names its group, its mode, its
- * evidence digest, a block of exact layout for its mode and one deployment observation record. A
- * channel speaks exactly one version.
+ * evidence digest, a block of exact layout for its mode and one deployment observation record. It
+ * also has the round boundary, ROUND_DONE and its reply, types 15 and 16, which version 1 does not
+ * have. A channel speaks exactly one version.
  */
 public final class LabProtocol {
     private LabProtocol() {}
@@ -69,6 +70,17 @@ public final class LabProtocol {
     public static final String ZERO_DIGEST = "0".repeat(64);
     /** The coordinator's only lab point, {@code Coordinator.BETWEEN_WRITES}. */
     public static final String POINT_BETWEEN_WRITES = "selection-written";
+    /**
+     * The forward milestones of record only steps, code 1 first. A round boundary that reached none
+     * of them carries code 0.
+     */
+    public static final List<String> MILESTONES = Collections.unmodifiableList(Arrays.asList("READY",
+            "BOOT_OBSERVED", "APPLIED_PROVISIONAL", "APPLIED", "HEALTH_WINDOW_ENTRY", "HEALTH_WINDOW_PROGRESS",
+            "TERMINAL", "REPAIR_SIGNING_SKIPPED", "REPAIR_PUBLICATION_BOUND"));
+    private static final List<String> TERMINAL_STATES = Arrays.asList("CLOSED_APPLIED", "CLOSED_FAILED", "CANCELLED",
+            "VOID", "DIVERGED", "SUPERSEDED");
+    private static final List<String> ENTERED = Arrays.asList("READY", "BOOT_OBSERVED", "APPLIED_PROVISIONAL",
+            "APPLIED");
     /** Reference presence bits, as the deployment records define them. */
     public static final int SESSION = 1, CREATED = 2, STAGE_DIR = 4, INSTALLER = 8, NONCE = 16;
     public static final int BOUND_REFERENCE = SESSION | CREATED | INSTALLER | NONCE;
@@ -96,7 +108,8 @@ public final class LabProtocol {
     /** Message types: odd for a request, the request's type plus one for its reply. */
     public enum Type {
         HELLO(1), HELLO_REPLY(2), CLOCK(3), CLOCK_REPLY(4), OBSERVE(5), OBSERVE_REPLY(6), CROSS(7), CROSS_REPLY(8),
-        POINT(9), POINT_REPLY(10), HOST(11), HOST_REPLY(12), REPORT(13), REPORT_REPLY(14);
+        POINT(9), POINT_REPLY(10), HOST(11), HOST_REPLY(12), REPORT(13), REPORT_REPLY(14), ROUND_DONE(15),
+        ROUND_DONE_REPLY(16);
 
         public final int code;
 
@@ -158,9 +171,42 @@ public final class LabProtocol {
     }
 
     static List<Field> layout(int version, Type type) {
-        if (version == VERSION) return BODIES.get(type);
-        if (version == VERSION_2) return BODIES_2.get(type);
-        throw fail("protocol version " + version + " is not 1 or 2");
+        List<Field> found;
+        if (version == VERSION) {
+            found = BODIES.get(type);
+        } else if (version == VERSION_2) {
+            found = BODIES_2.get(type);
+        } else {
+            throw fail("protocol version " + version + " is not 1 or 2");
+        }
+        if (found == null) throw fail("type " + type + " is not of protocol version " + version);
+        return found;
+    }
+
+    /** A milestone's code: 0 for none, else its place in {@link #MILESTONES} from 1. */
+    public static int milestoneCode(String milestone) {
+        if (milestone == null) return 0;
+        int at = MILESTONES.indexOf(milestone);
+        if (at < 0) throw new IllegalArgumentException("no such milestone " + milestone);
+        return at + 1;
+    }
+
+    /**
+     * The milestone a round boundary reached, by its name, or null: the same rule as the Python
+     * codec's. {@code before} is the ticket's state when the round began, null when unknown;
+     * {@code after} its stored state at the boundary; {@code signed} whether the stored ledger
+     * holds a SIGN entry; {@code repair} whether the plan repairs another plan without signing.
+     */
+    public static String boundaryMilestone(String before, String after, boolean signed, boolean repair) {
+        if (TERMINAL_STATES.contains(after)) return TERMINAL_STATES.contains(before) ? null : "TERMINAL";
+        if (after.equals("HEALTH_WINDOW")) {
+            return "HEALTH_WINDOW".equals(before) ? "HEALTH_WINDOW_PROGRESS" : "HEALTH_WINDOW_ENTRY";
+        }
+        if (after.equals(before)) return null;
+        if (ENTERED.contains(after)) return after;
+        if (repair && after.equals("SIGNED") && !signed) return "REPAIR_SIGNING_SKIPPED";
+        if (repair && after.equals("PUBLISHED")) return "REPAIR_PUBLICATION_BOUND";
+        return null;
     }
 
     static {
@@ -190,6 +236,10 @@ public final class LabProtocol {
         BODIES_2.putAll(BODIES);
         BODIES_2.put(Type.OBSERVE_REPLY, fields("status", Kind.U8, "control_record", Kind.U32, "envelopes",
                 Kind.ENVELOPES, "reason", Kind.TEXT));
+        BODIES_2.put(Type.ROUND_DONE, fields("ticket", Kind.ID, "plan", Kind.ID, "attempt", Kind.I32,
+                "checkpoint_ordinal", Kind.U32, "milestone", Kind.U8, "ticket_digest", Kind.D32, "selection_digest",
+                Kind.D32));
+        BODIES_2.put(Type.ROUND_DONE_REPLY, fields("status", Kind.U8, "record", Kind.U32, "reason", Kind.TEXT));
         Object[] bracket = {"read_boot", Kind.ID, "read_instance", Kind.I64, "read_begin_elapsed", Kind.I64,
                 "read_end_elapsed", Kind.I64};
         BLOCKS.put(SIMPLE_CURRENT, fields());
@@ -758,6 +808,24 @@ public final class LabProtocol {
             case REPORT_REPLY:
                 if (status(m, Status.OK) == Status.OK && m.number("record") < 1) throw fail("a report names its record");
                 break;
+            case ROUND_DONE:
+                checkHex(m.id("ticket"), 16, "ticket", false);
+                checkHex(m.id("plan"), 16, "plan", false);
+                checkHex(m.id("ticket_digest"), 32, "ticket digest", false);
+                checkHex(m.id("selection_digest"), 32, "selection digest", false);
+                if (m.number("attempt") < 1 || m.number("checkpoint_ordinal") < 1) {
+                    throw fail("an attempt and a checkpoint ordinal of at least 1");
+                }
+                if (m.number("milestone") > MILESTONES.size()) throw fail("a milestone of no known code");
+                break;
+            case ROUND_DONE_REPLY: {
+                Status s = status(m, Status.OK, Status.HALT, Status.STOPPED);
+                boolean named = s == Status.OK || s == Status.HALT;
+                if (named ? m.number("record") < 1 : m.number("record") != 0) {
+                    throw fail("a boundary names its record exactly when accepted or halted");
+                }
+                break;
+            }
             default:
                 break;
         }
