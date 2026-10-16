@@ -9,11 +9,13 @@ import re
 import subprocess
 import tempfile
 
+import grapheneos_base
 import grapheneos_source as source
 
 ROOT = Path(__file__).resolve().parents[2]
+BASE = grapheneos_base.selected()
 PROJECT = 'frameworks/base'
-HEAD = 'aab06a8bd44c4c2b58eeec780fde83baa9d43a40'
+HEAD = BASE.revision(PROJECT)
 PREFIX = 'services/core/java/com/android/server/pm/'
 FILES = tuple(PREFIX + name + '.java' for name in (
     'AppIdSettingMap', 'Settings', 'PackageManagerService', 'DeletePackageHelper',
@@ -34,8 +36,8 @@ FRAGMENTS = {name: (PREFIX + source + '.java', ROOT / 'owner/tests/platform/nati
                  ('scan', 'Settings'), ('recovery-seeding', 'Settings'), ('boot-facts', 'Settings'),
                  ('retired-boot', 'Settings'), ('deferral', 'Settings'), ('observation', 'Settings'),
                  ('release-finish', 'Settings'), ('diagnostic-dump', 'Settings'))}
-PROFILE = ROOT / 'patches/grapheneos-2026081300/native-principal-pins.json'
-PATCH = ROOT / 'patches/grapheneos-2026081300/native-principal-pins.patch'
+PROFILE = BASE.patches / 'native-principal-pins.json'
+PATCH = BASE.patches / 'native-principal-pins.patch'
 SETTINGS = PREFIX + 'Settings.java'
 
 

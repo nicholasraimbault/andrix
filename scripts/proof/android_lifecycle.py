@@ -10,13 +10,15 @@ import re
 import subprocess
 import tempfile
 
+import grapheneos_base
 import grapheneos_source as source
 
 ROOT = Path(__file__).resolve().parents[2]
+BASE = grapheneos_base.selected()
 PROJECT = 'frameworks/base'
-HEAD = 'aab06a8bd44c4c2b58eeec780fde83baa9d43a40'
-PROFILE = ROOT / 'patches/grapheneos-2026081300/owner-lifecycle.json'
-PATCH = ROOT / 'patches/grapheneos-2026081300/owner-lifecycle.patch'
+HEAD = BASE.revision(PROJECT)
+PROFILE = BASE.patches / 'owner-lifecycle.json'
+PATCH = BASE.patches / 'owner-lifecycle.patch'
 FILES = (
     'services/core/java/com/android/server/StorageManagerInternal.java',
     'services/core/java/com/android/server/StorageManagerService.java',

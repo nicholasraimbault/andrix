@@ -2,7 +2,12 @@
 
 `grapheneos_source.py` is a read-only M1 check for the exact public migration
 anchor `2026081300`. It does not sync, fetch, reset, apply patches, change trust,
-run Repo project hooks, build images or authorize a phone operation.
+run Repo project hooks, build images or authorize a phone operation. It reads the
+anchor's tag, tag object, manifest commit and digest, AOSP default revision and
+project count from the selected base record, through
+[`grapheneos_base.py`](grapheneos_base.py) and
+[`upstream/selected-base.json`](../../upstream/selected-base.json). That record must
+name the same allowed signers digest the verifier pins.
 
 ```sh
 python3 -B scripts/proof/grapheneos_source.py \
@@ -27,7 +32,8 @@ This public manifest already omits the old direct-AOSP Darwin `notdefault`
 projects. All **1,108** declarations belong to this M1 selection. Do not subtract
 three from it because an older manifest had those exclusions. The parser rejects
 unexpected include/submanifest or excluded-group structures for this exact
-pinned generation. Advancing the generation requires an explicit pin review.
+pinned generation. Advancing the generation requires an explicit pin review: a
+reviewed change of the base selection.
 
 `repo list -p` alone is not a completeness oracle: it reflects initialized project
 metadata, not necessarily completed worktrees/HEADs. The primary observed 53 during

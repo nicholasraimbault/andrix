@@ -9,14 +9,16 @@ import re
 import subprocess
 import tempfile
 
+import grapheneos_base
 import grapheneos_source as source
 
 ROOT = Path(__file__).resolve().parents[2]
+BASE = grapheneos_base.selected()
 PROJECT = 'frameworks/base'
-HEAD = 'aab06a8bd44c4c2b58eeec780fde83baa9d43a40'
+HEAD = BASE.revision(PROJECT)
 FILE = 'services/core/java/com/android/server/pm/PackageInstallerSession.java'
-PROFILE = ROOT/'patches/grapheneos-2026081300/package-verity.json'
-PATCH = ROOT/'patches/grapheneos-2026081300/package-verity.patch'
+PROFILE = BASE.patches/'package-verity.json'
+PATCH = BASE.patches/'package-verity.patch'
 EXTRACTED = ROOT/'tests/staged-apk-verity/PackageInstallerMethod.java.inc'
 UPSTREAM_METHOD = ROOT/'tests/staged-apk-verity/PackageInstallerMethod.upstream.java.inc'
 

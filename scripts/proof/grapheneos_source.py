@@ -17,14 +17,23 @@ import subprocess
 import sys
 import xml.etree.ElementTree as ET
 
+import grapheneos_base
+
 ROOT = Path(__file__).resolve().parents[2]
-TAG = '2026081300'
-TAG_OBJECT = '5189230024ffe0048e0c351d5101c6b3f8b43eac'
-MANIFEST_COMMIT = '84536744f0c06cccbcfa2110e9c937671ddc3278'
-MANIFEST_SHA256 = 'c50f0096f538e604aa008e8ab4e3f1a3739f142c60c878a32f402c11eb406572'
+# The approved allowed signers input and the local tree's Repo tool. Neither follows the base.
 SIGNERS_SHA256 = '344f59c6f058699e63fea68e35953b341c14e3bf1fbc1256f6baa84aa2aca1d0'
 REPO_COMMIT = 'b85886fa9f5b4e2189cc5b2f40bd0a80459d4c77'
-PROJECT_COUNT = 1108
+# The selected base's identity, from its verified base record.
+BASE = grapheneos_base.selected()
+TAG = BASE.release
+TAG_OBJECT = BASE.tag_object
+MANIFEST_COMMIT = BASE.manifest_commit
+MANIFEST_SHA256 = BASE.manifest_sha256
+AOSP_DEFAULT_REVISION = BASE.aosp_default_revision
+PROJECT_COUNT = BASE.project_count
+if BASE.allowed_signers_sha256 != SIGNERS_SHA256:
+    raise grapheneos_base.BaseSelectionError(
+        'the selected base record names another allowed signers input than the approved one')
 # git verify-tag runs the program of the signature's own format, and a repository's own config
 # could point that program elsewhere. Settings on the command line win over every config file.
 # Only ssh-keygen may verify, the OpenPGP and X.509 programs always fail, a signature counts only
@@ -85,7 +94,7 @@ def parse_projects(data):
     if manifest.tag != 'manifest' or manifest.find('include') is not None or manifest.find('submanifest') is not None:
         raise SourceError('Unexpected manifest structure')
     default = manifest.find('default')
-    if default is None or default.get('revision') != 'refs/tags/android-17.0.0_r1':
+    if default is None or default.get('revision') != AOSP_DEFAULT_REVISION:
         raise SourceError('Unexpected AOSP base')
     projects = []
     paths = set()

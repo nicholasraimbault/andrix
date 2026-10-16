@@ -13,9 +13,14 @@ import subprocess
 import sys
 import zipfile
 
+import grapheneos_base
+
 PACKAGE = "dev.andrix.proof.p5"
 INSTRUMENTATION = PACKAGE + "/" + PACKAGE + ".P5Instrumentation"
-PLATFORM_PROFILES = ("aosp17", "grapheneos-2026081300")
+# The GrapheneOS profile and the build number of its proof images carry the selected base's tag.
+GOS_RELEASE = grapheneos_base.selected().release
+GOS_PROFILE = "grapheneos-" + GOS_RELEASE
+PLATFORM_PROFILES = ("aosp17", GOS_PROFILE)
 GOS_PRODUCT = "andrix_gos_cf_arm64_only_phone"
 GOS_IMPLICIT_PERMISSION = "android.permission.OTHER_SENSORS"
 NATIVE_FIELDS = set("""
@@ -39,9 +44,10 @@ def require(condition, message):
 def validate_platform_profile(profile, fingerprint):
     require(profile in PLATFORM_PROFILES, "unknown platform profile")
     gos_prefix = "Andrix/" + GOS_PRODUCT + "/andrix_cf_arm64_only:17/"
-    if profile == "grapheneos-2026081300":
+    if profile == GOS_PROFILE:
         require(re.fullmatch(re.escape(gos_prefix)
-                             + r"[^/\r\n]+/andrix\.gos\.2026081300\.[0-9a-f]{7,40}:userdebug/test-keys",
+                             + r"[^/\r\n]+/" + re.escape("andrix.gos." + GOS_RELEASE + ".")
+                             + r"[0-9a-f]{7,40}:userdebug/test-keys",
                              fingerprint) is not None,
                 "GrapheneOS profile requires the exact pinned ARM64 proof image family")
     else:
@@ -51,7 +57,7 @@ def validate_platform_profile(profile, fingerprint):
 
 def expected_pm_permissions(profile):
     require(profile in PLATFORM_PROFILES, "unknown platform profile")
-    return [GOS_IMPLICIT_PERMISSION] if profile == "grapheneos-2026081300" else []
+    return [GOS_IMPLICIT_PERMISSION] if profile == GOS_PROFILE else []
 
 
 def sha256(path):
@@ -285,7 +291,7 @@ class Runner:
         properties = {"ro.build.fingerprint": self.fingerprint, "sys.boot_completed": "1",
                       "ro.build.version.sdk": "37", "ro.product.cpu.abilist": "arm64-v8a",
                       "ro.product.cpu.abilist64": "arm64-v8a", "ro.product.cpu.abilist32": ""}
-        if self.platform_profile == "grapheneos-2026081300":
+        if self.platform_profile == GOS_PROFILE:
             properties["ro.product.name"] = GOS_PRODUCT
         for key, expected in properties.items():
             observed[key] = self.shell("getprop", key)

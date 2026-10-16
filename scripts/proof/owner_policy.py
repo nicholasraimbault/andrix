@@ -8,10 +8,11 @@ import json
 import os
 import tempfile
 
+import grapheneos_base
 import grapheneos_source as source
 
 PROJECT = 'system/sepolicy'
-HEAD = '87a06ed71fd67cff9f77feaa9ae3504edb5d0972'
+HEAD = grapheneos_base.selected().revision(PROJECT)
 FILE = 'private/domain.te'
 BEFORE = 'b6097259d6529f010896778f4802e1556b5c70643c9eab3e793ea91c45d26934'
 PREFIX = '# Rules for all domains.\n'

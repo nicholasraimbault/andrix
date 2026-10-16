@@ -20,6 +20,7 @@ from unittest import mock
 import zipfile
 
 SCRIPT = Path(__file__).resolve().parents[1] / "ordinary_app.py"
+sys.path.insert(0, str(SCRIPT.parent))  # its base identity module, grapheneos_base
 SPEC = importlib.util.spec_from_file_location("ordinary_app", SCRIPT)
 p5 = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(p5)

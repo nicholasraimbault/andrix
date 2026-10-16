@@ -3,9 +3,17 @@
 Public facts about the GrapheneOS releases Andrix builds on and how far its base lags them.
 [`scripts/proof/grapheneos_carry.py`](../scripts/proof/grapheneos_carry.py) writes and checks
 them. Its [documentation](../scripts/proof/grapheneos_carry.md) describes the method and limits.
-Nothing here selects a base or authorizes a build. The exact patch profiles in `patches/`
-remain the gate for that.
+`selected-base.json` selects the base the tools build on. Nothing else here selects a base, and
+nothing here authorizes a build. The exact patch profiles in `patches/` remain the gate for that.
 
+- `selected-base.json` names the base the tools build on: one release, its record in `bases/` and
+  the SHA-256 of that record's bytes. It selects 2026081300.
+  [`scripts/proof/grapheneos_base.py`](../scripts/proof/grapheneos_base.py) reads it and refuses a
+  missing, changed or ambiguous selection and a record whose digest or form disagrees. The source
+  verifier and the patch tools take the base's identity from it: the release tag, the manifest
+  identity, the AOSP default revision, the project count, the HEAD revisions of the patched
+  projects and the patch directory `patches/grapheneos-<release>/`. Switching the base is a
+  reviewed change of this record, after a patch directory for the new base exists.
 - `bases/<tag>.json` holds one base record per release tag, derived from the signed manifest
   tag. It has the tag object and manifest commit, the manifest digest and the allowed signers
   digest. It also has the AOSP default revision, the project table digest and count, and the

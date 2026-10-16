@@ -14,6 +14,7 @@ import unittest
 from unittest import mock
 
 FILE = Path(__file__).resolve().parents[1] / 'grapheneos_source.py'
+sys.path.insert(0, str(FILE.parent))  # its base identity module, grapheneos_base
 spec = importlib.util.spec_from_file_location('grapheneos_source', FILE)
 g = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(g)

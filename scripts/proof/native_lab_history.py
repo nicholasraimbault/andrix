@@ -72,7 +72,9 @@ STUB_OVERLAPS = frozenset({'android/util/Log.java'})
 HOST_SIGNER = hashlib.sha256(bytes([1, 2, 3])).hexdigest()
 # The writer route and observer. The fixture, its profile, its patch and the observer are byte
 # identical to the lab producer's. The writer tool changed when the lab format token was retired:
-# its lab admission, at the shared fence and per action, requires the complete stack.
+# its lab admission, at the shared fence and per action, requires the complete stack. It changed
+# again when it took its framework revision and patch paths from the selected base record, which
+# gives it the same values on 2026081300.
 FIXTURE = 'tests/native-identity/writer/NativePrincipalWriterFixture.java'
 UNCHANGED = {
     'tests/native-identity/writer/NativePrincipalWriterFixture.java':
@@ -82,7 +84,7 @@ UNCHANGED = {
     'patches/grapheneos-2026081300/native-identity-writer.patch':
         '2ede775d3e67610457b294870854310d38d97ff873bec2f70fe08646253a328b',
     'scripts/proof/native_identity_writer.py':
-        '2b07bf249088fae729a7c2047176e4cb518c20a237c95ef8f52b9f27c0909fe0',
+        '213fc4ce53ddce9a709685c07016bbcfcd6959ce6e55f13e24367e9f57e0eab1',
     'tests/native-identity/writer_observe.py': 'd9663ba6a880f970c8914a035989e3159cc0ab7ce10e54904ab073cc4f2115e1'}
 # Host facade and fixture calls that would inject state instead of observing the actual writer.
 INJECTIONS = ('restoreBindingsWithoutCounter', '.restore(', 'rememberNative', 'mNativeRememberedBindings',

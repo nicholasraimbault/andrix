@@ -18,17 +18,19 @@ import json
 import re
 import subprocess
 import tempfile
+import grapheneos_base
 import grapheneos_source as source
 
 ROOT = Path(__file__).resolve().parents[2]
+BASE = grapheneos_base.selected()
 PROJECT = 'frameworks/base'
-HEAD = 'aab06a8bd44c4c2b58eeec780fde83baa9d43a40'
+HEAD = BASE.revision(PROJECT)
 PREFIX = 'services/core/java/com/android/server/pm/'
 FILE = PREFIX + 'PackageManagerShellCommand.java'
 ADDED = PREFIX + 'NativePrincipalWriterFixture.java'
 HELPER = ROOT / 'tests/native-identity/writer/NativePrincipalWriterFixture.java'
-PROFILE = ROOT / 'patches/grapheneos-2026081300/native-identity-writer.json'
-PATCH = ROOT / 'patches/grapheneos-2026081300/native-identity-writer.patch'
+PROFILE = BASE.patches / 'native-identity-writer.json'
+PATCH = BASE.patches / 'native-identity-writer.patch'
 
 
 def sha(value):
