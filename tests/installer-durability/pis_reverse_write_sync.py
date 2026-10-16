@@ -20,12 +20,14 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT / 'scripts/proof'))
 import package_verity as verity  # noqa: E402  accepted companion, only read here
+import package_installer_payload_sync as payload_sync  # noqa: E402  names the record, only read
 
 PROJECT = verity.PROJECT
 HEAD = verity.HEAD
 FILE = verity.FILE
 FILEUTILS = 'core/java/android/os/FileUtils.java'
-PROFILE = HERE / 'pis-reverse-write-sync.candidate.json'
+# The selected base's own record, the one the ordered companion requires.
+PROFILE = payload_sync.HOST_PROFILE
 PATCH = HERE / 'pis-reverse-write-sync.candidate.patch'
 BASE_FRAGMENT = HERE / 'PisReverseWriteFragment.base.java.inc'
 CANDIDATE_FRAGMENT = HERE / 'PisReverseWriteFragment.candidate.java.inc'

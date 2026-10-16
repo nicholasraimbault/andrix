@@ -153,6 +153,7 @@ class PayloadSyncProfileTests(unittest.TestCase):
                          dict(original, base_sha256=original['upstream_sha256']),
                          dict(original, upstream_sha256=original['base_sha256']),
                          dict(original, patch_sha256='0' * 64),
+                         dict(original, host_profile=payload.host_record('2026100600')),
                          dict(original, host_profile_sha256='0' * 64),
                          dict(original, host_fragment_sha256=original['host_base_fragment_sha256'])]:
                 profile.write_text(json.dumps(data))
@@ -191,6 +192,22 @@ class PayloadSyncProfileTests(unittest.TestCase):
         with (mock.patch.object(payload, 'strict_json', side_effect=other_host_record),
               self.assertRaisesRegex(ValueError, 'host tested candidate')):
             payload.profile()
+
+    def test_each_base_has_its_own_host_record(self):
+        # The tool reads the selected base's record. A later base's lies in a directory keyed by
+        # the base, as its patch directory is; the record of 2026081300 keeps the path that its
+        # payload profile names.
+        self.assertEqual(payload.HOST_PROFILE, ROOT / payload.host_record(verity.BASE.release))
+        self.assertEqual(json.loads(payload.PROFILE.read_text())['host_profile'],
+                         payload.host_record(verity.BASE.release))
+        self.assertEqual(payload.host_record('2026081300'),
+                         'tests/installer-durability/pis-reverse-write-sync.candidate.json')
+        self.assertEqual(payload.host_record('2026100600'), 'tests/installer-durability/'
+                         'grapheneos-2026100600/pis-reverse-write-sync.candidate.json')
+        host = json.loads(payload.HOST_PROFILE.read_text())
+        self.assertEqual((host['head'], host['base_profile'], host['base_profile_sha256']),
+                         (verity.HEAD, verity.PROFILE.relative_to(ROOT).as_posix(),
+                          verity.sha(verity.PROFILE.read_bytes())))
 
     def test_real_patches_compose_in_order_on_exact_fixtures(self):
         upstream = verity.UPSTREAM_METHOD.read_bytes() + payload.HOST_BASE_FRAGMENT.read_bytes()

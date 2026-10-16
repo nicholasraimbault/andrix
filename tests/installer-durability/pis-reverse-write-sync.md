@@ -99,6 +99,12 @@ The base bytes are that adaptation's candidate. Reversing its patch yields the p
 upstream bytes. The fs-verity method in the candidate is byte identical to the
 [accepted fixture](../staged-apk-verity/PackageInstallerMethod.java.inc).
 
+That record is the 2026081300 base's. Each GrapheneOS base has its own record, which names that
+base's `frameworks/base` revision and package verity profile. A later base's record lies in
+`grapheneos-<release>/` here, keyed by the base as its patch directory is, while the 2026081300
+record keeps the path its payload profile names. `pis_reverse_write_sync.py` and the
+[ordered companion](#ordered-companions) read the selected base's record.
+
 The fixtures are exact byte ranges with their original license headers:
 
 - `PisReverseWriteFragment.base.java.inc` and `.candidate.java.inc`: from `write` through

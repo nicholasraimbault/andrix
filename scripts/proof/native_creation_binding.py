@@ -1316,7 +1316,7 @@ def added_java(patch_text):
 # directory of a base recorded in upstream/bases is a candidate base's: production never reads it,
 # and grapheneos_candidate.py checks it on its own with this guard, in a scratch checkout that
 # selects that base. Anything else under patches/ is refused. Both production directories must
-# exist, the AOSP track with the patch that its series record names.
+# exist, the AOSP track with the patch that its series record names by its file name there.
 PRODUCTION_PATCHES = integration.BASE.patches.relative_to(ROOT).as_posix()
 AOSP_TRACK = 'patches/android-17.0.0_r1'
 AOSP_SERIES = AOSP_TRACK + '/series.json'
@@ -1424,12 +1424,14 @@ def production_patches(root=ROOT):
     patches/ but those two directories and the directories of candidate bases recorded in
     upstream/bases, a link, and a directory that holds anything but regular patch, JSON and README
     files. Refuses a missing production directory, and an AOSP track that is missing or does not
-    hold the patch its series record names. A candidate's patches are never read here."""
+    hold the patch its series record names. The record names a patch of the track by its file name,
+    so an absolute path or a path into another directory is refused. A candidate's patches are
+    never read here."""
     root = Path(root)
     top, production = root / 'patches', (PRODUCTION_PATCHES, AOSP_TRACK)
     if top.is_symlink() or not top.is_dir():
         raise ValueError('patches/ is not a directory')
-    names, patches = [], []
+    names, patches, track = [], [], []
     for directory in sorted(top.iterdir()):
         name = 'patches/' + directory.name
         candidate = CANDIDATE_PATCHES.fullmatch(directory.name)
@@ -1447,6 +1449,8 @@ def production_patches(root=ROOT):
                 raise ValueError('malformed patch directory %s: %s' % (name, entry.name))
             if name in production and entry.suffix == '.patch':
                 patches.append(entry)
+                if name == AOSP_TRACK:
+                    track.append(entry.name)
         names.append(name)
     if PRODUCTION_PATCHES not in names:
         raise ValueError('the selected base has no patch directory ' + PRODUCTION_PATCHES)
@@ -1458,7 +1462,7 @@ def production_patches(root=ROOT):
         named = json.loads((root / AOSP_SERIES).read_text()).get('patch')
     except (ValueError, AttributeError) as error:
         raise ValueError('the AOSP track series is not a JSON record: %s' % error) from error
-    if not isinstance(named, str) or root / AOSP_TRACK / named not in patches:
+    if not isinstance(named, str) or named not in track:
         raise ValueError('the AOSP track series names no patch of the track: %r' % (named,))
     return sorted(patches)
 

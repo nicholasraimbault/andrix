@@ -79,6 +79,9 @@ class PisReverseWriteSourceTests(unittest.TestCase):
         self.assertEqual(value['upstream_sha256'], base['upstream_sha256'])
         self.assertEqual((value['status'], value['integrated']), ('candidate', False))
         self.assertEqual(value['base_profile_sha256'], rws.sha(rws.verity.PROFILE.read_bytes()))
+        # The record is the selected base's own, the one the ordered companion requires.
+        self.assertEqual(rws.PROFILE, rws.payload_sync.HOST_PROFILE)
+        self.assertEqual(value['base_profile'], rws.verity.PROFILE.relative_to(rws.ROOT).as_posix())
 
     def test_patch_adds_one_checked_fsync_and_removes_nothing(self):
         lines = rws.PATCH.read_text().splitlines()

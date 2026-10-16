@@ -58,6 +58,15 @@ checks the candidate.
   revision, the policy file, the upstream digest `owner_policy.py` pins, an adapted digest and
   its review patch beside it by that patch's digest. The policy tool itself reads neither the
   record nor the review patch, so only this check holds them to the base.
+- The payload sync companion's host tested record is the base's own, keyed by the base as its
+  patch directory is:
+  `tests/installer-durability/grapheneos-<release>/pis-reverse-write-sync.candidate.json`.
+  The record of 2026081300 keeps the path its payload profile names,
+  `tests/installer-durability/pis-reverse-write-sync.candidate.json`. The record must be a
+  regular file that names the base's `frameworks/base` revision and its package verity profile
+  by path and digest. The payload tool then holds it to the payload profile, which names it by
+  path and digest. A candidate's record is thus written beside the selected base's, and a
+  candidate that rewrites the selected base's record instead is refused.
 - The carry tool's own loader, `grapheneos_carry.load_patch_set`, then checks the same inventory,
   validates every other profile with its own tool and checks the policy record again. A patch
   set passes only if the carry tool accepts it.
@@ -71,17 +80,18 @@ candidate, and the guard does not read it. Anything else under `patches/` is ref
 directory, a tag of another form, a release without a base record, a link, a nested directory
 and any file but a patch, its JSON record or a README. Both production directories must exist.
 The AOSP track must hold the patch that its `series.json` names, so removing or emptying the
-track refuses rather than leaving its texts out of the guard.
+track refuses rather than leaving its texts out of the guard. The series names that patch by its
+file name in the track: an absolute path, or a path to a patch in another directory, is refused.
 
 ## Limits
 
 A pass is a source check of one revision against one tree. It is not a build, boot or runtime
 result. The source verifier still pins the approved allowed signers digest and the local Repo
 tool revision, so a tree synced with another Repo tool revision is refused until that pin is
-reviewed. The payload sync profile pins its verity profile through a host tested record in
-`tests/installer-durability/` that it shares with the selected base, so a candidate's payload
-profile passes only once that record follows the candidate. This check holds the policy review
-patch to its digest. The carry check is the one that applies it to the upstream policy file.
+reviewed. Only the host tested record is kept per base. Its patch and source fragments in
+`tests/installer-durability/` serve every base, so a base whose payload patch or tested source
+ranges differ needs a further change. This check holds the policy review patch to its digest.
+The carry check is the one that applies it to the upstream policy file.
 The format guard needs no Git history, so it runs in the archive. The other source checks of the
 B1 and B2 runners read pinned Git objects of their images, which stay on the selected base, and
 are not run here.

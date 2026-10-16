@@ -13,9 +13,10 @@ nothing here authorizes a build. The exact patch profiles in `patches/` remain t
   verifier and the patch tools take the base's identity from it: the release tag, the manifest
   identity, the AOSP default revision, the project count, the HEAD revisions of the patched
   projects and the patch directory `patches/grapheneos-<release>/`. Switching the base is a
-  reviewed change of this record, after a patch directory for the new base exists. That
-  directory can sit beside the selected base's before the switch: the production format guard
-  reads only the selected base's, and
+  reviewed change of this record, after a patch directory for the new base exists, with its own
+  payload sync host record in `tests/installer-durability/`. Both can sit beside the selected
+  base's before the switch: the production format guard reads only the selected base's patch
+  directory, the payload sync tool only its record, and
   [`grapheneos_candidate.py`](../scripts/proof/grapheneos_candidate.md) checks a candidate in a
   scratch checkout whose own selection names it.
 - `bases/<tag>.json` holds one base record per release tag, derived from the signed manifest

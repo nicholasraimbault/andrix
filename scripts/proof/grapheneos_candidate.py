@@ -48,7 +48,7 @@ TIMEOUTS = {'format guard': 600, 'patch set': 300, 'source verifier': 3600, 'pat
             'policy tool': 900}
 # The fields of each check's report that its result keeps.
 SUMMARY = {'format guard': ('base', 'production_patches', 'format_guard'),
-           'patch set': ('base', 'patch_set', 'patches', 'policy'),
+           'patch set': ('base', 'patch_set', 'patches', 'policy', 'host_record'),
            'source verifier': ('verdict', 'release', 'declared_projects', 'verified_projects'),
            'patch tool': ('state',), 'policy tool': ('state', 'upstream_sha256', 'bridge_sha256')}
 # Variables that would let the repository's own modules shadow the checkout's.
@@ -70,14 +70,44 @@ def disjoint(path, tree):
 
 # ---------------------------------------------------------------- the exact patch set
 
+def host_record(base):
+    """The selected base's own host tested record of the payload companion, by its path and
+    digest. It is a regular file at the path keyed by the base, and a JSON object that names the
+    base's frameworks/base revision and its package verity profile by path and digest. The payload
+    tool's profile check then holds it to the payload profile."""
+    import grapheneos_carry as carry
+    import package_installer_payload_sync as payload
+    import package_verity as verity
+    path = payload.HOST_PROFILE
+    name = path.relative_to(ROOT).as_posix()
+    if path.is_symlink() or not path.is_file() or path.resolve() != path:
+        raise CandidateError('the selected base has no host tested record ' + name)
+    try:
+        record = carry.load_json(path)
+    except carry.CarryError as error:
+        raise CandidateError('the host tested record %s: %s' % (name, error)) from error
+    if not isinstance(record, dict):
+        raise CandidateError('the host tested record %s is not a JSON object' % name)
+    wanted = {'head': base.revision(verity.PROJECT),
+              'base_profile': verity.PROFILE.relative_to(ROOT).as_posix(),
+              'base_profile_sha256': sha(verity.PROFILE.read_bytes())}
+    differing = sorted(key for key, value in wanted.items() if record.get(key) != value)
+    if differing:
+        raise CandidateError('the host tested record %s does not name the selected base: %s'
+                             % (name, ', '.join(differing)))
+    return {'path': name, 'sha256': sha(path.read_bytes())}
+
+
 def patch_set():
-    """The selected base's exact patch set, read without a source tree: the names of its patches
-    and the digests its policy record names. Its directory holds exactly the six patches, each
-    beside its profile, and at most a README, all regular files. The owner session policy record
-    names the selected base, its system/sepolicy revision, the policy file, the upstream digest the
-    policy tool pins, an adapted digest and the review patch beside it by its digest. The carry
-    tool's own loader then checks that inventory, validates every other profile with its tool and
-    checks the policy record again, so a patch set passes here only if the carry tool accepts it."""
+    """The selected base's exact patch set, read without a source tree: the names of its patches,
+    the digests its policy record names and its host tested record. Its directory holds exactly the
+    six patches, each beside its profile, and at most a README, all regular files. The owner
+    session policy record names the selected base, its system/sepolicy revision, the policy file,
+    the upstream digest the policy tool pins, an adapted digest and the review patch beside it by
+    its digest. The payload companion's host tested record is the base's own (host_record). The
+    carry tool's own loader then checks that inventory, validates every other profile with its tool
+    and checks the policy record again, so a patch set passes here only if the carry tool accepts
+    it."""
     import grapheneos_carry as carry
     import owner_policy as policy
     base = grapheneos_base.selected()
@@ -109,12 +139,14 @@ def patch_set():
         if differing:
             raise CandidateError('the owner session policy record does not name the selected base '
                                  'and its review patch: %s' % ', '.join(differing))
+        host = host_record(base)
         specs = carry.load_patch_set(base.release)
     except carry.CarryError as error:
         raise CandidateError('the carry tool refuses the patch set: %s' % error) from error
     return {'patches': [spec['name'] for spec in specs],
             'policy': {key: record[key] for key in ('upstream_sha256', 'adapted_sha256',
-                                                     'patch_sha256')}}
+                                                     'patch_sha256')},
+            'host_record': host}
 
 
 def patch_set_report():

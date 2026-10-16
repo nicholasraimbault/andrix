@@ -809,7 +809,9 @@ def scope_fixture(test):
 
 def add_candidate(root, boot=None):
     """A candidate patch directory beside the production one: a copy of it, whose native patch's
-    boot read passes the given format instead of the production one."""
+    boot read passes the given format instead of the production one. It replaces a candidate
+    directory of that base copied from this repository."""
+    shutil.rmtree(root / CANDIDATE_PATCHES, ignore_errors=True)
     shutil.copytree(root / runner.PRODUCTION_PATCHES, root / CANDIDATE_PATCHES)
     if boot is not None:
         patch = root / CANDIDATE_PATCHES / 'native-principal-pins.patch'
@@ -905,9 +907,20 @@ class ProductionScopeTests(unittest.TestCase):
             def write(root):
                 (root / runner.AOSP_SERIES).write_text(text)
             return write
+
+        def series_naming(path, moved):
+            # A series that names a patch by a path in the fixture, with the track's own patch
+            # moved out or kept.
+            def write(root):
+                if moved:
+                    (root / runner.AOSP_TRACK / aosp['patch']).unlink()
+                (root / runner.AOSP_SERIES).write_text(json.dumps(dict(aosp, patch=path(root))))
+            return write
         # The AOSP track's patch, as its series record names it.
         aosp = json.loads((ROOT / runner.AOSP_SERIES).read_text())
         track = re.escape(runner.AOSP_TRACK)
+        named = 'the AOSP track series names no patch of the track: %s$'
+        native = PINNED_PATCHES + '/native-principal-pins.patch'
         cases = (
             ('another directory', planted('patches/lab/any-name.patch'),
              'unknown directory under patches/: patches/lab$'),
@@ -940,7 +953,17 @@ class ProductionScopeTests(unittest.TestCase):
              series(json.dumps(dict(aosp, patch='other.patch'))),
              "the AOSP track series names no patch of the track: 'other.patch'$"),
             ('an AOSP series that is no record', series('[]\n'),
-             'the AOSP track series is not a JSON record'))
+             'the AOSP track series is not a JSON record'),
+            ('an AOSP series naming a production patch by an absolute path',
+             series_naming(lambda root: str(root / native), moved=True),
+             named % ("'/[^']*/" + re.escape(native) + "'")),
+            ('an AOSP series naming its own patch by an absolute path',
+             series_naming(lambda root: str(root / runner.AOSP_TRACK / aosp['patch']), moved=False),
+             named % ("'/[^']*/" + track + '/' + re.escape(aosp['patch']) + "'")),
+            ('an AOSP series naming a production patch outside the track',
+             series_naming(lambda root: '../grapheneos-2026081300/native-principal-pins.patch',
+                           moved=True),
+             named % re.escape("'../grapheneos-2026081300/native-principal-pins.patch'")))
         control = scope_fixture(self)
         add_candidate(control)
         self.assertEqual(len(runner.production_patches(control)), 7)

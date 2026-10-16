@@ -34,6 +34,8 @@ from unittest import mock  # noqa: F401
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from caiman import Refusal  # noqa: E402
 import neverallow_check as nc  # noqa: E402
+sys.path.append(str(Path(__file__).resolve().parents[2] / 'proof'))
+import grapheneos_base  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURE = Path(__file__).resolve().parent / 'fixtures' / 'neverallow' / 'partitions'
@@ -1356,13 +1358,26 @@ class ProvenanceTests(Work):
                                       ['owner/sepolicy', 'sepolicy/privat'])
 
     def test_the_patch_set_comes_from_the_base_tag(self):
-        self.assertEqual(nc.patch_dirs_for(ROOT, '2026081300'), PATCHES)
+        # The selected base's directory is production. A candidate base's directory may sit beside
+        # it, and only grapheneos_candidate.py checks it, so this repository is read for the
+        # selected base alone, and a tag without a directory is shown in a copy of the sources.
+        selected = grapheneos_base.selected()
+        self.assertEqual(PATCHES, [selected.patches.relative_to(ROOT).as_posix()])
+        self.assertEqual(nc.patch_dirs_for(ROOT, selected.release), PATCHES)
+        source = source_copy(self.work)
         for tag, reason in (('2026100600', 'has no reviewed patch directory patches/grapheneos-2026100600'),
                             ('2026081301', 'security preview'), ('20260813', 'not ten digits')):
             with self.subTest(tag=tag):
                 with self.assertRaisesRegex(Refusal, reason):
-                    nc.patch_dirs_for(ROOT, tag)
-        source = source_copy(self.work)
+                    nc.patch_dirs_for(source, tag)
+        # a candidate's directory beside it leaves the selected base's patch set as it is
+        candidate = source / 'patches/grapheneos-2026100600'
+        shutil.copytree(source / PATCHES[0], candidate)
+        policy = candidate / 'owner-session-policy.json'
+        policy.write_text(policy.read_text().replace('"base_release": "2026081300"',
+                                                     '"base_release": "2026100600"'))
+        self.assertEqual(nc.patch_dirs_for(source, selected.release), PATCHES)
+        shutil.rmtree(candidate)
         record = source / PATCHES[0] / 'owner-session-policy.json'
         record.write_text(record.read_text().replace('"base_release": "2026081300"',
                                                      '"base_release": "2026100600"'))
@@ -1376,7 +1391,7 @@ class ProvenanceTests(Work):
         with self.assertRaisesRegex(Refusal, 'holds owner-session-policy.patch without a record'):
             nc.patch_dirs_for(source, '2026081300')
         report = nc.check(nc.Inputs({}, True), expanded=self.expanded(), variant='user', tools={},
-                          base_tag='2026100600')
+                          base_tag='2026100600', source_root=source)
         self.assertIn('has no reviewed patch directory', report['checks']['C_rule_sources']['reason'])
 
     def test_unknown_tags_have_no_tool_pins(self):
@@ -1442,7 +1457,7 @@ class ProvenanceTests(Work):
             with self.assertRaisesRegex(Refusal, 'secilc cannot be read'):
                 nc.check_build_tools('2026100600', directory)
 
-    def gate(self, record_changes=None, read=True, **stand_ins):
+    def gate(self, record_changes=None, read=True, source_root=ROOT, **stand_ins):
         zip_path = self.work / 'caiman-install-andrix1.zip'
         zip_path.write_bytes(b'synthetic Andrix install zip\n')
         expanded = self.expanded()
@@ -1457,7 +1472,8 @@ class ProvenanceTests(Work):
                     nc, 'read_image_policy', lambda debugfs, keep, destination: partitions[destination.name]))
             return nc.gate(zip_path, official_kit=self.work / 'caiman-install-2026081300.zip',
                            release_record=record, expanded=expanded, variant='user', tools={},
-                           kit={'debugfs': 'debugfs'}, tree=None, scratch=self.work)
+                           kit={'debugfs': 'debugfs'}, tree=None, source_root=source_root,
+                           scratch=self.work)
 
     def test_the_release_record_binds_the_zip_and_the_expanded_rule_file(self):
         report = self.gate()
@@ -1501,8 +1517,11 @@ class ProvenanceTests(Work):
                                      ('the release record did not pass, so the zip is bound to no build',
                                       'the release record did not pass, so the expanded rule file is '
                                       'bound to no build'))
+        # an image of a tag without a reviewed patch directory, read in a copy of the sources, since
+        # a candidate base's directory may sit in this repository beside the selected base's
         seen = []
-        report = self.gate(base_tag='2026100600', record_changes={'base_tag': '2026100600'}, seen=seen)
+        report = self.gate(base_tag='2026100600', record_changes={'base_tag': '2026100600'},
+                           seen=seen, source_root=source_copy(self.work))
         self.assertEqual(seen, ['2026100600'])
         self.assertIn('has no reviewed set of host tool digests', report['checks']['tools']['reason'])
         self.assertIn('has no reviewed patch directory', report['checks']['C_rule_sources']['reason'])

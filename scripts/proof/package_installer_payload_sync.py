@@ -23,7 +23,21 @@ HEAD = verity.HEAD
 FILE = verity.FILE
 PROFILE = verity.BASE.patches / 'package-installer-payload-sync.json'
 PATCH = verity.BASE.patches / 'package-installer-payload-sync.patch'
-HOST_PROFILE = ROOT / 'tests/installer-durability/pis-reverse-write-sync.candidate.json'
+# Each base has its own host tested record, keyed by the base as its patch directory is, so a
+# candidate's record is written without touching the selected base's. The record of 2026081300
+# keeps the path that its payload profile names, a profile the sealed carry report pins.
+HOST_RECORDS = 'tests/installer-durability/grapheneos-{}/pis-reverse-write-sync.candidate.json'
+FIXED_HOST_RECORDS = {
+    '2026081300': 'tests/installer-durability/pis-reverse-write-sync.candidate.json'}
+
+
+def host_record(release):
+    """The host tested record of a base, relative to the root."""
+    return FIXED_HOST_RECORDS.get(release, HOST_RECORDS.format(release))
+
+
+# The selected base's record, which profile() requires.
+HOST_PROFILE = ROOT / host_record(verity.BASE.release)
 HOST_PATCH = ROOT / 'tests/installer-durability/pis-reverse-write-sync.candidate.patch'
 HOST_BASE_FRAGMENT = ROOT / 'tests/installer-durability/PisReverseWriteFragment.base.java.inc'
 HOST_FRAGMENT = ROOT / 'tests/installer-durability/PisReverseWriteFragment.candidate.java.inc'

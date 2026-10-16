@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """The candidate base check: the scratch checkout that selects the candidate, the checks it runs
-there, the exact patch set and policy record it requires and its refusals, beside the production
-guard of the selected base. A fixture repository stands in for this one. No Android tree is used:
-the source verifier and the patch tools run against an empty tree and report their refusals."""
+there, the exact patch set, policy record and host tested record it requires and its refusals,
+beside the production guard of the selected base. A fixture repository stands in for this one. No
+Android tree is used: the source verifier and the patch tools run against an empty tree and report
+their refusals."""
 import contextlib
 import hashlib
 import io
@@ -27,16 +28,24 @@ PINNED_PATCHES, SECOND_PATCHES = 'patches/grapheneos-2026081300', 'patches/graph
 SECOND_RECORD = 'upstream/bases/2026100600.json'
 NATIVE = SECOND_PATCHES + '/native-principal-pins.patch'
 POLICY = SECOND_PATCHES + '/owner-session-policy.json'
-HOST = 'tests/installer-durability/pis-reverse-write-sync.candidate.json'
+# The payload companion's host tested record of each base, keyed by the base.
+PINNED_HOST = 'tests/installer-durability/pis-reverse-write-sync.candidate.json'
+SECOND_HOST = ('tests/installer-durability/grapheneos-2026100600/'
+               'pis-reverse-write-sync.candidate.json')
 # The production boot read of the native patch, as an added line.
 BOOT = '+                NativeIdentityStore.Format.V3);\n'
 SETTINGS = 'services/core/java/com/android/server/pm/Settings.java'
+# The record's own host tool, run in a checkout: it validates the record it reads and names it.
+HOST_TOOL = ('import sys; sys.path.insert(0, "tests/installer-durability"); '
+             'import pis_reverse_write_sync as host; host.profile(); '
+             'print(host.PROFILE.relative_to(host.ROOT).as_posix())')
 # A non Java patch that no profile records.
 UNRECORDED = '--- a/extra.te\n+++ b/extra.te\n@@ -0,0 +1 @@\n+allow domain self:process *;\n'
-# How the patch set check ends each refusal: the policy record fields that differ, and the
-# inventory of the patch directory.
+# How the patch set check ends each refusal: the policy record fields that differ, the inventory
+# of the patch directory and the host tested record fields that differ.
 FIELDS = 'does not name the selected base and its review patch: '
 INVENTORY = 'missing %s, unexpected %s, not regular files %s'
+HOST_FIELDS = 'the host tested record %s does not name the selected base: ' % SECOND_HOST
 # The fixture's Git: no system or global configuration, a fixed author.
 GIT = {'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull,
        'GIT_AUTHOR_NAME': 'fixture', 'GIT_AUTHOR_EMAIL': 'fixture@invalid',
@@ -83,22 +92,27 @@ def fixture_repository(directory):
 def honest_candidate(root):
     """A copy of the selected base's patch directory, pointed at the 2026100600 base: every profile
     names that base's revision of its project and the policy record names that base. The payload
-    companion's verity profile is pinned through the host record that it shares with the selected
-    base, which step 3 resolves; here the record follows the candidate."""
+    companion's own host tested record, keyed by that base, is a copy of the selected base's that
+    names that base's revision and package verity profile. No file of the selected base changes.
+    They replace any candidate directory and record of that base that the copy holds."""
     record = json.loads((root / SECOND_RECORD).read_text())
     revisions = {project: row['revision'] for project, row in record['patched_projects'].items()}
+    for directory in (root / SECOND_PATCHES, (root / SECOND_HOST).parent):
+        shutil.rmtree(directory, ignore_errors=True)
     shutil.copytree(root / PINNED_PATCHES, root / SECOND_PATCHES)
     for profile in sorted((root / SECOND_PATCHES).glob('*.json')):
         rewrite(profile, head=revisions[json.loads(profile.read_text())['project']])
     rewrite(root / POLICY, base_release=SECOND)
     verity = root / SECOND_PATCHES / 'package-verity.json'
-    rewrite(root / HOST, head=revisions['frameworks/base'],
+    (root / SECOND_HOST).parent.mkdir()
+    shutil.copyfile(root / PINNED_HOST, root / SECOND_HOST)
+    rewrite(root / SECOND_HOST, head=revisions['frameworks/base'],
             base_profile=SECOND_PATCHES + '/package-verity.json',
             base_profile_sha256=sha(verity.read_bytes()))
     rewrite(root / SECOND_PATCHES / 'package-installer-payload-sync.json',
             requires=SECOND_PATCHES + '/package-verity.json',
-            requires_sha256=sha(verity.read_bytes()),
-            host_profile_sha256=sha((root / HOST).read_bytes()))
+            requires_sha256=sha(verity.read_bytes()), host_profile=SECOND_HOST,
+            host_profile_sha256=sha((root / SECOND_HOST).read_bytes()))
 
 
 def commit(root, message):
@@ -211,6 +225,11 @@ class CandidateCheckTests(unittest.TestCase):
         self.assertEqual(sorted(patches['patches']), sorted(candidate.PATCH_NAMES))
         self.assertEqual(patches['policy'], {key: policy[key] for key in (
             'upstream_sha256', 'adapted_sha256', 'patch_sha256')})
+        # It read the candidate's own host tested record. The selected base's record beside it is
+        # this repository's, byte for byte.
+        self.assertEqual(patches['host_record'],
+                         {'path': SECOND_HOST, 'sha256': sha((tree / SECOND_HOST).read_bytes())})
+        self.assertEqual((tree / PINNED_HOST).read_bytes(), (ROOT / PINNED_HOST).read_bytes())
         self.assertEqual(rows[2]['result'], 'FAIL')
         self.assertIn('Allowed-signers bytes differ from the approved trust input',
                       rows[2]['failure'])
@@ -287,8 +306,24 @@ class CandidateCheckTests(unittest.TestCase):
         self.assertEqual((code, result, report['base'], report['patches_directory']),
                          (0, 'PASS', SECOND, SECOND_PATCHES))
         self.assertEqual(report['patches'], list(candidate.PATCH_NAMES))
+        self.assertEqual(report['host_record']['path'], SECOND_HOST)
+        # The checkout's copy of the record's own host tool reads and accepts the same record.
+        process = subprocess.run([sys.executable, '-B', '-c', HOST_TOOL], cwd=tree,
+                                 env=python_environment(), capture_output=True, text=True,
+                                 timeout=300)
+        self.assertEqual((process.returncode, process.stdout), (0, SECOND_HOST + '\n'),
+                         process.stderr)
         record = json.loads(policy.read_text())
         old = (tree / PINNED_PATCHES / 'native-principal-pins.json').read_text()
+        host, pinned_host = tree / SECOND_HOST, tree / PINNED_HOST
+        own = json.loads(host.read_text())
+        payload = directory / 'package-installer-payload-sync.json'
+
+        def named_host(path, data):
+            # The candidate's payload profile names another record by its path and digest.
+            value = dict(json.loads(payload.read_text()), host_profile=path,
+                         host_profile_sha256=sha(data))
+            payload.write_text(json.dumps(value, indent=2) + '\n')
 
         def changed(path, text):
             def change():
@@ -308,6 +343,20 @@ class CandidateCheckTests(unittest.TestCase):
 
         def field(**changes):
             return changed(policy, json.dumps(dict(record, **changes), indent=2) + '\n')
+
+        def host_field(**changes):
+            return changed(host, json.dumps(dict(own, **changes), indent=2) + '\n')
+
+        def linked_host():
+            host.rename(tree / 'host.json')
+            host.symlink_to(tree / 'host.json')
+
+        def shared_host():
+            # The selected base's record rewritten to follow the candidate instead of its own.
+            pinned_host.write_bytes(host.read_bytes())
+            host.unlink()
+            named_host(PINNED_HOST, pinned_host.read_bytes())
+        no_record = 'the selected base has no host tested record ' + SECOND_HOST
         cases = (
             ('without a README', removed('README.md'), None),
             ('the old base', field(base_release=PINNED), FIELDS + 'base_release'),
@@ -334,8 +383,26 @@ class CandidateCheckTests(unittest.TestCase):
              INVENTORY % ([], ['nested'], ['nested'])),
             ('a linked profile', linked, INVENTORY % ([], [], ['owner-lifecycle.json'])),
             ('a profile of the old base', changed(directory / 'native-principal-pins.json', old),
-             'ValueError: native principal profile drift'))
-        saved = {path: path.read_bytes() for path in directory.iterdir()}
+             'ValueError: native principal profile drift'),
+            ('no host tested record', host.unlink, no_record),
+            ('a linked host tested record', linked_host, no_record),
+            ("the selected base's host tested record", changed(host, pinned_host.read_text()),
+             HOST_FIELDS + 'base_profile, base_profile_sha256, head'),
+            ('a host tested record of the old revision', host_field(head=json.loads(old)['head']),
+             HOST_FIELDS + 'head'),
+            ('a host tested record of the old verity profile',
+             host_field(base_profile=PINNED_PATCHES + '/package-verity.json'),
+             HOST_FIELDS + 'base_profile'),
+            ('a host tested record that is no object', changed(host, '[]\n'),
+             'the host tested record %s is not a JSON object' % SECOND_HOST),
+            ('a host tested record with a duplicate key',
+             changed(host, host.read_text().replace('"head":', '"head": "x", "head":', 1)),
+             'the host tested record %s: duplicate JSON key: head' % SECOND_HOST),
+            ("a payload profile naming the selected base's record",
+             lambda: named_host(PINNED_HOST, pinned_host.read_bytes()),
+             'ValueError: payload sync profile drift'),
+            ("the selected base's record shared", shared_host, no_record))
+        saved = {path: path.read_bytes() for path in (*directory.iterdir(), host, pinned_host)}
         for name, change, refusal in cases:
             with self.subTest(case=name):
                 change()
@@ -346,7 +413,7 @@ class CandidateCheckTests(unittest.TestCase):
                     self.assertEqual(code, 1)
                     self.assertEqual(len(result), 1)
                     self.assertTrue(result[0].endswith(refusal), result)
-                for path in directory.iterdir():
+                for path in (*directory.iterdir(), host):
                     if path.is_dir() and not path.is_symlink():
                         path.rmdir()
                     elif path not in saved or path.is_symlink():
@@ -354,6 +421,7 @@ class CandidateCheckTests(unittest.TestCase):
                 for path, data in saved.items():
                     path.write_bytes(data)
                 (tree / 'owner-lifecycle.json').unlink(missing_ok=True)
+                (tree / 'host.json').unlink(missing_ok=True)
         self.assertEqual(patch_set()[:2], (0, 'PASS'))
 
     def test_the_policy_record_must_agree_with_the_policy_tools_reading(self):
@@ -377,6 +445,8 @@ class CandidateCheckTests(unittest.TestCase):
         self.assertEqual(found['patches'], list(candidate.PATCH_NAMES))
         self.assertEqual(found['policy'], {key: record[key] for key in (
             'upstream_sha256', 'adapted_sha256', 'patch_sha256')})
+        self.assertEqual(found['host_record'], {'path': PINNED_HOST,
+                                                'sha256': sha((ROOT / PINNED_HOST).read_bytes())})
         self.assertEqual(candidate.patch_set_report()[1], 0)
 
     def test_the_production_guard_of_the_selected_base_ignores_the_candidate(self):
@@ -390,6 +460,16 @@ class CandidateCheckTests(unittest.TestCase):
         report = json.loads(process.stdout)
         self.assertEqual((report['base'], report['production_patches']), (PINNED, PINNED_PATCHES))
         self.assertEqual((report['format_guard'], report['status']), ('PASS', 'SOURCE_ONLY'))
+        # The selected base's patch set passes with its own host tested record, which the
+        # candidate's beside it left as it was.
+        process = subprocess.run(
+            [sys.executable, '-B', str(self.root / 'scripts/proof/grapheneos_candidate.py'),
+             'patch-set'], env=python_environment(), capture_output=True, text=True, timeout=300)
+        self.assertEqual(process.returncode, 0, process.stdout)
+        report = json.loads(process.stdout)
+        self.assertEqual((report['base'], report['patch_set'], report['host_record']),
+                         (PINNED, 'PASS', {'path': PINNED_HOST,
+                                           'sha256': sha((ROOT / PINNED_HOST).read_bytes())}))
 
     def test_the_checkout_is_exactly_its_revision(self):
         scratch = self.directory / 'exact'
