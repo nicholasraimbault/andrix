@@ -383,7 +383,22 @@ class Harness:
         if directory is None:
             self._temp = tempfile.TemporaryDirectory()
             directory = self._temp.name
-        self.directory = Path(directory)
+        self.broker = None
+        try:
+            self._setup(Path(directory), sim, cells, pins, notice, processes, sync, next_profile, specs, reader,
+                        health, publication, fsync, changes)
+        except BaseException:
+            # A refused setup, such as a malformed fault schedule a test expects the broker
+            # to refuse, leaves no open broker and no temporary directory behind.
+            if self.broker is not None:
+                self.broker.close()
+            if self._temp is not None:
+                self._temp.cleanup()
+            raise
+
+    def _setup(self, directory, sim, cells, pins, notice, processes, sync, next_profile, specs, reader, health,
+               publication, fsync, changes):
+        self.directory = directory
         self.root = self.directory / 'broker'
         self.sim = sim or sim_android.SimAndroid()
         self.clock = Clock()

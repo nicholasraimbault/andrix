@@ -1198,8 +1198,8 @@ class FenceTests(LossBase):
                 self.assertEqual(self.commits(h), [])
 
     def test_a_reopened_fence_restores_f0_only_from_its_kept_capability_record(self):
-        """The fence's qualification comes back on reopening only when the kept capability record
-        still makes the decision the ledger records."""
+        # The fence's qualification comes back on reopening only when the kept capability record
+        # still makes the decision the ledger records.
         def history(branch='FULL'):
             h = self.harness()
             decision = h.broker.record_f0(labtest.f0_record(branch), 'retain the capability record')
@@ -1232,8 +1232,8 @@ class FenceTests(LossBase):
                 self.assertEqual(self.commits(h), [])
 
     def test_direct_steps_launch_nothing_past_their_effect_caps(self):
-        """A direct step's guest commands are action effects: the admitted cap of their class and
-        of their phase, counted from the ledger, refuses a step past it with nothing launched."""
+        # A direct step's guest commands are action effects: the admitted cap of their class and
+        # of their phase, counted from the ledger, refuses a step past it with nothing launched.
         phases = dict(labtest.effect_limits()['phases'], N2=0)
         for name, limits in (('class', dict(labtest.effect_limits(), direct=0)),
                              ('phase', dict(labtest.effect_limits(), phases=phases))):

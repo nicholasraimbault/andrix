@@ -659,10 +659,10 @@ class BridgeEndToEnd(unittest.TestCase):
         self.assertEqual(sorted(f['classification'] for f in w.stored_facts(9)), [1, 1, 1, 1, 1, 4])
 
     def test_next_a_c0_confirmation_settles_in_its_new_boot_and_a_terminal_round_loss_halts(self):
-        """C0: CREATE lost before its effect, then a plain kernel confirmation. The new boot's
-        whole listing settles NO_SESSION then CLOSED_FAILED with one boot counted, which the same
-        boot's emptiness never did. The round that closes the ticket halts at its TERMINAL
-        boundary once its checkpoint and fault are durable; the next generation counts on."""
+        # C0: CREATE lost before its effect, then a plain kernel confirmation. The new boot's
+        # whole listing settles NO_SESSION then CLOSED_FAILED with one boot counted, which the same
+        # boot's emptiness never did. The round that closes the ticket halts at its TERMINAL
+        # boundary once its checkpoint and fault are durable; the next generation counts on.
         w = self.world([cell('c0-create', mode='loss-before', crossing='CREATE', occurrence=1),
                         loss('terminal-round', 'round', 'TERMINAL')], next_profile=True)
         w.generation('settle', TICKET, '40')
@@ -699,9 +699,9 @@ class BridgeEndToEnd(unittest.TestCase):
         self.assertEqual(checkpoints[-1]['milestone'], None)
 
     def test_next_a_read_loss_in_the_window_halts_after_its_health_child(self):
-        """A read loss of the health reader at the window's second progress read: the broker
-        completes that child, records the fault, and orders the halt; the bridge records nothing
-        of that observation, and the next generations read again and finish the window."""
+        # A read loss of the health reader at the window's second progress read: the broker
+        # completes that child, records the fault, and orders the halt; the bridge records nothing
+        # of that observation, and the next generations read again and finish the window.
         w = self.world([loss('window-read', 'read', 'HEALTH_WINDOW_PROGRESS', occurrence=2, reader='health')],
                        next_profile=True)
         state = self.window_probes(w, halt_allowed=True)
