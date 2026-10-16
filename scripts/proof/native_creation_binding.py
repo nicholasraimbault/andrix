@@ -1310,12 +1310,27 @@ def added_java(patch_text):
 
 # ---------------------------------------------------------------- the production format guard
 
-NATIVE_PATCH = 'patches/grapheneos-2026081300/native-principal-pins.patch'
-WRITER_PATCH = 'patches/grapheneos-2026081300/native-identity-writer.patch'
+# The production patch directory is the selected base's, patches/grapheneos-<release>/, whose
+# patches the patch tools apply. The guard reads it as production, and the AOSP track of
+# aosp_patches.py, which follows no GrapheneOS base. Every other patches/grapheneos-<release>/
+# directory of a base recorded in upstream/bases is a candidate base's: production never reads it,
+# and grapheneos_candidate.py checks it on its own with this guard, in a scratch checkout that
+# selects that base. Anything else under patches/ is refused. Both production directories must
+# exist, the AOSP track with the patch that its series record names.
+PRODUCTION_PATCHES = integration.BASE.patches.relative_to(ROOT).as_posix()
+AOSP_TRACK = 'patches/android-17.0.0_r1'
+AOSP_SERIES = AOSP_TRACK + '/series.json'
+CANDIDATE_PATCHES = re.compile(r'grapheneos-([0-9]{10})')
+# What a patch directory may hold, each a regular file: patches, their JSON records and a README.
+PATCH_DIRECTORY_FILES = re.compile(r'[a-z0-9][a-z0-9-]*\.(?:patch|json)|README\.md')
+# The production native patch and lab writer patch, in the production directory. The images of
+# B1 and B2 keep their own paths, NATIVE_PATCH and NATIVE_PROFILE below.
+PRODUCTION_NATIVE_PATCH = integration.PATCH.relative_to(ROOT).as_posix()
+PRODUCTION_WRITER_PATCH = PRODUCTION_PATCHES + '/native-identity-writer.patch'
 WRITER_FIXTURE = 'tests/native-identity/writer/NativePrincipalWriterFixture.java'
 # The native helpers the native patch adds to the framework, by production text name.
 NATIVE_HELPERS = tuple(path.relative_to(ROOT).as_posix() for path in integration.ADDED.values())
-SETTINGS_SECTION = NATIVE_PATCH + ':' + integration.SETTINGS
+SETTINGS_SECTION = PRODUCTION_NATIVE_PATCH + ':' + integration.SETTINGS
 FACADE = PLATFORM + 'native_principal_stubs/com/android/server/pm/Settings.java'
 # The one boot construction of the adapted Settings, ported from the retired lab format tool:
 # its method, the construction up to its format argument and the persistence that follows it.
@@ -1403,29 +1418,77 @@ def patch_sections(text):
     return [(target, '\n'.join(added)) for target, added in sections]
 
 
-def production_texts():
+def production_patches(root=ROOT):
+    """The production patches under root's patches/, sorted by path: those of the production
+    directory and of the AOSP track. Refuses an unknown or malformed entry: anything under
+    patches/ but those two directories and the directories of candidate bases recorded in
+    upstream/bases, a link, and a directory that holds anything but regular patch, JSON and README
+    files. Refuses a missing production directory, and an AOSP track that is missing or does not
+    hold the patch its series record names. A candidate's patches are never read here."""
+    root = Path(root)
+    top, production = root / 'patches', (PRODUCTION_PATCHES, AOSP_TRACK)
+    if top.is_symlink() or not top.is_dir():
+        raise ValueError('patches/ is not a directory')
+    names, patches = [], []
+    for directory in sorted(top.iterdir()):
+        name = 'patches/' + directory.name
+        candidate = CANDIDATE_PATCHES.fullmatch(directory.name)
+        if directory.is_symlink() or not directory.is_dir():
+            raise ValueError('unknown entry under patches/, not a directory: ' + name)
+        if name not in production and candidate is None:
+            raise ValueError('unknown directory under patches/: ' + name)
+        if name not in production:
+            record = root / 'upstream/bases' / (candidate.group(1) + '.json')
+            if record.is_symlink() or not record.is_file():
+                raise ValueError('%s names no base recorded in upstream/bases' % name)
+        for entry in sorted(directory.iterdir()):
+            if (entry.is_symlink() or not entry.is_file()
+                    or PATCH_DIRECTORY_FILES.fullmatch(entry.name) is None):
+                raise ValueError('malformed patch directory %s: %s' % (name, entry.name))
+            if name in production and entry.suffix == '.patch':
+                patches.append(entry)
+        names.append(name)
+    if PRODUCTION_PATCHES not in names:
+        raise ValueError('the selected base has no patch directory ' + PRODUCTION_PATCHES)
+    if AOSP_TRACK not in names:
+        raise ValueError('the AOSP track is missing: ' + AOSP_TRACK)
+    if not (root / AOSP_SERIES).is_file():
+        raise ValueError('the AOSP track has no series record ' + AOSP_SERIES)
+    try:
+        named = json.loads((root / AOSP_SERIES).read_text()).get('patch')
+    except (ValueError, AttributeError) as error:
+        raise ValueError('the AOSP track series is not a JSON record: %s' % error) from error
+    if not isinstance(named, str) or root / AOSP_TRACK / named not in patches:
+        raise ValueError('the AOSP track series names no patch of the track: %r' % (named,))
+    return sorted(patches)
+
+
+def production_texts(root=ROOT):
     """Every production Java text by name: the framework sources, each Java file section of every
-    patch by its added lines, named '<patch>:<file>', and the lab writer fixture. A patch is read
-    per file section, never as one merged text."""
-    texts = {path.relative_to(ROOT).as_posix(): path.read_text()
-             for path in sorted((ROOT / FRAMEWORK_DIR).glob('*.java'))}
-    for patch in sorted((ROOT / 'patches').rglob('*.patch')):
-        name = patch.relative_to(ROOT).as_posix()
+    production patch by its added lines, named '<patch>:<file>', and the lab writer fixture. A patch
+    is read per file section, never as one merged text. The production patches are the selected
+    base's and the AOSP track's; production_patches refuses any other entry under patches/ but a
+    candidate base's directory."""
+    root = Path(root)
+    texts = {path.relative_to(root).as_posix(): path.read_text()
+             for path in sorted((root / FRAMEWORK_DIR).glob('*.java'))}
+    for patch in production_patches(root):
+        name = patch.relative_to(root).as_posix()
         for target, added in patch_sections(patch.read_text()):
             key = '%s:%s' % (name, target)
             if key in texts:
                 raise ValueError('patch with two sections for one file: ' + key)
             if target.endswith('.java'):
                 texts[key] = added
-    texts[WRITER_FIXTURE] = (ROOT / WRITER_FIXTURE).read_text()
+    texts[WRITER_FIXTURE] = (root / WRITER_FIXTURE).read_text()
     return texts
 
 
 def native_source(name):
     """Whether a production text is native: a native helper, a section of the native patch, or the
     lab writer route, its fixture and its patch section."""
-    return (name in NATIVE_HELPERS or name.startswith(NATIVE_PATCH + ':') or name == WRITER_FIXTURE
-            or name.startswith(WRITER_PATCH + ':'))
+    return (name in NATIVE_HELPERS or name.startswith(PRODUCTION_NATIVE_PATCH + ':')
+            or name == WRITER_FIXTURE or name.startswith(PRODUCTION_WRITER_PATCH + ':'))
 
 
 def boot_site(text):
@@ -1509,7 +1572,7 @@ def format_violations(texts):
         for found in re.finditer(r'\bFormat\s*\.\s*V2\b', text):
             problems.append('v2: %s names the previous format: %s' % (name, found.group(0)))
         if (re.search(r'\bNativeIdentityStore\b', text) and name not in NATIVE_HELPERS
-                and not name.startswith(NATIVE_PATCH + ':')):
+                and not name.startswith(PRODUCTION_NATIVE_PATCH + ':')):
             problems.append('mention: %s names NativeIdentityStore outside the native helpers and patch'
                             % name)
         for pattern in NATIVE_SELECTORS if native_source(name) else SELECTORS:
@@ -1579,6 +1642,10 @@ def b2_forward(text):
 # facade and stubs, its harness cut from B1's candidate Settings by B1's fragments, and its test
 # supports, all from these pins.
 FLOOR = 'da790b1748b14cfa7cec1db4ee44b20f608bdf5a'
+# The native patch and its profile at their paths in the trees of B1's image, the floor, and of
+# B2's, both built on 2026081300. They stay when the selected base, and with it the production
+# patch directory, moves.
+NATIVE_PATCH = 'patches/grapheneos-2026081300/native-principal-pins.patch'
 NATIVE_PROFILE = 'patches/grapheneos-2026081300/native-principal-pins.json'
 # The floor's directories, frozen with it, and its stub directories, whose floor trees are pinned
 # whole but for the unused XML stub.
@@ -1875,9 +1942,12 @@ def one_token_patch(old, new):
             + '         // This is negative preservation evidence, never signer/owner identity.\n')
 
 
-# Where each guard mutant's one token version 1 patch lands under patches/.
-ONE_TOKEN_PATHS = {'one-token-v1-patch-beside-native': 'patches/grapheneos-2026081300/native-store-format-v1.patch',
-                   'one-token-v1-patch-other-directory': 'patches/lab/any-name.patch'}
+# Where each guard mutant's one token version 1 patch lands under patches/: beside the production
+# native patch, and in another directory. The layout refuses that directory before any rule reads
+# it; the mutant keeps the rules' own reading of it.
+ONE_TOKEN_PATHS = {
+    'one-token-v1-patch-beside-native': PRODUCTION_PATCHES + '/native-store-format-v1.patch',
+    'one-token-v1-patch-other-directory': 'patches/lab/any-name.patch'}
 # Code the guard mutants insert before the persistence constructor, or pass at the boot site.
 HOST_CONSTRUCTION = ('    static NativeIdentityPersistence host(java.io.File root) {\n'
                      '        return new NativeIdentityPersistence(new NativeIdentityStore(root,\n'
@@ -1914,7 +1984,7 @@ def guard_mutants():
     """Production format defects, each with the exact set of guard rules it must trip."""
     texts = production_texts()
     settings, persistence = SETTINGS_SECTION, FRAMEWORK_DIR + 'NativeIdentityPersistence.java'
-    manager = NATIVE_PATCH + ':' + integration.PREFIX + 'PackageManagerService.java'
+    manager = PRODUCTION_NATIVE_PATCH + ':' + integration.PREFIX + 'PackageManagerService.java'
     boot = CONSTRUCTION + PRODUCTION + ');\n'
     anchor = '    NativeIdentityPersistence(NativeIdentityStore store) {\n'
 
@@ -2048,14 +2118,36 @@ def twin_problems(predictions):
     return problems
 
 
-def source_checks():
-    integration.profile()
-    texts = production_texts()
-    problems = format_violations(texts) + surface_violations() + facade_violations(texts)
+def guard_mutant_problems():
+    """Each guard mutant that trips other rules than its own."""
+    problems = []
     for name, (mutated, rules) in guard_mutants().items():
         tripped = format_rules(mutated)
         if tripped != rules:
             problems.append('guard mutant %s tripped %s, not %s' % (name, sorted(tripped), sorted(rules)))
+    return problems
+
+
+def format_guard():
+    """The production format guard alone: the layout of patches/, the violations of the production
+    texts, and each guard mutant over them. Pure and read only, and it needs no Git history, so a
+    scratch checkout that selects a candidate base runs it on the candidate's patches."""
+    try:
+        problems = format_violations(production_texts())
+    except (OSError, ValueError) as error:
+        return ['production texts: %s' % error]
+    try:
+        problems += guard_mutant_problems()
+    except (KeyError, ValueError) as error:
+        problems.append('guard mutants: %s' % error)
+    return problems
+
+
+def source_checks():
+    integration.profile()
+    texts = production_texts()
+    problems = format_violations(texts) + surface_violations() + facade_violations(texts)
+    problems += guard_mutant_problems()
     # Each anchor must exist exactly once in the current sources, or this raises.
     mutant_sources()
     b0.mutants()
@@ -3146,8 +3238,16 @@ def main():
     parser.add_argument('--verify-candidate', type=Path,
                         help='pinned canonical framework copies; pure patch reproduction only')
     parser.add_argument('--source-checks-only', action='store_true')
+    parser.add_argument('--format-guard-only', action='store_true',
+                        help='the production format guard alone, over the selected base')
     args = parser.parse_args()
     report = {'runtime_qualified': False, 'android_qualified': False, 'activation': False}
+    if args.format_guard_only:
+        problems = format_guard()
+        report.update(base=integration.BASE.release, production_patches=PRODUCTION_PATCHES,
+                      format_guard=problems or 'PASS', status='FAIL' if problems else 'SOURCE_ONLY')
+        print(json.dumps(report, indent=2))
+        return 1 if problems else 0
     problems = source_checks()
     report['source_checks'] = problems or 'PASS'
     if args.verify_candidate:

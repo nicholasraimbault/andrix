@@ -121,8 +121,9 @@ class CreationBindingSourceTests(unittest.TestCase):
         self.assertEqual((runner.PRODUCTION, runner.PREVIOUS, runner.RETIRED),
                          tuple('NativeIdentityStore.Format.V%d' % version for version in (3, 2, 1)))
         # The patch is read per file section: the boot construction is in the Settings section only.
-        sections = [name for name in texts if name.startswith(runner.NATIVE_PATCH + ':')]
-        self.assertEqual(sections, [runner.NATIVE_PATCH + ':' + name for name in runner.integration.FILES])
+        native = runner.PRODUCTION_NATIVE_PATCH + ':'
+        sections = [name for name in texts if name.startswith(native)]
+        self.assertEqual(sections, [native + name for name in runner.integration.FILES])
         self.assertEqual([name for name in sections if 'new NativeIdentityStore(' in texts[name]],
                          [runner.SETTINGS_SECTION])
         store = (ROOT / runner.STORE).read_text()
@@ -135,7 +136,7 @@ class CreationBindingSourceTests(unittest.TestCase):
         # only by passing and naming the previous format.
         floor = dict(texts)
         for target, added in runner.patch_sections(runner.floor_bytes(runner.NATIVE_PATCH).decode()):
-            floor['%s:%s' % (runner.NATIVE_PATCH, target)] = added
+            floor['%s:%s' % (runner.PRODUCTION_NATIVE_PATCH, target)] = added
         floor[runner.STORE] = runner.floor_bytes(runner.STORE).decode()
         self.assertNotEqual(floor, texts)
         predicted = json.loads(runner.PREDICTIONS.read_text())['b2_checkpoint_1']['floor']
@@ -240,7 +241,7 @@ class CreationBindingSourceTests(unittest.TestCase):
 
     def test_a_merged_patch_read_would_miss_a_construction_moved_to_another_section(self):
         texts = runner.guard_mutants()['other-file-section'][0]
-        sections = [name for name in texts if name.startswith(runner.NATIVE_PATCH + ':')]
+        sections = [name for name in texts if name.startswith(runner.PRODUCTION_NATIVE_PATCH + ':')]
         merged = runner.strip_java_comments('\n'.join(texts[name] for name in sections))
         # As one merged added text the anchors still follow each other, and the old reading passed.
         self.assertIsNotNone(runner.boot_site(merged))
@@ -786,6 +787,183 @@ class CreationBindingSourceTests(unittest.TestCase):
         with mock.patch.object(resource, 'getrlimit', return_value=(0, 1)):
             root, membership = tree(exact)
             self.assertIn('core dumps', runner.resource_guard(root, membership))
+
+
+# The base the repository selects, and a candidate base whose patch directory scratch fixtures put
+# beside the production one.
+PINNED_PATCHES = 'patches/grapheneos-2026081300'
+CANDIDATE_PATCHES = 'patches/grapheneos-2026100600'
+
+
+def scope_fixture(test):
+    """A scratch root holding what the production guard reads, copied from this repository: the
+    framework sources, the writer fixture, patches/ and the base records."""
+    directory = Path(tempfile.mkdtemp())
+    test.addCleanup(shutil.rmtree, directory)
+    for path in ('patches', 'upstream/bases', runner.FRAMEWORK_DIR):
+        shutil.copytree(ROOT / path, directory / path)
+    (directory / runner.WRITER_FIXTURE).parent.mkdir(parents=True)
+    shutil.copyfile(ROOT / runner.WRITER_FIXTURE, directory / runner.WRITER_FIXTURE)
+    return directory
+
+
+def add_candidate(root, boot=None):
+    """A candidate patch directory beside the production one: a copy of it, whose native patch's
+    boot read passes the given format instead of the production one."""
+    shutil.copytree(root / runner.PRODUCTION_PATCHES, root / CANDIDATE_PATCHES)
+    if boot is not None:
+        patch = root / CANDIDATE_PATCHES / 'native-principal-pins.patch'
+        indent = runner.CONSTRUCTION.split('\n')[-1]
+        old, new = ('+%s%s);\n' % (indent, literal) for literal in (runner.PRODUCTION, boot))
+        patch.write_text(runner.replace_once(patch.read_text(), old, new))
+
+
+class ProductionScopeTests(unittest.TestCase):
+    """The guard reads the selected base's patch directory and the AOSP track as production. A
+    candidate base's directory beside them is never read. Anything else under patches/ is
+    refused."""
+
+    def test_production_is_the_selected_base_and_the_aosp_track(self):
+        import aosp_patches
+        selected = runner.integration.BASE.release
+        self.assertEqual(runner.PRODUCTION_PATCHES, 'patches/grapheneos-' + selected)
+        self.assertEqual(runner.PRODUCTION_PATCHES, PINNED_PATCHES)
+        self.assertEqual(runner.AOSP_TRACK, aosp_patches.SERIES.parent.relative_to(ROOT).as_posix())
+        self.assertEqual(runner.AOSP_SERIES, aosp_patches.SERIES.relative_to(ROOT).as_posix())
+        # On the pinned base the guard's paths are the paths B1's and B2's images keep.
+        self.assertEqual(runner.PRODUCTION_NATIVE_PATCH, runner.NATIVE_PATCH)
+        self.assertEqual(runner.integration.PROFILE, ROOT / runner.NATIVE_PROFILE)
+        self.assertEqual(runner.PRODUCTION_WRITER_PATCH,
+                         PINNED_PATCHES + '/native-identity-writer.patch')
+        self.assertEqual(runner.SETTINGS_SECTION,
+                         runner.NATIVE_PATCH + ':' + runner.integration.SETTINGS)
+        self.assertEqual(runner.ONE_TOKEN_PATHS, {
+            'one-token-v1-patch-beside-native': PINNED_PATCHES + '/native-store-format-v1.patch',
+            'one-token-v1-patch-other-directory': 'patches/lab/any-name.patch'})
+        # The texts are those of the earlier reading of every patch under patches/, in order, but a
+        # candidate base's.
+        earlier = {path.relative_to(ROOT).as_posix(): path.read_text()
+                   for path in sorted((ROOT / runner.FRAMEWORK_DIR).glob('*.java'))}
+        for patch in sorted((ROOT / 'patches').rglob('*.patch')):
+            top = patch.relative_to(ROOT / 'patches').parts[0]
+            if runner.CANDIDATE_PATCHES.fullmatch(top) and 'patches/' + top != PINNED_PATCHES:
+                continue
+            for target, added in runner.patch_sections(patch.read_text()):
+                if target.endswith('.java'):
+                    earlier['%s:%s' % (patch.relative_to(ROOT).as_posix(), target)] = added
+        earlier[runner.WRITER_FIXTURE] = (ROOT / runner.WRITER_FIXTURE).read_text()
+        self.assertEqual(list(runner.production_texts().items()), list(earlier.items()))
+        read = {name.split(':')[0].rsplit('/', 1)[0] for name in earlier
+                if name.startswith('patches/')}
+        self.assertEqual(read, {PINNED_PATCHES, runner.AOSP_TRACK})
+
+    def test_a_candidate_directory_is_never_read_as_production(self):
+        root = scope_fixture(self)
+        alone = [path.relative_to(root) for path in runner.production_patches(root)]
+        add_candidate(root, runner.RETIRED)
+        beside = [path.relative_to(root) for path in runner.production_patches(root)]
+        self.assertEqual(beside, alone)
+        self.assertEqual(alone, [path.relative_to(ROOT) for path in runner.production_patches()])
+        texts = runner.production_texts(root)
+        self.assertEqual(texts, runner.production_texts())
+        self.assertEqual(runner.format_violations(texts), [])
+        self.assertEqual([name for name in texts if name.startswith(CANDIDATE_PATCHES + '/')], [])
+        # Read as production, the candidate's native patch would trip the guard. Only a check run
+        # in a scratch checkout that selects the candidate reads it.
+        selected = dict(texts)
+        candidate = (root / CANDIDATE_PATCHES / 'native-principal-pins.patch').read_text()
+        for target, added in runner.patch_sections(candidate):
+            selected['%s:%s' % (runner.PRODUCTION_NATIVE_PATCH, target)] = added
+        self.assertEqual(runner.format_rules(selected), {'format', 'v1'})
+
+    def test_an_unknown_or_malformed_entry_under_patches_is_refused(self):
+        def planted(path):
+            def plant(root):
+                (root / path).parent.mkdir(parents=True, exist_ok=True)
+                (root / path).write_text('+x\n')
+            return plant
+
+        def linked_directory(root):
+            shutil.rmtree(root / CANDIDATE_PATCHES)
+            shutil.copytree(root / PINNED_PATCHES, root / 'elsewhere')
+            (root / CANDIDATE_PATCHES).symlink_to(root / 'elsewhere')
+
+        def linked_record(root):
+            record = root / 'upstream/bases/2026100600.json'
+            record.rename(root / 'record.json')
+            record.symlink_to(root / 'record.json')
+
+        def linked_patch(root):
+            target = root / PINNED_PATCHES / 'owner-lifecycle.patch'
+            (root / CANDIDATE_PATCHES / 'linked.patch').symlink_to(target)
+
+        def emptied_track(root):
+            for entry in (root / runner.AOSP_TRACK).iterdir():
+                entry.unlink()
+
+        def series(text):
+            def write(root):
+                (root / runner.AOSP_SERIES).write_text(text)
+            return write
+        # The AOSP track's patch, as its series record names it.
+        aosp = json.loads((ROOT / runner.AOSP_SERIES).read_text())
+        track = re.escape(runner.AOSP_TRACK)
+        cases = (
+            ('another directory', planted('patches/lab/any-name.patch'),
+             'unknown directory under patches/: patches/lab$'),
+            ('a tag of another form', planted('patches/grapheneos-20261006/a.patch'),
+             'unknown directory under patches/: patches/grapheneos-20261006$'),
+            ('a base without a record', planted('patches/grapheneos-2026090500/a.patch'),
+             'patches/grapheneos-2026090500 names no base recorded in upstream/bases'),
+            ('a file beside the directories', planted('patches/stray.patch'),
+             'unknown entry under patches/, not a directory: patches/stray.patch'),
+            ('a nested directory', planted(CANDIDATE_PATCHES + '/nested/a.patch'),
+             'malformed patch directory %s: nested' % CANDIDATE_PATCHES),
+            ('another kind of file', planted(PINNED_PATCHES + '/native-principal-pins.diff'),
+             'malformed patch directory %s: native-principal-pins.diff' % PINNED_PATCHES),
+            ('a linked patch', linked_patch,
+             'malformed patch directory %s: linked.patch' % CANDIDATE_PATCHES),
+            ('a linked directory', linked_directory,
+             'unknown entry under patches/, not a directory: ' + CANDIDATE_PATCHES),
+            ('a linked record', linked_record, CANDIDATE_PATCHES + ' names no base recorded'),
+            ('no production directory', lambda root: shutil.rmtree(root / PINNED_PATCHES),
+             'the selected base has no patch directory ' + PINNED_PATCHES),
+            ('no AOSP track', lambda root: shutil.rmtree(root / runner.AOSP_TRACK),
+             'the AOSP track is missing: %s$' % track),
+            ('an emptied AOSP track', emptied_track,
+             'the AOSP track has no series record %s/series.json$' % track),
+            ('an AOSP track without its patch',
+             lambda root: (root / runner.AOSP_TRACK / aosp['patch']).unlink(),
+             'the AOSP track series names no patch of the track: %s$'
+             % re.escape(repr(aosp['patch']))),
+            ('an AOSP series naming another patch',
+             series(json.dumps(dict(aosp, patch='other.patch'))),
+             "the AOSP track series names no patch of the track: 'other.patch'$"),
+            ('an AOSP series that is no record', series('[]\n'),
+             'the AOSP track series is not a JSON record'))
+        control = scope_fixture(self)
+        add_candidate(control)
+        self.assertEqual(len(runner.production_patches(control)), 7)
+        for name, edit, pattern in cases:
+            with self.subTest(case=name):
+                root = scope_fixture(self)
+                add_candidate(root)
+                edit(root)
+                with self.assertRaisesRegex(ValueError, pattern):
+                    runner.production_patches(root)
+                with self.assertRaisesRegex(ValueError, pattern):
+                    runner.production_texts(root)
+
+    def test_the_guard_alone_reports_a_refused_layout_and_its_mutants(self):
+        refusal = ValueError('unknown directory under patches/: patches/lab')
+        with mock.patch.object(runner, 'production_texts', side_effect=refusal):
+            self.assertEqual(runner.format_guard(), ['production texts: ' + str(refusal)])
+        drift = ValueError('seam drift')
+        with mock.patch.object(runner, 'guard_mutant_problems', side_effect=drift):
+            self.assertEqual(runner.format_guard(), ['guard mutants: seam drift'])
+        mismatch = ['guard mutant m tripped [], not [v1]']
+        with mock.patch.object(runner, 'guard_mutant_problems', return_value=mismatch):
+            self.assertEqual(runner.format_guard(), mismatch)
 
 
 class ArchiveTests(unittest.TestCase):

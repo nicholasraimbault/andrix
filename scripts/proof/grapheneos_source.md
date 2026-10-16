@@ -33,7 +33,9 @@ projects. All **1,108** declarations belong to this M1 selection. Do not subtrac
 three from it because an older manifest had those exclusions. The parser rejects
 unexpected include/submanifest or excluded-group structures for this exact
 pinned generation. Advancing the generation requires an explicit pin review: a
-reviewed change of the base selection.
+reviewed change of the base selection. Before that change, the
+[candidate check](grapheneos_candidate.md) runs this verifier against a
+candidate's tree in a scratch checkout that selects the candidate.
 
 `repo list -p` alone is not a completeness oracle: it reflects initialized project
 metadata, not necessarily completed worktrees/HEADs. The primary observed 53 during
