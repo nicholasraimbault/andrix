@@ -363,8 +363,13 @@ the broker's reads worked on the real image and kept their evidence, but the she
 the framework there: `am restart` also needs the shutdown permission, which the shell lacks, so no
 loss cell ran. The run's closure first failed it on a disk rule that real QEMU never meets.
 Corrected and independently reviewed, it finds the run's records and completed phases sound. The
-loss cells move to the next guest, which confirms each loss with a plain reboot instead. The
-rollback target waits for qualified candidate floor images, before the device coordinator.
+loss cells move to the next guest, which confirms each loss with a plain reboot instead. Its lab
+side is now integrated and independently reviewed: notice receipts read from a full screen notice
+fixture, typed lab actions, losses addressed only from retained history and confirmed by kernel
+reboots, a fence that holds every managed commit until the fixture qualifies, and the setup of a
+second full user with its own SystemUI process found by identity. The health composition, the
+crash witness and the guest's driver come next. The rollback target waits for qualified candidate
+floor images, before the device coordinator.
 
 ## Product checkpoint
 
