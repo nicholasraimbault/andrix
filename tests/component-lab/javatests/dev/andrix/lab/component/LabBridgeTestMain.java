@@ -26,6 +26,7 @@ import java.util.List;
  *
  * <pre>
  * setup DIR STORE MANIFEST PLAN TICKET HEALTH_WINDOW_MS [ACTIVATE_WINDOW_MS]   prints the configuration digest
+ * setup3 DIR STORE MANIFEST PLAN TICKET HEALTH_WINDOW_MS [ACTIVATE_WINDOW_MS]  as setup, version 3
  * ticket STORE PLAN TICKET [SIGN_GRANT]                      the plan's next attempt, with a new SIGN grant
  * inspect STORE TICKET                                       one line of key=value facts
  * CONFIG check | round T | settle T N | cancel T | report T  a generation
@@ -38,7 +39,7 @@ public final class LabBridgeTestMain {
     private LabBridgeTestMain() {}
 
     public static void main(String[] args) throws Exception {
-        if (args.length > 0 && args[0].equals("setup")) {
+        if (args.length > 0 && (args[0].equals("setup") || args[0].equals("setup3"))) {
             setup(args);
         } else if (args.length > 0 && args[0].equals("ticket")) {
             ticket(args);
@@ -59,7 +60,8 @@ public final class LabBridgeTestMain {
                 : LabFixtures.plan(args[4], Long.parseLong(args[6]));
         DeploymentStore store = new DeploymentStore(storeRoot, LabFixtures.INSTALLATION);
         LabFixtures.install(store, plan, args[5], LabFixtures.TIME);
-        Path config = LabFixtures.config(dir, storeRoot, args[3]);
+        Path config = args[0].equals("setup3") ? LabFixtures.config3(dir, storeRoot, args[3])
+                : LabFixtures.config(dir, storeRoot, args[3]);
         System.out.println(LabConfig.read(config).digest);
     }
 

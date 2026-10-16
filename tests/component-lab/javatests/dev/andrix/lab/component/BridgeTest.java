@@ -4,8 +4,10 @@ package dev.andrix.lab.component;
 import dev.andrix.lab.component.BridgeErrors.BridgeRefusal;
 import dev.andrix.lab.component.BridgeErrors.GenerationStopped;
 import dev.andrix.lab.component.BrokerChannel.ChannelLost;
+import dev.andrix.lab.component.LabProtocol.Envelope;
 import dev.andrix.lab.component.LabProtocol.Frame;
 import dev.andrix.lab.component.LabProtocol.Message;
+import dev.andrix.lab.component.LabProtocol.Row;
 import dev.andrix.lab.component.LabProtocol.Status;
 import dev.andrix.lab.component.LabProtocol.Type;
 import dev.andrix.server.deployment.Coordinator;
@@ -32,7 +34,9 @@ import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 
 /**
@@ -72,12 +76,19 @@ public final class BridgeTest {
         };
 
         Rig(Path base, String name) throws IOException {
+            this(base, name, false);
+        }
+
+        /** With `next`, the next campaign profile's version 3 configuration and protocol 2. */
+        Rig(Path base, String name, boolean next) throws IOException {
             dir = Files.createDirectories(base.resolve(name));
             store = new DeploymentStore(dir.resolve("store"), LabFixtures.INSTALLATION);
             plan = LabFixtures.plan(LabFixtures.id(0x101), WINDOW);
             ticket = LabFixtures.install(store, plan, LabFixtures.id(0x401), LabFixtures.TIME);
-            config = LabConfig.read(LabFixtures.config(dir, dir.resolve("store"), MANIFEST));
+            config = LabConfig.read(next ? LabFixtures.config3(dir, dir.resolve("store"), MANIFEST)
+                    : LabFixtures.config(dir, dir.resolve("store"), MANIFEST));
             broker.expectedConfig = config.digest;
+            if (next) broker.version = LabProtocol.VERSION_2;
         }
 
         LabBridge.HostFactory hosts() {
@@ -113,6 +124,85 @@ public final class BridgeTest {
             return broker.reply(request).number("status", 1).number("record", 7)
                     .bytes("frame", broker.replyFrame(request, Classification.REPLY_SUCCESS, session)).text("reason", "");
         };
+    }
+
+    // ---------------------------------------------------------------- the next campaign profile
+
+    static final String PUBLICATION = "a3".repeat(32);
+
+    // A receipt of user 10 for the ticket's notice at an index, proven at an elapsed time, read
+    // from a begin time in the broker's framework instance.
+    static Envelope receiptEnvelope(FakeBroker b, String ticket, String plan, int index, long proven, long readBegin,
+            long instance) {
+        Map<String, Object> block = new LinkedHashMap<>();
+        block.put("read_boot", b.boot);
+        block.put("read_instance", instance);
+        block.put("read_begin_elapsed", readBegin);
+        block.put("read_end_elapsed", readBegin + 50);
+        block.put("plan", plan);
+        block.put("ticket", ticket);
+        block.put("notice_index", (long) index);
+        block.put("issue_ticket_digest", "55".repeat(32));
+        block.put("event", "66".repeat(16));
+        block.put("row", "77".repeat(32));
+        block.put("delivery_group", "88".repeat(32));
+        block.put("delivery_instance", instance);
+        block.put("delivery_begin", proven - 10);
+        block.put("proven_elapsed", proven);
+        block.put("delivery_end", proven);
+        Observation o = new Observation.Builder().installation(LabFixtures.INSTALLATION).observationId(b.nextId())
+                .component(LabFixtures.COMPONENT).boot(b.boot).user(10, 5).route(Route.SHELL)
+                .at(instance, proven, LabFixtures.TIME + proven).raw("44".repeat(32))
+                .classification(Classification.RECEIPT_FULL_SCREEN).receipt(ticket, index).build();
+        return new Envelope(31, LabProtocol.RECEIPT_EVENT, o.raw, block, DeploymentRecords.encodeObservation(o));
+    }
+
+    // A HELD full probe of one user for a ticket's window, read over [readBegin, end].
+    static Envelope healthEnvelope(FakeBroker b, String ticket, String plan, long start, long readBegin, long end,
+            int user, String apk, String publication) {
+        Map<String, Object> block = new LinkedHashMap<>();
+        block.put("read_boot", b.boot);
+        block.put("read_instance", b.instance);
+        block.put("read_begin_elapsed", readBegin);
+        block.put("read_end_elapsed", end);
+        block.put("plan", plan);
+        block.put("ticket", ticket);
+        block.put("window_boot", b.boot);
+        block.put("window_start", start);
+        block.put("publication", publication);
+        block.put("active_apk", apk);
+        block.put("baseline", "b4".repeat(32));
+        block.put("preparation_root", "c5".repeat(32));
+        block.put("probe_begin", start);
+        block.put("probe_end", end);
+        block.put("criteria", 127L);
+        List<Row> rows = new ArrayList<>();
+        for (int bit = 0; bit < 7; bit++) rows.add(new Row(bit, LabProtocol.HELD, ("d" + bit).repeat(32)));
+        block.put("rows", rows);
+        Observation o = new Observation.Builder().installation(LabFixtures.INSTALLATION).observationId(b.nextId())
+                .component(LabFixtures.COMPONENT).boot(b.boot).user(user, user == 0 ? 0 : 5).route(Route.SHELL)
+                .at(b.instance, end, LabFixtures.TIME + end).raw("99".repeat(32))
+                .classification(Classification.HEALTH_HELD).number(127).build();
+        return new Envelope(32, LabProtocol.COMPOSED_HEALTH, o.raw, block, DeploymentRecords.encodeObservation(o));
+    }
+
+    // The broker stand in answers OBSERVE with its world as simple envelopes, then the given ones.
+    static void observeWith(FakeBroker b, List<Envelope> extra) {
+        b.scripts.put(Type.OBSERVE, r -> {
+            List<Envelope> envelopes = new ArrayList<>(b.simple(b.world(r.number("scope") == LabProtocol.SCOPE_TICKET)));
+            envelopes.addAll(extra);
+            return b.reply(r).number("status", 1).number("control_record", 0).envelopes("envelopes", envelopes)
+                    .text("reason", "");
+        });
+    }
+
+    // The store's read of the plan's publication, as the host records it after PUBLISH.
+    static void published(Rig rig) {
+        rig.store.addObservation(new Observation.Builder().installation(LabFixtures.INSTALLATION)
+                .observationId(LabFixtures.id(0x9b0)).component(LabFixtures.COMPONENT).boot(DeploymentRecords.NO_ID)
+                .route(Route.HOST).at(-1, 0, 0).raw("9c".repeat(32)).classification(Classification.BUNDLE_PUBLISHED)
+                .subject(LabFixtures.id(0x9b1)).plan(rig.plan.planId).digest(PUBLICATION)
+                .apks(BUNDLE_APK, RESTORATION_APK).build());
     }
 
     public static void main(String[] args) throws Exception {
@@ -529,6 +619,174 @@ public final class BridgeTest {
                     == 2, "refused");
             LabCases.check(problems, LabBridge.run(new String[] {config}, null, rig.broker, rig.halter, random) == 64,
                     "usage");
+        });
+
+        cases.run("config / version 3 names the profile, and its generation speaks protocol 2", problems -> {
+            byte[] good = LabConfig.encode(LabFixtures.INSTALLATION, LabFixtures.COMPONENT, LabFixtures.COORDINATOR,
+                    LabFixtures.TRUST, MANIFEST, Paths.get("/lab/store"), LabFixtures.HOST, LabConfig.PROFILE);
+            LabConfig config = LabConfig.parse(good);
+            LabCases.check(problems, config.protocol == 2 && LabConfig.PROFILE.equals(config.profile)
+                    && LabFixtures.HOST.equals(config.host), "the profile and protocol version");
+            LabConfig two = LabConfig.parse(LabConfig.encode(LabFixtures.INSTALLATION, LabFixtures.COMPONENT,
+                    LabFixtures.COORDINATOR, LabFixtures.TRUST, MANIFEST, Paths.get("/lab/store"), LabFixtures.HOST));
+            LabCases.check(problems, two.protocol == 1 && two.profile == null, "version 2 speaks protocol 1");
+            String text = new String(good, java.nio.charset.StandardCharsets.US_ASCII);
+            List<String> bad = Arrays.asList(text.replace("profile " + LabConfig.PROFILE, "profile d5-next-vehicle-2"),
+                    text.replace("\nprofile " + LabConfig.PROFILE, ""), text.replace("andrix-lab-bridge 3", "andrix-lab-bridge 2"),
+                    text.replace("host " + LabFixtures.HOST + "\nprofile", "profile"), text + "extra 1\n");
+            for (String b : bad) {
+                LabCases.check(problems, throwsType(IllegalArgumentException.class,
+                        () -> LabConfig.parse(b.getBytes(java.nio.charset.StandardCharsets.US_ASCII))),
+                        "a version 3 configuration of another form was read");
+            }
+            Rig rig = new Rig(base, "config3", true);
+            rig.open();
+            LabCases.check(problems, rig.broker.requests.get(0).version == 2, "HELLO on protocol version 2");
+            rig.broker.version = LabProtocol.VERSION;
+            LabCases.check(problems, throwsType(ChannelLost.class, () -> {
+                try {
+                    rig.open();
+                } catch (IOException error) {
+                    throw new RuntimeException(error);
+                }
+            }), "a version 2 bridge took a version 1 broker");
+        });
+
+        cases.run("device v2 / simple envelopes are current facts of the round", problems -> {
+            Rig rig = new Rig(base, "simple2", true);
+            ShellDevice device = rig.open().device();
+            FakeBroker broker = rig.broker;
+            device.clock();
+            LabCases.check(problems, device.observe(LabFixtures.COMPONENT).size() == 4, "the component's four facts");
+            LabCases.check(problems, device.observe(rig.stored(), rig.plan).size() == 6, "the ticket's six facts");
+            List<Function<FakeBroker, Observation>> bad = Arrays.asList(
+                    b -> b.fact(Classification.CHECKPOINT_COMMITTED).at(-1, b.elapsed - 5_000, b.wall).build(),
+                    b -> b.fact(Classification.NONE_FOR_PACKAGE).component(LabFixtures.COMPONENT)
+                            .at(b.instance - 1, b.elapsed, b.wall).build(),
+                    b -> b.fact(Classification.CHECKPOINT_COMMITTED).boot("ab".repeat(16)).build(),
+                    b -> b.fact(Classification.CHECKPOINT_COMMITTED).route(Route.DEVICE).build(),
+                    b -> b.fact(Classification.CHECKPOINT_COMMITTED).installation("99".repeat(16)).build(),
+                    b -> b.fact(Classification.FACTORY_PRESENT).component("com.android.settings")
+                            .digest(LabFixtures.FACTORY_APK).version(LabFixtures.FACTORY_VERSION).build());
+            int at = 0;
+            for (Function<FakeBroker, Observation> fact : bad) {
+                int index = at++;
+                broker.scripts.put(Type.OBSERVE, r -> broker.reply(r).number("status", 1).number("control_record", 0)
+                        .envelopes("envelopes", broker.simple(Collections.singletonList(fact.apply(broker))))
+                        .text("reason", ""));
+                LabCases.check(problems, throwsType(BridgeRefusal.class, () -> device.observe(rig.stored(), rig.plan)),
+                        "bad simple fact " + index + " was taken");
+            }
+            broker.scripts.remove(Type.OBSERVE);
+        });
+
+        cases.run("device v2 / a receipt keeps its proven time only with its notice's provenance", problems -> {
+            Rig rig = new Rig(base, "receipt2", true);
+            ShellDevice device = rig.open().device();
+            FakeBroker b = rig.broker;
+            Entry notice = new Entry(Crossing.NOTICE, b.boot, -1, 10_000, LabFixtures.id(0x203), DeploymentRecords.NO_ID,
+                    LabFixtures.TIME);
+            Ticket noticed = rig.ticket.toBuilder().append(notice).build();
+            String t = rig.ticket.ticketId, p = rig.plan.planId;
+            device.clock();
+            long round = b.elapsed;
+            observeWith(b, Collections.singletonList(receiptEnvelope(b, t, p, 0, 20_000, round + 100, b.instance)));
+            List<Observation> facts = device.observe(noticed, rig.plan);
+            Observation receipt = facts.get(facts.size() - 1);
+            LabCases.check(problems, receipt.kind == DeploymentRecords.ObservationKind.RECEIPT && receipt.elapsed == 20_000
+                    && receipt.elapsed < round && device.group(receipt.observationId) == 31, "the receipt at its event");
+            Ticket signed = rig.ticket.toBuilder().append(new Entry(Crossing.SIGN, DeploymentRecords.NO_ID, -1, 0,
+                    LabFixtures.id(0x201), LabFixtures.id(0x777), 0)).build();
+            Ticket elsewhere = rig.ticket.toBuilder().append(new Entry(Crossing.NOTICE, "ab".repeat(16), -1, 10_000,
+                    LabFixtures.id(0x203), DeploymentRecords.NO_ID, LabFixtures.TIME)).build();
+            Map<String, Function<Long, Envelope>> bad = new LinkedHashMap<>();
+            bad.put("a notice the ticket never gave", now -> receiptEnvelope(b, t, p, 1, 20_000, now + 100, b.instance));
+            bad.put("an event before its notice", now -> receiptEnvelope(b, t, p, 0, 5_000, now + 100, b.instance));
+            bad.put("a read that began before the round's clock", now -> receiptEnvelope(b, t, p, 0, 20_000, now - 200,
+                    b.instance));
+            bad.put("a read in an earlier framework", now -> receiptEnvelope(b, t, p, 0, 20_000, now + 100, b.instance - 1));
+            bad.put("another ticket's receipt", now -> receiptEnvelope(b, LabFixtures.id(0x402), p, 0, 20_000, now + 100,
+                    b.instance));
+            for (Map.Entry<String, Function<Long, Envelope>> e : bad.entrySet()) {
+                device.clock();
+                long now = b.elapsed;
+                observeWith(b, Collections.singletonList(e.getValue().apply(now)));
+                LabCases.check(problems, throwsType(BridgeRefusal.class, () -> device.observe(noticed, rig.plan)),
+                        e.getKey() + " was taken");
+            }
+            for (Ticket other : Arrays.asList(signed, elsewhere)) {
+                device.clock();
+                observeWith(b, Collections.singletonList(receiptEnvelope(b, t, p, 0, 20_000, b.elapsed + 100, b.instance)));
+                LabCases.check(problems, throwsType(BridgeRefusal.class, () -> device.observe(other, rig.plan)),
+                        "a receipt of no NOTICE of this boot was taken");
+            }
+            device.clock();
+            observeWith(b, Collections.singletonList(receiptEnvelope(b, t, p, 0, 20_000, b.elapsed + 100, b.instance)));
+            LabCases.check(problems, throwsType(BridgeRefusal.class, () -> device.observe(LabFixtures.COMPONENT)),
+                    "a receipt in a component observation");
+            b.scripts.remove(Type.OBSERVE);
+        });
+
+        cases.run("device v2 / a health probe lands only in its ticket's window", problems -> {
+            Rig rig = new Rig(base, "health2", true);
+            published(rig);
+            ShellDevice device = rig.open().device();
+            FakeBroker b = rig.broker;
+            String t = rig.ticket.ticketId, p = rig.plan.planId;
+            long start = 25_000;
+            String nonce = LabFixtures.id(0x6e01);
+            Ticket window = rig.ticket.toBuilder().reference(Reference.NONE.withNonce(nonce)).append(new Entry(
+                    Crossing.CREATE, b.boot, b.instance, 20_000, LabFixtures.id(0x202), nonce, LabFixtures.TIME))
+                    .state(State.HEALTH_WINDOW).window(b.boot, start).build();
+            device.clock();
+            long now = b.elapsed;
+            observeWith(b, Collections.singletonList(healthEnvelope(b, t, p, start, now + 100, now + 200, 0, BUNDLE_APK,
+                    PUBLICATION)));
+            List<Observation> facts = device.observe(window, rig.plan);
+            Observation probe = facts.get(facts.size() - 1);
+            LabCases.check(problems, probe.classification == Classification.HEALTH_HELD && probe.number == 127
+                    && probe.elapsed == now + 200, "one HELD probe at its read's end");
+            Map<String, Function<Long, Envelope>> bad = new LinkedHashMap<>();
+            bad.put("another window start", n -> healthEnvelope(b, t, p, start + 1, n + 100, n + 200, 0, BUNDLE_APK,
+                    PUBLICATION));
+            bad.put("a probe that ends after its window", n -> healthEnvelope(b, t, p, start, n + 100, start + WINDOW + 1, 0,
+                    BUNDLE_APK, PUBLICATION));
+            bad.put("a user not shown running", n -> healthEnvelope(b, t, p, start, n + 100, n + 200, 10, BUNDLE_APK,
+                    PUBLICATION));
+            bad.put("another active APK", n -> healthEnvelope(b, t, p, start, n + 100, n + 200, 0, RESTORATION_APK,
+                    PUBLICATION));
+            bad.put("another publication", n -> healthEnvelope(b, t, p, start, n + 100, n + 200, 0, BUNDLE_APK,
+                    "a4".repeat(32)));
+            bad.put("another plan", n -> healthEnvelope(b, t, LabFixtures.id(0x102), start, n + 100, n + 200, 0, BUNDLE_APK,
+                    PUBLICATION));
+            bad.put("a read that began before the round's clock", n -> healthEnvelope(b, t, p, start, n - 50, n + 200, 0,
+                    BUNDLE_APK, PUBLICATION));
+            for (Map.Entry<String, Function<Long, Envelope>> e : bad.entrySet()) {
+                device.clock();
+                long n = b.elapsed;
+                observeWith(b, Collections.singletonList(e.getValue().apply(n)));
+                LabCases.check(problems, throwsType(BridgeRefusal.class, () -> device.observe(window, rig.plan)),
+                        e.getKey() + " was taken");
+            }
+            device.clock();
+            observeWith(b, Collections.singletonList(healthEnvelope(b, t, p, start, b.elapsed + 100, b.elapsed + 200, 0,
+                    BUNDLE_APK, PUBLICATION)));
+            LabCases.check(problems, throwsType(BridgeRefusal.class, () -> device.observe(rig.stored(), rig.plan)),
+                    "a probe of a ticket outside its window");
+            LabCases.check(problems, throwsType(BridgeRefusal.class, () -> device.observe(LabFixtures.COMPONENT)),
+                    "a probe in a component observation");
+            b.scripts.remove(Type.OBSERVE);
+        });
+
+        cases.run("device v2 / an ordered halt in an observation ends the generation", problems -> {
+            Rig rig = new Rig(base, "halt2", true);
+            LabBridge bridge = rig.open();
+            rig.broker.scripts.put(Type.OBSERVE, r -> rig.broker.reply(r).number("status", 4).number("control_record", 9)
+                    .envelopes("envelopes", Collections.emptyList()).text("reason", "admitted read loss"));
+            int before = rig.store.observations().values.size();
+            LabCases.check(problems, throwsType(Halted.class, () -> bridge.round(rig.ticket.ticketId)), "no halt");
+            LabCases.check(problems, rig.halts.equals(Collections.singletonList(99)), "halted with 99 once");
+            LabCases.check(problems, rig.store.observations().values.size() == before, "a halted observation recorded facts");
         });
 
         cases.finish("Lab bridge checks passed");

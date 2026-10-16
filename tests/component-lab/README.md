@@ -24,12 +24,15 @@ closure are later packages.
 
 | File | Contents |
 | --- | --- |
-| `lab_protocol.py` | Version 1 of the bridge protocol: framing, message layouts, relations |
+| `lab_protocol.py` | Versions 1 and 2 of the bridge protocol: framing, message layouts, relations, envelopes |
 | `shell_transport.py` | The adb host client: shell protocol v2, the reboot service, the sync push |
 | `capture_ledger.py` | The broker's numbered durable ledger |
 | `lab_broker.py` | The broker: admission, lock, fences, generations, groups, crossings, fault cells |
 | `lab_crossings.py` | The typed crossing commands and their reply forms |
 | `lab_readers.py` | The injectable reader adapter and its adapter for the public shell observer |
+| `lab_actions.py` | The next campaign profile's typed lab actions: registry, exact specs, user resolution |
+| `lab_evidence.py` | Strict canonical side records: compound manifests and retained action specs |
+| `lab_records.py` | Strict readers of a stored plan and ticket, for where a compound fact may be placed |
 | `lab_target.py` | The native target scope read: the selected image's exact fresh form of Package Manager's native identity diagnostic |
 | `source_manifest.py` | The exact source manifest a broker is admitted with |
 | `lab_driver.py` | The lab driver: the store's setup, the baseline check, the plan from it, the generations, the published variant staged for WRITE, and the cell sequence's attempts |
@@ -37,7 +40,7 @@ closure are later packages.
 | `driver/` | Java: `LabDriverMain`, the driver's coordinator process and store setup, and `LabHost`, the real host signer, artifact store and bundle builder |
 | `driver-tests/` | Java: `DriverTest`, unit checks of the driver's baseline, selection, host configuration and approval guards |
 | `sim_android.py`, `labtest.py` | Host test support: a small simulated guest and a client |
-| `test_*.py` | The host suites |
+| `test_*.py` | The host suites; `test_lab_next.py` is the next campaign profile's broker suite |
 
 ## Process model
 
@@ -126,6 +129,34 @@ both at least 1. Every other crossing carries zero for both.
 The goldens in `test_lab_protocol.py` pin one frame of every type. The Java codec must produce the
 same bytes.
 
+## Protocol, version 2
+
+The next campaign profile's bridge speaks version 2, and only it: a broker under a version 3
+admission decodes and encodes version 2 frames, and every other broker version 1 frames. A frame of
+the other version is refused, never converted. The frame and every message are version 1's, except
+the OBSERVE reply:
+
+| Type | Body | Relations |
+| --- | --- | --- |
+| 6 OBSERVE reply | `u8 status, u32 control_record, u16 count, count envelopes, text reason` | OK with control record 0 and at most 256 envelopes; HALT with the consumed fault record and none; STOPPED or REFUSED with neither. No observation ID twice. No WITHHELD |
+
+An envelope is `u32 group, u8 mode, d32 evidence, u16 block length, block, blob observation`. The
+observation is one whole deployment observation record of version 1, and the evidence digest is
+its raw digest. The block has its mode's exact layout and size:
+
+| Mode | Block | Relations |
+| --- | --- | --- |
+| 1 SIMPLE_CURRENT | empty | A current fact as version 1 carries it, never HEALTH and never RECEIPT |
+| 2 RECEIPT_EVENT | the read bracket, then `id plan, id ticket, u16 notice_index, d32 issue_ticket_digest, id event, d32 row, d32 delivery_group, i64 delivery_instance, i64 delivery_begin, i64 proven_elapsed, i64 delivery_end` | A full screen RECEIPT of that ticket and notice index, at the proven event: `delivery_begin <= proven_elapsed <= delivery_end <= read_end_elapsed`, the delivery in a framework instance no later than the read's. Every ID and digest nonzero |
+| 3 COMPOSED_HEALTH | the read bracket, then `id plan, id ticket, id window_boot, i64 window_start, d32 publication, d32 active_apk, d32 baseline, d32 preparation_root, i64 probe_begin, i64 probe_end, u8 criteria`, then seven rows of `u8 bit, u8 status, d32 child` | One HEALTH fact of every criterion (127) at its probe's end: `window_start <= probe_begin <= read_begin_elapsed` and `probe_end == read_end_elapsed`, the window of the read's boot, the rows bits 0 to 6 in order with statuses 1 HELD, 2 BAD or 3 UNKNOWN, and the classification the rows give |
+
+The read bracket is `id read_boot, i64 read_instance, i64 read_begin_elapsed, i64 read_end_elapsed`:
+the current read's own boot, running framework instance and elapsed times, which the compound fact
+also carries. A health classification follows its rows at both ends: a BAD no crash or ANR row,
+which only a qualified failure witness gives, is CRASH; any other BAD row is DEGRADED; seven HELD
+rows are HELD; anything else is INCONCLUSIVE. The goldens pin a version 2 frame and each form of
+the new OBSERVE reply; both codecs produce the same bytes.
+
 ## Transport
 
 `shell_transport.py` talks to the host's adb server through its smart socket protocol. A transport
@@ -175,7 +206,8 @@ before the command is launched, and the result is written last. Each JSON file r
 number and kind. Nothing is ever rewritten or removed.
 
 The kinds are `open`, `generation`, `generation-end`, `capture`, `group`, `crossing`, `outcome`,
-`fault`, `escrow`, `host`, `quarantine`, `stop`, `faults`, `artifacts`, `report` and `lab-action`.
+`fault`, `escrow`, `host`, `quarantine`, `stop`, `faults`, `artifacts`, `report`, `lab-action` and
+`notice-issue`.
 
 Reopening checks the marker, each name and kind, the numbering, each entry's files and each complete
 capture's stream digests, then syncs every file it holds, every entry's directory and its own again
@@ -204,9 +236,10 @@ barrier an interrupted creation or an earlier failed sync never reached is never
   digest, the digest of the bridge's configuration file, the device serial, the native target scope,
   the guest staging directory, the fences and the limits. Version 2, for a guest, adds the lab
   actions with their limits, the crossings the broker may launch and the deployment store (see A
-  guest's admission below); version 1 admits no lab action and every crossing. A HELLO must repeat
-  the installation, coordinator, configuration digest, component and trust policy exactly. Every
-  request must carry the admitted manifest digest.
+  guest's admission below); version 1 admits no lab action and every crossing. Version 3 is the next
+  campaign profile's (see The next campaign profile below). A HELLO must repeat the installation,
+  coordinator, configuration digest, component and trust policy exactly. Every request must carry
+  the admitted manifest digest.
 - **Sources.** Opening verifies every file the manifest lists, each a regular file reached without a
   link, with its exact digest and size. Any difference refuses the opening.
 - **Shell protocol v2.** Before its first guest command, each broker reads the device's features
@@ -339,6 +372,111 @@ commands through the broker's `run`, which fences, records and returns each whol
 classifies its own exact forms as SUCCESS, REFUSED or UNRECOGNIZED. A SUCCESS says that the fixture
 accepted the request, never that a user saw the notice: receipts come from later observation.
 
+## The next campaign profile
+
+A version 3 admission names the profile `d5-next-vehicle-1`. It keeps version 2's base, launch set
+and store, and replaces version 2's action map with exactly these keys: the SHA-256 of the cells,
+fixtures, payloads and fault schedule it binds, the ordered typed action specs, the F0 branches,
+the effect limits and the boot policy. Every key is exact and every digest nonzero; an unknown key,
+version or profile refuses the admission. Its bridge configuration is version 3, which names the
+same profile, and its generations speak protocol version 2. The broker retains the stored records
+every crossing names, as under version 2.
+
+- **Effect limits.** Separate caps of each device crossing's effects, of direct, admin, fixture and
+  control action effects, and of each phase's action effects. Zero forbids; nothing is unlimited.
+  Effects are counted from the ledger's captures that may have launched, an interrupted intent
+  included, never from replies or END records, and a reopening never resets them. A crossing past
+  its cap, or a REBOOT past the boot policy's activation services, launches nothing.
+- **Compound groups.** A receipt read, a notice visibility, a health baseline and a health
+  composition are each one compound group. Its children, every capture and clock read, are in the
+  ledger first; then its manifest, a canonical side record (`lab_evidence.py`) with its schema,
+  profile, a fresh group ID, the sources, its context, its captures by number and stream digests,
+  its bracket, its projection, its facts without their raw digest and whether it emits them or only
+  keeps them, as a probe that ended after its window does, is written whole, synced and kept under
+  `compound/<sha256>`; then the ledger group names the manifest and the digests of the frames it
+  emits. An emitted fact's raw digest is the manifest's. A manifest whose group record never
+  followed is an honest prefix and emits nothing; a group whose status is not facts keeps its
+  children and reason and emits nothing. A manifest, or an action's spec, that cannot be written or
+  synced latches the broker's stop before anything else is recorded: then the group is kept
+  unavailable with the reason, and no later command or effect starts, after a reopening too. A
+  reopening opens every manifest a group names, and refuses one that is missing, changed or not in
+  its canonical form, or that its group does not summarize: its scope, context, status, children,
+  bracket and joins, its captures as the ledger holds them, and whether and what the group emitted,
+  which only the manifest decides. In this profile only the compound writer makes a group of these
+  four readers, and it names no manifest only in its own record of one it could not keep:
+  unavailable, with that reason, emitting nothing. Any other such group without a manifest, its
+  reference null or absent, refuses the reopening.
+- **Notices.** A NOTICE crossing under the lab operator's ACTIVATE, and only that, reads a whole
+  typed user inventory and records a `notice-issue` before any presentation: the retained ticket
+  and grant digests, the boot, the entry's time, a fresh unpredictable challenge, the exact text and
+  its SHA-256, and the required recipients, every running full secondary user. A running user of
+  another type or with a removing, partial or precreated marker, an inventory that is not whole,
+  or no recipient launches nothing. The notice adapter then presents the issue with its fixed
+  commands, each within the grant's launch deadline. Its reply proves no delivery.
+- **Receipts past the clock guard.** A ticket's observation reads the notice fixture's provider
+  whole between two clock reads of one boot and one running framework instance. A row becomes a
+  RECEIPT_EVENT only when it names an issued notice of this ticket, plan, installation and
+  component, the issue's boot token, event and text, a required recipient, once in the read, with
+  the bytes it had when first read, and when that recipient's first qualified visibility group of
+  this boot completed before the read ended. Its time is that visibility's completion, the first
+  proven delivery: never the row's candidate time, never the read's time, and never moved by a later
+  visibility. The notice entry's time must not follow it. Only the read's bracket moves the clock
+  scale, so the event never lowers or advances it, and ordinary facts keep their guard. A row of
+  another ticket, purpose or boot, or one without a qualified visibility yet, is kept and gives
+  nothing. A contrary row refuses the whole read, wherever it stands, and judgment goes on past it.
+  So every row of a whole read keeps its first bytes, whether or not the read emits: a refused
+  read, or one whose bracket did not complete, still pins them. A reopening rebuilds the issues,
+  visibilities, first row bytes and first proofs from the ledger.
+- **Health compositions.** In a ticket's observation in HEALTH_WINDOW, for each user that
+  observation's whole listing shows running, the broker composes one full probe only when that user
+  has a fresh settled preparation. It reads the ticket's window and the plan's window length from
+  the store's own records (`lab_records.py`), never from a request, and refuses a ticket outside a
+  window of every criterion or of another boot. The admitted composer reads afresh between two clock
+  reads and names, for each of the seven criteria, its status, reason, the reads it judged and the
+  preparation or baseline it used. The broker only ever lowers a row to UNKNOWN: a HELD or BAD row
+  needs the current reads it judged; the no crash or ANR row needs an admitted witness reader, and
+  HELD needs the last good baseline that completed by the window's start in the read's framework
+  instance and no witness decision, BAD a qualified witness; the UI marker, unlock and native work
+  rows need a preparation of that criterion in the read's framework instance that began in the
+  window, ended before the read and is within its maximum probe width. A preparation serves one
+  probe: the probe's begin bracket names every preparation offered to its composer, and from then on
+  they are used up, whatever its reads, rows or manifest give; a reopening restores that use from
+  the bracket. A row whose reason no side record can hold is of no known form. The classification
+  follows the rows. A probe that ends after the window is kept as evidence outside it and emits
+  nothing. A missing, partial or unreadable composition keeps its captures and reason and emits
+  nothing; an UNKNOWN row gives INCONCLUSIVE, never HELD.
+- **Health baselines.** `health_baseline` reads one user's baseline between generations, for a user
+  a whole inventory shows running and unmarked, as a compound group that is never a deployment
+  fact. An unavailable read is kept and never replaces the last good baseline.
+- **Typed lab actions** (`lab_actions.py`). Each spec has exactly its ID, registered type, phase,
+  cell, runtime, installation, authority, user selector, typed parameters, pinned inputs, its type's
+  preconditions, predecessor, successors, uses, timeout and output bounds. Authority is the type's
+  LAB_USER_ADMIN or LAB_CONTROL; no installation grant or ACTIVATE is one. A selector is the
+  observed system user, the user one named create action made, or a required recipient of an
+  issued notice; it names no user itself. `run_action` runs one use between generations. It refuses
+  before recording anything outside the admission, during a generation, without a reason, with
+  another request than its type's, after a fence, past its uses, after an unsettled use unless the
+  type is an idempotent capture and read, or before its predecessor settled. It keeps the spec's
+  exact bytes by digest, reads a whole typed inventory and resolves the user from it; a user that
+  does not resolve is refused with that inventory kept and no use consumed. The BEGIN record pins
+  the spec digest, authority, resolved user with its inventory group, inputs, predecessor
+  checkpoint, phase, cell and, for a preparation, a fresh challenge, before any precondition or
+  effect. Every command is the type's or its admitted adapter's fixed form, fenced, within the
+  action's deadline and output bounds, and each effect command first checks the effect limits. The
+  END record names only its own captures, its later reads, its outcome, what stayed uncertain and
+  whether it settled. After an effect that may have launched, a use settles only with a qualified
+  outcome and its whole bracket: an unrecognized form, or a later read that is unavailable, leaves
+  it uncertain, so it is observed or halted, never repeated. A reopening records a LOST END for a
+  BEGIN without one, and that action is never run again to find out.
+
+Version 1 of the registry has three types. FRAMEWORK_RESTART is version 2's restart as one typed
+use; the old action map is never reinterpreted. NOTICE_VISIBILITY captures and reads one required
+recipient's display through the notice adapter; it qualifies only in the notice's boot with one
+running framework through its bracket, for the recipient as the display's current user, awake and
+focused, showing the issue's challenge. HEALTH_PREPARATION runs the health adapter's UI, user and
+work steps for its criteria under a fresh challenge. No type creates a user yet, so no spec may
+select a created user.
+
 ## Lab driver
 
 The driver decides no ticket: the accepted reconciler does, inside each generation, and the broker
@@ -408,8 +546,10 @@ names only. Its checkpoint reader is injected: the public one is `ShellObserver.
 reads the checkpoint through StorageManager with the fixed helper. Until a checkpoint reader is
 injected, no CHECKPOINT fact exists, and the reconciler issues no crossing. The adapter
 reads no framework only from pidof's quiet failure, read twice. The observer's partial health probe
-and any receipt reader are not exposed. Health composition and the notice fixture are later
-packages.
+and any receipt reader are not exposed. The next profile's readers, the typed inventory, the notice
+fixture's provider rows, the health baseline and the health composer, and its notice and health
+adapters, are interfaces here; the simulated guest implements them for host tests, and the guest's
+forms are later packages. `ObserverAdapter` admits none of them.
 
 ## Running the checks
 
@@ -431,7 +571,14 @@ partial.
 
 - The shell v2, reboot and push forms are source derived, and need a guest check before mutation.
 - No refusal form of any crossing is qualified, so no reply reads REFUSED.
-- No notice route, receipt reader, health composition or crash witness exists here.
+- No guest notice route, receipt reader, visibility capture, inventory parser, health composer,
+  preparation step or crash witness exists here. The next profile's mechanisms join, order and bound
+  what such readers return, on the simulated guest only. Whether a notice is visible on a locked or
+  unlocked display, an app row survives Android loss, a provider read authenticates the shell, the
+  elapsed scales agree, a preparation unlocks and returns CE, a native child runs and a witness
+  qualifies a crash needs a guest.
+- The read and round loss addresses and the round boundary messages are not part of version 2 yet:
+  no broker path answers an OBSERVE with HALT.
 - The framework restart is source derived. Whether `am restart` gives a later instance in the same
   boot within the settle bound and keeps uncommitted sessions, as the simulated guest does, needs a
   guest check before any cell relies on it; the 300 second bound is a proposal, not a measurement.

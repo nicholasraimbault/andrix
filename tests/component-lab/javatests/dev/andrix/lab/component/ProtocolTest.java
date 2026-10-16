@@ -1,13 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 package dev.andrix.lab.component;
 
+import dev.andrix.lab.component.LabProtocol.Envelope;
 import dev.andrix.lab.component.LabProtocol.Frame;
 import dev.andrix.lab.component.LabProtocol.Message;
 import dev.andrix.lab.component.LabProtocol.ProtocolError;
 import dev.andrix.lab.component.LabProtocol.Ref;
+import dev.andrix.lab.component.LabProtocol.Row;
 import dev.andrix.lab.component.LabProtocol.Type;
 import dev.andrix.server.deployment.DeploymentRecords;
 import dev.andrix.server.deployment.DeploymentRecords.Cause;
+import dev.andrix.server.deployment.DeploymentRecords.Classification;
+import dev.andrix.server.deployment.DeploymentRecords.Observation;
+import dev.andrix.server.deployment.DeploymentRecords.Route;
 import dev.andrix.server.deployment.DeploymentRecords.CoordinatorClass;
 import dev.andrix.server.deployment.DeploymentRecords.Crossing;
 import dev.andrix.server.deployment.DeploymentRecords.Entry;
@@ -19,7 +24,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -55,6 +62,126 @@ public final class ProtocolTest {
         GOLDENS.put("HOST_REPLY", "7daad1982144430f2cbb437f9f8909ff4c8a31e4a2e07fc30753a3dd54a57baf");
         GOLDENS.put("REPORT", "7156a50db3f8f21d7d33a054ce9f096646051828c9ffd111514350fc80bf6800");
         GOLDENS.put("REPORT_REPLY", "e677104dd5b782e941c16d27527ea46a3126c7fbc707ffe6c2719d1597414217");
+        GOLDENS.put("V2_HELLO", "3cee5db9c1c8275b7229593e9982ecbafc6b71bd9047dff6c8d4dbb1e2b0914b");
+        GOLDENS.put("V2_OBSERVE_REPLY_SIMPLE", "dbadf2f6dad5902efb2ef6292043ca87fa6c1eeccd8b4cc45e6d6d617afe940f");
+        GOLDENS.put("V2_OBSERVE_REPLY_RECEIPT", "e94660e93465e8501e144c9073fafd0e653b69992006eaf674ba931a7816bab8");
+        GOLDENS.put("V2_OBSERVE_REPLY_HEALTH", "02e1bccb844388b74c22cbdcac5a48422877731d879898c36ad72273ea42af35");
+        GOLDENS.put("V2_OBSERVE_REPLY_HALT", "6c4068854ca984bb686f868056b2242dc851911b6c9a1f2185499bae74b460d7");
+        GOLDENS.put("V2_OBSERVE_REPLY_STOPPED", "25b4529be3d26438f63d06478c037730a94744d468428ccc856d2fcb75f11e0f");
+    }
+
+    static final String INSTALLATION = "00112233445566778899aabbccddeeff";
+    static final String SYSTEMUI = "com.android.systemui";
+
+    static LabProtocol.Builder of2(Type type) { return Message.of(2, type, REQUEST, MANIFEST); }
+
+    /** The Python suite's version 2 observation records, built by the public deployment codec. */
+    static byte[] checkpoint(String id) {
+        return DeploymentRecords.encodeObservation(new Observation.Builder().installation(INSTALLATION)
+                .observationId(id).boot(BOOT).route(Route.SHELL).at(-1, 812400, 1791504812400L).raw("33".repeat(32))
+                .classification(Classification.CHECKPOINT_COMMITTED).build());
+    }
+
+    static byte[] receiptRecord(long elapsed, Classification c, int index) {
+        return DeploymentRecords.encodeObservation(new Observation.Builder().installation(INSTALLATION)
+                .observationId("6e".repeat(16)).component(SYSTEMUI).boot(BOOT).user(10, 11).route(Route.SHELL)
+                .at(4021, elapsed, 1791504000000L + elapsed).raw("44".repeat(32)).classification(c)
+                .receipt("04".repeat(16), index).build());
+    }
+
+    static byte[] healthRecord(Classification c, int criteria, long elapsed) {
+        return DeploymentRecords.encodeObservation(new Observation.Builder().installation(INSTALLATION)
+                .observationId("6d".repeat(16)).component(SYSTEMUI).boot(BOOT).user(0, 0).route(Route.SHELL)
+                .at(4021, elapsed, 1791504000000L + elapsed).raw("99".repeat(32)).classification(c).number(criteria)
+                .build());
+    }
+
+    static Map<String, Object> receiptBlock() {
+        Map<String, Object> b = new LinkedHashMap<>();
+        b.put("read_boot", BOOT);
+        b.put("read_instance", 4021L);
+        b.put("read_begin_elapsed", 1000L);
+        b.put("read_end_elapsed", 1200L);
+        b.put("plan", "01".repeat(16));
+        b.put("ticket", "04".repeat(16));
+        b.put("notice_index", 3L);
+        b.put("issue_ticket_digest", "55".repeat(32));
+        b.put("event", "66".repeat(16));
+        b.put("row", "77".repeat(32));
+        b.put("delivery_group", "88".repeat(32));
+        b.put("delivery_instance", 4021L);
+        b.put("delivery_begin", 400L);
+        b.put("proven_elapsed", 500L);
+        b.put("delivery_end", 500L);
+        return b;
+    }
+
+    static List<Row> rows(int... statuses) {
+        List<Row> rows = new ArrayList<>();
+        for (int bit = 0; bit < 7; bit++) rows.add(new Row(bit, statuses[bit], ("d" + bit).repeat(32)));
+        return rows;
+    }
+
+    static Map<String, Object> healthBlock() {
+        Map<String, Object> b = new LinkedHashMap<>();
+        b.put("read_boot", BOOT);
+        b.put("read_instance", 4021L);
+        b.put("read_begin_elapsed", 94000L);
+        b.put("read_end_elapsed", 95000L);
+        b.put("plan", "01".repeat(16));
+        b.put("ticket", "04".repeat(16));
+        b.put("window_boot", BOOT);
+        b.put("window_start", 90000L);
+        b.put("publication", "a3".repeat(32));
+        b.put("active_apk", "a1".repeat(32));
+        b.put("baseline", "b4".repeat(32));
+        b.put("preparation_root", "c5".repeat(32));
+        b.put("probe_begin", 92000L);
+        b.put("probe_end", 95000L);
+        b.put("criteria", 127L);
+        b.put("rows", rows(1, 1, 1, 1, 1, 1, 1));
+        return b;
+    }
+
+    static Envelope simple(String id) {
+        return new Envelope(18, LabProtocol.SIMPLE_CURRENT, "33".repeat(32), Collections.emptyMap(), checkpoint(id));
+    }
+
+    static Envelope receipt(Map<String, Object> block, byte[] record) {
+        return new Envelope(21, LabProtocol.RECEIPT_EVENT, "44".repeat(32), block, record);
+    }
+
+    static Envelope health(Map<String, Object> block, byte[] record) {
+        return new Envelope(22, LabProtocol.COMPOSED_HEALTH, "99".repeat(32), block, record);
+    }
+
+    static LabProtocol.Builder reply2(List<Envelope> envelopes) {
+        return of2(Type.OBSERVE_REPLY).number("status", 1).number("control_record", 0).envelopes("envelopes", envelopes)
+                .text("reason", "");
+    }
+
+    /** Version 2's goldens, the same values as the Python suite's. */
+    static Map<String, Message> goldens2() {
+        Map<String, Message> m = new LinkedHashMap<>();
+        m.put("V2_HELLO", of2(Type.HELLO).id("installation", INSTALLATION).id("coordinator", "c0".repeat(16))
+                .id("config", "3c".repeat(32)).text("component", SYSTEMUI).id("trust", "7a".repeat(32)).number("route", 1)
+                .build());
+        m.put("V2_OBSERVE_REPLY_SIMPLE", reply2(Collections.singletonList(simple("6f".repeat(16)))).build());
+        m.put("V2_OBSERVE_REPLY_RECEIPT", reply2(Collections.singletonList(receipt(receiptBlock(),
+                receiptRecord(500, Classification.RECEIPT_FULL_SCREEN, 3)))).build());
+        m.put("V2_OBSERVE_REPLY_HEALTH", reply2(Collections.singletonList(health(healthBlock(),
+                healthRecord(Classification.HEALTH_HELD, 127, 95000)))).build());
+        m.put("V2_OBSERVE_REPLY_HALT", of2(Type.OBSERVE_REPLY).number("status", 4).number("control_record", 46)
+                .envelopes("envelopes", Collections.emptyList()).text("reason", "admitted read loss").build());
+        m.put("V2_OBSERVE_REPLY_STOPPED", of2(Type.OBSERVE_REPLY).number("status", 3).number("control_record", 0)
+                .envelopes("envelopes", Collections.emptyList()).text("reason", "the stop file exists").build());
+        return m;
+    }
+
+    static Map<String, Object> with(Map<String, Object> block, String name, Object value) {
+        Map<String, Object> changed = new LinkedHashMap<>(block);
+        changed.put(name, value);
+        return changed;
     }
 
     static LabProtocol.Builder of(Type type) { return Message.of(type, REQUEST, MANIFEST); }
@@ -127,7 +254,9 @@ public final class ProtocolTest {
         Path pythonGoldens = args.length > 0 ? Paths.get(args[0]) : null;
 
         cases.run("protocol / every golden is the Python codec's", problems -> {
-            for (Map.Entry<String, Message> e : goldens().entrySet()) {
+            Map<String, Message> all = new LinkedHashMap<>(goldens());
+            all.putAll(goldens2());
+            for (Map.Entry<String, Message> e : all.entrySet()) {
                 byte[] data = LabProtocol.encode(e.getValue());
                 LabCases.check(problems, LabProtocol.sha256Hex(data).equals(GOLDENS.get(e.getKey())),
                         e.getKey() + " differs from the pinned golden");
@@ -251,6 +380,107 @@ public final class ProtocolTest {
             LabCases.check(problems, RecordCodes.crossing(Crossing.CREATE) == 3 && RecordCodes.crossing(Crossing.NOTICE) == 8
                     && RecordCodes.state(State.SUPERSEDED) == 28 && RecordCodes.cause(Cause.OTHER_BYTES) == 6,
                     "the documented ends of each table");
+        });
+
+        cases.run("protocol / version 2 has one encoding, and a channel speaks one version", problems -> {
+            for (Map.Entry<String, Message> e : goldens2().entrySet()) {
+                byte[] data = LabProtocol.encode(e.getValue());
+                Message decoded = LabProtocol.decode(data, 2);
+                LabCases.check(problems, Arrays.equals(LabProtocol.encode(decoded), data) && decoded.equals(e.getValue()),
+                        e.getKey());
+                LabCases.check(problems, refused(() -> LabProtocol.decode(data)), e.getKey() + " read on a version 1 channel");
+            }
+            byte[] one = LabProtocol.encode(goldens().get("HELLO"));
+            LabCases.check(problems, refused(() -> LabProtocol.decode(one, 2)), "a version 1 frame on a version 2 channel");
+            byte[] three = one.clone();
+            three[4] = 3;
+            LabCases.check(problems, refused(() -> LabProtocol.frameLength(three)), "protocol version 3");
+            LabCases.check(problems, LabProtocol.blockSize(2) == 218 && LabProtocol.blockSize(3) == 479, "block sizes");
+            boolean noFrames;
+            try {
+                of2(Type.OBSERVE_REPLY).frames("frames", Collections.emptyList());
+                noFrames = false;
+            } catch (IllegalArgumentException expected) {
+                noFrames = true;
+            }
+            LabCases.check(problems, noFrames, "version 2's OBSERVE reply took frames");
+        });
+
+        cases.run("protocol / version 2 envelope relations", problems -> {
+            byte[] goodReceipt = receiptRecord(500, Classification.RECEIPT_FULL_SCREEN, 3);
+            byte[] goodHealth = healthRecord(Classification.HEALTH_HELD, 127, 95000);
+            Map<String, Envelope> bad = new LinkedHashMap<>();
+            bad.put("a simple block", new Envelope(18, 1, "33".repeat(32), receiptBlock(), checkpoint("6f".repeat(16))));
+            bad.put("a simple receipt", new Envelope(21, 1, "44".repeat(32), Collections.emptyMap(), goodReceipt));
+            bad.put("a simple health fact", new Envelope(22, 1, "99".repeat(32), Collections.emptyMap(), goodHealth));
+            bad.put("evidence that is not the raw digest", new Envelope(18, 1, "34".repeat(32), Collections.emptyMap(),
+                    checkpoint("6f".repeat(16))));
+            bad.put("an unknown mode", new Envelope(18, 4, "33".repeat(32), Collections.emptyMap(), checkpoint("6f".repeat(16))));
+            bad.put("an event before its delivery group", receipt(with(receiptBlock(), "proven_elapsed", 399L), goodReceipt));
+            bad.put("a delivery that ends after the read", receipt(with(receiptBlock(), "delivery_end", 1201L), goodReceipt));
+            bad.put("a delivery in a later framework", receipt(with(receiptBlock(), "delivery_instance", 4022L), goodReceipt));
+            bad.put("a read without a running framework", receipt(with(receiptBlock(), "read_instance", -1L), goodReceipt));
+            bad.put("a zero event", receipt(with(receiptBlock(), "event", LabProtocol.ZERO_ID), goodReceipt));
+            bad.put("a zero delivery group", receipt(with(receiptBlock(), "delivery_group", LabProtocol.ZERO_DIGEST),
+                    goodReceipt));
+            bad.put("a read time substituted for the event", receipt(receiptBlock(),
+                    receiptRecord(1200, Classification.RECEIPT_FULL_SCREEN, 3)));
+            bad.put("a SystemUI receipt", receipt(receiptBlock(), receiptRecord(500, Classification.RECEIPT_SYSTEMUI, 3)));
+            bad.put("a receipt of another notice", receipt(receiptBlock(),
+                    receiptRecord(500, Classification.RECEIPT_FULL_SCREEN, 4)));
+            bad.put("a receipt of another boot", receipt(with(receiptBlock(), "read_boot", "2f".repeat(16)), goodReceipt));
+            bad.put("a partial HELD", health(with(healthBlock(), "rows", rows(1, 1, 1, 3, 1, 1, 1)), goodHealth));
+            bad.put("a DEGRADED of all HELD rows", health(healthBlock(), healthRecord(Classification.HEALTH_DEGRADED, 127, 95000)));
+            bad.put("a CRASH without its witnessed row", health(with(healthBlock(), "rows", rows(1, 1, 1, 1, 2, 1, 1)),
+                    healthRecord(Classification.HEALTH_CRASH, 127, 95000)));
+            bad.put("a mask of fewer criteria", health(with(healthBlock(), "criteria", 63L), goodHealth));
+            bad.put("a probe before its window", health(with(healthBlock(), "probe_begin", 89999L), goodHealth));
+            bad.put("a probe not completed by its read", health(with(healthBlock(), "probe_end", 94999L), goodHealth));
+            bad.put("a zero baseline", health(with(healthBlock(), "baseline", LabProtocol.ZERO_DIGEST), goodHealth));
+            bad.put("a health fact of fewer criteria", health(healthBlock(), healthRecord(Classification.HEALTH_HELD, 63, 95000)));
+            bad.put("a health fact not at its probe end", health(healthBlock(), healthRecord(Classification.HEALTH_HELD, 127,
+                    94000)));
+            for (Map.Entry<String, Envelope> e : bad.entrySet()) {
+                LabCases.check(problems, refused(() -> reply2(Collections.singletonList(e.getValue())).build()),
+                        e.getKey() + " accepted");
+            }
+            LabCases.check(problems, refused(() -> reply2(Arrays.asList(simple("6f".repeat(16)), simple("6f".repeat(16))))
+                    .build()), "one observation ID twice");
+            LabCases.check(problems, refused(() -> of2(Type.OBSERVE_REPLY).number("status", 4).number("control_record", 0)
+                    .envelopes("envelopes", Collections.emptyList()).text("reason", "halt").build()), "a halt without its record");
+            LabCases.check(problems, refused(() -> reply2(Collections.singletonList(simple("6f".repeat(16))))
+                    .number("control_record", 46).build()), "a control record with OK");
+            LabCases.check(problems, refused(() -> of2(Type.OBSERVE_REPLY).number("status", 5).number("control_record", 0)
+                    .envelopes("envelopes", Collections.emptyList()).text("reason", "withheld").build()), "a withheld observation");
+            // Each mapping of rows to a classification that the relation does allow.
+            reply2(Collections.singletonList(health(with(healthBlock(), "rows", rows(1, 2, 3, 3, 3, 3, 3)),
+                    healthRecord(Classification.HEALTH_CRASH, 127, 95000)))).build();
+            reply2(Collections.singletonList(health(with(healthBlock(), "rows", rows(1, 1, 2, 3, 1, 1, 1)),
+                    healthRecord(Classification.HEALTH_DEGRADED, 127, 95000)))).build();
+            reply2(Collections.singletonList(health(with(healthBlock(), "rows", rows(1, 1, 1, 3, 1, 1, 1)),
+                    healthRecord(Classification.HEALTH_INCONCLUSIVE, 127, 95000)))).build();
+            byte[] data = LabProtocol.encode(goldens2().get("V2_OBSERVE_REPLY_RECEIPT"));
+            int at = LabProtocol.HEADER + 1 + 4 + 2 + 4 + 1 + 32;
+            LabCases.check(problems, refused(() -> LabProtocol.decode(reframe(data, body -> {
+                byte[] changed = body.clone();
+                changed[at - LabProtocol.HEADER] = (byte) 219;
+                return changed;
+            }), 2)), "a block of another length");
+        });
+
+        cases.run("protocol / the health classification follows the rows", problems -> {
+            int[][] rows = {{1, 1, 1, 1, 1, 1, 1}, {1, 2, 1, 1, 1, 1, 1}, {3, 2, 3, 3, 3, 3, 3}, {2, 1, 1, 1, 1, 1, 1},
+                    {1, 1, 1, 1, 1, 3, 2}, {1, 3, 1, 1, 1, 1, 1}, {3, 3, 3, 3, 3, 3, 3}};
+            int[] expected = {1, 3, 3, 2, 2, 4, 4};
+            for (int i = 0; i < rows.length; i++) {
+                List<Integer> statuses = new ArrayList<>();
+                for (int s : rows[i]) statuses.add(s);
+                LabCases.check(problems, LabProtocol.healthClassification(statuses) == expected[i], "rows " + i);
+            }
+            LabCases.check(problems, refused(() -> LabProtocol.healthClassification(Arrays.asList(1, 1, 1, 1, 1, 1))),
+                    "six rows");
+            LabCases.check(problems, refused(() -> LabProtocol.healthClassification(Arrays.asList(1, 1, 1, 1, 1, 1, 0))),
+                    "a row of no known status");
         });
 
         cases.finish("Lab bridge protocol checks passed");

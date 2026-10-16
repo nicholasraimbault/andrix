@@ -21,8 +21,14 @@ the module's `allowed(command)`, and its `Unclassified` exception. The checkpoin
 as a callable that takes the observer. The public one is `ShellObserver.checkpoint`, which reads the
 checkpoint through StorageManager with the fixed helper, and whose commands the observer's own
 allowlist already holds. Until a reader is injected, no CHECKPOINT fact exists, and the reconciler
-issues no crossing. The observer's partial health probe is not exposed: health composition is a
-later package."""
+issues no crossing. The observer's partial health probe is not exposed, and never will be: it is not
+a full probe.
+
+The next campaign profile adds four readers, each admitted by its own flag and called only then:
+the whole typed user inventory, the notice fixture's provider rows, a user's health baseline and a
+user's full health composition. They return typed projections, not observation facts: the broker
+records the raw captures, checks each projection's form and joins, and builds every fact itself.
+The parsers of the guest's forms are later packages, so `ObserverAdapter` admits none of them."""
 import hashlib
 
 import lab_target
@@ -91,7 +97,43 @@ class ReaderAdapter:
         raise NotImplementedError
 
     def receipts(self, ticket):
-        """RECEIPT facts of a ticket's notices. Called only when `receipts_admitted`."""
+        """RECEIPT facts of a ticket's notices. Called only when `receipts_admitted`, under a
+        version 1 or 2 admission. Each fact's time is its read time, so a delivery read back
+        later is refused by the broker's clock guard: version 1 cannot carry a historical
+        receipt."""
+        raise NotImplementedError
+
+    # ------------------------------------------------ the next campaign profile
+
+    # Whether the typed whole user inventory is admitted. Typed actions and notices need it.
+    inventory_admitted = False
+    # Whether the health baseline and composition readers are admitted.
+    health_admitted = False
+    # Whether a composition's failure witness decision comes from an admitted witness reader.
+    # Without one, no criterion row may claim a witnessed crash or ANR.
+    witness_admitted = False
+
+    def inventory(self):
+        """The typed user inventory from one whole raw dump, as lab_actions.check_inventory defines
+        it. Called only when `inventory_admitted`."""
+        raise NotImplementedError
+
+    def receipt_rows(self, ticket):
+        """Every row the notice fixture's provider returns in one whole read, each the row's
+        exact bytes and its fields: purpose, installation, component, plan, ticket, index or
+        control action, boot token, text digest, event, app UID, user, serial and candidate time.
+        Called only when `receipts_admitted`, under a version 3 admission."""
+        raise NotImplementedError
+
+    def health_baseline(self, context):
+        """One user's health baseline: {'user', 'serial', 'facts'}. Called only when
+        `health_admitted`."""
+        raise NotImplementedError
+
+    def health_composition(self, context):
+        """One user's full probe from fresh reads: {'user', 'serial', 'rows', 'witness'}, with seven
+        rows in bit order, each its status, reason, the positions of the commands it judged, and the
+        preparation or baseline it used. Called only when `health_admitted`."""
         raise NotImplementedError
 
     def target(self):

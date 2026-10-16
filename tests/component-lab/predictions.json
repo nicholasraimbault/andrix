@@ -1,19 +1,44 @@
 {
  "cases": {
-  "BridgeTest": 14,
+  "BridgeTest": 19,
   "DriverTest": 27,
-  "ProtocolTest": 6,
+  "ProtocolTest": 9,
   "test_capture_ledger": 14,
-  "test_lab_bridge": 20,
+  "test_lab_bridge": 23,
   "test_lab_broker": 103,
   "test_lab_crossings": 11,
   "test_lab_driver": 35,
-  "test_lab_protocol": 8,
+  "test_lab_next": 46,
+  "test_lab_protocol": 12,
   "test_shell_transport": 24
  },
  "mutants_caught_at_least": {
+  "action-before-its-predecessor": [
+   "test_lab_next.ActionTests.test_a_successor_runs_only_after_its_predecessor_settled"
+  ],
+  "action-effects-uncapped": [
+   "test_lab_next.ActionTests.test_uses_and_effect_limits_are_counted_from_the_ledger_and_survive_reopening"
+  ],
+  "action-lost-left-open": [
+   "test_lab_next.ActionTests.test_an_interrupted_action_is_closed_lost_and_never_repeated"
+  ],
+  "action-recipient-guessed": [
+   "test_lab_next.ActionTests.test_a_user_is_resolved_from_a_whole_inventory_and_never_guessed"
+  ],
+  "action-repeated-after-uncertainty": [
+   "test_lab_next.ActionTests.test_an_interrupted_action_is_closed_lost_and_never_repeated"
+  ],
+  "action-uses-unbounded": [
+   "test_lab_next.ActionTests.test_uses_and_effect_limits_are_counted_from_the_ledger_and_survive_reopening"
+  ],
   "activation-window-not-sent": [
    "test_lab_bridge.BridgeEndToEnd.test_a_ticket_closes_applied_from_observation_alone"
+  ],
+  "admission3-installation-authority": [
+   "test_lab_next.AdmissionTests.test_a_version_3_admission_is_exact_and_fails_closed"
+  ],
+  "admission3-profile-unchecked": [
+   "test_lab_next.AdmissionTests.test_a_version_3_admission_is_exact_and_fails_closed"
   ],
   "admitted-config-unchecked": [
    "DriverTest.admission / only the bridge configuration the admission binds is read",
@@ -66,6 +91,22 @@
   "cohort-control-not-contradicted": [
    "test_lab_driver.DriverEndToEnd.test_the_loss_cells_run_in_order_to_their_predicted_ends"
   ],
+  "compound-emission-taken-from-its-summary": [
+   "test_lab_next.ReceiptTests.test_an_erased_emission_refuses_the_reopening_and_the_scale_never_falls",
+   "test_lab_next.HealthTests.test_a_probe_kept_after_its_window_reopens_kept_and_never_emitted"
+  ],
+  "compound-manifest-trusted-on-reopening": [
+   "test_lab_next.ReceiptTests.test_a_changed_manifest_or_summary_refuses_the_reopening"
+  ],
+  "compound-manifest-unkept": [
+   "test_lab_next.ReceiptTests.test_a_delivery_read_after_a_later_clock_keeps_its_event_time"
+  ],
+  "compound-reference-erasure-accepted": [
+   "test_lab_next.ReceiptTests.test_a_compound_group_without_its_manifest_reference_refuses_the_reopening"
+  ],
+  "compound-write-failure-not-latched": [
+   "test_lab_next.HealthTests.test_a_failed_manifest_sync_latches_the_writer_and_no_effect_follows"
+  ],
   "config-host-unchecked": [
    "BridgeTest.config / version 2 names the host configuration's digest, every line checked"
   ],
@@ -79,6 +120,9 @@
   ],
   "cross-stop-read-as-lost": [
    "BridgeTest.cross / replies bind, lose or halt, and a session crossing names its whole reference"
+  ],
+  "crossing-effects-uncapped": [
+   "test_lab_next.ActionTests.test_crossing_effect_limits_launch_nothing_past_their_caps"
   ],
   "data-copy-accepted": [
    "DriverTest.baseline / a data copy with the factory bytes is refused",
@@ -151,6 +195,49 @@
    "test_lab_broker.GateTests.test_the_launch_deadline_follows_the_reconcilers_rule",
    "test_lab_broker.GateTests.test_a_grant_that_expires_during_the_confirmation_launches_nothing"
   ],
+  "health-baseline-any-framework": [
+   "test_lab_next.HealthTests.test_only_a_baseline_completed_before_the_window_in_this_framework_is_relied_on"
+  ],
+  "health-held-beside-witness-doubt": [
+   "test_lab_next.HealthTests.test_held_needs_current_reads_and_no_witness_doubt"
+  ],
+  "health-held-without-current-reads": [
+   "test_lab_next.HealthTests.test_held_needs_current_reads_and_no_witness_doubt"
+  ],
+  "health-late-baseline": [
+   "test_lab_next.HealthTests.test_only_a_baseline_completed_before_the_window_in_this_framework_is_relied_on"
+  ],
+  "health-outside-a-full-window": [
+   "test_lab_next.HealthTests.test_health_needs_its_window_from_the_store_and_a_ticket"
+  ],
+  "health-postend-emitted": [
+   "test_lab_next.HealthTests.test_a_probe_that_ends_after_its_window_is_kept_and_emits_nothing"
+  ],
+  "health-preparation-any-framework": [
+   "test_lab_next.HealthTests.test_a_preparation_from_an_earlier_framework_supports_no_row"
+  ],
+  "health-preparation-kept-by-its-probe": [
+   "test_lab_next.HealthTests.test_a_probe_uses_up_its_preparations_whatever_its_rows_give"
+  ],
+  "health-preparation-reused": [
+   "test_lab_next.HealthTests.test_no_preparation_no_probe_and_one_preparation_one_probe"
+  ],
+  "health-preparation-use-forgotten-on-reopening": [
+   "test_lab_next.HealthTests.test_a_probe_whose_manifest_cannot_be_encoded_still_uses_up_its_preparation"
+  ],
+  "health-preparation-use-not-taken-at-the-bracket": [
+   "test_lab_next.HealthTests.test_a_probe_whose_manifest_cannot_be_encoded_still_uses_up_its_preparation"
+  ],
+  "health-row-reason-unbounded": [
+   "test_lab_next.HealthTests.test_a_probe_whose_manifest_cannot_be_encoded_still_uses_up_its_preparation"
+  ],
+  "health-stale-preparation": [
+   "test_lab_next.HealthTests.test_partial_and_missing_forms_are_kept_and_never_held"
+  ],
+  "health-witness-assumed": [
+   "test_lab_next.HealthTests.test_partial_and_missing_forms_are_kept_and_never_held",
+   "test_lab_next.HealthTests.test_bad_rows_and_a_witnessed_crash_follow_the_rows"
+  ],
   "hello-without-config": [
    "BridgeTest.hello / binds the configuration, and a stopped broker ends the generation"
   ],
@@ -191,6 +278,15 @@
   ],
   "java-session-by-id-alone": [
    "ProtocolTest.protocol / cross relations"
+  ],
+  "java-v2-classification-unbound": [
+   "ProtocolTest.protocol / version 2 envelope relations"
+  ],
+  "java-v2-receipt-time-unbound": [
+   "ProtocolTest.protocol / version 2 envelope relations"
+  ],
+  "java-v2-version-unchecked": [
+   "ProtocolTest.protocol / version 2 has one encoding, and a channel speaks one version"
   ],
   "launch-deadline-not-given-to-the-transport": [
    "test_lab_broker.GateTests.test_a_launch_is_refused_once_its_grant_may_have_expired_in_transit"
@@ -235,6 +331,15 @@
   "not-published-is-failure": [
    "test_lab_driver.DriverEndToEnd.test_a_publication_lost_before_its_effect_waits_then_stages_the_republication"
   ],
+  "notice-partial-inventory": [
+   "test_lab_next.ReceiptTests.test_a_notice_issue_binds_records_recipients_challenge_and_text_before_any_launch"
+  ],
+  "notice-under-any-grant": [
+   "test_lab_next.ReceiptTests.test_a_notice_issue_binds_records_recipients_challenge_and_text_before_any_launch"
+  ],
+  "observation-cut-to-fit": [
+   "test_lab_next.ProtocolVersionTests.test_an_observation_above_its_bounds_is_refused_never_cut"
+  ],
   "other-boots-accepted": [
    "DriverTest.baseline / facts of another boot are refused, whatever the wall times",
    "DriverTest.baseline / a later incomplete check's facts are refused",
@@ -260,6 +365,12 @@
   "preflight-instance-ignored": [
    "test_lab_broker.CrossingTests.test_preflight_refuses_a_changed_boot_or_framework"
   ],
+  "preparation-uncertainty-dropped": [
+   "test_lab_next.ActionTests.test_a_preparation_without_a_qualified_settlement_is_never_repeated"
+  ],
+  "preparation-unrecognized-settled": [
+   "test_lab_next.ActionTests.test_a_preparation_without_a_qualified_settlement_is_never_repeated"
+  ],
   "process-ended-untimed": [
    "test_lab_broker.FaultTests.test_host_records_carry_the_brokers_times"
   ],
@@ -269,6 +380,19 @@
   "protocol-trailing-accepted": [
    "test_lab_protocol.ProtocolTests.test_the_frame_is_checked_first"
   ],
+  "protocol2-classification-unbound": [
+   "test_lab_protocol.ProtocolTests.test_version_2_envelope_relations"
+  ],
+  "protocol2-receipt-time-unbound": [
+   "test_lab_protocol.ProtocolTests.test_version_2_envelope_relations"
+  ],
+  "protocol2-simple-carries-compound-kinds": [
+   "test_lab_protocol.ProtocolTests.test_version_2_envelope_relations"
+  ],
+  "protocol2-version-unchecked": [
+   "test_lab_protocol.ProtocolTests.test_a_channel_speaks_one_version",
+   "test_lab_next.ProtocolVersionTests.test_a_broker_speaks_exactly_its_admissions_protocol"
+  ],
   "publication-not-pinned": [
    "test_lab_driver.DriverEndToEnd.test_a_ticket_closes_applied_with_the_real_signer_and_publication"
   ],
@@ -277,6 +401,45 @@
   ],
   "reboot-deadline-not-given-to-the-transport": [
    "test_lab_broker.GateTests.test_a_launch_is_refused_once_its_grant_may_have_expired_in_transit"
+  ],
+  "receipt-any-user": [
+   "test_lab_next.ReceiptTests.test_contrary_rows_refuse_the_whole_read"
+  ],
+  "receipt-changed-text-accepted": [
+   "test_lab_next.ReceiptTests.test_contrary_rows_refuse_the_whole_read"
+  ],
+  "receipt-judgment-stops-at-a-contrary-row": [
+   "test_lab_next.ReceiptTests.test_a_contrary_first_row_never_hides_a_later_rows_first_bytes"
+  ],
+  "receipt-later-visibility": [
+   "test_lab_next.ReceiptTests.test_the_first_proof_is_never_moved_by_a_later_visibility"
+  ],
+  "receipt-read-time-substituted": [
+   "test_lab_next.ReceiptTests.test_a_delivery_read_after_a_later_clock_keeps_its_event_time"
+  ],
+  "receipt-refused-rows-forgotten": [
+   "test_lab_next.ReceiptTests.test_a_refused_read_keeps_the_first_bytes_of_its_rows"
+  ],
+  "receipt-rows-forgotten-on-reopening": [
+   "test_lab_next.ReceiptTests.test_a_refused_read_keeps_the_first_bytes_of_its_rows"
+  ],
+  "receipt-rows-forgotten-without-manifest": [
+   "test_lab_next.ReceiptTests.test_a_refused_read_keeps_the_first_bytes_of_its_rows"
+  ],
+  "receipt-rows-not-pinned": [
+   "test_lab_next.ReceiptTests.test_contrary_rows_refuse_the_whole_read"
+  ],
+  "receipt-rows-pinned-only-from-facts": [
+   "test_lab_next.ReceiptTests.test_a_refused_read_keeps_the_first_bytes_of_its_rows"
+  ],
+  "receipt-unbracketed-rows-forgotten": [
+   "test_lab_next.ReceiptTests.test_a_refused_read_keeps_the_first_bytes_of_its_rows"
+  ],
+  "receipt-unqualified-visibility": [
+   "test_lab_next.ReceiptTests.test_a_row_without_a_qualified_visibility_proves_nothing_until_one_completes"
+  ],
+  "record-trailing-accepted": [
+   "test_lab_next.CodecTests.test_stored_plans_and_tickets_are_read_strictly"
   ],
   "records-root-unsynced": [
    "test_lab_broker.GuestAdmissionTests.test_retained_record_names_are_made_durable"
@@ -367,8 +530,17 @@
   "shell2-not-required": [
    "test_lab_broker.FeatureTests.test_a_device_without_shell_protocol_v2_stops_everything"
   ],
+  "side-noncanonical-accepted": [
+   "test_lab_next.CodecTests.test_side_records_have_one_canonical_form"
+  ],
+  "sim-receipt-read-time": [
+   "test_lab_next.ReceiptTests.test_a_delivery_read_after_a_later_clock_keeps_its_event_time"
+  ],
   "sources-not-reverified": [
    "test_lab_broker.GateTests.test_changed_sources_stop_before_any_crossing"
+  ],
+  "spec-write-failure-not-latched": [
+   "test_lab_next.HealthTests.test_a_failed_manifest_sync_latches_the_writer_and_no_effect_follows"
   ],
   "staging-failure-swallowed": [
    "test_lab_driver.DriverEndToEnd.test_a_failed_publication_export_stops_before_any_session"
@@ -419,6 +591,28 @@
   "unreadable-features-unlisted": [
    "test_lab_broker.FeatureTests.test_unreadable_features_launch_nothing_and_are_asked_again",
    "test_lab_broker.LabActionTests.test_a_fresh_brokers_feature_query_is_refused_by_the_transport_once_the_bound_passes"
+  ],
+  "v2-compound-read-before-the-clock": [
+   "BridgeTest.device v2 / a receipt keeps its proven time only with its notice's provenance",
+   "BridgeTest.device v2 / a health probe lands only in its ticket's window"
+  ],
+  "v2-health-outside-window": [
+   "BridgeTest.device v2 / a health probe lands only in its ticket's window"
+  ],
+  "v2-health-publication-unchecked": [
+   "BridgeTest.device v2 / a health probe lands only in its ticket's window"
+  ],
+  "v2-health-user-not-running": [
+   "BridgeTest.device v2 / a health probe lands only in its ticket's window"
+  ],
+  "v2-observe-halt-ignored": [
+   "BridgeTest.device v2 / an ordered halt in an observation ends the generation"
+  ],
+  "v2-old-current-fact": [
+   "BridgeTest.device v2 / simple envelopes are current facts of the round"
+  ],
+  "v2-receipt-before-its-notice": [
+   "BridgeTest.device v2 / a receipt keeps its proven time only with its notice's provenance"
   ],
   "write-not-revalidated": [
    "test_lab_broker.GateTests.test_write_is_revalidated_after_staging_and_before_each_member",

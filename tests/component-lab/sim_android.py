@@ -6,7 +6,13 @@ uptime, the checkpoint, the factory and active SystemUI, staged sessions with th
 references, users, and the typed crossing commands. Shell results are built with the real
 ShellResult type, so the broker's completion rules apply unchanged. The reader reads through the
 broker's run function with fixed `sim:` commands, which are test fakes, not guest forms. Nothing
-here is Android evidence."""
+here is Android evidence.
+
+A notice receipt carries the guest's boot and uptime of the moment the fixture fake wrote it: its
+event time, never the time a later read happens. For the next campaign profile the guest also has
+a typed user inventory, a notice fixture that writes one immutable row per notice and user when it
+presents, a display whose current visibility a capture records, and per user health state that a
+preparation, a baseline and a probe read."""
 from dataclasses import dataclass, field
 import hashlib
 import json
@@ -14,6 +20,7 @@ import os
 import re
 
 import lab_crossings
+import lab_evidence
 import lab_readers
 import lab_target
 import shell_transport
@@ -29,6 +36,17 @@ WALL_BASE = 1_791_504_000_000
 NOTICE_COMMAND = 'sim:notice'
 SIM_READS = ('sim:clock', 'sim:boot', 'sim:checkpoint', 'sim:factory', 'sim:active', 'sim:sessions', 'sim:users',
              'sim:receipts', 'pidof system_server')
+# The next profile's fake reads and the fixture fakes' fixed command forms.
+NEXT_READS = ('sim:inventory', 'sim:rows')
+PER_USER_READ = re.compile(r'sim:(baseline|health) ([0-9]+)')
+PRESENT = re.compile(r'sim:present ([0-9]+) ([0-9a-f]{32}) ([0-9a-f]{32}) ([0-9]+) ([0-9a-f]{32}) ([0-9a-f]{32}) '
+                     r'([0-9a-f]{32}) ([0-9a-f]{64})')
+VISIBILITY = re.compile(r'sim:(capture|read)-visibility ([0-9]+)')
+PREPARE = re.compile(r'sim:prepare ([0-9]+) ([235](?:,[235])*) ([0-9a-f]{32})')
+SYSTEM_TYPE = 'android.os.usertype.full.SYSTEM'
+SECONDARY_TYPE = 'android.os.usertype.full.SECONDARY'
+NO_CHALLENGE = '00' * 16
+APP_ID = 10123
 
 
 def result(command, code=0, stdout=b'', stderr=b'', completion='exited', launch='launched', transport='ok',
@@ -37,6 +55,21 @@ def result(command, code=0, stdout=b'', stderr=b'', completion='exited', launch=
     frame = code if completion in ('exited', 'malformed') else None
     return shell_transport.ShellResult(shell_transport.SHELL_PREFIX + command, launch, transport, completion, frame,
                                        stdout, stderr, None, False, None, error, 1, 2, 1)
+
+
+class EventRows(list):
+    """Receipts a fixture fake writes. Each is stamped, when it is written, with the guest's boot
+    and uptime at that moment unless the writer names them: its event, not a later read."""
+
+    def __init__(self, sim):
+        super().__init__()
+        self._sim = sim
+
+    def append(self, row):
+        row = dict(row)
+        row.setdefault('boot', self._sim.boot)
+        row.setdefault('elapsed', self._sim.uptime)
+        super().append(row)
 
 
 @dataclass
@@ -62,8 +95,24 @@ class SimAndroid:
         # The native identity diagnostic's whole reply: the fresh form unless a test changes it.
         self.native_dump = (0, lab_target.FRESH_FORM.encode(), b'')
         self.users = [(0, 0, 'RUNNING_UNLOCKED')]
-        # Receipts a test fixture says users gave: dicts of user, serial, ticket, index and route.
-        self.receipts = []
+        # Receipts a test fixture says users gave: dicts of user, serial, ticket, index and route,
+        # each stamped with its event's boot and uptime when it is written.
+        self.receipts = EventRows(self)
+        # The next profile: user types and markers, the current user and whether a dump is whole;
+        # the notice fixture's rows, what each user's display shows and each capture of it; and
+        # health.
+        self.user_types = {}
+        self.user_marks = {}
+        self.current_user = 0
+        self.inventory_whole = True
+        self.rows = []
+        self.shown = {}
+        self.captured = {}
+        self.awake = True
+        self.focused = True
+        self.health_statuses = {}
+        self.prepared = {}
+        self.witness = {}
         self.files = {}
         self.calls = []
         self.next_session = 1189842383 + seed
@@ -164,8 +213,26 @@ class SimAndroid:
             return result(command, 0)
         if command == 'pidof system_server':
             return result(command, 0, b'937\n') if self.framework else result(command, 1)
-        if command in SIM_READS:
+        if command in SIM_READS or command in NEXT_READS or PER_USER_READ.fullmatch(command):
             return result(command, 0, json.dumps(self._read(command), sort_keys=True).encode() + b'\n')
+        match = PRESENT.fullmatch(command)
+        if match:
+            return self._present(command, match)
+        match = VISIBILITY.fullmatch(command)
+        if match:
+            user = int(match[2])
+            if match[1] == 'capture':
+                self.calls.append(('capture-visibility', user))
+                self.captured[user] = self._display(user)
+                return result(command, 0, b'captured\n')
+            if user not in self.captured:
+                return result(command, 1, b'', b'no capture\n')
+            return result(command, 0, json.dumps(self.captured[user], sort_keys=True).encode() + b'\n')
+        match = PREPARE.fullmatch(command)
+        if match:
+            self.calls.append(('prepare', int(match[1])))
+            self.prepared[int(match[1])] = {'criteria': [int(c) for c in match[2].split(',')], 'challenge': match[3]}
+            return result(command, 0, b'prepared\n')
         if command.startswith('sha256sum '):
             path = command[len('sha256sum '):]
             if path not in self.files:
@@ -225,22 +292,113 @@ class SimAndroid:
                     'sessions': [[s.identity, s.created, s.nonce, s.state] for s in sorted(live, key=lambda x: x.identity)]}
         if command == 'sim:receipts':
             return {'boot': self.boot, 'elapsed': self.uptime, 'receipts': list(self.receipts)}
+        if command == 'sim:inventory':
+            return self.inventory()
+        if command == 'sim:rows':
+            return {'rows': [dict(row) for row in self.rows]}
+        match = PER_USER_READ.fullmatch(command)
+        if match and match[1] == 'baseline':
+            user = int(match[2])
+            return {'user': user, 'pid': 5000 + user, 'start_ticks': 7000 + self.instance, 'errors': 0}
+        if match:
+            user = int(match[2])
+            prepared = self.prepared.get(user)
+            return {'user': user, 'statuses': self.health_statuses.get(user, ['HELD'] * 7),
+                    'challenge': prepared['challenge'] if prepared else None, 'witness': self.witness.get(user)}
         return {'boot': self.boot, 'elapsed': self.uptime, 'instance': self.instance,
                 'users': [list(u) for u in self.users]}
+
+    # ------------------------------------------------ the next profile's guest
+
+    def serial(self, user):
+        return [s for u, s, _ in self.users if u == user][0]
+
+    def inventory(self):
+        users = []
+        for user, serial, state in self.users:
+            marks = self.user_marks.get(user, {})
+            users.append({'id': user, 'serial': serial,
+                          'type': self.user_types.get(user, SYSTEM_TYPE if user == 0 else SECONDARY_TYPE),
+                          'state': state, 'flags': 0x13 if user == 0 else 0x10, 'restrictions': [], 'parent': -10000,
+                          'removing': marks.get('removing', False), 'partial': marks.get('partial', False),
+                          'precreated': marks.get('precreated', False)})
+        return {'whole': self.inventory_whole, 'current_user': self.current_user, 'users': users}
+
+    def _present(self, command, match):
+        """The notice fixture fake shows a notice on one user's display and writes that user's
+        row once: its user and serial from the guest, its candidate time now. A repeat shows it
+        again and never rewrites the first row."""
+        user, installation, ticket, index, plan, boot, challenge, text = match.groups()
+        user, index = int(user), int(index)
+        self.calls.append(('present', user))
+        if user not in [u for u, _, _ in self.users]:
+            return result(command, 1, b'', b'no such user\n')
+        row = {'purpose': 'TICKET_NOTICE', 'installation': installation, 'component': PACKAGE, 'plan': plan,
+               'ticket': ticket, 'index': index, 'control': None, 'boot': boot, 'text_sha256': text, 'event': challenge,
+               'uid': user * 100000 + APP_ID, 'user': user, 'serial': self.serial(user),
+               'candidate_elapsed': self.uptime}
+        key = (row['purpose'], boot, ticket, index, user, row['serial'])
+        if not any((r['purpose'], r['boot'], r['ticket'], r['index'], r['user'], r['serial']) == key for r in self.rows):
+            self.rows.append(row)
+        self.shown[user] = {'challenge': challenge, 'ticket': ticket, 'index': index}
+        return result(command, 0, b'presented\n')
+
+    def _display(self, user):
+        """What a capture of one user's display records now: the notice is visible only on the
+        current user's awake display."""
+        shown = self.shown.get(user)
+        current = user == self.current_user
+        return {'user': user, 'serial': self.serial(user), 'current_user': self.current_user, 'awake': self.awake,
+                'focused': self.focused and current and shown is not None,
+                'challenge': shown['challenge'] if shown and current else NO_CHALLENGE,
+                'visible': bool(shown) and current and self.awake}
 
 
 class SimNotice:
     """A test notice route: its one fixed command, classified SUCCESS only when it completed whole
-    with status 0. SUCCESS says only that the fake accepted the request."""
+    with status 0. SUCCESS says only that the fake accepted the request. For the next profile it
+    presents an issued notice to each required recipient, and captures then reads one recipient's
+    display for its visibility."""
 
     def allowed(self, command):
-        return command == NOTICE_COMMAND
+        return command == NOTICE_COMMAND or bool(PRESENT.fullmatch(command) or VISIBILITY.fullmatch(command))
 
     def notice(self, run, ticket, index, plan):
         result_ = run(NOTICE_COMMAND)
         if not result_.completed:
             raise lab_readers.Unavailable('the notice did not complete')
         return 'SUCCESS' if result_.exit == 0 and result_.stderr == b'' else 'UNRECOGNIZED'
+
+    def present(self, run, issue):
+        for r in issue['required']:
+            result_ = run('sim:present %d %s %s %d %s %s %s %s' % (
+                r['user'], issue['installation'], issue['ticket'], issue['index'], issue['plan'], issue['boot'],
+                issue['challenge'], issue['text_sha256']))
+            if not result_.completed:
+                raise lab_readers.Unavailable('the presentation did not complete')
+            if (result_.exit, result_.stdout, result_.stderr) != (0, b'presented\n', b''):
+                return 'UNRECOGNIZED'
+        return 'SUCCESS'
+
+    def visibility(self, effect, read, issue, user):
+        captured = effect('sim:capture-visibility %d' % user['id'])
+        if (captured.exit, captured.stdout) != (0, b'captured\n'):
+            raise lab_readers.Unclassified('a capture of no known form')
+        value = json.loads(read('sim:read-visibility %d' % user['id']).stdout)
+        return {key: value[key] for key in ('user', 'serial', 'current_user', 'awake', 'focused', 'challenge',
+                                            'visible')}
+
+
+class SimHealth:
+    """A test health adapter: one fixed preparation command per use, PREPARED for its exact form."""
+
+    def allowed(self, command):
+        return bool(PREPARE.fullmatch(command))
+
+    def prepare(self, effect, read, binding):
+        done = effect('sim:prepare %d %s %s' % (binding['id'], ','.join(str(c) for c in binding['criteria']),
+                                                binding['challenge']))
+        return 'PREPARED' if (done.exit, done.stdout, done.stderr) == (0, b'prepared\n', b'') else 'UNRECOGNIZED'
 
 
 class SimTransport:
@@ -270,18 +428,24 @@ class SimTransport:
 class SimReader(lab_readers.ReaderAdapter):
     """Facts from the simulated guest, through the broker's run function."""
 
-    def __init__(self, installation, component=PACKAGE, ids=None, receipts=False, target=False):
+    def __init__(self, installation, component=PACKAGE, ids=None, receipts=False, target=False, inventory=False,
+                 health=False, witness=False):
         self.installation, self.component = installation, component
-        # A receipt reader is admitted only when a test asks for one; the target reader likewise.
+        # A receipt reader is admitted only when a test asks for one; the target reader likewise,
+        # and the next profile's inventory, health and witness readers.
         self.receipts_admitted = receipts
         self.target_admitted = target
+        self.inventory_admitted = inventory
+        self.health_admitted = health
+        self.witness_admitted = witness
         self._run = None
         self._captures = []
         self._count = 0
         self._ids = ids
 
     def allowed(self, command):
-        return command in SIM_READS or (self.target_admitted and command == lab_target.COMMAND)
+        return (command in SIM_READS or command in NEXT_READS or bool(PER_USER_READ.fullmatch(command))
+                or (self.target_admitted and command == lab_target.COMMAND))
 
     def target(self):
         if self._run is None:
@@ -351,10 +515,48 @@ class SimReader(lab_readers.ReaderAdapter):
         return facts
 
     def receipts(self, ticket):
-        """Every receipt the fixture lists, as RECEIPT facts. The broker and the bridge judge them."""
+        """Every receipt the fixture lists, as RECEIPT facts at their event's boot and time. The
+        broker and the bridge judge them."""
         value = self._read('sim:receipts')
-        return [self._fact(value, 'RECEIPT', r['route'], user=r['user'], serial=r['serial'],
-                           facts={'ticket': r['ticket'], 'index': r['index']}) for r in value['receipts']]
+        return [self._fact(dict(value, boot=r['boot'], elapsed=r['elapsed']), 'RECEIPT', r['route'], user=r['user'],
+                           serial=r['serial'], facts={'ticket': r['ticket'], 'index': r['index']})
+                for r in value['receipts']]
+
+    # ------------------------------------------------ the next profile's readers
+
+    def inventory(self):
+        return self._read('sim:inventory')
+
+    def receipt_rows(self, ticket):
+        """Every row the provider returns, each with its exact bytes: the canonical form the fake
+        fixture writes."""
+        rows = []
+        for row in self._read('sim:rows')['rows']:
+            rows.append(dict(row, row=lab_evidence.canonical(row)))
+        return rows
+
+    def health_baseline(self, context):
+        value = self._read('sim:baseline %d' % context['user'])
+        return {'user': context['user'], 'serial': context['serial'], 'facts': value}
+
+    def health_composition(self, context):
+        """Seven rows from one fresh read: each row names that read. The UI marker, unlock and
+        native work rows name the offered preparation whose challenge the guest shows; the no
+        crash row the offered baseline."""
+        at = len(self._captures)
+        value = self._read('sim:health %d' % context['user'])
+        rows = []
+        for bit, status in enumerate(value['statuses']):
+            preparation, baseline = None, None
+            if bit in (2, 3, 5):
+                offered = [p for p in context['preparations'] if p['challenge'] == value['challenge']
+                           and bit in p['criteria']]
+                preparation = offered[0]['operation'] if offered else None
+            if bit == 1 and context['baseline'] is not None:
+                baseline = context['baseline']['digest']
+            rows.append({'bit': bit, 'status': status, 'reason': '' if status == 'HELD' else 'the guest read %s' % status,
+                         'commands': [at], 'preparation': preparation, 'baseline': baseline})
+        return {'user': context['user'], 'serial': context['serial'], 'rows': rows, 'witness': value['witness']}
 
     def users(self, previous):
         value = self._read('sim:users')

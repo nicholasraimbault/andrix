@@ -35,21 +35,30 @@ def cell(name, on='cross', mode='drop-reply', attempt=1, **key):
 
 
 class World:
-    """A store made by the Java fixtures, a broker over a simulated guest, and the generations."""
+    """A store made by the Java fixtures, a broker over a simulated guest, and the generations.
+    With `next_profile`, the next campaign profile: a version 3 admission and bridge
+    configuration, so the generations speak protocol version 2, the fixture fakes and the readers
+    of receipts, inventory and health, and the scripted host's publication bound in the pin."""
 
-    def __init__(self, cells=(), window=120_000, activate=None, target=None, notice=None, receipts=False):
+    def __init__(self, cells=(), window=120_000, activate=None, target=None, notice=None, receipts=False,
+                 next_profile=False):
         self._temp = tempfile.TemporaryDirectory()
         self.dir = Path(self._temp.name)
         self.store = self.dir / 'store'
         self.sim = sim_android.SimAndroid()
+        self.next = next_profile
         self.target, self.notice, self.receipts = target, notice, receipts
+        if next_profile:
+            self.notice = notice or sim_android.SimNotice()
         manifest = labtest.manifest_bytes()
-        setup = ['setup', str(self.dir), str(self.store), hashlib.sha256(manifest).hexdigest(), PLAN, TICKET, str(window)]
+        setup = ['setup3' if next_profile else 'setup', str(self.dir), str(self.store), hashlib.sha256(manifest).hexdigest(),
+                 PLAN, TICKET, str(window)]
         if activate is not None:
             setup.append(str(activate))
         config = self.java(*setup).strip()
         self.config = self.dir / 'bridge.config'
-        self.admission = labtest.admission(self.dir, config=config)
+        self.admission = (labtest.admission3(self.dir, store=self.store, config=config) if next_profile
+                          else labtest.admission(self.dir, config=config))
         lab_broker.Broker.initialize(self.dir / 'broker', self.admission, manifest)
         self.open()
         self.apk, self.idsig = b'A' * 4096 + b'variant', b'S' * 512 + b'sidecar'
@@ -59,16 +68,22 @@ class World:
             path = self.dir / member
             path.write_bytes(data)
             members[member] = {'host': str(path), 'sha256': hashlib.sha256(data).hexdigest(), 'bytes': len(data)}
-        self.broker.pin_artifacts(PLAN, members)
+        # The scripted host's publication record digest, which a health composition binds.
+        publication = hashlib.sha256(('publication ' + PLAN).encode('ascii')).hexdigest() if next_profile else None
+        self.broker.pin_artifacts(PLAN, members, publication)
         self.sim.apks[self.bundle_apk] = 40
         if cells:
             self.broker.admit_faults(list(cells))
         self.generations = []
 
     def open(self):
+        options = {'receipts': self.receipts}
+        if self.next:
+            options = {'receipts': True, 'inventory': True, 'health': True, 'witness': True}
         self.broker = lab_broker.Broker.open(self.dir / 'broker', REPO, sim_android.SimTransport(self.sim),
-                                             sim_android.SimReader(labtest.INSTALLATION, receipts=self.receipts),
-                                             notice=self.notice, sync=False, target=self.target)
+                                             sim_android.SimReader(labtest.INSTALLATION, **options),
+                                             notice=self.notice, sync=False, target=self.target,
+                                             health=sim_android.SimHealth() if self.next else None)
 
     def reopen(self):
         """A new broker on the same directory, as after the loss of the old one."""
@@ -122,6 +137,14 @@ class World:
         records = {e.number: e.content for e in self.entries('crossing')}
         return [(records[o.content['crossing']], o.content) for o in self.entries('outcome')
                 if records.get(o.content['crossing'], {}).get('crossing') == crossing]
+
+    def stored_facts(self, kind):
+        """The store's recorded observations of one kind code, read from their records."""
+        facts = [labtest.read_observation(path.read_bytes()) for path in sorted((self.store / 'observations').glob('*.rec'))]
+        return [f for f in facts if f['kind'] == kind]
+
+    def groups(self, reader):
+        return [e.content for e in self.entries('group') if e.content.get('reader') == reader]
 
 
 @unittest.skipUnless(JAVA and CLASSES, 'needs ANDRIX_LAB_JAVA and ANDRIX_LAB_CLASSES')
@@ -515,6 +538,91 @@ class BridgeEndToEnd(unittest.TestCase):
         stray.generation('settle', TICKET, '40')
         self.assertEqual(stray.generations[-1]['status'], 'FAILED')
         self.assertEqual(stray.calls('CREATE'), [])
+
+
+    # ---------------------------------------------------------------- the next campaign profile
+
+    def test_next_a_receipt_read_after_a_later_clock_counts_from_its_proven_delivery(self):
+        w = self.world(activate=900_000, next_profile=True)
+        w.sim.users.append((10, 5, 'RUNNING_UNLOCKED'))
+        w.generation('settle', TICKET, '40')
+        self.assertEqual((len(w.calls('present')), w.calls('CREATE')), (1, []))
+        issue = w.entries('notice-issue')[-1].content
+        w.sim.tick(1000)
+        w.sim.current_user = 10
+        end = w.broker.run_action(labtest.VISIBILITY_ACTION, 'capture the notice', ticket=TICKET, index=issue['index'],
+                                  serial=5)
+        self.assertTrue(end['outcome']['qualified'])
+        proven = w.groups('notice-visibility')[-1]['brackets']['end']['elapsed']
+        for _ in range(6):
+            w.sim.tick(40_000)
+            w.generation('settle', TICKET, '40')
+            if w.calls('CREATE'):
+                break
+        # The receipt the coordinator stored is the proven delivery, read 40 s later.
+        receipts = w.stored_facts(12)
+        self.assertTrue(receipts)
+        self.assertEqual({(f['user'], f['serial'], f['elapsed']) for f in receipts}, {(10, 5, proven)})
+        reads = [g for g in w.groups('receipts') if g['observations']]
+        self.assertGreaterEqual(reads[0]['brackets']['begin']['elapsed'] - proven, 40_000)
+        # The declared delay ran from the delivery, not from the read: the session followed at once.
+        create = w.outcomes('CREATE')[0][0]
+        self.assertGreaterEqual(create['entry_elapsed'] - proven, 120_000)
+        self.assertLess(create['entry_elapsed'] - proven, 160_000)
+        self.assertEqual({g['status'] for g in w.generations}, {'COMPLETE'})
+
+    def test_next_a_row_without_a_qualified_visibility_never_permits_a_session(self):
+        w = self.world(activate=900_000, next_profile=True)
+        w.sim.users.append((10, 5, 'RUNNING_UNLOCKED'))
+        w.generation('settle', TICKET, '40')
+        issue = w.entries('notice-issue')[-1].content
+        # The display shows the system user, so the capture does not qualify a delivery.
+        end = w.broker.run_action(labtest.VISIBILITY_ACTION, 'capture', ticket=TICKET, index=issue['index'], serial=5)
+        self.assertFalse(end['outcome']['qualified'])
+        for _ in range(8):
+            w.sim.tick(40_000)
+            w.generation('settle', TICKET, '40')
+        self.assertTrue(w.sim.rows)
+        self.assertEqual((w.stored_facts(12), w.calls('CREATE'), w.calls('reboot')), ([], [], []))
+        self.assertLessEqual(len(w.calls('present')), 4)
+
+    def window_probes(self, w, unknown_at=None):
+        """Rounds one generation at a time to APPLIED, takes the system user's baseline before
+        the window opens, then prepares and probes every 20 s until the ticket closes."""
+        for _ in range(30):
+            w.generation('round', TICKET)
+            if w.inspect()['state'] == 'APPLIED':
+                break
+            w.sim.tick(1000)
+        self.assertEqual(w.inspect()['state'], 'APPLIED')
+        w.broker.health_baseline(TICKET, PLAN, 0, 0, 'before the window opens')
+        w.sim.tick(1000)
+        w.generation('round', TICKET)
+        self.assertEqual(w.inspect()['state'], 'HEALTH_WINDOW')
+        state = None
+        for probe in range(10):
+            self.assertEqual(w.broker.run_action(labtest.PREPARATION_ACTION, 'prepare a probe')['status'], 'OK')
+            w.sim.health_statuses[0] = ['HELD'] * 7 if probe != unknown_at else ['HELD'] * 3 + ['UNKNOWN'] + ['HELD'] * 3
+            w.sim.tick(20_000)
+            w.generation('round', TICKET)
+            state = w.inspect()
+            if state['state'] in TERMINAL:
+                return state
+        raise AssertionError('the window did not close: %s' % state)
+
+    def test_next_prepared_probes_covering_the_window_give_healthy(self):
+        w = self.world(next_profile=True)
+        state = self.window_probes(w)
+        self.assertEqual((state['state'], state['health']), ('CLOSED_APPLIED', '0/0/HEALTHY,'))
+        probes = [f for f in w.stored_facts(9)]
+        self.assertEqual(len(probes), 6)
+        self.assertEqual({f['classification'] for f in probes}, {1})
+        self.assertEqual({g['status'] for g in w.generations}, {'COMPLETE'})
+        # One probe with an unknown criterion is a doubt the window keeps: never healthy.
+        w = self.world(next_profile=True)
+        state = self.window_probes(w, unknown_at=2)
+        self.assertEqual((state['state'], state['health']), ('CLOSED_APPLIED', '0/0/INCONCLUSIVE,'))
+        self.assertEqual(sorted(f['classification'] for f in w.stored_facts(9)), [1, 1, 1, 1, 1, 4])
 
 
 if __name__ == '__main__':

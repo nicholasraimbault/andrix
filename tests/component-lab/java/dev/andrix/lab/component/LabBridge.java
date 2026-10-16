@@ -95,7 +95,8 @@ public final class LabBridge {
      */
     public static LabBridge open(LabConfig config, BrokerChannel.Transport transport, HostFactory hosts,
             Halter halter, SecureRandom random) throws IOException {
-        BrokerChannel channel = new BrokerChannel(transport, config.manifest, random);
+        // A version 3 configuration's generation speaks protocol version 2, and only it.
+        BrokerChannel channel = new BrokerChannel(transport, config.manifest, random, config.protocol);
         Message reply = channel.call(channel.request(Type.HELLO).id("installation", config.installation)
                 .id("coordinator", config.coordinator).id("config", config.digest).text("component", config.component)
                 .id("trust", config.trustPolicy).number("route", 1).build());

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Version 1 of the lab bridge protocol: one encoding for each message, goldens that bind the
-Python and Java codecs, and refusal of every malformed frame. Host evidence only."""
+"""Versions 1 and 2 of the lab bridge protocol: one encoding for each message, goldens that bind
+the Python and Java codecs, and refusal of every malformed frame. Host evidence only."""
 import hashlib
 import io
 import os
@@ -9,6 +9,7 @@ import unittest
 
 import labtest  # noqa: F401  (path setup)
 import lab_protocol as proto
+from scripts.proof import component_transaction_records as encoder
 
 REQUEST = '0f' * 16
 MANIFEST = 'ad' * 32
@@ -65,6 +66,73 @@ GOLDENS = {
     'REPORT': '7156a50db3f8f21d7d33a054ce9f096646051828c9ffd111514350fc80bf6800',
     'REPORT_REPLY': 'e677104dd5b782e941c16d27527ea46a3126c7fbc707ffe6c2719d1597414217',
 }
+GOLDENS_2 = {
+    'V2_HELLO': '3cee5db9c1c8275b7229593e9982ecbafc6b71bd9047dff6c8d4dbb1e2b0914b',
+    'V2_OBSERVE_REPLY_SIMPLE': 'dbadf2f6dad5902efb2ef6292043ca87fa6c1eeccd8b4cc45e6d6d617afe940f',
+    'V2_OBSERVE_REPLY_RECEIPT': 'e94660e93465e8501e144c9073fafd0e653b69992006eaf674ba931a7816bab8',
+    'V2_OBSERVE_REPLY_HEALTH': '02e1bccb844388b74c22cbdcac5a48422877731d879898c36ad72273ea42af35',
+    'V2_OBSERVE_REPLY_HALT': '6c4068854ca984bb686f868056b2242dc851911b6c9a1f2185499bae74b460d7',
+    'V2_OBSERVE_REPLY_STOPPED': '25b4529be3d26438f63d06478c037730a94744d468428ccc856d2fcb75f11e0f',
+}
+
+
+BOOT = '1f0d016e80904303a3ff9eb193eb403d'
+INSTALLATION = '00112233445566778899aabbccddeeff'
+SYSTEMUI = 'com.android.systemui'
+
+
+def observation(**changes):
+    """A whole observation record from the independent encoder; the Java test builds the same."""
+    fact = {'installation': INSTALLATION, 'observation': '6f' * 16, 'component': '', 'boot': BOOT, 'user': -10000,
+            'serial': -1, 'kind': 'CHECKPOINT', 'route': 'SHELL', 'instance': -1, 'elapsed': 812400,
+            'wall': 1791504812400, 'raw': '33' * 32, 'classification': 'COMMITTED'}
+    fact.update(changes)
+    return encoder.observation(fact)
+
+
+def receipt_envelope(**block_changes):
+    block = {'read_boot': BOOT, 'read_instance': 4021, 'read_begin_elapsed': 1000, 'read_end_elapsed': 1200,
+             'plan': '01' * 16, 'ticket': '04' * 16, 'notice_index': 3, 'issue_ticket_digest': '55' * 32,
+             'event': '66' * 16, 'row': '77' * 32, 'delivery_group': '88' * 32, 'delivery_instance': 4021,
+             'delivery_begin': 400, 'proven_elapsed': 500, 'delivery_end': 500}
+    block.update(block_changes)
+    record = observation(observation='6e' * 16, component=SYSTEMUI, user=10, serial=11, kind='RECEIPT', instance=4021,
+                         elapsed=500, wall=1791504000500, raw='44' * 32, classification='FULL_SCREEN',
+                         facts={'ticket': '04' * 16, 'index': 3})
+    return {'group': 21, 'mode': 2, 'evidence': '44' * 32, 'block': block, 'observation': record}
+
+
+def health_envelope(classification='HELD', statuses=(1,) * 7, **block_changes):
+    block = {'read_boot': BOOT, 'read_instance': 4021, 'read_begin_elapsed': 94000, 'read_end_elapsed': 95000,
+             'plan': '01' * 16, 'ticket': '04' * 16, 'window_boot': BOOT, 'window_start': 90000,
+             'publication': 'a3' * 32, 'active_apk': 'a1' * 32, 'baseline': 'b4' * 32, 'preparation_root': 'c5' * 32,
+             'probe_begin': 92000, 'probe_end': 95000, 'criteria': 127,
+             'rows': tuple((bit, statuses[bit], 'd%d' % bit * 32) for bit in range(7))}
+    block.update(block_changes)
+    record = observation(observation='6d' * 16, component=SYSTEMUI, user=0, serial=0, kind='HEALTH', instance=4021,
+                         elapsed=95000, wall=1791504095000, raw='99' * 32, classification=classification,
+                         facts={'count': 127})
+    return {'group': 22, 'mode': 3, 'evidence': '99' * 32, 'block': block, 'observation': record}
+
+
+def golden_messages_2():
+    """Version 2's goldens: a frame of the new version, and each form of the new OBSERVE reply."""
+    m = proto.message
+    simple = {'group': 18, 'mode': 1, 'evidence': '33' * 32, 'block': {}, 'observation': observation()}
+    return {
+        'V2_HELLO': m('HELLO', REQUEST, MANIFEST, installation=INSTALLATION, coordinator='c0' * 16, config='3c' * 32,
+                      component=SYSTEMUI, trust='7a' * 32, route=1),
+        'V2_OBSERVE_REPLY_SIMPLE': m('OBSERVE_REPLY', REQUEST, MANIFEST, status=1, control_record=0,
+                                     envelopes=[simple], reason=''),
+        'V2_OBSERVE_REPLY_RECEIPT': m('OBSERVE_REPLY', REQUEST, MANIFEST, status=1, control_record=0,
+                                      envelopes=[receipt_envelope()], reason=''),
+        'V2_OBSERVE_REPLY_HEALTH': m('OBSERVE_REPLY', REQUEST, MANIFEST, status=1, control_record=0,
+                                     envelopes=[health_envelope()], reason=''),
+        'V2_OBSERVE_REPLY_HALT': m('OBSERVE_REPLY', REQUEST, MANIFEST, status=4, control_record=46, envelopes=[],
+                                   reason='admitted read loss'),
+        'V2_OBSERVE_REPLY_STOPPED': m('OBSERVE_REPLY', REQUEST, MANIFEST, status=3, control_record=0, envelopes=[],
+                                      reason='the stop file exists'),
+    }
 
 
 def reframe(data, body_change):
@@ -86,12 +154,135 @@ class ProtocolTests(unittest.TestCase):
 
     def test_goldens(self):
         directory = os.environ.get('ANDRIX_LAB_GOLDENS')
-        for name, message in golden_messages().items():
-            data = proto.encode(message)
-            if directory:
-                with open(os.path.join(directory, name + '.bin'), 'wb') as handle:
-                    handle.write(data)
-            self.assertEqual(hashlib.sha256(data).hexdigest(), GOLDENS[name], name)
+        for version, messages, goldens in ((1, golden_messages(), GOLDENS), (2, golden_messages_2(), GOLDENS_2)):
+            for name, message in messages.items():
+                data = proto.encode(message, version)
+                if directory:
+                    with open(os.path.join(directory, name + '.bin'), 'wb') as handle:
+                        handle.write(data)
+                self.assertEqual(hashlib.sha256(data).hexdigest(), goldens[name], name)
+
+    def test_version_2_has_one_encoding(self):
+        for name, message in golden_messages_2().items():
+            data = proto.encode(message, 2)
+            decoded = proto.decode(data, 2)
+            self.assertEqual(decoded, message, name)
+            self.assertEqual(proto.encode(decoded, 2), data, name)
+        self.assertEqual(proto.block_size(2), 218)
+        self.assertEqual(proto.block_size(3), 479)
+
+    def test_a_channel_speaks_one_version(self):
+        two = proto.encode(golden_messages_2()['V2_HELLO'], 2)
+        one = proto.encode(golden_messages()['HELLO'])
+        self.assertEqual(two[:4] + two[6:60], one[:4] + one[6:60])
+        for data, version in ((two, 1), (one, 2)):
+            with self.assertRaises(proto.ProtocolError, msg=version):
+                proto.decode(data, version)
+        three = two[:4] + struct.pack('<H', 3) + two[6:-32]
+        with self.assertRaises(proto.ProtocolError):
+            proto.decode(three + hashlib.sha256(three).digest(), 2)
+        # The version 1 OBSERVE reply has no envelopes, and version 2's has no frames.
+        with self.assertRaises(proto.ProtocolError):
+            proto.encode(golden_messages()['OBSERVE_REPLY'], 2)
+        with self.assertRaises(proto.ProtocolError):
+            proto.encode(golden_messages_2()['V2_OBSERVE_REPLY_SIMPLE'], 1)
+
+    def test_version_2_envelope_relations(self):
+        reply = golden_messages_2()['V2_OBSERVE_REPLY_SIMPLE']
+        simple = reply['envelopes'][0]
+        receipt, health = receipt_envelope(), health_envelope()
+        held = (1,) * 7
+        bad = {
+            'a simple block': dict(simple, block=dict(receipt['block'])),
+            'a simple receipt': dict(receipt, mode=1, block={}),
+            'a simple health fact': dict(health, mode=1, block={}),
+            'evidence that is not the raw digest': dict(simple, evidence='34' * 32),
+            'an unknown mode': dict(simple, mode=4),
+            'no group': dict(simple, group=0),
+            'an event before its delivery group': receipt_envelope(proven_elapsed=399),
+            'an event after its delivery group': receipt_envelope(delivery_end=499),
+            'a delivery that ends after the read': receipt_envelope(delivery_end=1201, read_end_elapsed=1200),
+            'a delivery in a later framework': receipt_envelope(delivery_instance=4022),
+            'a read without a running framework': receipt_envelope(read_instance=-1),
+            'a read that ends before it begins': receipt_envelope(read_begin_elapsed=1201),
+            'a notice index beyond the ledger': receipt_envelope(notice_index=140),
+            'a zero event': receipt_envelope(event=proto.ZERO_ID),
+            'a zero row': receipt_envelope(row=proto.ZERO_DIGEST),
+            'a zero delivery group': receipt_envelope(delivery_group=proto.ZERO_DIGEST),
+            'a zero issue ticket digest': receipt_envelope(issue_ticket_digest=proto.ZERO_DIGEST),
+            'a read time substituted for the event': dict(receipt, observation=observation(
+                observation='6e' * 16, component=SYSTEMUI, user=10, serial=11, kind='RECEIPT', instance=4021,
+                elapsed=1200, wall=1791504001200, raw='44' * 32, classification='FULL_SCREEN',
+                facts={'ticket': '04' * 16, 'index': 3})),
+            'a receipt of another boot': receipt_envelope(read_boot='2f' * 16),
+            'a receipt of another framework': receipt_envelope(read_instance=4022, delivery_instance=4021),
+            'a receipt of another ticket': receipt_envelope(ticket='05' * 16),
+            'a receipt of another notice': receipt_envelope(notice_index=4),
+            'a SystemUI receipt': dict(receipt, observation=observation(
+                observation='6e' * 16, component=SYSTEMUI, user=10, serial=11, kind='RECEIPT', instance=4021,
+                elapsed=500, wall=1791504000500, raw='44' * 32, classification='SYSTEMUI',
+                facts={'ticket': '04' * 16, 'index': 3})),
+            'a partial HELD': health_envelope('HELD', (1, 1, 1, 3, 1, 1, 1)),
+            'a HELD over a BAD row': health_envelope('HELD', (1, 1, 1, 1, 2, 1, 1)),
+            'a DEGRADED of all HELD rows': health_envelope('DEGRADED', held),
+            'an INCONCLUSIVE witnessed failure': health_envelope('INCONCLUSIVE', (1, 2, 3, 3, 3, 3, 3)),
+            'a CRASH without its witnessed row': health_envelope('CRASH', (1, 1, 1, 1, 2, 1, 1)),
+            'a mask of fewer criteria': health_envelope(criteria=63),
+            'rows out of order': health_envelope(rows=tuple((6 - b, 1, 'd%d' % b * 32) for b in range(7))),
+            'a row of no known status': health_envelope(rows=tuple((b, 4, 'd%d' % b * 32) for b in range(7))),
+            'a row without its child': health_envelope(rows=tuple((b, 1, proto.ZERO_DIGEST) for b in range(7))),
+            'a probe before its window': health_envelope(probe_begin=89999),
+            'a probe that begins after its read': health_envelope(probe_begin=94001),
+            'a probe not completed by its read': health_envelope(probe_end=94999),
+            'a window of another boot': health_envelope(window_boot='2f' * 16),
+            'a zero publication': health_envelope(publication=proto.ZERO_DIGEST),
+            'a zero baseline': health_envelope(baseline=proto.ZERO_DIGEST),
+            'a zero preparation root': health_envelope(preparation_root=proto.ZERO_DIGEST),
+            'a health fact not at its probe end': health_envelope(read_end_elapsed=96000, probe_end=96000),
+            'a health fact of fewer criteria': dict(health, observation=observation(
+                observation='6d' * 16, component=SYSTEMUI, user=0, serial=0, kind='HEALTH', instance=4021,
+                elapsed=95000, wall=1791504095000, raw='99' * 32, classification='HELD', facts={'count': 63})),
+        }
+        for name, envelope in bad.items():
+            with self.assertRaises(proto.ProtocolError, msg=name):
+                proto.encode(dict(reply, envelopes=[envelope]), 2)
+        # Each mapping of rows to a classification that the relation does allow.
+        for classification, statuses in (('CRASH', (1, 2, 3, 3, 3, 3, 3)), ('DEGRADED', (1, 1, 2, 3, 1, 1, 1)),
+                                         ('INCONCLUSIVE', (1, 1, 1, 3, 1, 1, 1)), ('HELD', held)):
+            proto.encode(dict(reply, envelopes=[health_envelope(classification, statuses)]), 2)
+        replies = {
+            'a halt with an envelope': dict(reply, status=4, control_record=46, reason='halt'),
+            'a halt without its fault record': dict(reply, status=4, control_record=0, envelopes=[], reason='halt'),
+            'a control record with OK': dict(reply, control_record=46),
+            'a stopped reply with an envelope': dict(reply, status=3, reason='stopped'),
+            'a withheld observation': dict(reply, status=5, envelopes=[], reason='withheld'),
+            'one observation ID twice': dict(reply, envelopes=[simple, dict(simple, group=19)]),
+            'more envelopes than the bound': dict(reply, envelopes=[dict(simple, observation=observation(
+                observation='%032x' % (n + 1))) for n in range(257)]),
+            'an observation above the record bound': dict(reply, envelopes=[dict(simple, observation=b'x' * 65537)]),
+        }
+        for name, message in replies.items():
+            with self.assertRaises(proto.ProtocolError, msg=name):
+                proto.encode(message, 2)
+        data = proto.encode(golden_messages_2()['V2_OBSERVE_REPLY_RECEIPT'], 2)
+        # A block whose length is not its mode's, and an envelope cut short, are refused.
+        at = proto.HEADER + 1 + 4 + 2 + 4 + 1 + 32
+        for name, body in (('a longer block', lambda b: b[:at - proto.HEADER] + struct.pack('<H', 219)
+                            + b[at - proto.HEADER + 2:]),
+                           ('an envelope cut short', lambda b: b[:-10])):
+            with self.assertRaises(proto.ProtocolError, msg=name):
+                proto.decode(reframe(data, body), 2)
+
+    def test_health_classification_follows_the_rows(self):
+        codes = proto.HEALTH_CLASSIFICATIONS
+        for statuses, expected in (((1,) * 7, 'HELD'), ((1, 2, 1, 1, 1, 1, 1), 'CRASH'),
+                                   ((3, 2, 3, 3, 3, 3, 3), 'CRASH'), ((2, 1, 1, 1, 1, 1, 1), 'DEGRADED'),
+                                   ((1, 1, 1, 1, 1, 3, 2), 'DEGRADED'), ((1, 3, 1, 1, 1, 1, 1), 'INCONCLUSIVE'),
+                                   ((3,) * 7, 'INCONCLUSIVE')):
+            self.assertEqual(proto.health_classification(statuses), codes[expected], statuses)
+        for wrong in ((1,) * 6, (1,) * 8, (1, 1, 1, 1, 1, 1, 0)):
+            with self.assertRaises(proto.ProtocolError):
+                proto.health_classification(wrong)
 
     def test_the_frame_is_checked_first(self):
         data = proto.encode(golden_messages()['CROSS'])

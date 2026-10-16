@@ -19,7 +19,8 @@ import java.util.Set;
  * by exactly one reply. Every request has a fresh random ID and the admitted manifest digest. A
  * reply must be well formed, of the request's reply type, and repeat its ID and the manifest. A
  * channel that breaks any of these, or ends, throws {@link ChannelLost}: the generation cannot
- * know what the broker did, so it must end without another request.
+ * know what the broker did, so it must end without another request. A channel speaks one protocol
+ * version, both ways: a reply of the other version is broken.
  */
 public final class BrokerChannel {
     /** How a channel moves whole frames. Production uses the process's own standard streams. */
@@ -66,17 +67,30 @@ public final class BrokerChannel {
     private final Transport transport;
     private final String manifest;
     private final SecureRandom random;
+    private final int version;
     private final Set<String> used = new HashSet<>();
     private boolean lost;
 
     public BrokerChannel(Transport transport, String manifest, SecureRandom random) {
+        this(transport, manifest, random, LabProtocol.VERSION);
+    }
+
+    /** A channel of one protocol version, 1 or 2. */
+    public BrokerChannel(Transport transport, String manifest, SecureRandom random, int version) {
         this.transport = Objects.requireNonNull(transport, "transport");
         LabProtocol.checkHex(manifest, 32, "manifest", false);
+        if (version != LabProtocol.VERSION && version != LabProtocol.VERSION_2) {
+            throw new IllegalArgumentException("protocol version 1 or 2");
+        }
         this.manifest = manifest;
         this.random = Objects.requireNonNull(random, "random");
+        this.version = version;
     }
 
     public String manifest() { return manifest; }
+
+    /** The protocol version this channel speaks. */
+    public int version() { return version; }
 
     /** A fresh request ID, nonzero and never used on this channel. */
     String freshId() {
@@ -91,7 +105,7 @@ public final class BrokerChannel {
     /** A builder of a request of one type with a fresh ID and this channel's manifest. */
     public LabProtocol.Builder request(Type type) {
         if (!type.request()) throw new IllegalArgumentException("not a request type");
-        return Message.of(type, freshId(), manifest);
+        return Message.of(version, type, freshId(), manifest);
     }
 
     /**
@@ -101,10 +115,11 @@ public final class BrokerChannel {
     public Message call(Message request) {
         if (lost) throw new ChannelLost("the channel was lost before", null);
         if (!request.manifest.equals(manifest)) throw new IllegalArgumentException("another manifest");
+        if (request.version != version) throw new IllegalArgumentException("another protocol version");
         byte[] data = LabProtocol.encode(request);
         Message reply;
         try {
-            reply = LabProtocol.decode(transport.exchange(data));
+            reply = LabProtocol.decode(transport.exchange(data), version);
         } catch (IOException | ProtocolError error) {
             lost = true;
             throw new ChannelLost("the broker channel failed: " + error.getMessage(), error);

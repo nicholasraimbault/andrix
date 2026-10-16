@@ -2,6 +2,7 @@
 package dev.andrix.lab.component;
 
 import dev.andrix.lab.component.LabProtocol.Builder;
+import dev.andrix.lab.component.LabProtocol.Envelope;
 import dev.andrix.lab.component.LabProtocol.Frame;
 import dev.andrix.lab.component.LabProtocol.Message;
 import dev.andrix.lab.component.LabProtocol.Status;
@@ -12,6 +13,7 @@ import dev.andrix.server.deployment.DeploymentRecords.Observation;
 import dev.andrix.server.deployment.DeploymentRecords.Reference;
 import dev.andrix.server.deployment.DeploymentRecords.Route;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -22,10 +24,12 @@ import java.util.function.Function;
  * keeps it, and answers from a small world (one boot, its checkpoint committed, the factory copy
  * active, at most one staged session, user 0 running) or from a scripted answer for a request type.
  * Every exchange moves the uptime on. The real broker, with its ledger and fences, is exercised by
- * the Python suites.
+ * the Python suites. It speaks one protocol version: on version 2 the world's facts come as simple
+ * envelopes.
  */
 final class FakeBroker implements BrokerChannel.Transport {
     final String manifest;
+    int version = LabProtocol.VERSION;
     final List<Message> requests = new ArrayList<>();
     final Map<Type, Function<Message, Builder>> scripts = new EnumMap<>(Type.class);
     String boot = "1f0d016e80904303a3ff9eb193eb403d";
@@ -43,7 +47,7 @@ final class FakeBroker implements BrokerChannel.Transport {
 
     @Override
     public byte[] exchange(byte[] data) {
-        Message request = LabProtocol.decode(data);
+        Message request = LabProtocol.decode(data, version);
         requests.add(request);
         elapsed += 100;
         wall += 100;
@@ -52,7 +56,7 @@ final class FakeBroker implements BrokerChannel.Transport {
         return LabProtocol.encode(reply.build());
     }
 
-    Builder reply(Message request) { return Message.of(request.type.reply(), request.request, manifest); }
+    Builder reply(Message request) { return Message.of(version, request.type.reply(), request.request, manifest); }
 
     Builder status(Message request, Status status, String reason) {
         return reply(request).number("status", status.code).text("reason", reason).zeros();
@@ -79,10 +83,13 @@ final class FakeBroker implements BrokerChannel.Transport {
                 return reply(request).number("status", 1).id("boot", boot).number("instance", instance)
                         .number("elapsed", elapsed).number("wall", wall).number("group", ++groups).text("reason", "");
             case OBSERVE: {
-                List<Frame> frames = new ArrayList<>();
-                for (Observation o : world(request.number("scope") == LabProtocol.SCOPE_TICKET)) {
-                    frames.add(new Frame(++groups, DeploymentRecords.encodeObservation(o)));
+                List<Observation> facts = world(request.number("scope") == LabProtocol.SCOPE_TICKET);
+                if (version == LabProtocol.VERSION_2) {
+                    return reply(request).number("status", 1).number("control_record", 0)
+                            .envelopes("envelopes", simple(facts)).text("reason", "");
                 }
+                List<Frame> frames = new ArrayList<>();
+                for (Observation o : facts) frames.add(new Frame(++groups, DeploymentRecords.encodeObservation(o)));
                 return reply(request).number("status", 1).frames("frames", frames).text("reason", "");
             }
             case CROSS:
@@ -92,6 +99,16 @@ final class FakeBroker implements BrokerChannel.Transport {
             default:
                 return reply(request).number("status", 1).number("record", ++groups).text("reason", "");
         }
+    }
+
+    /** Each fact as a SIMPLE_CURRENT envelope of its own group, its evidence its raw digest. */
+    List<Envelope> simple(List<Observation> facts) {
+        List<Envelope> envelopes = new ArrayList<>();
+        for (Observation o : facts) {
+            envelopes.add(new Envelope(++groups, LabProtocol.SIMPLE_CURRENT, o.raw, Collections.emptyMap(),
+                    DeploymentRecords.encodeObservation(o)));
+        }
+        return envelopes;
     }
 
     String nextId() { return String.format("%032x", ++ids); }

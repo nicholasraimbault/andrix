@@ -91,6 +91,17 @@ final class LabFixtures {
         return path;
     }
 
+    /** The next campaign profile's version 3 configuration: its generation speaks protocol 2. */
+    static Path config3(Path directory, Path store, String manifest) throws IOException {
+        Path path = directory.resolve("bridge.config");
+        Files.write(path, LabConfig.encode(INSTALLATION, COMPONENT, COORDINATOR, TRUST, manifest, store, HOST,
+                LabConfig.PROFILE));
+        return path;
+    }
+
+    /** A host configuration digest for version 3 configurations; the scripted host checks none. */
+    static final String HOST = "5e".repeat(32);
+
     private static void require(boolean ok, String what) {
         if (!ok) throw new IllegalStateException(what + " not written");
     }

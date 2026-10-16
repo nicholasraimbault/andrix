@@ -3,6 +3,7 @@ package dev.andrix.lab.component;
 
 import dev.andrix.lab.component.BridgeErrors.BridgeRefusal;
 import dev.andrix.lab.component.BridgeErrors.GenerationStopped;
+import dev.andrix.lab.component.LabProtocol.Envelope;
 import dev.andrix.lab.component.LabProtocol.Message;
 import dev.andrix.lab.component.LabProtocol.Status;
 import dev.andrix.lab.component.LabProtocol.Type;
@@ -18,6 +19,7 @@ import dev.andrix.server.deployment.DeploymentRecords.ObservationKind;
 import dev.andrix.server.deployment.DeploymentRecords.Plan;
 import dev.andrix.server.deployment.DeploymentRecords.Reference;
 import dev.andrix.server.deployment.DeploymentRecords.Route;
+import dev.andrix.server.deployment.DeploymentRecords.State;
 import dev.andrix.server.deployment.DeploymentRecords.Ticket;
 import dev.andrix.server.deployment.DeploymentStore;
 import dev.andrix.server.deployment.DeploymentStore.Found;
@@ -60,6 +62,16 @@ import java.util.Set;
  * its own clock reading just before launch. A grant that expired after the round's clock launches
  * nothing. No fact here comes from a clock older than its round's: a fact's framework instance is
  * never below the round clock's in the same boot.
+ *
+ * <p>On protocol version 2, the next campaign profile's, each fact comes in an envelope. A simple
+ * envelope carries a current fact, never a receipt or a health fact, at or after the round clock's
+ * uptime and framework. A receipt envelope may carry an older time only as its proven event: the
+ * stored ticket's own NOTICE of that index in this boot precedes it, and its read began after the
+ * round's clock in a framework instance at or after the round's, whose instance the fact carries. A
+ * health envelope carries one full probe of a user this reply shows running, for a ticket in its
+ * health window, of that window, from its start to no later than its declared end, of the APK and
+ * publication the plan's stored publication binds. Both kinds come only for the round's ticket. An
+ * ordered halt ends the generation without recording anything of that reply.
  */
 public final class ShellDevice implements Coordinator.Device {
     private static final Set<ObservationKind> COMPONENT_KINDS = Collections.unmodifiableSet(EnumSet.of(
@@ -69,6 +81,11 @@ public final class ShellDevice implements Coordinator.Device {
             ObservationKind.LISTING, ObservationKind.SESSION, ObservationKind.USER, ObservationKind.RECEIPT));
     private static final Set<ObservationKind> DEVICE_SCOPE = Collections.unmodifiableSet(EnumSet.of(
             ObservationKind.BOOT, ObservationKind.CHECKPOINT, ObservationKind.USER));
+    // On protocol version 2 a ticket's observation also takes these, each only in its compound
+    // mode, which the codec binds to the fact's kind: RECEIPT as RECEIPT_EVENT, HEALTH as
+    // COMPOSED_HEALTH.
+    private static final Set<ObservationKind> TICKET_COMPOUND = Collections.unmodifiableSet(EnumSet.of(
+            ObservationKind.RECEIPT, ObservationKind.HEALTH));
 
     private final BrokerChannel channel;
     private final LabConfig config;
@@ -76,6 +93,7 @@ public final class ShellDevice implements Coordinator.Device {
     private final Halter halter;
     private String clockBoot;
     private long clockInstance = -1;
+    private long clockElapsed = -1;
     private final Map<String, Long> groups = new HashMap<>();
 
     public ShellDevice(BrokerChannel channel, LabConfig config, DeploymentStore store, Halter halter) {
@@ -102,10 +120,12 @@ public final class ShellDevice implements Coordinator.Device {
             case OK:
                 clockBoot = reply.id("boot");
                 clockInstance = reply.number("instance");
-                return new Clock(clockBoot, clockInstance, reply.number("elapsed"), reply.number("wall"));
+                clockElapsed = reply.number("elapsed");
+                return new Clock(clockBoot, clockInstance, clockElapsed, reply.number("wall"));
             case UNAVAILABLE:
                 clockBoot = null;
                 clockInstance = -1;
+                clockElapsed = -1;
                 return null;
             case STOPPED:
                 throw new GenerationStopped(reply.text("reason"));
@@ -123,6 +143,7 @@ public final class ShellDevice implements Coordinator.Device {
         Message reply = channel.call(channel.request(Type.OBSERVE).number("scope", LabProtocol.SCOPE_TICKET)
                 .text("component", config.component).id("boot", boot()).id("ticket", ticket.ticketId)
                 .id("plan", plan.planId).number("state", RecordCodes.state(ticket.state)).build());
+        if (channel.version() == LabProtocol.VERSION_2) return envelopes(reply, TICKET_KINDS, ticket, plan);
         return facts(reply, TICKET_KINDS, ticket.ticketId);
     }
 
@@ -132,6 +153,7 @@ public final class ShellDevice implements Coordinator.Device {
         Message reply = channel.call(channel.request(Type.OBSERVE).number("scope", LabProtocol.SCOPE_COMPONENT)
                 .text("component", component).id("boot", boot()).id("ticket", LabProtocol.ZERO_ID)
                 .id("plan", LabProtocol.ZERO_ID).number("state", 0).build());
+        if (channel.version() == LabProtocol.VERSION_2) return envelopes(reply, COMPONENT_KINDS, null, null);
         return facts(reply, COMPONENT_KINDS, null);
     }
 
@@ -156,6 +178,107 @@ public final class ShellDevice implements Coordinator.Device {
         }
         groups.putAll(seen);
         return facts;
+    }
+
+    // Version 2: each envelope's fact, judged by its mode against the round and the stored ticket.
+    private List<Observation> envelopes(Message reply, Set<ObservationKind> kinds, Ticket ticket, Plan plan) {
+        if (reply.status() == Status.STOPPED) throw new GenerationStopped(reply.text("reason"));
+        if (reply.status() == Status.HALT) {
+            halter.halt(Halter.STATUS);
+            throw new IllegalStateException("the halter returned");
+        }
+        if (reply.status() != Status.OK) throw new BridgeRefusal("the broker refused OBSERVE: " + reply.text("reason"));
+        List<Observation> facts = new ArrayList<>();
+        List<Observation> users = new ArrayList<>();
+        Set<String> ids = new HashSet<>();
+        Map<String, Long> seen = new HashMap<>();
+        for (Envelope e : reply.envelopes("envelopes")) {
+            Observation o = decode(e.observation());
+            String problem = envelopeProblem(e, o, kinds, ticket, plan, users);
+            if (problem != null) throw new BridgeRefusal("a broker envelope breaks a rule: " + problem);
+            if (!ids.add(o.observationId)) throw new BridgeRefusal("an observation ID twice in one reply");
+            if (o.kind == ObservationKind.USER) users.add(o);
+            seen.put(o.observationId, e.group);
+            facts.add(o);
+        }
+        groups.putAll(seen);
+        return facts;
+    }
+
+    // Why an envelope's fact breaks the bridge's rules, or null. The codec has already bound the
+    // fact to its envelope: its evidence, kind, boot, instance and time against its block.
+    private String envelopeProblem(Envelope e, Observation o, Set<ObservationKind> kinds, Ticket ticket, Plan plan,
+            List<Observation> users) {
+        if (!o.installation.equals(config.installation)) return "a fact of another installation";
+        if (o.route != Route.SHELL) return "a fact of the " + o.route + " route";
+        if (!o.boot.equals(clockBoot)) return "a fact not of the round's boot";
+        if (e.mode == LabProtocol.SIMPLE_CURRENT) {
+            if (!kinds.contains(o.kind) || o.kind == ObservationKind.HEALTH || o.kind == ObservationKind.RECEIPT) {
+                return "a " + o.kind + " fact in a simple envelope of this observation";
+            }
+            if (o.instance >= 0 && o.instance < clockInstance) return "a current fact of an earlier framework than the round's";
+            if (o.elapsed < clockElapsed) return "a current fact older than the round's clock";
+            String scope = DEVICE_SCOPE.contains(o.kind) ? "" : config.component;
+            return o.component.equals(scope) ? null : "a current fact of another component scope";
+        }
+        if (ticket == null || !TICKET_COMPOUND.contains(o.kind)) return "a compound fact outside a ticket's observation";
+        if (!o.component.equals(config.component)) return "a compound fact of another component";
+        if (!e.id("ticket").equals(ticket.ticketId) || !e.id("plan").equals(plan.planId)) {
+            return "a compound fact of another ticket or plan than the round's";
+        }
+        if (e.number("read_instance") < clockInstance || e.number("read_begin_elapsed") < clockElapsed) {
+            return "a compound read that began before the round's clock";
+        }
+        return e.mode == LabProtocol.RECEIPT_EVENT ? receiptProblem(e, o, ticket) : healthProblem(e, o, ticket, plan, users);
+    }
+
+    // A receipt's event may be older than the round's clock only after the stored ticket's own
+    // NOTICE of its index, given in this boot.
+    private static String receiptProblem(Envelope e, Observation o, Ticket ticket) {
+        int index = (int) e.number("notice_index");
+        if (index >= ticket.ledger.size()) return "a receipt of a notice the ticket never gave";
+        Entry entry = ticket.ledger.get(index);
+        if (entry.crossing != Crossing.NOTICE || !entry.boot.equals(o.boot)) {
+            return "a receipt of no NOTICE of the ticket in this boot";
+        }
+        if (entry.elapsed > o.elapsed) return "a receipt event before its notice was given";
+        return null;
+    }
+
+    // A full probe of a running user for the ticket in its health window, within that window.
+    private String healthProblem(Envelope e, Observation o, Ticket ticket, Plan plan, List<Observation> users) {
+        if (ticket.state != State.HEALTH_WINDOW) return "a health probe outside its ticket's window";
+        if (!e.id("window_boot").equals(ticket.windowBoot) || e.number("window_start") != ticket.windowStart) {
+            return "a health probe of another window than the ticket's";
+        }
+        if (e.number("probe_begin") < ticket.windowStart || o.elapsed > ticket.windowStart + plan.healthWindowMillis) {
+            return "a health probe outside its window";
+        }
+        boolean running = false;
+        for (Observation u : users) {
+            running |= u.user == o.user && u.serial == o.serial && (u.classification == Classification.RUNNING_UNLOCKED
+                    || u.classification == Classification.RUNNING_LOCKED);
+        }
+        if (!running) return "a health probe of a user this observation does not show running";
+        String apk = boundApk(plan);
+        if (apk == null || !apk.equals(e.id("active_apk"))) return "a health probe of another APK than the publication binds";
+        String publication = publication(plan);
+        if (publication == null || !publication.equals(e.id("publication"))) {
+            return "a health probe of another publication than the plan's";
+        }
+        return null;
+    }
+
+    // The SHA-256 of the plan's publication record, read back PUBLISHED, when every such read
+    // agrees.
+    private String publication(Plan plan) {
+        String digest = null;
+        for (Observation o : store.observations().values) {
+            if (o.classification != Classification.BUNDLE_PUBLISHED || !o.plan.equals(plan.planId)) continue;
+            if (digest != null && !digest.equals(o.digest)) return null;
+            digest = o.digest;
+        }
+        return digest;
     }
 
     private static Observation decode(byte[] record) {
