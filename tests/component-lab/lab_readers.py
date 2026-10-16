@@ -28,8 +28,10 @@ The next campaign profile adds five readers, each admitted by its own flag and c
 the whole typed user inventory, the notice fixture's provider rows, a user's health baseline, a
 user's full health composition and the whole global session inventory. They return typed
 projections, not observation facts: the broker records the raw captures, checks each projection's
-form and joins, and builds every fact itself. The parsers of the guest's forms are later
-packages, so `ObserverAdapter` admits none of them."""
+form and joins, and builds every fact itself. The full user readers (full_users.py) read the typed
+inventory from the whole user forms, and with it the user limits and each user's genuine main
+SystemUI process; `ObserverAdapter` admits them when it is given `users=True`. The parsers of the
+other guest forms are later packages, so `ObserverAdapter` admits none of them."""
 import hashlib
 
 import lab_target
@@ -153,17 +155,41 @@ class ReaderAdapter:
         `target_admitted`."""
         raise NotImplementedError
 
+    # Whether the full user readers are admitted: then `inventory` reads the whole user forms, and
+    # `user_limits` and `systemui_processes` are admitted with it. The user setup actions need them.
+    users_admitted = False
+
+    def user_limits(self):
+        """The user limits, full_users.limits' form. Called only when `users_admitted`."""
+        raise NotImplementedError
+
+    def systemui_processes(self, inventory):
+        """Each listed user's genuine main SystemUI process over a whole typed inventory just read,
+        full_users.join_processes' form. Called only when `users_admitted`."""
+        raise NotImplementedError
+
+    def rederive(self, name, captures, inventory=None):
+        """The typed reading a group's recorded captures give when read again, for a reopening's
+        check, or NotImplemented when this reader cannot read them again."""
+        return NotImplemented
+
 
 class ObserverAdapter(ReaderAdapter):
     """The public shell observer behind the reader interface. `observer` is the observer module,
     `checkpoint` a callable that reads the checkpoint through the observer, or None."""
 
     def __init__(self, observer, installation, component, checkpoint=None, checkpoint_allowed=None,
-                 new_id=None, wall=None, target=False):
+                 new_id=None, wall=None, target=False, users=False):
         self._module = observer
         self.installation, self.component = installation, component
         self._run_now = None
         self._seen = []
+        # The full user readers, admitted only when asked for, read through the same run function.
+        self._users = None
+        if users:
+            import full_users
+            self._users = full_users
+            self.users_admitted = self.inventory_admitted = True
         options = {}
         if new_id is not None:
             options['new_id'] = new_id
@@ -176,7 +202,8 @@ class ObserverAdapter(ReaderAdapter):
 
     def allowed(self, command):
         return bool(self._module.allowed(command) or self._checkpoint_allowed(command)
-                    or (self.target_admitted and command == lab_target.COMMAND))
+                    or (self.target_admitted and command == lab_target.COMMAND)
+                    or (self._users is not None and self._users.read_allowed(command)))
 
     def bind(self, run):
         self._run_now = run
@@ -229,3 +256,22 @@ class ObserverAdapter(ReaderAdapter):
 
     def users(self, previous):
         return list(self._call(self._observer.users, tuple(previous)))
+
+    def _user_reader(self):
+        if self._users is None:
+            raise Unavailable('no full user reader is admitted')
+        return self._users.UserReader(self._run)
+
+    def inventory(self):
+        return self._user_reader().inventory()
+
+    def user_limits(self):
+        return self._user_reader().limits()
+
+    def systemui_processes(self, inventory):
+        return self._user_reader().processes(inventory)
+
+    def rederive(self, name, captures, inventory=None):
+        if self._users is None:
+            return NotImplemented
+        return self._users.rederive(name, captures, inventory)

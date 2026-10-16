@@ -1,0 +1,12 @@
+Name:	ndroid.systemui
+Umask:	0077
+State:	S (sleeping)
+Tgid:	4734
+Ngid:	0
+Pid:	4734
+PPid:	386
+TracerPid:	0
+Uid:	1310112	1310112	1310112	1310112
+Gid:	1310112	1310112	1310112	1310112
+FDSize:	256
+Groups:	3002 3003

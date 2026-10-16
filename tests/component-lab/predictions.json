@@ -4,6 +4,7 @@
   "DriverTest": 27,
   "ProtocolTest": 11,
   "test_capture_ledger": 14,
+  "test_full_users": 37,
   "test_lab_bridge": 25,
   "test_lab_broker": 103,
   "test_lab_crossings": 11,
@@ -129,6 +130,56 @@
   "controller-read-during-generation": [
    "test_lab_broker.ControllerTests.test_controller_reads_are_recorded_groups_between_generations"
   ],
+  "create-used-more-than-once": [
+   "test_full_users.AdmissionTests.test_user_action_specs_are_exact"
+  ],
+  "created-ephemeral-user-accepted": [
+   "test_full_users.InventoryTests.test_id_and_serial_reuse_identify_no_user"
+  ],
+  "created-id-reuse-accepted": [
+   "test_full_users.InventoryTests.test_id_and_serial_reuse_identify_no_user"
+  ],
+  "created-record-unchecked-at-reopening": [
+   "test_full_users.RecordTests.test_changed_copies_of_each_new_record_refuse_the_reopening"
+  ],
+  "created-resolved-from-a-partial-read": [
+   "test_full_users.InventoryTests.test_removal_only_from_a_whole_later_inventory"
+  ],
+  "created-serial-reuse-accepted": [
+   "test_full_users.InventoryTests.test_id_and_serial_reuse_identify_no_user",
+   "test_full_users.ActionTests.test_a_reused_id_or_serial_is_never_identified"
+  ],
+  "created-type-unchecked": [
+   "test_full_users.InventoryTests.test_invalid_user_types_are_refused"
+  ],
+  "created-user-of-any-type": [
+   "test_full_users.InventoryTests.test_invalid_user_types_are_refused",
+   "test_full_users.AdmissionTests.test_user_action_specs_are_exact"
+  ],
+  "creation-beside-another-user": [
+   "test_full_users.InventoryTests.test_creation_needs_support_no_restriction_and_room",
+   "test_full_users.ActionTests.test_unsupported_restricted_and_maximum_refusals_launch_nothing"
+  ],
+  "creation-maximum-unchecked": [
+   "test_full_users.InventoryTests.test_creation_needs_support_no_restriction_and_room",
+   "test_full_users.ActionTests.test_unsupported_restricted_and_maximum_refusals_launch_nothing"
+  ],
+  "creation-restriction-unchecked": [
+   "test_full_users.InventoryTests.test_creation_needs_support_no_restriction_and_room",
+   "test_full_users.ActionTests.test_unsupported_restricted_and_maximum_refusals_launch_nothing"
+  ],
+  "creation-type-disabled-unchecked": [
+   "test_full_users.ActionTests.test_unsupported_restricted_and_maximum_refusals_launch_nothing",
+   "test_full_users.FormTests.test_user_type_enablement_is_the_printed_boolean",
+   "test_full_users.InventoryTests.test_creation_needs_support_no_restriction_and_room"
+  ],
+  "creation-type-enablement-read-loosely": [
+   "test_full_users.FormTests.test_user_type_enablement_is_the_printed_boolean"
+  ],
+  "creation-unsupported-unchecked": [
+   "test_full_users.InventoryTests.test_creation_needs_support_no_restriction_and_room",
+   "test_full_users.ActionTests.test_unsupported_restricted_and_maximum_refusals_launch_nothing"
+  ],
   "cross-halt-ignored": [
    "BridgeTest.cross / replies bind, lose or halt, and a session crossing names its whole reference",
    "test_lab_bridge.BridgeEndToEnd.test_a_loss_before_create_ends_in_no_session",
@@ -218,6 +269,12 @@
    "test_lab_broker.FenceTests.test_the_stop_fence_comes_before_every_read_and_latches",
    "test_lab_broker.FenceTests.test_the_lease_and_the_deadline_are_fences"
   ],
+  "fixture-bytes-unchecked": [
+   "test_full_users.ActionTests.test_a_fixture_needs_its_pinned_bytes_and_settles_on_readback"
+  ],
+  "fixture-replies-trusted": [
+   "test_full_users.ActionTests.test_a_fixture_needs_its_pinned_bytes_and_settles_on_readback"
+  ],
   "generation-failure-continued": [
    "test_lab_driver.DriverEndToEnd.test_a_failed_generation_stops_the_driver"
   ],
@@ -300,6 +357,9 @@
   ],
   "host-withheld-delivered": [
    "BridgeTest.host / BEGIN before the effect, END after, and the broker's cells decide"
+  ],
+  "identified-record-unchecked-at-reopening": [
+   "test_full_users.RecordTests.test_changed_copies_of_each_new_record_refuse_the_reopening"
   ],
   "incomplete-listing-accepted": [
    "test_lab_broker.LabActionTests.test_an_incomplete_listing_never_admits_a_restart"
@@ -455,8 +515,27 @@
   "preparation-unrecognized-settled": [
    "test_lab_next.ActionTests.test_a_preparation_without_a_qualified_settlement_is_never_repeated"
   ],
+  "process-denied-read-as-absence": [
+   "test_full_users.ProcessTests.test_quiet_absence_is_not_a_denied_proc_or_a_lost_reply"
+  ],
   "process-ended-untimed": [
    "test_lab_broker.FaultTests.test_host_records_carry_the_brokers_times"
+  ],
+  "process-join-by-listed-order": [
+   "test_full_users.ProcessTests.test_each_user_gets_its_genuine_main_process_by_actual_uid"
+  ],
+  "process-name-unchecked": [
+   "test_full_users.ProcessTests.test_only_the_exact_name_task_name_and_context_qualify"
+  ],
+  "process-quiet-absence-not-repeated": [
+   "test_full_users.ProcessTests.test_quiet_absence_is_not_a_denied_proc_or_a_lost_reply"
+  ],
+  "process-start-identity-after-its-identity-fields": [
+   "test_full_users.ProcessTests.test_a_pid_reused_after_its_status_read_is_unavailable",
+   "test_full_users.RecordTests.test_a_pid_reused_during_the_identity_reads_through_the_broker"
+  ],
+  "process-start-identity-not-rechecked": [
+   "test_full_users.ProcessTests.test_a_reused_pid_or_a_changed_process_set_is_unavailable"
   ],
   "protocol-session-by-id-alone": [
    "test_lab_protocol.ProtocolTests.test_cross_relations"
@@ -538,6 +617,9 @@
   "reference-by-id-alone": [
    "test_lab_broker.CrossingTests.test_session_crossings_confirm_the_exact_reference_first"
   ],
+  "removal-from-a-partial-read": [
+   "test_full_users.InventoryTests.test_removal_only_from_a_whole_later_inventory"
+  ],
   "replay-allowed": [
    "test_lab_broker.CrossingTests.test_an_entry_is_crossed_once",
    "test_lab_broker.FaultTests.test_a_loss_between_the_write_members_never_writes_the_second",
@@ -589,6 +671,9 @@
   "restart-settle-skipped": [
    "test_lab_broker.LabActionTests.test_the_restart_waits_for_a_later_instance_with_a_whole_listing",
    "test_lab_broker.LabActionTests.test_a_restart_that_never_settles_is_refused_after_its_record"
+  ],
+  "restriction-names-without-digits": [
+   "test_full_users.FormTests.test_flags_restrictions_and_states_follow_the_source"
   ],
   "retention-single-write": [
    "test_lab_broker.GuestAdmissionTests.test_a_short_write_is_completed_before_the_record_is_kept"
@@ -643,6 +728,9 @@
   "selection-not-current-accepted": [
    "DriverTest.selection / a plan only from the factory choice found current at revision 0"
   ],
+  "serials-forgotten-on-reopening": [
+   "test_full_users.RecordTests.test_serials_and_created_users_survive_reopening"
+  ],
   "service-send-failure-read-as-not-launched": [
    "test_shell_transport.ShellTests.test_a_service_send_failure_is_an_unknown_launch"
   ],
@@ -654,6 +742,12 @@
   ],
   "settles-before-staging": [
    "test_lab_driver.DriverEndToEnd.test_a_ticket_closes_applied_with_the_real_signer_and_publication"
+  ],
+  "setup-with-ce-locked": [
+   "test_full_users.ActionTests.test_setup_settles_only_on_the_setup_android_records"
+  ],
+  "setup-without-its-recorded-completion": [
+   "test_full_users.ActionTests.test_setup_settles_only_on_the_setup_android_records"
   ],
   "shell2-not-required": [
    "test_lab_broker.FeatureTests.test_a_device_without_shell_protocol_v2_stops_everything"
@@ -673,6 +767,16 @@
   "staging-failure-swallowed": [
    "test_lab_driver.DriverEndToEnd.test_a_failed_publication_export_stops_before_any_session"
   ],
+  "start-reply-trusted": [
+   "test_full_users.ActionTests.test_start_success_against_stderr_failure"
+  ],
+  "start-running-limit-unchecked": [
+   "test_full_users.InventoryTests.test_a_start_never_passes_the_running_limit",
+   "test_full_users.ActionTests.test_a_start_that_would_stop_a_running_user_is_refused_and_one_that_did_is_unexpected"
+  ],
+  "start-stopped-user-unnoticed": [
+   "test_full_users.ActionTests.test_a_start_that_would_stop_a_running_user_is_refused_and_one_that_did_is_unexpected"
+  ],
   "stop-not-latched": [
    "test_lab_broker.FenceTests.test_the_stop_fence_comes_before_every_read_and_latches",
    "test_lab_broker.FenceTests.test_the_lease_and_the_deadline_are_fences"
@@ -686,6 +790,15 @@
   "stream-unbounded": [
    "test_shell_transport.DecoderTests.test_streams_above_their_bounds_overflow_without_waiting_for_the_payload",
    "test_shell_transport.ShellTests.test_malformed_and_overflowing_streams"
+  ],
+  "switch-foreground-unconfirmed": [
+   "test_full_users.ActionTests.test_an_incomplete_switch_or_a_wrong_current_user_is_never_ok"
+  ],
+  "switch-outgoing-background-unchecked": [
+   "test_full_users.ActionTests.test_an_incomplete_switch_or_a_wrong_current_user_is_never_ok"
+  ],
+  "switch-visibility-unconfirmed": [
+   "test_full_users.ActionTests.test_an_incomplete_switch_or_a_wrong_current_user_is_never_ok"
   ],
   "t0-kept-across-generations": [
    "test_lab_driver.DriverEndToEnd.test_a_plan_binds_only_a_complete_check_that_is_the_last_generation"
@@ -716,12 +829,65 @@
   "transport-sends-past-the-launch-deadline": [
    "test_shell_transport.ShellTests.test_a_launch_deadline_that_passes_during_setup_sends_nothing"
   ],
+  "two-main-pids-accepted": [
+   "test_full_users.ProcessTests.test_only_the_exact_name_task_name_and_context_qualify"
+  ],
+  "typed-reading-compared-by-value": [
+   "test_full_users.RecordTests.test_changed_copies_of_each_new_record_refuse_the_reopening"
+  ],
+  "typed-reading-not-rederived": [
+   "test_full_users.RecordTests.test_changed_copies_of_each_new_record_refuse_the_reopening"
+  ],
   "unreadable-features-unlisted": [
    "test_lab_broker.FeatureTests.test_unreadable_features_launch_nothing_and_are_asked_again",
    "test_lab_broker.LabActionTests.test_a_fresh_brokers_feature_query_is_refused_by_the_transport_once_the_bound_passes"
   ],
   "unsettled-transition-ignored": [
    "test_lab_loss.ConfirmationTests.test_no_new_boot_within_the_bound_or_a_second_boot_holds_every_crossing"
+  ],
+  "user-dump-cached-ids-unchecked": [
+   "test_full_users.FormTests.test_disagreeing_dumps_are_refused"
+  ],
+  "user-dump-serial-twice": [
+   "test_full_users.FormTests.test_duplicate_users_serials_and_sections_are_refused"
+  ],
+  "user-dump-started-states-unchecked": [
+   "test_full_users.FormTests.test_disagreeing_dumps_are_refused"
+  ],
+  "user-dump-trailing-accepted": [
+   "test_full_users.FormTests.test_duplicate_users_serials_and_sections_are_refused"
+  ],
+  "user-dump-two-current-users": [
+   "test_full_users.FormTests.test_disagreeing_dumps_are_refused"
+  ],
+  "user-effective-restrictions-unchecked": [
+   "test_full_users.FormTests.test_disagreeing_dumps_are_refused",
+   "test_full_users.FormTests.test_flags_restrictions_and_states_follow_the_source"
+  ],
+  "user-effects-past-an-unsettled-transition": [
+   "test_full_users.TransitionTests.test_creation_waits_for_an_earlier_boot_transition_to_settle",
+   "test_full_users.TransitionTests.test_every_user_effect_waits_for_an_earlier_boot_transition_to_settle"
+  ],
+  "user-gate-not-consulted": [
+   "test_full_users.TransitionTests.test_creation_waits_for_an_earlier_boot_transition_to_settle",
+   "test_full_users.TransitionTests.test_every_user_effect_waits_for_an_earlier_boot_transition_to_settle"
+  ],
+  "user-limit-enablement-form-unchecked": [
+   "test_full_users.FormTests.test_user_type_enablement_is_the_printed_boolean"
+  ],
+  "user-list-disagreement-accepted": [
+   "test_full_users.FormTests.test_disagreeing_dumps_are_refused"
+  ],
+  "user-start-stderr-failure-accepted": [
+   "test_full_users.FormTests.test_effect_replies_classify_only_their_exact_forms",
+   "test_full_users.ActionTests.test_start_success_against_stderr_failure"
+  ],
+  "user-type-enablement-number-accepted": [
+   "test_full_users.FormTests.test_user_type_enablement_is_the_printed_boolean"
+  ],
+  "user-type-enablement-read-as-a-number": [
+   "test_full_users.FormTests.test_every_source_derived_form_parses",
+   "test_full_users.FormTests.test_user_type_enablement_is_the_printed_boolean"
   ],
   "v2-compound-read-before-the-clock": [
    "BridgeTest.device v2 / a receipt keeps its proven time only with its notice's provenance",

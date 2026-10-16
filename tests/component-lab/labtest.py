@@ -39,7 +39,7 @@ LAB_FILES = ('tests/component-lab/lab_protocol.py', 'tests/component-lab/lab_bro
              'tests/component-lab/lab_readers.py', 'tests/component-lab/shell_transport.py',
              'tests/component-lab/source_manifest.py', 'tests/component-lab/lab_actions.py',
              'tests/component-lab/lab_evidence.py', 'tests/component-lab/lab_records.py',
-             'tests/component-lab/lab_losses.py')
+             'tests/component-lab/lab_losses.py', 'tests/component-lab/full_users.py')
 LIMITS = {'read_timeout_s': 30, 'mutation_timeout_s': 60, 'commit_timeout_s': 150, 'push_timeout_s': 300,
           'reboot_timeout_s': 10, 'read_stdout_max': 4 << 20, 'read_stderr_max': 65536, 'reply_stdout_max': 65536,
           'reply_stderr_max': 65536, 'generation_idle_s': 30, 'drain_grace_s': 5, 'exit_grace_s': 30}
@@ -91,6 +91,32 @@ def default_specs():
     return [action_spec(CONFIRM_ACTION, 'PLAIN_KERNEL_CONFIRM', phase='CELLS', cell='c0-confirm'),
             action_spec(VISIBILITY_ACTION, 'NOTICE_VISIBILITY'),
             action_spec(PREPARATION_ACTION, 'HEALTH_PREPARATION', phase='A', cell='a-window')]
+
+
+# The full user setup's actions: one create, then the created user's start, switch, setup and
+# fixture, and a switch back to the system user. An ordinary fixture with its pinned bytes.
+CREATE_ACTION, START_ACTION, SWITCH_ACTION, SETUP_ACTION, FIXTURE_ACTION, HOME_ACTION = (
+    '1a' * 16, '1b' * 16, '1c' * 16, '1d' * 16, '1e' * 16, '1f' * 16)
+USER_NAME = 'AndrixLab'
+FIXTURE_PACKAGE = 'dev.andrix.lab.notice'
+FIXTURE_APK = b'F' * 4096 + b'an ordinary notice fixture'
+
+
+def user_specs(steps=None, settle_ms=5000, start_uses=3):
+    """The default specs and the full user setup's, each user action selecting the created user."""
+    created = {'kind': 'CREATED_BY', 'action': CREATE_ACTION}
+    steps = [{'key': 'KEYCODE_ENTER'}] if steps is None else steps
+    pin = [{'role': 'base.apk', 'sha256': hashlib.sha256(FIXTURE_APK).hexdigest(), 'bytes': len(FIXTURE_APK)}]
+    return default_specs() + [
+        action_spec(CREATE_ACTION, 'USER_CREATE', cell='f0-create-user', max_uses=1,
+                    parameters={'user_type': lab_actions.SECONDARY_TYPE, 'name': USER_NAME}),
+        action_spec(START_ACTION, 'USER_START', cell='f0-start-user', user_selector=created, max_uses=start_uses),
+        action_spec(SWITCH_ACTION, 'USER_SWITCH', cell='f0-switch-user', user_selector=created),
+        action_spec(SETUP_ACTION, 'USER_SETUP', cell='f0-setup-user', user_selector=created,
+                    parameters={'steps': steps, 'settle_ms': settle_ms}),
+        action_spec(FIXTURE_ACTION, 'USER_FIXTURE', cell='f0-user-fixture', user_selector=created,
+                    parameters={'package': FIXTURE_PACKAGE}, inputs=pin),
+        action_spec(HOME_ACTION, 'USER_SWITCH', cell='f0-switch-home', user_selector={'kind': 'SYSTEM_USER'})]
 
 
 def schedule(faults, installation=INSTALLATION):

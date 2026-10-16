@@ -16,18 +16,24 @@ preparation, a baseline and a probe read. Its whole global session inventory lis
 every package with its referrer, commitment and end. A kernel boot keeps uncommitted sessions,
 applies a ready managed one, and rejects a ready direct negative control's payload: a wrong signer
 or a missing sidecar fails the session, the factory copy stays active, and a native recovery boot
-follows at once, so a poll may never see the rejecting boot."""
+follows at once, so a poll may never see the rejecting boot.
+
+With `enable_user_forms`, the users are sim_users.py's model instead: the guest then answers the
+user commands of full_users.py in their source derived forms, and the fake reads above see the same
+users."""
 from dataclasses import dataclass, field
 import hashlib
 import json
 import os
 import re
 
+import full_users
 import lab_crossings
 import lab_evidence
 import lab_readers
 import lab_target
 import shell_transport
+import sim_users
 
 PACKAGE = 'com.android.systemui'
 FINGERPRINT = 'andrix/cf/cf:17/BP4A.260813.001/2026081300:userdebug/test-keys'
@@ -141,6 +147,14 @@ class SimAndroid:
         self.hooks = []
         self.apks = {}
         self.features = ('cmd', 'shell_v2', 'stat_v2')
+        # The full user forms' model, when a test enables it.
+        self.forms = None
+
+    def enable_user_forms(self, serial=0):
+        """Answers the user commands of full_users.py from sim_users.py's model of the users."""
+        self.forms = sim_users.SimUsers(self, serial)
+        self.forms.sync()
+        return self.forms
 
     # ------------------------------------------------ world events
 
@@ -151,6 +165,8 @@ class SimAndroid:
         self.instance = 4000 + self.boots if getattr(self, 'next_instance', None) is None else self.next_instance
         self.next_instance = None
         self.framework = True
+        if getattr(self, 'forms', None) is not None:
+            self.forms.boot()
 
     def tick(self, ms):
         self.uptime += ms
@@ -246,6 +262,11 @@ class SimAndroid:
             return result(command, 0, b'937\n') if self.framework else result(command, 1)
         if command in SIM_READS or command in NEXT_READS or PER_USER_READ.fullmatch(command):
             return result(command, 0, json.dumps(self._read(command), sort_keys=True).encode() + b'\n')
+        if self.forms is not None:
+            reply = self.forms.run(command)
+            if reply is not None:
+                self.calls.append(('user', command))
+                return reply
         match = PRESENT.fullmatch(command)
         if match:
             return self._present(command, match)
@@ -480,16 +501,18 @@ class SimReader(lab_readers.ReaderAdapter):
     """Facts from the simulated guest, through the broker's run function."""
 
     def __init__(self, installation, component=PACKAGE, ids=None, receipts=False, target=False, inventory=False,
-                 health=False, witness=False, global_sessions=False):
+                 health=False, witness=False, global_sessions=False, users=False):
         self.installation, self.component = installation, component
         # A receipt reader is admitted only when a test asks for one; the target reader likewise,
-        # and the next profile's inventory, health and witness readers.
+        # and the next profile's inventory, health and witness readers. With `users`, the full
+        # user readers of full_users.py read the guest's user forms, the inventory included.
         self.receipts_admitted = receipts
         self.target_admitted = target
-        self.inventory_admitted = inventory
+        self.inventory_admitted = inventory or users
         self.health_admitted = health
         self.witness_admitted = witness
         self.global_admitted = global_sessions
+        self.users_admitted = users
         self._run = None
         self._captures = []
         self._count = 0
@@ -497,7 +520,8 @@ class SimReader(lab_readers.ReaderAdapter):
 
     def allowed(self, command):
         return (command in SIM_READS or command in NEXT_READS or bool(PER_USER_READ.fullmatch(command))
-                or (self.target_admitted and command == lab_target.COMMAND))
+                or (self.target_admitted and command == lab_target.COMMAND)
+                or (self.users_admitted and full_users.read_allowed(command)))
 
     def target(self):
         if self._run is None:
@@ -579,7 +603,29 @@ class SimReader(lab_readers.ReaderAdapter):
     # ------------------------------------------------ the next profile's readers
 
     def inventory(self):
+        if self.users_admitted:
+            return full_users.UserReader(self._raw).inventory()
         return self._read('sim:inventory')
+
+    def _raw(self, command):
+        """One command's whole reply as the broker's run function gives it."""
+        if self._run is None:
+            raise lab_readers.Unavailable('no group is open')
+        code, stdout, stderr = self._run(command)
+        self._captures.append((command, code, stdout.encode('utf-8', 'surrogateescape'),
+                               stderr.encode('utf-8', 'surrogateescape')))
+        return code, stdout, stderr
+
+    def user_limits(self):
+        return full_users.UserReader(self._raw).limits()
+
+    def systemui_processes(self, inventory):
+        return full_users.UserReader(self._raw).processes(inventory)
+
+    def rederive(self, name, captures, inventory=None):
+        if not self.users_admitted:
+            return NotImplemented
+        return full_users.rederive(name, captures, inventory)
 
     def global_sessions(self):
         return self._read('sim:global-sessions')

@@ -31,6 +31,7 @@ closure are later packages.
 | `lab_crossings.py` | The typed crossing commands and their reply forms |
 | `lab_readers.py` | The injectable reader adapter and its adapter for the public shell observer |
 | `lab_actions.py` | The next campaign profile's typed lab actions: registry, exact specs, user resolution |
+| `full_users.py` | The full user setup package: the whole user forms' parsers, the typed inventory and limits, the setup actions' commands, replies and records, and the genuine main SystemUI process join |
 | `lab_evidence.py` | Strict canonical side records: compound manifests and retained action specs |
 | `lab_losses.py` | The next profile's fault schedule and its read and round loss addresses |
 | `lab_records.py` | Strict readers of a stored plan and ticket, for where a compound fact may be placed |
@@ -40,8 +41,9 @@ closure are later packages.
 | `cells.py` | The loss cells as one ordered sequence of attempts on one plan, each with its faults and prediction |
 | `driver/` | Java: `LabDriverMain`, the driver's coordinator process and store setup, and `LabHost`, the real host signer, artifact store and bundle builder |
 | `driver-tests/` | Java: `DriverTest`, unit checks of the driver's baseline, selection, host configuration and approval guards |
-| `sim_android.py`, `labtest.py` | Host test support: a small simulated guest and a client |
-| `test_*.py` | The host suites; `test_lab_next.py` and `test_lab_loss.py` are the next campaign profile's broker suites |
+| `sim_android.py`, `sim_users.py`, `labtest.py` | Host test support: a small simulated guest, its users in the full user forms, and a client |
+| `fixtures/full-users/` | The full user forms, source derived, with their commands, statuses and sources |
+| `test_*.py` | The host suites; `test_lab_next.py`, `test_lab_loss.py` and `test_full_users.py` are the next campaign profile's broker suites |
 
 ## Process model
 
@@ -505,15 +507,18 @@ every crossing names, as under version 2.
   it uncertain, so it is observed or halted, never repeated. A reopening records a LOST END for a
   BEGIN without one, and that action is never run again to find out.
 
-The registry has six types. FRAMEWORK_RESTART is withdrawn: an admission that names it is refused
+The registry has eleven types. FRAMEWORK_RESTART is withdrawn: an admission that names it is refused
 by that name, since the next profile admits no framework restart; version 2's driver keeps its
 own. PLAIN_KERNEL_CONFIRM, DIRECT_STAGE, DIRECT_COMMIT and NEGATIVE_ACTIVATION are below. The old
 action map is never reinterpreted. NOTICE_VISIBILITY captures and reads one required
 recipient's display through the notice adapter; it qualifies only in the notice's boot with one
 running framework through its bracket, for the recipient as the display's current user, awake and
 focused, showing the issue's challenge. HEALTH_PREPARATION runs the health adapter's UI, user and
-work steps for its criteria under a fresh challenge. No type creates a user yet, so no spec may
-select a created user.
+work steps for its criteria under a fresh challenge. USER_CREATE, USER_START, USER_SWITCH,
+USER_SETUP and USER_FIXTURE, the full user setup, are below; USER_CREATE is the creating type that
+a created user selector names. USER_PIN and CE_SENTINEL, the disposable
+lab PIN and the CE sentinel that end the sequence, are the health package's: an admission that
+names either is refused by name until it defines them.
 
 - **Round boundaries.** A ROUND_DONE is taken only after a round began with its CLOCK in this
   generation and named no other ticket. The broker reads the stored ticket, plan and selection
@@ -570,6 +575,46 @@ select a created user.
   whose kept capability record is whole and canonical and still makes, under this admission, the
   branch, qualification and predicate the decision records, after the negative activations and
   boot transitions its writer required. Otherwise the opening is refused.
+- **Full user setup** (`full_users.py`). The full user readers read the typed inventory from one
+  whole `dumpsys user`, then `pm list users`, then the dump again: a dump cut short, a repeated
+  user, serial or section, a dump that disagrees with itself (started states, cached user IDs,
+  current users, visible users, user types, flags, effective restrictions) or with the list, or two
+  dumps that differ refuse the read, which never shows a user absent or removed. The user limits
+  add `pm supports-multiple-users`, both `pm get-max-users` forms and `pm get-max-running-users`.
+  Each user action runs under LAB_USER_ADMIN between generations and reads its own whole inventory
+  before its effect. None runs while a boot transition is unsettled or unexpected, before or after a
+  reopening, just as no managed crossing launches then: an uncertain reboot may still take effect,
+  and no inventory read settles it. That refusal records nothing and spends no use. USER_CREATE
+  needs a guest whose only user is the system user, switchable users supported, the full secondary
+  type enabled (the boolean the dump prints as `mEnabled: true`), no `no_add_user` on the system
+  user and room under both maximums; one spec, used once. The reply's user ID is a `user-setup`
+  CREATED record the moment it is read; a later whole inventory identifies the user, IDENTIFIED,
+  with its actual serial and type, never a guessed ID or serial: an ID that was a user before the
+  create, a serial any inventory showed before, or another type is never identified. A read that is
+  not whole leaves the create uncertain, and a later whole one may identify it. USER_START needs the
+  user stopped and room under the running limit, since Android stops other running users after a
+  background start beyond it; exit status 0 with `Error: could not start user` on standard error is
+  a failure. USER_SWITCH needs the user running in the background, and an outgoing user other than
+  the system user that may run in the background; it confirms the foreground, the state and the
+  visibility each by its own read. USER_SETUP drives the image's own setup with admitted key and tap
+  steps, never text, and settles only on `user_setup_complete` 1 and an initialized user.
+  USER_FIXTURE installs an ordinary fixture already installed for the system user with its pinned
+  bytes, and settles only on a readback of the user's UID, path, bytes and enabled state. Each start
+  and switch then requires every user that ran before to run still; no action stops or removes a
+  user. Interrupted, an action is closed LOST and never repeated. A reopening checks each CREATED
+  record against its own capture, each IDENTIFIED record against its inventory, and reads every
+  typed user reading again from its captures and compares the exact encodings, so a number never
+  passes for a boolean: a changed copy refuses the opening. The serials every inventory listed
+  survive it.
+- **Genuine main SystemUI processes.** `systemui_processes` reads a whole inventory, then pidof,
+  each candidate's stat for its start identity and then its command line, status and context, each
+  listed user's package UID, then every candidate's stat and pidof again: every identity field is
+  read between the two start identities. A process is the user's main SystemUI process only with the
+  package's exact name, Android's task name for it, four equal status UIDs that are that user's
+  package UID, and an unchanged start identity; pidof's order decides nothing. Two for one user, or
+  one of no listed user, refuse the read; a process set or start identity that changed is
+  unavailable. Only pidof's quiet failure, twice, shows no process; a refused /proc read or a lost
+  reply is unavailable. The context is kept exactly as read.
 - **Kept records latch the writer.** A record this profile keeps by digest outside the compound
   writer latches the broker's stop when its write or sync fails, as a manifest does. These are a
   boundary's records, a point's, a confirmation's issuing records, F0's capability record and the
@@ -648,8 +693,9 @@ injected, no CHECKPOINT fact exists, and the reconciler issues no crossing. The 
 reads no framework only from pidof's quiet failure, read twice. The observer's partial health probe
 and any receipt reader are not exposed. The next profile's readers, the typed inventory, the notice
 fixture's provider rows, the health baseline and the health composer, and its notice and health
-adapters, are interfaces here; the simulated guest implements them for host tests, and the guest's
-forms are later packages. `ObserverAdapter` admits none of them.
+adapters, are interfaces here; the simulated guest implements them for host tests. With
+`users=True`, `ObserverAdapter` admits the full user readers of `full_users.py`, which read the
+guest's own user forms; the other guest forms are later packages, and it admits none of them.
 
 ## Running the checks
 
@@ -671,8 +717,12 @@ partial.
 
 - The shell v2, reboot and push forms are source derived, and need a guest check before mutation.
 - No refusal form of any crossing is qualified, so no reply reads REFUSED.
-- No guest notice route, receipt reader, visibility capture, inventory parser, health composer,
-  preparation step or crash witness exists here. The next profile's mechanisms join, order and bound
+- The full user forms are source derived; no guest has shown one. Whether the shell may create,
+  start and switch users on the selected image, its effective limits and restrictions, whether a
+  secondary user's main SystemUI process runs and how long, its context, the setup the image shows
+  and the steps that finish it, and the fixtures' installation for the user need a guest.
+- No guest notice route, receipt reader, visibility capture, health composer, preparation step or
+  crash witness exists here. The next profile's mechanisms join, order and bound
   what such readers return, on the simulated guest only. Whether a notice is visible on a locked or
   unlocked display, an app row survives Android loss, a provider read authenticates the shell, the
   elapsed scales agree, a preparation unlocks and returns CE, a native child runs and a witness

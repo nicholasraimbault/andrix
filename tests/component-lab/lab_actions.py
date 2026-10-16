@@ -15,7 +15,7 @@ recipient of the stored ticket's issued notice. An inventory that is not whole, 
 being removed, partial or precreated, another type or another serial resolves nothing. Nothing is
 guessed: no current user and no user ID that the inventory did not show.
 
-The registry has six types. NOTICE_VISIBILITY captures and reads the current visibility of an
+The registry has eleven types. NOTICE_VISIBILITY captures and reads the current visibility of an
 issued notice for one required recipient, through the notice adapter. HEALTH_PREPARATION runs the
 UI, user and work steps that a full health probe of one user needs, through the health adapter,
 under a fresh preparation ID and challenge. PLAIN_KERNEL_CONFIRM is a plain kernel reboot that
@@ -28,7 +28,16 @@ activating reboot, which settles only on the intended rejection and a safe recov
 only native commits before F0, and only in their admitted order.
 
 FRAMEWORK_RESTART, version 2's `am restart`, is withdrawn from this profile: a spec naming it is
-refused by name. No type creates a user, so no spec may yet select one by its create action."""
+refused by name.
+
+The five user setup types are the lab's own user administration, under LAB_USER_ADMIN, with the
+fixed commands and reply forms of full_users.py. USER_CREATE creates the one full secondary user:
+one spec, used once, the only creating type, so a CREATED_BY selector names it. USER_START
+starts that user in the background, USER_SWITCH brings a user to the foreground, USER_SETUP
+drives the image's own setup with admitted key and tap steps and settles only on the setup that
+Android records, and USER_FIXTURE installs an admitted ordinary fixture, already installed for the
+system user with its pinned bytes, for the created user and enables it. None stops or removes a
+user, sets a credential or writes to the settings provider."""
 import re
 
 import lab_evidence
@@ -86,9 +95,39 @@ TYPES = {
                             'preconditions': ['BEFORE_F0', 'CONSENT', 'OWN_SESSION_READY', 'NO_OTHER_ARMED_SESSION',
                                               'CHECKPOINT_COMMITTED'],
                             'after_uncertain': False, 'adapter': None, 'phase': 'role'},
+    'USER_CREATE': {'authority': 'LAB_USER_ADMIN', 'selectors': ('SYSTEM_USER',),
+                    'parameters': {'user_type': 'user_type', 'name': 'user_name'}, 'inputs': 'none', 'effect': 'admin',
+                    'preconditions': ['WHOLE_USER_INVENTORY', 'ONLY_SYSTEM_USER', 'MULTIPLE_USERS_SUPPORTED',
+                                      'CREATOR_UNRESTRICTED', 'BELOW_USER_MAXIMUM'],
+                    'after_uncertain': False, 'adapter': None, 'phase': 'F0'},
+    'USER_START': {'authority': 'LAB_USER_ADMIN', 'selectors': ('CREATED_BY',), 'parameters': {}, 'inputs': 'none',
+                   'effect': 'admin',
+                   'preconditions': ['WHOLE_USER_INVENTORY', 'CREATED_USER_STOPPED', 'BELOW_RUNNING_MAXIMUM'],
+                   'after_uncertain': False, 'adapter': None, 'phase': None},
+    'USER_SWITCH': {'authority': 'LAB_USER_ADMIN', 'selectors': ('CREATED_BY', 'SYSTEM_USER'), 'parameters': {},
+                    'inputs': 'none', 'effect': 'admin',
+                    'preconditions': ['WHOLE_USER_INVENTORY', 'TARGET_RUNNING', 'TARGET_IN_BACKGROUND',
+                                      'OUTGOING_USER_KEEPS_RUNNING'],
+                    'after_uncertain': False, 'adapter': None, 'phase': None},
+    'USER_SETUP': {'authority': 'LAB_USER_ADMIN', 'selectors': ('CREATED_BY',),
+                   'parameters': {'steps': 'ui_steps', 'settle_ms': 'milliseconds'}, 'inputs': 'none',
+                   'effect': 'admin', 'preconditions': ['WHOLE_USER_INVENTORY', 'TARGET_FOREGROUND', 'TARGET_CE_UNLOCKED'],
+                   'after_uncertain': False, 'adapter': None, 'phase': 'F0'},
+    'USER_FIXTURE': {'authority': 'LAB_USER_ADMIN', 'selectors': ('CREATED_BY',), 'parameters': {'package': 'package'},
+                     'inputs': 'fixture', 'effect': 'fixture',
+                     'preconditions': ['WHOLE_USER_INVENTORY', 'FIXTURE_INSTALLED_FOR_SYSTEM_USER', 'PINNED_BYTES'],
+                     'after_uncertain': False, 'adapter': None, 'phase': 'F0'},
 }
+# The full user setup types, which read the full user forms instead of the global sessions.
+USER_TYPES = ('USER_CREATE', 'USER_START', 'USER_SWITCH', 'USER_SETUP', 'USER_FIXTURE')
 # Types this profile names only to refuse them: the shell framework restart is not admitted.
 WITHDRAWN = ('FRAMEWORK_RESTART',)
+# The setup steps that follow USER_FIXTURE for the created user and belong to the health package,
+# named here so that the sequence is whole: the disposable lab PIN, and the CE sentinel the fixture
+# keeps in CE storage. Until that package defines them, a spec naming one is refused by name.
+RESERVED = {'USER_PIN': 'the disposable lab PIN', 'CE_SENTINEL': 'the CE sentinel'}
+USER_SEQUENCE = ('USER_CREATE', 'USER_START', 'USER_SWITCH', 'USER_SETUP', 'USER_FIXTURE', 'USER_PIN',
+                 'CE_SENTINEL')
 # The steps of one direct negative control, in order.
 DIRECT_STEPS = ('DIRECT_STAGE', 'DIRECT_COMMIT', 'NEGATIVE_ACTIVATION')
 # The direct negative roles, in their admitted order, each with its payload's members and the
@@ -97,8 +136,17 @@ ROLES = ('N2', 'N3')
 ROLE_MEMBERS = {'N2': ('base.apk', 'base.apk.idsig'), 'N3': ('base.apk',)}
 ROLE_CAUSES = {'N2': 'SIGNATURE', 'N3': 'FS_VERITY'}
 CONTROL_REFERRER = 'andrix-lab-control:'
-# Types whose settled END names the user they created. None yet.
-CREATING_TYPES = ()
+# Types whose records name the user they created: the one full secondary user's create.
+CREATING_TYPES = ('USER_CREATE',)
+# An admitted user name: no space or shell syntax, so it is one argument of the fixed create.
+USER_NAME = re.compile(r'[A-Za-z][A-Za-z0-9]{0,31}')
+# Setup steps are admitted key events and taps only: never typed text, so no credential or other
+# text can enter a capture through them.
+UI_KEYS = ('KEYCODE_WAKEUP', 'KEYCODE_ENTER', 'KEYCODE_TAB', 'KEYCODE_SPACE', 'KEYCODE_DPAD_UP', 'KEYCODE_DPAD_DOWN',
+           'KEYCODE_DPAD_LEFT', 'KEYCODE_DPAD_RIGHT', 'KEYCODE_DPAD_CENTER', 'KEYCODE_PAGE_UP', 'KEYCODE_PAGE_DOWN',
+           'KEYCODE_MOVE_HOME', 'KEYCODE_MOVE_END')
+MAX_STEPS = 32
+MAX_TAP = 10000
 BOOT_POLICY_KEYS = ('activation_services', 'confirmation_services', 'observed_boots', 'poll_interval_ms',
                     'settle_ms', 'negative_settle_ms', 'unexpected_boot')
 BRANCHES = ('FULL', 'LIMITED', 'REFUSED')
@@ -149,6 +197,9 @@ def check_specs(specs, installation):
             _fail('an action ID is admitted once')
         if spec['type'] in WITHDRAWN:
             _fail('the %s action is withdrawn from this profile' % spec['type'])
+        if spec['type'] in RESERVED:
+            _fail('the %s action, %s, is the health package\'s and not admitted yet'
+                  % (spec['type'], RESERVED[spec['type']]))
         kind = TYPES.get(spec['type'])
         if kind is None:
             _fail('an action of no registered type')
@@ -169,8 +220,10 @@ def check_specs(specs, installation):
             _fail("a %s action belongs to its phase" % spec['type'])
         if kind['inputs'] == 'payload':
             _payload(spec['inputs'], spec['parameters']['role'])
+        elif kind['inputs'] == 'fixture':
+            _fixture(spec['inputs'])
         elif spec['inputs'] != []:
-            _fail('only a direct stage pins inputs: its negative payload')
+            _fail('only a direct stage and a fixture pin inputs')
         if spec['preconditions'] != kind['preconditions']:
             _fail("an action's preconditions are exactly its type's")
         if spec['predecessor'] is not None:
@@ -191,6 +244,9 @@ def check_specs(specs, installation):
                 _fail("a successor names this action as its predecessor")
         if spec['predecessor'] is not None and spec['id'] not in by_id[spec['predecessor']]['successors']:
             _fail("a predecessor lists the action among its successors")
+    creates = [s for s in by_id.values() if s['type'] in CREATING_TYPES]
+    if len(creates) > 1 or any(s['max_uses'] != 1 for s in creates):
+        _fail('one create action, used once: exactly one secondary user is created')
     _direct_controls(by_id)
     return {ident: {k: v for k, v in spec.items() if k != 'order'} for ident, spec in by_id.items()}
 
@@ -207,6 +263,28 @@ def _payload(inputs, role):
             _fail('a pinned member is its role, SHA-256 and size')
         _hex32(item['sha256'], 'a pinned member digest')
         _int(item['bytes'], 1, 1 << 30, 'a pinned member size')
+
+
+def _fixture(inputs):
+    """A fixture's pinned bytes: exactly its base APK's SHA-256 and size."""
+    if (not isinstance(inputs, list) or len(inputs) != 1 or not isinstance(inputs[0], dict)
+            or set(inputs[0]) != {'role', 'sha256', 'bytes'} or inputs[0]['role'] != 'base.apk'):
+        _fail('a fixture pins exactly its base.apk')
+    _hex32(inputs[0]['sha256'], 'a pinned fixture digest')
+    _int(inputs[0]['bytes'], 1, 1 << 30, 'a pinned fixture size')
+
+
+def step_problem(step):
+    """Why a setup step is not one admitted key event or one tap at a point, or None."""
+    if not isinstance(step, dict) or len(step) != 1:
+        return 'a setup step is one key or one tap'
+    if 'key' in step:
+        return None if step['key'] in UI_KEYS else 'a setup key outside the admitted keys'
+    tap = step.get('tap')
+    if (not isinstance(tap, list) or len(tap) != 2
+            or any(type(v) is not int or not 0 <= v <= MAX_TAP for v in tap)):
+        return 'a setup step is one key or one tap at a point'
+    return None
 
 
 def _direct_controls(by_id):
@@ -266,6 +344,18 @@ def _parameters(parameters, kind):
         elif form == 'role':
             if value not in ROLES:
                 _fail('a direct control is N2 or N3')
+        elif form == 'user_type':
+            if value != SECONDARY_TYPE:
+                _fail('the one created user is a full secondary user, never a profile or another type')
+        elif form == 'user_name':
+            if not isinstance(value, str) or not USER_NAME.fullmatch(value):
+                _fail('a user name of letters and digits')
+        elif form == 'ui_steps':
+            if not isinstance(value, list) or len(value) > MAX_STEPS or any(step_problem(s) for s in value):
+                _fail('setup steps are at most %d admitted keys or taps' % MAX_STEPS)
+        elif form == 'package':
+            if not isinstance(value, str) or not PACKAGE.fullmatch(value) or value == 'com.android.systemui':
+                _fail('a fixture is an ordinary package, never the component')
         else:
             raise AssertionError(form)
 
@@ -360,7 +450,9 @@ def check_inventory(reading):
             return 'a user ID, serial, flags or parent out of bounds'
         if not isinstance(u['type'], str) or not USER_TYPE.fullmatch(u['type']) or u['state'] not in USER_STATES:
             return 'a user type or state of no known form'
-        if not isinstance(u['restrictions'], list) or any(not isinstance(r, str) or not re.fullmatch(r'[a-z_]{1,64}', r)
+        # A restriction key may hold digits, as no_cellular_2g does (UserManager.java:1990).
+        if not isinstance(u['restrictions'], list) or any(not isinstance(r, str)
+                                                           or not re.fullmatch(r'[a-z][a-z0-9_]{0,63}', r)
                                                            for r in u['restrictions']):
             return 'user restrictions are names'
         if any(type(u[name]) is not bool for name in ('removing', 'partial', 'precreated')):
@@ -389,6 +481,29 @@ def resolve_system(reading):
     if len(found) != 1 or not usable(found[0], SYSTEM_TYPE):
         return None, 'the system user is not a usable full system user'
     return found[0], None
+
+
+def resolve_created(reading, identified, running=True):
+    """The user one create action identified, from a whole inventory, or why not: listed with the
+    returned ID and the serial and full secondary type that identified it, unmarked, and running
+    unless `running` is False, as for a start's own stopped target. Only a whole inventory that no
+    longer lists the ID shows the user removed; one that lists another user under it names another
+    user. A reading that is not whole shows nothing."""
+    if identified is None:
+        return None, 'the create action has identified no user'
+    if not reading['whole']:
+        return None, 'the user inventory is not whole'
+    found = [u for u in reading['users'] if u['id'] == identified['user']]
+    if not found:
+        return None, 'a whole inventory no longer lists the created user: it was removed'
+    u = found[0]
+    if (u['serial'], u['type']) != (identified['serial'], identified['type']):
+        return None, 'the created user ID now names another user'
+    if u['removing'] or u['partial'] or u['precreated']:
+        return None, 'the created user is being removed, partial or precreated'
+    if running and u['state'] not in RUNNING:
+        return None, 'the created user does not run'
+    return u, None
 
 
 def resolve_recipient(reading, issue, serial):

@@ -37,7 +37,7 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 PREDICTIONS = HERE / 'predictions.json'
 SUITES = ('test_lab_protocol', 'test_shell_transport', 'test_capture_ledger', 'test_lab_crossings', 'test_lab_broker',
-          'test_lab_next', 'test_lab_loss')
+          'test_lab_next', 'test_lab_loss', 'test_full_users')
 BRIDGE_SUITE = 'test_lab_bridge'
 # The lab driver's end to end suite: the real host signer over apksig, so it needs the pinned
 # apksigner jar, the public development platform key and the two built signing inputs.
@@ -692,6 +692,247 @@ MUTANTS = {
         '                    # composition is read and no later preparation is used.\n                    break\n',
         '                    pass\n',
         ('test_lab_loss',)),
+    # The full user setup package (full_users.py): its forms, gates, actions, records and process
+    # join.
+    'user-start-stderr-failure-accepted': ('full_users.py',
+        "    if (code, stdout, stderr) == (0, '', 'Error: could not start user\\n'):\n"
+        "        return 'FAILED'\n",
+        "    if (code, stdout, stderr) == (0, '', 'Error: could not start user\\n'):\n"
+        "        return 'STARTED'\n",
+        ('test_full_users',)),
+    'user-dump-started-states-unchecked': ('full_users.py',
+        "    if started != {u['id']: u['state'] for u in users if u['state'] != '-1'}:\n",
+        '    if False:\n',
+        ('test_full_users',)),
+    'user-dump-cached-ids-unchecked': ('full_users.py',
+        "        _fail('the cached user IDs and the users section disagree')\n",
+        '        pass\n',
+        ('test_full_users',)),
+    'user-dump-trailing-accepted': ('full_users.py',
+        '    if lines.peek() is not None:\n'
+        "        _fail('the user dump goes on after its last section: %r' % lines.peek()[:120])\n",
+        '',
+        ('test_full_users',)),
+    'user-dump-two-current-users': ('full_users.py',
+        "    if dump['current_user'] is not None and dump['current_user'] != dump['mediator_current_user']:\n",
+        '    if False:\n',
+        ('test_full_users',)),
+    'user-dump-serial-twice': ('full_users.py',
+        "    if ids != sorted(set(ids)) or len({u['serial'] for u in users}) != len(users):\n",
+        '    if ids != sorted(set(ids)):\n',
+        ('test_full_users',)),
+    'user-effective-restrictions-unchecked': ('full_users.py',
+        "        if lists['cached'] is not None and set(lists['cached']) != effective:\n",
+        '        if False:\n',
+        ('test_full_users',)),
+    'user-list-disagreement-accepted': ('full_users.py',
+        '    if rows != expected:\n'
+        "        return 'the user list and the user dump disagree'\n",
+        '',
+        ('test_full_users',)),
+    'restriction-names-without-digits': ('lab_actions.py',
+        "                                                           or not re.fullmatch(r'[a-z][a-z0-9_]{0,63}', r)\n",
+        "                                                           or not re.fullmatch(r'[a-z_]{1,64}', r)\n",
+        ('test_full_users',)),
+    'created-type-unchecked': ('full_users.py',
+        "    if u['type'] != SECONDARY_TYPE:\n"
+        "        return None, 'the returned user is of another type: %s' % u['type']\n",
+        '',
+        ('test_full_users',)),
+    'created-serial-reuse-accepted': ('full_users.py',
+        "    if u['serial'] in created['serials_before']:\n",
+        '    if False:\n',
+        ('test_full_users',)),
+    'created-id-reuse-accepted': ('full_users.py',
+        "    if created['user'] in created['before_users']:\n",
+        '    if False:\n',
+        ('test_full_users',)),
+    'removal-from-a-partial-read': ('full_users.py',
+        "    if reading is None or not reading['whole']:\n"
+        '        return None\n'
+        '    shown = ',
+        '    if reading is None:\n'
+        '        return None\n'
+        '    shown = ',
+        ('test_full_users',)),
+    'created-resolved-from-a-partial-read': ('lab_actions.py',
+        "        return None, 'the create action has identified no user'\n"
+        "    if not reading['whole']:\n"
+        "        return None, 'the user inventory is not whole'\n",
+        "        return None, 'the create action has identified no user'\n",
+        ('test_full_users',)),
+    'creation-unsupported-unchecked': ('full_users.py',
+        "    if not user_limits['supports_multiple']:\n"
+        "        return 'switchable users are not supported'\n",
+        '',
+        ('test_full_users',)),
+    'creation-restriction-unchecked': ('full_users.py',
+        "    if 'no_add_user' in user_limits['creator_restrictions']:\n",
+        '    if False:\n',
+        ('test_full_users',)),
+    'creation-maximum-unchecked': ('full_users.py',
+        "    if (user_limits['limit_reached'] or user_limits['type_allowed'] <= user_limits['type_count']\n"
+        "            or user_limits['max_switchable'] <= 1):\n",
+        '    if False:\n',
+        ('test_full_users',)),
+    'creation-beside-another-user': ('full_users.py',
+        "    if [u['id'] for u in reading['users']] != [0]:\n",
+        '    if False:\n',
+        ('test_full_users',)),
+    'start-running-limit-unchecked': ('full_users.py',
+        "    if running + 1 > user_limits['max_running']:\n",
+        '    if False:\n',
+        ('test_full_users',)),
+    'start-stopped-user-unnoticed': ('lab_broker.py',
+        "        if outcome['stopped']:\n"
+        "            return 'UNEXPECTED', outcome, 'a user that"
+        " ran before the start no longer runs', True, postreads\n",
+        '',
+        ('test_full_users',)),
+    'start-reply-trusted': ('lab_broker.py',
+        "        if outcome['reply'] == 'STARTED' and runs(after):\n",
+        "        if outcome['reply'] == 'STARTED':\n",
+        ('test_full_users',)),
+    'switch-foreground-unconfirmed': ('lab_broker.py',
+        "            return (poll['current'] == user['id'] and s"
+        "tate is not None and state['condition'] == 'FOREGROUND'\n"
+        "                    and poll['visible'] is True)\n",
+        '            return True\n',
+        ('test_full_users',)),
+    'switch-visibility-unconfirmed': ('lab_broker.py',
+        "            return (poll['current'] == user['id'] and s"
+        "tate is not None and state['condition'] == 'FOREGROUND'\n"
+        "                    and poll['visible'] is True)\n",
+        "            return (poll['current'] == user['id'] and st"
+        "ate is not None and state['condition'] == 'FOREGROUND')\n",
+        ('test_full_users',)),
+    'switch-outgoing-background-unchecked': ('lab_broker.py',
+        "        elif current != 0 and (len(outgoing) != 1 or '"
+        "no_run_in_background' in outgoing[0]['restrictions']):\n",
+        '        elif False:\n',
+        ('test_full_users',)),
+    'setup-without-its-recorded-completion': ('lab_broker.py',
+        "        if (polled[0] == '1' and outcome['initialized'] an"
+        "d state is not None and state['condition'] == 'FOREGROUND'\n",
+        "        if (outcome['initialized'] and state is not None and state['condition'] == 'FOREGROUND'\n",
+        ('test_full_users',)),
+    'setup-with-ce-locked': ('lab_broker.py',
+        "        if current != user['id'] or state is None or state"
+        "['condition'] != 'FOREGROUND' or not state['ce_unlocked']:\n",
+        "        if current != user['id'] or state is None or state['condition'] != 'FOREGROUND':\n",
+        ('test_full_users',)),
+    'fixture-replies-trusted': ('lab_broker.py',
+        "        if (outcome['uid'] == expected and outcome['use"
+        "r_path'] == path and outcome['digest'] == pin['sha256']\n"
+        "                and outcome['enabled'] == 'enabled'):\n",
+        "        if outcome['enabled'] == 'enabled':\n",
+        ('test_full_users',)),
+    'fixture-bytes-unchecked': ('lab_broker.py',
+        "        if digest is None or digest != pin['sha256']:\n",
+        '        if digest is None:\n',
+        ('test_full_users',)),
+    'created-record-unchecked-at-reopening': ('lab_broker.py',
+        "        if full_users.classify_create(*self._capture_reply(capture)) != ('CREATED', c['user']):\n",
+        '        if False:\n',
+        ('test_full_users',)),
+    'identified-record-unchecked-at-reopening': ('lab_broker.py',
+        "        if (user['id'], user['serial'], user['type'], user['"
+        "flags']) != (c['user'], c['serial'], c['type'], c['flags']):\n",
+        '        if False:\n',
+        ('test_full_users',)),
+    'typed-reading-not-rederived': ('lab_broker.py',
+        "        if value is not NotImplemented and ledgers.encode_json(value) != ledgers.encode_json(c.get('reading')):\n",
+        '        if False:\n',
+        ('test_full_users',)),
+    'typed-reading-compared-by-value': ('lab_broker.py',
+        "        if value is not NotImplemented and ledgers.encode_json(value) != ledgers.encode_json(c.get('reading')):\n",
+        "        if value is not NotImplemented and value != c.get('reading'):\n",
+        ('test_full_users',)),
+    'serials-forgotten-on-reopening': ('lab_broker.py',
+        "                if c.get('reader') == 'inventory' and c.get('status') == 'facts':\n"
+        "                    self._serials(c['reading'])\n",
+        '',
+        ('test_full_users',)),
+    'two-main-pids-accepted': ('full_users.py',
+        "        if owner['id'] in joined:\n"
+        "            _fail('two main SystemUI processes for user %d' % owner['id'])\n",
+        '',
+        ('test_full_users',)),
+    'process-name-unchecked': ('full_users.py',
+        "        if c['name'] != SYSTEMUI or c['comm'] != COMM or c['status_name'] != COMM:\n",
+        '        if False:\n',
+        ('test_full_users',)),
+    'process-start-identity-not-rechecked': ('full_users.py',
+        "        if recheck.get(pid) != {'comm': c['comm'], 'start_ticks': c['start_ticks']}:\n",
+        '        if False:\n',
+        ('test_full_users',)),
+    'process-denied-read-as-absence': ('full_users.py',
+        "    if (code, stdout, stderr) == (1, '', ''):\n"
+        '        return []\n',
+        '    if code == 1:\n'
+        '        return []\n',
+        ('test_full_users',)),
+    'process-quiet-absence-not-repeated': ('full_users.py',
+        '        if not pids and parse_pidof(*self._read(PIDOF)):\n',
+        '        if False:\n',
+        ('test_full_users',)),
+    'process-join-by-listed-order': ('full_users.py',
+        "        owner = by_uid.get(c['uids'][0])\n",
+        "        owner = sorted(by_uid.values(), key=lambda u: u['id'])[list(candidates).index(pid) % len(by_uid)]\n",
+        ('test_full_users',)),
+    'created-user-of-any-type': ('lab_actions.py',
+        '            if value != SECONDARY_TYPE:\n',
+        '            if False:\n',
+        ('test_full_users',)),
+    'create-used-more-than-once': ('lab_actions.py',
+        "    if len(creates) > 1 or any(s['max_uses'] != 1 for s in creates):\n",
+        '    if False:\n',
+        ('test_full_users',)),
+    'created-ephemeral-user-accepted': ('full_users.py',
+        "    if u['flags'] & (FLAGS['EPHEMERAL'] | FLAGS['GUEST']):\n",
+        '    if False:\n',
+        ('test_full_users',)),
+    'user-type-enablement-read-as-a-number': ('full_users.py',
+        "        types[name] = {'enabled': _bool(values['mEnabled'], 'mEnabled'),\n",
+        "        types[name] = {'enabled': _int(values['mEnabled'], -(1 << 31), (1 << 31) - 1, 'mEnabled'),\n",
+        ('test_full_users',)),
+    'user-type-enablement-number-accepted': ('full_users.py',
+        "        types[name] = {'enabled': _bool(values['mEnabled'], 'mEnabled'),\n",
+        "        types[name] = {'enabled': _bool({'1': 'true', '0': 'false'}.get(values['mEnabled'], values['mEnabled']),\n"
+        "                                        'mEnabled'),\n",
+        ('test_full_users',)),
+    'user-limit-enablement-form-unchecked': ('full_users.py',
+        "    for name in ('supports_multiple', 'dump_supports', 'limit_reached', 'type_enabled'):\n",
+        "    for name in ('supports_multiple', 'dump_supports', 'limit_reached'):\n",
+        ('test_full_users',)),
+    'creation-type-enablement-read-loosely': ('full_users.py',
+        "    if user_limits['type_enabled'] is not True:\n",
+        "    if not user_limits['type_enabled']:\n",
+        ('test_full_users',)),
+    'creation-type-disabled-unchecked': ('full_users.py',
+        "    if user_limits['type_enabled'] is not True:\n"
+        "        return 'the full secondary user type is not enabled'\n",
+        '',
+        ('test_full_users',)),
+    'process-start-identity-after-its-identity-fields': ('full_users.py',
+        "            stat = parse_stat(*self._read(proc_command(pid, 'stat')), pid)\n"
+        "            name = parse_cmdline(*self._read(proc_command(pid, 'cmdline')))\n"
+        "            status = parse_status(*self._read(proc_command(pid, 'status')), pid)\n",
+        "            name = parse_cmdline(*self._read(proc_command(pid, 'cmdline')))\n"
+        "            status = parse_status(*self._read(proc_command(pid, 'status')), pid)\n"
+        "            stat = parse_stat(*self._read(proc_command(pid, 'stat')), pid)\n",
+        ('test_full_users',)),
+    'user-effects-past-an-unsettled-transition': ('lab_broker.py',
+        "        if spec['type'] not in lab_actions.USER_TYPES:\n"
+        "            return None\n"
+        "        return self._unsettled_transition()\n",
+        '        return None\n',
+        ('test_full_users',)),
+    'user-gate-not-consulted': ('lab_broker.py',
+        '        if gate is None:\n'
+        '            gate = self._user_gate(spec)\n',
+        '',
+        ('test_full_users',)),
 }
 
 # Each Java defect: the file under this directory, its exact old and new text, and the suites run

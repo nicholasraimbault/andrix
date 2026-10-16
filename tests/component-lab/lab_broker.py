@@ -48,6 +48,7 @@ for _path in (str(HERE), str(ROOT)):
         sys.path.insert(0, _path)
 
 import capture_ledger as ledgers  # noqa: E402
+import full_users  # noqa: E402
 import lab_actions  # noqa: E402
 import lab_crossings as crossings  # noqa: E402
 import lab_evidence as evidence  # noqa: E402
@@ -230,7 +231,14 @@ def _hex(value, width):
 
 # Each typed action type's run request: what the controller names beyond the action and its reason.
 REQUESTS = {'NOTICE_VISIBILITY': ('ticket', 'index', 'serial'), 'HEALTH_PREPARATION': (),
-            'PLAIN_KERNEL_CONFIRM': ('ticket',), 'DIRECT_STAGE': (), 'DIRECT_COMMIT': (), 'NEGATIVE_ACTIVATION': ()}
+            'PLAIN_KERNEL_CONFIRM': ('ticket',), 'DIRECT_STAGE': (), 'DIRECT_COMMIT': (), 'NEGATIVE_ACTIVATION': (),
+            'USER_CREATE': (), 'USER_START': (), 'USER_SWITCH': (), 'USER_SETUP': (), 'USER_FIXTURE': ()}
+# The typed readings of the full user reads: what each group records instead of facts.
+USER_READINGS = ('inventory', 'user-limits', 'systemui-processes')
+# A user action settles by reading again: at most this many whole reads, this far apart, within
+# its own deadline.
+USER_POLLS = 10
+USER_POLL_S = 1.0
 
 
 def _request_problem(kind, request):
@@ -677,6 +685,9 @@ class Broker:
         self.transitions, self.observed_boots = {}, set()
         self.consents, self.direct, self.payloads = {}, {}, {}
         self.f0 = None
+        # The full user setup: each create action's CREATED and IDENTIFIED records, and every
+        # serial a typed inventory has listed, which no later user may reuse.
+        self.created, self.serials_seen = {}, {}
         for entry in self.ledger.entries:
             if not entry.complete:
                 continue
@@ -684,11 +695,18 @@ class Broker:
             kind = entry.kind
             if kind == 'group' and self.admission['version'] == 3:
                 self._check_unkept_compound(c)
+            if kind == 'group' and self.admission['version'] == 3 and c.get('reader') in USER_READINGS:
+                self._check_typed(c)
             if kind in NEXT_RECORDS:
                 self._next_record(kind, c)
                 continue
+            if kind == 'user-setup':
+                self._setup_record(c)
+                continue
             if kind == 'group':
                 self._read_record(c)
+                if c.get('reader') == 'inventory' and c.get('status') == 'facts':
+                    self._serials(c['reading'])
             if kind == 'notice-issue':
                 self.issues[(c['ticket'], c['index'])] = c
             elif kind == 'lab-action' and c.get('record') in ('BEGIN', 'END', 'REFUSED'):
@@ -1288,7 +1306,8 @@ class Broker:
         Nothing is recorded unless the version 3 admission names the action, no generation is
         open, a reason and the type's exact request are given, no fence has tripped, a use is
         left, the last use settled (only an idempotent capture and read may follow an uncertain
-        one) and the predecessor has a settled use. The broker keeps the spec's exact bytes by
+        one), the predecessor has a settled use and, for a user action, every boot transition
+        settled with its intended outcome. The broker keeps the spec's exact bytes by
         digest, reads a whole typed inventory as its own group and resolves the selected user
         from it. A user that does not resolve is refused with that inventory kept, and no use is
         consumed. The BEGIN record then pins the spec digest, authority, resolved user, inputs,
@@ -1330,9 +1349,14 @@ class Broker:
             raise BrokerError('no %s adapter is admitted' % kind['adapter'])
         if not self.reader.inventory_admitted:
             raise BrokerError('no typed user inventory is admitted')
-        if kind['adapter'] is None and not self.reader.global_admitted:
+        user_type = spec['type'] in lab_actions.USER_TYPES
+        if user_type and not self.reader.users_admitted:
+            raise BrokerError('no full user reader is admitted')
+        if kind['adapter'] is None and not user_type and not self.reader.global_admitted:
             raise BrokerError('no global session inventory is admitted')
         gate = self._direct_gate(spec)
+        if gate is None:
+            gate = self._user_gate(spec)
         if gate is not None:
             raise BrokerError(gate)
         issue = None
@@ -1350,7 +1374,7 @@ class Broker:
         inventory = self._group('inventory', self.reader.inventory, context, None, emitted=False)
         user, why = None, 'the user inventory is unavailable (%s)' % inventory.reason
         if inventory.ok:
-            user, why = self._resolve(spec, inventory.reading, issue, request)
+            user, why = self._resolve(spec, inventory.reading, issue, request, inventory)
         if user is None:
             self.ledger.record('lab-action', {'record': 'REFUSED', 'action_id': action_id, 'type': spec['type'],
                                               'spec_sha256': spec_sha, 'reason': reason, 'request': request,
@@ -1374,9 +1398,19 @@ class Broker:
         self._action_record(begin)
         context = {'request': None, 'generation': None, 'purpose': 'lab-action', 'lab_action': number,
                    'action_id': action_id}
-        command = self._action_commands(spec, kind, adapter, context, begin['deadline_monotonic_ns'])
+        command = self._action_commands(spec, kind, adapter, context, begin['deadline_monotonic_ns'], user)
         try:
-            if spec['type'] == 'NOTICE_VISIBILITY':
+            if spec['type'] == 'USER_CREATE':
+                result = self._act_user_create(context, command, begin, spec)
+            elif spec['type'] == 'USER_START':
+                result = self._act_user_start(context, command, begin, user)
+            elif spec['type'] == 'USER_SWITCH':
+                result = self._act_user_switch(context, command, begin, user)
+            elif spec['type'] == 'USER_SETUP':
+                result = self._act_user_setup(context, command, begin, spec, user)
+            elif spec['type'] == 'USER_FIXTURE':
+                result = self._act_user_fixture(context, command, begin, spec, user)
+            elif spec['type'] == 'NOTICE_VISIBILITY':
                 result = self._act_visibility(context, command, begin, issue, user)
             elif spec['type'] == 'HEALTH_PREPARATION':
                 result = self._act_preparation(context, command, begin, spec, user)
@@ -1420,21 +1454,43 @@ class Broker:
             return "the control's commit is not recorded"
         return None
 
-    def _resolve(self, spec, reading, issue, request):
+    def _user_gate(self, spec):
+        """Why a user action is refused before anything is recorded, from the ledger alone, or
+        None: no user effect follows while a boot transition is unsettled or unexpected, as no
+        managed crossing launches then. An uncertain reboot may still take effect, and no later
+        inventory read settles it. The ledger keeps the transition, so a reopening refuses alike.
+        A refused use spends nothing."""
+        if spec['type'] not in lab_actions.USER_TYPES:
+            return None
+        return self._unsettled_transition()
+
+    def _resolve(self, spec, reading, issue, request, group=None):
+        """The selected user from a whole inventory, or why not. A created user is the one its
+        create action's reply named, identified by its serial and type from a whole inventory: the
+        create's own later read, or this one when that read could not identify it."""
         selector = spec['user_selector']['kind']
         if selector == 'SYSTEM_USER':
             return lab_actions.resolve_system(reading)
         if selector == 'NOTICE_RECIPIENT':
             return lab_actions.resolve_recipient(reading, issue, request['serial'])
-        return None, 'no admitted action creates a user in this version'
+        creator = spec['user_selector']['action']
+        records = self.created.get(creator, {})
+        if 'CREATED' not in records:
+            return None, 'the create action recorded no returned user ID'
+        if 'IDENTIFIED' not in records and group is not None:
+            identified, why = self._identify(creator, group)
+            if identified is None:
+                return None, why
+        return lab_actions.resolve_created(reading, self.created[creator].get('IDENTIFIED'),
+                                           running=spec['type'] != 'USER_START')
 
-    def _action_commands(self, spec, kind, adapter, context, deadline):
+    def _action_commands(self, spec, kind, adapter, context, deadline, user=None):
         """The one way an action's commands reach the guest: a type's own fixed command or its
         adapter's allowlisted form, an effect only within the effect limits, every command fenced
         and refused once less than BOUND_COMMAND_MIN_S of the action's deadline is left, with the
         spec's output bounds."""
         def command(operation, text):
-            allowed = self._own_command(spec, text) if adapter is None else adapter.allowed(text)
+            allowed = self._own_command(spec, text, user) if adapter is None else adapter.allowed(text)
             if not allowed:
                 raise readers.Unclassified('a command outside the %s allowlist' % (kind['adapter'] or spec['type']))
             if operation == 'lab-action-effect':
@@ -1454,10 +1510,15 @@ class Broker:
             return result
         return command
 
-    def _own_command(self, spec, text):
+    def _own_command(self, spec, text, user=None):
         """Whether a shell command is one of the broker's own fixed forms for this action: a
         direct control's create under its own referrer, its staged member's digest read and write,
-        and its commit. Reboots are services, never shell text."""
+        and its commit; a user action's fixed effects and reads for its resolved user. Reboots are
+        services, never shell text."""
+        if spec['type'] in lab_actions.USER_TYPES:
+            return text in self._user_commands(spec, user) or (
+                spec['type'] == 'USER_FIXTURE' and text.startswith('sha256sum ')
+                and bool(full_users.data_path(spec['parameters']['package']).fullmatch(text[len('sha256sum '):])))
         control = spec['parameters'].get('control')
         if spec['type'] == 'DIRECT_STAGE':
             path = re.escape('%s/control-%s/' % (self.admission['device_dir'], control))
@@ -1578,6 +1639,9 @@ class Broker:
             return self._group('target', self.reader.target, context, None, emitted=False, deadline_ns=deadline)
         if name == 'global-sessions':
             return self._group('global-sessions', self.reader.global_sessions, context, None, emitted=False,
+                               deadline_ns=deadline)
+        if name == 'user-limits':
+            return self._group('user-limits', self.reader.user_limits, context, None, emitted=False,
                                deadline_ns=deadline)
         if name == 'users':
             return self._group('users', lambda: self.reader.users(sorted(self.users_seen.values())), context,
@@ -2073,6 +2137,478 @@ class Broker:
         number = self.ledger.record('direct-control', value)
         self.direct.setdefault(control, {})[record] = dict(value, number=number, kind='direct-control')
         return number
+
+    # ---------------------------------------------- the full user setup
+
+    def _serials(self, reading):
+        """Every serial a typed inventory lists, kept through reopening: no later user may reuse
+        one."""
+        for u in reading['users']:
+            self.serials_seen.setdefault(u['serial'], u['id'])
+
+    def _entry(self, number, kind, before):
+        """A complete ledger entry's content when it is of that kind and precedes `before`, or
+        None."""
+        if type(number) is not int or not 0 < number < before:
+            return None
+        entry = self.ledger.entries[number - 1]
+        return entry.content if entry.kind == kind and entry.complete else None
+
+    @staticmethod
+    def _streams(result):
+        return result.stdout.decode('utf-8', 'surrogateescape'), result.stderr.decode('utf-8', 'surrogateescape')
+
+    def _capture_reply(self, entry):
+        """A complete capture's reply as a reader saw it: its exit status when it exited, else None,
+        and both streams as text."""
+        result = entry.content.get('result') or {}
+        streams = []
+        for name in ('stdout', 'stderr'):
+            data = _regular_bytes(entry.path / name, int(self.limits['read_stdout_max']) + (1 << 20))
+            if data is None:
+                raise BrokerError('capture %d has no %s' % (entry.number, name))
+            streams.append(data.decode('utf-8', 'surrogateescape'))
+        code = result.get('exit') if result.get('completion') == 'exited' else None
+        return (code,) + tuple(streams)
+
+    def _write_setup(self, record, **fields):
+        """Records one user setup step durably, and returns it."""
+        value = dict(fields, record=record, wall_ns=self._wall())
+        why = full_users.setup_problem(value)
+        if why is not None:
+            raise BrokerError(why)
+        number = self.ledger.record('user-setup', value)
+        value = dict(value, number=number, kind='user-setup')
+        self.created.setdefault(value['action_id'], {})[record] = value
+        return value
+
+    def _identify(self, action_id, group):
+        """Identifies a created user from a whole inventory group and records it: (record, None) or
+        (None, why)."""
+        created = self.created[action_id]['CREATED']
+        user, why = full_users.identify(created, group.reading)
+        if user is None:
+            return None, why
+        return self._write_setup('IDENTIFIED', action_id=action_id, begin=created['begin'], created=created['number'],
+                                 user=user['id'], serial=user['serial'], type=user['type'], flags=user['flags'],
+                                 inventory_group=group.number), None
+
+    def _setup_record(self, c):
+        """One complete user setup record into the broker's state, checked against what it names. A
+        CREATED record must belong to a use of the admitted create action, name that use's own
+        create capture, whose recorded reply names the same user ID, and the whole inventory read
+        just before it, with the users and every serial known then. An IDENTIFIED record must
+        follow its CREATED record and name a later whole inventory group that identifies exactly
+        that user. Anything else refuses the reopening: a changed copy never moves or invents a
+        created user."""
+        why = full_users.setup_problem(c)
+        spec = self.specs.get(c.get('action_id')) if why is None else None
+        begin = self._entry(c.get('begin'), 'lab-action', c['number']) if why is None else None
+        if why is None and (spec is None or spec['type'] not in lab_actions.CREATING_TYPES or begin is None
+                            or begin.get('record') != 'BEGIN' or begin.get('action_id') != c['action_id']):
+            why = 'it names no use of an admitted create action'
+        records = self.created.get(c['action_id'], {}) if why is None else {}
+        if why is None and c['record'] == 'CREATED':
+            why = 'a second CREATED record' if records else self._created_problem(c, spec)
+        elif why is None:
+            created = records.get('CREATED')
+            if created is None or 'IDENTIFIED' in records or c['created'] != created['number']:
+                why = 'an IDENTIFIED record without its CREATED record, or a second one'
+            else:
+                why = self._identified_problem(c, created)
+        if why is not None:
+            raise BrokerError('the ledger holds user setup record %d that its evidence does not make: %s'
+                              % (c['number'], why))
+        self.created.setdefault(c['action_id'], {})[c['record']] = c
+
+    def _created_problem(self, c, spec):
+        if not 0 < c['capture'] < c['number'] or self.ledger.entries[c['capture'] - 1].kind != 'capture':
+            return 'its capture is not a capture before it'
+        capture = self.ledger.entries[c['capture'] - 1]
+        intent = capture.content.get('intent') or {}
+        if (not capture.complete or intent.get('lab_action') != c['begin']
+                or intent.get('operation') != 'lab-action-effect'
+                or intent.get('command') != full_users.create_command(spec['parameters']['name'])):
+            return "its capture is not its own action's whole create"
+        if full_users.classify_create(*self._capture_reply(capture)) != ('CREATED', c['user']):
+            return 'its capture does not name that user ID'
+        before = self._entry(c['before_group'], 'group', c['capture'])
+        if (before is None or before.get('reader') != 'inventory' or before.get('status') != 'facts'
+                or (before.get('lab_action'), before.get('part')) != (c['begin'], 'create-inventory')):
+            return 'it names no whole inventory its action read before the create'
+        if c['before_users'] != sorted(u['id'] for u in before['reading']['users']):
+            return 'its users before the create are not those of the inventory it names'
+        if c['serials_before'] != sorted(self.serials_seen):
+            return 'its serials before the create are not every serial an inventory had listed'
+        return None
+
+    def _identified_problem(self, c, created):
+        group = self._entry(c['inventory_group'], 'group', c['number'])
+        if (group is None or c['inventory_group'] < created['number'] or group.get('reader') != 'inventory'
+                or group.get('status') != 'facts'):
+            return 'it names no whole inventory read after the create'
+        user, why = full_users.identify(created, group['reading'])
+        if user is None:
+            return 'its inventory does not identify the user: %s' % why
+        if (user['id'], user['serial'], user['type'], user['flags']) != (c['user'], c['serial'], c['type'], c['flags']):
+            return 'its user is not the one its inventory lists'
+        return None
+
+    def _check_typed(self, c):
+        """Refuses a reopening whose typed user reading is not the one its own captures give, when
+        the reader can read them again: the same parse over the recorded replies, the processes
+        over the inventory group they name. A changed reading, or captures of other reads, is a
+        changed copy. The two compare as their exact encodings, so a number never passes for a
+        boolean it compares equal to."""
+        rederive = getattr(self.reader, 'rederive', None)
+        if c.get('status') != 'facts' or rederive is None:
+            return
+        captures = []
+        for n in c.get('captures', ()):
+            if type(n) is not int or not 0 < n < c['number'] or self.ledger.entries[n - 1].kind != 'capture':
+                raise BrokerError('the typed reading of group %d names no capture of its own' % c['number'])
+            entry = self.ledger.entries[n - 1]
+            captures.append(((entry.content.get('intent') or {}).get('command'),) + self._capture_reply(entry))
+        inventory = None
+        if c['reader'] == 'systemui-processes':
+            source = self._entry(c.get('inventory_group'), 'group', c['number'])
+            inventory = source.get('reading') if source and source.get('reader') == 'inventory' else None
+        try:
+            value = rederive(c['reader'], captures, inventory)
+        except (readers.Unavailable, readers.Unclassified, ValueError, KeyError, TypeError) as error:
+            raise BrokerError('the typed reading of group %d is not what its captures give: %s'
+                              % (c['number'], error)) from error
+        if value is not NotImplemented and ledgers.encode_json(value) != ledgers.encode_json(c.get('reading')):
+            raise BrokerError('the typed reading of group %d is not what its captures give' % c['number'])
+
+    def _user_commands(self, spec, user):
+        """Every fixed command a user action may send for its resolved user."""
+        kind, parameters = spec['type'], spec['parameters']
+        if kind == 'USER_CREATE':
+            return {full_users.create_command(parameters['name'])}
+        if user is None:
+            return set()
+        target = user['id']
+        if kind == 'USER_START':
+            return {full_users.start_command(target)}
+        if kind == 'USER_SWITCH':
+            return {full_users.switch_command(target), full_users.CURRENT, full_users.visible_command(target)}
+        if kind == 'USER_SETUP':
+            return ({full_users.step_command(step) for step in parameters['steps']}
+                    | {full_users.CURRENT, full_users.setup_command(target)})
+        package = parameters['package']
+        return {full_users.install_existing_command(target, package), full_users.enable_command(target, package),
+                full_users.package_uid_command(0, package), full_users.package_uid_command(target, package),
+                full_users.package_path_command(0, package), full_users.package_path_command(target, package)}
+
+    def _try_read(self, command, text, parser, *args):
+        """One read of an action's own: (its parsed value, None), or (None, why) when it did not
+        complete or has no known form. A stop still raises."""
+        try:
+            result = command('lab-action-read', text)
+            return parser(result.exit, *self._streams(result), *args), None
+        except (readers.Unavailable, readers.Unclassified) as error:
+            return None, '%s: %s' % (type(error).__name__, error)
+
+    def _settle(self, read, done, deadline, polls=USER_POLLS):
+        """Reads again with `read()` until `done(value)`, at most `polls` times, USER_POLL_S apart,
+        while the deadline leaves room: the last value."""
+        value = read()
+        for _ in range(polls - 1):
+            if done(value) or deadline - self._monotonic() < (USER_POLL_S + BOUND_COMMAND_MIN_S) * 1e9:
+                break
+            self._sleep(USER_POLL_S)
+            value = read()
+        return value
+
+    def _act_user_create(self, context, command, begin, spec):
+        """USER_CREATE: the one full secondary user. Its whole inventory and limits are read first:
+        only the system user listed, switchable users supported, the type enabled, the system user
+        without no_add_user and no maximum reached. The create's reply ID is recorded the moment it
+        is read, CREATED, before anything else; a whole inventory read after it then identifies the
+        user, IDENTIFIED, with its actual serial and type, never a guessed ID or serial. A refusal
+        reply settles only when a whole inventory shows no new user. An inventory that is not read
+        whole leaves the outcome uncertain: it never shows the user absent."""
+        deadline = begin['deadline_monotonic_ns']
+        pre = dict(context, purpose='user-precondition')
+        reads = {name: self._read(name, dict(pre, part='create-' + name), deadline) for name in ('inventory',
+                                                                                                  'user-limits')}
+        groups = [g.number for g in reads.values()]
+        if not all(g.ok for g in reads.values()):
+            return 'REFUSED', {'groups': groups}, 'the whole user inventory or the user limits are unavailable', True, \
+                groups
+        before = reads['inventory'].reading
+        why = full_users.creation_problem(before, reads['user-limits'].reading)
+        if why is not None:
+            return 'REFUSED', {'groups': groups, 'limits': reads['user-limits'].reading}, why, True, groups
+        users = sorted(u['id'] for u in before['users'])
+        result = command('lab-action-effect', full_users.create_command(spec['parameters']['name']))
+        capture = self.ledger.last.number
+        reply, detail = full_users.classify_create(result.exit, *self._streams(result))
+        if reply == 'CREATED':
+            self._write_setup('CREATED', action_id=spec['id'], begin=begin['number'], capture=capture, user=detail,
+                              before_group=reads['inventory'].number, before_users=users,
+                              serials_before=sorted(self.serials_seen))
+        outcome = {'reply': reply, 'detail': detail, 'capture': capture}
+        after = self._read('inventory', dict(context, purpose='user-postread', part='identify'), deadline)
+        if not after.ok:
+            return 'UNKNOWN', outcome, 'the whole inventory after the create is unavailable (%s): nothing is ' \
+                'known absent' % after.reason, False, [after.number]
+        if reply == 'CREATED':
+            identified, why = self._identify(spec['id'], after)
+            if identified is None:
+                return 'UNEXPECTED', outcome, why, True, [after.number]
+            outcome.update(user=identified['user'], serial=identified['serial'], type=identified['type'],
+                           flags=identified['flags'], identified=identified['number'])
+            return 'OK', outcome, None, True, [after.number]
+        outcome['new_users'] = [u['id'] for u in after.reading['users'] if u['id'] not in users]
+        if reply == 'REFUSED' and outcome['new_users']:
+            return 'UNEXPECTED', outcome, 'the create reply refused, yet a whole inventory lists a new user', True, \
+                [after.number]
+        if reply == 'REFUSED':
+            return 'FAILED', outcome, 'the user service refused the create', True, [after.number]
+        return 'UNKNOWN', outcome, 'the create gave no qualified reply: its effect is unknown', False, [after.number]
+
+    def _act_user_start(self, context, command, begin, user):
+        """USER_START: a background start of the created user, listed whole, unmarked and stopped,
+        with room under the running limit so that Android stops no running user for it. Exit status
+        0 is not success: `Error: could not start user` on standard error is a failure. The outcome
+        rests on a whole inventory read after the reply, polled until the user runs or the polls are
+        spent, which must still list every user that ran before as running."""
+        deadline = begin['deadline_monotonic_ns']
+        pre, post = dict(context, purpose='user-precondition'), dict(context, purpose='user-postread')
+        reads = {name: self._read(name, dict(pre, part='start-' + name), deadline) for name in ('inventory',
+                                                                                                 'user-limits')}
+        groups = [g.number for g in reads.values()]
+        if not all(g.ok for g in reads.values()):
+            return 'REFUSED', {'groups': groups}, 'the whole user inventory or the user limits are unavailable', True, \
+                groups
+        before = reads['inventory'].reading
+        why = full_users.start_problem(before, reads['user-limits'].reading, user)
+        if why is not None:
+            return 'REFUSED', {'groups': groups}, why, True, groups
+        result = command('lab-action-effect', full_users.start_command(user['id']))
+        outcome = {'reply': full_users.classify_start(result.exit, *self._streams(result)),
+                   'capture': self.ledger.last.number}
+        postreads = []
+
+        def read():
+            group = self._read('inventory', dict(post, part='after-start'), deadline)
+            postreads.append(group.number)
+            return group
+
+        def runs(group):
+            found = full_users.find(group.reading, user['id']) if group.ok else []
+            return len(found) == 1 and found[0]['state'] != 'NOT_RUNNING'
+        after = self._settle(read, lambda g: outcome['reply'] != 'STARTED' or runs(g), deadline)
+        if not after.ok:
+            return 'UNKNOWN', outcome, 'the whole inventory after the start is unavailable', False, postreads
+        found = full_users.find(after.reading, user['id'])
+        outcome.update(condition=full_users.condition(after.reading, user['id']),
+                       stopped=[list(p) for p in full_users.still_running(before, after.reading)])
+        if len(found) != 1 or (found[0]['serial'], found[0]['type']) != (user['serial'], user['type']):
+            return 'UNEXPECTED', outcome, 'a whole inventory no longer lists the created user as identified', True, \
+                postreads
+        if outcome['reply'] == 'UNRECOGNIZED':
+            return 'UNKNOWN', outcome, 'the start gave no qualified reply: its effect is unknown', False, postreads
+        if outcome['stopped']:
+            return 'UNEXPECTED', outcome, 'a user that ran before the start no longer runs', True, postreads
+        if outcome['reply'] == 'STARTED' and runs(after):
+            return 'OK', outcome, None, True, postreads
+        if outcome['reply'] == 'STARTED':
+            return 'UNEXPECTED', outcome, 'the reply said started, yet the user does not run', True, postreads
+        if runs(after):
+            return 'UNEXPECTED', outcome, 'the reply reported a failure, yet the user runs', True, postreads
+        return 'FAILED', outcome, 'the start failed: its reply reported the failure on standard error, with exit ' \
+            'status 0', True, postreads
+
+    def _act_user_switch(self, context, command, begin, user):
+        """USER_SWITCH: a running user to the foreground. Its whole inventory and the current user
+        are read first: the user runs in the background, both reads name the same current user,
+        and the outgoing user, unless it is the system user, may run in the background, since
+        Android stops one that may not (UserController.java:2736-2750). After the reply the
+        foreground, the state and the visibility are each confirmed by their own read, polled
+        until all hold or the polls are spent: `am get-current-user`, a whole inventory naming the
+        user current and running, and `cmd user is-user-visible`. Every user that ran before must
+        still run."""
+        deadline = begin['deadline_monotonic_ns']
+        pre, post = dict(context, purpose='user-precondition'), dict(context, purpose='user-postread')
+        before = self._read('inventory', dict(pre, part='switch-inventory'), deadline)
+        current, why = self._try_read(command, full_users.CURRENT, full_users.parse_current)
+        groups = [before.number]
+        if not before.ok or current is None:
+            return 'REFUSED', {'groups': groups}, 'the whole inventory or the current user is unavailable: %s' % (
+                why or before.reason), True, groups
+        found = full_users.find(before.reading, user['id'])
+        outgoing = full_users.find(before.reading, current)
+        if len(found) != 1 or found[0]['serial'] != user['serial'] or found[0]['state'] == 'NOT_RUNNING':
+            why = 'the user is not listed running as resolved: a switch never starts a user'
+        elif before.reading['current_user'] != current:
+            why = 'the two current user reads disagree'
+        elif current == user['id']:
+            why = 'the user is in the foreground already'
+        elif current != 0 and (len(outgoing) != 1 or 'no_run_in_background' in outgoing[0]['restrictions']):
+            why = 'the switch would stop user %d, which may not run in the background' % current
+        if why is not None:
+            return 'REFUSED', {'groups': groups, 'current': current}, why, True, groups
+        result = command('lab-action-effect', full_users.switch_command(user['id']))
+        outcome = {'reply': full_users.classify_switch(result.exit, *self._streams(result), user['id']),
+                   'capture': self.ledger.last.number, 'outgoing': current}
+        postreads = []
+
+        def read():
+            now, missing = self._try_read(command, full_users.CURRENT, full_users.parse_current)
+            group = self._read('inventory', dict(post, part='after-switch'), deadline)
+            postreads.append(group.number)
+            visible, unseen = self._try_read(command, full_users.visible_command(user['id']), full_users.parse_visible)
+            return {'current': now, 'group': group, 'visible': visible, 'missing': missing or unseen}
+
+        def confirmed(poll):
+            state = full_users.condition(poll['group'].reading, user['id']) if poll['group'].ok else None
+            return (poll['current'] == user['id'] and state is not None and state['condition'] == 'FOREGROUND'
+                    and poll['visible'] is True)
+        poll = self._settle(read, lambda p: outcome['reply'] != 'SWITCHED' or confirmed(p), deadline)
+        group = poll['group']
+        if outcome['reply'] == 'UNRECOGNIZED':
+            return 'UNKNOWN', outcome, 'the switch gave no qualified reply: its effect is unknown', False, postreads
+        if poll['current'] is None or poll['visible'] is None or not group.ok:
+            return 'UNKNOWN', outcome, 'a read after the switch is unavailable: %s' % (poll['missing'] or group.reason), \
+                False, postreads
+        state = full_users.condition(group.reading, user['id'])
+        outcome.update(foreground=poll['current'], dump_current=group.reading['current_user'], visible=poll['visible'],
+                       condition=state, stopped=[list(p) for p in full_users.still_running(before.reading,
+                                                                                         group.reading)])
+        if outcome['stopped']:
+            return 'UNEXPECTED', outcome, 'a user that ran before the switch no longer runs', True, postreads
+        if outcome['reply'] != 'SWITCHED':
+            if poll['current'] == current and group.reading['current_user'] == current:
+                return 'FAILED', outcome, 'the switch failed, and user %d stays in the foreground' % current, True, \
+                    postreads
+            return 'UNEXPECTED', outcome, 'the switch reported a failure, yet the foreground changed', True, postreads
+        if confirmed(poll):
+            return 'OK', outcome, None, True, postreads
+        if poll['current'] != user['id'] or group.reading['current_user'] != user['id']:
+            return 'UNEXPECTED', outcome, 'the switch reported done, yet user %d is current' % poll['current'], True, \
+                postreads
+        if state is None or state['condition'] != 'FOREGROUND':
+            return 'UNEXPECTED', outcome, 'the user is current but does not run', True, postreads
+        return 'UNEXPECTED', outcome, 'the user is current but not visible', True, postreads
+
+    def _act_user_setup(self, context, command, begin, spec, user):
+        """USER_SETUP: the image's own setup of the created user, in the foreground with CE storage
+        unlocked. Its admitted key and tap steps drive the setup the image shows; nothing writes a
+        setting. It settles only on the setup Android records: `user_setup_complete` 1 for the user,
+        polled within the spec's settle bound, and a whole inventory showing the user initialized,
+        current and unlocked. A setup that was already complete runs no step."""
+        deadline = begin['deadline_monotonic_ns']
+        pre, post = dict(context, purpose='user-precondition'), dict(context, purpose='user-postread')
+        before = self._read('inventory', dict(pre, part='setup-inventory'), deadline)
+        current, why = self._try_read(command, full_users.CURRENT, full_users.parse_current)
+        value, unseen = self._try_read(command, full_users.setup_command(user['id']), full_users.parse_setup)
+        groups = [before.number]
+        if not before.ok or current is None or value is None:
+            return 'REFUSED', {'groups': groups}, 'a read before the setup is unavailable: %s' % (
+                why or unseen or before.reason), True, groups
+        state = full_users.condition(before.reading, user['id'])
+        if current != user['id'] or state is None or state['condition'] != 'FOREGROUND' or not state['ce_unlocked']:
+            return 'REFUSED', {'groups': groups, 'current': current, 'condition': state}, \
+                'the user is not the foreground user with CE storage unlocked', True, groups
+        found = full_users.find(before.reading, user['id'])[0]
+        if value == '1' and found['flags'] & full_users.FLAG_INITIALIZED:
+            return 'OK', {'already_complete': True, 'setup': value, 'groups': groups}, None, True, groups
+        for at, step in enumerate(spec['parameters']['steps']):
+            result = command('lab-action-effect', full_users.step_command(step))
+            if full_users.classify_input(result.exit, *self._streams(result)) != 'INJECTED':
+                return 'UNKNOWN', {'step': at}, 'setup step %d gave no qualified reply' % at, False, []
+        settle_ms = spec['parameters']['settle_ms']
+        settle_deadline = min(deadline, self._monotonic() + settle_ms * 1_000_000)
+        polled = self._settle(lambda: self._try_read(command, full_users.setup_command(user['id']),
+                                                     full_users.parse_setup),
+                              lambda v: v[0] == '1', settle_deadline, polls=1 + settle_ms // int(USER_POLL_S * 1000))
+        after = self._read('inventory', dict(post, part='after-setup'), deadline)
+        outcome = {'setup': polled[0], 'steps': len(spec['parameters']['steps'])}
+        if polled[0] is None or not after.ok:
+            return 'UNKNOWN', outcome, 'a read after the setup is unavailable: %s' % (polled[1] or after.reason), \
+                False, [after.number]
+        state = full_users.condition(after.reading, user['id'])
+        found = full_users.find(after.reading, user['id'])
+        outcome.update(condition=state, initialized=bool(found and found[0]['flags'] & full_users.FLAG_INITIALIZED))
+        if (polled[0] == '1' and outcome['initialized'] and state is not None and state['condition'] == 'FOREGROUND'
+                and state['ce_unlocked'] and after.reading['current_user'] == user['id']):
+            return 'OK', outcome, None, True, [after.number]
+        return 'UNEXPECTED', outcome, 'the setup Android records did not complete', True, [after.number]
+
+    def _act_user_fixture(self, context, command, begin, spec, user):
+        """USER_FIXTURE: one ordinary fixture for the created user. It must be installed for the
+        system user already, at a base APK whose bytes are the pinned ones. Then
+        `pm install-existing` and `pm enable` for the user, whose replies prove nothing by
+        themselves; it settles only when reads show the package installed for the user under the
+        user's UID of the same app ID, at the same base APK with the pinned bytes, and enabled."""
+        package, pin = spec['parameters']['package'], spec['inputs'][0]
+        target = user['id']
+        uid, why = self._try_read(command, full_users.package_uid_command(0, package), full_users.parse_package_uid,
+                                  package, 0)
+        path, unseen = (self._try_read(command, full_users.package_path_command(0, package),
+                                       full_users.parse_package_path, package) if uid is not None else (None, None))
+        digest, unread = (self._try_read(command, full_users.digest_command(path, package), full_users.parse_digest,
+                                         path) if path is not None else (None, None))
+        if digest is None or digest != pin['sha256']:
+            return 'REFUSED', {'uid': uid, 'path': path, 'digest': digest}, why or unseen or unread or (
+                'the fixture is not installed for the system user with its pinned bytes'), True, []
+        installed, why = self._try_read(command, full_users.package_uid_command(target, package),
+                                        full_users.parse_package_uid, package, target)
+        if why is not None:
+            return 'REFUSED', {'uid': uid}, why, True, []
+        outcome = {'system_uid': uid, 'path': path}
+        if installed is None:
+            result = command('lab-action-effect', full_users.install_existing_command(target, package))
+            outcome['install'] = full_users.classify_install_existing(result.exit, *self._streams(result), package,
+                                                                       target)
+            if outcome['install'] == 'UNRECOGNIZED':
+                return 'UNKNOWN', outcome, 'the install gave no qualified reply: its effect is unknown', False, []
+            if outcome['install'] == 'MISSING':
+                return 'FAILED', outcome, 'the package does not exist for the install', True, []
+        result = command('lab-action-effect', full_users.enable_command(target, package))
+        outcome['enabled'] = full_users.classify_enable(result.exit, *self._streams(result), package)
+        if outcome['enabled'] == 'UNRECOGNIZED':
+            return 'UNKNOWN', outcome, 'the enable gave no qualified reply: its effect is unknown', False, []
+        reads = [self._try_read(command, full_users.package_uid_command(target, package), full_users.parse_package_uid,
+                                package, target),
+                 self._try_read(command, full_users.package_path_command(target, package),
+                                full_users.parse_package_path, package)]
+        if reads[1][0] is not None:
+            reads.append(self._try_read(command, full_users.digest_command(reads[1][0], package),
+                                        full_users.parse_digest, reads[1][0]))
+        missing = [r[1] for r in reads if r[1] is not None]
+        if missing:
+            return 'UNKNOWN', outcome, 'a read after the install is unavailable: %s' % missing[0], False, []
+        outcome.update(uid=reads[0][0], user_path=reads[1][0], digest=reads[2][0] if len(reads) > 2 else None)
+        expected = target * full_users.PER_USER_RANGE + uid % full_users.PER_USER_RANGE
+        if (outcome['uid'] == expected and outcome['user_path'] == path and outcome['digest'] == pin['sha256']
+                and outcome['enabled'] == 'enabled'):
+            return 'OK', outcome, None, True, []
+        return 'UNEXPECTED', outcome, 'the fixture is not read installed and enabled for the user with its pinned ' \
+            'bytes', True, []
+
+    def systemui_processes(self, purpose):
+        """Each listed user's genuine main SystemUI process, read between generations: a whole
+        typed inventory, then the process discovery over it, each the broker's own recorded group
+        and never a deployment fact. Returns (inventory group, process group or None)."""
+        if self.admission['version'] != 3 or not self.reader.users_admitted:
+            raise BrokerError('the process discovery needs a version 3 admission and its full user reader')
+        if self.open_generation is not None:
+            raise BrokerError('the process discovery never runs beside a generation')
+        if not isinstance(purpose, str) or not purpose.strip():
+            raise BrokerError('the process discovery names its purpose')
+        self._fence()
+        context = {'request': None, 'generation': None, 'purpose': 'systemui-processes', 'reason': purpose}
+        inventory = self._group('inventory', self.reader.inventory, context, None, emitted=False)
+        if not inventory.ok:
+            return inventory, None
+        reading = inventory.reading
+        processes = self._group('systemui-processes', lambda: self.reader.systemui_processes(reading),
+                                dict(context, inventory_group=inventory.number), None, emitted=False)
+        return inventory, processes
 
     def _act_visibility(self, context, command, begin_record, issue, user):
         """NOTICE_VISIBILITY: the notice adapter's fixed capture and read of one required
@@ -2570,13 +3106,14 @@ class Broker:
         BOUND_COMMAND_MIN_S of it left; the deadline is then each command's launch deadline (a fresh
         broker's feature query included), refused after its durable intent and by the transport right
         before its request, and each command is given only what is left of it. A clock, target or
-        typed inventory or global session inventory group records a reading instead of facts."""
+        typed inventory, user limits, SystemUI process or global session inventory group records a
+        reading instead of facts."""
         def project(value):
             if name == 'clock':
                 return [], {'boot': value[0], 'instance': value[1], 'elapsed': value[2], 'wall': value[3]}
             if name == 'target':
                 return [], {'scope': value}
-            if name in ('inventory', 'global-sessions'):
+            if name in USER_READINGS or name == 'global-sessions':
                 return [], value
             return list(value), None
         projected, captures, status, reason = self._call_reader(name, call, context, deadline_ns, project)
@@ -2591,13 +3128,17 @@ class Broker:
                 problem = None if reading['scope'] in TARGET_SCOPES else 'a target scope of no known name'
             elif name == 'inventory':
                 problem = lab_actions.check_inventory(reading)
+            elif name == 'user-limits':
+                problem = full_users.check_limits(reading)
+            elif name == 'systemui-processes':
+                problem = full_users.check_processes(reading)
             elif name == 'global-sessions':
                 problem = lab_actions.check_global(reading)
             else:
                 problem = self._facts_problem(name, facts, raw, expect_boot)
             if problem is not None:
                 status, reason, frames = 'refused', problem, []
-            elif name not in ('clock', 'target', 'inventory', 'global-sessions'):
+            elif name not in ('clock', 'target', 'global-sessions') + USER_READINGS:
                 frames = [encoder.observation(f) for f in facts]
         if status != 'facts':
             facts, frames, reading = [], [], None
@@ -2610,6 +3151,8 @@ class Broker:
         number = self.ledger.record('group', record)
         self._read_record(dict(record, number=number))
         self._users(record)
+        if name == 'inventory' and status == 'facts':
+            self._serials(reading)
         if record['emitted']:
             for item in observations:
                 self._scaled(item)

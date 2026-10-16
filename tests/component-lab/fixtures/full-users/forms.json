@@ -1,0 +1,247 @@
+{
+ "cmdline-4734": {
+  "command": "cat /proc/4734/cmdline",
+  "exit": 0,
+  "origin": "source",
+  "source": "core/jni/AndroidRuntime.cpp:352-370",
+  "stderr": ""
+ },
+ "context-4734": {
+  "command": "cat /proc/4734/attr/current",
+  "exit": 0,
+  "origin": "source",
+  "source": "the kernel SELinux attribute, not pinned here",
+  "stderr": ""
+ },
+ "create-refused-maximum": {
+  "command": "pm create-user --user-type android.os.usertype.full.SECONDARY AndrixLab",
+  "exit": 1,
+  "origin": "source",
+  "source": "services/core/java/com/android/server/pm/PackageManagerShellCommand.java:3238-3257; services/core/java/com/android/server/pm/UserManagerService.java:6505-6510; core/java/android/os/ServiceSpecificException.java:52-54",
+  "stderr": "Error: android.os.ServiceSpecificException: Cannot add more users of type android.os.usertype.full.SECONDARY. Maximum number of that type already exists. (code 6)\nError: couldn't create User.\n"
+ },
+ "create-refused-restriction": {
+  "command": "pm create-user --user-type android.os.usertype.full.SECONDARY AndrixLab",
+  "exit": 1,
+  "origin": "source",
+  "source": "services/core/java/com/android/server/pm/PackageManagerShellCommand.java:3238-3257; services/core/java/com/android/server/pm/UserManagerService.java:6340-6378, 9223-9232",
+  "stderr": "Error: android.os.ServiceSpecificException: Cannot add user: no_add_user is enabled. (code 10)\nError: couldn't create User.\n"
+ },
+ "create-success": {
+  "command": "pm create-user --user-type android.os.usertype.full.SECONDARY AndrixLab",
+  "exit": 0,
+  "origin": "source",
+  "source": "services/core/java/com/android/server/pm/PackageManagerShellCommand.java:3143-3258",
+  "stderr": ""
+ },
+ "current-user": {
+  "command": "am get-current-user",
+  "exit": 0,
+  "origin": "source",
+  "source": "services/core/java/com/android/server/am/ActivityManagerShellCommand.java:3045-3052",
+  "stderr": ""
+ },
+ "dump-background": {
+  "command": "dumpsys user",
+  "exit": 0,
+  "origin": "source",
+  "source": "services/core/java/com/android/server/pm/UserManagerService.java:8245-8460, 8473-8566; UserVisibilityMediator.java:1202-1290; UserTypeDetails.java:411-443; UserSystemPackageInstaller.java:739-785; MultiuserNonComplianceLogger.java:276-354",
+  "stderr": ""
+ },
+ "dump-created": {
+  "command": "dumpsys user",
+  "exit": 0,
+  "origin": "source",
+  "source": "services/core/java/com/android/server/pm/UserManagerService.java:8245-8460, 8473-8566; UserVisibilityMediator.java:1202-1290; UserTypeDetails.java:411-443; UserSystemPackageInstaller.java:739-785; MultiuserNonComplianceLogger.java:276-354",
+  "stderr": ""
+ },
+ "dump-foreground": {
+  "command": "dumpsys user",
+  "exit": 0,
+  "origin": "source",
+  "source": "services/core/java/com/android/server/pm/UserManagerService.java:8245-8460, 8473-8566; UserVisibilityMediator.java:1202-1290; UserTypeDetails.java:411-443; UserSystemPackageInstaller.java:739-785; MultiuserNonComplianceLogger.java:276-354",
+  "stderr": ""
+ },
+ "dump-system-only": {
+  "command": "dumpsys user",
+  "exit": 0,
+  "origin": "source",
+  "source": "services/core/java/com/android/server/pm/UserManagerService.java:8245-8460, 8473-8566; UserVisibilityMediator.java:1202-1290; UserTypeDetails.java:411-443; UserSystemPackageInstaller.java:739-785; MultiuserNonComplianceLogger.java:276-354",
+  "stderr": ""
+ },
+ "enable": {
+  "command": "pm enable --user 13 dev.andrix.lab.notice",
+  "exit": 0,
+  "origin": "source",
+  "source": "services/core/java/com/android/server/pm/PackageManagerShellCommand.java:2431-2471",
+  "stderr": ""
+ },
+ "install-existing": {
+  "command": "pm install-existing --user 13 dev.andrix.lab.notice",
+  "exit": 0,
+  "origin": "source",
+  "source": "services/core/java/com/android/server/pm/PackageManagerShellCommand.java:1998-2073",
+  "stderr": ""
+ },
+ "list-background": {
+  "command": "pm list users",
+  "exit": 0,
+  "origin": "source",
+  "source": "UserManagerServiceShellCommand.java:205-320; services/core/java/com/android/server/pm/PackageManagerShellCommand.java:802-806",
+  "stderr": ""
+ },
+ "list-created": {
+  "command": "pm list users",
+  "exit": 0,
+  "origin": "source",
+  "source": "UserManagerServiceShellCommand.java:205-320; services/core/java/com/android/server/pm/PackageManagerShellCommand.java:802-806",
+  "stderr": ""
+ },
+ "list-system-only": {
+  "command": "pm list users",
+  "exit": 0,
+  "origin": "source",
+  "source": "UserManagerServiceShellCommand.java:205-320; services/core/java/com/android/server/pm/PackageManagerShellCommand.java:802-806",
+  "stderr": ""
+ },
+ "max-of-type": {
+  "command": "pm get-max-users --user-type android.os.usertype.full.SECONDARY",
+  "exit": 0,
+  "origin": "source",
+  "source": "services/core/java/com/android/server/pm/PackageManagerShellCommand.java:3496-3520; services/core/java/com/android/server/pm/UserManagerService.java:4232-4242",
+  "stderr": ""
+ },
+ "max-running": {
+  "command": "pm get-max-running-users",
+  "exit": 0,
+  "origin": "source",
+  "source": "services/core/java/com/android/server/pm/PackageManagerShellCommand.java:3552-3558",
+  "stderr": ""
+ },
+ "max-users": {
+  "command": "pm get-max-users",
+  "exit": 0,
+  "origin": "source",
+  "source": "services/core/java/com/android/server/pm/PackageManagerShellCommand.java:3496-3520",
+  "stderr": ""
+ },
+ "path-fixture": {
+  "command": "pm path --user 13 dev.andrix.lab.notice",
+  "exit": 0,
+  "origin": "source",
+  "source": "services/core/java/com/android/server/pm/PackageManagerShellCommand.java:741-775",
+  "stderr": ""
+ },
+ "pidof-none": {
+  "command": "pidof com.android.systemui",
+  "exit": 1,
+  "origin": "source",
+  "source": "toybox pidof, not pinned here",
+  "stderr": ""
+ },
+ "pidof-two": {
+  "command": "pidof com.android.systemui",
+  "exit": 0,
+  "origin": "source",
+  "source": "toybox pidof, not pinned here",
+  "stderr": ""
+ },
+ "setup-complete": {
+  "command": "settings get --user 13 secure user_setup_complete",
+  "exit": 0,
+  "origin": "source",
+  "source": "packages/SettingsProvider/src/com/android/providers/settings/SettingsService.java:257-265, 350-375",
+  "stderr": ""
+ },
+ "setup-null": {
+  "command": "settings get --user 13 secure user_setup_complete",
+  "exit": 0,
+  "origin": "source",
+  "source": "packages/SettingsProvider/src/com/android/providers/settings/SettingsService.java:257-265, 350-375",
+  "stderr": ""
+ },
+ "setup-step": {
+  "command": "input keyevent KEYCODE_ENTER",
+  "exit": 0,
+  "origin": "source",
+  "source": "services/core/java/com/android/server/input/InputShellCommand.java:272-315, 403-480",
+  "stderr": ""
+ },
+ "start-failed": {
+  "command": "am start-user -w 13",
+  "exit": 0,
+  "origin": "source",
+  "source": "services/core/java/com/android/server/am/ActivityManagerShellCommand.java:3117-3122",
+  "stderr": "Error: could not start user\n"
+ },
+ "start-success": {
+  "command": "am start-user -w 13",
+  "exit": 0,
+  "origin": "source",
+  "source": "services/core/java/com/android/server/am/ActivityManagerShellCommand.java:3054-3123",
+  "stderr": ""
+ },
+ "stat-4734": {
+  "command": "cat /proc/4734/stat",
+  "exit": 0,
+  "origin": "source",
+  "source": "the kernel do_task_stat, not pinned here; core/jni/com_android_internal_os_Zygote.cpp:958-984",
+  "stderr": ""
+ },
+ "status-4734": {
+  "command": "cat /proc/4734/status",
+  "exit": 0,
+  "origin": "source",
+  "source": "the kernel task_state, not pinned here",
+  "stderr": ""
+ },
+ "status-denied": {
+  "command": "cat /proc/4734/status",
+  "exit": 1,
+  "origin": "source",
+  "source": "toybox cat, not pinned here",
+  "stderr": "cat: /proc/4734/status: Permission denied\n"
+ },
+ "supports-true": {
+  "command": "pm supports-multiple-users",
+  "exit": 0,
+  "origin": "source",
+  "source": "services/core/java/com/android/server/pm/PackageManagerShellCommand.java:3489-3493",
+  "stderr": ""
+ },
+ "switch-failed": {
+  "command": "am switch-user -w 13",
+  "exit": 1,
+  "origin": "source",
+  "source": "services/core/java/com/android/server/am/ActivityManagerShellCommand.java:3026-3041",
+  "stderr": ""
+ },
+ "switch-not-switchable": {
+  "command": "am switch-user -w 13",
+  "exit": 255,
+  "origin": "source",
+  "source": "services/core/java/com/android/server/am/ActivityManagerShellCommand.java:3018-3022",
+  "stderr": "Error: UserSwitchabilityResult=2\n"
+ },
+ "switch-success": {
+  "command": "am switch-user -w 13",
+  "exit": 0,
+  "origin": "source",
+  "source": "services/core/java/com/android/server/am/ActivityManagerShellCommand.java:2965-3043",
+  "stderr": ""
+ },
+ "uid-list-13": {
+  "command": "pm list packages --user 13 -U com.android.systemui",
+  "exit": 0,
+  "origin": "source",
+  "source": "services/core/java/com/android/server/pm/PackageManagerShellCommand.java:975-1180",
+  "stderr": ""
+ },
+ "visible-true": {
+  "command": "cmd user is-user-visible 13",
+  "exit": 0,
+  "origin": "source",
+  "source": "UserManagerServiceShellCommand.java:476-501",
+  "stderr": ""
+ }
+}

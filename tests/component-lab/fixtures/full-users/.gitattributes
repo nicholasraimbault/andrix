@@ -1,0 +1,2 @@
+# Shell output is kept byte for byte, with the trailing spaces that dumpsys prints.
+*.out -text -whitespace

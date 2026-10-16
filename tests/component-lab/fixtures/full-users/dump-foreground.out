@@ -1,0 +1,342 @@
+Current user: 13
+
+Users:
+  UserInfo{0:null:4c13} serialNo=0 isPrimary=true
+    Type: android.os.usertype.full.SYSTEM
+    Flags: 19475 (ADMIN|FULL|INITIALIZED|MAIN|PRIMARY|SYSTEM)
+    State: RUNNING_UNLOCKED
+    Created: <unknown>
+    Last logged in: +8m41s502ms ago
+    Last logged in fingerprint: andrix/cf/cf:17/BP4A.260813.001/2026081300:userdebug/test-keys
+    Start time: +8m52s117ms ago
+    Unlock time: +8m41s498ms ago
+    Last entered foreground: <unknown>
+    Restrictions:
+      null
+    Device policy restrictions:
+      null
+    Effective restrictions:
+      null
+    UserProperties:
+        mPropertiesPresent=0
+        mShowInLauncher=0
+        mStartWithParent=false
+        mShowInSettings=0
+        mInheritDevicePolicy=0
+        mUseParentsContacts=false
+        mUpdateCrossProfileIntentFiltersOnOTA=false
+        mCrossProfileIntentFilterAccessControl=0
+        mCrossProfileIntentResolutionStrategy=0
+        mMediaSharedWithParent=false
+        mCredentialShareableWithParent=false
+        mAuthAlwaysRequiredToDisableQuietMode=false
+        mAllowStoppingUserWithDelayedLocking=false
+        mDeleteAppWithParent=false
+        mAlwaysVisible=false
+        mCrossProfileContentSharingStrategy=1
+        mProfileApiVisibility=0
+        mItemsRestrictedOnHomeScreen=false
+    Ignore errors preparing storage: false
+  UserInfo{13:AndrixLab:410} serialNo=41 isPrimary=false
+    Type: android.os.usertype.full.SECONDARY
+    Flags: 1040 (FULL|INITIALIZED)
+    State: RUNNING_UNLOCKED
+    Created: +2h14m3s211ms ago
+    Last logged in: +8m41s502ms ago
+    Last logged in fingerprint: andrix/cf/cf:17/BP4A.260813.001/2026081300:userdebug/test-keys
+    Start time: +8m52s117ms ago
+    Unlock time: +8m41s498ms ago
+    Last entered foreground: +8m41s502ms ago
+    Restrictions:
+      no_outgoing_calls
+      no_sms
+    Device policy restrictions:
+      null
+    Effective restrictions:
+      no_outgoing_calls
+      no_sms
+    UserProperties:
+        mPropertiesPresent=0
+        mShowInLauncher=0
+        mStartWithParent=false
+        mShowInSettings=0
+        mInheritDevicePolicy=0
+        mUseParentsContacts=false
+        mUpdateCrossProfileIntentFiltersOnOTA=false
+        mCrossProfileIntentFilterAccessControl=0
+        mCrossProfileIntentResolutionStrategy=0
+        mMediaSharedWithParent=false
+        mCredentialShareableWithParent=false
+        mAuthAlwaysRequiredToDisableQuietMode=false
+        mAllowStoppingUserWithDelayedLocking=false
+        mDeleteAppWithParent=false
+        mAlwaysVisible=false
+        mCrossProfileContentSharingStrategy=1
+        mProfileApiVisibility=0
+        mItemsRestrictedOnHomeScreen=false
+    Ignore errors preparing storage: false
+
+Device properties:
+  Device policy global restrictions:
+    null
+  Guest restrictions:
+    no_outgoing_calls
+    no_sms
+
+  Started users state: [0=RUNNING_UNLOCKED, 13=RUNNING_UNLOCKED]
+  Cached user IDs: [0, 13]
+  Cached user IDs (including pre-created): [0, 13]
+
+  Supports switchable users: true
+  Max switchable users: 4 (built-in value: 32)
+  All guests ephemeral: false
+  Force ephemeral users: false
+  Is headless-system mode: false
+  Is main user permanent admin: true
+  User version: 11
+  Owner name: Owner
+  Guest name: null
+  Unnamed user name: User
+  Boot user: N/A
+  Device owner user: N/A
+
+UserVisibilityMediator
+  DBG: false
+  Current user id: 13
+  Visible users: [13]
+  Number of started visible user / profile group mappings: 1
+    u:13 -> pg:13
+  Supports visible background users on displays: false
+  Supports visible background users on default display: false
+  No user / display mappings
+  No extra display / user mappings
+  Visible users per display cache: N/A
+  Number of listeners: 1
+    0: com.android.server.pm.UserManagerService$1@5f0a3c2
+
+
+Number of listeners for
+  restrictions: 5
+  user lifecycle events: 12
+
+User types version: 1
+User types (5 types):
+    android.os.usertype.full.SYSTEM: 
+        mName: android.os.usertype.full.SYSTEM
+        mBaseType: FULL|SYSTEM
+        mEnabled: true
+        mMaxAllowed: 1
+        mMaxAllowedPerParent: -1
+        mDefaultUserInfoFlags: 0
+        UserProperties:
+            mPropertiesPresent=0
+            mShowInLauncher=0
+            mStartWithParent=false
+            mShowInSettings=0
+            mInheritDevicePolicy=0
+            mUseParentsContacts=false
+            mUpdateCrossProfileIntentFiltersOnOTA=false
+            mCrossProfileIntentFilterAccessControl=0
+            mCrossProfileIntentResolutionStrategy=0
+            mMediaSharedWithParent=false
+            mCredentialShareableWithParent=false
+            mAuthAlwaysRequiredToDisableQuietMode=false
+            mAllowStoppingUserWithDelayedLocking=false
+            mDeleteAppWithParent=false
+            mAlwaysVisible=false
+            mCrossProfileContentSharingStrategy=1
+            mProfileApiVisibility=0
+            mItemsRestrictedOnHomeScreen=false
+        mDefaultRestrictions: 
+            null
+        mProfileParentRequired: false
+        mIconBadge: 0
+        mBadgePlain: 0
+        mBadgeNoBackground: 0
+        mStatusBarIcon: 0
+        mBadgeLabels.length: 0(null)
+        mBadgeColors.length: 0(null)
+        mDarkThemeBadgeColors.length: 0(null)
+        mLabels.length: 0(null)
+        mActivitiesAllowlist: null
+        mActivitiesAllowlistMode: 0 (ALLOWLIST_MODE_DISABLED)
+    android.os.usertype.full.SECONDARY: 
+        mName: android.os.usertype.full.SECONDARY
+        mBaseType: FULL
+        mEnabled: true
+        mMaxAllowed: 3
+        mMaxAllowedPerParent: -1
+        mDefaultUserInfoFlags: 0
+        UserProperties:
+            mPropertiesPresent=0
+            mShowInLauncher=0
+            mStartWithParent=false
+            mShowInSettings=0
+            mInheritDevicePolicy=0
+            mUseParentsContacts=false
+            mUpdateCrossProfileIntentFiltersOnOTA=false
+            mCrossProfileIntentFilterAccessControl=0
+            mCrossProfileIntentResolutionStrategy=0
+            mMediaSharedWithParent=false
+            mCredentialShareableWithParent=false
+            mAuthAlwaysRequiredToDisableQuietMode=false
+            mAllowStoppingUserWithDelayedLocking=false
+            mDeleteAppWithParent=false
+            mAlwaysVisible=false
+            mCrossProfileContentSharingStrategy=1
+            mProfileApiVisibility=0
+            mItemsRestrictedOnHomeScreen=false
+        mDefaultRestrictions: 
+            no_outgoing_calls
+            no_sms
+        mProfileParentRequired: false
+        mIconBadge: 0
+        mBadgePlain: 0
+        mBadgeNoBackground: 0
+        mStatusBarIcon: 0
+        mBadgeLabels.length: 0(null)
+        mBadgeColors.length: 0(null)
+        mDarkThemeBadgeColors.length: 0(null)
+        mLabels.length: 0(null)
+        mActivitiesAllowlist: null
+        mActivitiesAllowlistMode: 0 (ALLOWLIST_MODE_DISABLED)
+    android.os.usertype.full.GUEST: 
+        mName: android.os.usertype.full.GUEST
+        mBaseType: FULL
+        mEnabled: true
+        mMaxAllowed: 1
+        mMaxAllowedPerParent: -1
+        mDefaultUserInfoFlags: 0
+        UserProperties:
+            mPropertiesPresent=0
+            mShowInLauncher=0
+            mStartWithParent=false
+            mShowInSettings=0
+            mInheritDevicePolicy=0
+            mUseParentsContacts=false
+            mUpdateCrossProfileIntentFiltersOnOTA=false
+            mCrossProfileIntentFilterAccessControl=0
+            mCrossProfileIntentResolutionStrategy=0
+            mMediaSharedWithParent=false
+            mCredentialShareableWithParent=false
+            mAuthAlwaysRequiredToDisableQuietMode=false
+            mAllowStoppingUserWithDelayedLocking=false
+            mDeleteAppWithParent=false
+            mAlwaysVisible=false
+            mCrossProfileContentSharingStrategy=1
+            mProfileApiVisibility=0
+            mItemsRestrictedOnHomeScreen=false
+        mDefaultRestrictions: 
+            null
+        mProfileParentRequired: false
+        mIconBadge: 0
+        mBadgePlain: 0
+        mBadgeNoBackground: 0
+        mStatusBarIcon: 0
+        mBadgeLabels.length: 0(null)
+        mBadgeColors.length: 0(null)
+        mDarkThemeBadgeColors.length: 0(null)
+        mLabels.length: 0(null)
+        mActivitiesAllowlist: null
+        mActivitiesAllowlistMode: 0 (ALLOWLIST_MODE_DISABLED)
+    android.os.usertype.profile.MANAGED: 
+        mName: android.os.usertype.profile.MANAGED
+        mBaseType: PROFILE
+        mEnabled: true
+        mMaxAllowed: 1
+        mMaxAllowedPerParent: -1
+        mDefaultUserInfoFlags: 0
+        UserProperties:
+            mPropertiesPresent=0
+            mShowInLauncher=0
+            mStartWithParent=false
+            mShowInSettings=0
+            mInheritDevicePolicy=0
+            mUseParentsContacts=false
+            mUpdateCrossProfileIntentFiltersOnOTA=false
+            mCrossProfileIntentFilterAccessControl=0
+            mCrossProfileIntentResolutionStrategy=0
+            mMediaSharedWithParent=false
+            mCredentialShareableWithParent=false
+            mAuthAlwaysRequiredToDisableQuietMode=false
+            mAllowStoppingUserWithDelayedLocking=false
+            mDeleteAppWithParent=false
+            mAlwaysVisible=false
+            mCrossProfileContentSharingStrategy=1
+            mProfileApiVisibility=0
+            mItemsRestrictedOnHomeScreen=false
+        mDefaultRestrictions: 
+            null
+        mProfileParentRequired: true
+        mIconBadge: 0
+        mBadgePlain: 0
+        mBadgeNoBackground: 0
+        mStatusBarIcon: 0
+        mBadgeLabels.length: 0(null)
+        mBadgeColors.length: 0(null)
+        mDarkThemeBadgeColors.length: 0(null)
+        mLabels.length: 0(null)
+        mActivitiesAllowlist: null
+        mActivitiesAllowlistMode: 0 (ALLOWLIST_MODE_DISABLED)
+    android.os.usertype.profile.PRIVATE: 
+        mName: android.os.usertype.profile.PRIVATE
+        mBaseType: PROFILE
+        mEnabled: true
+        mMaxAllowed: 1
+        mMaxAllowedPerParent: -1
+        mDefaultUserInfoFlags: 0
+        UserProperties:
+            mPropertiesPresent=0
+            mShowInLauncher=0
+            mStartWithParent=false
+            mShowInSettings=0
+            mInheritDevicePolicy=0
+            mUseParentsContacts=false
+            mUpdateCrossProfileIntentFiltersOnOTA=false
+            mCrossProfileIntentFilterAccessControl=0
+            mCrossProfileIntentResolutionStrategy=0
+            mMediaSharedWithParent=false
+            mCredentialShareableWithParent=false
+            mAuthAlwaysRequiredToDisableQuietMode=false
+            mAllowStoppingUserWithDelayedLocking=false
+            mDeleteAppWithParent=false
+            mAlwaysVisible=false
+            mCrossProfileContentSharingStrategy=1
+            mProfileApiVisibility=0
+            mItemsRestrictedOnHomeScreen=false
+        mDefaultRestrictions: 
+            null
+        mProfileParentRequired: true
+        mIconBadge: 0
+        mBadgePlain: 0
+        mBadgeNoBackground: 0
+        mStatusBarIcon: 0
+        mBadgeLabels.length: 0(null)
+        mBadgeColors.length: 0(null)
+        mDarkThemeBadgeColors.length: 0(null)
+        mLabels.length: 0(null)
+        mActivitiesAllowlist: null
+        mActivitiesAllowlistMode: 0 (ALLOWLIST_MODE_DISABLED)
+
+Allowlisted packages per user type
+  Mode: 13 (enforced) (implicit) (ignore OTAs)
+  Legend
+    0 -> android.os.usertype.full.SYSTEM
+    1 -> android.os.usertype.full.SECONDARY
+    2 -> android.os.usertype.full.GUEST
+    3 -> android.os.usertype.profile.MANAGED
+    4 -> android.os.usertype.profile.PRIVATE
+  No packages
+
+Non-compliant events:
+  Not logging getMainUser() calls
+  
+  Not logging isMainUser() calls
+  
+  Not logging blocked HSU activities
+  
+  Not logging launched HSU activities
+  
+  Not logging blocked HSU notifications
+  
+  Not logging posted HSU notifications
