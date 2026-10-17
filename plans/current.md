@@ -330,6 +330,13 @@ sooner for fixes in Andrix's patch targets. The first move comes after the curre
 and the first component transaction guest finish, so it does not disturb the images they use. The
 second source tree will share its objects with the pinned one.
 
+One record, `upstream/selected-base.json`, now names the base the tools build on, and it selects
+2026081300. A candidate base is checked in a scratch checkout whose own selection names it, never
+by an override in the main one. An offline [exporter](../scripts/proof/grapheneos_export.md)
+writes a candidate's patch set and its host tested record from a sealed carry report whose verdict
+is CARRIED. It checks the candidate with the candidate's own tools before writing, and on failure
+it removes only what it created. It selects nothing.
+
 Gate 3 now has an accepted plan for the
 [first durable component transaction](2026-10-09-component-transaction.md), starting with
 SystemUI. Its records, ticket state machine, reconciler and host store are host qualified, and so
