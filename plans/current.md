@@ -335,7 +335,9 @@ One record, `upstream/selected-base.json`, now names the base the tools build on
 by an override in the main one. An offline [exporter](../scripts/proof/grapheneos_export.md)
 writes a candidate's patch set and its host tested record from a sealed carry report whose verdict
 is CARRIED. It checks the candidate with the candidate's own tools before writing, and on failure
-it removes only what it created. It selects nothing.
+it removes only what it created. It selects nothing. Its first real run recorded the 2026100600
+candidate, whose patches keep the selected base's bytes. The candidate's source gate passes on a
+verified 2026100600 tree, and no build of it has been made.
 
 Gate 3 now has an accepted plan for the
 [first durable component transaction](2026-10-09-component-transaction.md), starting with
