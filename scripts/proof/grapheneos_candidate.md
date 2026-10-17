@@ -3,8 +3,10 @@
 `grapheneos_candidate.py` checks a GrapheneOS base before it is selected. The repository selects
 one base in [`upstream/selected-base.json`](../../upstream/README.md), and every tool builds on
 it. A candidate base's patch directory, `patches/grapheneos-<release>/`, can sit beside the
-selected base's while the candidate is prepared. Production never reads it. This tool checks it
-on its own, in a scratch checkout whose own selection names the candidate. No production tool
+selected base's while the candidate is prepared. Production never reads it.
+[`grapheneos_export.py`](grapheneos_export.md) writes it, with the candidate's own host tested
+record, from a sealed `CARRIED` carry report. This tool checks it on its own, in a scratch
+checkout whose own selection names the candidate. No production tool
 takes an argument that selects another base, so nothing builds on an unselected base by accident.
 
 ```sh

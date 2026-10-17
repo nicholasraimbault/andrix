@@ -4,6 +4,8 @@
 It needs no source tree and leaves the pinned tree untouched. It does not change any patch,
 profile or patch tool. The exact pins those tools check stay the gate for what may be built.
 This check makes the distance to upstream visible between those decisions.
+[`grapheneos_export.py`](grapheneos_export.md) uses its functions to write a candidate base's
+patch set from a sealed `CARRIED` report, offline, without changing this tool.
 
 ```sh
 TRUST=/path/to/allowed_signers   # the public file grapheneos_source.py pins by digest

@@ -19,6 +19,8 @@ nothing here authorizes a build. The exact patch profiles in `patches/` remain t
   directory, the payload sync tool only its record, and
   [`grapheneos_candidate.py`](../scripts/proof/grapheneos_candidate.md) checks a candidate in a
   scratch checkout whose own selection names it.
+  [`grapheneos_export.py`](../scripts/proof/grapheneos_export.md) writes both from a sealed
+  `CARRIED` report, with the carry tool's own functions.
 - `bases/<tag>.json` holds one base record per release tag, derived from the signed manifest
   tag. It has the tag object and manifest commit, the manifest digest and the allowed signers
   digest. It also has the AOSP default revision, the project table digest and count, and the
