@@ -12,8 +12,9 @@ import re
 import stat
 from protocol import (CHANNEL, JOB_ID, LATENCY, NOTIFICATION_SETUP, PACKAGE, SERVICE, SETUP_JAR,
                       TRIAL_LIMIT,
-                      assess_reply, hex_value, instrumentation_argv, notification_preference,
-                      notification_setup_argv, require, sha, strict_json, validate_contract)
+                      DumpUnavailable, assess_reply, dumpsys_argv, hex_value, instrumentation_argv,
+                      notification_preference, notification_setup_argv, require, sha, strict_json,
+                      validate_contract)
 
 PERMISSION = 'android.permission.POST_NOTIFICATIONS'
 OP = 'android:vibrate'
@@ -23,7 +24,17 @@ MODES = {'allow', 'ignore', 'deny', 'default', 'foreground'}
 def capture_text(capture, argv, exit_code=0, stderr=''):
     require(type(capture) is dict and set(capture) == {
         'argv', 'stdout', 'stderr', 'exit_code', 'complete'}, 'capture fields')
-    require(capture['argv'] == argv and capture['complete'] is True
+    require(capture['argv'] == argv, 'command, transport or completeness')
+    if argv[:1] == ['dumpsys']:
+        # A dumpsys capture passes the one completeness gate before anything reads it: its transport
+        # completed, dumpsys exited 0, no timeout line, its stderr empty and its last line ended.
+        # Anything else is unavailable evidence with the gate's reason, never a shorter dump.
+        require(exit_code == 0 and stderr == '', 'a dumpsys read expects exit 0 and no stderr')
+        try:
+            _complete_capture()(capture, ' '.join(argv[3:] if argv[1:2] == ['-t'] else argv[1:]) + ' dump')
+        except ValueError as error:
+            raise DumpUnavailable(str(error)) from error
+    require(capture['complete'] is True
             and type(capture['exit_code']) is int and capture['exit_code'] == exit_code
             and capture['stderr'] == stderr, 'command, transport or completeness')
     text = capture['stdout']
@@ -31,6 +42,16 @@ def capture_text(capture, argv, exit_code=0, stderr=''):
             and all(ord(c) >= 32 or c in '\n\t' for c in text)
             and (not text or text.endswith('\n')), 'bounded LF terminated capture')
     return text
+
+
+_GATE = []
+
+
+def _complete_capture():
+    """uid_observe.complete_capture, the observers' one completeness gate, loaded once."""
+    if not _GATE:
+        _GATE.append(_existing('uid_observe').complete_capture)
+    return _GATE[0]
 
 
 def _one(rows, message):
@@ -46,8 +67,8 @@ def _put(mapping, key, value):
 def permissionmgr(capture, uid, selector='app-id'):
     require(type(uid) is int and 10000 <= uid <= 19999 and selector in ('app-id', 'package'),
             'permission selector')
-    text = capture_text(capture, ['dumpsys', 'permissionmgr', '--' + selector,
-                                  str(uid) if selector == 'app-id' else PACKAGE])
+    text = capture_text(capture, dumpsys_argv('permissionmgr', '--' + selector,
+                                              str(uid) if selector == 'app-id' else PACKAGE))
     lines = text.splitlines()
     require(len(lines) >= 6 and lines[0] == f'App ID: {uid}' and lines[1] == '  User: 0'
             and lines[2] == '    Permissions:', 'permission identity and nesting')
@@ -196,7 +217,7 @@ def notification_setup(capture, contract, nonce):
 def notification(capture, uid, stage='retained', baseline=None):
     require(type(stage) is str and stage in ('absent', 'created', 'retained'),
             'notification observation stage')
-    text = capture_text(capture, ['dumpsys', 'notification', '--noredact', '--package', PACKAGE])
+    text = capture_text(capture, dumpsys_argv('notification', '--noredact', '--package', PACKAGE))
     lines = text.splitlines()
     start = _one([i for i, x in enumerate(lines) if x == 'PackagePreferences:'],
                  'notification preferences section')
@@ -414,7 +435,7 @@ def _job_block(lines, uid, component, contract):
 
 def jobscheduler(capture, contract, admitted, initialized=True):
     validate_contract(contract)
-    text = capture_text(capture, ['dumpsys', 'jobscheduler'])
+    text = capture_text(capture, dumpsys_argv('jobscheduler'))
     lines = text.splitlines()
     uid = contract['uid']; fu = 'u0a' + str(uid - 10000)
     start, count = _one([(i, int(m[1])) for i, line in enumerate(lines)
@@ -527,7 +548,7 @@ def pm_surface(all_packages, admitted_packages, path_capture, details_capture, u
             == (expected if admitted else ''), 'PM admission list')
     require(capture_text(path_capture, ['pm', 'path', PACKAGE], 0 if admitted else 1)
             == ('package:' + code_path + '\n' if admitted else ''), 'PM path surface')
-    text = capture_text(details_capture, ['dumpsys', 'package', PACKAGE])
+    text = capture_text(details_capture, dumpsys_argv('package', PACKAGE))
     lines = text.splitlines()
     header = _one([i for i, line in enumerate(lines)
                    if re.fullmatch(r'  Package \[' + re.escape(PACKAGE) + r'\] \([0-9a-f]+\):', line)],
@@ -559,15 +580,15 @@ def _existing(name):
 
 
 def package_maps(packages_capture, shared_capture):
-    packages = capture_text(packages_capture, ['dumpsys', 'package', 'packages'])
-    shared = capture_text(shared_capture, ['dumpsys', 'package', 'shared-users'])
+    packages = capture_text(packages_capture, dumpsys_argv('package', 'packages'))
+    shared = capture_text(shared_capture, dumpsys_argv('package', 'shared-users'))
     module = _existing('uid_observe')
     return {'packages': module.package_ids(packages), 'shared': module.shared_ids(shared)}
 
 
 def native_dump(capture, schema):
     require(schema in (2, 3), 'explicit B1 or B2 schema')
-    text = capture_text(capture, ['dumpsys', 'package', '--andrix-native-identities'])
+    text = capture_text(capture, dumpsys_argv('package', '--andrix-native-identities'))
     return _existing('observe').parse_reservations(text, schema=schema)
 
 

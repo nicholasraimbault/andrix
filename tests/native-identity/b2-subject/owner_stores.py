@@ -15,7 +15,7 @@ round may settle. ValueError means the evidence is refused or unavailable. Neith
 empty state. Nothing here writes, flushes, reads into a service or repairs a store.
 """
 import re
-from protocol import CHANNEL, JOB_ID, PACKAGE, SERVICE, require, sha, validate_contract
+from protocol import CHANNEL, JOB_ID, PACKAGE, SERVICE, dumpsys_argv, require, sha, validate_contract
 import observations as obs
 import stored
 
@@ -711,8 +711,7 @@ def appops_values(package_capture, uid_capture, uid):
 
 def notification_dump_values(capture):
     """Every rendered preference row named for the subject, with its UID and complete channels."""
-    text = obs.capture_text(capture, ['dumpsys', 'notification', '--noredact', '--package',
-                                      PACKAGE])
+    text = obs.capture_text(capture, dumpsys_argv('notification', '--noredact', '--package', PACKAGE))
     lines = text.splitlines()
     starts = [i for i, x in enumerate(lines) if x == 'PackagePreferences:']
     restored = [i for i, x in enumerate(lines) if x == 'Restored without uid:']
@@ -754,7 +753,7 @@ EXECUTION_FIELD = re.compile(r'(Num failures|Num system stops|Last successful ru
 def job_dump_values(capture, uid):
     """Every registered job of the subject's UID or package, and every execution reference."""
     require(type(uid) is int and 10000 <= uid <= 19999, 'application UID')
-    lines = obs.capture_text(capture, ['dumpsys', 'jobscheduler']).splitlines()
+    lines = obs.capture_text(capture, dumpsys_argv('jobscheduler')).splitlines()
     fu = 'u0a' + str(uid - 10000)
     heads = [(i, int(m[1])) for i, line in enumerate(lines)
              if (m := re.fullmatch(r'Registered (0|[1-9][0-9]*) jobs:', line))]

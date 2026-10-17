@@ -40,9 +40,27 @@ HEX_FIELDS = {'contract_sha256', 'guest_binding_sha256', 'apk_signer_sha256',
               'job_contract_sha256'}
 
 
+# Every dumpsys read of the subject's owners runs with this explicit bound (dumpsys -t SECONDS) in
+# place of dumpsys's default 10 s, within the 90 s transport bound of each read. Each capture passes
+# the one completeness gate, uid_observe.complete_capture, before any reader parses it
+# (observations.capture_text): its transport completed, dumpsys exited 0, its stdout carries no
+# timeout line and ends with a line feed and its stderr is empty. Anything else is unavailable.
+DUMPSYS_TIMEOUT_SECONDS = 30
+
+
 def require(condition, message):
     if not condition:
         raise ValueError(message)
+
+
+class DumpUnavailable(ValueError):
+    """A dumpsys capture that is not one complete dump: unavailable evidence, with the reason the
+    completeness gate gave."""
+
+
+def dumpsys_argv(*words):
+    """The bounded dumpsys command of WORDS (a service and its arguments)."""
+    return ['dumpsys', '-t', str(DUMPSYS_TIMEOUT_SECONDS), *words]
 
 
 def hex_value(value, size=64):

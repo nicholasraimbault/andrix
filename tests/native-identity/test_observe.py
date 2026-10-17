@@ -126,6 +126,21 @@ class ObservationTests(unittest.TestCase):
                     text.replace('\tpackage\t', '\tempty\t')):
             with self.assertRaises(ValueError): observe.parse_reservations(bad)
 
+    def test_a_dump_cut_at_the_dumpsys_timeout_is_unavailable(self):
+        # dumpsys prints its timeout line twice after a partial dump and exits 0: a cut dump, whatever
+        # the part before it would have parsed as.
+        text = ('andrix-native-identities-v3\nlive_settings=true\nauthority=not-reported\n'
+                'counter_known=false\ncached_header=MISSING\ncached_enumeration_complete=false\n'
+                'creation_ready=false\nallocator_search_start=10000\nunidentified_code=false\n'
+                'deferred_count=0\nslot_count=0\n')
+        self.assertEqual(observe.parse_reservations(text, schema=3)['fields']['cached_header'], 'MISSING')
+        marker = "\n*** SERVICE 'package' DUMP TIMEOUT (30000ms) EXPIRED ***\n\n"
+        for cut in (text + marker + marker, text.split('deferred_count')[0] + marker):
+            with self.assertRaises(ValueError) as caught:
+                observe.parse_reservations(cut, schema=3)
+            self.assertEqual(str(caught.exception), "reservation dump unavailable: dumpsys timed out after 30000 ms in "
+                                                    "service 'package', the dump is cut")
+
     def test_schema_two_names_every_deferred_package_and_schema_three_its_slots(self):
         b64 = lambda name: base64.b64encode(name.encode()).decode()
         scalars = ('live_settings=true\nauthority=not-reported\ncounter_known=true\ncached_header=VALID\n'

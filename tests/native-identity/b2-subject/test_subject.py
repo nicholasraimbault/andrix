@@ -208,20 +208,20 @@ class ContractTests(unittest.TestCase):
 
 class ServiceTests(unittest.TestCase):
     def permission(self, text):
-        return obs.permissionmgr(f.capture(['dumpsys', 'permissionmgr', '--app-id', str(f.UID)], text), f.UID)
+        return obs.permissionmgr(f.capture(p.dumpsys_argv('permissionmgr', '--app-id', str(f.UID)), text), f.UID)
 
     def notification(self, text):
-        return obs.notification(f.capture(['dumpsys', 'notification', '--noredact', '--package', p.PACKAGE],
+        return obs.notification(f.capture(p.dumpsys_argv('notification', '--noredact', '--package', p.PACKAGE),
                                           text), f.UID)
 
     def job(self, text, admitted=True):
-        return obs.jobscheduler(f.capture(['dumpsys', 'jobscheduler'], text), f.CONTRACT, admitted)
+        return obs.jobscheduler(f.capture(p.dumpsys_argv('jobscheduler'), text), f.CONTRACT, admitted)
 
     def test_permission_and_package_operation_exact_scope(self):
         value = self.permission(f.permission_text())
         obs.require_permission_state(value, 15)
         self.assertEqual(value['package_ops'], {'android:vibrate': 'ignore'})
-        c = f.capture(['dumpsys', 'permissionmgr', '--package', p.PACKAGE], f.permission_text())
+        c = f.capture(p.dumpsys_argv('permissionmgr', '--package', p.PACKAGE), f.permission_text())
         self.assertEqual(obs.permissionmgr(c, f.UID, 'package'), value)
         obs.require_permission_state(self.permission(f.permission_text(False)), 15, False)
         for old, new in [('flags=[RUNTIME_GRANTED|USER_SET]', 'flags=[RUNTIME_GRANTED]'),
@@ -269,7 +269,7 @@ class ServiceTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.notification(text)
         with self.assertRaises(ValueError):
-            obs.notification(f.capture(['dumpsys', 'notification', '--noredact', '--package', p.PACKAGE],
+            obs.notification(f.capture(p.dumpsys_argv('notification', '--noredact', '--package', p.PACKAGE),
                                         f.notification_text()), f.UID, stage='absent')
 
     def test_old_aliasing_result_and_reset_never_qualify(self):
@@ -281,7 +281,7 @@ class ServiceTests(unittest.TestCase):
             with self.subTest(preference=preference, oracle='stored'), self.assertRaises(ValueError):
                 stored.notification_policy(xml, f.UID)
         # The old command's 1/0 result is not even the pristine -1/0 setup precondition.
-        cap = f.capture(['dumpsys', 'notification', '--noredact', '--package', p.PACKAGE],
+        cap = f.capture(p.dumpsys_argv('notification', '--noredact', '--package', p.PACKAGE),
                         f.notification_text(preference='old-shell'))
         with self.assertRaises(ValueError):
             obs.notification(cap, f.UID, stage='created')
@@ -366,7 +366,7 @@ class ServiceTests(unittest.TestCase):
     def test_created_channel_precondition_is_not_final_preference(self):
         text = f.notification_text().replace('mAllowBubbles=1', 'mAllowBubbles=-1').replace(
             'mUserLockedFields=100', 'mUserLockedFields=0')
-        cap = f.capture(['dumpsys', 'notification', '--noredact', '--package', p.PACKAGE], text)
+        cap = f.capture(p.dumpsys_argv('notification', '--noredact', '--package', p.PACKAGE), text)
         self.assertEqual(obs.notification(cap, f.UID, stage='created')['channel']['mAllowBubbles'], -1)
         with self.assertRaises(ValueError):
             obs.notification(cap, f.UID)
@@ -389,7 +389,7 @@ class ServiceTests(unittest.TestCase):
                                      all_cap['stdout'] if admitted else '')
             path = f.capture(['pm', 'path', p.PACKAGE], 'package:' + code + '\n' if admitted else '',
                              0 if admitted else 1)
-            details = f.capture(['dumpsys', 'package', p.PACKAGE], detail)
+            details = f.capture(p.dumpsys_argv('package', p.PACKAGE), detail)
             self.assertEqual(obs.pm_surface(all_cap, admitted_cap, path, details, f.UID, code,
                                              admitted)['admitted'], admitted)
             for old, new in [('appId=10123', 'appId=10124'), ('installed=true', 'installed=false'),
@@ -406,7 +406,7 @@ class ServiceTests(unittest.TestCase):
               + base64.b64encode(p.PACKAGE.encode()).decode() + '\n'
               'slot=10123\t2\tELIGIBLE\ttrue\ndeferred='
               + base64.b64encode(p.PACKAGE.encode()).decode() + '\n')
-        cap = f.capture(['dumpsys', 'package', '--andrix-native-identities'], b2)
+        cap = f.capture(p.dumpsys_argv('package', '--andrix-native-identities'), b2)
         value = obs.native_dump(cap, 3)
         self.assertEqual(value['deferred_names'], [p.PACKAGE])
         b1 = b2.replace('andrix-native-identities-v3', 'andrix-native-identities-v2').replace(
@@ -418,11 +418,69 @@ class ServiceTests(unittest.TestCase):
             obs.native_dump(cap, 2)
         with self.assertRaises(ValueError):
             obs.native_dump(dict(cap, stdout=b2 + 'slot=10123\t2\tELIGIBLE\ttrue\n'), 3)
-        packages = f.capture(['dumpsys', 'package', 'packages'],
+        packages = f.capture(p.dumpsys_argv('package', 'packages'),
                              f'Packages:\n  Package [{p.PACKAGE}] (abc):\n    appId={f.UID}\n')
-        shared = f.capture(['dumpsys', 'package', 'shared-users'],
+        shared = f.capture(p.dumpsys_argv('package', 'shared-users'),
                            'Shared users:\n  SharedUser [android.uid.system] (ff):\n    appId=1000\n')
         self.assertEqual(obs.package_maps(packages, shared)['shared'], {'android.uid.system': 1000})
+
+    def test_every_dump_kind_cut_at_the_dumpsys_timeout_is_unavailable(self):
+        # Each subject dump is read only in its bounded form, and a dump that carries dumpsys's
+        # timeout line is unavailable with its own reason, never parsed as complete.
+        self.assertEqual(p.dumpsys_argv('jobscheduler'), ['dumpsys', '-t', str(p.DUMPSYS_TIMEOUT_SECONDS), 'jobscheduler'])
+        self.assertTrue(0 < p.DUMPSYS_TIMEOUT_SECONDS < 90)
+        native = ('andrix-native-identities-v3\nlive_settings=true\nauthority=not-reported\n'
+                  'counter_known=false\ncached_header=MISSING\ncached_enumeration_complete=false\n'
+                  'creation_ready=false\nallocator_search_start=10000\nunidentified_code=false\n'
+                  'deferred_count=0\nslot_count=0\n')
+        detail = (f'Packages:\n  Package [{p.PACKAGE}] (abc):\n    appId={f.UID}\n'
+                  f'    pkg=Package{{abc {p.PACKAGE}}}\n    codePath=/data/app/fixture\n'
+                  '    versionCode=1 minSdk=37 targetSdk=37\n'
+                  '    User 0: ceDataInode=123 installed=true stopped=false\n')
+        packages = f'Packages:\n  Package [{p.PACKAGE}] (abc):\n    appId={f.UID}\n'
+        shared = 'Shared users:\n  SharedUser [android.uid.system] (ff):\n    appId=1000\n'
+        code = '/data/app/fixture/base.apk'
+        all_cap = f.capture(['cmd', 'package', 'list', 'packages', '-U', '-u', p.PACKAGE], f'package:{p.PACKAGE} uid:{f.UID}\n')
+        admitted = f.capture(['cmd', 'package', 'list', 'packages', '-U', p.PACKAGE], all_cap['stdout'])
+        path = f.capture(['pm', 'path', p.PACKAGE], 'package:' + code + '\n')
+        maps = f.capture(p.dumpsys_argv('package', 'shared-users'), shared)
+        readers = [
+            ('permissionmgr --app-id', f.permission_text(), p.dumpsys_argv('permissionmgr', '--app-id', str(f.UID)),
+             lambda c: obs.permissionmgr(c, f.UID)),
+            ('permissionmgr --package', f.permission_text(), p.dumpsys_argv('permissionmgr', '--package', p.PACKAGE),
+             lambda c: obs.permissionmgr(c, f.UID, 'package')),
+            ('notification --noredact --package', f.notification_text(), p.dumpsys_argv('notification', '--noredact', '--package', p.PACKAGE),
+             lambda c: obs.notification(c, f.UID)),
+            ('jobscheduler', f.job_text(), p.dumpsys_argv('jobscheduler'), lambda c: obs.jobscheduler(c, f.CONTRACT, True)),
+            ('package ' + p.PACKAGE, detail, p.dumpsys_argv('package', p.PACKAGE),
+             lambda c: obs.pm_surface(all_cap, admitted, path, c, f.UID, code, True)),
+            ('package packages', packages, p.dumpsys_argv('package', 'packages'), lambda c: obs.package_maps(c, maps)),
+            ('package --andrix-native-identities', native, p.dumpsys_argv('package', '--andrix-native-identities'),
+             lambda c: obs.native_dump(c, 3))]
+        for name, text, argv, read in readers:
+            with self.subTest(dump=name):
+                read(f.capture(argv, text))
+                marker = "\n*** SERVICE '%s' DUMP TIMEOUT (30000ms) EXPIRED ***\n\n" % argv[3]
+                with self.assertRaises(p.DumpUnavailable) as caught:
+                    read(f.capture(argv, text + marker + marker))
+                self.assertEqual(str(caught.exception), "%s dump unavailable: dumpsys timed out after 30000 ms in service "
+                                                        "'%s', the dump is cut" % (' '.join(argv[3:]), argv[3]))
+                # The unbounded command, dumpsys's default 10 s, is not the read the observers admit.
+                with self.assertRaises(ValueError):
+                    read(f.capture(['dumpsys'] + argv[3:], text))
+                # The whole capture passes the completeness gate: a whole dump with dumpsys's service
+                # error on stderr, a nonzero exit or an unfinished transport is unavailable, each with
+                # the gate's reason, never read.
+                for change, reason in (({'stderr': "Error with service '%s' while dumping: FAILED_TRANSACTION\n" % argv[3]},
+                                        "dumpsys reported service '%s' failing while dumping: FAILED_TRANSACTION" % argv[3]),
+                                       ({'exit_code': 1}, 'dumpsys exited 1'),
+                                       ({'complete': False}, 'its transport did not complete with a result (retired, timed out or stopped)')):
+                    with self.assertRaises(p.DumpUnavailable) as caught:
+                        read(dict(f.capture(argv, text), **change))
+                    self.assertEqual(str(caught.exception), '%s dump unavailable: %s' % (' '.join(argv[3:]), reason))
+        with self.assertRaises(p.DumpUnavailable):
+            obs.package_maps(f.capture(p.dumpsys_argv('package', 'packages'), packages),
+                             dict(maps, stdout=shared + "\n*** SERVICE 'package' DUMP TIMEOUT (30000ms) EXPIRED ***\n\n"))
 
     def test_capture_errors_types_and_complete_mark(self):
         argv = ['cmd', 'appops', 'get', '--user', '0', p.PACKAGE, 'VIBRATE']

@@ -67,11 +67,22 @@ B2 result. Package UID lookup distinguishes scanned and known/uninstalled settin
 `PM/ComputerEngine.java:2757-2788`; the full settings map is returned at `3633-3635`.
 The new APK hash and instrumented contract need new artifact admission.
 
-The exact diagnostic command is `dumpsys package --andrix-native-identities`. Its route is in
+The exact diagnostic command is `dumpsys -t 30 package --andrix-native-identities`: like every dump
+this subject is read through, it runs with an explicit 30 second dumpsys bound in place of dumpsys's
+default 10 seconds (`protocol.dumpsys_argv`). dumpsys exits 0 after almost every outcome
+(`frameworks/native/cmds/dumpsys/dumpsys.cpp`, GrapheneOS `2026081300`, line 313): a dump that outlives
+the bound is cut and followed by `*** SERVICE 'S' DUMP TIMEOUT (Nms) EXPIRED ***` (lines 299-302,
+558-562), and a service error, a missing service or a failed transfer is a line on stderr after
+whatever was written (lines 418-422, 434, 440, 528, 540, 550). So every capture passes one
+completeness gate before anything reads it (`uid_observe.complete_capture`, through
+`observations.capture_text` and `b2_dump_assess.assess_phase_capture`): its transport completed,
+dumpsys exited 0, its stdout carries no timeout line and ends with a line feed, and its stderr is
+empty. Any other capture is unavailable with its own reason, never a shorter complete dump; the
+parsers themselves still refuse the timeout line. Its route is in
 `patches/grapheneos-2026081300/native-principal-pins.patch:744` in the repository. Schema choice,
 scalars, holds, slot rows and deferred names are rendered by
 `owner/tests/platform/native_recovery_fragments/diagnostic-dump.java.inc:8-74`.
-The strict parser is reused from `tests/native-identity/observe.py:153-280`. Require schema 3
+The strict parser is reused from `tests/native-identity/observe.py:156-289`. Require schema 3
 for B2 and schema 2 for B1, never either opportunistically. Expected layout facts still belong
 to the particular staged input and both pinned readers, not just this subject parser.
 

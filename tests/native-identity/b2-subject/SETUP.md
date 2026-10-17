@@ -144,7 +144,9 @@ reboot remain mandatory before native staging. Never force read-settings or writ
 
 ### 5. Android primary oracle and refusal cases
 
-The unchanged primary tool is `dumpsys notification --noredact --package P`. Exact UID and
+The unchanged primary tool is `dumpsys notification --noredact --package P`, read with the explicit
+dumpsys bound as `dumpsys -t 30 notification --noredact --package P` and only through the completeness
+gate (exit 0, empty stderr, no timeout line, a final line feed; EXPECTATIONS.md). Exact UID and
 package section output comes from `N/PreferencesHelper.java:2305-2392`, bounded by the next
 section at `N/NotificationManagerService.java:8780-8784`. Complete channel printing is at
 `core/java/android/app/NotificationChannel.java:1704-1752`. Locks print hexadecimal without

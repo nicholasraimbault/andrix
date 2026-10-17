@@ -233,6 +233,41 @@ class ContraryFormTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             assess.assess_phase_dump(self.text.encode(), phase('B2', self.expected))
 
+    def test_a_dump_cut_at_the_dumpsys_timeout_is_unavailable_never_a_match(self):
+        # The missing store's complete dump matches; the same dump with dumpsys's timeout line after it
+        # (the service outlived the bound) is unavailable with that reason, never a match.
+        for image in SCHEMAS:
+            empty = assess.missing_store(image, SEARCH)
+            control = render(empty, SCHEMAS[image])
+            self.assertEqual(self.outcome(control, image, empty)['outcome'], 'match')
+            marker = "\n*** SERVICE 'package' DUMP TIMEOUT (30000ms) EXPIRED ***\n\n"
+            result = self.outcome(control + marker + marker, image, empty)
+            self.assertEqual((result['outcome'], result['matches'], result['available']), ('unavailable', False, False))
+            self.assertEqual(result['problems'], ["unavailable dump: reservation dump unavailable: dumpsys timed out after "
+                                                  "30000 ms in service 'package', the dump is cut"])
+
+    def test_a_capture_is_gated_before_it_is_read(self):
+        # The whole capture passes the observers' completeness gate first: a complete dump with
+        # dumpsys's service error on stderr, a nonzero exit or an unfinished transport is unavailable
+        # with the gate's reason and never read; a complete capture is assessed as its text.
+        import subprocess
+        for image in SCHEMAS:
+            empty = assess.missing_store(image, SEARCH)
+            control = render(empty, SCHEMAS[image])
+            plan = phase(image, empty)
+            self.assertEqual(assess.assess_phase_capture(subprocess.CompletedProcess(['adb'], 0, control.encode(), b''), plan)['outcome'],
+                             'match')
+            record = {'argv': ['dumpsys', '-t', '30', 'package', '--andrix-native-identities'], 'stdout': control, 'stderr': '',
+                      'exit_code': 0, 'complete': True}
+            self.assertEqual(assess.assess_phase_capture(record, plan)['outcome'], 'match')
+            for change, reason in (({'stderr': "Error with service 'package' while dumping: FAILED_TRANSACTION\n"},
+                                    "dumpsys reported service 'package' failing while dumping: FAILED_TRANSACTION"),
+                                   ({'exit_code': 1}, 'dumpsys exited 1'),
+                                   ({'complete': False}, 'its transport did not complete with a result (retired, timed out or stopped)')):
+                result = assess.assess_phase_capture(dict(record, **change), plan)
+                self.assertEqual((result['outcome'], result['matches'], result['available'], result['raw']), ('unavailable', False, False, None))
+                self.assertEqual(result['problems'], ['unavailable dump: native dump unavailable: ' + reason])
+
     def test_a_swapped_layout_fails_where_its_dump_differs(self):
         """Each input against another input's prediction of the same image. Inputs whose dumps are
         equal cannot be told apart by the dump; their store bytes tell them apart."""

@@ -244,7 +244,7 @@ class SetupCommandModelTests(unittest.TestCase):
         self.assertEqual((state['bubbles'], state['lock'], state['setter_calls']), (1, 0, 1))
         self.assertEqual(lines, [])
         with self.assertRaises(ValueError):
-            obs.notification(f.capture(['dumpsys', 'notification', '--noredact', '--package', p.PACKAGE],
+            obs.notification(f.capture(p.dumpsys_argv('notification', '--noredact', '--package', p.PACKAGE),
                                        f.notification_text(preference='old-shell')), f.UID)
         with self.assertRaises(ValueError):
             stored.notification_policy(f.notification_xml(preference='old-shell'), f.UID)

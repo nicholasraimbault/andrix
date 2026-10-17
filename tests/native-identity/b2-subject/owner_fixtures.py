@@ -8,7 +8,7 @@ import hashlib
 import itertools
 import fixtures as f
 import owner_stores as own
-from protocol import LATENCY, PACKAGE
+from protocol import LATENCY, PACKAGE, dumpsys_argv
 
 UID = f.UID
 TIME = '2026-10-15 12:00:00.000000000 +0000'
@@ -181,12 +181,12 @@ def job_text(present=True, admitted=True, parcelled=True):
 
 
 DUMP_ARGVS = {
-    'permission_app_id': ['dumpsys', 'permissionmgr', '--app-id', str(UID)],
-    'permission_package': ['dumpsys', 'permissionmgr', '--package', PACKAGE],
+    'permission_app_id': dumpsys_argv('permissionmgr', '--app-id', str(UID)),
+    'permission_package': dumpsys_argv('permissionmgr', '--package', PACKAGE),
     'appops_package': ['cmd', 'appops', 'get', '--user', '0', PACKAGE, 'VIBRATE'],
     'appops_uid': ['cmd', 'appops', 'get', str(UID), 'VIBRATE'],
-    'notification': ['dumpsys', 'notification', '--noredact', '--package', PACKAGE],
-    'jobscheduler': ['dumpsys', 'jobscheduler'],
+    'notification': dumpsys_argv('notification', '--noredact', '--package', PACKAGE),
+    'jobscheduler': dumpsys_argv('jobscheduler'),
     'rtc': ['date', '+%s'],
 }
 

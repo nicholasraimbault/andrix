@@ -145,6 +145,9 @@ STATUSES = ('MISSING', 'VALID', 'DAMAGED', 'CONFLICT', 'UNSUPPORTED')
 SCHEMAS = {'andrix-native-identities-v1': 1, 'andrix-native-identities-v2': 2, 'andrix-native-identities-v3': 3}
 DEFERRED_MAX = 100000
 COUNT = re.compile(r'0|[1-9][0-9]{0,5}')
+# The line dumpsys prints, twice, when it stops waiting for a service's dump at its timeout (default
+# 10 s, -t SECONDS) and still exits 0 (frameworks/native/cmds/dumpsys/dumpsys.cpp).
+DUMP_TIMEOUT = re.compile(r"^\*\*\* SERVICE '([^'\n]*)' DUMP TIMEOUT \(([0-9]+)ms\) EXPIRED \*\*\*$", re.M)
 BASE64 = re.compile(r'[A-Za-z0-9+/]+={0,2}')
 SLOT_VERSIONS = ('1', '2', 'not-reported')
 SLOT_STATES = ('ELIGIBLE', 'RETIRING', 'RETIRED', 'TOMBSTONE', 'not-reported')
@@ -160,6 +163,11 @@ def parse_reservations(text, schema=None):
     unavailable form raises, never an empty result."""
     if len(text) > 8 * 1024 * 1024:
         raise ValueError('reservation dump bounds')
+    # dumpsys's timeout line (frameworks/native/cmds/dumpsys/dumpsys.cpp): the dump before it is cut.
+    cut = DUMP_TIMEOUT.search(text)
+    if cut:
+        raise ValueError("reservation dump unavailable: dumpsys timed out after %s ms in service '%s', the dump is cut"
+                         % (cut[2], cut[1]))
     # The new schemas name themselves on their first LF delimited line, exactly. Any other line
     # break, such as a vertical tab or a Unicode separator, is not a line of theirs. Only a text
     # whose own historical splitting yields the version 1 header is read as version 1.

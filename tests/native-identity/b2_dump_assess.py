@@ -22,6 +22,10 @@ import re
 _SPEC = importlib.util.spec_from_file_location('b2_dump_assess_observe', Path(__file__).with_name('observe.py'))
 dump = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(dump)
+# The observers' one completeness gate of a dumpsys capture (uid_observe.complete_capture).
+_GATE_SPEC = importlib.util.spec_from_file_location('b2_dump_assess_gate', Path(__file__).with_name('uid_observe.py'))
+gate = importlib.util.module_from_spec(_GATE_SPEC)
+_GATE_SPEC.loader.exec_module(gate)
 
 # The schema each image renders.
 IMAGE_SCHEMAS = {'B2': 3, 'B1': 2}
@@ -109,6 +113,21 @@ def _observed(value, schema):
         rows['slots'] = [[app_id, slot['version'], slot['lifecycle'], slot['suspended']]
                          for app_id, slot in value['slots'].items()]
     return rows
+
+
+def assess_phase_capture(capture, phase):
+    """One raw dump capture of a guest phase, through the completeness gate first: a capture that is not
+    one complete dump (its transport, exit status, timeout line, stderr or last line) is unavailable
+    with the gate's reason and never read; a complete one is assessed by assess_phase_dump. CAPTURE is
+    the trials' completed process or a capture record (gate.complete_capture)."""
+    image, schema = phase_schema(phase)
+    prediction(phase.get('dump_prediction'), image)
+    try:
+        out = gate.complete_capture(capture, 'native dump')
+    except ValueError as error:
+        return {'image': image, 'schema': schema, 'authority': False, 'outcome': 'unavailable', 'available': False, 'matches': False,
+                'raw_sha256': None, 'raw': None, 'error': str(error), 'problems': ['unavailable dump: %s' % error]}
+    return assess_phase_dump(out.decode('ascii', 'surrogateescape') if type(out) is bytes else out, phase)
 
 
 def assess_phase_dump(text, phase):
