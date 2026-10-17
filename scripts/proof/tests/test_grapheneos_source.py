@@ -6,10 +6,13 @@ import io
 import json
 import os
 import shlex
+import shutil
+import stat
 import sys
 from pathlib import Path
 import subprocess
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -37,13 +40,20 @@ class SourceTests(unittest.TestCase):
             patch=mock.patch.object(g,key,value);patch.start();self.addCleanup(patch.stop)
         patch=mock.patch.object(g,'run',side_effect=self.git);patch.start();self.addCleanup(patch.stop)
 
-    def git(self,cwd,*args,allowed=(0,)):
+    def git(self,cwd,*args,allowed=(0,),index=None):
         name=str(Path(cwd).relative_to(self.root));self.calls.append((name,args))
+        if args[:1] in [('update-index',),('diff',)]:
+            # Worktree and staged comparisons read a private index copy outside the tree.
+            self.assertFalse(Path(index).resolve().is_relative_to(self.root))
         key=(name,args)
         if key in self.overrides:
             value=self.overrides[key]
             if isinstance(value,Exception):raise value
             return value
+        if args==('rev-parse','--path-format=absolute','--git-dir','--git-common-dir',
+                  '--git-path','index'):
+            return 0,('%s/.git\n%s/.git\n%s/.no-index\n'%(cwd,cwd,cwd)).encode()
+        if args[:1]==('update-index',):return 0,b''
         if args==('rev-parse','HEAD'):
             heads={'.repo/manifests':g.MANIFEST_COMMIT,'.repo/repo':g.REPO_COMMIT,'p/one':'1'*40,'p/two':'2'*40}
             return 0,(heads[name]+'\n').encode()
@@ -165,6 +175,20 @@ class GitExecutionTests(unittest.TestCase):
             self.assertIn('core.hooksPath='+os.devnull,args[0])
             self.assertEqual(kwargs['env']['GIT_ALLOW_PROTOCOL'],'')
             self.assertEqual(kwargs['env']['GIT_CONFIG_GLOBAL'],os.devnull)
+
+    def test_only_a_private_index_is_named_and_kept_whole(self):
+        done=subprocess.CompletedProcess([],0,b'',b'')
+        with mock.patch.object(subprocess,'run',return_value=done) as runner, \
+                mock.patch.dict(os.environ,{'GIT_INDEX_FILE':'/tree/.git/index'}):
+            g.run(Path('/tmp/source'),'update-index','--refresh',index=Path('/private/index'))
+            args,kwargs=runner.call_args
+            self.assertEqual(kwargs['env']['GIT_INDEX_FILE'],'/private/index')
+            self.assertEqual(args[0][-4:],['-c','core.splitIndex=false','update-index','--refresh'])
+            self.assertEqual(kwargs['timeout'],120)
+            g.run(Path('/tmp/source'),'rev-parse','HEAD')
+            args,kwargs=runner.call_args
+            self.assertNotIn('GIT_INDEX_FILE',kwargs['env'])
+            self.assertNotIn('core.splitIndex=false',args[0])
 
     def test_inherited_git_environment_is_not_authority(self):
         with mock.patch.dict(os.environ,{'GIT_DIR':'elsewhere','GIT_CONFIG_COUNT':'1',
@@ -299,3 +323,222 @@ class RealGitReadOnlyTests(unittest.TestCase):
                                    capture_output=True,timeout=20).stdout.decode().strip()
         self.fixture_git('replace',original,replacement)
         self.assertEqual(g.run(self.repo,'cat-file','-p',original)[1],b'committed\n')
+
+
+def fixture_git(repo,*args,input=None):
+    return subprocess.run(['git','-C',str(repo),*args],env=g.git_environment(),input=input,
+                          check=True,capture_output=True,timeout=20).stdout
+
+
+def tree_state(root):
+    # The root and every entry below it, links not followed: type and mode, size, inode, link
+    # count, owner, modification and change times, and each file's or link's bytes. Access
+    # times are left out, since reads may update them. No Git command computes this.
+    state={}
+    for path in [root,*root.rglob('*')]:
+        status=path.lstat()
+        data=(g.digest(path.read_bytes()) if stat.S_ISREG(status.st_mode)
+              else os.readlink(path) if stat.S_ISLNK(status.st_mode) else None)
+        state[path.relative_to(root).as_posix()]=(
+            status.st_mode,status.st_size,status.st_ino,status.st_nlink,status.st_uid,
+            status.st_gid,status.st_mtime_ns,status.st_ctime_ns,data)
+    return state
+
+
+def previous_check(path):
+    # The check before the private index: both diffs against the project's own index.
+    overrides=g.filter_overrides(path)
+    return not any(g.run(path,*overrides,*args)[1] for args in [
+        ('diff','--no-ext-diff','--no-textconv','--name-only','HEAD','--'),
+        ('diff','--no-ext-diff','--no-textconv','--cached','--name-only','--')])
+
+
+class CopiedIndexTests(unittest.TestCase):
+    """Projects copied as a source tree is copied: each file has a new inode and a later ctime,
+    so the copied index's stat data matches none of them and every check compares content.
+    Where the previous check reaches a verdict, it decides the same. It runs on a twin copy,
+    since it can rewrite the index it reads."""
+    FILES={'a.txt':b'alpha\n','b.txt':b'bravo\n','d/c.txt':b'charlie\n'}
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp=tempfile.TemporaryDirectory();cls.addClassCleanup(cls.tmp.cleanup)
+        cls.original=Path(cls.tmp.name)/'original';cls.original.mkdir()
+        fixture_git(cls.original,'init','-q')
+        fixture_git(cls.original,'config','user.name','fixture')
+        fixture_git(cls.original,'config','user.email','fixture@example.invalid')
+        # Whole seconds an hour ago: no entry is racily clean against the index written now.
+        cls.mtime=int(time.time())-3600
+        for name,data in cls.FILES.items():
+            path=cls.original/name;path.parent.mkdir(exist_ok=True);path.write_bytes(data)
+            os.utime(path,(cls.mtime,cls.mtime))
+        (cls.original/'link').symlink_to('a.txt')
+        os.utime(cls.original/'link',(cls.mtime,cls.mtime),follow_symlinks=False)
+        fixture_git(cls.original,'add','.')
+        fixture_git(cls.original,'commit','-qm','Copied index fixture')
+        cls.head=fixture_git(cls.original,'rev-parse','HEAD').decode().strip()
+        time.sleep(1.1)  # This Git compares whole seconds of ctime: copies start a second later.
+
+    def setUp(self):
+        self.work=Path(tempfile.mkdtemp(dir=self.tmp.name))
+        # The check's private directories go here, so each test sees that none remain.
+        self.private=self.work/'private';self.private.mkdir()
+        patch=mock.patch.object(tempfile,'tempdir',str(self.private));patch.start()
+        self.addCleanup(patch.stop)
+
+    def copy(self,source,target):
+        shutil.copytree(source,target,symlinks=True)
+        return target
+
+    def stale(self,name='project'):
+        project=self.copy(self.original,self.work/name)
+        for entry in [*self.FILES,'link']:
+            copied,original=(project/entry).lstat(),(self.original/entry).lstat()
+            self.assertNotEqual(copied.st_ino,original.st_ino)
+            self.assertNotEqual(int(copied.st_ctime),int(original.st_ctime))
+        return project
+
+    def assertUnchanged(self,root,before):
+        after=tree_state(root)
+        self.assertEqual(sorted(key for key in before.keys()|after.keys()
+                                if before.get(key)!=after.get(key)),[])
+        self.assertEqual(list(self.private.iterdir()),[])
+
+    def verdict(self,project):
+        twin=self.copy(project,Path(tempfile.mkdtemp(dir=self.work))/'twin')
+        before=tree_state(project)
+        try:
+            g.check_tracked_clean(project);found='PASS'
+        except g.SourceError as error:
+            found=str(error)
+        self.assertUnchanged(project,before)
+        self.assertEqual(previous_check(twin),found=='PASS')
+        return found
+
+    def test_clean_copy_passes_and_its_git_files_stay_byte_identical(self):
+        self.assertEqual(self.verdict(self.stale()),'PASS')
+
+    def test_modified_file_fails(self):
+        project=self.stale();(project/'a.txt').write_bytes(b'alpha, changed\n')
+        self.assertRegex(self.verdict(project),'^Tracked or staged changes')
+
+    def test_staged_change_fails(self):
+        project=self.stale();(project/'b.txt').write_bytes(b'bravo, staged\n')
+        fixture_git(project,'add','b.txt');(project/'b.txt').write_bytes(self.FILES['b.txt'])
+        self.assertRegex(self.verdict(project),'^Tracked or staged changes')
+
+    def test_deleted_file_fails(self):
+        project=self.stale();(project/'d/c.txt').unlink()
+        self.assertRegex(self.verdict(project),'^Tracked or staged changes')
+
+    def test_same_size_and_mtime_with_other_content_fails(self):
+        project=self.stale();path=project/'a.txt';status=path.stat()
+        path.write_bytes(b'ALPHA\n');os.utime(path,ns=(status.st_atime_ns,status.st_mtime_ns))
+        self.assertEqual((path.stat().st_size,path.stat().st_mtime_ns),
+                         (status.st_size,status.st_mtime_ns))
+        self.assertRegex(self.verdict(project),'^Tracked or staged changes')
+
+    def test_assume_unchanged_and_skip_worktree_entries_are_honored_as_before(self):
+        # Neither check examines the worktree file of such an entry, so a change there is not
+        # reported, now as before. The entry itself is still compared with HEAD.
+        for flag in ['--assume-unchanged','--skip-worktree']:
+            with self.subTest(flag=flag,change='worktree'):
+                project=self.stale('worktree'+flag)
+                fixture_git(project,'update-index',flag,'a.txt')
+                (project/'a.txt').write_bytes(b'alpha, not examined\n')
+                self.assertEqual(self.verdict(project),'PASS')
+            with self.subTest(flag=flag,change='staged'):
+                project=self.stale('staged'+flag)
+                (project/'a.txt').write_bytes(b'alpha, staged\n');fixture_git(project,'add','a.txt')
+                fixture_git(project,'update-index',flag,'a.txt')
+                (project/'a.txt').write_bytes(self.FILES['a.txt'])
+                self.assertRegex(self.verdict(project),'^Tracked or staged changes')
+
+    def test_unmerged_entry_and_missing_index_fail_as_before(self):
+        project=self.stale('unmerged')
+        oid=fixture_git(project,'rev-parse','HEAD:a.txt').decode().strip()
+        fixture_git(project,'update-index','--index-info',input=(
+            '0 %s\ta.txt\n100644 %s 1\ta.txt\n100644 %s 2\ta.txt\n'%('0'*40,oid,oid)).encode())
+        self.assertRegex(self.verdict(project),'^Tracked or staged changes')
+        project=self.stale('without-index');(project/'.git/index').unlink()
+        self.assertRegex(self.verdict(project),'^Tracked or staged changes')
+
+    def test_racily_clean_entry_keeps_its_content_check(self):
+        # With core.checkStat=minimal only size and mtime count, so a changed file's stat data
+        # can match its entry without a race. Git checks the content of each entry whose mtime
+        # is not older than the index file's, so the copy must keep that file's mtime.
+        project=self.stale();fixture_git(project,'config','core.checkStat','minimal')
+        path=project/'a.txt';path.write_bytes(b'ALPHA\n');os.utime(path,(self.mtime,self.mtime))
+        os.utime(project/'.git/index',(self.mtime,self.mtime))
+        self.assertRegex(self.verdict(project),'^Tracked or staged changes')
+
+    def test_index_writes_stay_in_the_private_copy(self):
+        # Settings that would take an index write into the Git directory: a split index writes
+        # a shared index file there, and each index write runs post-index-change.
+        project=self.stale();marker=self.work/'hook-ran'
+        hooks=self.work/'hooks';hooks.mkdir()
+        for directory in [hooks,project/'.git/hooks']:
+            hook=directory/'post-index-change'
+            hook.write_text('#!/bin/sh\necho ran > %s\n'%shlex.quote(str(marker)));hook.chmod(0o755)
+        fixture_git(project,'config','core.splitIndex','true')
+        fixture_git(project,'config','core.hooksPath',str(hooks))
+        self.assertEqual(self.verdict(project),'PASS')
+        self.assertFalse(marker.exists())
+
+    def test_clean_copy_passes_with_auto_refresh_disabled(self):
+        # With diff.autoRefreshIndex=false git diff lists every entry whose stat data differs,
+        # so the previous check reported each file of a clean copy. That is the one verdict
+        # that differs: the refreshed copy holds no such entry, and a changed file still fails.
+        for name,change in [('clean',None),('changed',b'alpha, changed\n')]:
+            with self.subTest(name):
+                project=self.stale(name)
+                fixture_git(project,'config','diff.autoRefreshIndex','false')
+                if change:(project/'a.txt').write_bytes(change)
+                before=tree_state(project)
+                try:
+                    g.check_tracked_clean(project);found='PASS'
+                except g.SourceError as error:
+                    found=str(error)
+                self.assertUnchanged(project,before)
+                self.assertRegex(found,'^PASS$' if change is None else '^Tracked or staged changes')
+
+    def test_missing_blob_is_not_needed_for_a_clean_copy(self):
+        # The refresh hashes each regular file and compares it with its entry, so its blob is
+        # not read and nothing is fetched. The previous check read the blobs of a stale copy
+        # and failed here.
+        project=self.stale()
+        oid=fixture_git(project,'rev-parse','HEAD:b.txt').decode().strip()
+        (project/'.git/objects'/oid[:2]/oid[2:]).unlink()
+        before=tree_state(project)
+        g.check_tracked_clean(project)
+        self.assertUnchanged(project,before)
+
+    def test_repo_layout_tree_stays_byte_identical(self):
+        tree=self.work/'tree'
+        for name in ['clean','changed']:
+            project=self.copy(self.original,tree/'p'/name)
+            # As Repo lays out a tree: the worktree's .git and the Git directory's objects
+            # are relative links into .repo.
+            gitdir=tree/'.repo/projects/p'/(name+'.git')
+            gitdir.parent.mkdir(parents=True,exist_ok=True);(project/'.git').rename(gitdir)
+            (project/'.git').symlink_to(os.path.relpath(gitdir,project))
+            objects=tree/'.repo/project-objects'/(name+'.git')/'objects'
+            objects.parent.mkdir(parents=True);(gitdir/'objects').rename(objects)
+            (gitdir/'objects').symlink_to(os.path.relpath(objects,gitdir))
+        (tree/'p/changed/b.txt').write_bytes(b'bravo, changed\n')
+        before=tree_state(tree)
+        rows=[g.check_project(tree,{'path':'p/'+name,'revision':self.head})
+              for name in ['clean','changed']]
+        self.assertEqual([row['verdict'] for row in rows],['PASS','FAIL'])
+        self.assertRegex(rows[1]['failure'],'^Tracked or staged changes')
+        self.assertUnchanged(tree,before)
+
+    def test_temporary_directory_inside_a_source_tree_is_refused(self):
+        tree=self.work/'tree';project=self.copy(self.original,tree/'p')
+        for inside,root in [(project/'tmp',None),(project/'.git/tmp',None),(tree/'tmp',tree)]:
+            with self.subTest(inside=inside.relative_to(tree).as_posix()):
+                inside.mkdir();before=tree_state(tree)
+                with mock.patch.object(tempfile,'tempdir',str(inside)), \
+                        self.assertRaisesRegex(g.SourceError,'temporary directory must be outside'):
+                    g.check_tracked_clean(project,root)
+                self.assertUnchanged(tree,before)

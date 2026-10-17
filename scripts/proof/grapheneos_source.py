@@ -8,13 +8,16 @@ compiler results, runtime or device security. See grapheneos_source.md.
 """
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import contextlib
 import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import xml.etree.ElementTree as ET
 
 import grapheneos_base
@@ -63,13 +66,20 @@ def git_environment():
     return env
 
 
-def run(cwd, *args, allowed=(0,)):
+def run(cwd, *args, allowed=(0,), index=None):
+    env = git_environment()
+    pins = []
+    if index is not None:
+        # A private index file outside the tree. Written indexes stay whole, so no shared
+        # index file is written into the project's Git directory.
+        env['GIT_INDEX_FILE'] = str(index)
+        pins = ['-c', 'core.splitIndex=false']
     process = subprocess.run(['git', '--no-optional-locks', '--no-lazy-fetch',
                               '--no-replace-objects', '--no-pager', '-C', str(cwd),
                               '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=' + os.devnull,
                               '-c', 'core.attributesFile=' + os.devnull,
-                              '-c', 'gc.auto=0', '-c', 'maintenance.auto=false', *args],
-                             env=git_environment(), stdin=subprocess.DEVNULL,
+                              '-c', 'gc.auto=0', '-c', 'maintenance.auto=false', *pins, *args],
+                             env=env, stdin=subprocess.DEVNULL,
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
     if process.returncode not in allowed:
         raise SourceError('Git check failed: ' + process.stderr.decode(errors='replace').strip())
@@ -142,15 +152,53 @@ def filter_overrides(path):
     return args
 
 
-def check_tracked_clean(path):
+@contextlib.contextmanager
+def private_index(path, root=None):
+    """A copy of a project's index in a new private directory, removed afterwards. The
+    temporary directory must be outside the project, its Git directories and the root."""
+    _, output = run(path, 'rev-parse', '--path-format=absolute', '--git-dir',
+                    '--git-common-dir', '--git-path', 'index')
+    places = [Path(os.fsdecode(line)) for line in output.splitlines()]
+    if len(places) != 3:
+        raise SourceError('Unexpected Git directory layout in ' + str(path))
+    temporary = Path(tempfile.gettempdir()).resolve()
+    trees = [path, *places[:2]] + ([root] if root is not None else [])
+    if any(temporary.is_relative_to(Path(tree).resolve()) for tree in trees):
+        raise SourceError('The temporary directory must be outside source trees: ' + str(temporary))
+    with tempfile.TemporaryDirectory(prefix='grapheneos-source-', dir=temporary) as directory:
+        copy = Path(directory) / 'index'
+        try:
+            source = places[2].open('rb')
+        except FileNotFoundError:
+            pass  # Git reads a missing index as an empty one, from here as from the tree.
+        else:
+            with source, copy.open('xb') as target:
+                shutil.copyfileobj(source, target)
+                status = os.fstat(source.fileno())
+            # Git checks the content of each entry whose recorded mtime is not older than the
+            # index file's mtime. The copy keeps that mtime, so the same entries are checked.
+            os.utime(copy, ns=(status.st_atime_ns, status.st_mtime_ns))
+        yield copy
+
+
+def check_tracked_clean(path, root=None):
     overrides = filter_overrides(path)
-    for args in [('diff', '--no-ext-diff', '--no-textconv', '--name-only', 'HEAD', '--'),
-                 ('diff', '--no-ext-diff', '--no-textconv', '--cached', '--name-only', '--')]:
-        if run(path, *overrides, *args)[1]:
-            # Expanded LFS content is deliberately not normalized by executing
-            # git-lfs. Unsupported filtered forms fail rather than widening the
-            # read-only check or accepting arbitrary normalized content.
-            raise SourceError('Tracked or staged changes with external filters disabled in ' + str(path))
+    # A copied tree's index holds stat data that matches none of its files. Git then compares
+    # every file's content, and git diff stores the refreshed index in the tree when it can,
+    # even with --no-optional-locks. Refresh a private copy instead. The refresh keeps each
+    # entry's object name, mode, stage and flags, and takes new stat data only for files whose
+    # content hashes to their entry. Entries marked --assume-unchanged or --skip-worktree stay
+    # unexamined, as before. The two diffs then read the refreshed copy, never the tree's index.
+    with private_index(path, root) as index:
+        run(path, *overrides, 'update-index', '-q', '--unmerged', '--refresh', index=index)
+        for args in [('diff', '--no-ext-diff', '--no-textconv', '--name-only', 'HEAD', '--'),
+                     ('diff', '--no-ext-diff', '--no-textconv', '--cached', '--name-only', '--')]:
+            if run(path, *overrides, *args, index=index)[1]:
+                # Expanded LFS content is deliberately not normalized by executing
+                # git-lfs. Unsupported filtered forms fail rather than widening the
+                # read-only check or accepting arbitrary normalized content.
+                raise SourceError('Tracked or staged changes with external filters disabled in '
+                                  + str(path))
 
 
 def check_selection(root):
@@ -188,7 +236,7 @@ def check_project(root, project):
         head = run(path, 'rev-parse', 'HEAD')[1].decode().strip()
         if head != project['revision']:
             raise SourceError('Project HEAD differs from manifest')
-        check_tracked_clean(path)
+        check_tracked_clean(path, root)
         return {**project, 'head': head, 'verdict': 'PASS'}
     except (SourceError, OSError, subprocess.SubprocessError) as error:
         return {**project, 'verdict': 'FAIL', 'failure': str(error)}
@@ -209,13 +257,13 @@ def inspect(root, allowed_signers, progress=None):
         raise SourceError('Manifest tag object differs')
     if run(manifest_repo, 'rev-parse', 'refs/tags/' + TAG + '^{commit}')[1].decode().strip() != MANIFEST_COMMIT:
         raise SourceError('Manifest tag target differs')
-    check_tracked_clean(manifest_repo)
+    check_tracked_clean(manifest_repo, root)
     run(manifest_repo, *VERIFY_PINS,
         '-c', 'gpg.ssh.allowedSignersFile=' + str(allowed_signers), 'verify-tag', TAG)
     tool = root / '.repo/repo'
     if run(tool, 'rev-parse', 'HEAD')[1].decode().strip() != REPO_COMMIT:
         raise SourceError('Repo tool revision differs')
-    check_tracked_clean(tool)
+    check_tracked_clean(tool, root)
     selection = check_selection(root)
     projects = parse_projects(manifest)
     # Read-only checks, bounded to the same eight-job profile as source sync.
