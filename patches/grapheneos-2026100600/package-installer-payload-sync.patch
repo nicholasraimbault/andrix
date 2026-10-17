@@ -1,0 +1,14 @@
+--- a/services/core/java/com/android/server/pm/PackageInstallerSession.java
++++ b/services/core/java/com/android/server/pm/PackageInstallerSession.java
+@@ -2278,6 +2278,11 @@
+                                     }
+                                 }
+                             });
++                    // The caller cannot fsync this internal descriptor, so persist the copied
++                    // bytes through it before the session hold is released and before this
++                    // write can report success. An fsync failure fails the write. The directory
++                    // entry and later renames are not covered here.
++                    Os.fsync(targetPfd.getFileDescriptor());
+                 } finally {
+                     IoUtils.closeQuietly(targetPfd);
+                     IoUtils.closeQuietly(incomingFd);

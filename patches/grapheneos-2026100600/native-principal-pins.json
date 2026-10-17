@@ -1,0 +1,219 @@
+{
+  "version": 1,
+  "project": "frameworks/base",
+  "head": "84183aff99be5e156dc0446a6fa2d4a7150f4bc3",
+  "patch_sha256": "1e3ace92192d5bca7e1cfd1b58fb863ba829d55a91dc84c8d401b3d2a0704531",
+  "files": [
+    {
+      "path": "services/core/java/com/android/server/pm/AppIdSettingMap.java",
+      "upstream_sha256": "ee6d013c3f4e2378f9ecfd25a053490f552812004bb6c89d8e06488299ed5c19",
+      "candidate_sha256": "ac0721c8c98e1efbe17b64358f29a30ae514ceddff51f48959bd6249b256e9f7"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/Settings.java",
+      "upstream_sha256": "bff2de579d206a39be81ef0b798df8f6e845d2f28efbbcd63554ccffbddae5a1",
+      "candidate_sha256": "6c0e895d68c222436d1c34d123511875d8ede5f248c931ac843ff9ac2830c908"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/PackageManagerService.java",
+      "upstream_sha256": "93a003dd464be4b89f778194e20f4624c20e69eaaacc5d832be0ff7b4935e20a",
+      "candidate_sha256": "890e3f5070fc6ea6555ea197ef9c244aa69d4c2fb1b0b0f1c3aed170f5f84ec9"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/DeletePackageHelper.java",
+      "upstream_sha256": "a6dc313dcfa5699e72813d03a7ebe30293120f76d500e323ade95fd2a6eb4189",
+      "candidate_sha256": "3b0e758e7501afa4853acc923aa5b34a248f0e1300b3423d27a0efc8bdd83ee1"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/InstallPackageHelper.java",
+      "upstream_sha256": "58b7b2461b971ece22308b3bc1e1299fa4ce180920d9e985134f2d837a403e65",
+      "candidate_sha256": "e83bfedf360bc115a69e524b06ebf127f53357db350c26400a5005b702426e0d"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/ResilientAtomicFile.java",
+      "upstream_sha256": "9c63bdd710fc2a72a2a7e83c809fae93523334023e521148350b68805b85170b",
+      "candidate_sha256": "b9b0a369d3519713d16de6bf7ec574bcad5ae6c8d3132121a6124b8b2f4d1130"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/AppDataHelper.java",
+      "upstream_sha256": "e2a204f325e99013ba300238eed58f4741cacceba34c4d5df58f54d7e1aba5ca",
+      "candidate_sha256": "6c2974085783500fdf9b1342f85ca57c35ebf0d66c6ca6daf1aac61bb1152680"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/StorageEventHelper.java",
+      "upstream_sha256": "19f888d44c3d5a09aa080e52430e72213832087a5256277ecb80aecbb4d51d5e",
+      "candidate_sha256": "707fa89460b666f7c9796eb4df3e9f5cab7d0d2f165c0a33be2dc13361ab1001"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/RemovePackageHelper.java",
+      "upstream_sha256": "8a23ee4e3170cb9b765ddbed6e2745f155748c52c7ef8301ef4b4dfad02b5a67",
+      "candidate_sha256": "50d8be28742289b1e326d9d59864b7b2d08aa0c585e0965d26327ba960efe586"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/PackageManagerException.java",
+      "upstream_sha256": "db961c9ceda0e7d42799ebf32023d1b3cf993ccf90a9934ad3f6497800ef8a45",
+      "candidate_sha256": "1089b8032cf8087d8d7a4aae7fc0f2566f1c6ebfdd5e45b9a57b4f27524e174d"
+    }
+  ],
+  "added": [
+    {
+      "path": "services/core/java/com/android/server/pm/NativePrincipalPins.java",
+      "source": "owner/platform/framework/NativePrincipalPins.java",
+      "sha256": "c8b58f864fedb0fc522bdb622b9dee150a3407d967b2f703011fcb1b2de4401b"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/NativePrincipalManager.java",
+      "source": "owner/platform/framework/NativePrincipalManager.java",
+      "sha256": "7c76194cc441507f2ffe8224f6e9e4d013b6fabadde56723430fd18d17f6fcee"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/NativeIdentityRecords.java",
+      "source": "owner/platform/framework/NativeIdentityRecords.java",
+      "sha256": "4be9c8a0135d3793bb4153e9dc794c2afbf6e4bdbc3466d447b883fe30e0b032"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/NativeIdentityStore.java",
+      "source": "owner/platform/framework/NativeIdentityStore.java",
+      "sha256": "ebcbf4a43281bf02b0e367831518778c96ef34f15edee034229aacd437c5247b"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/NativeIdentityPersistence.java",
+      "source": "owner/platform/framework/NativeIdentityPersistence.java",
+      "sha256": "a3d6d23e3378611f6d82df07a4ede7ba7949f1f69cc24873a788a64d24e1604b"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/NativePrincipalRecovery.java",
+      "source": "owner/platform/framework/NativePrincipalRecovery.java",
+      "sha256": "e6370a2bc822c78602c97b3a04803916184095a6dc796d1360a48b47791fbda8"
+    }
+  ],
+  "scope": "Internal PMS native-principal reservation component, not a public designation/launch API or runtime qualification",
+  "user_scope": "initial user0 only; UserManager reuse barrier required before other users",
+  "activation_fences": [
+    "owner account designation/factory not connected",
+    "corrupt or lost PMS settings and incompatible readers need native recovery/boot barrier",
+    "native Work/CE/profile and complete policy/resource integration not qualified"
+  ],
+  "fixtures": [
+    {
+      "path": "services/core/java/com/android/server/pm/AppIdSettingMap.java",
+      "source": "owner/tests/platform/AppIdSettingMap.java.inc",
+      "sha256": "ac0721c8c98e1efbe17b64358f29a30ae514ceddff51f48959bd6249b256e9f7"
+    },
+    {
+      "path": "services/core/java/com/android/server/pm/ResilientAtomicFile.java",
+      "source": "owner/tests/platform/ResilientAtomicFile.java.inc",
+      "sha256": "b9b0a369d3519713d16de6bf7ec574bcad5ae6c8d3132121a6124b8b2f4d1130"
+    }
+  ],
+  "fragments": [
+    {
+      "name": "identity",
+      "path": "services/core/java/com/android/server/pm/Settings.java",
+      "source": "owner/tests/platform/native_recovery_fragments/identity.java.inc",
+      "sha256": "04a06cad1791ba2b3a22b24152469f5b32da2404e91a863961569238e42ff7ce"
+    },
+    {
+      "name": "system-cleanup",
+      "path": "services/core/java/com/android/server/pm/InstallPackageHelper.java",
+      "source": "owner/tests/platform/native_recovery_fragments/system-cleanup.java.inc",
+      "sha256": "a3fe313963a15e2cd8b7f9d5707ae89f53f470525343ff446e3904e06e72207c"
+    },
+    {
+      "name": "parse-failure",
+      "path": "services/core/java/com/android/server/pm/InstallPackageHelper.java",
+      "source": "owner/tests/platform/native_recovery_fragments/parse-failure.java.inc",
+      "sha256": "f769bea3670ac3611d112b1b771b9d26abbb0ba5508a549dd746040e106214e6"
+    },
+    {
+      "name": "install-markers",
+      "path": "services/core/java/com/android/server/pm/InstallPackageHelper.java",
+      "source": "owner/tests/platform/native_recovery_fragments/install-markers.java.inc",
+      "sha256": "b0c2f79d9e02f99866ed50e832abb83913c90bab7ed7a13ace4aee1d5b279332"
+    },
+    {
+      "name": "system-delete",
+      "path": "services/core/java/com/android/server/pm/InstallPackageHelper.java",
+      "source": "owner/tests/platform/native_recovery_fragments/system-delete.java.inc",
+      "sha256": "22f757c8cd48513a9003093561872b02d686f251e01ab2a08a97d8b3f2aa63c3"
+    },
+    {
+      "name": "path-safety",
+      "path": "services/core/java/com/android/server/pm/Settings.java",
+      "source": "owner/tests/platform/native_recovery_fragments/path-safety.java.inc",
+      "sha256": "c1db3fe3be384b360761c7953ffb12457fd8b10ecc16cdec6fcf73a99732bb6a"
+    },
+    {
+      "name": "restore-capacity",
+      "path": "services/core/java/com/android/server/pm/Settings.java",
+      "source": "owner/tests/platform/native_recovery_fragments/restore-capacity.java.inc",
+      "sha256": "94f73c5bc31d28d85f51c678b60daa7eeaae3482e15840210895cb62f58ecdef"
+    },
+    {
+      "name": "admission",
+      "path": "services/core/java/com/android/server/pm/Settings.java",
+      "source": "owner/tests/platform/native_recovery_fragments/admission.java.inc",
+      "sha256": "f6fb1d4f8dd53dbb712f35f8832e51735657a4e5c1be948512c6d9f9b33fc8eb"
+    },
+    {
+      "name": "restore-history",
+      "path": "services/core/java/com/android/server/pm/Settings.java",
+      "source": "owner/tests/platform/native_recovery_fragments/restore-history.java.inc",
+      "sha256": "fabd0161b440933cd61d2234667bdeb72a5119a0b3c00eb0c9e61b30d316b444"
+    },
+    {
+      "name": "stored-history",
+      "path": "services/core/java/com/android/server/pm/Settings.java",
+      "source": "owner/tests/platform/native_recovery_fragments/stored-history.java.inc",
+      "sha256": "08afa193e032e5eb3717a19584b90acaf81b1bb4541bd08cca298cc85dcf1b9a"
+    },
+    {
+      "name": "scan",
+      "path": "services/core/java/com/android/server/pm/Settings.java",
+      "source": "owner/tests/platform/native_recovery_fragments/scan.java.inc",
+      "sha256": "369d036a9931ec07f0689f55717e7945d59d2da9a449360163d16df0591f719a"
+    },
+    {
+      "name": "recovery-seeding",
+      "path": "services/core/java/com/android/server/pm/Settings.java",
+      "source": "owner/tests/platform/native_recovery_fragments/recovery-seeding.java.inc",
+      "sha256": "604059a49fa26c8947803f40dd1f1c032b24d5875c7b84f299e79149c0a41727"
+    },
+    {
+      "name": "boot-facts",
+      "path": "services/core/java/com/android/server/pm/Settings.java",
+      "source": "owner/tests/platform/native_recovery_fragments/boot-facts.java.inc",
+      "sha256": "feef1495ce2b94302a140fc6df252a6d7f1fbb910bc8452cbbf67778c4ade6c7"
+    },
+    {
+      "name": "retired-boot",
+      "path": "services/core/java/com/android/server/pm/Settings.java",
+      "source": "owner/tests/platform/native_recovery_fragments/retired-boot.java.inc",
+      "sha256": "02a35b1005f071c15a78e1f16e00f16958ed9922bd1f3d8c900a145893d10178"
+    },
+    {
+      "name": "deferral",
+      "path": "services/core/java/com/android/server/pm/Settings.java",
+      "source": "owner/tests/platform/native_recovery_fragments/deferral.java.inc",
+      "sha256": "ac1e3b8e4ef98fb593224673824d0942f7bb38d3b9986f0cb7d59eef0909a8dd"
+    },
+    {
+      "name": "observation",
+      "path": "services/core/java/com/android/server/pm/Settings.java",
+      "source": "owner/tests/platform/native_recovery_fragments/observation.java.inc",
+      "sha256": "3ec3bda6a37eec0752ecdd2363a61df6c9eebd38966fc0eaa0f16eaa28f0d709"
+    },
+    {
+      "name": "release-finish",
+      "path": "services/core/java/com/android/server/pm/Settings.java",
+      "source": "owner/tests/platform/native_recovery_fragments/release-finish.java.inc",
+      "sha256": "bd8d21c0189304e5cb31d086ef7881cb46f3e5293079d242366dd03584e29eec"
+    },
+    {
+      "name": "diagnostic-dump",
+      "path": "services/core/java/com/android/server/pm/Settings.java",
+      "source": "owner/tests/platform/native_recovery_fragments/diagnostic-dump.java.inc",
+      "sha256": "17a8d470177321e79918c057a96fe6084cc9041ad124db334abda1417bd50f03"
+    }
+  ]
+}
