@@ -163,7 +163,14 @@ class Checkout:
             self.writer_target = {writer.FILE: b'shell adapted\n', writer.ADDED: b'writer helper\n'}
 
     # The simulated Git view of the framework project.
-    def run(self, where, *args, allowed=(0,)):
+    def run(self, where, *args, allowed=(0,), index=None):
+        if args[:2] == ('rev-parse', '--path-format=absolute'):
+            # The private index copy: no index file here, which Git reads as an empty one.
+            return 0, ('%s/.git\n%s/.git\n%s/.git/index\n' % (where, where, where)).encode()
+        if args[0] == 'update-index':
+            return 0, b''
+        if args[0] == 'diff' and index is None:
+            raise AssertionError('a tracked diff read the tree index')
         if args[0] == 'rev-parse':
             return 0, self.head.encode()
         if args[0] == 'show':

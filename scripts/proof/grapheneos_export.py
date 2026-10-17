@@ -296,7 +296,8 @@ def authenticate(root, record, signers):
             if git(repository, 'rev-parse', '--verify', '--end-of-options', name) != wanted:
                 raise ExportError('the source tree manifest %s is not the record of %s'
                                   % (name, release))
-        source.check_tracked_clean(repository)
+        # Its temporary files, and those of the tag check below, stay outside the whole tree.
+        source.check_tracked_clean(repository, root)
     except source.SourceError as error:
         raise ExportError('the source tree manifest is not verified: %s' % error) from error
     signers = carry.check_signers(signers)
@@ -311,7 +312,7 @@ def authenticate(root, record, signers):
             if git(path, 'rev-parse', 'HEAD') != row['revision']:
                 raise ExportError('%s of the source tree is not at the %s revision %s'
                                   % (project, release, row['revision']))
-            source.check_tracked_clean(path)
+            source.check_tracked_clean(path, root)
         except source.SourceError as error:
             raise ExportError('%s of the source tree is not verified: %s'
                               % (project, error)) from error
@@ -1352,7 +1353,7 @@ def tool_digests():
     """The SHA-256 of this tool and of every tool it runs or reads."""
     names = ['scripts/proof/' + name + '.py' for name in (
         'grapheneos_export', 'grapheneos_carry', 'grapheneos_candidate', 'grapheneos_source',
-        'grapheneos_base', 'native_creation_binding', *candidate.PATCH_TOOLS)]
+        'git_index', 'grapheneos_base', 'native_creation_binding', *candidate.PATCH_TOOLS)]
     names.append(HOST_TESTS + '/pis_reverse_write_sync.py')
     return {name: sha((ROOT / name).read_bytes()) for name in names}
 

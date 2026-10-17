@@ -431,6 +431,35 @@ class SourceTreeTests(unittest.TestCase):
         self.assertEqual({project: text(root / project, 'status', '--porcelain')
                           for project in (FRAMEWORK, SEPOLICY, '.repo/manifests')}, before)
 
+    def test_the_temporary_directory_must_be_outside_the_whole_source_tree(self):
+        # The guide refuses a temporary directory inside the source root, not only inside a
+        # project or its Git directories. Git's tag check writes its temporary files there too.
+        root, record, _ = self.tree('tree')
+        inside, outside = root / 'tmp', self.directory / 'tmp'
+        inside.mkdir()
+        outside.mkdir()
+        time.sleep(0.05)  # File times are coarse: a later write must show.
+
+        def state():
+            return {path.relative_to(root).as_posix(): (
+                path.lstat().st_mode, path.lstat().st_size, path.lstat().st_ino,
+                path.lstat().st_mtime_ns, path.lstat().st_ctime_ns,
+                path.read_bytes() if path.is_file() and not path.is_symlink() else None)
+                for path in [root, *root.rglob('*')]}
+        before = state()
+        for directory in (inside, outside):
+            with self.subTest(directory=directory.relative_to(self.directory).as_posix()), \
+                    mock.patch.object(tempfile, 'tempdir', None), \
+                    mock.patch.dict(os.environ, {'TMPDIR': str(directory)}):
+                if directory == inside:
+                    with self.assertRaisesRegex(export.ExportError,
+                                                'temporary directory must be outside source'):
+                        export.authenticate(root, record, self.signers)
+                else:
+                    self.assertEqual(export.authenticate(root, record, self.signers), root)
+                self.assertEqual(state(), before)
+                self.assertEqual(list(outside.iterdir()), [])
+
     def test_objects_are_read_from_local_git_objects_only(self):
         project = self.directory / 'project'
         first, second = commits(project, [

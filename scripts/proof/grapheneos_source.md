@@ -81,15 +81,34 @@ stat data for each file whose content hashes to its entry. It changes no object
 name, mode, stage or flag: entries marked `--assume-unchanged` or `--skip-worktree`
 stay unexamined, as before. Both diffs read the copy through `GIT_INDEX_FILE`, with
 `core.splitIndex=false` so that no index write reaches the project's Git directory.
-The directory is removed afterwards. A temporary directory inside the project, its
-Git directories or the source root is refused. One verdict differs from the earlier
-check: a project whose own configuration sets `diff.autoRefreshIndex=false` was
-reported as changed whenever its stat data was stale, and is now reported only when
-its content differs. In a copied tree the refresh still reads every tracked file
-once, but not the blob of a regular file; the diffs then compare object names. Each
-Git command keeps the 120 second bound. A split index, which Repo does not create,
-is read through its shared index file in the project's Git directory. Git updates
-that file's modification time on every read, in the earlier check as in this one.
+The directory is removed afterwards. One verdict differs from the earlier check: a
+project whose own configuration sets `diff.autoRefreshIndex=false` was reported as
+changed whenever its stat data was stale, and is now reported only when its content
+differs. In a copied tree the refresh still reads every tracked file once, but not
+the blob of a regular file; the diffs then compare object names. Each Git command
+keeps the 120 second bound. A split index, which Repo does not create, is read
+through its shared index file in the project's Git directory. Git updates that
+file's modification time on every read, in the earlier check as in this one.
+
+The temporary directory is the one Python's `tempfile` uses: `TMPDIR`, else `TEMP`,
+else `TMP`, else `/tmp`, unless a program sets `tempfile.tempdir`. The check finds
+it without the probe file `tempfile` writes there on first use, and refuses one
+inside the project, its Git directories or the source root before anything is
+written there. The verifier refuses it before its first Git command, since Git's
+signature check writes its own temporary files there too. Only a regular file of at
+most 256 MiB is copied, which allows over a million entries at about 160 bytes each,
+and exactly its size is read. A FIFO, a device or a directory in place of the index
+is refused at once, where Git blocked on a FIFO until the 120 second bound.
+
+The exporter checks its tree with `check_tracked_clean` and the source root, so the
+same refusals apply there. The patch tools read their tracked diffs through the same
+private copy, with `refreshed_index`: `android_lifecycle.py`, which the other
+framework tools reach first, and `owner_policy.py`. Each keeps its verdicts, and
+`android_lifecycle.py` refuses a temporary directory inside the source tree before
+its scratch patching. `aosp_patches.py`, which follows no GrapheneOS base, does the
+same in its own Git environment; its commands on the copy also disable hooks, so the
+project's `post-index-change` hook does not run for it.
+[`git_index.py`](git_index.py) holds the copy for all of them.
 
 This does not normalize expanded LFS data by invoking `git-lfs` or add a permissive
 content exception. An unchanged pointer is not materialization proof; an expanded
@@ -116,12 +135,14 @@ configuration, pointer/expanded-content controls and a missing promisor object.
 Copied fixtures with stale index stat data cover a clean tree, modified, staged and
 deleted files, a changed file with its size and mtime kept, `--assume-unchanged`,
 `--skip-worktree` and unmerged entries, a missing index, a racily clean entry, split
-index, hook and `diff.autoRefreshIndex` settings, a missing blob and a Repo layout.
-A snapshot of the project's Git directory and worktree metadata is the same before
-and after. Where the earlier check reached a verdict, a twin copy shows the same
-one, apart from the `diff.autoRefreshIndex=false` case above. With a missing blob it
-failed with a Git error; this check passes, since it reads no blob of a regular
-file.
+index, hook and `diff.autoRefreshIndex` settings, a missing blob, a Repo layout, a
+temporary directory named by the environment, a FIFO, a device, a directory, a link
+and an oversized file as the index. A snapshot of the project's Git directory and
+worktree metadata is the same before and after. Where the earlier check reached a
+verdict, a twin copy shows the same one, apart from the
+`diff.autoRefreshIndex=false` case above. With a missing blob it failed with a Git
+error; this check passes, since it reads no blob of a regular file. The tests of the
+exporter and of each patch tool do the same for their own checks.
 The missing-object negative leaves the object store unchanged; a deliberate
 local-file positive control confirms that the fixture could fetch otherwise.
 No Internet or active platform checkout is used by these tests. M0's real SSH

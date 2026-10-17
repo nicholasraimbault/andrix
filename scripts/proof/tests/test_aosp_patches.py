@@ -1,14 +1,21 @@
 # SPDX-License-Identifier: Apache-2.0
 """Temporary-Git, host-only patch guard tests; no AOSP, network or device use."""
+import contextlib
 import difflib
 import importlib.util
 import json
+import os
 from pathlib import Path
+import shutil
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
+from unittest import mock
 
 MODULE = Path(__file__).resolve().parents[1] / "aosp_patches.py"
+sys.path.insert(0, str(MODULE.parent))  # its private index module, git_index
 spec = importlib.util.spec_from_file_location("aosp_patches", MODULE)
 patches = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(patches)
@@ -16,6 +23,21 @@ spec.loader.exec_module(patches)
 
 def git(path, *args):
     return subprocess.check_output(["git", "-C", str(path), *args], stderr=subprocess.PIPE).decode().strip()
+
+
+def state(root):
+    # Every entry below root, links not followed: mode, size, inode, mtime, ctime and bytes.
+    return {path.relative_to(root).as_posix(): (
+        path.lstat().st_mode, path.lstat().st_size, path.lstat().st_ino, path.lstat().st_mtime_ns,
+        path.lstat().st_ctime_ns,
+        path.read_bytes() if path.is_file() and not path.is_symlink() else None)
+        for path in [root, *root.rglob("*")]}
+
+
+@contextlib.contextmanager
+def previous(base, aosp):
+    # The earlier procedure: every diff against the project's own index.
+    yield lambda *args: patches.run(base, *args)
 
 
 def repository(path, contents):
@@ -145,6 +167,74 @@ class PatchGuardTests(unittest.TestCase):
         self.save()
         with self.assertRaises(patches.PatchError):
             patches.inspect(self.aosp, self.series)
+
+    def copies(self, *names):
+        time.sleep(1.1)  # Git compares whole seconds of ctime: copies start a second later.
+        return [shutil.copytree(self.aosp, self.root / name, symlinks=True) for name in names]
+
+    def test_a_copied_tree_is_checked_and_applied_through_a_private_index(self):
+        # A copy's index matches none of its files, and the earlier diffs rewrote it there. The
+        # check and the application decide and record what the earlier procedure did, on a twin
+        # copy, while the copy's Git directories stay byte identical.
+        copy, twin = self.copies("copy", "twin")
+        before = state(copy)
+        report, _ = patches.inspect(copy, self.series)
+        self.assertEqual(report["state"], "base")
+        self.assertEqual(state(copy), before)
+        with mock.patch.object(patches, "refreshed", previous):
+            self.assertEqual(patches.inspect(twin, self.series)[0], report)
+        before = {name: state(copy / name / ".git") for name in ("project", ".repo/manifests")}
+        applied = patches.apply(copy, self.root / "copy-evidence", self.series)
+        self.assertEqual({name: state(copy / name / ".git") for name in before}, before)
+        self.assertEqual((copy / "project/source.txt").read_text(), "after\n")
+        with mock.patch.object(patches, "refreshed", previous):
+            self.assertEqual(patches.apply(twin, self.root / "twin-evidence", self.series), applied)
+        self.assertEqual((self.root / "copy-evidence/project.diff").read_bytes(),
+                         (self.root / "twin-evidence/project.diff").read_bytes())
+
+    def test_index_writes_stay_in_the_private_copy(self):
+        # A split index setting would write a shared index file into the Git directory, and an
+        # index write runs post-index-change. Neither happens for the private copy.
+        copy, = self.copies("copy")
+        # Files an hour older than the index: Git writes a whole index when an entry is racily
+        # clean, so only older entries take the split index path.
+        for name in ("source.txt", "other.txt"):
+            os.utime(copy / "project" / name, (time.time() - 3600,) * 2)
+        marker = self.root / "hook-ran"
+        hook = copy / "project/.git/hooks/post-index-change"
+        hook.write_text("#!/bin/sh\necho ran > '%s'\n" % marker)
+        hook.chmod(0o755)
+        git(copy / "project", "config", "core.splitIndex", "true")
+        twin = shutil.copytree(copy, self.root / "twin", symlinks=True)
+        before = state(copy)
+        self.assertEqual(patches.inspect(copy, self.series)[0]["state"], "base")
+        self.assertEqual(state(copy), before)
+        self.assertFalse(marker.exists())
+        # The control: the earlier procedure on a twin copy with the same settings runs the hook
+        # and leaves a shared index file, so this fixture shows either write.
+        with mock.patch.object(patches, "refreshed", previous):
+            self.assertEqual(patches.inspect(twin, self.series)[0]["state"], "base")
+        self.assertTrue(marker.exists())
+        self.assertTrue(list((twin / "project/.git").glob("sharedindex.*")))
+
+    def test_a_temporary_directory_inside_the_tree_is_refused_before_any_write(self):
+        inside, outside = self.aosp / "tmp", self.root / "outside"
+        inside.mkdir()
+        outside.mkdir()
+        time.sleep(0.05)  # File times are coarse: a later write must show.
+        before = state(self.aosp)
+        for directory in (inside, outside):
+            with self.subTest(directory=directory.name), \
+                    mock.patch.object(tempfile, "tempdir", None), \
+                    mock.patch.dict(os.environ, {"TMPDIR": str(directory)}):
+                if directory == inside:
+                    with self.assertRaisesRegex(patches.PatchError,
+                                                "temporary directory must be outside"):
+                        patches.inspect(self.aosp, self.series)
+                else:
+                    self.assertEqual(patches.inspect(self.aosp, self.series)[0]["state"], "base")
+                self.assertEqual(state(self.aosp), before)
+                self.assertEqual(list(outside.iterdir()), [])
 
 
 if __name__ == "__main__":

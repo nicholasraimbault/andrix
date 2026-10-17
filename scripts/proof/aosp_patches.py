@@ -7,6 +7,7 @@ HEADs/indexes, and requires a fresh evidence directory outside source trees.
 This does not qualify an image, authorize a boot, or establish network proof.
 """
 import argparse
+import contextlib
 import hashlib
 import json
 import os
@@ -14,6 +15,8 @@ from pathlib import Path, PurePosixPath
 import re
 import subprocess
 import sys
+
+import git_index
 
 ROOT = Path(__file__).resolve().parents[2]
 SERIES = ROOT / "patches/android-17.0.0_r1/series.json"
@@ -23,12 +26,37 @@ class PatchError(Exception):
     pass
 
 
-def run(cwd, *args, data=None):
-    result = subprocess.run(["git", "-C", str(cwd), *args], input=data,
+def run(cwd, *args, data=None, index=None):
+    env = None
+    if index is not None:
+        # A private index file outside the tree: writing it neither leaves a shared index file
+        # in the project's Git directory nor runs the project's post-index-change hook.
+        env = dict(os.environ, GIT_INDEX_FILE=str(index))
+        args = ("-c", "core.splitIndex=false", "-c", "core.hooksPath=" + os.devnull, *args)
+    result = subprocess.run(["git", "-C", str(cwd), *args], input=data, env=env,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if result.returncode:
         raise PatchError(result.stderr.decode(errors="replace").strip() or "git operation failed")
     return result.stdout
+
+
+@contextlib.contextmanager
+def refreshed(base, aosp):
+    """A function that runs git in a project against a refreshed private copy of its index, in
+    this tool's own Git environment. A porcelain git diff stores a refreshed index when entries
+    have stale stat data but unchanged content, as in a copied tree; the copy keeps that write
+    out of the tree. The refresh changes only stat data, so every diff reports as before."""
+    places = [Path(os.fsdecode(line)) for line in run(
+        base, "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir",
+        "--git-path", "index").splitlines()]
+    if len(places) != 3:
+        raise PatchError("Unexpected Git directory layout in " + str(base))
+    try:
+        with git_index.private_copy(places[2], [base, *places[:2], aosp]) as index:
+            run(base, "update-index", "-q", "--unmerged", "--refresh", index=index)
+            yield lambda *args: run(base, *args, index=index)
+    except git_index.Refused as error:
+        raise PatchError(str(error)) from error
 
 
 def digest(data):
@@ -61,31 +89,33 @@ def inspect(aosp, series_file=SERIES):
         head = run(base, "rev-parse", "HEAD").decode().strip()
         if head != project["base_commit"]:
             raise PatchError("Project revision mismatch: " + project["path"])
-        if run(base, "diff", "--cached", "--name-only") or run(base, "ls-files", "--others", "--exclude-standard"):
-            raise PatchError("Staged or untracked changes in " + project["path"])
-        expected_modified = set()
-        for entry in project["files"]:
-            name = relative(entry["path"])
-            path = base / name
-            if path.is_symlink() or not path.resolve().is_relative_to(base.resolve()):
-                raise PatchError("Source path is not a contained regular file")
-            actual = digest(path.read_bytes())
-            if actual == entry["base_sha256"]:
-                state = "base"
-            elif actual == entry["patched_sha256"]:
-                state = "applied"
-                expected_modified.add(name.as_posix())
-            else:
-                raise PatchError("Unexpected source bytes: " + str(path.relative_to(aosp)))
-            states.add(state)
-            full_name = path.relative_to(aosp).as_posix()
-            if full_name in files:
-                raise PatchError("Duplicate source entry")
-            files[full_name] = {"state": state, "sha256": actual,
-                                "expected_patched_sha256": entry["patched_sha256"]}
-        modified = set(run(base, "diff", "--name-only", "HEAD", "--").decode().splitlines())
-        if modified != expected_modified or run(base, "diff", "--summary", "HEAD", "--"):
-            raise PatchError("Unrelated source or file-mode changes in " + project["path"])
+        with refreshed(base, aosp) as git:
+            if (git("diff", "--cached", "--name-only")
+                    or run(base, "ls-files", "--others", "--exclude-standard")):
+                raise PatchError("Staged or untracked changes in " + project["path"])
+            expected_modified = set()
+            for entry in project["files"]:
+                name = relative(entry["path"])
+                path = base / name
+                if path.is_symlink() or not path.resolve().is_relative_to(base.resolve()):
+                    raise PatchError("Source path is not a contained regular file")
+                actual = digest(path.read_bytes())
+                if actual == entry["base_sha256"]:
+                    state = "base"
+                elif actual == entry["patched_sha256"]:
+                    state = "applied"
+                    expected_modified.add(name.as_posix())
+                else:
+                    raise PatchError("Unexpected source bytes: " + str(path.relative_to(aosp)))
+                states.add(state)
+                full_name = path.relative_to(aosp).as_posix()
+                if full_name in files:
+                    raise PatchError("Duplicate source entry")
+                files[full_name] = {"state": state, "sha256": actual,
+                                    "expected_patched_sha256": entry["patched_sha256"]}
+            modified = set(git("diff", "--name-only", "HEAD", "--").decode().splitlines())
+            if modified != expected_modified or git("diff", "--summary", "HEAD", "--"):
+                raise PatchError("Unrelated source or file-mode changes in " + project["path"])
         projects.append({"path": project["path"], "head": head})
     if len(states) != 1:
         raise PatchError("Partial patch state; preserve and diagnose rather than force applying")
@@ -125,7 +155,8 @@ def apply(aosp, evidence, series_file=SERIES):
         (evidence / "after.json").write_text(json.dumps(after, indent=2) + "\n")
         for project in after["projects"]:
             filename = project["path"].replace("/", "_") + ".diff"
-            (evidence / filename).write_bytes(run(aosp / project["path"], "diff", "--binary", "HEAD", "--"))
+            with refreshed(aosp / project["path"], aosp) as git:
+                (evidence / filename).write_bytes(git("diff", "--binary", "HEAD", "--"))
         return after
     except Exception:
         # Do not reset/restore over unexpected concurrent edits. Preserve the

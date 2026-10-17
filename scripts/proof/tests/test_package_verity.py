@@ -75,7 +75,13 @@ class PackageVerityTests(unittest.TestCase):
             for name in target:
                 p=project/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(target[name])
             modified=[*lifecycle.FILES,verity.FILE];staged=[];others=[lifecycle.ADDED]
-            def run(where,*args):
+            def run(where,*args,index=None):
+                # The private index copy: no index file here, which Git reads as an empty one.
+                if args[:2]==('rev-parse','--path-format=absolute'):
+                    return 0,('%s/.git\n%s/.git\n%s/.git/index\n'%((where,)*3)).encode()
+                if args[0]=='update-index':return 0,b''
+                if args[0]=='diff' and index is None:
+                    raise AssertionError('a tracked diff read the tree index')
                 if args[0]=='rev-parse':return 0,lifecycle.HEAD.encode()
                 if args[0]=='show':return 0,b'old'
                 if args[0]=='diff':return 0,'\n'.join(staged if '--cached' in args else modified).encode()

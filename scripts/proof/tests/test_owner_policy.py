@@ -1,16 +1,42 @@
 # SPDX-License-Identifier: Apache-2.0
 """Guard mechanics with explicit synthetic pins; real source/build checks separate."""
 from pathlib import Path
+import contextlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import owner_policy as policy
+
+
+def state(root):
+    # Every entry below root, links not followed: mode, size, inode, mtime, ctime and bytes.
+    return {path.relative_to(root).as_posix(): (
+        path.lstat().st_mode, path.lstat().st_size, path.lstat().st_ino, path.lstat().st_mtime_ns,
+        path.lstat().st_ctime_ns,
+        path.read_bytes() if path.is_file() and not path.is_symlink() else None)
+        for path in [root, *root.rglob('*')]}
+
+
+@contextlib.contextmanager
+def previous(path, root=None):
+    # The earlier tracked check: both diffs against the project's own index.
+    flags = policy.source.filter_overrides(path)
+    yield lambda *args: policy.source.run(path, *flags, *args)[1]
+
+
+def outcome(root):
+    try:
+        return policy.inspect(root)[3]['state']
+    except ValueError as error:
+        return str(error)
 
 
 class OwnerPolicyTests(unittest.TestCase):
@@ -88,3 +114,72 @@ class OwnerPolicyTests(unittest.TestCase):
             target.unlink();target.write_bytes(original)
             with patch.object(policy,'BEFORE',policy.sha(original)):
                 with self.assertRaisesRegex(ValueError,'wrong pinned'):policy.inspect(root)
+
+    def synthetic_tree(self, root):
+        project = root/policy.PROJECT
+        (project/policy.FILE).parent.mkdir(parents=True)
+        (project/policy.FILE).write_bytes(self.fixture())
+        (project/'private/other.te').write_bytes(b'# another tracked file\n')
+        env = {k:v for k,v in os.environ.items() if not k.startswith('GIT_')}
+        env.update({'GIT_CONFIG_GLOBAL':os.devnull,'GIT_CONFIG_NOSYSTEM':'1'})
+        def git(where, *args):
+            return subprocess.check_output(['git','-C',str(where),'-c','user.name=Fixture',
+                '-c','user.email=fixture@example.invalid',*args],env=env,
+                stderr=subprocess.STDOUT).strip()
+        git(project,'init');git(project,'add','.');git(project,'commit','-m','synthetic input')
+        return git, git(project,'rev-parse','HEAD').decode()
+
+    def test_a_copied_tree_is_read_through_a_private_index(self):
+        # A copy's index matches none of its files, and the earlier check rewrote it there. Each
+        # verdict on a copy is the earlier check's, on a twin copy, and the copy is unchanged.
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            git, head = self.synthetic_tree(work/'original')
+            time.sleep(1.1)  # Git compares whole seconds of ctime: copies start a second later.
+            original = self.fixture()
+            with patch.object(policy,'HEAD',head), \
+                    patch.object(policy,'BEFORE',policy.sha(original)):
+                adapted = policy.patched(original)
+                def adapt(project): (project/policy.FILE).write_bytes(adapted)
+                def stage(project):
+                    adapt(project); git(project,'add',policy.FILE)
+                def other(project): (project/'private/other.te').write_bytes(b'# changed\n')
+                for name, change, expected in [('upstream', None, 'UPSTREAM'),
+                                               ('adapted', adapt, 'ANDRIX_PRIVATE_BRIDGE'),
+                                               ('staged', stage, 'unexpected staged'),
+                                               ('other', other,
+                                                'unexpected staged or other tracked')]:
+                    with self.subTest(name):
+                        copy = work/name
+                        shutil.copytree(work/'original', copy, symlinks=True)
+                        if change: change(copy/policy.PROJECT)
+                        twin = shutil.copytree(copy, work/(name+'-twin'), symlinks=True)
+                        before = state(copy)
+                        found = outcome(copy)
+                        self.assertEqual(state(copy), before)
+                        self.assertIn(expected, found)
+                        with patch.object(policy.source, 'refreshed_index', previous):
+                            self.assertEqual(outcome(twin), found)
+
+    def test_a_temporary_directory_inside_the_source_tree_is_refused_before_any_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            _, head = self.synthetic_tree(work/'root')
+            inside, outside = work/'root/tmp', work/'outside'
+            inside.mkdir(); outside.mkdir()
+            time.sleep(0.05)  # File times are coarse: a later write must show.
+            before = state(work/'root')
+            with patch.object(policy,'HEAD',head), \
+                    patch.object(policy,'BEFORE',policy.sha(self.fixture())):
+                for directory in (inside, outside):
+                    with self.subTest(directory=directory.name), \
+                            patch.object(tempfile,'tempdir',None), \
+                            patch.dict(os.environ,{'TMPDIR':str(directory)}):
+                        if directory == inside:
+                            with self.assertRaisesRegex(policy.source.SourceError,
+                                                        'temporary directory must be outside'):
+                                policy.inspect(work/'root')
+                        else:
+                            self.assertEqual(policy.inspect(work/'root')[3]['state'], 'UPSTREAM')
+                        self.assertEqual(state(work/'root'), before)
+                        self.assertEqual(list(outside.iterdir()), [])

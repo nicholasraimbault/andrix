@@ -97,10 +97,11 @@ def inspect(root):
     if current == original: state = 'UPSTREAM'
     elif current == target: state = 'ANDRIX_PRIVATE_BRIDGE'
     else: raise ValueError('unexpected policy file modification')
-    # Use the same callback-disabled Git inspection profile as the base verifier.
-    flags = source.filter_overrides(project)
-    worktree = source.run(project, *flags, 'diff', '--no-ext-diff', '--no-textconv', '--name-only', 'HEAD', '--')[1].decode().splitlines()
-    staged = source.run(project, *flags, 'diff', '--no-ext-diff', '--no-textconv', '--cached', '--name-only', '--')[1].decode().splitlines()
+    # Use the same callback-disabled Git inspection profile as the base verifier, through a
+    # refreshed private copy of the project's index, so the tree's index is not written.
+    with source.refreshed_index(project, root) as git:
+        worktree = git(*source.WORKTREE_DIFF).decode().splitlines()
+        staged = git(*source.STAGED_DIFF).decode().splitlines()
     if staged or worktree != ([FILE] if state != 'UPSTREAM' else []):
         raise ValueError('unexpected staged or other tracked project changes')
     return project, original, target, {'project':PROJECT,'head':head,'file':FILE,'state':state,

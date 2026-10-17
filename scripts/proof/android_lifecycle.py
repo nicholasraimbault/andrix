@@ -114,6 +114,9 @@ def extracted_methods(data):
 
 def inspect(root, *, lab_writer_fixture=False):
     root = root.resolve(strict=True)
+    # Scratch patching, the companions and the private index use the temporary directory.
+    # One inside the source tree is refused before anything is written there.
+    source.temporary_outside(root)
     project = root / PROJECT
     if project.resolve(strict=True) != project:
         raise ValueError('project containment')
@@ -135,11 +138,10 @@ def inspect(root, *, lab_writer_fixture=False):
             states[name] = 'ADAPTED'
         else:
             raise ValueError('unrecognized framework modification: ' + name)
-    flags = source.filter_overrides(project)
-    modified = source.run(project, *flags, 'diff', '--no-ext-diff', '--no-textconv',
-                          '--name-only', 'HEAD', '--')[1].decode().splitlines()
-    staged = source.run(project, *flags, 'diff', '--no-ext-diff', '--no-textconv',
-                        '--cached', '--name-only', '--')[1].decode().splitlines()
+    # Through a refreshed private copy of the project's index, so the tree's index is not written.
+    with source.refreshed_index(project, root) as git:
+        modified = git(*source.WORKTREE_DIFF).decode().splitlines()
+        staged = git(*source.STAGED_DIFF).decode().splitlines()
     others = source.run(project, 'ls-files', '--others', '--exclude-standard')[1].decode().splitlines()
     # Framework adaptations share one exact tree fence. Recognizing the package
     # companion requires its pinned original/candidate bytes, not a path exception.

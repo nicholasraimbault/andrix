@@ -14,12 +14,11 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
-import shutil
 import subprocess
 import sys
-import tempfile
 import xml.etree.ElementTree as ET
 
+import git_index
 import grapheneos_base
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -152,48 +151,55 @@ def filter_overrides(path):
     return args
 
 
+def temporary_outside(*trees):
+    """The temporary directory, refused inside any given tree before anything is written there."""
+    try:
+        return git_index.temporary_base(*trees)
+    except git_index.Refused as error:
+        raise SourceError(str(error)) from error
+
+
 @contextlib.contextmanager
 def private_index(path, root=None):
-    """A copy of a project's index in a new private directory, removed afterwards. The
-    temporary directory must be outside the project, its Git directories and the root."""
+    """A copy of a project's index in a new private directory, removed afterwards (git_index).
+    The temporary directory must be outside the project, its Git directories and the root."""
     _, output = run(path, 'rev-parse', '--path-format=absolute', '--git-dir',
                     '--git-common-dir', '--git-path', 'index')
     places = [Path(os.fsdecode(line)) for line in output.splitlines()]
     if len(places) != 3:
         raise SourceError('Unexpected Git directory layout in ' + str(path))
-    temporary = Path(tempfile.gettempdir()).resolve()
-    trees = [path, *places[:2]] + ([root] if root is not None else [])
-    if any(temporary.is_relative_to(Path(tree).resolve()) for tree in trees):
-        raise SourceError('The temporary directory must be outside source trees: ' + str(temporary))
-    with tempfile.TemporaryDirectory(prefix='grapheneos-source-', dir=temporary) as directory:
-        copy = Path(directory) / 'index'
-        try:
-            source = places[2].open('rb')
-        except FileNotFoundError:
-            pass  # Git reads a missing index as an empty one, from here as from the tree.
-        else:
-            with source, copy.open('xb') as target:
-                shutil.copyfileobj(source, target)
-                status = os.fstat(source.fileno())
-            # Git checks the content of each entry whose recorded mtime is not older than the
-            # index file's mtime. The copy keeps that mtime, so the same entries are checked.
-            os.utime(copy, ns=(status.st_atime_ns, status.st_mtime_ns))
-        yield copy
+    try:
+        with git_index.private_copy(places[2], [path, *places[:2], root]) as copy:
+            yield copy
+    except git_index.Refused as error:
+        raise SourceError(str(error)) from error
 
 
-def check_tracked_clean(path, root=None):
-    overrides = filter_overrides(path)
+# The tracked comparisons: the worktree against HEAD, then the index against HEAD.
+WORKTREE_DIFF = ('diff', '--no-ext-diff', '--no-textconv', '--name-only', 'HEAD', '--')
+STAGED_DIFF = ('diff', '--no-ext-diff', '--no-textconv', '--cached', '--name-only', '--')
+
+
+@contextlib.contextmanager
+def refreshed_index(path, root=None):
+    """A function that runs Git in a project against a refreshed private copy of its index, with
+    every local filter driver disabled, and returns its output."""
     # A copied tree's index holds stat data that matches none of its files. Git then compares
     # every file's content, and git diff stores the refreshed index in the tree when it can,
     # even with --no-optional-locks. Refresh a private copy instead. The refresh keeps each
     # entry's object name, mode, stage and flags, and takes new stat data only for files whose
     # content hashes to their entry. Entries marked --assume-unchanged or --skip-worktree stay
-    # unexamined, as before. The two diffs then read the refreshed copy, never the tree's index.
+    # unexamined, as before. Later commands read the refreshed copy, never the tree's index.
+    overrides = filter_overrides(path)
     with private_index(path, root) as index:
         run(path, *overrides, 'update-index', '-q', '--unmerged', '--refresh', index=index)
-        for args in [('diff', '--no-ext-diff', '--no-textconv', '--name-only', 'HEAD', '--'),
-                     ('diff', '--no-ext-diff', '--no-textconv', '--cached', '--name-only', '--')]:
-            if run(path, *overrides, *args, index=index)[1]:
+        yield lambda *args: run(path, *overrides, *args, index=index)[1]
+
+
+def check_tracked_clean(path, root=None):
+    with refreshed_index(path, root) as git:
+        for args in (WORKTREE_DIFF, STAGED_DIFF):
+            if git(*args):
                 # Expanded LFS content is deliberately not normalized by executing
                 # git-lfs. Unsupported filtered forms fail rather than widening the
                 # read-only check or accepting arbitrary normalized content.
@@ -244,6 +250,8 @@ def check_project(root, project):
 
 def inspect(root, allowed_signers, progress=None):
     root = root.resolve()
+    # Git's signature check and each private index use the temporary directory.
+    temporary_outside(root)
     allowed_signers = allowed_signers.resolve()
     if digest(allowed_signers.read_bytes()) != SIGNERS_SHA256:
         raise SourceError('Allowed-signers bytes differ from the approved trust input')

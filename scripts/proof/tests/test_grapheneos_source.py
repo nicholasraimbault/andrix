@@ -163,6 +163,34 @@ class SourceTests(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()):self.assertEqual(g.main(args[:-1]+[str(inside)]),1)
         self.assertFalse(inside.exists())
 
+    def test_cli_refuses_a_temporary_directory_in_the_tree_before_writing_there(self):
+        # Before its first use tempfile writes a probe file into the directory it picks, so the
+        # directory is found without tempfile, and refused before any Git command runs.
+        inside=self.root/'tmp';inside.mkdir();outside=Path(self.tmp.name)/'outside';outside.mkdir()
+        time.sleep(0.05)  # File times are coarse: a later write must show.
+        for directory,code in [(inside,1),(outside,0)]:
+            with self.subTest(directory=directory.name):
+                self.calls.clear();status=inside.stat()
+                evidence=Path(self.tmp.name)/('result-'+directory.name)
+                args=['--source-root',str(self.root),'--allowed-signers',str(self.signers),
+                      '--evidence-dir',str(evidence)]
+                with mock.patch.dict(os.environ,{'TMPDIR':str(directory)}), \
+                        mock.patch.object(tempfile,'tempdir',None), \
+                        contextlib.redirect_stdout(io.StringIO()), \
+                        contextlib.redirect_stderr(io.StringIO()) as errors:
+                    self.assertEqual(g.main(args),code)
+                after=inside.stat()
+                self.assertEqual((after.st_mtime_ns,after.st_ctime_ns),
+                                 (status.st_mtime_ns,status.st_ctime_ns))
+                self.assertEqual(list(inside.iterdir()),[])
+                self.assertEqual(list(outside.iterdir()),[])
+                if code:
+                    self.assertIn('temporary directory must be outside source trees',
+                                  errors.getvalue())
+                    self.assertEqual(self.calls,[])
+                else:
+                    self.assertTrue(self.calls)
+
 
 class GitExecutionTests(unittest.TestCase):
     def test_git_is_read_only_and_bounded(self):
@@ -324,6 +352,24 @@ class RealGitReadOnlyTests(unittest.TestCase):
         self.fixture_git('replace',original,replacement)
         self.assertEqual(g.run(self.repo,'cat-file','-p',original)[1],b'committed\n')
 
+
+# Runs the tracked check in a child process, which its timeout ends if a read blocks.
+CHILD = '''import importlib.util, os, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+spec = importlib.util.spec_from_file_location('grapheneos_source', sys.argv[2])
+g = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(g)
+if len(sys.argv) > 4:
+    # The index is replaced after its type check: os.stat still reports the regular file.
+    index, regular, real = sys.argv[4], sys.argv[5], os.stat
+    os.stat = lambda path, *a, **k: real(regular if os.fspath(path) == index else path, *a, **k)
+try:
+    g.check_tracked_clean(Path(sys.argv[3]))
+    print('PASS')
+except g.SourceError as error:
+    print(error)
+'''
 
 def fixture_git(repo,*args,input=None):
     return subprocess.run(['git','-C',str(repo),*args],env=g.git_environment(),input=input,
@@ -511,6 +557,87 @@ class CopiedIndexTests(unittest.TestCase):
         (project/'.git/objects'/oid[:2]/oid[2:]).unlink()
         before=tree_state(project)
         g.check_tracked_clean(project)
+        self.assertUnchanged(project,before)
+
+    def test_temporary_directory_from_the_environment_is_refused_before_any_write(self):
+        # As tempfile takes it: TMPDIR, else TEMP, else TMP. No probe file is written first.
+        tree=self.work/'tree';project=self.copy(self.original,tree/'p')
+        inside=tree/'tmp';inside.mkdir();outside=self.work/'outside';outside.mkdir()
+        time.sleep(0.05)  # File times are coarse: a later write must show.
+        others={key:value for key,value in os.environ.items() if key not in ('TMPDIR','TEMP','TMP')}
+        for variables,refused in [({'TMPDIR':inside},True),({'TEMP':inside},True),
+                                  ({'TMP':inside},True),
+                                  ({'TMPDIR':outside,'TEMP':inside,'TMP':inside},False),
+                                  ({'TEMP':outside,'TMP':inside},False)]:
+            names=' '.join('%s=%s'%(name,where.name) for name,where in variables.items())
+            with self.subTest(names):
+                before=tree_state(tree)
+                environment={**others,**{name:str(where) for name,where in variables.items()}}
+                with mock.patch.dict(os.environ,environment,clear=True), \
+                        mock.patch.object(tempfile,'tempdir',None):
+                    try:
+                        g.check_tracked_clean(project,tree);found='PASS'
+                    except g.SourceError as error:
+                        found=str(error)
+                self.assertUnchanged(tree,before);self.assertEqual(list(outside.iterdir()),[])
+                self.assertRegex(found,
+                                 'temporary directory must be outside' if refused else '^PASS$')
+
+    def child(self,project,*replaced):
+        process=subprocess.run([sys.executable,'-B','-c',CHILD,str(FILE.parent),str(FILE),
+                                str(project),*map(str,replaced)],
+                               env={**os.environ,'TMPDIR':str(self.private)},capture_output=True,
+                               text=True,timeout=60)
+        self.assertEqual(process.returncode,0,process.stderr)
+        return process.stdout.strip()
+
+    def test_an_index_other_than_a_regular_file_fails_at_once(self):
+        # Git blocks on a FIFO index until killed and fails at once on a device or a directory.
+        # The copy refuses each at once; a link to a regular index is read as Git reads it.
+        project=self.stale();index=project/'.git/index';regular=project/'.git/index.regular'
+        index.rename(regular)
+        def fifo():os.mkfifo(index)
+        def device():index.symlink_to('/dev/zero')
+        def directory():index.mkdir()
+        def link():index.symlink_to(regular.name)
+        def honest():regular.rename(index)
+        for make,expected in [(fifo,'^The index is not a regular file: '),
+                              (device,'^The index is not a regular file: '),
+                              (directory,'^The index is not a regular file: '),
+                              (link,'^PASS$'),(honest,'^PASS$')]:
+            with self.subTest(make.__name__):
+                make()
+                try:
+                    before=tree_state(project)
+                    self.assertRegex(self.child(project),expected)
+                    self.assertUnchanged(project,before)
+                finally:
+                    if make is not honest:
+                        if index.is_dir() and not index.is_symlink():
+                            index.rmdir()
+                        else:
+                            index.unlink()
+        # A FIFO put in place of the index after its type check is not read either.
+        index.rename(regular);os.mkfifo(index);before=tree_state(project)
+        self.assertEqual(self.child(project,os.path.realpath(index),regular),
+                         'The index file changed while it was read: '+os.path.realpath(index))
+        self.assertUnchanged(project,before)
+
+    def test_an_index_over_the_size_bound_is_refused_before_it_is_copied(self):
+        project=self.stale();index=project/'.git/index';size=index.stat().st_size
+        for limit,expected in [(size,'^PASS$'),(size-1,'^The index is larger than')]:
+            with self.subTest(limit=limit-size),mock.patch.object(g.git_index,'LIMIT',limit):
+                before=tree_state(project)
+                try:
+                    g.check_tracked_clean(project);found='PASS'
+                except g.SourceError as error:
+                    found=str(error)
+                self.assertUnchanged(project,before);self.assertRegex(found,expected)
+        # A sparse index takes no space in the tree, but a copy would write all of it.
+        index.unlink();index.touch();os.truncate(index,64<<20);before=tree_state(project)
+        with mock.patch.object(g.git_index,'LIMIT',1<<20), \
+                self.assertRaisesRegex(g.SourceError,'^The index is larger than 1048576 bytes'):
+            g.check_tracked_clean(project)
         self.assertUnchanged(project,before)
 
     def test_repo_layout_tree_stays_byte_identical(self):
