@@ -473,6 +473,7 @@ def _at_most_one(nodes, message):
 # element, and a repeated owner or row replaces the earlier one, so both are refused here.
 NUMBER = r'0|[1-9][0-9]{0,9}'
 TEXT = r'[^\x00-\x1f]{1,1024}'
+FINGERPRINT = r'[^\x00-\x1f]{0,1024}'
 ROWS = {'permission': {'name': TEXT, 'flags': NUMBER}, 'app-op': {'name': TEXT, 'mode': '[0-4]'},
         'app-function-access': {'targetUid': NUMBER, 'flags': NUMBER}}
 ACCESS_SECTIONS = {
@@ -509,7 +510,8 @@ def access_grammar(root):
             | {'default-permission-grant', 'app-function-pregrant'}, 'Access sections')
     for section in root:
         if section.tag in ('default-permission-grant', 'app-function-pregrant'):
-            _element(section, section.tag, {'fingerprint': TEXT})
+            # Version 21 (the source check, section 3): the writer emits an empty fingerprint as an empty string.
+            _element(section, section.tag, {'fingerprint': FINGERPRINT})
             continue
         _element(section, section.tag, {}, children=True)
         if section.tag == 'package-versions':
@@ -554,11 +556,16 @@ def access_values(data, uid):
                              'duplicate stored app operation owner')
         modes[tag] = {item.get('name'): int(item.get('mode'))
                       for item in (owner if owner is not None else [])}
+    # Version 21: the subject's device permissions, device ID to {permission: flags}; empty when it has none.
+    devices = _at_most_one([x for x in section.get('app-id-device-permissions', []) if x.get('id') == str(uid)],
+                           'duplicate stored app ID device permissions')
+    device_permissions = {device.get('id'): {item.get('name'): int(item.get('flags')) for item in device}
+                          for device in (devices if devices is not None else [])}
     return {'migration_version': None if version is None else int(version.get('version')),
             'permission_flags': permissions.get(PERMISSION), 'permissions': permissions,
             'uid_mode': modes['app-id-app-ops'].get(OP), 'uid_ops': modes['app-id-app-ops'],
             'package_mode': modes['package-app-ops'].get(OP),
-            'package_ops': modes['package-app-ops']}
+            'package_ops': modes['package-app-ops'], 'device_permissions': device_permissions}
 
 
 def notification_values(data):
@@ -666,10 +673,17 @@ def permission_dump_values(by_app_id, by_package, uid):
     for name, row in first['permissions'].items():
         permissions[name] = flags_value(row['flags'])
         require(row['granted'] is granted(permissions[name]), 'rendered grant and flags disagree')
+    devices = {}
+    for device, rows in first['device_permissions'].items():
+        devices[device] = {}
+        for name, row in rows.items():
+            devices[device][name] = flags_value(row['flags'])
+            require(row['granted'] is granted(devices[device][name]), 'rendered device grant and flags disagree')
     return {'migration_version': first['version'],
             'permission_flags': permissions.get(PERMISSION), 'permissions': permissions,
             'uid_mode': _mode(first['uid_ops'].get(OP)),
-            'package_mode': _mode(first['package_ops'].get(OP))}
+            'package_mode': _mode(first['package_ops'].get(OP)),
+            'users': first['users'], 'device_permissions': devices}
 
 
 APPOP_LINE = re.compile(r'(Uid mode: )?VIBRATE: (allow|ignore|deny|default|foreground)(.*)')
@@ -769,11 +783,7 @@ def job_dump_values(capture, uid):
         if not line:
             continue
         if line.startswith('  JOB '):
-            match = re.fullmatch(r'  JOB (?:#|([^ /:]+):)([^ /:]+)/(-?[0-9]+): ([0-9a-f]+) (\S+)',
-                                 line)
-            require(match is not None, 'registered job identity')
-            current = {'namespace': match[1], 'calling': match[2], 'id': int(match[3]),
-                       'component': match[5], 'lines': []}
+            current = {'header': line, 'lines': []}
             blocks.append(current)
         elif current is not None:
             current['lines'].append(line)
@@ -782,7 +792,11 @@ def job_dump_values(capture, uid):
     require(len(blocks) == count, 'filtered or truncated registered jobs')
     own = []
     for block in blocks:
-        if block['calling'] != fu and not block['component'].startswith(PACKAGE + '/'):
+        # Version 21 (Q25 c): the header grammar both readers share, and the shared own job rule.
+        identity = obs.job_header(block['header'], block['lines'][0] if block['lines'] else None)
+        block.update(namespace=identity['namespace'], calling=identity['calling'], id=identity['id'],
+                     component=identity['battery'])
+        if not obs.own_job(identity, block['lines'], uid):
             continue
         facts = {key: block[key] for key in ('namespace', 'calling', 'id', 'component')}
         facts.update(source=None, earliest_ms=None, comp=None, persisted=False, extras=None,
@@ -932,7 +946,7 @@ def disagreements(values, tolerance_ms=60000):
     """Where the settled disk record and the owner's dump name different selected values."""
     disk, dump = values['disk'], values['dump']
     found = ['access:' + key for key in ('permission_flags', 'permissions', 'migration_version',
-                                         'uid_mode', 'package_mode')
+                                         'uid_mode', 'package_mode', 'device_permissions')
              if disk['access'][key] != dump['access'][key]]
     found += ['appops:' + key for key in ('uid_mode', 'package_mode')
               if dump['appops'][key] != dump['access'][key]]
@@ -953,34 +967,59 @@ def disagreements(values, tolerance_ms=60000):
 
 # Expected owner state. 'baseline' is the fresh install, 'initialized' follows the subject's
 # own initialize, the next three follow each shell setup issue, and 'retained' is the final
-# state every later phase must keep.
+# state every later phase must keep. Checkpoint 5 B version 21 (Q25 a, Q26 1): the one stage table every reader takes
+# its expectation from, the real values. POST_NOTIFICATIONS is stored at 24576 from the install (USER_SENSITIVE_WHEN_
+# GRANTED and USER_SENSITIVE_WHEN_REVOKED, U's sealed baseline), initialize keeps it, `pm grant` adds RUNTIME_GRANTED
+# and `user-set` adds USER_SET; the contract's permission_flags=48 names those two bits the setup sets. The AppSettings
+# suffix is the rendered row's text after its UID; the fresh baseline may print no row at all. Version 22 (the source check's B1): the
+# suffix is the stage's only while the package is scanned. NMS prints it from PM's live enumeration of installed
+# packages (PermissionHelper), which holds scanned packages only, so an unscanned retained subject prints its saved row
+# bare (strict_readers judges the bare row then, never no row).
 STAGES = ('baseline', 'initialized', 'granted', 'user-set', 'ignored', 'retained')
 RUNTIME = BIT['RUNTIME_GRANTED']
 USER_SET = BIT['USER_SET']
+SENSITIVE = BIT['USER_SENSITIVE_WHEN_GRANTED'] | BIT['USER_SENSITIVE_WHEN_REVOKED']
 EXPECTED = {
-    'baseline': {'flags': (None, 0), 'package_mode': None, 'channel': 'absent', 'job': False},
-    'initialized': {'flags': (None, 0), 'package_mode': None, 'channel': 'created', 'job': True},
-    'granted': {'flags': (RUNTIME,), 'package_mode': None, 'channel': 'created', 'job': True},
-    'user-set': {'flags': (RUNTIME | USER_SET,), 'package_mode': None, 'channel': 'created',
-                 'job': True},
-    'ignored': {'flags': (RUNTIME | USER_SET,), 'package_mode': MODE_IGNORED,
-                'channel': 'created', 'job': True},
-    'retained': {'flags': (RUNTIME | USER_SET,), 'package_mode': MODE_IGNORED,
-                 'channel': 'retained', 'job': True},
+    'baseline': {'flags': SENSITIVE, 'package_mode': None, 'channel': 'absent', 'job': False,
+                 'app_settings': ' importance=NONE userSet=false'},
+    'initialized': {'flags': SENSITIVE, 'package_mode': None, 'channel': 'created', 'job': True,
+                    'app_settings': ' importance=NONE userSet=false'},
+    'granted': {'flags': SENSITIVE | RUNTIME, 'package_mode': None, 'channel': 'created', 'job': True,
+                'app_settings': ' importance=DEFAULT userSet=false'},
+    'user-set': {'flags': SENSITIVE | RUNTIME | USER_SET, 'package_mode': None, 'channel': 'created',
+                 'job': True, 'app_settings': ' importance=DEFAULT userSet=true'},
+    'ignored': {'flags': SENSITIVE | RUNTIME | USER_SET, 'package_mode': MODE_IGNORED,
+                'channel': 'created', 'job': True, 'app_settings': ' importance=DEFAULT userSet=true'},
+    'retained': {'flags': SENSITIVE | RUNTIME | USER_SET, 'package_mode': MODE_IGNORED,
+                 'channel': 'retained', 'job': True, 'app_settings': ' importance=DEFAULT userSet=true'},
 }
-BASELINES = {'migration_version', 'admitted', 'original_due_ms', 'channel', 'stored_channel'}
+# Version 21 (spec 2.1, 2.5): the image's SDK level, read by the setup before its fresh read and carried on.
+BASELINES = {'migration_version', 'admitted', 'original_due_ms', 'channel', 'stored_channel', 'sdk_int'}
+REQUIRED_BASELINES = {'migration_version', 'admitted', 'sdk_int'}
+
+
+def _sdk(baselines):
+    value = baselines.get('sdk_int')
+    require(type(value) is int and 1 <= value <= 999, 'the image\'s SDK level')
+    return value
 
 
 def mismatches(values, stage, contract, baselines, tolerance_ms=60000):
     """Selected values that differ from the stage's pinned state, each named for its finding."""
     require(stage in STAGES and type(baselines) is dict and set(baselines) <= BASELINES
-            and {'migration_version', 'admitted'} <= set(baselines), 'stage and baselines')
+            and REQUIRED_BASELINES <= set(baselines), 'stage and baselines')
+    _sdk(baselines)
     validate_contract(contract)
     uid, want = contract['uid'], EXPECTED[stage]
     disk, dump = values['disk'], values['dump']
     found = []
-    if disk['access']['permission_flags'] not in want['flags']:
+    if disk['access']['permission_flags'] != want['flags']:
         found.append('permission-flags')
+    # Version 21: one user, 0, and no device permission for the subject, on disk and in the dump.
+    if disk['access']['device_permissions'] or dump['access']['device_permissions']:
+        found.append('permission-device-state')
+    if dump['access']['users'] != [0]:
+        found.append('permission-other-user')
     if disk['access']['migration_version'] != baselines['migration_version']:
         found.append('migration-version')
     if disk['access']['package_mode'] != want['package_mode']:
@@ -1050,15 +1089,11 @@ def strict_readers(state, dumps, stage, contract, baselines):
             refused.append(name + ': ' + str(error))
 
     access = next(iter(selected_records(state['access']).values()))
-    # These readers pin permission and package mode together, at their two endpoints only.
-    endpoint = {'baseline': False, 'initialized': False, 'ignored': True,
-                'retained': True}.get(stage)
-    if endpoint is not None:
-        run('stored-access', lambda: stored.access(
-            access, uid, baselines['migration_version'], endpoint))
-        run('permission', lambda: obs.require_permission_state(
-            obs.permissionmgr(dumps['permission_app_id'], uid),
-            baselines['migration_version'], endpoint))
+    # Version 21 (Q25 a): both strict permission readers at every stage, from the stage table.
+    run('stored-access', lambda: stored.access(
+        access, uid, baselines['migration_version'], flags=want['flags'], package_mode=want['package_mode']))
+    run('permission', lambda: obs.require_permission_state(
+        obs.permissionmgr(dumps['permission_app_id'], uid), baselines['migration_version'], want))
     run('appops-package', lambda: obs.appops(dumps['appops_package'], uid, True,
                                              want['package_mode'] == MODE_IGNORED))
     run('appops-uid', lambda: obs.appops(dumps['appops_uid'], uid, False))
@@ -1068,10 +1103,13 @@ def strict_readers(state, dumps, stage, contract, baselines):
     if policy or preference != 'absent':
         run('stored-notification', lambda: stored.notification_policy(
             next(iter(policy.values())), uid,
-            baselines.get('stored_channel') if retained else None, preference)
+            baselines.get('stored_channel') if retained else None, preference, sdk_int=_sdk(baselines))
             if policy else require(False, 'no stored notification policy'))
+    # Version 22 (the source check's B1): the stage's suffix while the package is scanned (admitted), the bare saved row while it is not.
+    suffix = want['app_settings'] if baselines['admitted'] else ''
     run('notification', lambda: obs.notification(
-        dumps['notification'], uid, preference, baselines.get('channel') if retained else None))
+        dumps['notification'], uid, preference, baselines.get('channel') if retained else None,
+        app_settings=suffix))
     run('stored-jobs', lambda: stored.jobs(selected_records(state['jobs']), contract,
                                            baselines.get('original_due_ms'),
                                            initialized=want['job']))
@@ -1094,8 +1132,9 @@ def assess(captures, dumps, contract, stage, baselines, tolerance_ms=60000, abse
     require(type(captures) is dict and set(captures) == set(SUBJECT_FAMILIES),
             'subject owner captures')
     require(type(baselines) is dict and set(baselines) <= BASELINES
-            and {'migration_version', 'admitted'} <= set(baselines)
+            and REQUIRED_BASELINES <= set(baselines)
             and type(baselines['admitted']) is bool, 'owner baselines')
+    _sdk(baselines)
     state, unsettled = {}, []
     for family in SUBJECT_FAMILIES:
         try:

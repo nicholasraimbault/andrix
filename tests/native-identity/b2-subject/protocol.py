@@ -95,6 +95,10 @@ def make_contract(uid, serial, setup, ce_token, de_token):
                 f'user_serial={serial}\nsetup={setup}\ntoken={token}\n').encode('ascii')
 
     ce, de = canary('CE', ce_token), canary('DE', de_token)
+    # permission_flags=48 names the two bits the setup itself sets on POST_NOTIFICATIONS, RUNTIME_GRANTED (16) and USER_SET
+    # (32). The sealed subject APK rebuilds this exact text and refuses any other digest, so it never changes. The stored
+    # flags are the fresh install's own (24576 on the B2 image) plus those bits, judged from owner_stores.EXPECTED, the one
+    # stage table (decisions Q25 a and Q26 1).
     contract = (f'andrix-b2-contract-v1\npackage={PACKAGE}\nuid={uid}\nuser_serial={serial}\n'
                 f'apk_signer_sha256={SIGNER}\nsetup={setup}\nkey0_alias=andrix_b2_state_ec0\n'
                 f'key1_alias=andrix_b2_state_ec1\nce_sha256={sha(ce)}\nde_sha256={sha(de)}\n'

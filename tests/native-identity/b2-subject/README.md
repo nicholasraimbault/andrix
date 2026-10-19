@@ -29,8 +29,14 @@ ordinary shell command with an explicit copy can. Neither root nor an app update
 - CE and DE `files/b2-state/canary.bin`. Bytes include schema, storage kind, package, UID,
   serial, setup token and distinct host chosen 128 bit dummy tokens. The host commits the full
   bytes before issue. DE also contains immutable `files/b2-state/setup.intent`.
-- POST_NOTIFICATIONS granted with exactly internal flags RUNTIME_GRANTED and USER_SET, integer
-  48. No other flag, including default, system, policy, compatibility or one time grant.
+- POST_NOTIFICATIONS granted by the setup with the internal flags RUNTIME_GRANTED and USER_SET, integer
+  48, the bits the setup's `pm grant` and `user-set` add. The contract line `permission_flags=48`, which the sealed
+  subject APK rebuilds and checks, names those two bits and is unchanged. The stored value is the fresh install's own
+  recorded flags plus those bits: 24576 (USER_SENSITIVE_WHEN_GRANTED and USER_SENSITIVE_WHEN_REVOKED) at the fresh
+  baseline and after initialize, 24592 after the grant, 24624 from the user set on. `owner_stores.EXPECTED` is the one
+  stage table every reader judges it from (decisions Q25 a and Q26 1). No other flag, including default, system,
+  policy, compatibility or one time grant. The table's AppSettings suffix holds while the package is scanned; an
+  unscanned retained subject prints its saved row bare, which the readers then require (version 22, the source check's B1).
 - Package `android:vibrate` mode ignore, with no nondefault UID VIBRATE mode. No vibration call
   is made, so no access or rejection timestamp is expected.
 - Channel `andrix.b2.state`, name `Andrix B2 state`, importance 2, no sound, lights or vibration,

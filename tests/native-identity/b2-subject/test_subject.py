@@ -17,6 +17,7 @@ from unittest import mock
 import fixtures as f
 import ledger
 import observations as obs
+import owner_stores as own
 import produce
 import protocol as p
 import stored
@@ -219,16 +220,18 @@ class ServiceTests(unittest.TestCase):
 
     def test_permission_and_package_operation_exact_scope(self):
         value = self.permission(f.permission_text())
-        obs.require_permission_state(value, 15)
+        obs.require_permission_state(value, f.VERSION, own.EXPECTED['retained'])
         self.assertEqual(value['package_ops'], {'android:vibrate': 'ignore'})
         c = f.capture(p.dumpsys_argv('permissionmgr', '--package', p.PACKAGE), f.permission_text())
         self.assertEqual(obs.permissionmgr(c, f.UID, 'package'), value)
-        obs.require_permission_state(self.permission(f.permission_text(False)), 15, False)
-        for old, new in [('flags=[RUNTIME_GRANTED|USER_SET]', 'flags=[RUNTIME_GRANTED]'),
-                         ('granted=true, flags=[RUNTIME_GRANTED', 'granted=false, flags=[RUNTIME_GRANTED'),
-                         ('version=15', 'version=16'), ('mode=ignore', 'mode=allow')]:
+        obs.require_permission_state(self.permission(f.permission_text('baseline')), f.VERSION, own.EXPECTED['baseline'])
+        for old, new in [('POST_NOTIFICATIONS: granted=true, flags=[RUNTIME_GRANTED|USER_SET|',
+                          'POST_NOTIFICATIONS: granted=true, flags=[RUNTIME_GRANTED|'),
+                         ('POST_NOTIFICATIONS: granted=true', 'POST_NOTIFICATIONS: granted=false'),
+                         ('version=20', 'version=16'), ('mode=ignore', 'mode=allow')]:
             with self.assertRaises(ValueError):
-                obs.require_permission_state(self.permission(f.permission_text().replace(old, new)), 15)
+                obs.require_permission_state(self.permission(f.permission_text().replace(old, new)), f.VERSION,
+                                             own.EXPECTED['retained'])
         variants = [f.permission_text() + '        android:vibrate: mode=ignore\n',
                     f.permission_text().replace('  User: 0', '  User: 1'),
                     f.permission_text().replace('App ID: 10123', 'App ID: 10124'),
@@ -236,9 +239,17 @@ class ServiceTests(unittest.TestCase):
                                                 '      android:vibrate: mode=ignore\n'),
                     f.permission_text().replace('    Package: ', '      Package: '),
                     f.permission_text() + f.permission_text()]
+        # Version 21 (T1's controls): a device permission section and a second user parse, and the stage check refuses
+        # each; an unknown app ID is unavailable evidence.
+        variants += [f.permission_text().replace('    App ops:\n', '    Permissions (Device 0:virtual):\n'
+                                                 '      android.permission.POST_NOTIFICATIONS: granted=false, '
+                                                 'flags=[USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_REVOKED]\n'
+                                                 '    App ops:\n', 1),
+                     f.permission_text() + '  User: 10\n    Permissions:\n    App ops:\n',
+                     'Unknown app ID 10123.\n']
         for text in variants:
             with self.subTest(text=text[-80:]), self.assertRaises(ValueError):
-                obs.require_permission_state(self.permission(text), 15)
+                obs.require_permission_state(self.permission(text), f.VERSION, own.EXPECTED['retained'])
 
     def test_appops_no_uid_override_or_history(self):
         package_argv = ['cmd', 'appops', 'get', '--user', '0', p.PACKAGE, 'VIBRATE']
@@ -279,7 +290,7 @@ class ServiceTests(unittest.TestCase):
             with self.subTest(preference=preference, oracle='dump'), self.assertRaises(ValueError):
                 self.notification(text)
             with self.subTest(preference=preference, oracle='stored'), self.assertRaises(ValueError):
-                stored.notification_policy(xml, f.UID)
+                stored.notification_policy(xml, f.UID, sdk_int=f.SDK)
         # The old command's 1/0 result is not even the pristine -1/0 setup precondition.
         cap = f.capture(p.dumpsys_argv('notification', '--noredact', '--package', p.PACKAGE),
                         f.notification_text(preference='old-shell'))
@@ -287,7 +298,7 @@ class ServiceTests(unittest.TestCase):
             obs.notification(cap, f.UID, stage='created')
         with self.assertRaises(ValueError):
             stored.notification_policy(f.notification_xml(preference='old-shell'), f.UID,
-                                       stage='created')
+                                       stage='created', sdk_int=f.SDK)
 
     def test_shell_setup_acknowledgement_is_not_preference_evidence(self):
         digest = 'c' * 64
@@ -328,7 +339,7 @@ class ServiceTests(unittest.TestCase):
 
     def test_job_malformed_or_replaced_state_refused(self):
         text = f.job_text()
-        variants = [('Registered 1 jobs:', 'Registered 2 jobs:'),
+        variants = [('Registered 11 jobs:', 'Registered 12 jobs:'),
                     ('JOB #u0a123/', 'JOB alternate:u0a123/'), ('/21802:', '/21803:'),
                     ('    Source: uid=u0a123', '    Source: uid=u0a124'),
                     ('      PERSISTED\n', ''), ('      PERSISTED\n', '      PERIODIC\n'),
@@ -371,9 +382,9 @@ class ServiceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             obs.notification(cap, f.UID)
         xml = f.notification_xml().replace(b' locked="256"', b'').replace(b' allow_bubbles="1"', b'')
-        stored.notification_policy(xml, f.UID, stage='created')
+        stored.notification_policy(xml, f.UID, stage='created', sdk_int=f.SDK)
         with self.assertRaises(ValueError):
-            stored.notification_policy(xml, f.UID)
+            stored.notification_policy(xml, f.UID, sdk_int=f.SDK)
 
     def test_pm_admission_and_retained_unscanned_setting(self):
         code = '/data/app/fixture/base.apk'
@@ -516,31 +527,34 @@ class ServiceTests(unittest.TestCase):
 
 class StoredTests(unittest.TestCase):
     def test_access_permission_and_scoped_mode(self):
-        self.assertEqual(stored.access(f.access_xml(), f.UID, 15)['permission_flags'], 48)
-        stored.access(f.access_xml(False), f.UID, 15, False)
-        for old, new in [(b'flags="48"', b'flags="16"'), (b'mode="1"', b'mode="0"'),
-                         (b'id="10123"', b'id="10124"'), (b'version="15"', b'version="16"'),
-                         (b'<app-id-app-ops/>', b'<app-id-app-ops><app-id id="10123">'
+        retained = {'flags': 24624, 'package_mode': 1}
+        self.assertEqual(stored.access(f.access_xml(), f.UID, f.VERSION, **retained)['permission_flags'], 24624)
+        stored.access(f.access_xml('baseline'), f.UID, f.VERSION, flags=24576, package_mode=None)
+        for old, new in [(b'flags="24624"', b'flags="24592"'), (b'mode="1"', b'mode="0"'),
+                         (b'id="10123"', b'id="10124"'), (b'name="dev.andrix.proof.principalclosed" version="20"',
+                                                          b'name="dev.andrix.proof.principalclosed" version="16"'),
+                         (b'<app-id-app-ops />', b'<app-id-app-ops><app-id id="10123">'
                           b'<app-op name="android:vibrate" mode="1"/></app-id></app-id-app-ops>')]:
             with self.subTest(old=old), self.assertRaises(ValueError):
-                stored.access(f.access_xml().replace(old, new), f.UID, 15)
-        bad = f.access_xml().replace(b'</app-id>', b'<permission name="android.permission.POST_NOTIFICATIONS"'
-                                     b' flags="48"/></app-id>')
+                stored.access(f.access_xml().replace(old, new), f.UID, f.VERSION, **retained)
+        bad = f.access_xml().replace(b'    </app-id>\n  </app-id-permissions>',
+                                     b'<permission name="android.permission.POST_NOTIFICATIONS"'
+                                     b' flags="24624"/></app-id>\n  </app-id-permissions>')
         with self.assertRaises(ValueError):
-            stored.access(bad, f.UID, 15)
+            stored.access(bad, f.UID, f.VERSION, **retained)
 
     def test_stored_channel_decimal_mask_and_defaults(self):
-        self.assertEqual(stored.notification_policy(f.notification_xml(), f.UID)['channel']['locked'], '256')
-        stored.notification_policy(f.notification_xml(False), f.UID, stage='absent')
+        self.assertEqual(stored.notification_policy(f.notification_xml(), f.UID, sdk_int=f.SDK)['channel']['locked'], '256')
+        stored.notification_policy(f.notification_xml('baseline'), f.UID, stage='absent', sdk_int=f.SDK)
         for old, new in [(b'locked="256"', b'locked="100"'), (b'allow_bubbles="1"', b'allow_bubbles="-1"'),
                          (b'uid="10123"', b'uid="10124"'), (b'orig_imp="2"', b'deleted="true"'),
                          (b'orig_imp="2"', b'unknown="2"')]:
             with self.assertRaises(ValueError):
-                stored.notification_policy(f.notification_xml().replace(old, new), f.UID)
+                stored.notification_policy(f.notification_xml().replace(old, new), f.UID, sdk_int=f.SDK)
         data = f.notification_xml()
         channel = re.search(rb'<channel [^>]+/>', data)[0]
         with self.assertRaises(ValueError):
-            stored.notification_policy(data.replace(b'</package>', channel + b'</package>'), f.UID)
+            stored.notification_policy(data.replace(b'</package>', channel + b'</package>'), f.UID, sdk_int=f.SDK)
 
     def test_job_typed_markers_time_and_duplicate_files(self):
         files = {'jobs_10123.xml': f.job_xml()}
@@ -550,7 +564,7 @@ class StoredTests(unittest.TestCase):
             stored.jobs(files, f.CONTRACT, initialized=False)
         for old, new in [(b'<one-off ', b'<periodic '), (b'jobid="21802"', b'jobid="21803"'),
                          (b'flags="0"', b'flags="1"'), (b'sourceUserId="0"', b'sourceUserId="1"'),
-                         (b'<constraints/>', b'<constraints charging="true"/>'),
+                         (b'<constraints />', b'<constraints charging="true" />'),
                          (b'cumulativeExecutionTime="0"', b'cumulativeExecutionTime="1"'),
                          (b'<job jobid', b'<job namespace="other" jobid'),
                          (b'<string ', b'<int '), (b'1800000000000', b'1800000100000')]:
@@ -567,7 +581,7 @@ class StoredTests(unittest.TestCase):
                      b'<!DOCTYPE access [<!ENTITY x "y">]><access/>', b'<access><!--x--></access>',
                      b'<access><?bad value?></access>', b'<access><unknown/></access>']:
             with self.subTest(data=data), self.assertRaises(ValueError):
-                stored.access(data, f.UID, 15)
+                stored.access(data, f.UID, f.VERSION, flags=24624, package_mode=1)
 
 
 class LedgerTests(unittest.TestCase):

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Owner store role, capture, value and stage checks on synthetic captures. No Android runtime."""
 import copy
+import re
 import unittest
 
 import fixtures as f
@@ -126,14 +127,15 @@ class NamespaceTests(unittest.TestCase):
         captures = of.owner_captures()
         for family in own.SUBJECT_FAMILIES:
             state = own.namespace(family, captures[family])
-            self.assertEqual(len(own.selected_records(state)), 1)
+            # Version 21: the real layout's five job files after initialize (four other files, the subject's).
+            self.assertEqual(len(own.selected_records(state)), 5 if family == 'jobs' else 1)
             self.assertTrue(all(x['binary_xml'] for x in state['files'].values()))
         # The Access store's selected record is its main; the reserve only binds it.
         access = own.namespace('access', captures['access'])
         self.assertEqual(list(own.selected_records(access)), ['access.abx'])
         legacy = own.namespace('jobs', of.owner_captures(legacy=True, extra_jobs={
             'jobs_10050.xml': of.job_xml(False)})['jobs'])
-        self.assertEqual(sorted(own.selected_records(legacy)), ['jobs.xml', 'jobs_10050.xml'])
+        self.assertEqual(sorted(own.selected_records(legacy)), sorted(['jobs.xml', 'jobs_10050.xml', *f.other_job_files()]))
 
     def test_text_xml_is_read_directly_and_bound_to_its_digest(self):
         policy = of.notification_xml()
@@ -181,7 +183,7 @@ class NamespaceTests(unittest.TestCase):
             'lagging package reserve': ('packages', of.packages_family(reserve=b'<older/>')),
             'lagging access reserve': ('access', of.namespace('access', {
                 'access.abx': (raw, of.access_xml(), None),
-                'access.abx.reservecopy': (of.binary(of.access_xml(16)), of.access_xml(16),
+                'access.abx.reservecopy': (of.binary(of.access_xml(24592)), of.access_xml(24592),
                                            None)})),
             'missing access reserve': ('access', of.namespace('access', {
                 'access.abx': (raw, of.access_xml(), None)})),
@@ -242,7 +244,7 @@ class NamespaceTests(unittest.TestCase):
                 argv=['abx2xml', path + '.reservecopy', '-'])),
             'binary without converter': access(lambda c: c['files'][path].update(decode=None)),
             'reserve decodes differently': access(lambda c: c['files'][path + '.reservecopy']
-                                                  ['decode'].update(stdout=of.access_xml(16))),
+                                                  ['decode'].update(stdout=of.access_xml(24592))),
             'directory in a file family': access(lambda c: c['directories'].update(
                 {ACCESS + '/x': {}})),
             'absent required directory': of.namespace('access', {}, missing=True),
@@ -327,11 +329,15 @@ class ValueTests(unittest.TestCase):
                         + b'</string></extras>')
         cases = {
             'wrong flags': (['permission-flags'], {
-                'captures': of.owner_captures(access=of.access_xml(16)),
-                'dumps': of.owner_dumps(flags=16)}),
+                'captures': of.owner_captures(access=of.access_xml(24592)),
+                'dumps': of.owner_dumps(flags=24592)}),
             'extra flag': (['permission-flags'], {
-                'captures': of.owner_captures(access=of.access_xml(48 | 64)),
-                'dumps': of.owner_dumps(flags=48 | 64)}),
+                'captures': of.owner_captures(access=of.access_xml(24624 | 64)),
+                'dumps': of.owner_dumps(flags=24624 | 64)}),
+            # Version 21: the old prediction, refused as a finding.
+            'old prediction 48': (['permission-flags'], {
+                'captures': of.owner_captures(access=of.access_xml(48)),
+                'dumps': of.owner_dumps(flags=48)}),
             'uid override': (['uid-override'], {
                 'captures': of.owner_captures(access=of.access_xml(uid_mode=1)),
                 'dumps': of.owner_dumps(uid_mode=1)}),
@@ -386,7 +392,7 @@ class ValueTests(unittest.TestCase):
 
     def test_disk_and_dump_disagreement_is_unsettled_not_a_finding(self):
         cases = {
-            'access:permission_flags': {'dumps': of.owner_dumps(flags=16)},
+            'access:permission_flags': {'dumps': of.owner_dumps(flags=24592)},
             'notification:channel': {'dumps': of.owner_dumps(preference='reset')},
             'jobs:identity': {'dumps': of.owner_dumps(job=False)},
             'jobs:due': {'dumps': of.owner_dumps(rtc=of.RTC_SECONDS + 61)},
@@ -402,16 +408,16 @@ class ValueTests(unittest.TestCase):
     def test_dump_grammar_refusals(self):
         retained = of.permission_text()
         variants = {
-            'flag order': retained.replace('[RUNTIME_GRANTED|USER_SET]',
-                                           '[USER_SET|RUNTIME_GRANTED]'),
-            'unknown flag': retained.replace('[RUNTIME_GRANTED|USER_SET]', '[RUNTIME_GRANTED|NEW]'),
+            'flag order': retained.replace('[RUNTIME_GRANTED|USER_SET|',
+                                           '[USER_SET|RUNTIME_GRANTED|'),
+            'unknown flag': retained.replace('[RUNTIME_GRANTED|USER_SET|', '[RUNTIME_GRANTED|NEW|'),
             'grant against flags': retained.replace('granted=true, flags=[RUNTIME',
                                                     'granted=false, flags=[RUNTIME'),
         }
         for name, text in variants.items():
             with self.subTest(name=name), self.assertRaises(ValueError):
                 assess(dumps=of.owner_dumps(permission=text))
-        package = of.permission_text().replace(f'version=15', 'version=16')
+        package = of.permission_text().replace(f'version=20', 'version=16')
         dumps = of.owner_dumps()
         dumps['permission_package']['stdout'] = package
         with self.assertRaisesRegex(ValueError, 'selectors disagree'):
@@ -422,7 +428,7 @@ class ValueTests(unittest.TestCase):
                        ('Uid mode: VIBRATE: ignore\nVIBRATE: ignore\n', of.appops_texts()[1])]:
             with self.subTest(appops=appops[0]), self.assertRaises(ValueError):
                 assess(dumps=of.owner_dumps(appops=appops))
-        for jobs in [of.job_text().replace('Registered 1 jobs:', 'Registered 2 jobs:'),
+        for jobs in [of.job_text().replace('Registered 11 jobs:', 'Registered 12 jobs:'),
                      of.job_text().split('Pending queue:')[0],
                      of.job_text().replace('    Source:', '    Source: x\n    Source:')]:
             with self.subTest(jobs=jobs[-40:]), self.assertRaises(ValueError):
@@ -477,11 +483,10 @@ class ValueTests(unittest.TestCase):
     def test_access_grammar_holds_at_every_stage(self):
         # An unknown owner element and an unknown section at the grant stage, beside the same
         # record left well formed.
-        granted = of.access_xml(16, None)
+        granted = of.access_xml(24592, None)
         self.assertTrue(assess('granted', captures=of.owner_captures('granted',
                                                                    access=granted))['matches'])
-        bogus = granted.replace(b'<app-id id="10123">', b'<bogus id="10123">', 1).replace(
-            b'</app-id>', b'</bogus>', 1)
+        bogus = re.sub(rb'<app-id id="10123">(.*?)</app-id>', rb'<bogus id="10123">\1</bogus>', granted, count=1, flags=re.S)
         section = granted.replace(b'<package-versions>',
                                   b'<unknown-selected-section/><package-versions>', 1)
         for name, data in (('unknown owner element', bogus), ('unknown section', section)):
@@ -491,48 +496,74 @@ class ValueTests(unittest.TestCase):
         for stage in own.STAGES:
             flags, mode = of.STAGE_STATE[stage][:2]
             data = of.access_xml(flags, mode)
-            wrong = data.replace(b'<app-id id="10123">', b'<bogus id="10123">', 1).replace(
-                b'</app-id>', b'</bogus>', 1)
+            wrong = re.sub(rb'<app-id id="10123">(.*?)</app-id>', rb'<bogus id="10123">\1</bogus>', data, count=1, flags=re.S)
             with self.subTest(stage=stage), self.assertRaisesRegex(ValueError, 'Access'):
                 assess(stage, captures=of.owner_captures(stage, access=wrong))
         valid = of.access_xml()
         variants = {
-            'repeated owner': valid.replace(b'<app-id id="10050">', b'<app-id id="10123">'),
+            'repeated owner': valid.replace(b'<app-id id="10035">', b'<app-id id="10123">'),
             'repeated row': valid.replace(b'<permission name="android.permission.VIBRATE"',
                                           b'<permission name="android.permission.POST_NOTIFI'
                                           b'CATIONS"'),
-            'unknown attribute': valid.replace(b'flags="48"', b'flags="48" extra="1"'),
-            'missing attribute': valid.replace(b' flags="48"', b''),
-            'nested row': valid.replace(b'<app-op name="android:vibrate" mode="1"/>',
+            'unknown attribute': valid.replace(b'flags="24624"', b'flags="24624" extra="1"'),
+            'missing attribute': valid.replace(b' flags="24624"', b''),
+            'nested row': valid.replace(b'<app-op name="android:vibrate" mode="1" />',
                                         b'<app-op name="android:vibrate" mode="1"><x/></app-op>'),
-            'wrong row element': valid.replace(b'<app-op name="android:vibrate" mode="1"/>',
+            'wrong row element': valid.replace(b'<app-op name="android:vibrate" mode="1" />',
                                                b'<permission name="android:vibrate" flags="1"/>'),
-            'owner attribute': valid.replace(b'<package name="dev.andrix.proof.principalclosed">'
-                                             b'<app-op', b'<package name="dev.andrix.proof.'
-                                             b'principalclosed" uid="1"><app-op'),
-            'section attribute': valid.replace(b'<app-id-app-ops>', b'<app-id-app-ops v="1">'),
-            'repeated section': valid.replace(b'<app-id-app-ops>',
-                                              b'<app-id-app-ops></app-id-app-ops><app-id-app-ops>'),
-            'missing section': valid.replace(b'<app-id-app-ops></app-id-app-ops>', b''),
+            'owner attribute': valid.replace(b'<package name="dev.andrix.proof.principalclosed">\n'
+                                             b'      <app-op', b'<package name="dev.andrix.proof.'
+                                             b'principalclosed" uid="1">\n      <app-op'),
+            'section attribute': valid.replace(b'<app-id-app-ops />', b'<app-id-app-ops v="1" />'),
+            'repeated section': valid.replace(b'<app-id-app-ops />',
+                                              b'<app-id-app-ops /><app-id-app-ops />'),
+            'missing section': valid.replace(b'  <app-id-app-ops />\n', b''),
             'malformed device rows': valid.replace(
-                b'<package-app-ops>', b'<app-id-device-permissions><app-id id="10123">'
-                b'<permission name="x" flags="1"/></app-id></app-id-device-permissions>'
-                b'<package-app-ops>'),
+                b'<app-id-device-permissions />', b'<app-id-device-permissions><app-id id="10123">'
+                b'<permission name="x" flags="1"/></app-id></app-id-device-permissions>'),
             'malformed fingerprint': valid.replace(
-                b'<package-app-ops>', b'<default-permission-grant/><package-app-ops>'),
+                b'<default-permission-grant fingerprint="" />', b'<default-permission-grant />'),
         }
         for name, data in variants.items():
             with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'Access'):
                 own.access_values(data, f.UID)
         accepted = valid.replace(
-            b'<package-app-ops>', b'<default-permission-grant fingerprint="build/1"/>'
-            b'<app-function-pregrant fingerprint="build/1"/>'
-            b'<app-id-device-permissions><app-id id="10050"><device id="remote:1">'
+            b'<default-permission-grant fingerprint="" />', b'<default-permission-grant fingerprint="build/1"/>'
+            b'<app-function-pregrant fingerprint="build/1"/>').replace(
+            b'<app-id-device-permissions />',
+            b'<app-id-device-permissions><app-id id="10035"><device id="remote:1">'
             b'<permission name="android.permission.CAMERA" flags="16"/></device></app-id>'
-            b'</app-id-device-permissions><app-id-app-function-accesses><app-id id="10050">'
+            b'</app-id-device-permissions>').replace(
+            b'<app-id-app-function-accesses />', b'<app-id-app-function-accesses><app-id id="10035">'
             b'<app-function-access targetUid="10123" flags="1"/></app-id>'
-            b'</app-id-app-function-accesses><package-app-ops>')
-        self.assertEqual(own.access_values(accepted, f.UID)['permission_flags'], 48)
+            b'</app-id-app-function-accesses>')
+        self.assertEqual(own.access_values(accepted, f.UID)['permission_flags'], 24624)
+        # Version 21 (the source check, section 3): an empty fingerprint is the writer's own form, in both grant sections.
+        empty = valid.replace(b'<default-permission-grant fingerprint="" />',
+                              b'<default-permission-grant fingerprint="" /><app-function-pregrant fingerprint="" />')
+        self.assertEqual(own.access_values(empty, f.UID)['device_permissions'], {})
+
+    def test_retained_unscanned_subject_matches_with_its_bare_row(self):
+        # Version 22 (the source check's B1): an unscanned retained subject prints its saved AppSettings row bare (NMS takes the
+        # suffix from PM's live enumeration, scanned packages only). The strict readers judge that bare row and match.
+        result = assess(dumps=of.owner_dumps(admitted=False), baselines=of.baselines(admitted=False))
+        self.assertTrue(result['settled'])
+        self.assertEqual((result['mismatches'], result['refused_readers'], result['matches']), ([], [], True))
+        bare = ' importance=DEFAULT userSet=true'
+        self.assertNotIn(bare, of.owner_dumps(admitted=False)['notification']['stdout'])
+        # The suffix still binds: the stage's suffix on an unscanned subject, or a bare row on a scanned one, is refused.
+        scanned_row = of.notification_text()
+        unscanned = assess(dumps=of.owner_dumps(admitted=False, notification=scanned_row), baselines=of.baselines(admitted=False))
+        self.assertEqual(unscanned['refused_readers'], ['notification: subject notification preferences differ from the stage'])
+        self.assertFalse(unscanned['matches'])
+        bare_row = of.notification_text(admitted=False)
+        scanned = assess(dumps=of.owner_dumps(notification=bare_row), baselines=of.baselines())
+        self.assertEqual(scanned['refused_readers'], ['notification: subject notification preferences differ from the stage'])
+        self.assertFalse(scanned['matches'])
+        # Another suffix on the unscanned subject is refused too.
+        other = bare_row.replace(f'({f.UID})\n', f'({f.UID}) importance=NONE userSet=false\n', 1)
+        self.assertNotEqual(other, bare_row)
+        self.assertFalse(assess(dumps=of.owner_dumps(admitted=False, notification=other), baselines=of.baselines(admitted=False))['matches'])
 
     def test_designed_transitions_keep_the_comparable_state(self):
         def state(**dumps):
@@ -548,7 +579,7 @@ class ValueTests(unittest.TestCase):
         # the notification permission suffix of its AppSettings row.
         self.assertEqual(own.selected_changes(admitted, state(jobs=of.job_text(parcelled=False))),
                          [])
-        bare = of.notification_text().replace(' importance=DEFAULT userSet=true', '')
+        bare = of.notification_text().replace(' importance=DEFAULT userSet=true', '', 1)
         self.assertEqual(own.selected_changes(admitted, state(notification=bare)), [])
         # Controls: stored state still compares, and usability is still judged in its phase.
         markers = of.job_xml().replace(f.CONTRACT['setup'].encode(), b'9' * 32)

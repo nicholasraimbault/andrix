@@ -87,7 +87,12 @@ def _rows(section, tag, id_attr, allowed_attrs):
     return list(section)
 
 
-def access(data, uid, baseline_version, initialized=True):
+def access(data, uid, baseline_version, flags, package_mode):
+    """The stored Access user state of the subject at one stage. Checkpoint 5 B version 21 (Q25 a): the stage's values
+    from owner_stores.EXPECTED, never a literal here: the POST_NOTIFICATIONS row exists and equals FLAGS, the package
+    VIBRATE mode equals PACKAGE_MODE (absent for None, 1 for ignore), no UID mode and no device permission of the
+    subject. An empty fingerprint is the writer's own form (the source check, section 3)."""
+    require(type(flags) is int and 0 <= flags < 1 << 31 and package_mode in (None, 1), 'expected stored permission state')
     root = decoded_root(data, 'access')
     require(not root.attrib, 'access root attributes')
     known = {'package-versions', 'default-permission-grant', 'app-function-pregrant',
@@ -133,24 +138,29 @@ def access(data, uid, baseline_version, initialized=True):
                     mode = int(values[0].get('mode'))
         modes[tag] = mode
     require(modes['app-id-app-ops'] is None, 'stored nondefault UID VIBRATE mode')
-    require((flag == 48 and modes['package-app-ops'] == 1) if initialized
-            else (flag in (None, 0) and modes['package-app-ops'] is None),
-            'stored permission flags or package mode')
+    require(flag == flags and modes['package-app-ops'] == package_mode,
+            'stored permission flags or package mode differ from the stage')
+    require(not any(owner.get('id') == str(uid) and len(owner) for section in root.findall('app-id-device-permissions')
+                    for owner in section), 'stored device permission of the subject')
     return {'uid': uid, 'package': PACKAGE, 'permission_flags': flag, 'package_mode': modes[
         'package-app-ops'], 'uid_mode': None, 'migration_version': baseline_version,
         'decoded_sha256': sha(data)}
 
 
-def notification_policy(data, uid, baseline=None, stage='retained'):
+def notification_policy(data, uid, baseline=None, stage='retained', *, sdk_int):
+    """The stored preferences of the subject. Checkpoint 5 B version 21 (the source check, section 7): the ranking's
+    last_bubbles_version_upgrade is the writer's Build.VERSION.SDK_INT, so it must be present and equal SDK_INT, the
+    image's level the setup reads (B2-setup-sdk)."""
     require(type(stage) is str and stage in ('absent', 'created', 'retained'),
             'stored preference observation stage')
+    require(type(sdk_int) is int and 1 <= sdk_int <= 999, 'the image\'s SDK level')
     root = decoded_root(data, 'notification-policy')
     require(root.attrib == {'version': '1'}, 'notification policy version')
     ranking = _one(root.findall('ranking'), 'notification ranking section')
     require(len(root.findall('.//ranking')) == 1, 'nested or duplicate ranking')
-    _attrs(ranking, {'version'}, {'last_bubbles_version_upgrade'})
+    _attrs(ranking, {'version', 'last_bubbles_version_upgrade'})
     require(ranking.get('version') == '4'
-            and ranking.get('last_bubbles_version_upgrade', '37') == '37', 'ranking version')
+            and ranking.get('last_bubbles_version_upgrade') == str(sdk_int), 'ranking version')
     _children(ranking, {'package', 'silent_status_icons'})
     packages = ranking.findall('package')
     identities = [(x.get('name'), x.get('uid')) for x in packages]
@@ -227,7 +237,9 @@ def jobs(files, contract, original_due_ms=None, tolerance_ms=60000, initialized=
         require(filename is not None and (filename[1] is None or int(filename[1]) < 1 << 31),
                 'JobStore primary filename')
         root = decoded_root(data, 'job-info')
-        require(root.attrib == {'version': '1'}, 'JobStore version')
+        # Version 21 (J/JobStore.java:1279-1285): version 1, or the legacy 0 JobStore still reads, for a file without
+        # the subject's job; the subject's own file must be version 1.
+        require(set(root.attrib) == {'version'} and root.get('version') in ('0', '1'), 'JobStore version')
         _children(root, {'job'})
         for job in root:
             require(filename[1] is None or job.get('uid') == filename[1], 'split file UID mismatch')
@@ -236,6 +248,7 @@ def jobs(files, contract, original_due_ms=None, tolerance_ms=60000, initialized=
                     'duplicate stored job across files')
             identities.add(identity)
             if job.get('uid') == str(contract['uid']) or job.get('package') == PACKAGE:
+                require(root.get('version') == '1', 'the subject\'s job file is not JobStore version 1')
                 own.append((name, job))
     if not initialized:
         require(not own, 'preexisting stored job in some namespace')

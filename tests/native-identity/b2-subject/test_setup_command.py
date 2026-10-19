@@ -246,8 +246,9 @@ class SetupCommandModelTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             obs.notification(f.capture(p.dumpsys_argv('notification', '--noredact', '--package', p.PACKAGE),
                                        f.notification_text(preference='old-shell')), f.UID)
-        with self.assertRaises(ValueError):
-            stored.notification_policy(f.notification_xml(preference='old-shell'), f.UID)
+        # Version 22 (the source check's B3): the reader's SDK argument, so the refusal is the channel's, not a missing argument's.
+        with self.assertRaisesRegex(ValueError, 'selected XML attribute'):
+            stored.notification_policy(f.notification_xml(preference='old-shell'), f.UID, sdk_int=f.SDK)
 
     def test_clone_bypass_mutant_is_refused_before_any_mutation(self):
         lines, state = self.probe(mutant=True)

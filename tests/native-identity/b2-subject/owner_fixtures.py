@@ -3,6 +3,10 @@
 
 Binary files are a magic prefix and arbitrary bytes: no host ABX codec exists, so each carries the
 decoded text its guest converter would have printed. Every builder returns fresh objects.
+
+Checkpoint 5 B version 21 (the version 21 specification, part 3): the decoded records and dumps are fixtures.py's real
+forms (T1 to T8) and the stage state is its stage table (T0): a notification policy present from the fresh baseline,
+four other job files with ten jobs, five after initialize, and the four requested permissions.
 """
 import hashlib
 import itertools
@@ -91,38 +95,19 @@ def namespace(family, entries, directories=(), root=None, missing=False):
 
 # Decoded owner records, consistent with the rendered dumps below.
 
-def access_xml(flags=48, package_mode=1, uid_mode=None, version=15, vibrate=1, uid=UID):
-    perms = ''
-    if flags is not None:
-        perms += f'<permission name="android.permission.POST_NOTIFICATIONS" flags="{flags}"/>'
-    if vibrate is not None:
-        perms += f'<permission name="android.permission.VIBRATE" flags="{vibrate}"/>'
-    uid_ops = ('' if uid_mode is None else
-               f'<app-id id="{uid}"><app-op name="android:vibrate" mode="{uid_mode}"/></app-id>')
-    package_ops = ('' if package_mode is None else
-                   f'<package name="{PACKAGE}"><app-op name="android:vibrate" '
-                   f'mode="{package_mode}"/></package>')
-    return (f'<?xml version=\'1.0\' encoding=\'utf-8\' standalone=\'yes\' ?>\n<access>\n'
-            f'  <package-versions><package name="{PACKAGE}" version="{version}"/>'
-            f'<package name="com.example.other" version="15"/></package-versions>\n'
-            f'  <app-id-permissions><app-id id="{uid}">{perms}</app-id>'
-            '<app-id id="10050"><permission name="android.permission.INTERNET" flags="1"/>'
-            '</app-id></app-id-permissions>\n'
-            f'  <app-id-app-ops>{uid_ops}</app-id-app-ops>\n'
-            f'  <package-app-ops>{package_ops}</package-app-ops>\n</access>\n').encode()
+def access_xml(flags=24624, package_mode=1, uid_mode=None, version=f.VERSION, vibrate=1, uid=UID, devices=''):
+    return f.access_document(flags, package_mode, uid_mode, version, uid, vibrate, devices)
 
 
-def notification_xml(preference='retained', uid=UID):
-    if preference == 'absent':
-        return f.notification_xml(False).replace(b'uid="10123"', f'uid="{uid}"'.encode())
-    return f.notification_xml(True, preference).replace(b'uid="10123"', f'uid="{uid}"'.encode())
+def notification_xml(preference='retained', uid=UID, sdk=f.SDK, package=None):
+    return f.notification_xml('retained', preference, uid, sdk, package)
 
 
-def job_xml(present=True, due=f.DUE, extras=None, timing='one-off', runs=(0, 0, 0)):
+def job_xml(present=True, due=f.DUE, extras=None, timing='one-off', runs=(0, 0, 0), version='1'):
     if not present:
-        return (b'<?xml version=\'1.0\' encoding=\'utf-8\' standalone=\'yes\' ?>\n'
-                b'<job-info version="1"/>\n')
-    data = f.job_xml().replace(f'delay="{f.DUE}"'.encode(), f'delay="{due}"'.encode())
+        return (b"<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>\n"
+                b'<job-info version="1" />\n')
+    data = f.job_xml(version).replace(f'delay="{f.DUE}"'.encode(), f'delay="{due}"'.encode())
     if timing != 'one-off':
         data = data.replace(b'<one-off ', b'<periodic period="900000" flex="900000" ')
     for name, value in zip(('lastSuccessfulRunTime', 'lastFailedRunTime',
@@ -136,23 +121,8 @@ def job_xml(present=True, due=f.DUE, extras=None, timing='one-off', runs=(0, 0, 
 
 # Rendered dumps.
 
-def permission_text(flags=48, package_mode=1, uid_mode=None, version=15, vibrate=1, uid=UID):
-    rows = []
-    if flags is not None:
-        rows.append(('android.permission.POST_NOTIFICATIONS', flags))
-    if vibrate is not None:
-        rows.append(('android.permission.VIBRATE', vibrate))
-    text = f'App ID: {uid}\n  User: 0\n    Permissions:\n'
-    for name, value in rows:
-        text += (f'      {name}: granted={str(own.granted(value)).lower()}, flags=['
-                 + '|'.join(own.flags_names(value)) + ']\n')
-    text += '    App ops:\n'
-    if uid_mode is not None:
-        text += f'      android:vibrate: mode={own.MODE_NAMES[uid_mode]}\n'
-    text += f'    Package: {PACKAGE}\n      version={version}\n      App ops:\n'
-    if package_mode is not None:
-        text += f'        android:vibrate: mode={own.MODE_NAMES[package_mode]}\n'
-    return text
+def permission_text(flags=24624, package_mode=1, uid_mode=None, version=f.VERSION, vibrate=1, uid=UID):
+    return f.permission_dump(flags, package_mode, uid_mode, version, uid, vibrate)
 
 
 def appops_texts(package_mode=1, uid_mode=None):
@@ -167,17 +137,18 @@ def appops_texts(package_mode=1, uid_mode=None):
     return package, uid
 
 
-def notification_text(preference='retained', uid=UID):
-    if preference == 'absent':
-        return f.notification_text(False)
-    return f.notification_text(True, preference).replace(f'({f.UID})', f'({uid})')
+def notification_text(preference='retained', uid=UID, stage=None, row=True, admitted=True):
+    """T3 for the stage (its AppSettings suffix); an omitted stage takes the one whose preference this is. Version 22
+    (the source check's B1): an unscanned package (ADMITTED False) prints its row bare."""
+    stage = stage or {'absent': 'baseline', 'created': 'ignored', 'reset': 'ignored', 'old-shell': 'retained'}.get(
+        preference, 'retained')
+    return f.notification_text(stage, preference, uid, row, admitted)
 
 
 def job_text(present=True, admitted=True, parcelled=True):
     if present:
         return f.job_text(admitted, parcelled)
-    return ('JobScheduler:\nStarted users: [0]\nRegistered 0 jobs:\n  None.\n'
-            '\nPending queue:\n  None\nActive jobs:\n  None\nRecently completed jobs:\n  None\n')
+    return f.job_text_absent()
 
 
 DUMP_ARGVS = {
@@ -190,12 +161,8 @@ DUMP_ARGVS = {
     'rtc': ['date', '+%s'],
 }
 
-# The owner state at each setup stage, as (flags, package mode, preference, job present).
-STAGE_STATE = {
-    'baseline': (0, None, 'absent', False), 'initialized': (0, None, 'created', True),
-    'granted': (16, None, 'created', True), 'user-set': (48, None, 'created', True),
-    'ignored': (48, 1, 'created', True), 'retained': (48, 1, 'retained', True),
-}
+# The owner state at each setup stage, as (flags, package mode, preference, job present): T0, fixtures.py's table.
+STAGE_STATE = f.STAGE_STATE
 
 
 def owner_captures(stage='retained', access=None, policy=None, jobs=None, extra_jobs=None,
@@ -203,9 +170,13 @@ def owner_captures(stage='retained', access=None, policy=None, jobs=None, extra_
     flags, mode, preference, present = STAGE_STATE[stage]
     access = access_xml(flags, mode) if access is None else access
     policy = notification_xml(preference) if policy is None else policy
-    jobs = job_xml(present) if jobs is None else jobs
     raw = binary(access)
-    job_files = {('jobs.xml' if legacy else f'jobs_{UID}.xml'): (binary(jobs), jobs, None)}
+    # The real layout: the four other primary files from the fresh baseline, the subject's from initialize on (or the
+    # file a case names).
+    job_files = {name: (binary(data), data, None) for name, data in f.other_job_files().items()}
+    if jobs is not None or present:
+        jobs = job_xml(present) if jobs is None else jobs
+        job_files[('jobs.xml' if legacy else f'jobs_{UID}.xml')] = (binary(jobs), jobs, None)
     for name, data in (extra_jobs or {}).items():
         job_files[name] = (binary(data), data, None)
     return {'access': namespace('access', {'access.abx': (raw, access, None),
@@ -229,7 +200,7 @@ def owner_dumps(stage='retained', flags=..., package_mode=..., uid_mode=None, pr
     package, uid = appops_texts(package_mode, uid_mode) if appops is None else appops
     texts = {'permission_app_id': permission, 'permission_package': permission,
              'appops_package': package, 'appops_uid': uid,
-             'notification': notification_text(preference) if notification is None
+             'notification': notification_text(preference, stage=stage, admitted=admitted) if notification is None
              else notification,
              'jobscheduler': job_text(job, admitted) if jobs is None else jobs,
              'rtc': f'{rtc}\n'}
@@ -237,7 +208,7 @@ def owner_dumps(stage='retained', flags=..., package_mode=..., uid_mode=None, pr
 
 
 def baselines(stage='retained', admitted=True, **extra):
-    value = {'migration_version': 15, 'admitted': admitted}
+    value = {'migration_version': f.VERSION, 'admitted': admitted, 'sdk_int': f.SDK}
     if STAGE_STATE[stage][3]:
         value['original_due_ms'] = f.DUE
     value.update(extra)

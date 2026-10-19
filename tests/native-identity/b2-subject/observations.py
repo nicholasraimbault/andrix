@@ -64,60 +64,114 @@ def _put(mapping, key, value):
     mapping[key] = value
 
 
+PERMISSION_ROW = re.compile(r'([a-zA-Z][a-zA-Z0-9_.]*): granted=(true|false), '
+                            r'flags=\[((?:[A-Z][A-Z0-9_]*|0x[0-9a-f]+)'
+                            r'(?:\|(?:[A-Z][A-Z0-9_]*|0x[0-9a-f]+))*)?\]')
+
+
 def permissionmgr(capture, uid, selector='app-id'):
+    """The permission service's printer grammar (PermissionService.kt dumpAppIdState and dumpUserState; checkpoint 5 B
+    version 21, Q25 c and the source check, section 2): after `App ID: <id>`, one block per saved user in print order, each with its
+    `Permissions:`, zero or more `Permissions (Device <id>):` sections, its app ID's `App ops:` and one `Package:` block per
+    package of the app ID with its migration version and package operations. Rows are in the service's map order, so the
+    parser is order free within a section. `Unknown app ID` or `Unknown package` is unavailable evidence. Returns user 0's
+    values under today's keys, every user named ('users') and user 0's device permission sections
+    ('device_permissions'); the stage checks refuse another user or any device section."""
     require(type(uid) is int and 10000 <= uid <= 19999 and selector in ('app-id', 'package'),
             'permission selector')
     text = capture_text(capture, dumpsys_argv('permissionmgr', '--' + selector,
                                               str(uid) if selector == 'app-id' else PACKAGE))
+    if text in (f'Unknown app ID {uid}.\n', f'Unknown package {PACKAGE}.\n'):
+        raise DumpUnavailable('the permission service names no saved state for the subject: ' + text.strip())
     lines = text.splitlines()
-    require(len(lines) >= 6 and lines[0] == f'App ID: {uid}' and lines[1] == '  User: 0'
-            and lines[2] == '    Permissions:', 'permission identity and nesting')
-    permissions, uid_ops, package_ops = {}, {}, {}
-    section = 'permissions'
-    version = None
-    for line in lines[3:]:
-        if section == 'permissions' and line == '    App ops:':
-            section = 'uid_ops'
-        elif section == 'uid_ops' and line == '    Package: ' + PACKAGE:
-            section = 'version'
-        elif section == 'version':
+    require(lines and lines[0] == f'App ID: {uid}', 'permission identity')
+    users, order, user, section = {}, [], None, None
+    for line in lines[1:]:
+        match = re.fullmatch(r'  User: (0|[1-9][0-9]{0,9})', line)
+        if match:
+            number = int(match[1])
+            require(number < 1 << 31 and number not in users, 'duplicate or out of range permission user')
+            user = {'permissions': None, 'device_permissions': {}, 'uid_ops': None, 'packages': {}}
+            users[number] = user
+            order.append(number)
+            section = None
+            continue
+        require(user is not None, 'permission user nesting')
+        if line == '    Permissions:':
+            require(user['permissions'] is None and user['uid_ops'] is None and not user['packages'],
+                    'permission section order')
+            user['permissions'] = {}
+            section = ('rows', user['permissions'])
+            continue
+        match = re.fullmatch(r'    Permissions \(Device ([^\x00-\x1f]{1,1024})\):', line)
+        if match:
+            require(user['permissions'] is not None and user['uid_ops'] is None and not user['packages']
+                    and match[1] not in user['device_permissions'], 'device permission section order or duplicate')
+            user['device_permissions'][match[1]] = {}
+            section = ('rows', user['device_permissions'][match[1]])
+            continue
+        if line == '    App ops:':
+            require(user['permissions'] is not None and user['uid_ops'] is None and not user['packages'],
+                    'app operation section order')
+            user['uid_ops'] = {}
+            section = ('ops', user['uid_ops'], '      ')
+            continue
+        match = re.fullmatch(r'    Package: ([A-Za-z][A-Za-z0-9_.]*)', line)
+        if match:
+            require(user['uid_ops'] is not None and match[1] not in user['packages'],
+                    'package section order or duplicate')
+            package = {'version': None, 'ops': None}
+            user['packages'][match[1]] = package
+            section = ('version', package)
+            continue
+        require(section is not None, 'unexpected permission structure')
+        if section[0] == 'version':
             match = re.fullmatch(r'      version=(0|[1-9][0-9]{0,9}|null)', line)
             require(match is not None, 'permission migration version')
-            version = None if match[1] == 'null' else int(match[1])
-            require(version is None or version < 1 << 31, 'migration version range')
-            section = 'package_header'
-        elif section == 'package_header' and line == '      App ops:':
-            section = 'package_ops'
-        elif section == 'permissions':
-            match = re.fullmatch(r'      ([a-zA-Z][a-zA-Z0-9_.]*): granted=(true|false), '
-                                 r'flags=\[((?:[A-Z][A-Z0-9_]*|0x[0-9a-f]+)'
-                                 r'(?:\|(?:[A-Z][A-Z0-9_]*|0x[0-9a-f]+))*)?\]', line)
+            section[1]['version'] = None if match[1] == 'null' else int(match[1])
+            require(section[1]['version'] is None or section[1]['version'] < 1 << 31, 'migration version range')
+            section = ('package_header', section[1])
+        elif section[0] == 'package_header':
+            require(line == '      App ops:', 'package operation section')
+            section[1]['ops'] = {}
+            section = ('ops', section[1]['ops'], '        ')
+        elif section[0] == 'rows':
+            match = PERMISSION_ROW.fullmatch(line[6:]) if line.startswith('      ') else None
             require(match is not None, 'permission row')
             flags = match[3].split('|') if match[3] else []
             require(len(flags) == len(set(flags)), 'duplicate permission flag')
-            _put(permissions, match[1], {'granted': match[2] == 'true', 'flags': flags})
-        elif section in ('uid_ops', 'package_ops'):
-            indent = '      ' if section == 'uid_ops' else '        '
-            match = re.fullmatch(indent + r'(android:[a-z0-9_]+): mode=([a-z]+)', line)
-            require(match is not None and match[2] in MODES, 'app operation row or nesting')
-            _put(uid_ops if section == 'uid_ops' else package_ops, match[1], match[2])
+            _put(section[1], match[1], {'granted': match[2] == 'true', 'flags': flags})
         else:
-            raise ValueError('unexpected permission structure')
-    require(section == 'package_ops', 'incomplete permission dump')
-    return {'app_id': uid, 'user': 0, 'package': PACKAGE, 'version': version,
-            'permissions': permissions, 'uid_ops': uid_ops, 'package_ops': package_ops}
+            match = re.fullmatch(section[2] + r'(android:[a-z0-9_]+): mode=([a-z]+)', line)
+            require(match is not None and match[2] in MODES, 'app operation row or nesting')
+            _put(section[1], match[1], match[2])
+    require(users and all(u['permissions'] is not None and u['uid_ops'] is not None
+                          and all(p['ops'] is not None for p in u['packages'].values()) for u in users.values()),
+            'incomplete permission dump')
+    require(0 in users and PACKAGE in users[0]['packages'], 'the subject\'s user 0 package block')
+    zero, own = users[0], users[0]['packages'][PACKAGE]
+    return {'app_id': uid, 'user': 0, 'package': PACKAGE, 'version': own['version'],
+            'permissions': zero['permissions'], 'uid_ops': zero['uid_ops'], 'package_ops': own['ops'],
+            'users': order, 'device_permissions': zero['device_permissions']}
 
 
-def require_permission_state(facts, baseline_version, initialized=True):
+def require_permission_state(facts, baseline_version, want):
+    """The subject's saved permission state at one stage (checkpoint 5 B version 21, Q25 a): the stage's one expected
+    row from owner_stores.EXPECTED, at every stage, never a literal of its own. The migration version as learned, no UID
+    VIBRATE mode, the POST_NOTIFICATIONS row exactly the stage's flags as the service renders them, the package VIBRATE
+    mode `ignore` where the stage names mode 1 and absent otherwise, one user and no device permission."""
+    from owner_stores import flags_names, granted
+    require(type(want) is dict and type(want.get('flags')) is int and want.get('package_mode') in (None, 1),
+            'expected permission state')
     require(facts['version'] == baseline_version and OP not in facts['uid_ops'],
             'migration version or UID mode changed')
-    row = facts['permissions'].get(PERMISSION)
-    if initialized:
-        require(row == {'granted': True, 'flags': ['RUNTIME_GRANTED', 'USER_SET']}
-                and facts['package_ops'].get(OP) == 'ignore', 'permission or package mode lost')
-    else:
-        require((row is None or row == {'granted': False, 'flags': []})
-                and OP not in facts['package_ops'], 'dirty permission or operation baseline')
+    require(facts['permissions'].get(PERMISSION) == {'granted': granted(want['flags']),
+                                                     'flags': flags_names(want['flags'])},
+            'permission state differs from the stage')
+    require(facts['package_ops'].get(OP) == ('ignore' if want['package_mode'] == 1 else None)
+            and (want['package_mode'] == 1 or OP not in facts['package_ops']), 'package mode differs from the stage')
+    require(facts.get('users', [0]) == [0], 'permission state of another user')
+    require(not facts.get('device_permissions'), 'device permission state')
     return facts
 
 
@@ -214,9 +268,15 @@ def notification_setup(capture, contract, nonce):
     return value
 
 
-def notification(capture, uid, stage='retained', baseline=None):
+def notification(capture, uid, stage='retained', baseline=None, app_settings=None):
+    """The rendered preferences of the subject. Checkpoint 5 B version 21 (Q25 a): with APP_SETTINGS, the stage's
+    AppSettings suffix (owner_stores.EXPECTED), the subject's row must carry exactly it; at the fresh baseline (STAGE
+    'absent') the row may also be absent. Version 22 (the source check's B1): APP_SETTINGS '' is the bare saved row an unscanned
+    package prints, which must then carry no suffix."""
     require(type(stage) is str and stage in ('absent', 'created', 'retained'),
             'notification observation stage')
+    require(app_settings is None or app_settings == '' or (type(app_settings) is str and re.fullmatch(
+        r' importance=[A-Z_]+ userSet=(?:true|false)', app_settings) is not None), 'expected AppSettings suffix')
     text = capture_text(capture, dumpsys_argv('notification', '--noredact', '--package', PACKAGE))
     lines = text.splitlines()
     start = _one([i for i, x in enumerate(lines) if x == 'PackagePreferences:'],
@@ -231,6 +291,7 @@ def notification(capture, uid, stage='retained', baseline=None):
     packages = []
     current = None
     target_channels = []
+    suffixes = []
     for index in range(start + 1, end):
         line = lines[index]
         if not line or line == 'Restored without uid:':
@@ -246,6 +307,7 @@ def notification(capture, uid, stage='retained', baseline=None):
                 require(app[2] == str(uid) and index < restored, 'stranded notification UID')
                 require(re.fullmatch(r'(?: importance=[A-Z_]+ userSet=(?:true|false))?', app[3])
                         is not None, 'nondefault package notification preferences')
+                suffixes.append(app[3])
             continue
         if current == PACKAGE:
             require(line.startswith('        NotificationChannel{'), 'unexpected subject preference')
@@ -254,6 +316,9 @@ def notification(capture, uid, stage='retained', baseline=None):
             raise ValueError('selected preference outside its package block')
     target_packages = [p for p in packages if p[0] == PACKAGE]
     require(len(target_packages) <= 1, 'duplicate subject preferences')
+    if app_settings is not None:
+        require(suffixes == [app_settings] or (not suffixes and stage == 'absent'),
+                'subject notification preferences differ from the stage')
     if stage == 'absent':
         require(not target_channels, 'preexisting custom or deleted channel')
         return {'uid': uid, 'package': PACKAGE, 'channels': []}
@@ -278,6 +343,73 @@ def duration(text):
     total = sum((x or 0) * scale for x, scale in zip(values, (86400000, 3600000, 60000, 1000, 1)))
     require(total > 0 and total < 1 << 63, 'nonzero bounded duration')
     return total if match[1] == '+' else -total
+
+
+SDK_ARGV = ['getprop', 'ro.build.version.sdk']
+
+
+def sdk_level(capture):
+    """The booted image's SDK level (checkpoint 5 B version 21, spec 2.5): `getprop ro.build.version.sdk`, one to three
+    digits and a line feed, exit 0 and no error output. The setup reads it before its fresh read; the notification
+    policy's last_bubbles_version_upgrade is this value (N/PreferencesHelper.java:714-718)."""
+    text = capture_text(capture, SDK_ARGV)
+    require(re.fullmatch(r'[1-9][0-9]{0,2}\n', text) is not None, 'SDK level form')
+    return int(text)
+
+
+def relative_time(text, unset=True):
+    """TimeUtils.formatDuration relative to now (checkpoint 5 B version 21, the source check, sections 1 and 8): `--` where the stored
+    time is 0 (None), `0` where it equals now (0), otherwise a signed duration. Version 22 (the source check's B2): UNSET False at a
+    caller that prints only a nonzero stored time (the constraint history, Deferred since, Time since first force batch
+    attempt), where `--` cannot print and is refused."""
+    if text == '--':
+        require(unset, 'a relative time its caller prints only when set')
+        return None
+    if text == '0':
+        return 0
+    return duration(text)
+
+
+# The registered job header (JobStatus.toShortString with its namespace, UserHandle.formatUid and the job ID; Q25 c):
+# one grammar for both jobscheduler readers.
+JOB_CALLING = r'(?:-?(?:0|[1-9][0-9]{0,9})|u(?:0|[1-9][0-9]{0,9})(?:ai|a|i|s)(?:0|[1-9][0-9]{0,9}))'
+JOB_REST = re.compile(r'(' + JOB_CALLING + r')/(-?(?:0|[1-9][0-9]{0,9})): ([0-9a-f]{1,8}) (.+)')
+JOB_BODY = re.compile(r'    (' + JOB_CALLING + r') tag=')
+
+
+def job_header(line, first_body_line):
+    """One registered job's identity from `  JOB <#|namespace:><calling UID>/<signed ID>: <hash> <battery>`. The
+    namespace may hold spaces, `/` and `:`, so every split is tried (`#`, then each `:` as the namespace's end) and kept
+    where its remainder matches; exactly one kept split's calling UID must equal the first token of the block's first
+    body line (`    <uid> tag=...`). The battery text is opaque. Anything else refuses the dump."""
+    require(type(line) is str and line.startswith('  JOB ') and '\n' not in line, 'registered job identity')
+    rest = line[len('  JOB '):]
+    candidates = [(None, rest[1:])] if rest.startswith('#') else []
+    candidates += [(rest[:i], rest[i + 1:]) for i, c in enumerate(rest) if c == ':' and 0 < i <= 1000]
+    body = JOB_BODY.match(first_body_line) if type(first_body_line) is str else None
+    kept = []
+    for namespace, remainder in candidates:
+        match = JOB_REST.fullmatch(remainder)
+        if match and -1 << 31 <= int(match[2]) < 1 << 31 and body is not None and match[1] == body[1]:
+            kept.append((namespace, match[1], int(match[2]), match[3], match[4]))
+    require(len({k[:3] for k in kept}) == 1, 'registered job identity')
+    namespace, calling, number, digest, battery = kept[0]
+    return {'namespace': namespace, 'calling': calling, 'id': number, 'hash': digest, 'battery': battery}
+
+
+def own_job(identity, lines, uid):
+    """The shared own job rule: a block is the subject's if its calling UID is the subject's, or its Source line names
+    the subject's UID or package, or its battery text names the package."""
+    fu = 'u0a' + str(uid - 10000)
+    if identity['calling'] == fu or PACKAGE in identity['battery']:
+        return True
+    for raw in lines:
+        line = raw.strip()
+        if line.startswith('Source: '):
+            fields = dict(item.split('=', 1) for item in line[len('Source: '):].split(' ') if '=' in item)
+            if fields.get('uid') == fu or fields.get('pkg') == PACKAGE:
+                return True
+    return False
 
 
 CONSTRAINTS = {'CHARGING': 1, 'BATTERY_NOT_LOW': 2, 'STORAGE_NOT_LOW': 8,
@@ -340,8 +472,7 @@ def _job_block(lines, uid, component, contract):
         if section == 'history':
             match = re.fullmatch(r'  ([^ ]+) =(?: (.*))?', line)
             require(match is not None and len(history) < 10, 'constraint history row')
-            if match[1] != '0':
-                duration(match[1])
+            relative_time(match[1], unset=False)
             _constraints(match[2] or '')
             history.append(line[2:]); continue
         if section == 'info':
@@ -366,8 +497,7 @@ def _job_block(lines, uid, component, contract):
         if line.startswith(('  Deferred since: ', '  Time since first force batch attempt: ')):
             require('Standby bucket' in facts, 'standby timing nesting')
             key, value = line[2:].split(': ', 1)
-            if value != '0':
-                duration(value)
+            relative_time(value, unset=False)
             _put(facts, key, value); continue
         key, sep, value = line.partition(':')
         if line in ('Uid: active', 'Doze whitelisted: true', 'Is exempted from app standby',
@@ -420,8 +550,8 @@ def _job_block(lines, uid, component, contract):
         if key in facts:
             require(re.fullmatch(r'0|[1-9][0-9]{0,2}', facts[key]) is not None,
                     'flexible constraint count')
-    require(facts['Enqueue time'] == '0' or duration(facts['Enqueue time']) < 0,
-            'enqueue time is in the future')
+    enqueued = relative_time(facts['Enqueue time'])
+    require(enqueued is None or enqueued <= 0, 'enqueue time is in the future')
     ready = re.fullmatch(r'false \(job=(true|false) user=(true|false) !restricted=(true|false) '
                          r'!pending=true !active=true !backingup=(true|false) comp=(true|false)\)',
                          facts['Ready'])
@@ -450,26 +580,24 @@ def jobscheduler(capture, contract, admitted, initialized=True):
         if not line:
             continue
         if line.startswith('  JOB '):
-            match = re.fullmatch(r'  JOB (#[^ /:]+|[^ /]+:[^ /:]+)/([0-9]+): '
-                                 r'([0-9a-f]+) (\S+)', line)
-            require(match is not None, 'registered job identity')
-            current = {'identity': match[1], 'id': int(match[2]), 'component': match[4], 'lines': []}
+            current = {'header': line, 'lines': []}
             blocks.append(current)
         elif current is not None:
             current['lines'].append(line)
         else:
             require(count == 0 and line == '  None.', 'unexpected registered job content')
-    require(len(blocks) == count and len({(b['identity'], b['id']) for b in blocks}) == count,
+    for block in blocks:
+        block.update(job_header(block['header'], block['lines'][0] if block['lines'] else None))
+    require(len(blocks) == count and len({(b['namespace'], b['calling'], b['id']) for b in blocks}) == count,
             'duplicate job identity or filtered/truncated registered count')
-    own = [b for b in blocks if b['identity'] == '#' + fu or b['identity'].endswith(':' + fu)
-           or b['component'].startswith(PACKAGE + '/')]
+    own = [b for b in blocks if own_job(b, b['lines'], uid)]
     if not initialized:
         require(not own, 'preexisting job in some namespace')
         return {'uid': uid, 'jobs': []}
     block = _one(own, 'one original own job across all namespaces')
-    require(block['identity'] == '#' + fu and block['id'] == JOB_ID
-            and block['component'] == PACKAGE + '/.B2StateJobService', 'job identity changed')
-    result = _job_block(block['lines'], uid, block['component'], contract)
+    require(block['namespace'] is None and block['calling'] == fu and block['id'] == JOB_ID
+            and block['battery'] == PACKAGE + '/.B2StateJobService', 'job identity changed')
+    result = _job_block(block['lines'], uid, block['battery'], contract)
     require(result['component'] is admitted, 'job component admission differs')
     # Controllers legitimately refer to waiting jobs. Only queue, execution and history
     # sections are negative oracles, not arbitrary later mentions of the registered identity.
