@@ -35,6 +35,8 @@ closure are later packages.
 | `health_compose.py` | The health composition: the composer, the readers of bits 0, 2 and 3, the forms of the UI state helper and of a fresh dump of all windows, the hooks of bits 1, 4, 5 and 6, and the driver's declared starting values |
 | `health_baseline.py` | The health baselines: one user's process, history and current error baseline, which one a probe relies on, and each serial's expected SystemUI identity |
 | `health_records.py` | The health package's side metadata codec: the UI state reading, baseline facts, identity baselines, preparation results and the PIN and sentinel setup records |
+| `process_health.py` | The process history reader's helper contract and its strict reply parser: SystemUI's exit history and the current error list of one user |
+| `health_witness.py` | Criterion bit 1's crash and ANR witness: the identity and time join of the helper's rows with the genuine main SystemUI process, its decisions, and the reader of the composer's and the baseline reader's hooks |
 | `lab_evidence.py` | Strict canonical side records: compound manifests and retained action specs |
 | `lab_losses.py` | The next profile's fault schedule and its read and round loss addresses |
 | `lab_records.py` | Strict readers of a stored plan and ticket, for where a compound fact may be placed |
@@ -46,7 +48,7 @@ closure are later packages.
 | `driver-tests/` | Java: `DriverTest`, unit checks of the driver's baseline, selection, host configuration and approval guards |
 | `sim_android.py`, `sim_users.py`, `labtest.py` | Host test support: a small simulated guest, its users in the full user forms, the health package's forms and fakes, and a client |
 | `fixtures/full-users/` | The full user forms, source derived, with their commands, statuses and sources |
-| `test_*.py` | The host suites; `test_lab_next.py`, `test_lab_loss.py`, `test_full_users.py` and `test_health.py` are the next campaign profile's broker suites |
+| `test_*.py` | The host suites; `test_lab_next.py`, `test_lab_loss.py`, `test_full_users.py`, `test_health.py` and `test_witness.py` are the next campaign profile's broker suites |
 
 ## Process model
 
@@ -488,12 +490,16 @@ every crossing names, as under version 2.
   nothing; an UNKNOWN row gives INCONCLUSIVE, never HELD. The composer is told each offered
   preparation's result, which the manifest binds by its digest, the identity baseline of the
   user's serial, the stored plan's base UID and context for the system user, and the CE nonce
-  CE_SENTINEL settled for the serial.
+  CE_SENTINEL settled for the serial. The bit 1 reader is told the repeated baselines, every whole
+  one the same rule admits for the probe, and each earlier composition of the user in the boot: its
+  bit 1 as the broker accepted it and its witness decision, which the composition's group keeps
+  beside its manifest. A reopening rebuilds them from the groups and refuses a group whose copy is
+  not what its manifest's projection holds.
 - **Health baselines** (`health_baseline.py`). `health_baseline` reads one user's process, history
   and current error baseline between generations, outside any round, for a user a whole inventory
   shows running and unmarked, as a compound group that is never a deployment fact. Its facts have
   an exact form: the user's genuine main SystemUI process from the process discovery, and the
-  witness reader's two parts, NOT_ADMITTED until that later part is admitted, so a baseline is
+  witness reader's two parts, NOT_ADMITTED when no witness reader is admitted, so a baseline is
   complete only with the process present and both parts read whole. Which baseline a probe relies
   on is `select`'s rule alone: the last whole one of the probe's boot and framework instance,
   completed by the window's start, or, for a user that a whole listing after the window began and
@@ -666,6 +672,50 @@ that end the sequence, are the health package's, below.
   storage unlocked. It runs only between reads of the shell user and of its pinned bytes, before
   and after it, and a reply cut short, of another user or build, or without its end marker has no
   known form. An exception is unavailable with its class, never false.
+- **The process history reader** (`process_health.py`, `health_witness.py`). Bit 1's reader, the
+  composer's witness hook and the baseline reader's. The fixed helper of `tests/process-health-read`
+  reads SystemUI's exit history for one user and the whole current error list, with elapsed and wall
+  samples around each call and an end marker that counts and digests every line. Its reply is parsed
+  strictly: a complete empty reply is whole, while a denial, an exception, an absent service or an
+  overflow is a part that is not whole, never zero rows; a reply cut short, an end marker that does
+  not agree or an impossible count is unavailable evidence; a formatted date has no known form. One
+  read discovers the user's genuine main SystemUI process, runs the helper and discovers the process
+  again, between reads of the boot ID and of the framework instance. Every baseline keeps the
+  helper's whole sets, and a probe judges only against repeated whole baselines, at least two, the
+  relied one last; an earlier one read without the process adds its sets but never vetoes later
+  whole ones. A current report joins the process living before and after the call by UID, user,
+  serial, process name, PID and start ticks. A report carries no time, so one new report is
+  QUALIFIED_CURRENT_ERROR, and the row BAD, only when an earlier read inside the window found the
+  same process living without it, in a list that covered it: a whole reply, whose history read,
+  which needs DUMP, shows the list was not filtered to the shell's own UID, for a covered user. An
+  empty list beside a denied history shows nothing absent. A report first seen otherwise, as at
+  the window's first read, may have begun before the window opened: it is INCONCLUSIVE, which
+  prevents a hold, never a crash or a restoration's trigger. A gone process
+  keeps its birth identity from the relied baseline and the interval in which
+  it went, from the earlier probes' bit 1 and each one's own recorded helper reply, read again
+  whatever the probe decided: every reply's samples are the boot's clock and its whole history is
+  earlier rows, so a held probe keeps its clock and rows, and a partial one also its whole
+  discovery once the relied baseline has read the identity living. Each discovery is placed at the
+  helper's sample next to it: found before the call, the identity lived at the first sample; found
+  after it, at the last; found neither time, it was gone by the first. A read that found it only
+  after the call, or a baseline that missed it between baselines that found it, is an identity
+  contradiction that never joins, and finding it living after a read that found it gone refuses
+  the join. An exit row qualifies it only with a unique reason CRASH, CRASH_NATIVE or ANR, every
+  identity field, a place in time after the identity was last seen living, by the first read that
+  saw it gone and inside the health window the broker passes, beyond the scale tolerance at both
+  bounds, a record no earlier read showed with other contents, however often its new contents are
+  read again, and independent evidence of this boot, which no reader of this part supplies:
+  without it the loss is PENDING through the declared bound, then INCONCLUSIVE. A row placed
+  between the last baseline and the window's start is a prewindow exit, no newly induced failure,
+  though it keeps a living read from holding, and a window of another boot or of no known form
+  places no row. A late row, an updated reason or time, a wall clock offset change, another boot
+  or framework, a reused PID, another user, UID or process, another reason, a duplicate, a report
+  in a baseline, an identity contradiction, a prewindow exit or loss or missing evidence is
+  INCONCLUSIVE. The row holds only with the identity living, the exit history the baselines' and
+  no report of the user's SystemUI now or in a baseline, even a cleared one, in a current list that
+  covers the user: the shell's own user, or another one once the shell's
+  INTERACT_ACROSS_USERS_FULL is qualified. An UNKNOWN row makes the probe INCONCLUSIVE, which never
+  starts a restoration; only a qualified decision makes it CRASH.
 - **The disposable lab PIN.** USER_PIN, under LAB_USER_ADMIN, needs a user with CE storage unlocked
   and no secure credential, read by the UI state helper; a credential is never replaced or guessed,
   and no old credential is ever passed. The broker generates the PIN itself, so no caller and no
@@ -769,8 +819,10 @@ fixture's provider rows, the health baseline and the health composer, and its no
 adapters, are interfaces here; the simulated guest implements them for host tests. With
 `users=True`, `ObserverAdapter` admits the full user readers of `full_users.py`, which read the
 guest's own user forms. Given a composer and a baseline reader beside them, it admits the health
-readers too, and the witness reader exactly when both have one. The notice fixture's provider rows
-and the global session inventory are later packages, and it admits neither.
+readers too, and the witness reader exactly when both have one; the witness reader of
+`health_witness.py` reads through the same run function as the composer's other readers. The
+notice fixture's provider rows and the global session inventory are later packages, and it
+admits neither.
 
 ## Running the checks
 
@@ -797,9 +849,9 @@ partial.
   secondary user's main SystemUI process runs and how long, its context, the setup the image shows
   and the steps that finish it, and the fixtures' installation for the user need a guest.
 - No guest notice route, receipt reader, visibility capture, UI preparation step, native work or
-  crash witness exists here. The health composer's readers of bits 0, 2 and 3 read source derived
-  forms; the UI preparation's capture and credential unlock, the work fixture's CE nonce and the
-  readers of bits 1, 4, 5 and 6 are hooks. The next profile's mechanisms join, order and bound
+  crash witness exists here. The health composer's readers of bits 0, 1, 2 and 3 read source
+  derived forms; the UI preparation's capture and credential unlock, the work fixture's CE nonce
+  and the readers of bits 4, 5 and 6 are hooks. The next profile's mechanisms join, order and bound
   what such readers return, on the simulated guest only. Whether a notice is visible on a locked or
   unlocked display, an app row survives Android loss, a provider read authenticates the shell, the
   elapsed scales agree, a preparation unlocks and returns CE, a native child runs and a witness
@@ -824,4 +876,10 @@ partial.
   handling, outside the inspected sources, and `cmd`'s exit status for a refusal is
   frameworks/native's: both need a guest check before a PIN relies on them. These checks do not
   exclude every logger or process inspection on the guest.
+- The process history reader's positive paths are qualified by host fixtures only, until a guest
+  qualifies its helper: whether the shell may make both reads for each lab user, holds DUMP and
+  INTERACT_ACROSS_USERS_FULL, and gets the getters by reflection from `app_process`; whether a live
+  report shows while SystemUI crashes or is not responding, and for how long; how late an exit row
+  is published or updated; and any stronger evidence that a row belongs to the current boot. The
+  pending bound and the clock tolerances are declared values, not measurements.
 - A process crash is not power loss, and directory times are not durability evidence.

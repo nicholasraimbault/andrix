@@ -6,8 +6,8 @@ There are two kinds, kept apart as the contract asks:
 
 - **A health baseline** is one user's process, history and current error baseline: the genuine
   main SystemUI process from full_users.py's discovery over a whole typed inventory, with its PID,
-  start ticks, UID and context, and the exit history and current errors of the witness reader of
-  section 5.4, a later part's hook. It is complete only with the process present and both witness
+  start ticks, UID and context, and the exit history and current errors of the witness reader, a
+  hook that health_witness.py fills. It is complete only with the process present and both witness
   parts read whole. The broker reads it between generations, outside any round, and keeps it as a
   compound group with its raw captures.
 - **An identity baseline** is each listed user's expected identity, the UID, app ID and exact
@@ -41,9 +41,10 @@ UNLOCKED = 'RUNNING_UNLOCKED'
 
 class BaselineReader:
     """One user's health baseline through the reader's bound run function. `witness` is the
-    witness reader's hook, a later part's: an object with `allowed(command)` and
-    `baseline(run, context)` giving the history and current error parts. Without it both parts
-    are NOT_ADMITTED and the baseline is never complete."""
+    witness reader's hook, health_witness.WitnessReader: an object with `allowed(command)` and
+    `baseline(run, context)` giving the history and current error parts, its context naming the
+    user, serial and the inventory and process discovery just read. Without it both parts are
+    NOT_ADMITTED and the baseline is never complete."""
 
     def __init__(self, witness=None):
         self.witness = witness
@@ -66,7 +67,7 @@ class BaselineReader:
             raise full_users.FormError('the process discovery does not list the user once')
         history, current = NOT_ADMITTED, NOT_ADMITTED
         if self.witness is not None:
-            history, current = self.witness.baseline(run, dict(context, processes=processes))
+            history, current = self.witness.baseline(run, dict(context, processes=processes, inventory=inventory))
         process = joined[0]['process']
         facts = {'schema': records.BASELINE_FACTS, 'user': user, 'serial': serial, 'state': found[0]['state'],
                  'app_id': processes['app_id'], 'uid': joined[0]['uid'], 'process': process,
@@ -98,27 +99,37 @@ def span_start(listings, window, user, serial):
     return start
 
 
+def eligible(baselines, listings, probes, window, user, serial):
+    """(the whole baselines a probe of one user in its window may rely on, in ledger order, and the
+    rule that admits them): those completed by the window's start, or for a user newly unlocked in
+    the window those taken after its span began and completed before its first full probe. The
+    last of them is the one `select` checks; the witness reader judges against all of them, the
+    repeated baselines. The arguments are `select`'s."""
+    start = span_start(listings, window, user, serial)
+    whole = [b for b in baselines if b.get('status') == 'facts' and b.get('brackets')]
+    if start == window['start']:
+        rule = BEFORE_WINDOW
+        candidates = [b for b in whole if b['brackets']['end']['elapsed'] <= window['start']]
+    else:
+        rule = NEWLY_UNLOCKED
+        first = min(probes) if probes else None
+        candidates = [b for b in whole if b['brackets']['begin']['elapsed'] >= start
+                      and (first is None or b['brackets']['end']['elapsed'] <= first)]
+    return candidates, rule
+
+
 def select(baselines, listings, probes, window, user, serial, instance):
     """The baseline a probe of one user in its window may rely on: (its group, its rule) or
     (None, why). `baselines` are the user's whole baseline groups of the window's boot in ledger
     order, `listings` that boot's whole user listings as (elapsed, {(user, serial): state}),
     `probes` the begin times of the user's probes in the window, this one included, and
     `instance` the probe's framework instance."""
-    start = span_start(listings, window, user, serial)
-    whole = [b for b in baselines if b.get('status') == 'facts' and b.get('brackets')]
-    if start == window['start']:
-        rule = BEFORE_WINDOW
-        candidates = [b for b in whole if b['brackets']['end']['elapsed'] <= window['start']]
-        if not candidates:
+    candidates, rule = eligible(baselines, listings, probes, window, user, serial)
+    if not candidates:
+        if rule == BEFORE_WINDOW:
             return None, 'no whole baseline completed by the window start'
-    else:
-        rule = NEWLY_UNLOCKED
-        first = min(probes) if probes else None
-        candidates = [b for b in whole if b['brackets']['begin']['elapsed'] >= start
-                      and (first is None or b['brackets']['end']['elapsed'] <= first)]
-        if not candidates:
-            return None, ('the user was newly unlocked in the window, and no whole baseline was taken after it '
-                          'and before its first full probe')
+        return None, ('the user was newly unlocked in the window, and no whole baseline was taken after it '
+                      'and before its first full probe')
     chosen = candidates[-1]
     if chosen['brackets']['instance'] != instance:
         return None, 'a later framework instance invalidates the last whole baseline'

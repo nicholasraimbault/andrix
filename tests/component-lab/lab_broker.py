@@ -59,6 +59,7 @@ import lab_losses as losses  # noqa: E402
 import lab_protocol as proto  # noqa: E402
 import lab_readers as readers  # noqa: E402
 import lab_records as records  # noqa: E402
+import process_health  # noqa: E402
 import shell_transport  # noqa: E402
 import source_manifest  # noqa: E402
 from scripts.proof import component_transaction_records as encoder  # noqa: E402
@@ -306,6 +307,16 @@ def _side(value):
     except evidence.SideError:
         text = ''.join(c if 0x20 <= ord(c) <= 0x7e else '?' for c in repr(value))
         return {'unencodable': text[:2000]}
+
+
+def _witness_copy(status, rows, kept):
+    """Bit 1 of a health composition as the broker accepted it, with the witness decision its kept
+    candidate holds: what later probes of the user in the boot are told, and what a reopening
+    derives again from the composition's manifest. None for a composition without rows."""
+    if status != 'facts' or not rows:
+        return None
+    whole = isinstance(kept, dict) and set(kept) == {'user', 'serial', 'rows', 'witness'}
+    return {'status': rows[proto.NO_CRASH_OR_ANR]['status'], 'decision': kept['witness'] if whole else None}
 
 
 def _result_digest(result):
@@ -735,6 +746,8 @@ class Broker:
         self.identities, self.identity_conflicts = {}, {}
         self.listings, self.probe_begins = {}, {}
         self.pins, self.sentinels = {}, {}
+        # Bit 1 of each user's compositions in each boot, with their witness decisions, in order.
+        self.witness_trail = {}
         for entry in self.ledger.entries:
             if not entry.complete:
                 continue
@@ -893,6 +906,10 @@ class Broker:
             self.baselines.setdefault((c['brackets']['boot'], c['user'], c['serial']), []).append(c)
         elif reader == 'health':
             self.used_preparations.update(c['preparations'])
+            if c.get('witness') is not None and c['brackets'] is not None:
+                self.witness_trail.setdefault((c['brackets']['boot'], c['user'], c['serial']), []).append(
+                    {'group': c['number'], 'brackets': c['brackets'], 'status': c['witness']['status'],
+                     'decision': c['witness']['decision'], 'captures': list(c['captures'])})
         elif reader == 'identity-baseline':
             # Each serial's first qualified identity stands; a later one that differs is a conflict
             # the group names, never a new expectation.
@@ -3967,6 +3984,10 @@ class Broker:
         if type(emits) is not bool or (emits and (m['status'] != 'facts'
                                                   or c['reader'] not in ('receipts', 'health'))):
             return 'an emission of no known form'
+        # A composition's copy of bit 1 and its witness decision is what its projection holds.
+        if c['reader'] == 'health' and 'witness' in m['extra'] and m['extra']['witness'] != _witness_copy(
+                m['status'], (m['projection'] or {}).get('rows'), (m['projection'] or {}).get('candidate')):
+            return "its copy of bit 1's witness is not its projection's"
         observations = [_emitted(e['mode'], e['fact'], c['compound']['sha256'])[1] for e in m['emits']]
         summary = dict(m['context'], reader=c['reader'], compound=c['compound'], status=m['status'],
                        reason=m['reason'], captures=numbers, children=m['children'], brackets=m['brackets'],
@@ -4422,6 +4443,36 @@ class Broker:
                                               instance)
         return (chosen, None) if chosen is not None else (None, rule)
 
+    def _trail(self, boot, user, serial):
+        """Each earlier composition of one user in this boot, for the witness reader: its bracket,
+        bit 1 as the broker accepted it, its witness decision, and the replies its own captures
+        recorded for the process health helper's invocation. A held probe carries no decision, so
+        the reader reads its clock and rows again from that recorded reply."""
+        command = process_health.command(user)
+        found = []
+        for t in self.witness_trail.get((boot, user, serial), []):
+            helper = []
+            for n in t['captures']:
+                entry = self.ledger.entries[n - 1]
+                if entry.kind == 'capture' and (entry.content.get('intent') or {}).get('command') == command:
+                    try:
+                        helper.append(list(self._capture_reply(entry)))
+                    except BrokerError:
+                        # A reply the ledger cannot give whole is no reply the reader may read.
+                        helper.append([None, '', ''])
+            found.append({'group': t['group'], 'brackets': t['brackets'], 'status': t['status'],
+                          'decision': t['decision'], 'helper': helper})
+        return found
+
+    def _repeated(self, boot, user, serial, window):
+        """Every whole baseline of one user in this boot that a probe in its window may rely on, by
+        health_baseline.eligible's rule, in ledger order: the repeated baselines the witness reader
+        judges against. The last of them is the one `_baseline` checks."""
+        found, _ = health_baseline.eligible(self.baselines.get((boot, user, serial), []), self.listings.get(boot, []),
+                                            self.probe_begins.get((boot, user, serial), []), window, user, serial)
+        return [{'digest': b['compound']['sha256'], 'projection': b['projection'], 'brackets': b['brackets']}
+                for b in found]
+
     def _health_group(self, m, context, window, user, serial, fresh, marker=None):
         """One user's full probe: fresh current reads by the admitted composer between two clock
         reads, joined to the preparations it used and the baseline it relied on. The broker
@@ -4462,7 +4513,11 @@ class Broker:
                                                                          'projection': baseline['projection']},
                               'active_apk': self._pinned_apk(m['plan']), 'results': results,
                               'identity': self._expected_identity(m['plan'], user, serial),
-                              'ce_origin': self._ce_origin(serial)}
+                              'ce_origin': self._ce_origin(serial),
+                              # The witness reader's joins: the repeated baselines, and bit 1
+                              # of each earlier probe of the user in this boot with its decision.
+                              'baselines': self._repeated(m['boot'], user, serial, window),
+                              'trail': self._trail(m['boot'], user, serial)}
             candidate, captured, status, reason = self._call_reader(
                 'health', lambda: self.reader.health_composition(reader_context), context, None, lambda v: v)
             if status == 'facts':
@@ -4481,6 +4536,8 @@ class Broker:
         if begin.ok:
             # The probe's assignment: every preparation its composer was given.
             extra['preparations'] = [p['operation'] for p in offered]
+        # Bit 1 as the broker accepted it, with the witness decision, for later probes' joins.
+        extra['witness'] = _witness_copy(status, rows, _side(candidate))
         if status == 'facts':
             probe_begin = min([brackets['begin']['elapsed']] + [p['begin'] for p in used])
             probe_end = brackets['end']['elapsed']

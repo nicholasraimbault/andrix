@@ -6,14 +6,15 @@
   "test_capture_ledger": 14,
   "test_full_users": 37,
   "test_health": 53,
-  "test_lab_bridge": 25,
+  "test_lab_bridge": 28,
   "test_lab_broker": 103,
   "test_lab_crossings": 12,
   "test_lab_driver": 35,
   "test_lab_loss": 54,
   "test_lab_next": 46,
   "test_lab_protocol": 15,
-  "test_shell_transport": 25
+  "test_shell_transport": 25,
+  "test_witness": 53
  },
  "mutants_caught_at_least": {
   "action-before-its-predecessor": [
@@ -337,7 +338,8 @@
    "test_lab_next.HealthTests.test_held_needs_current_reads_and_no_witness_doubt"
   ],
   "health-late-baseline": [
-   "test_lab_next.HealthTests.test_only_a_baseline_completed_before_the_window_in_this_framework_is_relied_on"
+   "test_lab_next.HealthTests.test_only_a_baseline_completed_before_the_window_in_this_framework_is_relied_on",
+   "test_witness.ReaderTests.test_a_baseline_needs_the_helpers_whole_read_and_repeats_are_taken_before_the_window"
   ],
   "health-loss-reads-every-user": [
    "test_lab_loss.ReadLossTests.test_a_health_loss_stops_at_its_selected_child_beside_a_second_prepared_user"
@@ -639,6 +641,23 @@
   "process-quiet-absence-not-repeated": [
    "test_full_users.ProcessTests.test_quiet_absence_is_not_a_denied_proc_or_a_lost_reply"
   ],
+  "process-reply-empty-list-accepted": [
+   "test_witness.ParserTests.test_an_empty_list_or_a_string_of_another_encoding_has_no_known_form"
+  ],
+  "process-reply-end-unchecked": [
+   "test_witness.ParserTests.test_a_complete_empty_reply_is_not_filtered_denied_or_malformed_output",
+   "test_witness.ParserTests.test_a_missing_end_marker_or_an_impossible_count_is_unavailable_evidence"
+  ],
+  "process-reply-impossible-count": [
+   "test_witness.ParserTests.test_a_missing_end_marker_or_an_impossible_count_is_unavailable_evidence"
+  ],
+  "process-reply-number-loose": [
+   "test_witness.ParserTests.test_a_complete_empty_reply_is_not_filtered_denied_or_malformed_output",
+   "test_witness.ParserTests.test_times_are_numeric_milliseconds_and_no_time_zone_changes_a_decision"
+  ],
+  "process-reply-token-not-canonical": [
+   "test_witness.ParserTests.test_an_empty_list_or_a_string_of_another_encoding_has_no_known_form"
+  ],
   "process-start-identity-after-its-identity-fields": [
    "test_full_users.ProcessTests.test_a_pid_reused_after_its_status_read_is_unavailable",
    "test_full_users.RecordTests.test_a_pid_reused_during_the_identity_reads_through_the_broker"
@@ -728,6 +747,23 @@
   ],
   "removal-from-a-partial-read": [
    "test_full_users.InventoryTests.test_removal_only_from_a_whole_later_inventory"
+  ],
+  "repeated-baselines-not-passed": [
+   "test_witness.ReaderTests.test_a_baseline_report_cleared_while_its_process_lives_is_no_hold_through_the_broker",
+   "test_witness.ReaderTests.test_a_current_report_first_absent_then_present_in_the_window_qualifies_through_the_broker",
+   "test_witness.ReaderTests.test_a_current_report_first_seen_at_the_windows_first_read_is_inconclusive_through_the_broker",
+   "test_witness.ReaderTests.test_a_current_report_is_a_crash_and_missing_evidence_is_inconclusive",
+   "test_witness.ReaderTests.test_a_late_row_from_before_the_window_is_never_a_new_window_crash_through_the_broker",
+   "test_witness.ReaderTests.test_a_lost_process_stays_pending_then_inconclusive_across_probes",
+   "test_witness.ReaderTests.test_a_partial_reads_whole_discovery_bounds_the_loss_through_the_broker",
+   "test_witness.ReaderTests.test_a_read_that_finds_the_process_only_before_the_call_bounds_the_loss_through_the_broker",
+   "test_witness.ReaderTests.test_a_wall_clock_step_a_held_probe_read_is_kept_through_the_broker",
+   "test_witness.ReaderTests.test_a_wall_clock_step_a_partial_read_saw_is_kept_through_the_broker",
+   "test_witness.ReaderTests.test_an_earlier_read_that_found_the_identity_only_after_the_call_never_joins_through_the_broker",
+   "test_witness.ReaderTests.test_an_earlier_read_whose_history_was_denied_never_shows_a_report_absent_through_the_broker",
+   "test_witness.ReaderTests.test_an_honest_probe_holds_bit_1_on_repeated_whole_baselines",
+   "test_witness.ReaderTests.test_an_older_baseline_without_its_process_never_vetoes_two_whole_ones",
+   "test_witness.ReaderTests.test_an_update_read_again_is_still_never_new_through_the_broker"
   ],
   "replay-allowed": [
    "test_lab_broker.CrossingTests.test_an_entry_is_crossed_once",
@@ -1068,6 +1104,290 @@
   ],
   "v2-receipt-before-its-notice": [
    "BridgeTest.device v2 / a receipt keeps its proven time only with its notice's provenance"
+  ],
+  "witness-absence-before-window-counts": [
+   "test_witness.JoinTests.test_a_current_report_first_seen_at_the_windows_first_read_is_inconclusive"
+  ],
+  "witness-absence-of-a-failed-list-counts": [
+   "test_witness.JoinTests.test_a_current_report_first_seen_at_the_windows_first_read_is_inconclusive",
+   "test_witness.JoinTests.test_an_earlier_read_whose_history_was_denied_never_shows_a_report_absent",
+   "test_witness.ReaderTests.test_an_earlier_read_whose_history_was_denied_never_shows_a_report_absent_through_the_broker"
+  ],
+  "witness-absence-of-a-filtered-list-counts": [
+   "test_witness.JoinTests.test_an_earlier_read_whose_history_was_denied_never_shows_a_report_absent",
+   "test_witness.ReaderTests.test_an_earlier_read_whose_history_was_denied_never_shows_a_report_absent_through_the_broker"
+  ],
+  "witness-absence-of-another-discovery-counts": [
+   "test_witness.JoinTests.test_a_current_report_first_seen_at_the_windows_first_read_is_inconclusive"
+  ],
+  "witness-absence-uncovered-counts": [
+   "test_witness.JoinTests.test_a_secondary_users_current_list_coverage_must_be_qualified"
+  ],
+  "witness-absence-with-the-report-counts": [
+   "test_witness.JoinTests.test_a_current_report_first_seen_at_the_windows_first_read_is_inconclusive",
+   "test_witness.ReaderTests.test_a_current_report_first_seen_at_the_windows_first_read_is_inconclusive_through_the_broker"
+  ],
+  "witness-any-reason-qualifies": [
+   "test_witness.JoinTests.test_the_low_memory_signal_and_user_stop_reasons_are_never_a_crash"
+  ],
+  "witness-baseline-contradiction-ignored": [
+   "test_witness.JoinTests.test_every_discovery_state_of_an_earlier_read_bounds_the_loss"
+  ],
+  "witness-baseline-report-holds": [
+   "test_witness.JoinTests.test_a_baseline_report_no_longer_listed_while_its_process_lives_is_no_hold",
+   "test_witness.ReaderTests.test_a_baseline_report_cleared_while_its_process_lives_is_no_hold_through_the_broker"
+  ],
+  "witness-baseline-report-qualifies": [
+   "test_witness.JoinTests.test_a_report_already_present_in_the_baseline_is_no_new_failure"
+  ],
+  "witness-baselines-not-repeated": [
+   "test_witness.JoinTests.test_an_older_incomplete_baseline_never_vetoes_two_later_whole_ones",
+   "test_witness.JoinTests.test_repeated_whole_baselines_before_the_window_are_required",
+   "test_witness.ReaderTests.test_a_baseline_needs_the_helpers_whole_read_and_repeats_are_taken_before_the_window"
+  ],
+  "witness-boot-change-ignored": [
+   "test_witness.JoinTests.test_a_boot_or_framework_change_continues_no_identity",
+   "test_witness.JoinTests.test_a_reused_pid_and_start_time_is_not_the_identity"
+  ],
+  "witness-contradiction-joins": [
+   "test_witness.JoinTests.test_an_earlier_read_that_found_the_identity_only_after_the_call_never_joins",
+   "test_witness.JoinTests.test_every_discovery_state_of_an_earlier_read_bounds_the_loss",
+   "test_witness.ReaderTests.test_an_earlier_read_that_found_the_identity_only_after_the_call_never_joins_through_the_broker"
+  ],
+  "witness-copy-unchecked": [
+   "test_witness.ReaderTests.test_a_reopening_rebuilds_the_trail_and_refuses_a_changed_copy"
+  ],
+  "witness-cross-user-assumed": [
+   "test_witness.JoinTests.test_a_secondary_users_current_list_coverage_must_be_qualified"
+  ],
+  "witness-discovery-before-baseline": [
+   "test_witness.JoinTests.test_a_partial_reads_whole_discovery_bounds_the_loss",
+   "test_witness.JoinTests.test_an_earlier_read_that_found_the_identity_only_after_the_call_never_joins"
+  ],
+  "witness-duplicate-reports-qualify": [
+   "test_witness.JoinTests.test_duplicate_candidates_are_ambiguous"
+  ],
+  "witness-duplicate-rows-qualify": [
+   "test_witness.JoinTests.test_duplicate_candidates_are_ambiguous"
+  ],
+  "witness-found-after-gone-skipped": [
+   "test_witness.JoinTests.test_every_discovery_state_of_an_earlier_read_bounds_the_loss",
+   "test_witness.JoinTests.test_no_publication_stays_pending_through_the_declared_bound_then_inconclusive"
+  ],
+  "witness-found-before-the-call-ignored": [
+   "test_witness.JoinTests.test_this_reads_discovery_before_the_call_bounds_the_loss",
+   "test_witness.ReaderTests.test_a_read_that_finds_the_process_only_before_the_call_bounds_the_loss_through_the_broker"
+  ],
+  "witness-framework-change-ignored": [
+   "test_witness.JoinTests.test_a_boot_or_framework_change_continues_no_identity"
+  ],
+  "witness-freshness-assumed": [
+   "test_witness.JoinTests.test_a_lifecycle_join_needs_independent_evidence_of_this_boot",
+   "test_witness.JoinTests.test_an_update_read_again_is_still_never_new",
+   "test_witness.ReaderTests.test_a_lost_process_stays_pending_then_inconclusive_across_probes",
+   "test_witness.ReaderTests.test_an_update_read_again_is_still_never_new_through_the_broker"
+  ],
+  "witness-held-clock-forgotten": [
+   "test_witness.JoinTests.test_a_wall_clock_step_an_earlier_held_probe_read_is_kept",
+   "test_witness.ReaderTests.test_a_wall_clock_step_a_held_probe_read_is_kept_through_the_broker"
+  ],
+  "witness-history-change-holds": [
+   "test_witness.JoinTests.test_a_baseline_report_no_longer_listed_while_its_process_lives_is_no_hold",
+   "test_witness.JoinTests.test_a_current_report_first_seen_at_the_windows_first_read_is_inconclusive",
+   "test_witness.JoinTests.test_a_late_old_history_row_never_counts",
+   "test_witness.JoinTests.test_a_late_row_from_before_the_window_is_never_a_new_window_crash",
+   "test_witness.JoinTests.test_a_report_already_present_in_the_baseline_is_no_new_failure",
+   "test_witness.JoinTests.test_a_secondary_users_current_list_coverage_must_be_qualified",
+   "test_witness.JoinTests.test_a_wrong_user_uid_or_process_never_joins",
+   "test_witness.JoinTests.test_an_earlier_read_whose_history_was_denied_never_shows_a_report_absent",
+   "test_witness.JoinTests.test_an_update_of_a_row_first_read_in_the_window_is_never_new",
+   "test_witness.JoinTests.test_an_update_read_again_is_still_never_new",
+   "test_witness.JoinTests.test_an_updated_reason_or_time_is_never_new",
+   "test_witness.JoinTests.test_duplicate_candidates_are_ambiguous",
+   "test_witness.ReaderTests.test_a_baseline_report_cleared_while_its_process_lives_is_no_hold_through_the_broker",
+   "test_witness.ReaderTests.test_a_current_report_first_seen_at_the_windows_first_read_is_inconclusive_through_the_broker",
+   "test_witness.ReaderTests.test_an_earlier_read_whose_history_was_denied_never_shows_a_report_absent_through_the_broker",
+   "test_witness.ReaderTests.test_an_update_read_again_is_still_never_new_through_the_broker"
+  ],
+  "witness-identity-assumed-living": [
+   "test_witness.JoinTests.test_a_current_report_first_seen_at_the_windows_first_read_is_inconclusive",
+   "test_witness.JoinTests.test_a_current_report_while_the_process_still_runs_is_a_qualified_failure",
+   "test_witness.JoinTests.test_a_late_old_history_row_never_counts",
+   "test_witness.JoinTests.test_a_late_row_from_before_the_window_is_never_a_new_window_crash",
+   "test_witness.JoinTests.test_a_lifecycle_join_needs_independent_evidence_of_this_boot",
+   "test_witness.JoinTests.test_a_partial_reads_whole_discovery_bounds_the_loss",
+   "test_witness.JoinTests.test_a_reused_pid_and_start_time_is_not_the_identity",
+   "test_witness.JoinTests.test_a_wall_clock_offset_change_places_no_row",
+   "test_witness.JoinTests.test_a_wall_clock_step_an_earlier_held_probe_read_is_kept",
+   "test_witness.JoinTests.test_a_wall_clock_step_an_earlier_partial_read_saw_is_kept",
+   "test_witness.JoinTests.test_a_window_that_places_no_row_or_a_loss_before_it_qualifies_nothing",
+   "test_witness.JoinTests.test_a_wrong_user_uid_or_process_never_joins",
+   "test_witness.JoinTests.test_an_earlier_read_that_found_the_identity_only_after_the_call_never_joins",
+   "test_witness.JoinTests.test_an_exit_row_after_the_identity_was_already_gone_is_not_its_exit",
+   "test_witness.JoinTests.test_an_update_of_a_row_first_read_in_the_window_is_never_new",
+   "test_witness.JoinTests.test_an_update_read_again_is_still_never_new",
+   "test_witness.JoinTests.test_duplicate_candidates_are_ambiguous",
+   "test_witness.JoinTests.test_every_discovery_state_of_an_earlier_read_bounds_the_loss",
+   "test_witness.JoinTests.test_missing_or_partial_evidence_is_inconclusive_and_never_a_failure",
+   "test_witness.JoinTests.test_no_publication_stays_pending_through_the_declared_bound_then_inconclusive",
+   "test_witness.JoinTests.test_the_low_memory_signal_and_user_stop_reasons_are_never_a_crash",
+   "test_witness.JoinTests.test_this_reads_discovery_before_the_call_bounds_the_loss",
+   "test_witness.ReaderTests.test_a_late_row_from_before_the_window_is_never_a_new_window_crash_through_the_broker",
+   "test_witness.ReaderTests.test_a_lost_process_stays_pending_then_inconclusive_across_probes",
+   "test_witness.ReaderTests.test_a_partial_reads_whole_discovery_bounds_the_loss_through_the_broker",
+   "test_witness.ReaderTests.test_a_read_that_finds_the_process_only_before_the_call_bounds_the_loss_through_the_broker",
+   "test_witness.ReaderTests.test_a_reopening_rebuilds_the_trail_and_refuses_a_changed_copy",
+   "test_witness.ReaderTests.test_a_wall_clock_step_a_held_probe_read_is_kept_through_the_broker",
+   "test_witness.ReaderTests.test_a_wall_clock_step_a_partial_read_saw_is_kept_through_the_broker",
+   "test_witness.ReaderTests.test_an_earlier_read_that_found_the_identity_only_after_the_call_never_joins_through_the_broker",
+   "test_witness.ReaderTests.test_an_update_read_again_is_still_never_new_through_the_broker"
+  ],
+  "witness-incomplete-baseline-vetoes": [
+   "test_witness.JoinTests.test_an_older_incomplete_baseline_never_vetoes_two_later_whole_ones",
+   "test_witness.JoinTests.test_every_discovery_state_of_an_earlier_read_bounds_the_loss",
+   "test_witness.ReaderTests.test_an_older_baseline_without_its_process_never_vetoes_two_whole_ones"
+  ],
+  "witness-late-row-placed": [
+   "test_witness.JoinTests.test_a_late_old_history_row_never_counts",
+   "test_witness.JoinTests.test_a_partial_reads_whole_discovery_bounds_the_loss",
+   "test_witness.JoinTests.test_an_earlier_read_that_found_the_identity_only_after_the_call_never_joins",
+   "test_witness.JoinTests.test_every_discovery_state_of_an_earlier_read_bounds_the_loss",
+   "test_witness.JoinTests.test_no_publication_stays_pending_through_the_declared_bound_then_inconclusive",
+   "test_witness.JoinTests.test_this_reads_discovery_before_the_call_bounds_the_loss",
+   "test_witness.ReaderTests.test_a_read_that_finds_the_process_only_before_the_call_bounds_the_loss_through_the_broker",
+   "test_witness.ReaderTests.test_an_earlier_read_that_found_the_identity_only_after_the_call_never_joins_through_the_broker"
+  ],
+  "witness-living-after-gone-unchecked": [
+   "test_witness.JoinTests.test_this_reads_discovery_before_the_call_bounds_the_loss"
+  ],
+  "witness-loss-upper-bound-ignored": [
+   "test_witness.JoinTests.test_a_partial_reads_whole_discovery_bounds_the_loss",
+   "test_witness.JoinTests.test_an_exit_row_after_the_identity_was_already_gone_is_not_its_exit",
+   "test_witness.JoinTests.test_every_discovery_state_of_an_earlier_read_bounds_the_loss",
+   "test_witness.ReaderTests.test_a_partial_reads_whole_discovery_bounds_the_loss_through_the_broker"
+  ],
+  "witness-observation-form-unchecked": [
+   "test_witness.JoinTests.test_a_partial_reads_whole_discovery_bounds_the_loss"
+  ],
+  "witness-partial-clock-forgotten": [
+   "test_witness.JoinTests.test_a_wall_clock_step_an_earlier_partial_read_saw_is_kept",
+   "test_witness.ReaderTests.test_a_wall_clock_step_a_partial_read_saw_is_kept_through_the_broker"
+  ],
+  "witness-partial-discovery-forgotten": [
+   "test_witness.JoinTests.test_a_partial_reads_whole_discovery_bounds_the_loss",
+   "test_witness.JoinTests.test_an_earlier_read_that_found_the_identity_only_after_the_call_never_joins",
+   "test_witness.JoinTests.test_every_discovery_state_of_an_earlier_read_bounds_the_loss",
+   "test_witness.ReaderTests.test_a_partial_reads_whole_discovery_bounds_the_loss_through_the_broker",
+   "test_witness.ReaderTests.test_an_earlier_read_that_found_the_identity_only_after_the_call_never_joins_through_the_broker"
+  ],
+  "witness-partial-read-as-empty": [
+   "test_witness.JoinTests.test_a_partial_reads_whole_discovery_bounds_the_loss",
+   "test_witness.JoinTests.test_a_wall_clock_step_an_earlier_partial_read_saw_is_kept",
+   "test_witness.JoinTests.test_an_earlier_read_that_found_the_identity_only_after_the_call_never_joins",
+   "test_witness.JoinTests.test_an_earlier_read_whose_history_was_denied_never_shows_a_report_absent",
+   "test_witness.JoinTests.test_every_discovery_state_of_an_earlier_read_bounds_the_loss",
+   "test_witness.JoinTests.test_missing_or_partial_evidence_is_inconclusive_and_never_a_failure",
+   "test_witness.ParserTests.test_a_complete_empty_reply_is_not_filtered_denied_or_malformed_output",
+   "test_witness.ReaderTests.test_a_current_report_is_a_crash_and_missing_evidence_is_inconclusive",
+   "test_witness.ReaderTests.test_a_partial_reads_whole_discovery_bounds_the_loss_through_the_broker",
+   "test_witness.ReaderTests.test_a_wall_clock_step_a_partial_read_saw_is_kept_through_the_broker",
+   "test_witness.ReaderTests.test_an_earlier_read_that_found_the_identity_only_after_the_call_never_joins_through_the_broker",
+   "test_witness.ReaderTests.test_an_earlier_read_whose_history_was_denied_never_shows_a_report_absent_through_the_broker"
+  ],
+  "witness-pending-unbounded": [
+   "test_witness.JoinTests.test_a_lifecycle_join_needs_independent_evidence_of_this_boot",
+   "test_witness.JoinTests.test_no_publication_stays_pending_through_the_declared_bound_then_inconclusive",
+   "test_witness.ReaderTests.test_a_lost_process_stays_pending_then_inconclusive_across_probes"
+  ],
+  "witness-postwindow-row-qualifies": [
+   "test_witness.JoinTests.test_a_late_row_from_before_the_window_is_never_a_new_window_crash"
+  ],
+  "witness-prewindow-loss-pending": [
+   "test_witness.JoinTests.test_a_window_that_places_no_row_or_a_loss_before_it_qualifies_nothing"
+  ],
+  "witness-prewindow-row-qualifies": [
+   "test_witness.JoinTests.test_a_late_row_from_before_the_window_is_never_a_new_window_crash",
+   "test_witness.ReaderTests.test_a_late_row_from_before_the_window_is_never_a_new_window_crash_through_the_broker"
+  ],
+  "witness-report-binding-before-only": [
+   "test_witness.JoinTests.test_a_current_report_while_the_process_still_runs_is_a_qualified_failure"
+  ],
+  "witness-report-first-seen-qualifies": [
+   "test_witness.JoinTests.test_a_current_report_first_seen_at_the_windows_first_read_is_inconclusive",
+   "test_witness.JoinTests.test_an_earlier_read_whose_history_was_denied_never_shows_a_report_absent",
+   "test_witness.ReaderTests.test_a_current_report_first_seen_at_the_windows_first_read_is_inconclusive_through_the_broker",
+   "test_witness.ReaderTests.test_an_earlier_read_whose_history_was_denied_never_shows_a_report_absent_through_the_broker"
+  ],
+  "witness-report-joined-by-pid-alone": [
+   "test_witness.JoinTests.test_a_wrong_user_uid_or_process_never_joins"
+  ],
+  "witness-report-window-unmarked": [
+   "test_witness.JoinTests.test_a_current_report_first_seen_at_the_windows_first_read_is_inconclusive"
+  ],
+  "witness-row-uid-unchecked": [
+   "test_witness.JoinTests.test_a_wrong_user_uid_or_process_never_joins"
+  ],
+  "witness-trail-not-passed": [
+   "test_witness.ReaderTests.test_a_current_report_first_absent_then_present_in_the_window_qualifies_through_the_broker",
+   "test_witness.ReaderTests.test_a_current_report_is_a_crash_and_missing_evidence_is_inconclusive",
+   "test_witness.ReaderTests.test_a_lost_process_stays_pending_then_inconclusive_across_probes",
+   "test_witness.ReaderTests.test_a_partial_reads_whole_discovery_bounds_the_loss_through_the_broker",
+   "test_witness.ReaderTests.test_a_wall_clock_step_a_held_probe_read_is_kept_through_the_broker",
+   "test_witness.ReaderTests.test_a_wall_clock_step_a_partial_read_saw_is_kept_through_the_broker",
+   "test_witness.ReaderTests.test_an_earlier_read_that_found_the_identity_only_after_the_call_never_joins_through_the_broker",
+   "test_witness.ReaderTests.test_an_earlier_read_whose_history_was_denied_never_shows_a_report_absent_through_the_broker",
+   "test_witness.ReaderTests.test_an_older_baseline_without_its_process_never_vetoes_two_whole_ones",
+   "test_witness.ReaderTests.test_an_update_read_again_is_still_never_new_through_the_broker"
+  ],
+  "witness-trail-replies-dropped": [
+   "test_witness.ReaderTests.test_a_current_report_first_absent_then_present_in_the_window_qualifies_through_the_broker",
+   "test_witness.ReaderTests.test_a_current_report_is_a_crash_and_missing_evidence_is_inconclusive",
+   "test_witness.ReaderTests.test_a_lost_process_stays_pending_then_inconclusive_across_probes",
+   "test_witness.ReaderTests.test_a_partial_reads_whole_discovery_bounds_the_loss_through_the_broker",
+   "test_witness.ReaderTests.test_a_read_that_finds_the_process_only_before_the_call_bounds_the_loss_through_the_broker",
+   "test_witness.ReaderTests.test_a_wall_clock_step_a_held_probe_read_is_kept_through_the_broker",
+   "test_witness.ReaderTests.test_a_wall_clock_step_a_partial_read_saw_is_kept_through_the_broker",
+   "test_witness.ReaderTests.test_an_earlier_read_that_found_the_identity_only_after_the_call_never_joins_through_the_broker",
+   "test_witness.ReaderTests.test_an_earlier_read_whose_history_was_denied_never_shows_a_report_absent_through_the_broker",
+   "test_witness.ReaderTests.test_an_older_baseline_without_its_process_never_vetoes_two_whole_ones",
+   "test_witness.ReaderTests.test_an_update_read_again_is_still_never_new_through_the_broker"
+  ],
+  "witness-unknown-discovery-ignored": [
+   "test_witness.JoinTests.test_an_earlier_read_that_found_the_identity_only_after_the_call_never_joins",
+   "test_witness.JoinTests.test_every_discovery_state_of_an_earlier_read_bounds_the_loss",
+   "test_witness.ReaderTests.test_an_earlier_read_that_found_the_identity_only_after_the_call_never_joins_through_the_broker"
+  ],
+  "witness-update-counts-as-new": [
+   "test_witness.JoinTests.test_a_reused_pid_and_start_time_is_not_the_identity",
+   "test_witness.JoinTests.test_an_update_of_a_row_first_read_in_the_window_is_never_new",
+   "test_witness.JoinTests.test_an_update_read_again_is_still_never_new",
+   "test_witness.JoinTests.test_an_updated_reason_or_time_is_never_new",
+   "test_witness.ReaderTests.test_an_update_read_again_is_still_never_new_through_the_broker"
+  ],
+  "witness-update-read-again-new": [
+   "test_witness.JoinTests.test_an_update_read_again_is_still_never_new",
+   "test_witness.ReaderTests.test_an_update_read_again_is_still_never_new_through_the_broker"
+  ],
+  "witness-wall-offset-unchecked": [
+   "test_witness.JoinTests.test_a_wall_clock_offset_change_places_no_row",
+   "test_witness.JoinTests.test_a_wall_clock_step_an_earlier_held_probe_read_is_kept",
+   "test_witness.JoinTests.test_a_wall_clock_step_an_earlier_partial_read_saw_is_kept",
+   "test_witness.ReaderTests.test_a_wall_clock_step_a_held_probe_read_is_kept_through_the_broker",
+   "test_witness.ReaderTests.test_a_wall_clock_step_a_partial_read_saw_is_kept_through_the_broker"
+  ],
+  "witness-went-bracket-anchored": [
+   "test_witness.JoinTests.test_every_discovery_state_of_an_earlier_read_bounds_the_loss"
+  ],
+  "witness-window-bounds-exact": [
+   "test_witness.JoinTests.test_a_late_row_from_before_the_window_is_never_a_new_window_crash"
+  ],
+  "witness-window-rows-forgotten": [
+   "test_witness.JoinTests.test_an_update_of_a_row_first_read_in_the_window_is_never_new",
+   "test_witness.JoinTests.test_an_update_read_again_is_still_never_new",
+   "test_witness.ReaderTests.test_an_update_read_again_is_still_never_new_through_the_broker"
+  ],
+  "witness-window-unchecked": [
+   "test_witness.JoinTests.test_a_window_that_places_no_row_or_a_loss_before_it_qualifies_nothing"
   ],
   "write-not-revalidated": [
    "test_lab_broker.GateTests.test_write_is_revalidated_after_staging_and_before_each_member",

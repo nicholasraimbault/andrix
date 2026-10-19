@@ -30,9 +30,9 @@ The readers of this part:
   storage, equal to the nonce CE_SENTINEL recorded. The CE read is the work fixture's, a hook here.
   A screen relock is not CE withdrawal.
 
-Bits 1, 4, 5 and 6 are named hooks: the crash and ANR witness (section 5.4), the active bytes
-reader, the work fixture's ordinary native work and the recovery route reader. Until one is
-admitted, its row is UNKNOWN with the reason naming it.
+Bits 1, 4, 5 and 6 are named hooks: the crash and ANR witness (section 5.4), which
+health_witness.py fills, the active bytes reader, the work fixture's ordinary native work and the
+recovery route reader. Until one is admitted, its row is UNKNOWN with the reason naming it.
 
 The UI state comes from the fixed read only helper of tests/ui-state-read, run only after reads of
 the shell user and of its pinned bytes, which are read again after it. A host test of this module
@@ -70,7 +70,7 @@ CRITERIA = 7
 CRITERIA_ALL = (1 << CRITERIA) - 1
 ROW_KEYS = ('bit', 'status', 'reason', 'commands', 'preparation', 'baseline')
 # The hooks of later parts, and the reason each gives while it is not admitted.
-HOOKS = {NO_CRASH_OR_ANR: 'no witness reader is admitted: the crash and ANR witnesses are a later part',
+HOOKS = {NO_CRASH_OR_ANR: 'no witness reader is admitted: the process history reader is not given',
          BYTES_UNCHANGED: 'no active bytes reader is admitted in this part',
          NATIVE_WORK: 'no ordinary native work reader is admitted: the work fixture is a later part',
          RECOVERY_ROUTE: 'no recovery route reader is admitted in this part'}

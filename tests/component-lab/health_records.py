@@ -116,8 +116,9 @@ def process_problem(process, user=None, uid=None):
 
 
 def witness_part_problem(part):
-    """A baseline's history or current error part: NOT_ADMITTED until the witness reader of
-    section 5.4 is admitted, or OK with that reader's schema and its whole reading."""
+    """A baseline's history or current error part: NOT_ADMITTED when no witness reader is
+    admitted, or OK with that reader's schema and its whole reading (health_witness.py checks its
+    own)."""
     if part == {'status': 'NOT_ADMITTED'}:
         return None
     if (not isinstance(part, dict) or set(part) != {'status', 'schema', 'reading'} or part['status'] != 'OK'

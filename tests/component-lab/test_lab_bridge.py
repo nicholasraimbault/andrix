@@ -12,6 +12,9 @@ import subprocess
 import tempfile
 import unittest
 
+import health_baseline
+import health_compose
+import health_witness
 import labtest
 from labtest import PLAN, REPO, TICKET
 import lab_broker
@@ -47,15 +50,20 @@ class World:
     With `next_profile`, the next campaign profile: a version 3 admission and bridge
     configuration, so the generations speak protocol version 2, the fixture fakes and the readers
     of receipts, inventory, health and the global session inventory, the scripted host's
-    publication bound in the pin, and the cells as the fault schedule the admission binds."""
+    publication bound in the pin, and the cells as the fault schedule the admission binds. With
+    `witness`, the real composer reads the full user forms and its bit 1 is the process history
+    reader, which also gives each baseline its witness parts."""
 
     def __init__(self, cells=(), window=120_000, activate=None, target=None, notice=None, receipts=False,
-                 next_profile=False):
+                 next_profile=False, witness=False):
         self._temp = tempfile.TemporaryDirectory()
         self.dir = Path(self._temp.name)
         self.store = self.dir / 'store'
         self.sim = sim_android.SimAndroid()
         self.next = next_profile
+        self.witness = witness
+        if witness:
+            self.sim.enable_user_forms()
         self.target, self.notice, self.receipts = target, notice, receipts
         if next_profile:
             self.notice = notice or sim_android.SimNotice()
@@ -93,6 +101,10 @@ class World:
         options = {'receipts': self.receipts}
         if self.next:
             options = {'receipts': True, 'inventory': True, 'health': True, 'witness': True, 'global_sessions': True}
+        if self.witness:
+            reader = health_witness.WitnessReader()
+            options.update(users=True, composer=health_compose.Composer({}, witness=reader),
+                           baseline=health_baseline.BaselineReader(reader))
         self.broker = lab_broker.Broker.open(self.dir / 'broker', REPO, sim_android.SimTransport(self.sim),
                                              sim_android.SimReader(labtest.INSTALLATION, **options),
                                              notice=self.notice, sync=False, target=self.target,
@@ -657,6 +669,125 @@ class BridgeEndToEnd(unittest.TestCase):
         state = self.window_probes(w, unknown_at=2)
         self.assertEqual((state['state'], state['health']), ('CLOSED_APPLIED', '0/0/INCONCLUSIVE,'))
         self.assertEqual(sorted(f['classification'] for f in w.stored_facts(9)), [1, 1, 1, 1, 1, 4])
+
+    def witness_window(self, w, during=None, probes=10):
+        """Rounds to APPLIED, takes the system user's two baselines a second apart before the
+        window opens, then prepares and probes every 20 s until the ticket closes. `during(w,
+        probe)` acts on the guest before each probe."""
+        w.broker.record_f0(labtest.f0_record('FULL'), 'the window probes need a managed commit')
+        for _ in range(30):
+            w.generation('round', TICKET)
+            if w.inspect()['state'] == 'APPLIED':
+                break
+            w.sim.tick(1000)
+        self.assertEqual(w.inspect()['state'], 'APPLIED')
+        for i in range(2):
+            w.broker.health_baseline(TICKET, PLAN, 0, 0, 'baseline %d before the window opens' % i)
+            w.sim.tick(1000)
+        w.generation('round', TICKET)
+        self.assertEqual(w.inspect()['state'], 'HEALTH_WINDOW')
+        state = None
+        for probe in range(probes):
+            if during is not None:
+                during(w, probe)
+            self.assertEqual(w.broker.run_action(labtest.PREPARATION_ACTION, 'prepare a probe')['status'], 'OK')
+            w.sim.tick(20_000)
+            w.generation('round', TICKET)
+            state = w.inspect()
+            if state['state'] in TERMINAL:
+                return state
+        return state
+
+    def bit1(self, w):
+        return [g['witness'] for g in w.groups('health') if g.get('witness')]
+
+    def test_next_missing_witness_evidence_never_repairs_under_report_and_wait(self):
+        # Bit 1 from the process history reader. The SystemUI process lost in the window with no
+        # exit row published is missing evidence: every probe after it is INCONCLUSIVE, and the
+        # window closes INCONCLUSIVE with the plan's own choice, nothing repaired or restored.
+        def lost(w, probe):
+            if probe == 1:
+                w.sim.systemui_exit(0, published=False)
+        w = self.world(next_profile=True, witness=True)
+        state = self.witness_window(w, lost)
+        self.assertEqual((state['state'], state['health'], state['choice'], state['plan']),
+                         ('CLOSED_APPLIED', '0/0/INCONCLUSIVE,', 'PLAN', PLAN))
+        seen = self.bit1(w)
+        self.assertEqual(seen[0]['status'], 'HELD')
+        self.assertEqual({s['status'] for s in seen[1:]}, {'UNKNOWN'})
+        self.assertEqual({s['decision']['decision'] for s in seen[1:]} - {'PENDING', 'INCONCLUSIVE'}, set())
+        self.assertNotIn(3, [f['classification'] for f in w.stored_facts(9)])
+        # Its control: a new current report of the living process is a witnessed crash, so the
+        # window ends UNHEALTHY, and under REPORT_AND_WAIT nothing repairs from it either.
+        def reported(w, probe):
+            if probe == 1:
+                w.sim.error_states.append({'condition': 1, 'pid': w.sim.forms.processes[0][0],
+                                           'uid': sim_android.UID, 'process': sim_android.PACKAGE, 'tag': None,
+                                           'short': 'java.lang.IllegalStateException: test', 'long': 'a test crash',
+                                           'stack': 'at test'})
+        w = self.world(next_profile=True, witness=True)
+        state = self.witness_window(w, reported)
+        self.assertEqual((state['state'], state['health'], state['choice'], state['plan']),
+                         ('CLOSED_APPLIED', '0/0/UNHEALTHY,', 'PLAN', PLAN))
+        self.assertIn(3, [f['classification'] for f in w.stored_facts(9)])
+        self.assertEqual(self.bit1(w)[1]['decision']['decision'], 'QUALIFIED_CURRENT_ERROR')
+
+    def test_next_a_report_first_seen_at_the_windows_first_probe_never_counts_as_a_crash(self):
+        # A current report of the living process is already listed at the window's first probe, so
+        # it is not shown to begin in the window: every probe is INCONCLUSIVE, and the window closes
+        # INCONCLUSIVE, never UNHEALTHY, with nothing repaired. The control above has the report
+        # appear after a held probe, and that window ends UNHEALTHY.
+        def reported(w, probe):
+            if probe == 0:
+                w.sim.error_states.append({'condition': 1, 'pid': w.sim.forms.processes[0][0],
+                                           'uid': sim_android.UID, 'process': sim_android.PACKAGE, 'tag': None,
+                                           'short': 'java.lang.IllegalStateException: test', 'long': 'a test crash',
+                                           'stack': 'at test'})
+        w = self.world(next_profile=True, witness=True)
+        state = self.witness_window(w, reported)
+        self.assertEqual((state['state'], state['health'], state['choice'], state['plan']),
+                         ('CLOSED_APPLIED', '0/0/INCONCLUSIVE,', 'PLAN', PLAN))
+        self.assertNotIn(3, [f['classification'] for f in w.stored_facts(9)])
+        self.assertEqual({(s['status'], s['decision']['decision']) for s in self.bit1(w)},
+                         {('UNKNOWN', 'INCONCLUSIVE')})
+
+    def test_next_the_boot_limit_exception_ends_the_window_unhealthy_with_this_reader(self):
+        # The plan's boot limit is 4 and the activation's boot is the ticket's first. Each later
+        # boot in the window restarts it with no baseline the reader may rely on, so its probes are
+        # INCONCLUSIVE, missing evidence that never counts as a failure. The boot that reaches the
+        # limit is the owner's explicit exception: the window ends UNHEALTHY.
+        w = self.world(next_profile=True, witness=True)
+        state = self.witness_window(w, probes=1)
+        self.assertEqual((state['state'], state['boots']), ('HEALTH_WINDOW', '1'))
+        for boots in ('2', '3'):
+            w.sim.reboot()
+            for _ in range(6):
+                w.generation('round', TICKET)
+                state = w.inspect()
+                if state['boots'] == boots:
+                    break
+                w.sim.tick(1000)
+            self.assertEqual((state['state'], state['boots']), ('HEALTH_WINDOW', boots))
+            self.assertEqual(w.broker.run_action(labtest.PREPARATION_ACTION, 'prepare a probe')['status'], 'OK')
+            w.sim.tick(20_000)
+            w.generation('round', TICKET)
+            state = w.inspect()
+            self.assertEqual(state['state'], 'HEALTH_WINDOW')
+            self.assertNotIn('UNHEALTHY', state['health'])
+            last = self.bit1(w)[-1]
+            self.assertEqual((last['status'], last['decision']['decision']), ('UNKNOWN', 'INCONCLUSIVE'))
+            self.assertEqual(last['decision']['exclusions'], ['no valid baseline relied on'])
+        w.sim.reboot()
+        for _ in range(6):
+            w.generation('round', TICKET)
+            state = w.inspect()
+            if state['state'] in TERMINAL:
+                break
+            w.sim.tick(1000)
+        self.assertEqual((state['state'], state['boots'], state['health'], state['choice']),
+                         ('CLOSED_APPLIED', '4', '0/0/UNHEALTHY,', 'PLAN'))
+        # The failure is the boot limit's: no probe of this reader was a crash.
+        self.assertNotIn(3, [f['classification'] for f in w.stored_facts(9)])
 
     def test_next_a_c0_confirmation_settles_in_its_new_boot_and_a_terminal_round_loss_halts(self):
         # C0: CREATE lost before its effect, then a plain kernel confirmation. The new boot's

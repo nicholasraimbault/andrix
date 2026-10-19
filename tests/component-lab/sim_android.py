@@ -35,10 +35,12 @@ import re
 
 import full_users
 import health_compose
+import health_witness
 import lab_crossings
 import lab_evidence
 import lab_readers
 import lab_target
+import process_health
 import shell_transport
 import sim_users
 
@@ -88,6 +90,57 @@ def result(command, code=0, stdout=b'', stderr=b'', completion='exited', launch=
     frame = code if completion in ('exited', 'malformed') else None
     return shell_transport.ShellResult(shell_transport.SHELL_PREFIX + command, launch, transport, completion, frame,
                                        stdout, stderr, None, False, None, error, 1, 2, 1)
+
+
+def _bounded(name, value):
+    """A diagnostic string as the process health helper prints it: cut to its bound in UTF-16
+    units, never inside a surrogate pair, with its whole length; null as '-' and -1."""
+    if value is None:
+        return '%s=- %s-length=-1' % (name, name)
+    units = value.encode('utf-16-le', 'surrogatepass')
+    whole = len(units) // 2
+    end = min(whole, process_health.MAX_TEXT)
+    if end < whole and 0xd800 <= int.from_bytes(units[2 * end - 2:2 * end], 'little') <= 0xdbff:
+        end -= 1
+    cut = units[:2 * end].decode('utf-16-le', 'surrogatepass')
+    return '%s=%s %s-length=%d' % (name, process_health.encode_text(cut), name, whole)
+
+
+def process_health_reply(user, history, current, samples):
+    """The process health helper's reply in its exact form, as tests/process-health-read prints
+    it: (exit status, text). `history` is ('OK', rows) or (status, reason), each row a dict of
+    process_health.ROW_FIELDS with the process name as text; `current` is ('OK', entries) or
+    (status, reason), each entry a dict of its condition, PID, UID, process, tag, short, long and
+    stack; `samples` the four [elapsed, wall] samples around the two calls. A test fake of the
+    form, which the helper's host runs compare with the helper's own output."""
+    lines = [process_health.HEADER, 'user=%d' % user, 'package=' + process_health.PACKAGE,
+             'capabilities=' + ','.join(process_health.CAPABILITIES)]
+    for prefix, part, (before, after) in (('history', history, samples[:2]), ('current-errors', current, samples[2:])):
+        lines.append('%s sample=before elapsed=%d wall=%d' % (prefix, before[0], before[1]))
+        if part[0] != 'OK':
+            lines.append('%s status=%s reason=%s' % (prefix, part[0], part[1]))
+        elif prefix == 'history':
+            lines.append('history status=OK count=%d' % len(part[1]))
+            for i, r in enumerate(part[1]):
+                lines.append('history row=%d timestamp=%d pid=%d real-uid=%d package-uid=%d defining-uid=%d user=%d '
+                             'process=%s reason=%d subreason=%d status=%d'
+                             % (i, r['timestamp'], r['pid'], r['real_uid'], r['package_uid'], r['defining_uid'],
+                                r['user'], process_health.encode_text(r['process']), r['reason'], r['subreason'],
+                                r['status']))
+        else:
+            lines.append('current-errors status=OK count=%d returned=%s' % (len(part[1]), 'list' if part[1] else 'null'))
+            for i, e in enumerate(part[1]):
+                lines.append('current-errors entry=%d condition=%d pid=%d uid=%d process=%s %s %s %s %s'
+                             % (i, e['condition'], e['pid'], e['uid'], process_health.encode_text(e['process']),
+                                _bounded('tag', e.get('tag')), _bounded('short', e.get('short')),
+                                _bounded('long', e.get('long')), _bounded('stack', e.get('stack'))))
+        lines.append('%s sample=after elapsed=%d wall=%d' % (prefix, after[0], after[1]))
+    complete = history[0] == 'OK' and current[0] == 'OK'
+    lines.append('status=' + ('complete' if complete else 'unavailable'))
+    body = ''.join(line + '\n' for line in lines)
+    end = 'end=%s lines=%d sha256=%s\n' % (process_health.HEADER, len(lines),
+                                         hashlib.sha256(body.encode('ascii')).hexdigest())
+    return (0 if complete else 5), body + end
 
 
 class EventRows(list):
@@ -185,6 +238,14 @@ class SimAndroid:
         self.hierarchy_change = None
         # The full user forms' model, when a test enables it.
         self.forms = None
+        # The process health helper: whether its pinned bytes are at their path, the exit records
+        # Android keeps for each package UID, the processes now in an error state, the reads a test
+        # makes fail, and a step of the wall clock against the elapsed time.
+        self.process_helper = True
+        self.exit_rows = []
+        self.error_states = []
+        self.process_failures = {}
+        self.wall_step = 0
 
     def enable_user_forms(self, serial=0):
         """Answers the user commands of full_users.py from sim_users.py's model of the users."""
@@ -209,6 +270,59 @@ class SimAndroid:
 
     def tick(self, ms):
         self.uptime += ms
+
+    def wall(self):
+        """The guest's wall clock in milliseconds: its base, its uptime and any step a test made."""
+        return WALL_BASE + self.uptime + self.wall_step
+
+    def boot_uuid(self):
+        """The kernel's boot ID as `/proc/sys/kernel/random/boot_id` prints it: this boot's
+        identity in the form of a random UUID."""
+        h = self.boot
+        v = h[:12] + '4' + h[13:16] + '89ab'[int(h[16], 16) % 4] + h[17:32]
+        return '%s-%s-%s-%s-%s' % (v[:8], v[8:12], v[12:16], v[16:20], v[20:32])
+
+    def systemui_exit(self, user, reason=4, published=True, restarted=True, pid=None, **fields):
+        """The user's main SystemUI process ends, as a test says: Android's exit record of it at the
+        guest's wall time when it is published, and a new process when Android restarts it.
+        Returns the record."""
+        old = self.forms.processes.pop(user)
+        uid = user * 100000 + sim_users.APP_ID
+        row = dict({'timestamp': self.wall(), 'pid': old[0] if pid is None else pid, 'real_uid': uid,
+                    'package_uid': uid, 'defining_uid': uid, 'user': user, 'process': PACKAGE, 'reason': reason,
+                    'subreason': 0, 'status': 0}, **fields)
+        if published:
+            self.exit_rows.append(row)
+        if restarted:
+            self.forms.new_process(user)
+        return row
+
+    def _process_health(self, command):
+        """The process health helper's forms: its digest, its reply for one user from the model, the
+        boot ID and system_server's stat. None for another command."""
+        if command == process_health.HELPER_DIGEST:
+            if not self.process_helper:
+                return result(command, 1, b'', ('sha256sum: %s: No such file or directory\n'
+                                                % process_health.HELPER).encode())
+            digest = process_health.HELPER_SHA256 if self.process_helper is True else self.process_helper
+            return result(command, 0, ('%s  %s\n' % (digest, process_health.HELPER)).encode())
+        match = process_health._INVOCATION.fullmatch(command)
+        if match:
+            user = int(match[1])
+            self.calls.append(('process-health', user))
+            uid = user * 100000 + sim_users.APP_ID
+            rows = sorted((r for r in self.exit_rows if r['package_uid'] == uid), key=lambda r: -r['timestamp'])
+            history = self.process_failures.get('history') or ('OK', rows)
+            current = self.process_failures.get('current') or ('OK', list(self.error_states))
+            code, text = process_health_reply(user, history, current, [[self.uptime, self.wall()]] * 4)
+            return result(command, code, text.encode())
+        if command == health_witness.BOOT_ID:
+            return result(command, 0, (self.boot_uuid() + '\n').encode())
+        if command == 'cat /proc/937/stat' and self.framework:
+            fields = ['S', '1', '937', '0', '0', '-1', '1077936384', '412113', '0', '1302', '0', '9241', '4532', '0',
+                      '0', '18', '-2', '187', '0', str(self.instance), '18043473920', '86017']
+            return result(command, 0, ('937 (system_server) %s\n' % ' '.join(fields)).encode())
+        return None
 
     def framework_restart(self):
         """A later framework instance in the same boot. Uncommitted sessions are kept in this model."""
@@ -532,6 +646,9 @@ class SimAndroid:
                 self.files[path] = self.hierarchy().encode('utf-8')
                 return result(command, 0, ('UI hierchary dumped to: %s\n' % path).encode())
             return result(command, 0)
+        reply = self._process_health(command)
+        if reply is not None:
+            return reply
         match = SENTINEL.fullmatch(command)
         if match:
             parts = match[1].split(' ')

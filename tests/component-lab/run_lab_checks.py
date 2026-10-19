@@ -37,7 +37,7 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 PREDICTIONS = HERE / 'predictions.json'
 SUITES = ('test_lab_protocol', 'test_shell_transport', 'test_capture_ledger', 'test_lab_crossings', 'test_lab_broker',
-          'test_lab_next', 'test_lab_loss', 'test_full_users', 'test_health')
+          'test_lab_next', 'test_lab_loss', 'test_full_users', 'test_health', 'test_witness')
 BRIDGE_SUITE = 'test_lab_bridge'
 # The lab driver's end to end suite: the real host signer over apksig, so it needs the pinned
 # apksigner jar, the public development platform key and the two built signing inputs.
@@ -369,7 +369,7 @@ MUTANTS = {
     'health-late-baseline': ('health_baseline.py',
         "        candidates = [b for b in whole if b['brackets']['end']['elapsed'] <= window['start']]\n",
         '        candidates = whole\n',
-        ('test_lab_next',)),
+        ('test_lab_next', 'test_witness')),
     'health-baseline-any-framework': ('health_baseline.py',
         "    if chosen['brackets']['instance'] != instance:\n",
         '    if False:\n',
@@ -1139,6 +1139,317 @@ MUTANTS = {
         "        residual = bytes(getattr(result, 'residual', b'') or b'')\n",
         "        residual = b''\n",
         ('test_health',)),
+    # The process history reader of bit 1: its reply parser, its join, and the joins the broker
+    # gives it.
+    # The helper's reply: an end marker that does not count or digest its lines is taken whole.
+    'process-reply-end-unchecked': ('process_health.py',
+        "    if int(end[1]) != len(lines) - 1 or hashlib.sha256(body.encode('ascii')).hexdigest() != end[2]:\n",
+        '    if False:\n',
+        ('test_witness',)),
+    # A count above the helper's bound is read as rows, not as an impossible count.
+    'process-reply-impossible-count': ('process_health.py',
+        '        if int(count) > MAX_ROWS:\n',
+        '        if False:\n',
+        ('test_witness',)),
+    # A number of another form, a sign or a leading zero, read as a number.
+    'process-reply-number-loose': ('process_health.py',
+        "_INT = r'-?(?:0|[1-9][0-9]{0,18})'\n",
+        "_INT = r'[-+]?[0-9]{1,19}'\n",
+        ('test_witness',)),
+    # A string token in another encoding than the helper's read as its text.
+    'process-reply-token-not-canonical': ('process_health.py',
+        "    if encode_text(text) != token:\n        raise FormError('a string not in the helper encoding')\n",
+        '',
+        ('test_witness',)),
+    # An empty current list, which the service never returns, read as no current error.
+    'process-reply-empty-list-accepted': ('process_health.py',
+        "        if name == 'current' and status == 'OK' and returned == 'list' and not items:\n",
+        '        if False:\n',
+        ('test_witness',)),
+    # A part that was not read whole judged as if it had no rows.
+    'witness-partial-read-as-empty': ('health_witness.py',
+        "        if part['status'] != 'OK':\n",
+        '        if False:\n',
+        ('test_witness',)),
+    # A report a baseline already held taken as a new failure.
+    'witness-baseline-report-qualifies': ('health_witness.py',
+        '    elif joined and _entry_key(joined[0]) in old_errors:\n',
+        '    elif False:\n',
+        ('test_witness',)),
+    # Two reports of one process taken as one failure.
+    'witness-duplicate-reports-qualify': ('health_witness.py',
+        '    if len(joined) > 1:\n',
+        '    if False:\n',
+        ('test_witness',)),
+    # A report joined by its PID alone, whatever its UID and process name.
+    'witness-report-joined-by-pid-alone': ('health_witness.py',
+        '    joined = [e for e in related if live is not None and (e[1], e[2]) == (live[0], live[2])\n'
+        '              and _name(e[3]) == process_health.PACKAGE]\n',
+        '    joined = [e for e in related if live is not None and e[1] == live[0]]\n',
+        ('test_witness',)),
+    # An updated reason or time of an earlier exit record taken as a new exit.
+    'witness-update-counts-as-new': ('health_witness.py',
+        '    updates = [r for r in new_rows if any(_key(s) == _key(r) and s != r for s in seen_rows)]\n',
+        '    updates = []\n',
+        ('test_witness',)),
+    # A held row beside an exit history that changed since the baselines.
+    'witness-history-change-holds': ('health_witness.py',
+        "        if exclusions:\n            return unknown(exclusions)\n        return 'HELD', '', None\n",
+        "        return 'HELD', '', None\n",
+        ('test_witness',)),
+    # The identity taken as living whatever the discovery around the call shows.
+    'witness-identity-assumed-living': ('health_witness.py',
+        '    state = _state(before, after, born)\n',
+        "    state = 'ALIVE'\n",
+        ('test_witness',)),
+    # The current list taken as covering another user than the shell's without its qualification.
+    'witness-cross-user-assumed': ('health_witness.py',
+        '        if user != SHELL_USER_ID and not cross_user:\n',
+        '        if False:\n',
+        ('test_witness',)),
+    # A row placed in time without checking that the wall clock kept its offset.
+    'witness-wall-offset-unchecked': ('health_witness.py',
+        '    if max(offsets) - min(offsets) > OFFSET_TOLERANCE_MS:\n',
+        '    if False:\n',
+        ('test_witness',)),
+    # A row from before the identity was last seen living taken as its exit.
+    'witness-late-row-placed': ('health_witness.py',
+        '        elif at <= alive_at + SCALE_TOLERANCE_MS:\n',
+        '        elif False:\n',
+        ('test_witness',)),
+    # A row of another UID taken as the identity's.
+    'witness-row-uid-unchecked': ('health_witness.py',
+        "    if (row[2], row[3], row[4]) != (birth['uid'],) * 3:\n        return 'another UID'\n",
+        '',
+        ('test_witness',)),
+    # Exits of other reasons, a low memory kill or a user stop included, taken as a crash.
+    'witness-any-reason-qualifies': ('health_witness.py',
+        'QUALIFIED_REASONS = (4, 5, 6)\n',
+        'QUALIFIED_REASONS = tuple(range(17))\n',
+        ('test_witness',)),
+    # Two exit rows of one identity taken as one exit.
+    'witness-duplicate-rows-qualify': ('health_witness.py',
+        '    if len(matched) > 1:\n',
+        '    if False:\n',
+        ('test_witness',)),
+    # A new publication taken as independent evidence that a row belongs to this boot.
+    'witness-freshness-assumed': ('health_witness.py',
+        "        evidence = freshness.fresh(candidates[0], birth, d['loss'], context) if freshness is not None else None\n",
+        "        evidence = {'assumed': 'a new publication'}\n",
+        ('test_witness',)),
+    # A loss pending past its declared bound.
+    'witness-pending-unbounded': ('health_witness.py',
+        '    if settled or samples[3][0] > pending_until:\n',
+        '    if settled:\n',
+        ('test_witness',)),
+    # One whole baseline taken as repeated baselines.
+    'witness-baselines-not-repeated': ('health_witness.py',
+        '    if len(repeats) < BASELINE_REPEATS:\n',
+        '    if not repeats:\n',
+        ('test_witness',)),
+    # A boot change since the baselines ignored, so an identity continues across a boot.
+    'witness-boot-change-ignored': ('health_witness.py',
+        "    if any(b[3]['boot'] != observation['boot'] for b in baselines):\n",
+        '    if False:\n',
+        ('test_witness',)),
+    # The broker passes only the relied baseline, never the repeated ones.
+    'repeated-baselines-not-passed': ('lab_broker.py',
+        "                              'baselines': self._repeated(m['boot'], user, serial, window),\n",
+        "                              'baselines': self._repeated(m['boot'], user, serial, window)[-1:],\n",
+        ('test_witness',)),
+    # The broker passes no earlier probe, so a loss has no last living read and no first gone one.
+    'witness-trail-not-passed': ('lab_broker.py',
+        "                              'trail': self._trail(m['boot'], user, serial)}",
+        "                              'trail': []}",
+        ('test_witness',)),
+    # A baseline error forgotten once its report is cleared while the same process lives on.
+    'witness-baseline-report-holds': ('health_witness.py',
+        '        if any(_relates(e, user, uid) for e in old_entries):\n',
+        '        if False:\n',
+        ('test_witness',)),
+    # Rows first read in the window left out of the earlier observations, so their update is new.
+    'witness-window-rows-forgotten': ('health_witness.py',
+        '    seen_rows = old_rows + earlier_rows\n',
+        '    seen_rows = old_rows\n',
+        ('test_witness',)),
+    # A row placed after the identity was already gone taken as its exit.
+    'witness-loss-upper-bound-ignored': ('health_witness.py',
+        '        elif at > upper + SCALE_TOLERANCE_MS:\n',
+        '        elif False:\n',
+        ('test_witness',)),
+    # A held probe's clock left out, so a wall clock step it read is forgotten.
+    'witness-held-clock-forgotten': ('health_witness.py',
+        '            offsets += [w - e for e, w in replied]\n',
+        '            offsets += [] if held else [w - e for e, w in replied]\n',
+        ('test_witness',)),
+    # An older baseline without its process vetoes the whole ones after it, as in version 1.
+    'witness-incomplete-baseline-vetoes': ('health_witness.py',
+        "        if _foreign(facts['history']) or _foreign(facts['current_errors']):\n",
+        "        if not facts['complete']:\n            return None, 'a baseline before the window is not whole'\n"
+        "        if _foreign(facts['history']) or _foreign(facts['current_errors']):\n",
+        ('test_witness',)),
+    # An update excluded only on its first read, so its new contents read again count as new.
+    'witness-update-read-again-new': ('health_witness.py',
+        '    updates = [r for r in new_rows if any(_key(s) == _key(r) and s != r for s in seen_rows)]\n',
+        '    updates = [r for r in new_rows if _key(r) in {_key(s) for s in seen_rows} and r not in seen_rows]\n',
+        ('test_witness',)),
+    # An earlier read's clock kept only when it judged this birth identity, so a wall clock step a
+    # partial read saw is forgotten.
+    'witness-partial-clock-forgotten': ('health_witness.py',
+        '            offsets += [w - e for e, w in replied]\n',
+        "            offsets += [w - e for e, w in replied] if held or (earlier or {}).get('birth') == birth else []\n",
+        ('test_witness',)),
+    # A partial read's whole discovery left out, so the loss it bounds, above or below, stays wider.
+    'witness-partial-discovery-forgotten': ('health_witness.py',
+        "        elif (seen is not None and (earlier['birth'] == birth or (earlier['birth'] is None and begin >= relied_end))\n",
+        "        elif (seen is not None and earlier['birth'] == birth\n",
+        ('test_witness',)),
+    # A partial read before the relied baseline taken as the identity's loss, though no baseline had
+    # yet read it living.
+    'witness-discovery-before-baseline': ('health_witness.py',
+        "        elif (seen is not None and (earlier['birth'] == birth or (earlier['birth'] is None and begin >= relied_end))\n",
+        "        elif (seen is not None and (earlier['birth'] == birth or earlier['birth'] is None)\n",
+        ('test_witness',)),
+    # An earlier decision's observation taken without checking that it names its discovery.
+    'witness-observation-form-unchecked': ('health_witness.py',
+        "    if observed is not None and (not isinstance(observed, dict) or set(observed) != set(OBSERVED_KEYS)\n"
+        "                                 or observed['state'] not in STATES or not _samples(observed['samples'])\n"
+        "                                 or not all(_process(observed[k]) for k in ('before', 'after'))):\n",
+        "    if observed is not None and (not isinstance(observed, dict) or observed.get('state') not in STATES\n"
+        "                                 or not _samples(observed.get('samples'))):\n",
+        ('test_witness',)),
+    # An earlier read that found the identity only after the call skipped: neither its living
+    # observation nor its contradiction counts.
+    'witness-unknown-discovery-ignored': ('health_witness.py',
+        "        if then == 'GONE':\n",
+        "        if then == 'UNKNOWN':\n            continue\n        if then == 'GONE':\n",
+        ('test_witness',)),
+    # That read's living observation kept but its identity contradiction dropped, so it may join.
+    'witness-contradiction-joins': ('health_witness.py',
+        "                doubts.append('an earlier read found the identity only after the call: an identity '\n"
+        "                              'contradiction, never a qualified join')\n",
+        '                pass\n',
+        ('test_witness',)),
+    # A read that finds the identity living after one that found it gone skipped, not refused.
+    'witness-found-after-gone-skipped': ('health_witness.py',
+        "        if first_gone is not None:\n            return unknown(['the identity was seen again after it was gone'])\n",
+        '        if first_gone is not None:\n            continue\n',
+        ('test_witness',)),
+    # An earlier read that found the identity before the call only, placed at its bracket, which
+    # the composer's other reads widen.
+    'witness-went-bracket-anchored': ('health_witness.py',
+        '            living.append(replied[0][0])\n            first_gone = replied[3][0]\n',
+        "            living.append(begin)\n            first_gone = entry['brackets']['end']['elapsed']\n",
+        ('test_witness',)),
+    # This read's discovery before the call, which found the identity living, left out.
+    'witness-found-before-the-call-ignored': ('health_witness.py',
+        "    if state == 'WENT':\n        # This read found the identity before the call: living at its first sample.\n"
+        '        living.append(samples[0][0])\n',
+        '',
+        ('test_witness',)),
+    # A baseline, or this read, finding the identity living after a read that found it gone is not
+    # checked.
+    'witness-living-after-gone-unchecked': ('health_witness.py',
+        '    if first_gone is not None and first_gone < alive_at:\n',
+        '    if False:\n',
+        ('test_witness',)),
+    # A baseline that misses the identity between baselines that find it taken as no contradiction.
+    'witness-baseline-contradiction-ignored': ('health_witness.py',
+        '        elif living:\n',
+        '        elif False:\n',
+        ('test_witness',)),
+    # An exit row placed between the last baseline and the window's start taken as a newly induced
+    # failure of the window.
+    'witness-prewindow-row-qualifies': ('health_witness.py',
+        '        elif at <= opened:\n',
+        '        elif False:\n',
+        ('test_witness',)),
+    # An exit row placed after the window closed taken as a failure of it.
+    'witness-postwindow-row-qualifies': ('health_witness.py',
+        '        elif at >= closed:\n',
+        '        elif False:\n',
+        ('test_witness',)),
+    # The window's bounds taken without the scale tolerance between the helper's clock and the
+    # probes' elapsed scale.
+    'witness-window-bounds-exact': ('health_witness.py',
+        "    opened, closed = window['start'] + SCALE_TOLERANCE_MS, window['end'] - SCALE_TOLERANCE_MS\n",
+        "    opened, closed = window['start'], window['end']\n",
+        ('test_witness',)),
+    # A window that is missing, of no known form or of another boot used to place rows.
+    'witness-window-unchecked': ('health_witness.py',
+        '    if why is not None:\n'
+        "        return unknown(['%s: no exit row can be placed in it' % why] + doubts + exclusions)\n",
+        '',
+        ('test_witness',)),
+    # A loss already seen before the window opened left pending, as if a row of the window could
+    # still come.
+    'witness-prewindow-loss-pending': ('health_witness.py',
+        "    if upper < window['start'] - SCALE_TOLERANCE_MS:\n",
+        '    if False:\n',
+        ('test_witness',)),
+    # A current report first seen with no earlier read of the window without it taken as new.
+    'witness-report-first-seen-qualifies': ('health_witness.py',
+        '        elif not _seen_without(context, observation, live, born, _entry_key(joined[0]), window):\n',
+        '        elif False:\n',
+        ('test_witness',)),
+    # A read before the window opened taken as one inside it that found the process without the
+    # report.
+    'witness-absence-before-window-counts': ('health_witness.py',
+        "        if brackets['instance'] != observation['instance'] or brackets['begin']['elapsed'] < window['start']:\n",
+        "        if brackets['instance'] != observation['instance']:\n",
+        ('test_witness',)),
+    # Another user's report taken as absent before where the current list may not cover that user.
+    'witness-absence-uncovered-counts': ('health_witness.py',
+        '        elif user != SHELL_USER_ID and not cross_user:\n',
+        '        elif False:\n',
+        ('test_witness',)),
+    # A current list that failed taken as one without the report.
+    'witness-absence-of-a-failed-list-counts': ('health_witness.py',
+        "        if again is None or not again['complete']:\n",
+        '        if again is None:\n',
+        ('test_witness',)),
+    # A whole current list beside a history part that failed taken as covering the process, though
+    # without DUMP the list leaves out every UID but the shell's own.
+    'witness-absence-of-a-filtered-list-counts': ('health_witness.py',
+        "        if again is None or not again['complete']:\n",
+        "        if again is None or again['current']['status'] != 'OK':\n",
+        ('test_witness',)),
+    # A current report joined to the process found before the call, whatever the discovery after it.
+    'witness-report-binding-before-only': ('health_witness.py',
+        '    live = after if after is not None and before == after else None\n',
+        '    live = before\n',
+        ('test_witness',)),
+    # A framework instance other than the baselines' taken as continuing their identity.
+    'witness-framework-change-ignored': ('health_witness.py',
+        "    if any(b[3]['instance'] != observation['instance'] for b in baselines):\n",
+        '    if False:\n',
+        ('test_witness',)),
+    # A read that did not find the same process before and after its call taken as one that did.
+    'witness-absence-of-another-discovery-counts': ('health_witness.py',
+        "            if (seen is None or seen['samples'] != replied or seen['before'] != live or seen['after'] != live\n",
+        "            if (seen is None or seen['samples'] != replied\n",
+        ('test_witness',)),
+    # A read that already listed the report taken as one without it.
+    'witness-absence-with-the-report-counts': ('health_witness.py',
+        "        if all(_entry_key(e) != key for e in again['current']['entries']):\n",
+        '        if True:\n',
+        ('test_witness',)),
+    # A current report with no window to place an earlier read in left unmarked, so the read may
+    # hold.
+    'witness-report-window-unmarked': ('health_witness.py',
+        "            exclusions.append('a current report, and %s: no earlier read can be placed in it' % why)\n",
+        '            pass\n',
+        ('test_witness',)),
+    # The broker passes no earlier probe's recorded helper reply, so a held probe has no clock.
+    'witness-trail-replies-dropped': ('lab_broker.py',
+        '                        helper.append(list(self._capture_reply(entry)))\n',
+        '                        pass\n',
+        ('test_witness',)),
+    # A reopening takes a composition's copy of bit 1 without checking it against its projection.
+    'witness-copy-unchecked': ('lab_broker.py',
+        "            return \"its copy of bit 1's witness is not its projection's\"\n",
+        '            pass\n',
+        ('test_witness',)),
 }
 
 # Each Java defect: the file under this directory, its exact old and new text, and the suites run

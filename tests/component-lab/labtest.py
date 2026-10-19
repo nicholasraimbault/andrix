@@ -41,7 +41,7 @@ LAB_FILES = ('tests/component-lab/lab_protocol.py', 'tests/component-lab/lab_bro
              'tests/component-lab/lab_evidence.py', 'tests/component-lab/lab_records.py',
              'tests/component-lab/lab_losses.py', 'tests/component-lab/full_users.py',
              'tests/component-lab/health_records.py', 'tests/component-lab/health_baseline.py',
-             'tests/component-lab/health_compose.py')
+             'tests/component-lab/health_compose.py', 'tests/component-lab/process_health.py')
 LIMITS = {'read_timeout_s': 30, 'mutation_timeout_s': 60, 'commit_timeout_s': 150, 'push_timeout_s': 300,
           'reboot_timeout_s': 10, 'read_stdout_max': 4 << 20, 'read_stderr_max': 65536, 'reply_stdout_max': 65536,
           'reply_stderr_max': 65536, 'generation_idle_s': 30, 'drain_grace_s': 5, 'exit_grace_s': 30}
