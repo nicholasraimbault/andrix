@@ -386,6 +386,11 @@ class SimAndroid:
             hook('push ' + path)
         self.calls.append(('push', path))
         self.files[path] = bytes(data)
+        # A helper's digest read gives what was pushed to its path from then on.
+        if path == health_compose.UI_STATE_HELPER:
+            self.ui_helper = hashlib.sha256(data).hexdigest()
+        elif path == process_health.HELPER:
+            self.process_helper = hashlib.sha256(data).hexdigest()
         return shell_transport.PushResult(path, len(data), 'launched', 'ok', 'ok', None, None, 1, 2, 1)
 
     def reboot_service(self, may_send=None):

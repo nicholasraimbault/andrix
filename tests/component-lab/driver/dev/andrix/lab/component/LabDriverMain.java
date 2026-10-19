@@ -50,6 +50,14 @@ import java.util.TreeSet;
  * inspect CONFIG TICKET                                          one line of key=value facts
  * tickets CONFIG PLAN                                            the plan's tickets in attempt order, one line each:
  *                                                                 ticket=ID attempt=N state=STATE
+ * init3 DIR STORE MANIFEST INSTALLATION COORDINATOR TRUST NOW_MS  as init, with the next
+ *                                                                 campaign's version 3
+ *                                                                 configuration
+ * baseline CONFIG PLAN BOOT                                      the chosen plan's current
+ *                                                                 baseline in the checked boot
+ * repair-plan CONFIG REPAIR PLAN BOOT NOW_MS                     phase 1: the repair plan
+ * repair-grants CONFIG REPAIR NOW_MS stage activate              phase 2: its STAGE, ACTIVATE
+ * repair-ticket CONFIG REPAIR TICKET                             phase 3: its first ticket
  * CONFIG check | round T | settle T N | cancel T | report T     a generation
  * </pre>
  *
@@ -67,6 +75,14 @@ import java.util.TreeSet;
  * revision 0. The signing inputs' entry digests and version codes come from the
  * pinned input APKs themselves, through apksig's manifest parser. The time is the driver's, so that
  * the records carry one clock. Nothing here starts a guest or reads the device.
+ *
+ * <p>The next campaign's repair is separate and keeps these factory guards as they are. Its
+ * current baseline and its repair plan come from {@link LabRepair}: only the facts of the boot the
+ * driver's last check established, and only the repair the version 2 host configuration names for
+ * the plan it repairs. The repair plan's grants and ticket are their own explicitly approved
+ * phases. The ordinary {@code ticket} command refuses a repair plan, so no SIGN grant reaches it.
+ * Under a version 3 configuration {@code published} also prints the publication record's SHA-256,
+ * which a version 3 pin names.
  */
 public final class LabDriverMain {
     /** The design's starting values: a 15 minute health window, 2 minute notice delays, request limit 3,
@@ -107,6 +123,21 @@ public final class LabDriverMain {
                 break;
             case "published":
                 published(args);
+                break;
+            case "init3":
+                init3(args);
+                break;
+            case "baseline":
+                baseline(args);
+                break;
+            case "repair-plan":
+                repairPlan(args);
+                break;
+            case "repair-grants":
+                repairGrants(args);
+                break;
+            case "repair-ticket":
+                repairTicket(args);
                 break;
             default:
                 System.exit(LabBridge.run(args, LabHost.fromProperties()));
@@ -160,6 +191,99 @@ public final class LabDriverMain {
         Path path = dir.resolve("bridge.config");
         Files.write(path, config, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
         System.out.println(LabConfig.read(path).digest);
+    }
+
+    /**
+     * The next campaign's store and version 3 configuration: as {@code init}, binding a version 2
+     * host configuration, whose repair line names the one repair the campaign may make.
+     */
+    private static void init3(String[] args) throws IOException {
+        need(args.length == 8, "init3 DIR STORE MANIFEST INSTALLATION COORDINATOR TRUST NOW_MS");
+        LabHost host = LabHost.fromProperties();
+        need(host != null && host.config().repair != null, "the next campaign binds a version 2 lab host configuration");
+        Path dir = Paths.get(args[1]);
+        Path storeRoot = Paths.get(args[2]);
+        byte[] config = LabConfig.encode(args[4], "com.android.systemui", args[5], args[6], args[3], storeRoot,
+                host.config().digest, LabConfig.PROFILE);
+        DeploymentStore store = new DeploymentStore(storeRoot, args[4]);
+        store.initialize();
+        need(store.selection("com.android.systemui").found == Found.ABSENT, "the store already holds a selection");
+        need(store.putSelection(null, new Selection(args[4], "com.android.systemui", 0, ChoiceKind.FACTORY,
+                DeploymentRecords.NO_ID, UpdateResponsibility.REBUILD_WINDOW, REBUILD_WINDOW, Realization.UNCHECKED,
+                DeploymentRecords.NO_ID, DeploymentRecords.NO_ID, DeploymentRecords.NO_ID, time(args[7]))),
+                "the selection was not written");
+        Path path = dir.resolve("bridge.config");
+        Files.write(path, config, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+        System.out.println(LabConfig.read(path).digest);
+    }
+
+    /** The lab host configuration that a version 3 configuration binds, with its repair line. */
+    private static LabHost nextHost(LabConfig lab) throws IOException {
+        need(lab.profile != null, "the next campaign's commands need its version 3 configuration");
+        LabHost host = LabHost.fromProperties();
+        need(host != null, "the next campaign's commands need the lab host configuration");
+        host.requireBoundBy(lab);
+        return host;
+    }
+
+    /** The publications the real artifact store reads back for the repair records. */
+    static LabRepair.Publications publications(LabHost host, String installation) {
+        return plan -> {
+            ArtifactStore artifacts = new ArtifactStore(host.config().artifacts, installation);
+            return artifacts.planPublication(plan) == ArtifactStore.Presence.PUBLISHED ? artifacts.apks(plan) : null;
+        };
+    }
+
+    private static String line(LabRepair.Current c) {
+        return "plan=" + c.plan + " boot=" + c.boot + " fingerprint=" + c.fingerprint + " base=" + c.apk + " version="
+                + c.version + " uid=" + c.uid + " context=" + c.context + " revision=" + c.revision;
+    }
+
+    /** The chosen plan's current baseline in the boot the driver's last check established. */
+    private static void baseline(String[] args) throws IOException {
+        need(args.length == 4, "baseline CONFIG PLAN BOOT");
+        LabConfig lab = admitted(args[1]);
+        LabHost host = nextHost(lab);
+        DeploymentStore store = new DeploymentStore(lab.store, lab.installation);
+        System.out.println(line(LabRepair.current(store, lab.component, args[2], args[3],
+                publications(host, lab.installation))));
+    }
+
+    /** Phase 1: the repair the version 2 host configuration names, from the current baseline. */
+    private static void repairPlan(String[] args) throws IOException {
+        need(args.length == 6, "repair-plan CONFIG REPAIR PLAN BOOT NOW_MS");
+        LabConfig lab = admitted(args[1]);
+        LabHost host = nextHost(lab);
+        host.requireRepair(args[2], args[3]);
+        DeploymentStore store = new DeploymentStore(lab.store, lab.installation);
+        Plan plan = LabRepair.plan(store, lab, args[2], args[3], args[4], time(args[5]),
+                publications(host, lab.installation));
+        System.out.println("plan=" + plan.planId + " repairs=" + plan.repairs + " signing=" + plan.signing + " variant="
+                + plan.bundleInput + "/" + plan.bundleVersion + " base=" + plan.baseApk + " version=" + plan.baseVersion
+                + " uid=" + plan.baseUid + " context=" + plan.baseContext + " revision=" + plan.selectionRevision);
+    }
+
+    /** Phase 2: the repair plan's STAGE and ACTIVATE, each by its own explicit approval. */
+    private static void repairGrants(String[] args) throws IOException {
+        need(args.length >= 4, "repair-grants CONFIG REPAIR NOW_MS stage activate");
+        LabConfig lab = admitted(args[1]);
+        LabHost host = nextHost(lab);
+        need(host.config().repair != null && host.config().repair.equals(args[2]),
+                "the host configuration does not admit this repair");
+        DeploymentStore store = new DeploymentStore(lab.store, lab.installation);
+        LabRepair.grants(store, lab, args[2], Arrays.asList(args).subList(4, args.length), time(args[3]),
+                new SecureRandom());
+    }
+
+    /** Phase 3: the repair plan's first ticket. */
+    private static void repairTicket(String[] args) throws IOException {
+        need(args.length == 4, "repair-ticket CONFIG REPAIR TICKET");
+        LabConfig lab = admitted(args[1]);
+        LabHost host = nextHost(lab);
+        need(host.config().repair != null && host.config().repair.equals(args[2]),
+                "the host configuration does not admit this repair");
+        DeploymentStore store = new DeploymentStore(lab.store, lab.installation);
+        LabRepair.ticket(store, lab, args[2], args[3]);
     }
 
     /** The cohort and active copy of the T0 boot, exactly as observed. */
@@ -316,6 +440,8 @@ public final class LabDriverMain {
         DeploymentStore store = new DeploymentStore(lab.store, lab.installation);
         DeploymentStore.Read<Plan> plan = store.plan(args[2]);
         need(plan.found == Found.RECORD, "the plan cannot be read");
+        // A repair plan's grants and ticket are its own phases: it never gets a SIGN grant here.
+        need(plan.value.repairs.equals(DeploymentRecords.NO_ID), "a repair plan's ticket comes from its own phases");
         long now = time(args[4]);
         SecureRandom random = new SecureRandom();
         need(store.addAuthorization(grant(random, lab, plan.value.planId, Effect.STAGE, 0, now)), "the STAGE grant was not written");
@@ -363,6 +489,10 @@ public final class LabDriverMain {
         for (int i = 0; i < names.length; i++) {
             Files.write(out.resolve(names[i]), members.get(i), StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
             System.out.println(names[i] + " " + DeploymentRecords.sha256Hex(members.get(i)) + " " + members.get(i).length);
+        }
+        // A version 3 pin names the publication record's SHA-256, which a health composition binds.
+        if (lab.profile != null) {
+            System.out.println("publication " + DeploymentRecords.sha256Hex(ArtifactRecords.encodePublication(publication)));
         }
     }
 

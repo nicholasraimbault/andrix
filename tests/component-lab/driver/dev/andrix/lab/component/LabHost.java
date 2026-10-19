@@ -59,9 +59,14 @@ import java.util.Set;
  * plans &lt;plan ID&gt;[,&lt;plan ID&gt;...]
  * </pre>
  *
- * The bridge's version 2 configuration names this file's SHA-256, and the broker's admission binds
- * that configuration's digest, so a generation, a plan and a publication read refuse any other host
- * configuration even when it comes with its own matching digest.
+ * Version 2, the next campaign profile's, has the header {@code andrix-lab-host 2}, version 1's
+ * lines and one more, {@code repair <repair plan ID> <repaired plan ID>}: the one plan that may
+ * repair one admitted plan without signing. The repaired plan is in {@code plans}; the repair plan
+ * is not, so no key operation is ever approved for it.
+ *
+ * <p>The bridge's version 2 and 3 configurations name this file's SHA-256, and the broker's
+ * admission binds that configuration's digest, so a generation, a plan and a publication read
+ * refuse any other host configuration even when it comes with its own matching digest.
  *
  * <p>The role is the platform role as the trusted role manifest binds it, and must be the certificate's
  * own identity. The approval callback allows a key operation only for a transaction of the store's
@@ -71,10 +76,13 @@ import java.util.Set;
  */
 public final class LabHost implements LabBridge.HostFactory {
     public static final String HEADER = "andrix-lab-host 1";
+    public static final String HEADER_2 = "andrix-lab-host 2";
     public static final String PROPERTY = "andrix.lab.host";
     public static final String DIGEST_PROPERTY = "andrix.lab.hostSha256";
     private static final List<String> KEYS = Arrays.asList("signer", "artifacts", "work", "key", "certificate", "role",
             "sdk", "variant", "restoration", "plans");
+    private static final List<String> KEYS_2 = Arrays.asList("signer", "artifacts", "work", "key", "certificate",
+            "role", "sdk", "variant", "restoration", "plans", "repair");
     private static final int MAX_INPUT = 256 << 20;
 
     /** One parsed configuration. Paths are absolute and normal; digests are lower case hexadecimal. */
@@ -94,6 +102,8 @@ public final class LabHost implements LabBridge.HostFactory {
         public final Path restoration;
         public final String restorationSha256;
         public final Set<String> plans;
+        /** In version 2, the repair plan and the admitted plan it repairs; null in version 1. */
+        public final String repair, repaired;
         /** SHA-256 of the exact file bytes. */
         public final String digest;
 
@@ -124,6 +134,18 @@ public final class LabHost implements LabBridge.HostFactory {
                 if (!ids.add(hex(id, 16, "plan"))) throw new IllegalArgumentException("a plan named twice");
             }
             plans = Collections.unmodifiableSet(ids);
+            if (v.length > KEYS.size()) {
+                String[] link = pair(v[10], "repair");
+                repair = hex(link[0], 16, "repair plan");
+                repaired = hex(link[1], 16, "repaired plan");
+                // The repaired plan signs under this configuration; the repair plan never does.
+                if (repair.equals(repaired) || !plans.contains(repaired) || plans.contains(repair)) {
+                    throw new IllegalArgumentException("the repair plan is not a plan outside plans repairing one in it");
+                }
+            } else {
+                repair = null;
+                repaired = null;
+            }
             this.digest = digest;
         }
 
@@ -160,15 +182,16 @@ public final class LabHost implements LabBridge.HostFactory {
         String text = new String(data, StandardCharsets.US_ASCII);
         if (!text.endsWith("\n")) throw new IllegalArgumentException("the last line has no newline");
         String[] lines = text.substring(0, text.length() - 1).split("\n", -1);
-        if (lines.length != KEYS.size() + 1 || !lines[0].equals(HEADER)) {
-            throw new IllegalArgumentException("not a version 1 lab host configuration");
+        List<String> keys = lines.length > 0 && lines[0].equals(HEADER_2) ? KEYS_2 : KEYS;
+        if (lines.length != keys.size() + 1 || !(lines[0].equals(HEADER) || lines[0].equals(HEADER_2))) {
+            throw new IllegalArgumentException("not a version 1 or 2 lab host configuration");
         }
-        String[] values = new String[KEYS.size()];
-        for (int i = 0; i < KEYS.size(); i++) {
-            String prefix = KEYS.get(i) + " ";
+        String[] values = new String[keys.size()];
+        for (int i = 0; i < keys.size(); i++) {
+            String prefix = keys.get(i) + " ";
             String line = lines[i + 1];
             if (!line.startsWith(prefix) || line.length() == prefix.length()) {
-                throw new IllegalArgumentException("line " + (i + 2) + " is not " + KEYS.get(i));
+                throw new IllegalArgumentException("line " + (i + 2) + " is not " + keys.get(i));
             }
             values[i] = line.substring(prefix.length());
         }
@@ -253,6 +276,13 @@ public final class LabHost implements LabBridge.HostFactory {
     public void requireBoundBy(LabConfig lab) throws IOException {
         if (lab.host == null || !lab.host.equals(config.digest)) {
             throw new IOException("the host configuration is not the one the bridge configuration binds");
+        }
+    }
+
+    /** Refuses a repair other than exactly the one this version 2 configuration admits. */
+    public void requireRepair(String repair, String repaired) throws IOException {
+        if (config.repair == null || !config.repair.equals(repair) || !config.repaired.equals(repaired)) {
+            throw new IOException("the host configuration does not admit this repair of this plan");
         }
     }
 

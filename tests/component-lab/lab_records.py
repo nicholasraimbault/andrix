@@ -1,12 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Strict readers of the two deployment records the broker must understand: a plan and a ticket,
-version 1, in the layout of owner/deployment/README.md and of the runner's independent encoder.
+"""Strict readers of the deployment records the lab must understand, version 1, in the layout of
+owner/deployment/README.md and of the runner's independent encoder: a plan and a ticket for the
+broker, and the selection and the authorizations the next campaign's driver paces by.
 
-The broker reads them from the admitted store only to judge where a compound fact may be emitted,
-such as a ticket's health window and its plan's window length. Each read checks the frame, the
-type, the version, the length, the checksum, every field's bound and the absence of trailing bytes.
-The public Java codec stays the validity oracle: the bridge decodes the same stored records and
-refuses a fact the broker placed against another window. Nothing here writes a record."""
+The broker reads plans and tickets from the admitted store only to judge where a compound fact may
+be emitted, such as a ticket's health window and its plan's window length. The driver reads all
+four between generations, to pace one round at a time and compare a cell's records with its
+prediction; it decides no ticket. Each read checks the frame, the type, the version, the length,
+the checksum, every field's bound and the absence of trailing bytes. The public Java codec stays
+the validity oracle: the bridge decodes the same stored records and refuses a fact the broker
+placed against another window. Nothing here writes a record."""
 import hashlib
 import struct
 import sys
@@ -102,6 +105,32 @@ def decode_plan(record):
     if p['criteria'] == 0 or p['criteria'] & ~CRITERIA_ALL or p['healthWindow'] <= 0:
         raise RecordError('a plan of no valid health criteria or window')
     return p
+
+
+def decode_selection(record):
+    """A selection record's fields, by the encoder's names."""
+    i = _Input(record, 'selection')
+    s = {'installation': i.hex(16), 'component': i.text(), 'revision': i.number('i64'),
+         'choice': i.code(encoder.CHOICES), 'plan': i.hex(16), 'responsibility': i.code(encoder.RESPONSIBILITIES),
+         'rebuildWindow': i.number('i64'), 'realization': i.code(encoder.REALIZATIONS), 'checkedBoot': i.hex(16),
+         'repair': i.hex(16), 'temporary': i.hex(16), 'changedAt': i.number('i64')}
+    i.finish()
+    if s['revision'] < 0 or (s['choice'] == 'PLAN') == (s['plan'] == '00' * 16):
+        raise RecordError('a selection of no valid revision or choice')
+    return s
+
+
+def decode_authorization(record):
+    """An authorization record's fields, by the encoder's names."""
+    i = _Input(record, 'authorization')
+    a = {'installation': i.hex(16), 'authorization': i.hex(16), 'component': i.text(), 'plan': i.hex(16),
+         'effect': i.code(encoder.EFFECTS), 'inputs': i.number('u8'), 'actor': i.code(encoder.ACTORS),
+         'user': i.number('i32'), 'serial': i.number('i64'), 'grant': i.hex(16), 'scope': i.code(encoder.SCOPES),
+         'interaction': i.hex(16), 'grantedAt': i.number('i64')}
+    i.finish()
+    if a['inputs'] & ~3 or (a['effect'] == 'SIGN') != (a['inputs'] != 0):
+        raise RecordError('an authorization whose inputs are not exactly a SIGN grant\'s')
+    return a
 
 
 def decode_ticket(record):

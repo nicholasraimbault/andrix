@@ -13,6 +13,7 @@ import dev.andrix.server.deployment.DeploymentRecords;
 import dev.andrix.server.deployment.DeploymentRecords.ChoiceKind;
 import dev.andrix.server.deployment.DeploymentRecords.Classification;
 import dev.andrix.server.deployment.DeploymentRecords.Observation;
+import dev.andrix.server.deployment.DeploymentRecords.Plan;
 import dev.andrix.server.deployment.DeploymentRecords.Realization;
 import dev.andrix.server.deployment.DeploymentRecords.Route;
 import dev.andrix.server.deployment.DeploymentRecords.Selection;
@@ -41,7 +42,7 @@ public final class DriverTest {
     private static final String CONTEXT = "u:r:platform_app:s0:c512,c768";
     private static final String FACTORY = "f0".repeat(32), OTHER = "ed".repeat(32);
     private static final String BOOT_1 = "b1".repeat(16), BOOT_2 = "b2".repeat(16);
-    private static final String PLAN = "0d".repeat(16), OTHER_PLAN = "0a".repeat(16);
+    private static final String PLAN = "0d".repeat(16), OTHER_PLAN = "0a".repeat(16), REPAIR = "0f".repeat(16);
     private static final String CERTIFICATE = "c8".repeat(32), KEY = "3d".repeat(32);
     private static final int UID = 10112;
     private static int failures;
@@ -141,9 +142,14 @@ public final class DriverTest {
         final String digest;
 
         Host(String name, String plans, String sdk) throws IOException {
+            this(name, plans, sdk, null);
+        }
+
+        /** With a repair line, `repair plan` and `repaired plan`, a version 2 configuration. */
+        Host(String name, String plans, String sdk, String repair) throws IOException {
             dir = Files.createDirectory(scratch.resolve(name));
             String[] files = {"key", "certificate", "variant", "restoration"};
-            StringBuilder text = new StringBuilder(LabHost.HEADER + "\n");
+            StringBuilder text = new StringBuilder((repair == null ? LabHost.HEADER : LabHost.HEADER_2) + "\n");
             text.append("signer ").append(dir.resolve("signer")).append('\n');
             text.append("artifacts ").append(dir.resolve("artifacts")).append('\n');
             text.append("work ").append(dir.resolve("work")).append('\n');
@@ -160,6 +166,7 @@ public final class DriverTest {
                 text.append(files[i]).append(' ').append(f).append(' ').append(LabProtocol.sha256Hex(Files.readAllBytes(f))).append('\n');
             }
             text.append("plans ").append(plans).append('\n');
+            if (repair != null) text.append("repair ").append(repair).append('\n');
             config = dir.resolve("host.config");
             Files.write(config, text.toString().getBytes(StandardCharsets.US_ASCII));
             digest = LabProtocol.sha256Hex(Files.readAllBytes(config));
@@ -167,6 +174,41 @@ public final class DriverTest {
 
         LabHost open() throws IOException {
             return new LabHost(config, digest);
+        }
+    }
+
+    /** Runs the case with the host configuration in the system properties, as a generation does. */
+    private static void withHost(Host h, Case c) throws Exception {
+        System.setProperty(LabHost.PROPERTY, h.config.toString());
+        System.setProperty(LabHost.DIGEST_PROPERTY, h.digest);
+        try {
+            c.run();
+        } finally {
+            System.clearProperty(LabHost.PROPERTY);
+            System.clearProperty(LabHost.DIGEST_PROPERTY);
+        }
+    }
+
+    /** Runs the case with standard output captured, so no result line is split. Returns it. */
+    private static String quietly(Case c) throws Exception {
+        java.io.PrintStream out = System.out;
+        java.io.ByteArrayOutputStream captured = new java.io.ByteArrayOutputStream();
+        System.setOut(new java.io.PrintStream(captured, true, StandardCharsets.US_ASCII));
+        try {
+            c.run();
+        } finally {
+            System.setOut(out);
+        }
+        return captured.toString(StandardCharsets.US_ASCII);
+    }
+
+    /** Runs the case with the bridge configuration digest the admission binds. */
+    private static void withAdmitted(String digest, Case c) throws Exception {
+        System.setProperty(LabDriverMain.ADMITTED_PROPERTY, digest);
+        try {
+            c.run();
+        } finally {
+            System.clearProperty(LabDriverMain.ADMITTED_PROPERTY);
         }
     }
 
@@ -366,6 +408,100 @@ public final class DriverTest {
             LabHost host = new Host("scope", PLAN, "37 65535").open();
             Transaction t = transaction(PLAN, CERTIFICATE, KEY, 37, 65535);
             check(!host.allows(t, 1, "99".repeat(16), COMPONENT) && !host.allows(t, 1, INSTALLATION, "com.example"), "another scope");
+        });
+        cases.run("host config 2 / the repair line names a plan outside plans that repairs one in it", () -> {
+            Host h = new Host("repair-form", PLAN, "37 65535", REPAIR + " " + PLAN);
+            LabHost.Config c = h.open().config();
+            check(REPAIR.equals(c.repair) && PLAN.equals(c.repaired) && c.plans.equals(java.util.Set.of(PLAN)), "the pair");
+            check(new Host("repair-none", PLAN, "37 65535").open().config().repair == null, "version 1 names no repair");
+            String text = new String(Files.readAllBytes(h.config), StandardCharsets.US_ASCII);
+            String[] bad = {text.replace("repair " + REPAIR + " " + PLAN, "repair " + PLAN + " " + PLAN),
+                text.replace("plans " + PLAN, "plans " + PLAN + "," + REPAIR),
+                text.replace("repair " + REPAIR + " " + PLAN, "repair " + REPAIR + " " + OTHER_PLAN),
+                text.replace("repair " + REPAIR + " " + PLAN, "repair " + REPAIR),
+                text.replace(LabHost.HEADER_2, LabHost.HEADER),
+                text.replace("repair " + REPAIR + " " + PLAN + "\n", "")};
+            for (String b : bad) {
+                refuses("", () -> LabHost.parse(b.getBytes(StandardCharsets.US_ASCII)));
+            }
+        });
+        cases.run("approval / the repair plan gets no key operation", () -> {
+            LabHost host = new Host("repair-approval", PLAN, "37 65535", REPAIR + " " + PLAN).open();
+            check(host.allows(transaction(PLAN, CERTIFICATE, KEY, 37, 65535), 1, INSTALLATION, COMPONENT), "the plan signs");
+            for (int op = 0; op <= 7; op++) {
+                check(!host.allows(transaction(REPAIR, CERTIFICATE, KEY, 37, 65535), op, INSTALLATION, COMPONENT),
+                        "the repair plan's operation " + op);
+            }
+        });
+        cases.run("repair binding / only the repair the host configuration names", () -> {
+            LabHost host = new Host("repair-binding", PLAN, "37 65535", REPAIR + " " + PLAN).open();
+            host.requireRepair(REPAIR, PLAN);
+            refuses("does not admit this repair", () -> host.requireRepair(REPAIR, OTHER_PLAN));
+            refuses("does not admit this repair", () -> host.requireRepair(OTHER_PLAN, PLAN));
+            LabHost v1 = new Host("repair-v1", PLAN, "37 65535").open();
+            refuses("does not admit this repair", () -> v1.requireRepair(REPAIR, PLAN));
+        });
+        cases.run("init3 / the next campaign's configuration binds a version 2 host configuration", () -> {
+            Host v1 = new Host("init3-v1", PLAN, "37 65535");
+            Host v2 = new Host("init3-v2", PLAN, "37 65535", REPAIR + " " + PLAN);
+            Path dir = Files.createDirectory(scratch.resolve("init3"));
+            String[] init = {"init3", dir.toString(), dir.resolve("store").toString(), "aa".repeat(32), INSTALLATION,
+                "c0".repeat(16), "7a".repeat(32), "1000"};
+            withHost(v1, () -> refuses("version 2 lab host configuration", () -> LabDriverMain.main(init)));
+            check(!Files.exists(dir.resolve("bridge.config")), "nothing written for a version 1 host");
+            String printed = quietly(() -> withHost(v2, () -> LabDriverMain.main(init)));
+            LabConfig written = LabConfig.read(dir.resolve("bridge.config"));
+            check(printed.equals(written.digest + "\n"), "init3 prints the configuration's digest");
+            check(LabConfig.PROFILE.equals(written.profile) && v2.digest.equals(written.host) && written.protocol == 2,
+                    "a version 3 configuration naming the version 2 host configuration");
+        });
+        cases.run("repair commands / refused before any record for another pair or a version 2 configuration", () -> {
+            Host v2 = new Host("repair-commands", PLAN, "37 65535", REPAIR + " " + PLAN);
+            Path dir = Files.createDirectory(scratch.resolve("repair-commands-dir"));
+            Path storeRoot = dir.resolve("store");
+            new DeploymentStore(storeRoot, INSTALLATION).initialize();
+            Path three = dir.resolve("bridge3.config"), two = dir.resolve("bridge2.config");
+            Files.write(three, LabConfig.encode(INSTALLATION, COMPONENT, "c0".repeat(16), "7a".repeat(32), "aa".repeat(32),
+                    storeRoot, v2.digest, LabConfig.PROFILE));
+            Files.write(two, LabConfig.encode(INSTALLATION, COMPONENT, "c0".repeat(16), "7a".repeat(32), "aa".repeat(32),
+                    storeRoot, v2.digest));
+            String digest3 = LabProtocol.sha256Hex(Files.readAllBytes(three));
+            String digest2 = LabProtocol.sha256Hex(Files.readAllBytes(two));
+            withHost(v2, () -> {
+                withAdmitted(digest3, () -> refuses("does not admit this repair of this plan", () -> LabDriverMain.main(
+                        new String[] {"repair-plan", three.toString(), OTHER_PLAN, PLAN, BOOT_1, "1000"})));
+                withAdmitted(digest3, () -> refuses("does not admit this repair", () -> LabDriverMain.main(
+                        new String[] {"repair-grants", three.toString(), OTHER_PLAN, "1000", "stage", "activate"})));
+                withAdmitted(digest3, () -> refuses("does not admit this repair", () -> LabDriverMain.main(
+                        new String[] {"repair-ticket", three.toString(), OTHER_PLAN, "0e".repeat(16)})));
+                withAdmitted(digest2, () -> refuses("version 3 configuration", () -> LabDriverMain.main(
+                        new String[] {"repair-plan", two.toString(), REPAIR, PLAN, BOOT_1, "1000"})));
+                withAdmitted(digest2, () -> refuses("version 3 configuration", () -> LabDriverMain.main(
+                        new String[] {"baseline", two.toString(), PLAN, BOOT_1})));
+            });
+            check(new DeploymentStore(storeRoot, INSTALLATION).plans().values.isEmpty(), "no record written");
+        });
+        cases.run("ticket / a repair plan's grants and ticket come only from its own phases", () -> {
+            Path dir = Files.createDirectory(scratch.resolve("repair-ticket-dir"));
+            Path storeRoot = dir.resolve("store");
+            DeploymentStore store = new DeploymentStore(storeRoot, INSTALLATION);
+            store.initialize();
+            Plan repair = new Plan.Builder().installation(INSTALLATION).planId(REPAIR).component(COMPONENT).repairs(PLAN)
+                    .bundle("b2".repeat(32), 41).signer(CERTIFICATE).signing(0).cohort(FINGERPRINT, FACTORY, 37)
+                    .base("a1".repeat(32), 40, UID, CONTEXT).selectionRevision(1).trustPolicy("7a".repeat(32))
+                    .healthWindow(900_000).notice(120_000, 120_000).limits(4, 300_000, 3, 86_400_000, 600_000)
+                    .createdAt(1000).build();
+            check(store.addPlan(repair), "the repair plan");
+            Path config = dir.resolve("bridge.config");
+            Files.write(config, LabConfig.encode(INSTALLATION, COMPONENT, "c0".repeat(16), "7a".repeat(32), "aa".repeat(32),
+                    storeRoot, "5e".repeat(32), LabConfig.PROFILE));
+            String digest = LabProtocol.sha256Hex(Files.readAllBytes(config));
+            for (String[] options : new String[][] {{}, {"sign"}, {"activate"}, {"sign", "activate"}}) {
+                List<String> argv = new ArrayList<>(List.of("ticket", config.toString(), REPAIR, "0e".repeat(16), "1000"));
+                argv.addAll(List.of(options));
+                withAdmitted(digest, () -> refuses("its own phases", () -> LabDriverMain.main(argv.toArray(new String[0]))));
+            }
+            check(store.authorizationsOf(REPAIR).isEmpty() && store.ticketsOf(REPAIR).isEmpty(), "nothing written");
         });
 
         System.out.println(failures == 0 ? "ALL PASS" : failures + " FAILED");

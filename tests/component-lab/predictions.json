@@ -1,8 +1,9 @@
 {
  "cases": {
   "BridgeTest": 22,
-  "DriverTest": 27,
+  "DriverTest": 33,
   "ProtocolTest": 11,
+  "RepairTest": 13,
   "test_capture_ledger": 14,
   "test_full_users": 37,
   "test_health": 53,
@@ -13,6 +14,8 @@
   "test_lab_loss": 54,
   "test_lab_next": 46,
   "test_lab_protocol": 15,
+  "test_next_campaign": 39,
+  "test_next_driver": 17,
   "test_shell_transport": 25,
   "test_witness": 53
  },
@@ -38,6 +41,19 @@
   "activation-window-not-sent": [
    "test_lab_bridge.BridgeEndToEnd.test_a_ticket_closes_applied_from_observation_alone"
   ],
+  "admission-confirmations-unbounded": [
+   "test_next_campaign.AdmissionTests.test_the_written_admission_is_a_version_3_admission_of_the_campaign"
+  ],
+  "admission-direct-controls-unnamed": [
+   "test_next_campaign.AdmissionTests.test_the_specs_run_in_the_campaign_order_only",
+   "test_next_driver.CampaignTests.test_without_two_whole_baselines_the_window_never_opens"
+  ],
+  "admission-wait-policy-unchecked": [
+   "test_next_campaign.AdmissionTests.test_the_wait_policy_is_its_own_admitted_budget"
+  ],
+  "admission-write-members-counted": [
+   "test_next_campaign.AdmissionTests.test_the_written_admission_is_a_version_3_admission_of_the_campaign"
+  ],
   "admission3-installation-authority": [
    "test_lab_next.AdmissionTests.test_a_version_3_admission_is_exact_and_fails_closed"
   ],
@@ -56,6 +72,9 @@
   ],
   "attempt-faults-not-admitted": [
    "test_lab_driver.DriverEndToEnd.test_the_loss_cells_run_in_order_to_their_predicted_ends"
+  ],
+  "authorization-relation-unchecked": [
+   "test_next_campaign.ReaderTests.test_changed_records_are_refused"
   ],
   "baseline-after-the-first-probe": [
    "test_health.BaselineTests.test_a_newly_unlocked_users_baseline_is_taken_before_its_first_full_probe"
@@ -175,6 +194,9 @@
   "controller-read-during-generation": [
    "test_lab_broker.ControllerTests.test_controller_reads_are_recorded_groups_between_generations"
   ],
+  "controller-whole-reads-ungated": [
+   "test_next_campaign.ControllerReadTests.test_a_controller_reads_whole_inventories_only_under_its_admission"
+  ],
   "create-used-more-than-once": [
    "test_full_users.AdmissionTests.test_user_action_specs_are_exact"
   ],
@@ -261,6 +283,91 @@
   "drain-skipped": [
    "test_lab_broker.ReopenTests.test_an_interrupted_capture_is_quarantined_drained_and_never_repeated"
   ],
+  "driver-boot-count-jump-accepted": [
+   "test_next_campaign.DriverRuleTests.test_the_boot_accounting_moves_by_one_with_an_observed_boot_only"
+  ],
+  "driver-boundary-skipped": [
+   "test_next_driver.CampaignTests.test_without_two_whole_baselines_the_window_never_opens",
+   "test_next_driver.CampaignTests.test_the_window_opens_only_after_two_whole_baselines_of_each_user"
+  ],
+  "driver-cache-overwritten": [
+   "test_next_campaign.DriverRuleTests.test_baseline_cache_entries_are_written_once_and_never_inherited"
+  ],
+  "driver-confirms-another-wait": [
+   "test_next_driver.CampaignTests.test_a_wait_the_cell_does_not_predict_stops_the_driver"
+  ],
+  "driver-declaration-unbound": [
+   "test_next_campaign.F0Tests.test_f0_selects_the_decided_branch_among_the_declared_ones"
+  ],
+  "driver-f0-branch-predicted": [
+   "test_next_campaign.F0Tests.test_f0_selects_the_decided_branch_among_the_declared_ones",
+   "test_next_driver.CampaignTests.test_one_declaration_runs_whichever_branch_f0_decides"
+  ],
+  "driver-halt-count-unchecked": [
+   "test_next_campaign.DriverRuleTests.test_the_loss_control_takes_only_scheduled_halts_one_a_halted_generation"
+  ],
+  "driver-helpers-unchecked-after-boot": [
+   "test_next_campaign.DriverRuleTests.test_a_new_boot_needs_both_helpers_read_back",
+   "test_next_driver.CampaignTests.test_a_helper_that_reads_back_other_bytes_after_a_boot_stops_the_driver"
+  ],
+  "driver-later-boot-assumed": [
+   "test_next_driver.CampaignTests.test_a_commit_still_verifying_is_read_again_without_a_confirmation"
+  ],
+  "driver-later-boot-unread": [
+   "test_next_driver.CampaignTests.test_a_wait_the_cell_does_not_predict_stops_the_driver"
+  ],
+  "driver-not-acted-accepted": [
+   "test_next_campaign.DriverRuleTests.test_the_loss_control_takes_only_scheduled_halts_one_a_halted_generation"
+  ],
+  "driver-one-baseline-enough": [
+   "test_next_driver.CampaignTests.test_the_window_opens_only_after_two_whole_baselines_of_each_user"
+  ],
+  "driver-ordinary-wait-stops": [
+   "test_next_driver.CampaignTests.test_a_commit_still_verifying_is_read_again_without_a_confirmation",
+   "test_next_driver.CampaignTests.test_delayed_validation_and_lost_reads_in_a_and_r_are_read_again"
+  ],
+  "driver-ordinary-wait-unbounded": [
+   "test_next_driver.CampaignTests.test_an_ordinary_wait_stops_at_its_own_budget_on_the_host_clock"
+  ],
+  "driver-positive-identity-skipped": [
+   "test_next_driver.CampaignTests.test_without_two_whole_baselines_the_window_never_opens"
+  ],
+  "driver-positive-ungated": [
+   "test_next_driver.CampaignTests.test_a_positive_attempt_before_f0_is_never_created"
+  ],
+  "driver-publication-digest-optional": [
+   "test_next_campaign.DriverRuleTests.test_a_publication_is_pinned_with_its_record_digest_only"
+  ],
+  "driver-reached-conditional-exempt": [
+   "test_next_campaign.DriverRuleTests.test_a_reached_conditional_milestone_owes_its_loss"
+  ],
+  "driver-renewal-unchecked": [
+   "test_next_driver.CampaignTests.test_a_confirmation_whose_renewed_reads_are_not_whole_stops_the_driver"
+  ],
+  "driver-repair-while-a-open": [
+   "test_next_driver.CampaignTests.test_the_repair_never_starts_while_a_is_open"
+  ],
+  "driver-settles-across-applied": [
+   "test_next_driver.CampaignTests.test_without_two_whole_baselines_the_window_never_opens",
+   "test_next_driver.CampaignTests.test_the_window_opens_only_after_two_whole_baselines_of_each_user"
+  ],
+  "driver-snapshot-unsynced": [
+   "test_next_campaign.DriverRuleTests.test_the_driver_records_are_synced_before_anything_relies_on_them"
+  ],
+  "driver-unacted-fault-ignored": [
+   "test_next_campaign.DriverRuleTests.test_a_cell_owes_every_reachable_fault_but_one_a_guest_need_not_show",
+   "test_next_driver.CampaignTests.test_a_scheduled_fault_that_never_acts_stops_the_driver"
+  ],
+  "driver-unexplained-boot-accepted": [
+   "test_next_campaign.DriverRuleTests.test_a_boot_no_transition_or_launched_reboot_made_stops_the_driver",
+   "test_next_driver.CampaignTests.test_an_unexpected_boot_stops_the_driver"
+  ],
+  "driver-window-pace-unbounded": [
+   "test_next_campaign.DriverRuleTests.test_the_window_pace_stays_within_its_gap_and_its_admitted_probes"
+  ],
+  "driver-window-paced-like-the-rest": [
+   "test_next_campaign.DriverRuleTests.test_the_window_pace_stays_within_its_gap_and_its_admitted_probes"
+  ],
   "dropped-reply-delivered": [
    "test_lab_broker.FaultTests.test_a_dropped_reply_runs_once_and_is_escrowed_never_given"
   ],
@@ -314,6 +421,33 @@
    "test_lab_broker.FenceTests.test_the_stop_fence_comes_before_every_read_and_latches",
    "test_lab_broker.FenceTests.test_the_lease_and_the_deadline_are_fences"
   ],
+  "final-active-digest-only": [
+   "test_next_driver.CampaignTests.test_the_final_reads_join_every_live_session_against_the_campaign"
+  ],
+  "final-join-controls-ignored": [
+   "test_next_campaign.DriverRuleTests.test_the_final_join_owns_the_campaigns_live_sessions_only"
+  ],
+  "final-join-unknown-owner-ignored": [
+   "test_next_campaign.DriverRuleTests.test_the_final_join_owns_the_campaigns_live_sessions_only",
+   "test_next_driver.CampaignTests.test_the_final_reads_join_every_live_session_against_the_campaign"
+  ],
+  "final-other-classification-flattened": [
+   "test_next_campaign.DriverRuleTests.test_other_packages_live_sessions_are_reported_whole_and_classified"
+  ],
+  "final-other-sessions-uncertain": [
+   "test_next_campaign.DriverRuleTests.test_other_packages_live_sessions_are_reported_whole_and_classified",
+   "test_next_campaign.DriverRuleTests.test_the_final_join_owns_the_campaigns_live_sessions_only",
+   "test_next_driver.CampaignTests.test_final_reports_other_packages_live_sessions_without_failing"
+  ],
+  "final-other-sessions-unreported": [
+   "test_next_driver.CampaignTests.test_final_reports_other_packages_live_sessions_without_failing"
+  ],
+  "final-owned-session-ignored": [
+   "test_next_driver.CampaignTests.test_the_final_reads_join_every_live_session_against_the_campaign"
+  ],
+  "final-whole-inventory-unchecked": [
+   "test_next_driver.CampaignTests.test_the_final_reads_join_every_live_session_against_the_campaign"
+  ],
   "fixture-bytes-unchecked": [
    "test_full_users.ActionTests.test_a_fixture_needs_its_pinned_bytes_and_settles_on_readback"
   ],
@@ -322,6 +456,12 @@
   ],
   "generation-failure-continued": [
    "test_lab_driver.DriverEndToEnd.test_a_failed_generation_stops_the_driver"
+  ],
+  "generation-read-deadline-ignored": [
+   "test_next_driver.CampaignTests.test_an_ordinary_wait_stops_at_its_own_budget_on_the_host_clock"
+  ],
+  "generation-read-deadline-unchecked": [
+   "test_next_campaign.AdmissionTests.test_the_wait_policy_is_its_own_admitted_budget"
   ],
   "grant-expiry-unchecked": [
    "test_lab_broker.GateTests.test_an_activation_grant_is_judged_again_at_launch",
@@ -376,6 +516,29 @@
   ],
   "hello-without-config": [
    "BridgeTest.hello / binds the configuration, and a stopped broker ends the generation"
+  ],
+  "helper-check-any-bytes": [
+   "test_next_campaign.HelperPushTests.test_a_readback_of_other_bytes_is_unexpected_and_never_repeated",
+   "test_next_driver.CampaignTests.test_a_helper_that_reads_back_other_bytes_after_a_boot_stops_the_driver"
+  ],
+  "helper-pin-unchecked-at-admission": [
+   "test_next_campaign.HelperPushTests.test_the_admission_refuses_a_pin_other_than_the_readers",
+   "test_next_campaign.AdmissionTests.test_an_admission_of_no_known_form_is_never_written"
+  ],
+  "helper-push-beside-transition": [
+   "test_next_campaign.HelperPushTests.test_no_push_while_a_boot_transition_is_unsettled_and_no_check_beside_a_generation"
+  ],
+  "helper-push-counted-apart": [
+   "test_next_campaign.HelperPushTests.test_pushes_count_against_the_fixture_and_entry_caps"
+  ],
+  "helper-push-other-bytes": [
+   "test_next_campaign.HelperPushTests.test_other_host_bytes_launch_nothing"
+  ],
+  "helper-push-settles-without-readback": [
+   "test_next_campaign.HelperPushTests.test_a_readback_of_other_bytes_is_unexpected_and_never_repeated"
+  ],
+  "helper-push-uncapped": [
+   "test_next_campaign.HelperPushTests.test_pushes_count_against_the_fixture_and_entry_caps"
   ],
   "host-begin-skipped": [
    "BridgeTest.host / BEGIN before the effect, END after, and the broker's cells decide",
@@ -438,6 +601,9 @@
   ],
   "incomplete-listing-accepted": [
    "test_lab_broker.LabActionTests.test_an_incomplete_listing_never_admits_a_restart"
+  ],
+  "init3-version-1-host": [
+   "DriverTest.init3 / the next campaign's configuration binds a version 2 host configuration"
   ],
   "intent-after-launch": [
    "test_lab_broker.IntentTests.test_every_command_finds_its_intent_in_the_ledger_first"
@@ -534,6 +700,30 @@
   ],
   "milestone-progress-as-entry": [
    "test_lab_loss.MilestoneTests.test_the_milestone_enum_is_fixed_and_its_rule_one_table"
+  ],
+  "next-commands-any-configuration": [
+   "DriverTest.repair commands / refused before any record for another pair or a version 2 configuration"
+  ],
+  "next-conditional-milestone-required": [
+   "test_next_campaign.CellsTests.test_milestones_match_conditional_and_repeated_ones_only_where_predicted"
+  ],
+  "next-confirmation-count-unchecked": [
+   "test_next_campaign.CellsTests.test_malformed_cells_are_refused"
+  ],
+  "next-healthy-without-full-probes": [
+   "test_next_campaign.CellsTests.test_health_is_healthy_only_for_full_probes_under_a_full_f0"
+  ],
+  "next-notice-faults-kept": [
+   "test_next_campaign.CellsTests.test_the_schedule_is_canonical_and_only_what_the_world_can_reach"
+  ],
+  "next-record-one-branch": [
+   "test_next_campaign.CellsTests.test_the_cells_record_freezes_every_declared_branch"
+  ],
+  "next-refused-f0-reaches-a": [
+   "test_next_campaign.CellsTests.test_the_schedule_is_canonical_and_only_what_the_world_can_reach"
+  ],
+  "next-undecided-reaches-a": [
+   "test_next_campaign.CellsTests.test_the_cells_record_freezes_every_declared_branch"
   ],
   "not-published-is-failure": [
    "test_lab_driver.DriverEndToEnd.test_a_publication_lost_before_its_effect_waits_then_stages_the_republication"
@@ -748,6 +938,46 @@
   "removal-from-a-partial-read": [
    "test_full_users.InventoryTests.test_removal_only_from_a_whole_later_inventory"
   ],
+  "repair-base-not-current": [
+   "RepairTest.repair plan / the study's row, A's restoration, signer and cohort, the current base, revision 1"
+  ],
+  "repair-beside-open-ticket": [
+   "RepairTest.phases / no repair while a ticket of the component is open"
+  ],
+  "repair-checked-boot-unchecked": [
+   "RepairTest.current / only the checked boot's facts, whatever the other boots and wall times",
+   "RepairTest.current / a boot of no facts, or another boot named, is refused"
+  ],
+  "repair-grants-twice": [
+   "RepairTest.grants / only the explicit approvals stage and activate, never SIGN",
+   "RepairTest.phases / a phase cut short authorizes nothing missing"
+  ],
+  "repair-other-boots-mixed": [
+   "RepairTest.current / only the checked boot's facts, whatever the other boots and wall times"
+  ],
+  "repair-pair-unchecked": [
+   "DriverTest.repair binding / only the repair the host configuration names",
+   "DriverTest.repair commands / refused before any record for another pair or a version 2 configuration"
+  ],
+  "repair-pending-after-committed": [
+   "RepairTest.current / the checkpoint's latest fact in the boot must be committed"
+  ],
+  "repair-plan-in-plans": [
+   "DriverTest.host config 2 / the repair line names a plan outside plans that repairs one in it"
+  ],
+  "repair-sign-approved": [
+   "RepairTest.grants / only the explicit approvals stage and activate, never SIGN"
+  ],
+  "repair-signs": [
+   "RepairTest.repair plan / the study's row, A's restoration, signer and cohort, the current base, revision 1"
+  ],
+  "repair-ticket-any-grants": [
+   "RepairTest.ticket / only after exactly STAGE and ACTIVATE, as the plan's first attempt",
+   "RepairTest.phases / a phase cut short authorizes nothing missing"
+  ],
+  "repair-ticket-command": [
+   "DriverTest.ticket / a repair plan's grants and ticket come only from its own phases"
+  ],
   "repeated-baselines-not-passed": [
    "test_witness.ReaderTests.test_a_baseline_report_cleared_while_its_process_lives_is_no_hold_through_the_broker",
    "test_witness.ReaderTests.test_a_current_report_first_absent_then_present_in_the_window_qualifies_through_the_broker",
@@ -872,6 +1102,9 @@
   ],
   "selection-not-current-accepted": [
    "DriverTest.selection / a plan only from the factory choice found current at revision 0"
+  ],
+  "selection-relation-unchecked": [
+   "test_next_campaign.ReaderTests.test_changed_records_are_refused"
   ],
   "sentinel-another-nonce-accepted": [
    "test_health.SentinelTests.test_an_uncertain_or_contrary_sentinel_never_becomes_an_origin"
@@ -1104,6 +1337,23 @@
   ],
   "v2-receipt-before-its-notice": [
    "BridgeTest.device v2 / a receipt keeps its proven time only with its notice's provenance"
+  ],
+  "wait-budget-from-the-plan": [
+   "test_next_driver.CampaignTests.test_an_ordinary_wait_stops_at_its_own_budget_on_the_host_clock"
+  ],
+  "wait-intent-by-ticket-bytes": [
+   "test_next_campaign.DriverRuleTests.test_one_wait_spans_its_intents_flag_changes_and_ends_at_its_deadline"
+  ],
+  "wait-pause-uncut": [
+   "test_next_campaign.DriverRuleTests.test_a_pause_is_cut_to_what_is_left_of_an_open_wait",
+   "test_next_campaign.DriverRuleTests.test_one_wait_spans_its_intents_flag_changes_and_ends_at_its_deadline"
+  ],
+  "wait-reads-uncut": [
+   "test_next_driver.CampaignTests.test_an_ordinary_wait_stops_at_its_own_budget_on_the_host_clock"
+  ],
+  "wait-samples-dropped": [
+   "test_next_driver.CampaignTests.test_a_commit_still_verifying_is_read_again_without_a_confirmation",
+   "test_next_driver.CampaignTests.test_an_ordinary_wait_stops_at_its_own_budget_on_the_host_clock"
   ],
   "witness-absence-before-window-counts": [
    "test_witness.JoinTests.test_a_current_report_first_seen_at_the_windows_first_read_is_inconclusive"

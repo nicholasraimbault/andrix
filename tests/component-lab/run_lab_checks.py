@@ -11,8 +11,9 @@ No compiler or JVM starts unless an actual cgroup bounds this process as the rec
 phases are NOT_RUN. `--allow-unguarded` runs them anyway for development and marks the report
 UNGUARDED, never PASS. The Java phase compiles the deployment package with the bridge and its tests,
 runs the bridge's suites, and compares the protocol goldens of both codecs byte for byte. The bridge
-phase runs the end to end suite: the accepted coordinator through the bridge against the broker on a
-simulated guest, one JVM per generation. The driver phase, given the pinned apksigner jar, the public
+phase runs the end to end suites: the accepted coordinator through the bridge against the broker on
+a simulated guest, one JVM per generation, and the next campaign's driver over the host test entry.
+The driver phase, given the pinned apksigner jar, the public
 development platform key and the two built inputs, builds the lab driver against the jar and runs its
 unit suite and its end to end suite with the real host signer. The defect phase copies this directory into a scratch tree,
 applies one defect at a time, rebuilds when the defect is in Java, and runs the suites predicted to
@@ -37,8 +38,12 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 PREDICTIONS = HERE / 'predictions.json'
 SUITES = ('test_lab_protocol', 'test_shell_transport', 'test_capture_ledger', 'test_lab_crossings', 'test_lab_broker',
-          'test_lab_next', 'test_lab_loss', 'test_full_users', 'test_health', 'test_witness')
+          'test_lab_next', 'test_lab_loss', 'test_full_users', 'test_health', 'test_witness', 'test_next_campaign')
 BRIDGE_SUITE = 'test_lab_bridge'
+# The next campaign's driver end to end: the same JDK and compiled classes as the bridge suite, with
+# the host test entry and the scripted host in place of the lab driver entry and apksig.
+NEXT_DRIVER_SUITE = 'test_next_driver'
+JVM_SUITES = (BRIDGE_SUITE, NEXT_DRIVER_SUITE)
 # The lab driver's end to end suite: the real host signer over apksig, so it needs the pinned
 # apksigner jar, the public development platform key and the two built signing inputs.
 DRIVER_SUITE = 'test_lab_driver'
@@ -48,7 +53,7 @@ DRIVER_JAVA_SUITES = ('DriverTest',)
 APKSIG_ENGINE = 'owner/deployment/apksig/dev/andrix/server/deployment/ApksigEngine.java'
 APKSIG_SERVICE = 'owner/deployment/apksig/META-INF/services/com.android.apksig.kms.KmsSignerEngineProvider'
 PINNED_APKSIGNER_JAR = '6b96559764325d085a6bad6be109cc3053791d63826f84dc0e74032db136a196'
-JAVA_SUITES = ('ProtocolTest', 'BridgeTest')
+JAVA_SUITES = ('ProtocolTest', 'BridgeTest', 'RepairTest')
 JAVA_PACKAGE = 'dev.andrix.lab.component'
 JAVA_MAIN = 'java/dev/andrix/lab/component/'
 JAVA_TESTS = 'javatests/dev/andrix/lab/component/'
@@ -1450,6 +1455,286 @@ MUTANTS = {
         "            return \"its copy of bit 1's witness is not its projection's\"\n",
         '            pass\n',
         ('test_witness',)),
+    # The next campaign: its cells, admission writer, driver rules, helper pushes and readers.
+    'next-confirmation-count-unchecked': ('next_cells.py',
+        "    if p['confirmations'] != len(cell['confirmations']) or p['boots'] < p['confirmations']:\n",
+        '    if False:\n',
+        ('test_next_campaign',)),
+    'next-notice-faults-kept': ('next_cells.py',
+        "    return [f for f in cell.get('faults', []) if world['notice'] or f['needs'] != 'notice']\n",
+        "    return list(cell.get('faults', []))\n",
+        ('test_next_campaign',)),
+    'next-conditional-milestone-required': ('next_cells.py',
+        '        if name in CONDITIONAL:\n            if at < len(found) and found[at] == name:\n      '
+        '          at += 1\n            continue\n',
+        '',
+        ('test_next_campaign',)),
+    'next-refused-f0-reaches-a': ('next_cells.py',
+        "        return world['f0'] != 'REFUSED'\n",
+        '        return True\n',
+        ('test_next_campaign',)),
+    'next-healthy-without-full-probes': ('next_cells.py',
+        "    return HEALTHY if world['f0'] == 'FULL' and full_probe else INCONCLUSIVE\n",
+        "    return HEALTHY if world['f0'] in ('FULL', 'LIMITED') else INCONCLUSIVE\n",
+        ('test_next_campaign',)),
+    'driver-confirms-another-wait': ('lab_driver.py',
+        "                if not pending or pending[0] != state['state']:\n",
+        '                if not pending:\n',
+        ('test_next_driver',)),
+    'driver-settles-across-applied': ('lab_driver.py',
+        "                summary = self.advance('round', ticket)\n            finally:\n",
+        "                summary = self.advance('settle', ticket, '40')\n            finally:\n",
+        ('test_next_driver',)),
+    'driver-unexplained-boot-accepted': ('lab_driver.py',
+        "        return 'UNEXPECTED', self.cell, None\n",
+        "        return 'MANAGED_ACTIVATION', self.cell, None\n",
+        ('test_next_campaign', 'test_next_driver')),
+    'driver-halt-count-unchecked': ('lab_driver.py',
+        "        if summary['status'] == 'DELIBERATE_HALT' and len(halts) != 1:\n",
+        '        if False:\n',
+        ('test_next_campaign',)),
+    'driver-not-acted-accepted': ('lab_driver.py',
+        "            if e.content.get('decision') == 'not-acted':\n                raise DriverError('l"
+        "oss %s was left not acted' % cell)\n",
+        '',
+        ('test_next_campaign',)),
+    'driver-unacted-fault-ignored': ('lab_driver.py',
+        "        if sorted(set(acted)) != sorted(f['cell'] for f in owed if f['cell'] not in conditiona"
+        'l):\n',
+        '        if False:\n',
+        ('test_next_campaign', 'test_next_driver')),
+    'driver-one-baseline-enough': ('lab_driver.py',
+        'BASELINES_PER_USER = 2\n',
+        'BASELINES_PER_USER = 1\n',
+        ('test_next_driver',)),
+    'driver-boundary-skipped': ('lab_driver.py',
+        "            if state['state'] == 'APPLIED':\n                self.applied_boundary(ticket, pla"
+        'n)\n',
+        '            if False:\n                self.applied_boundary(ticket, plan)\n',
+        ('test_next_driver',)),
+    'driver-helpers-unchecked-after-boot': ('lab_driver.py',
+        "            if not found['ok']:\n",
+        '            if False:\n',
+        ('test_next_campaign', 'test_next_driver')),
+    'driver-renewal-unchecked': ('lab_driver.py',
+        "        if transition['status'] != 'OK' or len(transition['new_boots']) != 1 or not renewed \\"
+        "\n                or any(r['status'] != 'facts' for r in renewed.values()):\n",
+        '        if False:\n',
+        ('test_next_driver',)),
+    'driver-publication-digest-optional': ('lab_driver.py',
+        '        if set(members) != set(MEMBERS) or publication is None:\n',
+        '        if set(members) != set(MEMBERS):\n',
+        ('test_next_campaign',)),
+    'driver-snapshot-unsynced': ('lab_driver.py',
+        '            _write_synced(target / relative, data, self.sync)\n',
+        '            _write_synced(target / relative, data, False)\n',
+        ('test_next_campaign',)),
+    'driver-cache-overwritten': ('lab_driver.py',
+        '    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)\n',
+        '    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)\n',
+        ('test_next_campaign',)),
+    'driver-repair-while-a-open': ('lab_driver.py',
+        "        if not attempts or attempts[-1]['state'] != 'CLOSED_APPLIED' or self.open_tickets():\n",
+        '        if not attempts:\n',
+        ('test_next_driver',)),
+    'driver-positive-ungated': ('lab_driver.py',
+        "            if positive:\n                self.broker.gate_positive(plan, cell['attempt'], 'th"
+        "e positive attempt after a qualified F0')\n            self.plan(plan, ticket, boot_limit, com"
+        "mand='contradict' if cell['plan'] == 'COHORT' else 'plan')\n",
+        "            self.plan(plan, ticket, boot_limit, command='contradict' if cell['plan'] == 'COHOR"
+        "T' else 'plan')\n",
+        ('test_next_driver',)),
+    'driver-boot-count-jump-accepted': ('lab_driver.py',
+        "        if after['bootCount'] < before['bootCount'] or after['bootCount'] > before['bootCount'"
+        '] + 1:\n',
+        '        if False:\n',
+        ('test_next_campaign',)),
+    'admission-direct-controls-unnamed': ('lab_driver.py',
+        '        if role not in payloads or role not in named:\n',
+        '        if role not in payloads:\n',
+        ('test_next_campaign', 'test_next_driver')),
+    'admission-write-members-counted': ('lab_driver.py',
+        "            crossings[name] = sum(1 for c in managed if c['prediction']['calls']['WRITE'] > 0)"
+        '\n',
+        "            crossings[name] = sum(c['prediction']['calls']['WRITE'] for c in managed)\n",
+        ('test_next_campaign',)),
+    'admission-confirmations-unbounded': ('lab_driver.py',
+        "                                 confirmation_services=nominal['confirmations'], observed_boot"
+        "s=nominal['identities']),\n",
+        "                                 confirmation_services=16, observed_boots=nominal['identities'"
+        ']),\n',
+        ('test_next_campaign',)),
+    'driver-window-pace-unbounded': ('lab_driver.py',
+        '        if not 0 < window_pace_s < WINDOW_GAP_S or WINDOW_S / window_pace_s > PROBES:\n',
+        '        if window_pace_s <= 0:\n',
+        ('test_next_campaign',)),
+    'driver-window-paced-like-the-rest': ('lab_driver.py',
+        "        pace = self.window_pace_s if state['state'] == 'HEALTH_WINDOW' else self.pace_s\n",
+        '        pace = self.pace_s\n',
+        ('test_next_campaign',)),
+    'driver-positive-identity-skipped': ('lab_driver.py',
+        "            self.identity_baseline('before the positive attempt, with the factory copy active')\n",
+        '            pass\n',
+        ('test_next_driver',)),
+    'helper-push-other-bytes': ('lab_broker.py',
+        "        if data is None or (hashlib.sha256(data).hexdigest(), len(data)) != (pin['sha256'], pi"
+        "n['bytes']) \\\n                or pin['sha256'] != digest:\n",
+        '        if data is None:\n',
+        ('test_next_campaign',)),
+    'helper-push-settles-without-readback': ('lab_broker.py',
+        "        if read == digest:\n            return 'OK', outcome, None, True, []\n",
+        "        if True:\n            return 'OK', outcome, None, True, []\n",
+        ('test_next_campaign',)),
+    'helper-pin-unchecked-at-admission': ('lab_broker.py',
+        "        if spec['type'] == 'HELPER_PUSH' and spec['inputs'][0]['sha256'] != helper_pin(spec['p"
+        "arameters']['helper'])[1]:\n",
+        '        if False:\n',
+        ('test_next_campaign',)),
+    'helper-push-uncapped': ('lab_broker.py',
+        "        spent = self._effect_spent('fixture', spec['phase'])\n        if spent is not None:\n "
+        "           return 'REFUSED', {'helper': spec['parameters']['helper']}, '%s: nothing launched' "
+        '% spent, True, []\n',
+        '',
+        ('test_next_campaign',)),
+    'helper-push-beside-transition': ('lab_broker.py',
+        "        if gate is None and spec['type'] == 'HELPER_PUSH':\n            gate = self._unsettled"
+        '_transition()\n',
+        '',
+        ('test_next_campaign',)),
+    'helper-check-any-bytes': ('lab_broker.py',
+        "        return {'capture': number, 'helper': name, 'sha256': read, 'pinned': digest, 'ok': rea"
+        'd == digest}\n',
+        "        return {'capture': number, 'helper': name, 'sha256': read, 'pinned': digest, 'ok': rea"
+        'd is not None}\n',
+        ('test_next_campaign', 'test_next_driver')),
+    'helper-push-counted-apart': ('lab_broker.py',
+        "            effect = intent and (intent.get('operation') == 'lab-action-effect' or (\n        "
+        "        intent.get('operation') == 'lab-action-push' and 'effect_class' in intent))\n",
+        "            effect = intent and intent.get('operation') == 'lab-action-effect'\n",
+        ('test_next_campaign',)),
+    'selection-relation-unchecked': ('lab_records.py',
+        "    if s['revision'] < 0 or (s['choice'] == 'PLAN') == (s['plan'] == '00' * 16):\n",
+        "    if s['revision'] < 0:\n",
+        ('test_next_campaign',)),
+    'authorization-relation-unchecked': ('lab_records.py',
+        "    if a['inputs'] & ~3 or (a['effect'] == 'SIGN') != (a['inputs'] != 0):\n",
+        "    if a['inputs'] & ~3:\n",
+        ('test_next_campaign',)),
+    # The next driver's version 2: the final reads and their join, the ordinary read wait and its
+    # bound, a reached conditional milestone's loss, and F0 as a gate among declared branches.
+    'final-owned-session-ignored': ('lab_driver.py',
+        "                 'cohort': 'ORIGINAL' if original else 'OTHER', 'live_owned': len(owned)}\n",
+        "                 'cohort': 'ORIGINAL' if original else 'OTHER', 'live_owned': 0}\n",
+        ('test_next_driver',)),
+    'final-active-digest-only': ('lab_driver.py',
+        "                 'active': 'R' if identity is not None and variant is not None and identity == exact"
+        ' else identity,\n',
+        "                 'active': 'R' if identity is not None and identity['apk'] == variant else identi"
+        'ty,\n',
+        ('test_next_driver',)),
+    'final-whole-inventory-unchecked': ('lab_driver.py',
+        "        if not read['global-sessions'][0].reading['whole']:\n            return 'the global sessi"
+        "on inventory is not whole'\n",
+        '',
+        ('test_next_driver',)),
+    'final-join-controls-ignored': ('lab_driver.py',
+        "    referrers |= {lab_actions.control_referrer(control) for control in references['controls']}\n",
+        '',
+        ('test_next_campaign',)),
+    'final-join-unknown-owner-ignored': ('lab_driver.py',
+        "            uncertain.append(row['id'])\n",
+        '            pass\n',
+        ('test_next_campaign', 'test_next_driver')),
+    'controller-whole-reads-ungated': ('lab_broker.py',
+        "        if any(name in WHOLE_READS for name in names) and self.admission['version'] != 3:\n    "
+        "        raise BrokerError('a whole inventory read needs a version 3 admission')\n",
+        '',
+        ('test_next_campaign',)),
+    'driver-ordinary-wait-stops': ('lab_driver.py',
+        "                if self.waiting is None:\n                    self.open_wait(state, summary['generation'])\n",
+        "                raise DriverError('an unpredicted wait in %s' % state['state'])\n",
+        ('test_next_driver',)),
+    'driver-ordinary-wait-unbounded': ('lab_driver.py',
+        "            if self.waiting is not None and self.monotonic() >= self.waiting['deadline_ns']:\n",
+        '            if False:\n',
+        ('test_next_driver',)),
+    'driver-later-boot-assumed': ('lab_driver.py',
+        '        return self.restart_resolves(generation)\n',
+        '        return True\n',
+        ('test_next_driver',)),
+    'driver-later-boot-unread': ('lab_driver.py',
+        '        return self.restart_resolves(generation)\n',
+        '        return False\n',
+        ('test_next_driver',)),
+    'driver-reached-conditional-exempt': ('lab_driver.py',
+        "                       and next_cells.by_fault(cell, c)['milestone'] not in milestones]\n",
+        '                       and True]\n',
+        ('test_next_campaign',)),
+    'driver-f0-branch-predicted': ('lab_driver.py',
+        "        if branch not in self.declaration['branches']:\n",
+        "        if branch != self.declaration['branches'][0]:\n",
+        ('test_next_campaign', 'test_next_driver')),
+    'driver-declaration-unbound': ('lab_driver.py',
+        "        if admission.get('cells_sha256') != digest or admitted != self.declaration['branches']:\n",
+        '        if False:\n',
+        ('test_next_campaign',)),
+    'next-record-one-branch': ('next_cells.py',
+        '    for world in worlds(declared):\n        entries = []\n',
+        '    for world in worlds(declared)[:1]:\n        entries = []\n',
+        ('test_next_campaign',)),
+    'next-undecided-reaches-a': ('next_cells.py',
+        "        if world['f0'] is None:\n            raise ValueError('F0 has not decided whether %s runs'"
+        " % cell['name'])\n",
+        '',
+        ('test_next_campaign',)),
+    # The next driver's version 3: the ordinary wait's own admitted budget on the host's clock,
+    # and the report of other packages' live sessions at Final.
+    'wait-budget-from-the-plan': ('lab_driver.py',
+        "        budget = self.broker.admission['wait_policy']['ordinary_wait_ms']\n",
+        "        budget = self.plan_record(state['plan'])['verificationWait']\n",
+        ('test_next_driver',)),
+    'wait-reads-uncut': ('lab_driver.py',
+        "            self.read_deadline_ns = None if self.waiting is None else self.waiting['deadline_ns']\n",
+        '            self.read_deadline_ns = None\n',
+        ('test_next_driver',)),
+    'wait-pause-uncut': ('lab_driver.py',
+        '        return pace if remaining is None else min(pace, remaining)\n',
+        '        return pace\n',
+        ('test_next_campaign',)),
+    'wait-samples-dropped': ('lab_driver.py',
+        "                        samples=waiting['samples'])\n",
+        '                        samples=[])\n',
+        ('test_next_driver',)),
+    'wait-intent-by-ticket-bytes': ('lab_driver.py',
+        "        return (state['ticket'], state['state'], len(state['ledger']), state['boot'])\n",
+        "        return (state['sha256'],)\n",
+        ('test_next_campaign',)),
+    'generation-read-deadline-ignored': ('lab_broker.py',
+        '        if deadline_ns is None:\n            deadline_ns = self._read_deadline\n',
+        '',
+        ('test_next_driver',)),
+    'generation-read-deadline-unchecked': ('lab_broker.py',
+        "        if deadline_ns is not None and (self.admission['version'] != 3 or not isinstance(deadline_ns, "
+        'int)\n',
+        '        if False and (False\n',
+        ('test_next_campaign',)),
+    'admission-wait-policy-unchecked': ('lab_broker.py',
+        "    lab_actions.check_wait_policy(value['wait_policy'])\n",
+        '',
+        ('test_next_campaign',)),
+    'final-other-sessions-unreported': ('lab_driver.py',
+        "        reported = {'other_live': [{'classification': session_classification(row), 'session': row}"
+        ' for row in others],\n',
+        "        reported = {'other_live': [],\n",
+        ('test_next_driver',)),
+    'final-other-sessions-uncertain': ('lab_driver.py',
+        '        else:\n            others.append(dict(row))\n',
+        "        else:\n            uncertain.append(row['id'])\n",
+        ('test_next_campaign', 'test_next_driver')),
+    'final-other-classification-flattened': ('lab_driver.py',
+        "    return 'SEALED' if row['sealed'] else 'OPEN'\n",
+        "    return 'OPEN'\n",
+        ('test_next_campaign',)),
 }
 
 # Each Java defect: the file under this directory, its exact old and new text, and the suites run
@@ -1580,6 +1865,49 @@ JAVA_MUTANTS = {
         '                if (named ? m.number("record") < 1 : m.number("record") != 0) {\n',
         '                if (named && m.number("record") < 1) {\n',
         ('ProtocolTest',)),
+    # The next campaign's repair records.
+    'repair-other-boots-mixed': (JAVA_MAIN + 'LabRepair.java',
+        "            if (!o.boot.equals(boot)) continue; // Only the established boot's facts: no other"
+        ' boot is ordered.\n',
+        '',
+        ('RepairTest',)),
+    'repair-checked-boot-unchecked': (JAVA_MAIN + 'LabRepair.java',
+        '        need(s.checkedBoot.equals(boot),\n',
+        '        need(true,\n',
+        ('RepairTest',)),
+    'repair-pending-after-committed': (JAVA_MAIN + 'LabRepair.java',
+        '        need(lastPending < firstCommitted, ',
+        '        need(true, ',
+        ('RepairTest',)),
+    'repair-signs': (JAVA_MAIN + 'LabRepair.java',
+        '                .signer(repaired.signer).signing(0)\n',
+        '                .signer(repaired.signer).signing(1)\n',
+        ('RepairTest',)),
+    'repair-base-not-current': (JAVA_MAIN + 'LabRepair.java',
+        '                .base(current.apk, current.version, current.uid, current.context).selectionRev'
+        'ision(current.revision)\n',
+        '                .base(repaired.baseApk, repaired.baseVersion, repaired.baseUid, repaired.baseC'
+        'ontext)\n                .selectionRevision(current.revision)\n',
+        ('RepairTest',)),
+    'repair-sign-approved': (JAVA_MAIN + 'LabRepair.java',
+        '        need(!approvals.contains("sign"), "a repair signs nothing: no SIGN grant is approved")'
+        ';\n',
+        '',
+        ('RepairTest',)),
+    'repair-grants-twice': (JAVA_MAIN + 'LabRepair.java',
+        '        need(store.authorizationsOf(repairId).isEmpty(), "the repair plan already has grants")'
+        ';\n',
+        '',
+        ('RepairTest',)),
+    'repair-beside-open-ticket': (JAVA_MAIN + 'LabRepair.java',
+        '        need(!openTicket(store, lab.component), "a ticket of the component is open");\n       '
+        ' List<Authorization> written = new ArrayList<>();\n',
+        '        List<Authorization> written = new ArrayList<>();\n',
+        ('RepairTest',)),
+    'repair-ticket-any-grants': (JAVA_MAIN + 'LabRepair.java',
+        '        need(effects.equals(List.of(Effect.STAGE, Effect.ACTIVATE)),\n',
+        '        need(true,\n',
+        ('RepairTest',)),
 }
 
 
@@ -1590,7 +1918,7 @@ def java_case_names(text):
 def case_names(tree=HERE):
     """Each suite's case IDs, from its source."""
     names = {}
-    for suite in SUITES + (BRIDGE_SUITE, DRIVER_SUITE):
+    for suite in SUITES + JVM_SUITES + (DRIVER_SUITE,):
         parsed = ast.parse((tree / (suite + '.py')).read_text())
         found = []
         for node in parsed.body:
@@ -1729,6 +2057,32 @@ DRIVER_MUTANTS = {
     'prediction-not-compared': ('lab_driver.py', '        if found != expected:\n', '        if False:\n', (DRIVER_SUITE,)),
     'cohort-control-not-contradicted': (DRIVER_JAVA + 'LabDriverMain.java',
                                         'contradict ? otherDigest(base.apk) : base.apk', 'base.apk', ('DriverTest', DRIVER_SUITE)),
+    # The next campaign's repair commands and host configuration.
+    'repair-pair-unchecked': (DRIVER_JAVA + 'LabHost.java',
+        '        if (config.repair == null || !config.repair.equals(repair) || !config.repaired.equals('
+        'repaired)) {\n',
+        '        if (false) {\n',
+        ('DriverTest',)),
+    'repair-plan-in-plans': (DRIVER_JAVA + 'LabHost.java',
+        '                if (repair.equals(repaired) || !plans.contains(repaired) || plans.contains(rep'
+        'air)) {\n',
+        '                if (repair.equals(repaired)) {\n',
+        ('DriverTest',)),
+    'repair-ticket-command': (DRIVER_JAVA + 'LabDriverMain.java',
+        '        need(plan.value.repairs.equals(DeploymentRecords.NO_ID), "a repair plan\'s ticket come'
+        's from its own phases");\n',
+        '',
+        ('DriverTest',)),
+    'init3-version-1-host': (DRIVER_JAVA + 'LabDriverMain.java',
+        '        need(host != null && host.config().repair != null, "the next campaign binds a version '
+        '2 lab host configuration");\n',
+        '        need(host != null, "the next campaign binds a version 2 lab host configuration");\n',
+        ('DriverTest',)),
+    'next-commands-any-configuration': (DRIVER_JAVA + 'LabDriverMain.java',
+        '        need(lab.profile != null, "the next campaign\'s commands need its version 3 configurat'
+        'ion");\n',
+        '',
+        ('DriverTest',)),
 }
 
 
@@ -1822,20 +2176,21 @@ def java_phase(report, names, java, javac, work, suites=True):
     if len(list(goldens.glob('*.bin'))) != 25:
         problems.append('the Python suite wrote %d goldens, not 25' % len(list(goldens.glob('*.bin'))))
     for suite in JAVA_SUITES:
-        args = [str(goldens)] if suite == 'ProtocolTest' else [str(work / 'bridge-runs')]
-        if suite == 'BridgeTest':
-            (work / 'bridge-runs').mkdir()
+        args = [str(goldens)] if suite == 'ProtocolTest' else [str(work / ('runs-' + suite))]
+        if suite != 'ProtocolTest':
+            (work / ('runs-' + suite)).mkdir()
         run = run_java(java, classes, suite, args, work)
         results[suite] = {'passed': len(run['passed']), 'failed': run['failed'], 'returncode': run['returncode']}
         if run['returncode'] != 0 or run['failed'] or sorted(run['passed']) != sorted(names[suite]):
             problems.append('%s: %d passed of %d, failed %s' % (suite, len(run['passed']), len(names[suite]),
                                                                  run['failed'] or run['output'][-400:]))
-    run = run_suite(REPO, BRIDGE_SUITE, java, classes)
-    results[BRIDGE_SUITE] = {'passed': len(run['passed']), 'failed': run['failed'], 'skipped': len(run['skipped']),
-                             'returncode': run['returncode']}
-    if run['returncode'] != 0 or run['failed'] or sorted(run['passed']) != sorted(names[BRIDGE_SUITE]):
-        problems.append('%s: %d passed of %d, failed %s' % (BRIDGE_SUITE, len(run['passed']), len(names[BRIDGE_SUITE]),
-                                                             run['failed'] or run['output'][-400:]))
+    for suite in JVM_SUITES:
+        run = run_suite(REPO, suite, java, classes)
+        results[suite] = {'passed': len(run['passed']), 'failed': run['failed'], 'skipped': len(run['skipped']),
+                          'returncode': run['returncode']}
+        if run['returncode'] != 0 or run['failed'] or sorted(run['passed']) != sorted(names[suite]):
+            problems.append('%s: %d passed of %d, failed %s' % (suite, len(run['passed']), len(names[suite]),
+                                                                 run['failed'] or run['output'][-400:]))
     report['java'] = results
     return problems, classes
 
@@ -1935,7 +2290,7 @@ def mutant_phase(report, predictions, chosen, java, javac, base_classes, work, s
                 driver = dict(signing, classpath=classpath)
             else:
                 driver = dict(signing, classpath=driver_classpath)
-        needs_jvm = any(s in JAVA_SUITES or s == BRIDGE_SUITE for s in suites)
+        needs_jvm = any(s in JAVA_SUITES or s in JVM_SUITES for s in suites)
         if needs_jvm and classes is None and note is None:
             note = 'no JVM phase: not run'
         for suite in suites:
@@ -1944,7 +2299,7 @@ def mutant_phase(report, predictions, chosen, java, javac, base_classes, work, s
             if suite in JAVA_SUITES:
                 runs = tree / ('runs-' + suite)
                 runs.mkdir()
-                args = [str(runs)] if suite == 'BridgeTest' else []
+                args = [] if suite == 'ProtocolTest' else [str(runs)]
                 failed |= set(suite + '.' + case for case in run_java(java, classes, suite, args, tree)['failed'])
             elif suite in DRIVER_JAVA_SUITES:
                 runs = tree / ('runs-' + suite)

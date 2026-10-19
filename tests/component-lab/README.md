@@ -43,12 +43,16 @@ closure are later packages.
 | `lab_target.py` | The native target scope read: the selected image's exact fresh form of Package Manager's native identity diagnostic |
 | `source_manifest.py` | The exact source manifest a broker is admitted with |
 | `lab_driver.py` | The lab driver: the store's setup, the baseline check, the plan from it, the generations, the published variant staged for WRITE, and the cell sequence's attempts |
+| `NextDriver` | In `lab_driver.py`: the next campaign's driver and its admission writer |
 | `cells.py` | The loss cells as one ordered sequence of attempts on one plan, each with its faults and prediction |
+| `next_cells.py` | The next campaign's remaining matrix, its declared branches and outcomes |
 | `driver/` | Java: `LabDriverMain`, the driver's coordinator process and store setup, and `LabHost`, the real host signer, artifact store and bundle builder |
+| `LabRepair` | Java, in `java/`: the current baseline and the repair phases both entries share |
 | `driver-tests/` | Java: `DriverTest`, unit checks of the driver's baseline, selection, host configuration and approval guards |
 | `sim_android.py`, `sim_users.py`, `labtest.py` | Host test support: a small simulated guest, its users in the full user forms, the health package's forms and fakes, and a client |
 | `fixtures/full-users/` | The full user forms, source derived, with their commands, statuses and sources |
 | `test_*.py` | The host suites; `test_lab_next.py`, `test_lab_loss.py`, `test_full_users.py`, `test_health.py` and `test_witness.py` are the next campaign profile's broker suites |
+| `test_next_*.py` | The host suites of the next campaign's matrix and driver |
 
 ## Process model
 
@@ -331,6 +335,9 @@ barrier an interrupted creation or an earlier failed sync never reached is never
   groups (clock, boot, checkpoint, factory, active, sessions and, when admitted, the target),
   recorded as the broker's own groups, and one fixed diagnostic, `logcat -b all -d`, captured like
   any command with its own output bound. Both are fenced, and neither runs during a generation.
+  Under a version 3 admission the controller may also read the whole global session inventory and
+  the whole typed user inventory, each only when its reader is admitted and checked as an action's
+  reads are.
 - **A guest's admission.** Version 2 names the device crossings the broker may launch at all: any
   other crossing is answered NO_REPLY with nothing launched, whatever the fault schedule holds, and
   a fault cell that needs a launch on such a crossing is refused at admission (a loss before the
@@ -420,16 +427,21 @@ accepted the request, never that a user saw the notice: receipts come from later
 A version 3 admission names the profile `d5-next-vehicle-1`. It keeps version 2's base, launch set
 and store, and replaces version 2's action map with exactly these keys: the SHA-256 of the cells,
 fixtures, payloads and fault schedule it binds, the ordered typed action specs, the F0 branches,
-the effect limits and the boot policy. Every key is exact and every digest nonzero; an unknown key,
-version or profile refuses the admission. Its bridge configuration is version 3, which names the
-same profile, and its generations speak protocol version 2. The broker retains the stored records
-every crossing names, as under version 2.
+the effect limits, the boot policy and the wait policy. Every key is exact and every digest
+nonzero; an unknown key, version or profile refuses the admission. Its bridge configuration is
+version 3, which names the same profile, and its generations speak protocol version 2. The broker
+retains the stored records every crossing names, as under version 2.
 
 - **Effect limits.** Separate caps of each device crossing's effects, of direct, admin, fixture and
   control action effects, and of each phase's action effects. Zero forbids; nothing is unlimited.
   Effects are counted from the ledger's captures that may have launched, an interrupted intent
   included, never from replies or END records, and a reopening never resets them. A crossing past
   its cap, or a reboot past the boot policy's service allowances, launches nothing.
+- **The wait policy.** One budget, `ordinary_wait_ms`, from 1 s to an action's longest bound: how
+  long, on the host's monotonic clock, the next driver reads an unchanged intent again before it
+  stops with the ticket unresolved. A generation run with a read deadline, a waiting round, names
+  it in its record. Every read it asks is cut to what is left of it, and none launches past it;
+  its crossings keep their own bounds. Only a version 3 broker takes a read deadline.
 - **Compound groups.** A receipt read, a notice visibility, a health baseline and a health
   composition are each one compound group. Its children, every capture and clock read, are in the
   ledger first; then its manifest, a canonical side record (`lab_evidence.py`) with its schema,
@@ -541,10 +553,11 @@ every crossing names, as under version 2.
   it uncertain, so it is observed or halted, never repeated. A reopening records a LOST END for a
   BEGIN without one, and that action is never run again to find out.
 
-The registry has thirteen types. FRAMEWORK_RESTART is withdrawn: an admission that names it is
+The registry has fourteen types. FRAMEWORK_RESTART is withdrawn: an admission that names it is
 refused by that name, since the next profile admits no framework restart; version 2's driver keeps
 its own. PLAIN_KERNEL_CONFIRM, DIRECT_STAGE, DIRECT_COMMIT and NEGATIVE_ACTIVATION are below. The
-old action map is never reinterpreted. NOTICE_VISIBILITY captures and reads one required
+old action map is never reinterpreted. HELPER_PUSH puts one fixed helper jar on the guest,
+below. NOTICE_VISIBILITY captures and reads one required
 recipient's display through the notice adapter; it qualifies only in the notice's boot with one
 running framework through its bracket, for the recipient as the display's current user, awake and
 focused, showing the issue's challenge. HEALTH_PREPARATION runs the health adapter's UI, user and
@@ -738,6 +751,15 @@ that end the sequence, are the health package's, below.
   later package's; its adapter is a hook here. Both setup types wait for every boot transition to
   settle, as the full user setup does, and a reopening checks each of their records against the
   captures it names.
+- **Helper pushes and checks.** HELPER_PUSH, under LAB_CONTROL in the ENTRY phase, puts one of
+  the two fixed read only helper jars, the UI state helper or the process history helper, at its
+  fixed path. Its spec pins the jar's SHA-256 and size, and an admission whose pin is not the bytes
+  the helper's reader pins is refused. The host file must hold exactly those bytes, or nothing is
+  launched. The push is the action's one effect, counted against the fixture and phase caps, and
+  never beside an unsettled boot transition. It settles only when a separate `sha256sum` of the
+  pushed path gives the pinned digest back; a readback of other bytes is unexpected and one that
+  is lost stays uncertain, and neither is ever pushed again. `helper_check` reads one helper's
+  bytes again between generations, a fenced recorded capture that pushes nothing.
 - **Kept records latch the writer.** A record this profile keeps by digest outside the compound
   writer latches the broker's stop when its write or sync fails, as a manifest does. These are a
   boundary's records, a point's, a confirmation's issuing records, F0's capability record and the
@@ -775,6 +797,8 @@ export, stops the driver before another round, so no session is created without 
 deliberately halted generation is followed by a new one on the same store, which continues by
 observation; a generation that failed, was stopped or killed, or was lost stops the driver.
 
+The next campaign has its own driver, below; this one stays the G1a vehicle's.
+
 `LabHost` signs with the development platform key that public Android source trees carry, for a
 disposable lab guest only, through apksig without v1. Its configuration names every file it uses
 with its SHA-256, and a generation is given the configuration and its digest, which the admission
@@ -805,6 +829,116 @@ request counts; the closure judges the effects. Any difference stops the driver.
 generation, `plan` and `ticket` the driver also keeps a numbered snapshot of the store's records
 with their SHA-256, since the store replaces a ticket's record with its successor.
 
+## The next campaign's driver
+
+`NextDriver` in `lab_driver.py` runs the remaining matrix of `next_cells.py` through the same
+broker and Java entry as the G1a driver. It decides no ticket and owns no guest command; it adds
+order, pacing and its own records.
+
+- **The matrix.** `next_cells.py` holds the campaign in its order: the cohort refusal, A's five
+  preactivation attempts with their thirteen faults and six plain confirmations, the direct
+  controls N1 to N3, F0, A's positive attempt 6, the repair R and the final reads. Each managed
+  cell names its faults at their whole addresses, the waits it confirms by a later boot, and its
+  prediction: end, cause, ledger, native calls, host calls, boot count, confirmations and forward
+  milestones. A prediction is of the nominal world, a running secondary user and a FULL F0, and
+  `qualified` gives it in another: without notices the NOTICE faults and entries drop out and are
+  not captured, a REFUSED F0 leaves A's positive attempt, R and the final reads uncreated, and a
+  serial is HEALTHY only under a FULL F0 whose probes read every criterion. APPLIED_PROVISIONAL is
+  conditional: its loss may stay unconsumed only when no boundary reached it, and is then not
+  captured. Its counts are the contract's: six confirmations, ten reboot services, thirteen
+  nominal boot identities, A's boot counts 0, 1, 1, 1, 3 and 1, and R's 1.
+- **The declaration.** F0 is a gate, not a prediction. A campaign declares before launch whether
+  notices are owed and which F0 branches its admission admits: FULL and REFUSED always, LIMITED only
+  when reviewers admit it. The cells record freezes every declared branch's predictions, the
+  schedule arms every fault a declared branch can reach, and before F0 decides nothing after it is
+  predicted.
+- **Admission and configuration.** `next_admission` writes the version 3 admission of the
+  campaign's declaration: the cells record and the fault schedule bound by SHA-256, the fixture
+  and payload manifests, the two helper pushes, the six confirmations chained in their order, the
+  direct controls the campaign names chained after them, a health preparation of each window, the
+  F0 branches with A's positive attempt, effect caps from the campaign's own counts and the boot
+  policy: four activation and six confirmation services, thirteen observed boots, a 5 s poll, a
+  1200 s confirmation bound and a 2400 s negative activation bound. The broker checks it whole.
+  `init3` writes the store and the version 3 bridge configuration, which binds a version 2 lab host
+  configuration.
+- **The entry and identities.** The admission must bind the driver's own declaration and its
+  predictions. The schedule is admitted once, both helpers are pushed with their byte readback, a
+  complete check establishes T0, and an identity baseline is read while the factory copy is active.
+  It is read again just before the positive attempt's gate, while the factory copy is still active;
+  a baseline that does not qualify stops the driver.
+- **Explicit boot phases.** Every boot ID the ledger shows is a boot of the campaign in ledger
+  order, never by wall time, with the transition that made it: the initial boot, a confirmation, a
+  negative activation and its native recovery, or a managed REBOOT whose capture may have launched.
+  Any other new boot, or one past the observed allowance, stops the driver. After a confirmation
+  its renewed reads must all be facts. In every new boot both helpers must read back their pinned
+  bytes before any read uses them: at once after a confirmation or a negative activation, and at
+  the APPLIED boundary after a managed activation. A ticket's boot count may rise by one, only
+  with its boot changed to an observed one, and each change is a synced boot accounting record.
+- **One round pacing.** Each ticket generation is one public round, so each boundary is
+  checkpointed and no settle loop crosses a milestone. A round that leaves the stored ticket's
+  bytes unchanged in an intent is one of two waits, told apart by the round's own reads as G1a's
+  driver tells a wait a later framework instance resolves. When they show only a later boot can
+  resolve it (a COMMITTED checkpoint, a whole listing of the clock's instance and no session
+  committed or of unknown commitment), the round asks the cell's next confirmation, and only one
+  of that wait; an unpredicted one stops the driver. Anything else, such as a committed session
+  still verifying, a pending checkpoint or a read that was not whole, is an ordinary read wait:
+  read again without a replay or a reboot, within its own budget, below. Time passes only after a
+  round that changed nothing: the driver's pace, and in a window its own pace, below the window's
+  largest gap and within its admitted preparations.
+- **The ordinary read wait's budget.** A wait is of one intent: the ticket, its state, its
+  ledger's length and its boot, so a flag a lost read sets does not restart it. Its budget is the
+  admission's own `wait_policy`, `ordinary_wait_ms`, never the plan's verification wait, which
+  stays the product's M0 threshold. The starting value is 600000 ms, frozen and justified where
+  the driver writes it. The deadline is on the host's monotonic clock, from the round that opened
+  the wait, and is kept in a synced checkpoint first. Each waiting round runs with that deadline:
+  the broker names it in the generation's record and cuts every read the round asks to what is
+  left of it, as an action's reads are cut to their bound, so no read begins past it. Each pause
+  is cut the same way. Each waiting round's guest clock reading is kept beside its host time. A
+  changed intent records the wait resolved. At the deadline the wait is recorded unresolved, with
+  every sample, and the driver stops: the ticket stays as the store holds it, with no replay, no
+  reboot and no claim that the native session failed.
+- **The APPLIED boundary.** At APPLIED the driver stops rounding, checks the helpers and takes, for
+  each running user, health baselines until two are whole in this boot and framework instance,
+  then lets one round open the window. Fewer stops the driver. Each window round follows the
+  probe's preparation, a named hook until its adapter exists.
+- **The scheduled loss control.** The schedule is admitted once. A halted generation must have
+  decided exactly one scheduled fault and a complete one none, no loss may be left not acted, and
+  at a cell's end every fault its world reaches has acted once, except one at a conditional
+  milestone that no boundary of the cell reached, recorded not captured.
+- **F0's branch.** The broker decides the branch the trial's capability record establishes and
+  refuses one the admission does not admit; the driver selects it among the declared branches and
+  records it. A, R and the final reads then run, or stay not captured under a REFUSED F0.
+- **Records.** A synced store snapshot after every step, its manifest last, and synced run
+  checkpoints at every boot, boundary, baseline, confirmation, control and cell end. Each identity
+  and health baseline, whatever it read, is a synced, immutable cache entry naming the broker's
+  group; only the whole ones of the current boot and framework instance count, and no later boot
+  inherits them. The plan's publication is exported and pinned with its record's SHA-256, which
+  `published` prints for a version 3 configuration, before any WRITE.
+- **The current baseline and R.** Only after A closed applied with no open ticket: a check
+  generation that is the last generation establishes the newest checked boot from its own reads,
+  and `baseline` gives the chosen plan's active copy from that boot's facts alone, which the
+  selection must record as checked; other boots' facts are left out, never ordered by wall time.
+  `repair-plan` writes R from it: `repairs` A, signing 0, A's restoration input, versionCode and
+  signer as its bundle, A's cohort, the current A digest, versionCode, UID and context as its base,
+  and the selection's revision, with equal notice delays. `repair-grants` writes R's STAGE and
+  ACTIVATE only on the explicit approvals `stage` and `activate`, never SIGN, and `repair-ticket`
+  its first ticket. Each phase is its own process followed by a synced snapshot and checkpoint and
+  refuses when its own records exist, so a phase cut short authorizes nothing missing. Only the
+  repair the version 2 host configuration names, `repair <R> <A>`, is made; R is never among its
+  `plans`, so no key operation is ever approved for it, and the ordinary `ticket` command refuses a
+  repair plan.
+- **The final reads.** A complete check, then one whole read group between generations: the boot,
+  checkpoint, factory and active copy, the whole global session inventory and the whole user
+  inventory, bracketed by two clock reads of the checked boot's one framework instance. The active
+  copy must be R's exact bytes, versionCode, UID and context on the original cohort, and the whole
+  inventory is joined against the campaign's own references: every ticket nonce, every ticket's
+  recorded session and every direct control's referrer. A live session the campaign owns fails
+  Final; terminal history may stay. A read that is not whole, or a live session of the component
+  whose owner the join cannot tell, leaves Final UNKNOWN. Live sessions of other packages under
+  other referrers are reported as observations, each its whole row as the inventory read it, its
+  classification (OPEN, SEALED, COMMITTED, READY or UNKNOWN) and the inventory's group. They are
+  outside Final's claim of no live owned reference and never fail Final by themselves.
+
 ## Reader adapter
 
 `lab_readers.py` defines what the broker calls. A reader has an allowlist of fixed read only
@@ -832,6 +966,10 @@ python3 -B -m unittest discover -s tests/component-lab -p 'test_*.py'
 
 These are host checks only. They use a simulated guest and a fake adb server, so they qualify no
 guest form, Android behavior, power loss or activation.
+
+`test_next_driver.py` needs the JDK and the compiled classes as the end to end bridge suite does,
+and runs the next campaign's driver over the host test entry and the scripted host; `RepairTest`
+is a Java suite of the same build.
 
 The driver suite needs the pinned apksigner jar, a directory with the public `platform.pk8` and
 `platform.x509.pem`, and a directory with the built `built-A.apk` and `built-R.apk`. The lab runner
@@ -882,4 +1020,12 @@ partial.
   report shows while SystemUI crashes or is not responding, and for how long; how late an exit row
   is published or updated; and any stronger evidence that a row belongs to the current boot. The
   pending bound and the clock tolerances are declared values, not measurements.
+- The next campaign's driver is shown on the simulated guest with the scripted host, one running
+  user and no notice: its notice cells, F0's user setup and content, the health preparation
+  adapter and the work fixture are later parts, and N1 has no lab action yet. The real host signer
+  and artifact store under it are the lab driver suite's. Which milestones and boots a guest shows,
+  how long a real commit stays verifying and so whether the ordinary wait's starting budget fits,
+  whether the final whole inventories read whole and which other packages' sessions they show, and
+  a cadence that keeps a window's probes within its gap, need a guest. In the host tests the host
+  clock moves only through an ordinary wait, by hand.
 - A process crash is not power loss, and directory times are not durability evidence.

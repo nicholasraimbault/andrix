@@ -74,6 +74,8 @@ PARAMETERS = {'PLAIN_KERNEL_CONFIRM': {}, 'NOTICE_VISIBILITY': {},
 POSITIVE_ATTEMPT = 6
 BOOT_POLICY = {'activation_services': 4, 'confirmation_services': 6, 'observed_boots': 13, 'poll_interval_ms': 5000,
                'settle_ms': 1_200_000, 'negative_settle_ms': 2_400_000, 'unexpected_boot': 'HALT'}
+# The profile's own budget of an ordinary read wait, on the host's monotonic clock.
+WAIT_POLICY = {'ordinary_wait_ms': 600_000}
 
 
 def action_spec(ident, kind, phase='F0', cell='f0-control', **changes):
@@ -162,7 +164,7 @@ def admission3(directory, store=None, specs=None, **changes):
                  branches={'FULL': {'predicate_sha256': 'd1' * 32, 'actions': [s['id'] for s in specs]},
                            'LIMITED': None, 'REFUSED': {'predicate_sha256': 'd2' * 32, 'actions': []},
                            'positive': {'plan': PLAN, 'attempt': POSITIVE_ATTEMPT}},
-                 effect_limits=effect_limits(), boot_policy=dict(BOOT_POLICY))
+                 effect_limits=effect_limits(), boot_policy=dict(BOOT_POLICY), wait_policy=dict(WAIT_POLICY))
     value.update(changes)
     return value
 

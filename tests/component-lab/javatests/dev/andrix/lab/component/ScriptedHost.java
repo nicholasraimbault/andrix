@@ -25,7 +25,9 @@ import java.util.List;
  * generations through marker files. It keeps the host signer's rules that reconciliation relies on: a
  * signing request without a completed record can no longer complete once its call ended, and a
  * publication reads back PUBLISHED or ABSENT for the PUBLISH attempt it names. Nothing is signed: the
- * plan's bound APKs are given. The production host, with apksig, is the lab driver package's.
+ * plan's bound APKs are given. A repair plan that signs nothing binds the given restoration as its
+ * one bundle, as the artifact store's restoration plan does. The production host, with apksig, is
+ * the lab driver package's.
  */
 final class ScriptedHost implements Coordinator.Host {
     private final Path dir;
@@ -54,9 +56,10 @@ final class ScriptedHost implements Coordinator.Host {
     }
 
     private Observation published(Plan plan, String attempt) {
+        boolean repair = plan.signing == 0 && !plan.repairs.equals(DeploymentRecords.NO_ID);
         return fact(plan, Classification.BUNDLE_PUBLISHED, attempt).plan(plan.planId)
                 .digest(LabProtocol.sha256Hex(("publication " + plan.planId).getBytes(StandardCharsets.US_ASCII)))
-                .apks(bundleApk, restorationApk).build();
+                .apks(repair ? restorationApk : bundleApk, repair ? DeploymentRecords.NO_DIGEST : restorationApk).build();
     }
 
     private void mark(String name) {

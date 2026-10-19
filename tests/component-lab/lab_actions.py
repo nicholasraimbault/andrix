@@ -15,7 +15,7 @@ recipient of the stored ticket's issued notice. An inventory that is not whole, 
 being removed, partial or precreated, another type or another serial resolves nothing. Nothing is
 guessed: no current user and no user ID that the inventory did not show.
 
-The registry has thirteen types. NOTICE_VISIBILITY captures and reads the current visibility of an
+The registry has fourteen types. NOTICE_VISIBILITY captures and reads the current visibility of an
 issued notice for one required recipient, through the notice adapter. HEALTH_PREPARATION runs the
 UI, user and work steps that a full health probe of one user needs, through the health adapter,
 under a fresh preparation ID and challenge. PLAIN_KERNEL_CONFIRM is a plain kernel reboot that
@@ -26,6 +26,11 @@ are the steps of one admitted direct negative control, N2 or N3: a staged sessio
 negative payload under its own referrer, its commit after explicit per control consent, and its
 activating reboot, which settles only on the intended rejection and a safe recovery. They are the
 only native commits before F0, and only in their admitted order.
+
+HELPER_PUSH puts one of the guest's fixed read only helper jars at its fixed path, with the exact
+bytes its spec pins, which must be the bytes the helper's reader pins, and settles only on a
+separate digest read of the pushed file giving those bytes back. It runs at the campaign's entry,
+before any read uses the helper.
 
 FRAMEWORK_RESTART, version 2's `am restart`, is withdrawn from this profile: a spec naming it is
 refused by name.
@@ -131,7 +136,14 @@ TYPES = {
                     'preconditions': ['WHOLE_USER_INVENTORY', 'TARGET_CE_UNLOCKED', 'UI_STATE_ADMITTED',
                                       'NO_EARLIER_SENTINEL'],
                     'after_uncertain': False, 'adapter': 'work', 'phase': 'F0'},
+    'HELPER_PUSH': {'authority': 'LAB_CONTROL', 'selectors': ('SYSTEM_USER',), 'parameters': {'helper': 'helper'},
+                    'inputs': 'helper', 'effect': 'fixture',
+                    'preconditions': ['PINNED_BYTES', 'READER_PIN', 'BYTE_READBACK', 'NO_UNSETTLED_TRANSITION'],
+                    'after_uncertain': False, 'adapter': None, 'phase': 'ENTRY'},
 }
+# The fixed read only helper jars a HELPER_PUSH may put on the guest, by name. Each one's guest path
+# and pinned bytes are its reader's own (the broker's HELPER_PINS).
+HELPERS = ('ui-state', 'process-health')
 # The full user setup types, in the order of a user's setup, which read the full user forms
 # instead of the global sessions. The last two end the sequence: the disposable lab PIN, and the
 # CE sentinel the fixture keeps in CE storage.
@@ -163,6 +175,9 @@ MAX_TAP = 10000
 PIN_DIGITS = (6, 16)
 BOOT_POLICY_KEYS = ('activation_services', 'confirmation_services', 'observed_boots', 'poll_interval_ms',
                     'settle_ms', 'negative_settle_ms', 'unexpected_boot')
+# The profile's read wait budget: how long, on the host's monotonic clock, an intent a round left
+# unchanged is read again before the driver stops with the ticket unresolved.
+WAIT_POLICY_KEYS = ('ordinary_wait_ms',)
 BRANCHES = ('FULL', 'LIMITED', 'REFUSED')
 # The typed user inventory's states and the full user types the profile resolves.
 USER_STATES = ('RUNNING_UNLOCKED', 'RUNNING_LOCKED', 'NOT_RUNNING')
@@ -233,8 +248,10 @@ def check_specs(specs, installation):
             _payload(spec['inputs'], spec['parameters']['role'])
         elif kind['inputs'] == 'fixture':
             _fixture(spec['inputs'])
+        elif kind['inputs'] == 'helper':
+            _helper(spec['inputs'])
         elif spec['inputs'] != []:
-            _fail('only a direct stage and a fixture pin inputs')
+            _fail('only a direct stage, a fixture and a helper pin inputs')
         if spec['preconditions'] != kind['preconditions']:
             _fail("an action's preconditions are exactly its type's")
         if spec['predecessor'] is not None:
@@ -283,6 +300,15 @@ def _fixture(inputs):
         _fail('a fixture pins exactly its base.apk')
     _hex32(inputs[0]['sha256'], 'a pinned fixture digest')
     _int(inputs[0]['bytes'], 1, 1 << 30, 'a pinned fixture size')
+
+
+def _helper(inputs):
+    """A helper's pinned bytes: exactly its jar's SHA-256 and size."""
+    if (not isinstance(inputs, list) or len(inputs) != 1 or not isinstance(inputs[0], dict)
+            or set(inputs[0]) != {'role', 'sha256', 'bytes'} or inputs[0]['role'] != 'helper'):
+        _fail('a helper pins exactly its jar')
+    _hex32(inputs[0]['sha256'], 'a pinned helper digest')
+    _int(inputs[0]['bytes'], 1, 1 << 26, 'a pinned helper size')
 
 
 def step_problem(step):
@@ -369,6 +395,9 @@ def _parameters(parameters, kind):
                 _fail('a fixture is an ordinary package, never the component')
         elif form == 'pin_digits':
             _int(value, PIN_DIGITS[0], PIN_DIGITS[1], 'the PIN digits')
+        elif form == 'helper':
+            if value not in HELPERS:
+                _fail('a helper of the fixed set %s' % (HELPERS,))
         else:
             raise AssertionError(form)
 
@@ -406,6 +435,16 @@ def check_boot_policy(value):
     _int(value['negative_settle_ms'], 1, MAX_TIMEOUT_MS, 'negative_settle_ms')
     if value['unexpected_boot'] != 'HALT':
         _fail('an unexpected boot halts')
+    return value
+
+
+def check_wait_policy(value):
+    """The ordinary read wait's own budget, in milliseconds of the host's monotonic clock: at least
+    a second and at most an action's longest bound. It is the profile's, never an alias of a plan's
+    verification wait."""
+    if not isinstance(value, dict) or set(value) != set(WAIT_POLICY_KEYS):
+        _fail('a wait policy has exactly its keys')
+    _int(value['ordinary_wait_ms'], 1000, MAX_TIMEOUT_MS, 'ordinary_wait_ms')
     return value
 
 

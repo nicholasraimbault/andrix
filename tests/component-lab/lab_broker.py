@@ -92,6 +92,9 @@ DIAGNOSTIC_STDOUT_MAX = 64 << 20
 DIAGNOSTIC_TIMEOUT_S = 120
 # Reader groups the controller may ask between generations.
 CONTROLLER_READS = ('clock', 'boot', 'checkpoint', 'factory', 'active', 'sessions', 'target')
+# The whole inventories a version 3 controller may also read between generations, each only when
+# its reader is admitted: the final reads join every live session against the campaign's own.
+WHOLE_READS = ('global-sessions', 'inventory')
 # The deployment store's record directories and file suffix, as DeploymentStore writes them.
 STORE_SUFFIX = '.rec'
 RECORDS = 'records'
@@ -116,7 +119,7 @@ REBOOT_LABEL = 'adb service reboot:'
 
 # A version 3 admission adds these keys to version 2's base, whose lab action map it replaces.
 ADMISSION_3 = ('profile', 'cells_sha256', 'fixtures_sha256', 'payloads_sha256', 'fault_schedule_sha256', 'lab_actions',
-               'branches', 'effect_limits', 'boot_policy')
+               'branches', 'effect_limits', 'boot_policy', 'wait_policy')
 # The broker's compound evidence manifests, each kept by its SHA-256 under COMPOUND. Under a version
 # 3 admission only the compound writer makes a group of these readers, and it names no manifest only
 # in its own record of one it could not keep, whose reason begins with UNKEPT.
@@ -238,7 +241,19 @@ def _hex(value, width):
 REQUESTS = {'NOTICE_VISIBILITY': ('ticket', 'index', 'serial'), 'HEALTH_PREPARATION': (),
             'PLAIN_KERNEL_CONFIRM': ('ticket',), 'DIRECT_STAGE': (), 'DIRECT_COMMIT': (), 'NEGATIVE_ACTIVATION': (),
             'USER_CREATE': (), 'USER_START': (), 'USER_SWITCH': (), 'USER_SETUP': (), 'USER_FIXTURE': (),
-            'USER_PIN': (), 'CE_SENTINEL': ()}
+            'USER_PIN': (), 'CE_SENTINEL': (), 'HELPER_PUSH': ('host',)}
+# The largest helper jar a HELPER_PUSH reads from the host.
+HELPER_MAX = 1 << 26
+
+
+def helper_pin(name):
+    """A helper's fixed guest path and the SHA-256 its reader pins: the bytes it runs only after
+    reading them at that path. Read when asked, from the reader's own module."""
+    if name == 'ui-state':
+        return health_compose.UI_STATE_HELPER, health_compose.UI_STATE_HELPER_SHA256
+    if name == 'process-health':
+        return process_health.HELPER, process_health.HELPER_SHA256
+    raise BrokerError('no helper of that name')
 # USER_PIN's one effect: a constant command, `sh`, given the credential dependent command on its
 # private standard input. The command sits in a function that the input's last token calls, so an
 # input cut short in transit never runs a partial command: cut inside the body, it is a syntax
@@ -275,6 +290,9 @@ def _request_problem(kind, request):
         return 'a visibility request names a ticket, its notice entry and a recipient serial'
     if kind == 'PLAIN_KERNEL_CONFIRM' and (not _hex(request['ticket'], 16) or request['ticket'] == proto.ZERO_ID):
         return 'a confirmation names the ticket whose wait it confirms'
+    if kind == 'HELPER_PUSH' and (not isinstance(request['host'], str) or not request['host'].startswith('/')
+                                  or len(request['host']) > 4096 or '\0' in request['host']):
+        return "a helper push names its jar's absolute host path"
     return None
 
 
@@ -465,9 +483,14 @@ def _check_admission_3(value):
         if not _hex(value[name], 32) or value[name] == '00' * 32:
             raise BrokerError('admission %s is not a nonzero digest' % name)
     specs = lab_actions.check_specs(value['lab_actions'], value['installation'])
+    for spec in specs.values():
+        # A helper's pinned bytes are the ones its reader runs, never other bytes at its path.
+        if spec['type'] == 'HELPER_PUSH' and spec['inputs'][0]['sha256'] != helper_pin(spec['parameters']['helper'])[1]:
+            raise BrokerError("a helper push pins other bytes than its reader's")
     lab_actions.check_branches(value['branches'], specs)
     lab_actions.check_effect_limits(value['effect_limits'], proto.DEVICE_CROSSINGS)
     lab_actions.check_boot_policy(value['boot_policy'])
+    lab_actions.check_wait_policy(value['wait_policy'])
 
 
 class Fences:
@@ -717,6 +740,8 @@ class Broker:
         """The broker's state from the ledger's complete entries."""
         self.generation = 0
         self.open_generation = None
+        # The host monotonic instant a waiting round's reads are cut to, only while it is served.
+        self._read_deadline = None
         self.stopped = None
         self.cells, self.consumed, self.pinned, self.publications = [], set(), {}, {}
         self.crossed, self.open_crossings = set(), {}
@@ -1384,15 +1409,24 @@ class Broker:
     def controller_read(self, names, purpose):
         """Reader groups the controller asks between generations, in the order named, recorded as the
         broker's own groups and never given to a coordinator: clock, boot, checkpoint, factory, active,
-        sessions and, when admitted, target. Each group after a clock group is checked against that
+        sessions and, when admitted, target. Under a version 3 admission also the whole global
+        session inventory and the whole typed user inventory, each when its reader is admitted,
+        checked as an action's reads are. Each group after a clock group is checked against that
         clock's boot. Returns the groups."""
         if self.open_generation is not None:
             raise BrokerError('a controller read runs only between generations')
-        if (not isinstance(names, (list, tuple)) or not names or any(name not in CONTROLLER_READS for name in names)
+        if (not isinstance(names, (list, tuple)) or not names
+                or any(name not in CONTROLLER_READS + WHOLE_READS for name in names)
                 or not isinstance(purpose, str) or not purpose.strip()):
             raise BrokerError('a controller read names known groups and its purpose')
         if 'target' in names and not self._target_read:
             raise BrokerError('no target reader is admitted')
+        if any(name in WHOLE_READS for name in names) and self.admission['version'] != 3:
+            raise BrokerError('a whole inventory read needs a version 3 admission')
+        if 'global-sessions' in names and not self.reader.global_admitted:
+            raise BrokerError('no global session inventory is admitted')
+        if 'inventory' in names and not self.reader.inventory_admitted:
+            raise BrokerError('no user inventory reader is admitted')
         self._fence()
         context = {'request': None, 'generation': None, 'purpose': 'controller: ' + purpose}
         groups, boot = [], None
@@ -1402,10 +1436,29 @@ class Broker:
                 boot = group.reading['boot'] if group.ok else boot
             elif name == 'target':
                 group = self._group('target', self.reader.target, context, None, emitted=False)
+            elif name in WHOLE_READS:
+                group = self._read(name, context, None)
             else:
                 group = self._group(name, getattr(self.reader, name), context, boot, emitted=False)
             groups.append(group)
         return groups
+
+    def helper_check(self, name, purpose):
+        """One fixed read of a helper jar's bytes at its path, between generations, under the next
+        profile: a fenced, recorded `sha256sum` capture. Returns what it read and whether that is
+        the reader's pinned digest. It pushes and repairs nothing: a helper that reads otherwise
+        is a stop for the driver, never a reason to push again."""
+        if self.admission['version'] != 3:
+            raise BrokerError('a helper check needs a version 3 admission')
+        if self.open_generation is not None:
+            raise BrokerError('a helper check is never read beside a generation')
+        if not isinstance(purpose, str) or not purpose.strip():
+            raise BrokerError('a helper check names its purpose')
+        path, digest = helper_pin(name)
+        context = {'request': None, 'generation': None, 'purpose': 'helper-check', 'helper': name, 'reason': purpose}
+        number, result = self._shell('read', 'sha256sum ' + path, context, self.limits['read_timeout_s'], 4096, 4096)
+        read = crossings.classify_digest(result, path)
+        return {'capture': number, 'helper': name, 'sha256': read, 'pinned': digest, 'ok': read == digest}
 
     def diagnostic(self, name):
         """One fixed diagnostic read between generations, fenced and captured like any command, with
@@ -1472,11 +1525,14 @@ class Broker:
         user_type = spec['type'] in lab_actions.USER_TYPES
         if user_type and not self.reader.users_admitted:
             raise BrokerError('no full user reader is admitted')
-        if kind['adapter'] is None and not user_type and not self.reader.global_admitted:
+        if kind['adapter'] is None and not user_type and spec['type'] != 'HELPER_PUSH' \
+                and not self.reader.global_admitted:
             raise BrokerError('no global session inventory is admitted')
         gate = self._direct_gate(spec)
         if gate is None:
             gate = self._user_gate(spec)
+        if gate is None and spec['type'] == 'HELPER_PUSH':
+            gate = self._unsettled_transition()
         if gate is not None:
             raise BrokerError(gate)
         issue = None
@@ -1544,6 +1600,8 @@ class Broker:
                 result = self._act_direct_stage(context, command, begin, spec)
             elif spec['type'] == 'DIRECT_COMMIT':
                 result = self._act_direct_commit(context, command, begin, spec)
+            elif spec['type'] == 'HELPER_PUSH':
+                result = self._act_helper_push(context, command, begin, spec, request)
             else:
                 result = self._act_negative_activation(context, begin, spec)
         except Stopped as error:
@@ -1647,6 +1705,8 @@ class Broker:
             return text in self._user_commands(spec, user) or (
                 spec['type'] == 'USER_FIXTURE' and text.startswith('sha256sum ')
                 and bool(full_users.data_path(spec['parameters']['package']).fullmatch(text[len('sha256sum '):])))
+        if spec['type'] == 'HELPER_PUSH':
+            return text == 'sha256sum ' + helper_pin(spec['parameters']['helper'])[0]
         control = spec['parameters'].get('control')
         if spec['type'] == 'DIRECT_STAGE':
             path = re.escape('%s/control-%s/' % (self.admission['device_dir'], control))
@@ -1667,7 +1727,10 @@ class Broker:
         by_class = by_phase = 0
         for e in self.ledger.entries:
             intent = e.content.get('intent') if e.kind == 'capture' else None
-            if intent and intent.get('operation') == 'lab-action-effect' and self._may_have_launched(e):
+            # A helper push is its action's effect; a direct stage's push is not, its write is.
+            effect = intent and (intent.get('operation') == 'lab-action-effect' or (
+                intent.get('operation') == 'lab-action-push' and 'effect_class' in intent))
+            if effect and self._may_have_launched(e):
                 by_class += intent.get('effect_class') == effect_class
                 by_phase += intent.get('phase') == phase
         if by_class >= limits[effect_class]:
@@ -1684,9 +1747,10 @@ class Broker:
             intent = e.content.get('intent') if e.kind == 'capture' else None
             if not intent or intent.get('lab_action') != number:
                 continue
-            if intent.get('operation') == 'lab-action-push':
+            # A direct stage's member push is counted apart; a helper push is its action's effect.
+            if intent.get('operation') == 'lab-action-push' and 'effect_class' not in intent:
                 counts['pushes'] += 1
-            elif intent.get('operation') != 'lab-action-effect':
+            elif intent.get('operation') not in ('lab-action-effect', 'lab-action-push'):
                 counts['reads'] += 1
             elif e.state == 'interrupted' or (e.complete and e.content['result'].get('launch') == 'unknown'):
                 counts['effects_uncertain'] += 1
@@ -2137,6 +2201,48 @@ class Broker:
             written.append({'member': member, 'push': pushed, 'write': self.ledger.last.number})
         self._direct_record('WRITTEN', control, role, action=begin['number'], members=written)
         return 'OK', {'reference': reference, 'members': written}, None, True, [join.number]
+
+    def _act_helper_push(self, context, command, begin, spec, request):
+        """HELPER_PUSH: one fixed read only helper jar at its fixed guest path. The host file must
+        hold exactly the spec's pinned bytes, which the admission checked are the bytes the
+        helper's reader pins, or nothing is launched. The push is the action's one effect, within
+        the effect limits. It settles only when a separate digest read of the pushed file gives
+        those bytes back; a push that may have run without that readback stays uncertain and is
+        never repeated, and a readback of other bytes is unexpected."""
+        guest, digest = helper_pin(spec['parameters']['helper'])
+        pin, deadline = spec['inputs'][0], begin['deadline_monotonic_ns']
+        data = _regular_bytes(request['host'], HELPER_MAX)
+        if data is None or (hashlib.sha256(data).hexdigest(), len(data)) != (pin['sha256'], pin['bytes']) \
+                or pin['sha256'] != digest:
+            return 'REFUSED', {'helper': spec['parameters']['helper']}, \
+                "the host file is not the helper's pinned bytes: nothing launched", True, []
+        spent = self._effect_spent('fixture', spec['phase'])
+        if spent is not None:
+            return 'REFUSED', {'helper': spec['parameters']['helper']}, '%s: nothing launched' % spent, True, []
+        left = deadline - self._monotonic()
+        if left < BOUND_COMMAND_MIN_S * 1_000_000_000:
+            return 'REFUSED', None, "too little of the action's bound remains for the push: nothing launched", True, []
+        timeout = min(self.limits['push_timeout_s'], left / 1_000_000_000)
+        pushed, result = self._capture('lab-action-push', None,
+                                       dict(context, member='helper', path=guest, data_sha256=digest,
+                                            effect_class='fixture', phase=spec['phase']),
+                                       lambda: self.transport.push(data, guest, MEMBER_MODE, 0, timeout), timeout,
+                                       deadline)
+        outcome = {'helper': spec['parameters']['helper'], 'path': guest, 'sha256': digest, 'push': pushed}
+        if getattr(result, 'launch', None) == 'not-launched':
+            return 'REFUSED', outcome, 'the push was not launched (%s)' % result.transport, True, []
+        try:
+            check = command('lab-action-read', 'sha256sum ' + guest)
+        except (readers.Unavailable, readers.Unclassified) as error:
+            return 'UNKNOWN', outcome, 'the pushed bytes were not read back: %s' % error, False, []
+        read = crossings.classify_digest(check, guest)
+        outcome.update(readback=self.ledger.last.number, push_status=getattr(result, 'status', None))
+        # The bytes read back at the path are the postcondition; the push's reply proves nothing.
+        if read == digest:
+            return 'OK', outcome, None, True, []
+        if read is None:
+            return 'UNKNOWN', outcome, 'the readback is of no known form', False, []
+        return 'UNEXPECTED', outcome, 'the helper path reads back other bytes', False, []
 
     def _act_direct_commit(self, context, command, begin, spec):
         """DIRECT_COMMIT: the one native commit before F0, of a direct control's own staged
@@ -3773,6 +3879,9 @@ class Broker:
         facts, stopped, unavailable or unclassified. Nothing is recorded here beyond the captures
         themselves."""
         captures = []
+        # A waiting round's reads are cut to its deadline, as an action's are to its own.
+        if deadline_ns is None:
+            deadline_ns = self._read_deadline
 
         def run(command):
             if not self.reader.allowed(command):
@@ -4664,13 +4773,22 @@ class Broker:
 
     # ------------------------------------------------ serving a generation
 
-    def run_generation(self, argv, env=None, cwd=None):
+    def run_generation(self, argv, env=None, cwd=None, deadline_ns=None):
         """Spawns one coordinator generation, serves it to its end, and reaps it. A version 3
         broker tells the generation, in its environment, how many round boundaries of each ticket
         it has recorded, so the bridge names each next checkpoint ordinal; every ordinal is
-        verified against the ledger."""
+        verified against the ledger.
+
+        With `deadline_ns`, a host monotonic instant under a version 3 admission, the generation
+        is a round of an ordinary read wait: its record names the deadline, and every read it asks
+        is cut to it as an action's reads are. A read command is admitted only with at least
+        BOUND_COMMAND_MIN_S left and is given only what is left; none launches past the deadline,
+        and its group is then unavailable. Crossings keep their own bounds."""
         if self.open_generation is not None:
             raise BrokerError('a generation is still open')
+        if deadline_ns is not None and (self.admission['version'] != 3 or not isinstance(deadline_ns, int)
+                                        or isinstance(deadline_ns, bool) or deadline_ns <= 0):
+            raise BrokerError('a read deadline is a host monotonic instant under a version 3 admission')
         if self.admission['version'] == 3:
             env = dict(os.environ if env is None else env)
             env[CHECKPOINT_ENV] = self.checkpoint_counts()
@@ -4680,7 +4798,11 @@ class Broker:
             process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err, env=env,
                                        cwd=cwd, close_fds=True, bufsize=0)
         found = proc_start_ticks(process.pid)
-        state = self.serve(process.stdout, process.stdin, process.pid, found[1] if found else None)
+        self._read_deadline = deadline_ns
+        try:
+            state = self.serve(process.stdout, process.stdin, process.pid, found[1] if found else None)
+        finally:
+            self._read_deadline = None
         for stream in (process.stdin, process.stdout):
             try:
                 stream.close()
@@ -4712,6 +4834,8 @@ class Broker:
             raise BrokerError('a generation is still open')
         self.generation += 1
         record = {'generation': self.generation, 'pid': pid, 'start_ticks': start_ticks, 'wall_ns': self._wall()}
+        if self._read_deadline is not None:
+            record['read_deadline_ns'] = self._read_deadline
         self.ledger.record('generation', record)
         self.open_generation = record
         return {'generation': self.generation, 'hello': False, 'halt_ordered': False, 'stopped_sent': False,
