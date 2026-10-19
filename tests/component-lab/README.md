@@ -30,6 +30,7 @@ closure are later packages.
 | `lab_broker.py` | The broker: admission, lock, fences, generations, groups, crossings, fault cells |
 | `lab_crossings.py` | The typed crossing commands and their reply forms |
 | `lab_readers.py` | The injectable reader adapter and its adapter for the public shell observer |
+| `global_sessions.py` | The whole global session inventory, read with the observer's own reads |
 | `lab_actions.py` | The next campaign profile's typed lab actions: registry, exact specs, user resolution |
 | `full_users.py` | The full user setup package: the whole user forms' parsers, the typed inventory and limits, the setup actions' commands, replies and records, and the genuine main SystemUI process join |
 | `health_compose.py` | The health composition: the composer, the readers of bits 0, 2 and 3, the forms of the UI state helper and of a fresh dump of all windows, the hooks of bits 1, 4, 5 and 6, and the driver's declared starting values |
@@ -52,7 +53,7 @@ closure are later packages.
 | `sim_android.py`, `sim_users.py`, `labtest.py` | Host test support: a small simulated guest, its users in the full user forms, the health package's forms and fakes, and a client |
 | `fixtures/full-users/` | The full user forms, source derived, with their commands, statuses and sources |
 | `test_*.py` | The host suites; `test_lab_next.py`, `test_lab_loss.py`, `test_full_users.py`, `test_health.py` and `test_witness.py` are the next campaign profile's broker suites |
-| `test_next_*.py` | The host suites of the next campaign's matrix and driver |
+| `test_next_*.py` | The host suites of the next campaign's readers, matrix and driver |
 
 ## Process model
 
@@ -482,6 +483,12 @@ retains the stored records every crossing names, as under version 2.
   So every row of a whole read keeps its first bytes, whether or not the read emits: a refused
   read, or one whose bracket did not complete, still pins them. A reopening rebuilds the issues,
   visibilities, first row bytes and first proofs from the ledger.
+- **Receipt recipients.** Each receipt read is given its stores to read by the broker: the
+  recipients, each user and serial once and in order, that every notice issued for the ticket
+  required, from the ledger's issue records, and none when no notice was issued. The reader reads
+  exactly those stores, and the read's manifest and group name them. A reopening refuses a read
+  that names other recipients than the issues before it required, even when its manifest and its
+  group agree with each other.
 - **Health compositions.** In a ticket's observation in HEALTH_WINDOW, for each user that
   observation's whole listing shows running, the broker composes one full probe only when that user
   has a fresh settled preparation. It reads the ticket's window and the plan's window length from
@@ -553,11 +560,11 @@ retains the stored records every crossing names, as under version 2.
   it uncertain, so it is observed or halted, never repeated. A reopening records a LOST END for a
   BEGIN without one, and that action is never run again to find out.
 
-The registry has fourteen types. FRAMEWORK_RESTART is withdrawn: an admission that names it is
+The registry has fifteen types. FRAMEWORK_RESTART is withdrawn: an admission that names it is
 refused by that name, since the next profile admits no framework restart; version 2's driver keeps
-its own. PLAIN_KERNEL_CONFIRM, DIRECT_STAGE, DIRECT_COMMIT and NEGATIVE_ACTIVATION are below. The
-old action map is never reinterpreted. HELPER_PUSH puts one fixed helper jar on the guest,
-below. NOTICE_VISIBILITY captures and reads one required
+its own. PLAIN_KERNEL_CONFIRM, DIRECT_STAGE, DIRECT_COMMIT, NEGATIVE_ACTIVATION and N1's
+DIRECT_NONSTAGED are below. The old action map is never reinterpreted. HELPER_PUSH puts one
+fixed helper jar on the guest, below. NOTICE_VISIBILITY captures and reads one required
 recipient's display through the notice adapter; it qualifies only in the notice's boot with one
 running framework through its bracket, for the recipient as the display's current user, awake and
 focused, showing the issue's challenge. HEALTH_PREPARATION runs the health adapter's UI, user and
@@ -604,6 +611,24 @@ that end the sequence, are the health package's, below.
   the bound ends the transition UNEXPECTED or UNKNOWN, and that holds every later crossing, reboot
   and F0 decision. A confirmation spends no ACTIVATE and writes no managed REBOOT entry; the boot
   policy caps its services apart from activations.
+- **Managed activations.** A managed REBOOT crossing that passes its gate records a
+  MANAGED_ACTIVATION `boot-transition` before its reboot service, synced as a confirmation's
+  BEGIN is: the exact crossing, its ticket, plan, attempt, entry and grant, the gate's clock group
+  as its preflight, the old boot, the ordinal and caps. PROGRESS keeps the service's
+  acknowledgement, which proves no boot. The broker never polls for it: the first later clock
+  reading of a boot that is neither the old one nor one read before settles it, naming that boot
+  and, as its polls, every clock reading since its BEGIN, that one last. It ends OK only when a
+  capture of its own reboot service, whose whole intent names the transition and its crossing,
+  may have launched: one with a result that is not a refusal before the launch, or one a lost
+  broker interrupted, with no PROGRESS needed and the service never sent again. A BEGIN proves an
+  intent, never a sent service, so without such a capture the new boot ends it UNEXPECTED: the
+  boot stays observed, and no managed activation explains it. A service not launched or stopped
+  ends it REFUSED or STOPPED, and a loss before the effect records none. A request again in the
+  same boot, by the reconciler's own timeout rule, first ends the earlier one UNKNOWN; a lost
+  broker leaves it open for a later reading to settle. While one is open, or ended
+  UNEXPECTED, it holds the broker's own effects, user and helper actions, confirmations, negative
+  activations and N1, as an uncertain reboot may still take effect. It never holds a managed
+  crossing: the reconciler's own rules decide that wait.
 - **Direct negative controls.** DIRECT_STAGE, DIRECT_COMMIT and NEGATIVE_ACTIVATION are the N2 and
   N3 controls' own steps under the referrer `andrix-lab-control:<id>`, never a ticket. A control's
   payload is pinned by digest first: N2 is the wrong signer APK with its sidecar, N3 the APK
@@ -612,15 +637,30 @@ that end the sequence, are the health package's, below.
   joins no control's session, so nothing is created, written or committed on it.
   NEGATIVE_ACTIVATION is a boot transition that admits the native recovery's second boot and
   settles only on the intended rejection with no live session left.
+- **N1, the nonstaged control.** DIRECT_NONSTAGED is one step of its own control, used once and
+  admitted before every staged control: N2 follows it. After its recorded consent, before F0, with
+  every stored managed ticket terminal, no session live in a whole global inventory, the factory
+  copy active, a COMMITTED checkpoint and no unsettled transition, its pinned APK is pushed and
+  read back by digest. Its one effect is `pm install --user 0 -r --pkg <component> --referrer
+  andrix-lab-control:<id> <path>`, a nonstaged install that is no staged commit. Its reply is
+  classified, as Package Manager's exact persistent app refusal, a success or another form, and
+  proves nothing alone: the broker reads the whole global inventory again until no session is
+  live, then the boot, checkpoint, factory and active copies, and keeps a `direct-control`
+  NONSTAGED record of the reply and the joined session. N1 settles only on that refusal, joined
+  by its referrer to one failed nonstaged session of the component with the persistent cause, in
+  the same boot with the checkpoint COMMITTED and the factory copy, its identity and the cohort
+  unchanged. Any other completed outcome is unexpected; a reply or a later read that did not
+  complete leaves it uncertain. Either way it is never run again, and F0 waits for its refusal.
 - **The F0 fence.** `record_f0` keeps F0's capability record once, between generations, under an
   admitted branch. Until F0 qualifies, FULL or an admitted LIMITED, no managed COMMIT launches and
   the branches' positive attempt is never created, armed or observed, whatever the fault schedule
   holds: an M0 COMMIT whose before effect fault was consumed or is absent launches nothing and no
   reply is invented. `gate_positive` records each check. Only the direct N2 and N3 commits are
-  excepted, under their own gates. A reopening restores the qualification only from a decision
-  whose kept capability record is whole and canonical and still makes, under this admission, the
-  branch, qualification and predicate the decision records, after the negative activations and
-  boot transitions its writer required. Otherwise the opening is refused.
+  excepted, under their own gates, beside N1's nonstaged install, which comes before them. A
+  reopening restores the qualification only from a decision whose kept capability record is whole
+  and canonical and still makes, under this admission, the branch, qualification and predicate
+  the decision records, after N1's refusal, the negative activations and the boot transitions its
+  writer required. Otherwise the opening is refused.
 - **Full user setup** (`full_users.py`). The full user readers read the typed inventory from one
   whole `dumpsys user`, then `pm list users`, then the dump again: a dump cut short, a repeated
   user, serial or section, a dump that disagrees with itself (started states, cached user IDs,
@@ -846,7 +886,10 @@ order, pacing and its own records.
   serial is HEALTHY only under a FULL F0 whose probes read every criterion. APPLIED_PROVISIONAL is
   conditional: its loss may stay unconsumed only when no boundary reached it, and is then not
   captured. Its counts are the contract's: six confirmations, ten reboot services, thirteen
-  nominal boot identities, A's boot counts 0, 1, 1, 1, 3 and 1, and R's 1.
+  nominal boot identities, A's boot counts 0, 1, 1, 1, 3 and 1, and R's 1. N1 predicts its one
+  nonstaged install, a native command of its own, and no boot. Under late commit A's and R's
+  notices, receipts and delay come before their creates, as the reconciler's staging step gives
+  them (`Reconciler.stage` in the deployment package).
 - **The declaration.** F0 is a gate, not a prediction. A campaign declares before launch whether
   notices are owed and which F0 branches its admission admits: FULL and REFUSED always, LIMITED only
   when reviewers admit it. The cells record freezes every declared branch's predictions, the
@@ -855,8 +898,10 @@ order, pacing and its own records.
 - **Admission and configuration.** `next_admission` writes the version 3 admission of the
   campaign's declaration: the cells record and the fault schedule bound by SHA-256, the fixture
   and payload manifests, the two helper pushes, the six confirmations chained in their order, the
-  direct controls the campaign names chained after them, a health preparation of each window, the
-  F0 branches with A's positive attempt, effect caps from the campaign's own counts and the boot
+  direct controls the campaign names chained after them (N1 first, when its payload is given), a
+  health preparation of each window, a notice visibility capture of each of A's and R's phases
+  when notices are owed, the F0 branches with A's positive attempt, effect caps from the
+  campaign's own counts and the boot
   policy: four activation and six confirmation services, thirteen observed boots, a 5 s poll, a
   1200 s confirmation bound and a 2400 s negative activation bound. The broker checks it whole.
   `init3` writes the store and the version 3 bridge configuration, which binds a version 2 lab host
@@ -868,12 +913,27 @@ order, pacing and its own records.
   a baseline that does not qualify stops the driver.
 - **Explicit boot phases.** Every boot ID the ledger shows is a boot of the campaign in ledger
   order, never by wall time, with the transition that made it: the initial boot, a confirmation, a
-  negative activation and its native recovery, or a managed REBOOT whose capture may have launched.
-  Any other new boot, or one past the observed allowance, stops the driver. After a confirmation
-  its renewed reads must all be facts. In every new boot both helpers must read back their pinned
-  bytes before any read uses them: at once after a confirmation or a negative activation, and at
-  the APPLIED boundary after a managed activation. A ticket's boot count may rise by one, only
-  with its boot changed to an observed one, and each change is a synced boot accounting record.
+  negative activation and its native recovery, or a managed REBOOT's activation, whose
+  MANAGED_ACTIVATION transition the broker settled OK on exactly that boot's first reading, its
+  service not refused, with a capture of the transition's own reboot service that may have
+  launched before that reading, as the earlier driver required. Any other new boot, or one past
+  the observed allowance, stops the driver, after the generation that read it is recorded.
+  After a confirmation its renewed reads must all be facts. In every new boot both helpers must
+  read back their pinned bytes before any read uses them: at once after a confirmation or a
+  negative activation, and at the APPLIED boundary after a managed activation. A ticket's boot
+  count may rise by one, only with its boot changed to an observed one, and each change is a
+  synced boot accounting record.
+- **The direct controls.** N1 runs first when its payload is given: the payload pinned, the
+  explicit consent, its one install, which must settle on the persistent app refusal with no new
+  boot and only its predicted install launched. N2 and N3 stage, commit and activate as before. A
+  control whose payload is not given is not captured.
+- **Notices owed.** After every round that issued notices of the ticket, and before any next
+  round reads receipts, each issue's required recipient is captured once through the cell's
+  admitted NOTICE_VISIBILITY action, between generations, its result kept in a synced
+  checkpoint. A `foreground` hook, a context, brings the recipient's display forward for the
+  capture and back after it, a named hook until the user setup's switch exists. A capture that
+  does not qualify is kept, and the reconciler's own notice rules go on; a notice issued where no
+  capture is admitted stops the driver.
 - **One round pacing.** Each ticket generation is one public round, so each boundary is
   checkpointed and no settle loop crosses a milestone. A round that leaves the stored ticket's
   bytes unchanged in an intent is one of two waits, told apart by the round's own reads as G1a's
@@ -948,15 +1008,30 @@ names only. Its checkpoint reader is injected: the public one is `ShellObserver.
 reads the checkpoint through StorageManager with the fixed helper. Until a checkpoint reader is
 injected, no CHECKPOINT fact exists, and the reconciler issues no crossing. The adapter
 reads no framework only from pidof's quiet failure, read twice. The observer's partial health probe
-and any receipt reader are not exposed. The next profile's readers, the typed inventory, the notice
-fixture's provider rows, the health baseline and the health composer, and its notice and health
-adapters, are interfaces here; the simulated guest implements them for host tests. With
+and version 1's receipt facts are not exposed. The next profile's readers, the typed inventory,
+the notice fixture's provider rows, the health baseline and the health composer, and its notice
+and health adapters, are interfaces here; the simulated guest implements them for host tests. With
 `users=True`, `ObserverAdapter` admits the full user readers of `full_users.py`, which read the
 guest's own user forms. Given a composer and a baseline reader beside them, it admits the health
 readers too, and the witness reader exactly when both have one; the witness reader of
-`health_witness.py` reads through the same run function as the composer's other readers. The
-notice fixture's provider rows and the global session inventory are later packages, and it
-admits neither.
+`health_witness.py` reads through the same run function as the composer's other readers.
+
+With `global_sessions=True` it admits the whole global session inventory of `global_sessions.py`:
+the observer's own `pm list staged-sessions` and `dumpsys -t 25 package installs`, between two
+boot ID and two framework instance reads, parsed whole by the strict parsers of
+`scripts/proof/systemui_sessions.py` and joined, every session of every package and user with
+its section, referrer, family, flags, creation and installer. The join checks every field and
+relation both parts print: a package the dump knows is the listed one, and one only the listing
+knows stays unknown; a record the dump left as another package's is never listed as SystemUI's;
+an exactly parsed record is staged, with the same readiness, end and error message, and a single
+session at the top level of the listing. A record of another package that has no exact form is
+listed with every other field unknown, and a read that crossed a restart or whose two parts
+disagree on anything gives no reading: nothing is chosen between them, and no row is dropped. A
+failed session's cause is classed only by its exact source forms: SIGNATURE, FS_VERITY,
+PERSISTENT or OTHER. A reopening reads a recorded inventory again from its captures and refuses
+a changed copy. Given `receipts`, a factory of the notice fixture's receipt reader, which
+`NoticeReader(recipients)` is, it admits the provider rows and makes for each read a reader of
+exactly the recipients the broker passes.
 
 ## Running the checks
 
@@ -994,9 +1069,16 @@ partial.
   unlocked display, an app row survives Android loss, a provider read authenticates the shell, the
   elapsed scales agree, a preparation unlocks and returns CE, a native child runs and a witness
   qualifies a crash needs a guest.
-- The global session inventory, the reboot's native recovery boot and the rejection causes are
-  the simulated guest's. No Android form of the whole staged session listing, of an abort recovery
-  or of a direct control's error text is parsed here; each needs a guest capture and a parser.
+- The global session inventory reader parses the observer's lab guest captures of the listing
+  and dump, from earlier trials. A whole inventory of a guest of the next profile, with its N1 to
+  N3 and managed sessions, an abort recovery and the direct controls' error texts, needs a guest
+  capture before its cause classes are relied on. The simulated guest's inventory, its native
+  recovery boot and its rejections are projections, not forms.
+- N1's reply forms are source derived. A lab guest of an earlier trial recorded the refused
+  nonstaged session, with exactly the persistent app message, but not the command's reply.
+- A managed activation's transition ends on the first clock reading of a new boot, OK only with
+  its own service's capture. Which readings a guest's reboot leaves unavailable, and how long it
+  takes, need a guest.
 - A milestone is checkpointed only where the bridge's rounds reach it. A guest run must show which
   milestones it reached; one it did not reach is not captured, never inferred.
 - Version 2's framework restart is source derived. Whether `am restart` gives a later instance in
@@ -1020,10 +1102,12 @@ partial.
   report shows while SystemUI crashes or is not responding, and for how long; how late an exit row
   is published or updated; and any stronger evidence that a row belongs to the current boot. The
   pending bound and the clock tolerances are declared values, not measurements.
-- The next campaign's driver is shown on the simulated guest with the scripted host, one running
-  user and no notice: its notice cells, F0's user setup and content, the health preparation
-  adapter and the work fixture are later parts, and N1 has no lab action yet. The real host signer
-  and artifact store under it are the lab driver suite's. Which milestones and boots a guest shows,
+- The next campaign's driver is shown on the simulated guest with the scripted host, in worlds
+  with and without a running secondary user who is owed notices. F0's user setup and its content,
+  the user's start in each new boot, the switch that brings a recipient's display forward, the
+  health preparation adapter and the work fixture are later parts, stood in for by world events
+  and hooks in the host tests. The real host signer and artifact store under it are the lab
+  driver suite's. Which milestones and boots a guest shows,
   how long a real commit stays verifying and so whether the ordinary wait's starting budget fits,
   whether the final whole inventories read whole and which other packages' sessions they show, and
   a cadence that keeps a window's probes within its gap, need a guest. In the host tests the host

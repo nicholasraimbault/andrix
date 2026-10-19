@@ -57,7 +57,9 @@ SCHEMA = 'andrix-next-cells-v2'
 PROFILE = lab_actions.PROFILE
 ROLES = ('COHORT', 'A', 'R')
 KINDS = ('managed', 'direct', 'gate', 'final')
-CALLS = ('CREATE', 'WRITE', 'COMMIT', 'ABANDON', 'reboot')
+# The native commands a cell's prediction counts: a session's create, member write, commit and
+# abandon, a reboot service, and N1's one shot nonstaged install.
+CALLS = ('CREATE', 'WRITE', 'COMMIT', 'ABANDON', 'reboot', 'INSTALL')
 TERMINAL = ('CLOSED_APPLIED', 'CLOSED_FAILED', 'CANCELLED', 'VOID', 'DIVERGED', 'SUPERSEDED')
 # The waits a later kernel boot resolves: a plain confirmation is asked only in one of them.
 CONFIRM_WAITS = ('SESSION_INTENT', 'COMMIT_INTENT', 'ABANDON_INTENT')
@@ -97,8 +99,9 @@ def loss(cell, on, milestone, occurrence=1, reader=None):
             'ordinal': ordinal, 'occurrence': occurrence, 'mode': 'halt', 'needs': None}
 
 
-def calls(create=0, write=0, commit=0, abandon=0, reboot=0):
-    return {'CREATE': create, 'WRITE': write, 'COMMIT': commit, 'ABANDON': abandon, 'reboot': reboot}
+def calls(create=0, write=0, commit=0, abandon=0, reboot=0, install=0):
+    return {'CREATE': create, 'WRITE': write, 'COMMIT': commit, 'ABANDON': abandon, 'reboot': reboot,
+            'INSTALL': install}
 
 
 def managed(name, cell, phase, plan, attempt, grants, faults, confirmations, end, cause, ledger, native, signs,
@@ -164,11 +167,12 @@ SEQUENCE = (
             ['COMMIT_INTENT', 'ABANDON_INTENT', 'ABANDON_INTENT'], 'CLOSED_FAILED', None,
             ['CREATE', 'WRITE', 'COMMIT', 'ABANDON', 'ABANDON'], calls(create=1, write=2, abandon=1), 0, 0, 3,
             ['BOOT_OBSERVED', 'BOOT_OBSERVED', 'BOOT_OBSERVED', 'TERMINAL']),
-    # The direct controls own no ticket. N1's nonstaged refusal has no lab action yet. N2 and N3
-    # each stage, commit and activate once; the activation's boot and its native recovery's are two
-    # physical boots, of which a poll may observe only the last: at least one new boot, at most two.
+    # The direct controls own no ticket. N1 is one nonstaged install of its pinned APK, refused as a
+    # persistent app's with no reboot and no new boot. N2 and N3 each stage, commit and activate
+    # once; the activation's boot and its native recovery's are two physical boots, of which a poll
+    # may observe only the last: at least one new boot, at most two.
     {'name': 'N1', 'cell': 'n1', 'kind': 'direct', 'phase': 'N1', 'role': 'N1', 'staged': False,
-     'prediction': {'cause': CAUSES['N1'], 'calls': calls(), 'new_boots': [0, 0], 'factory_active': True}},
+     'prediction': {'cause': CAUSES['N1'], 'calls': calls(install=1), 'new_boots': [0, 0], 'factory_active': True}},
     {'name': 'N2', 'cell': 'n2', 'kind': 'direct', 'phase': 'N2', 'role': 'N2', 'staged': True,
      'prediction': {'cause': CAUSES['N2'], 'calls': calls(create=1, write=2, commit=1, reboot=1),
                     'new_boots': [1, 2], 'factory_active': True}},
@@ -177,12 +181,13 @@ SEQUENCE = (
                     'new_boots': [1, 2], 'factory_active': True}},
     {'name': 'F0', 'cell': 'f0', 'kind': 'gate', 'phase': 'F0',
      'prediction': {'FULL': 'qualified', 'LIMITED': 'qualified-limited', 'REFUSED': 'positive-uncreated'}},
-    # A's positive attempt 6 after a qualified F0: no SIGN and no PUBLISH. Its NOTICE is lost before
-    # its effect and the reconciler repeats it; the COMMIT reply is dropped and READY resolves it;
-    # the first REBOOT is lost before its effect, its timeout passes in the same boot, and Java
-    # halts after the second, real, reboot service. The selection move halts between its two
-    # writes. Its rounds halt once at each forward milestone, and one health read halts in the
-    # window.
+    # A's positive attempt 6 after a qualified F0: no SIGN and no PUBLISH. Under late commit the
+    # notice, its receipts and its delay come before the session's create (Reconciler.stage, owner/
+    # deployment's Reconciler.java:591-607). Its NOTICE is lost before its effect and the reconciler
+    # repeats it; the COMMIT reply is dropped and READY resolves it; the first REBOOT is lost before
+    # its effect, its timeout passes in the same boot, and Java halts after the second, real,
+    # reboot service. The selection move halts between its two writes. Its rounds halt once at each
+    # forward milestone, and one health read halts in the window.
     managed('A', 'a', 'A', 'A', 6, [],
             [fault('a-notice', 'cross', 'NOTICE', 1, 'loss-before', needs='notice'),
              fault('a-commit', 'cross', 'COMMIT', 1, 'drop-reply'),
@@ -193,20 +198,21 @@ SEQUENCE = (
              loss('a-entry-round', 'round', 'HEALTH_WINDOW_ENTRY'),
              loss('a-window-read', 'read', 'HEALTH_WINDOW_PROGRESS', 2, 'health'),
              loss('a-terminal-round', 'round', 'TERMINAL')],
-            [], 'CLOSED_APPLIED', None, ['CREATE', 'WRITE', 'COMMIT', 'NOTICE', 'NOTICE', 'REBOOT', 'REBOOT'],
+            [], 'CLOSED_APPLIED', None, ['NOTICE', 'NOTICE', 'CREATE', 'WRITE', 'COMMIT', 'REBOOT', 'REBOOT'],
             calls(create=1, write=2, commit=1, reboot=1), 0, 0, 1, ['READY', 'READY'] + WINDOW,
             notice={'ledger': ['CREATE', 'WRITE', 'COMMIT', 'REBOOT', 'REBOOT']}),
     # R after A closed: a new plan repairing A that signs nothing, made from A's current baseline,
-    # with its own STAGE and ACTIVATE. Its signing is skipped and its publication bound; its NOTICE
-    # is lost after its delivered effect and receipts recover; its COMMIT is lost after its effect;
-    # one read round halts in its window. One selection move, from revision 1 to 2.
+    # with its own STAGE and ACTIVATE. Its signing is skipped and its publication bound; its NOTICE,
+    # before its create as A's, is lost after its delivered effect and receipts recover; its COMMIT
+    # is lost after its effect; one read round halts in its window. One selection move, from
+    # revision 1 to 2.
     managed('R', 'r', 'R', 'R', 1, [],
             [loss('r-signing-round', 'round', 'REPAIR_SIGNING_SKIPPED'),
              loss('r-publication-round', 'round', 'REPAIR_PUBLICATION_BOUND'),
              fault('r-notice', 'cross', 'NOTICE', 1, 'loss-after', needs='notice'),
              fault('r-commit', 'cross', 'COMMIT', 1, 'loss-after'),
              loss('r-window-read', 'read', 'HEALTH_WINDOW_PROGRESS', 3, 'sessions')],
-            [], 'CLOSED_APPLIED', None, ['PUBLISH', 'CREATE', 'WRITE', 'COMMIT', 'NOTICE', 'REBOOT'],
+            [], 'CLOSED_APPLIED', None, ['PUBLISH', 'NOTICE', 'CREATE', 'WRITE', 'COMMIT', 'REBOOT'],
             calls(create=1, write=2, commit=1, reboot=1), 0, 1, 1,
             ['REPAIR_SIGNING_SKIPPED', 'REPAIR_PUBLICATION_BOUND', 'READY'] + WINDOW,
             notice={'ledger': ['PUBLISH', 'CREATE', 'WRITE', 'COMMIT', 'REBOOT']}),

@@ -14,11 +14,13 @@ applies at its reboot.
 The suite needs a JDK and the compiled lab classes, named by ANDRIX_LAB_JAVA and ANDRIX_LAB_CLASSES,
 which the lab runner provides inside its resource guard; without them its cases are skipped. Host
 evidence only: no guest, no Android."""
+import contextlib
 import copy
 import hashlib
 import json
 import os
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 import unittest.mock
@@ -35,6 +37,7 @@ import lab_records
 import next_cells
 import process_health
 import sim_android
+import sim_users
 
 JAVA = os.environ.get('ANDRIX_LAB_JAVA')
 CLASSES = os.environ.get('ANDRIX_LAB_CLASSES')
@@ -90,7 +93,7 @@ class World:
     one."""
 
     def __init__(self, sequence=next_cells.SEQUENCE, notice=False, limited=False, f0='FULL', between=None,
-                 verification=None, sync=False, wait_ms=None):
+                 verification=None, sync=False, wait_ms=None, n1=False):
         self._temp = tempfile.TemporaryDirectory()
         self.dir = Path(self._temp.name)
         self.store = self.dir / 'store'
@@ -117,7 +120,8 @@ class World:
         self.sim.apks[self.bundle_apk] = 40
         self.sim.apks[self.restoration_apk] = 41
         self.payloads = {}
-        for role, payload in (('N2', labtest.N2_PAYLOAD), ('N3', labtest.N3_PAYLOAD)):
+        roles = (('N1', labtest.N1_PAYLOAD),) if n1 else ()
+        for role, payload in roles + (('N2', labtest.N2_PAYLOAD), ('N3', labtest.N3_PAYLOAD)):
             members = {}
             for member, data in payload:
                 path = self.dir / ('%s-%s' % (role, member))
@@ -134,7 +138,7 @@ class World:
                                          clock=lambda: sim_android.WALL_BASE + self.sim.uptime,
                                          declaration=self.declaration, sequence=sequence,
                                          between=between or self.between, prepare=self.prepare, sync=sync,
-                                         monotonic=lambda: self.clock.monotonic_ns())
+                                         monotonic=lambda: self.clock.monotonic_ns(), foreground=self.foreground)
         manifest = labtest.manifest_bytes()
         config = self.driver.init(self.store, hashlib.sha256(manifest).hexdigest(), labtest.INSTALLATION,
                                   labtest.COORDINATOR, labtest.TRUST)
@@ -220,6 +224,34 @@ class World:
         phase = 'R' if plan == PLANS['R'] else 'A'
         end = driver.broker.run_action(next_cells.action_id('prepare', phase), 'prepare a probe of the window')
         assert end['status'] == 'OK', end
+
+    @contextlib.contextmanager
+    def foreground(self, driver, issue, recipient):
+        """The recipient's display in the foreground for its capture, and the user before it after:
+        a world event standing in for the user setup's switch, a later part."""
+        forms = self.sim.forms
+        before = forms.current
+        forms.current = recipient['user']
+        forms.sync()
+        try:
+            yield
+        finally:
+            forms.current = before
+            forms.sync()
+
+    def start_secondary(self):
+        """A running full secondary user, created once and started again in a later boot: world
+        events standing in for F0's user setup and its start in each new boot, a later part. Returns
+        its ID and serial."""
+        forms = self.sim.forms
+        created = [u for u in forms.users.values() if u.type == sim_users.SECONDARY_TYPE]
+        if not created:
+            forms.create('pm create-user AndrixLab', sim_users.SECONDARY_TYPE, 'AndrixLab')
+            created = [u for u in forms.users.values() if u.type == sim_users.SECONDARY_TYPE]
+        user = created[0]
+        if not forms.running(user.id):
+            forms.start('am start-user %d' % user.id, user.id)
+        return user.id, user.serial
 
     def run(self):
         return self.driver.run_campaign(TICKETS, self.schedule, self.helpers, self.payloads,
@@ -423,6 +455,118 @@ class CampaignTests(unittest.TestCase):
         for path in sorted((d.dir / lab_driver.RUN_CHECKPOINTS).iterdir()):
             self.assertEqual(lab_evidence.parse(path.read_bytes())['schema'], lab_driver.CURRENT_SCHEMA)
 
+    def test_the_nominal_matrix_with_n1_and_owed_notices_runs_to_its_predicted_ends(self):
+        # The nominal world: N1's payload admitted, and a running full secondary user from F0 on,
+        # created at F0 and started again before R, world events standing in for the user setup.
+        w = self.world(notice=True, n1=True)
+        d = w.driver
+        users = []
+        decide, repair = d.decide_f0, d.run_repair
+
+        def decide_f0(capabilities, reason):
+            users.append(w.start_secondary())
+            return decide(capabilities, reason)
+
+        def run_repair(cell, ticket):
+            users.append(w.start_secondary())
+            return repair(cell, ticket)
+        d.decide_f0, d.run_repair = decide_f0, run_repair
+        results = w.run()
+        self.assertEqual({k: v['status'] for k, v in results.items()},
+                         dict({c['cell']: 'PASSED' for c in next_cells.SEQUENCE}, f0='DECIDED'))
+        self.assertEqual(d.world, {'notice': True, 'f0': 'FULL'})
+        self.assertEqual(results['n1']['calls'], next_cells.calls(install=1))
+        # Every notice fault acted, each issue's recipient was captured and qualified, and the
+        # ledgers hold the cells' notices before their creates.
+        self.assertEqual(sorted(d.acted), sorted(c['cell'] for c in d.broker.cells))
+        self.assertTrue({'a-notice', 'r-notice'} <= set(d.acted))
+        user, serial = users[0]
+        captures = [c['facts'] for c in self.checkpoints(d, 'notice-visibility')]
+        self.assertEqual([(c['ticket'], c['user'], c['serial'], c['qualified']) for c in captures],
+                         [(TICKETS['a'], user, serial, True), (TICKETS['r'], user, serial, True)])
+        for cell in ('a', 'r'):
+            self.assertEqual(results[cell]['ledger'], next_cells.by_cell(cell)['prediction']['ledger'])
+        self.assertEqual([b['kind'] for b in d.boots], ['INITIAL'] + ['CONFIRMATION'] * 6
+                         + ['NEGATIVE_ACTIVATION'] * 2 + ['MANAGED_ACTIVATION'] * 2)
+        self.assertTrue(all(b['transition'] for b in d.boots[1:]))
+        self.assertEqual((results['final']['active'], results['final']['live_owned']), ('R', 0))
+
+    def test_n1_is_captured_with_its_payload_and_its_refusal_comes_before_n2(self):
+        # The honest control: without N1's payload no N1 is admitted, and it stays NOT_CAPTURED.
+        names = ('n1', 'n2', 'n3', 'f0')
+        bare = self.world(sequence=sequence_of(*names), f0='REFUSED')
+        results = bare.run()
+        self.assertEqual({k: v['status'] for k, v in results.items()},
+                         {'n1': 'NOT_CAPTURED', 'n2': 'PASSED', 'n3': 'PASSED', 'f0': 'DECIDED', 'a': 'NOT_CAPTURED'})
+        self.assertEqual(bare.calls('INSTALL'), [])
+        # With its payload N1 runs first: one install, refused as a persistent app's, no boot.
+        w = self.world(sequence=sequence_of(*names), f0='REFUSED', n1=True)
+        results = w.run()
+        self.assertEqual({k: v['status'] for k, v in results.items()},
+                         {'n1': 'PASSED', 'n2': 'PASSED', 'n3': 'PASSED', 'f0': 'DECIDED', 'a': 'NOT_CAPTURED'})
+        self.assertEqual((results['n1']['calls'], results['n1']['new_boots'], results['n1']['cause']),
+                         (next_cells.calls(install=1), [], next_cells.CAUSES['N1']))
+        self.assertEqual(results['n1']['session']['referrer'],
+                         'andrix-lab-control:' + next_cells.action_id('control', 'N1'))
+        self.assertEqual([c[0] for c in w.sim.calls if c[0] in ('INSTALL', 'CREATE')],
+                         ['INSTALL', 'CREATE', 'CREATE'])
+        self.assertEqual([b['kind'] for b in w.driver.boots], ['INITIAL'] + ['NEGATIVE_ACTIVATION'] * 2)
+        installs = [e for e in w.entries('lab-action') if e.content.get('type') == 'DIRECT_NONSTAGED']
+        stages = [e for e in w.entries('lab-action') if e.content.get('type') == 'DIRECT_STAGE']
+        self.assertEqual([e.content['record'] for e in installs], ['BEGIN', 'END'])
+        self.assertLess(installs[-1].number, stages[0].number)
+        # A guest without the persistent guard installs it: N1 stops the campaign before N2.
+        w = self.world(sequence=sequence_of(*names), f0='REFUSED', n1=True)
+        w.sim.persistent = False
+        with self.assertRaisesRegex(lab_driver.DriverError, 'N1 ended UNEXPECTED'):
+            w.run()
+        self.assertEqual([c[0] for c in w.sim.calls if c[0] in ('INSTALL', 'CREATE', 'reboot')], ['INSTALL'])
+        self.assertNotIn('f0', w.driver.results)
+
+    def test_notices_owed_to_a_running_secondary_user_are_captured_and_received(self):
+        w = self.world(sequence=sequence_of('f0', 'a', 'r'), notice=True)
+        d = w.driver
+        d.entry(w.schedule, w.helpers)
+        user, serial = w.start_secondary()
+        d.decide_f0(labtest.f0_record('FULL'), 'F0 with a running secondary user')
+        a = d.run_managed(w.sequence[1], TICKETS['a'])
+        # A's activation boot stopped the secondary user; the setup starts it again before R.
+        self.assertFalse(w.sim.forms.running(user))
+        w.start_secondary()
+        r = d.run_repair(w.sequence[2], TICKETS['r'])
+        for result in (a, r):
+            self.assertEqual((result['status'], result['end']), ('PASSED', 'CLOSED_APPLIED'))
+        self.assertEqual([e[0] for e in d.ticket_state(TICKETS['a'])['ledger']].count('NOTICE'), 2)
+        self.assertTrue({'a-notice', 'r-notice'} <= set(d.acted))
+        issues = {e.content['ticket']: e.content for e in w.entries('notice-issue')}
+        self.assertEqual(sorted(issues), sorted([TICKETS['a'], TICKETS['r']]))
+        self.assertTrue(all(i['required'] == [{'user': user, 'serial': serial, 'type': sim_users.SECONDARY_TYPE}]
+                            for i in issues.values()))
+        # Each issue's recipient was captured once, in the foreground, and qualified.
+        captures = [c['facts'] for c in self.checkpoints(d, 'notice-visibility')]
+        self.assertEqual([(c['ticket'], c['serial'], c['qualified']) for c in captures],
+                         [(TICKETS['a'], serial, True), (TICKETS['r'], serial, True)])
+        # Each ticket's receipt read was given exactly its recipient, and its receipt is the
+        # visibility's completion; under late commit the create came no sooner than the notice
+        # delay after it, and the ledger's order is the cell's: the notices before the create.
+        reads = [g.content for g in w.entries('group') if g.content.get('reader') == 'receipts']
+        for cell, number in (('a', 0), ('r', 1)):
+            ticket = TICKETS[cell]
+            mine = [g for g in reads if g['ticket'] == ticket and issues[ticket]['number'] < g['number']]
+            self.assertTrue(mine and all(g['recipients'] == [[user, serial]] for g in mine))
+            emitted = [row for g in mine for row in g['rows'] if row['judgment'] == 'EMITTED']
+            visible = w.driver.broker.ledger.entries[captures[number]['group'] - 1].content
+            self.assertEqual({row['proof']['proven_elapsed'] for row in emitted},
+                             {visible['brackets']['end']['elapsed']})
+            create = [e for e in d.ticket_state(ticket)['ledger'] if e[0] == 'CREATE'][0]
+            self.assertGreaterEqual(create[3] - visible['brackets']['end']['elapsed'], 120_000)
+            names = [e[0] for e in d.ticket_state(ticket)['ledger']]
+            self.assertLess(max(i for i, n in enumerate(names) if n == 'NOTICE'), names.index('CREATE'))
+        # R's notice was lost after its delivered effect: no presentation again, one entry.
+        presents = [c for c in w.sim.calls if c[0] == 'present']
+        self.assertEqual(len(presents), 2)
+        self.assertEqual([e[0] for e in d.ticket_state(TICKETS['r'])['ledger']].count('NOTICE'), 1)
+
     def test_a_wait_the_cell_does_not_predict_stops_the_driver(self):
         for label, waits in (('no confirmation', []), ('one for another wait', ['ABANDON_INTENT'])):
             def unpredicted(c, waits=waits):
@@ -484,6 +628,78 @@ class CampaignTests(unittest.TestCase):
         with self.assertRaisesRegex(lab_driver.DriverError, 'boot 1 is unexpected'):
             w.driver.check()
         self.assertEqual([b['kind'] for b in w.driver.boots], ['INITIAL', 'UNEXPECTED'])
+
+    def test_a_managed_reboot_lost_before_its_service_never_explains_a_later_boot(self):
+        # The real coordinator stores REBOOT_INTENT with its REBOOT entry, and the broker is lost
+        # right after the managed BEGIN, before any service intent. The reopening reaps the lost
+        # generation, and the model's kernel then boots on its own: that boot is unexpected, while
+        # the coordinator's observation of it and the ticket's count stay recorded. The twin is
+        # lost inside the service's capture, which may have launched: the boot is then managed.
+        no_service = 'a new boot that no reboot service of this transition may have launched'
+        for cut in ('after BEGIN', 'inside the service'):
+            with self.subTest(cut):
+                w = self.world(sequence=sequence_of('f0', 'a', change=quiet))
+                d = w.driver
+                d.entry(w.schedule, w.helpers)
+                d.decide_f0(labtest.f0_record('FULL'), 'F0 for the positive attempt')
+                d.cell = 'a'
+                d.check()
+                d.broker.gate_positive(PLANS['A'], 1, 'the positive attempt')
+                d.plan(PLANS['A'], TICKETS['a'], 4)
+                record, children, popen = d.broker.ledger.record, [], subprocess.Popen
+
+                def child(*args, **kwargs):
+                    process = popen(*args, **kwargs)
+                    children.append(process)
+                    return process
+
+                def lose(kind, value):
+                    number = record(kind, value)
+                    if kind == 'boot-transition' and value['record'] == 'BEGIN' \
+                            and value['transition_kind'] == 'MANAGED_ACTIVATION':
+                        raise KeyboardInterrupt('the broker is lost after its durable BEGIN')
+                    return number
+
+                def lost(command):
+                    if command == lab_broker.REBOOT_LABEL:
+                        raise KeyboardInterrupt('the broker is lost while the reboot is sent')
+                if cut == 'after BEGIN':
+                    d.broker.ledger.record = lose
+                else:
+                    w.sim.hooks.append(lost)
+                with unittest.mock.patch.object(subprocess, 'Popen', child), self.assertRaises(KeyboardInterrupt):
+                    d.drive(w.sequence[1], TICKETS['a'], PLANS['A'], generations=40)
+                before = d.ticket_state(TICKETS['a'])
+                self.assertEqual((before['state'], [e[0] for e in before['ledger']][-1]), ('REBOOT_INTENT', 'REBOOT'))
+                w.sim.hooks.clear()
+                d.broker.close()
+                w.open()
+                for process in children:
+                    process.wait(timeout=10)
+                    for stream in (process.stdin, process.stdout, process.stderr):
+                        if stream is not None:
+                            stream.close()
+                w.sim.reboot()
+                if cut == 'after BEGIN':
+                    with self.assertRaisesRegex(lab_driver.DriverError, 'is unexpected'):
+                        d.advance('round', TICKETS['a'])
+                else:
+                    d.advance('round', TICKETS['a'])
+                [transition] = [t for t in d.broker.transitions.values()
+                                if t['begin']['transition_kind'] == 'MANAGED_ACTIVATION']
+                services = [e for e in w.entries('capture')
+                            if (e.content.get('intent') or {}).get('command') == lab_broker.REBOOT_LABEL]
+                after = d.ticket_state(TICKETS['a'])
+                end = transition['end']
+                self.assertEqual(([e.state for e in services], len(w.calls('reboot')), transition['progress']),
+                                 ([] if cut == 'after BEGIN' else ['interrupted'], 0, []))
+                self.assertEqual((end['status'], end['new_boots'], end['reason']),
+                                 ('UNEXPECTED', [w.sim.boot], no_service) if cut == 'after BEGIN'
+                                 else ('OK', [w.sim.boot], None))
+                self.assertEqual((d.boots[-1]['boot'], d.boots[-1]['kind']),
+                                 (w.sim.boot, 'UNEXPECTED' if cut == 'after BEGIN' else 'MANAGED_ACTIVATION'))
+                self.assertEqual((d.generations[-1]['status'], after['state'], after['bootCount']),
+                                 ('COMPLETE', 'BOOT_OBSERVED', 1))
 
     def test_a_helper_that_reads_back_other_bytes_after_a_boot_stops_the_driver(self):
         w = self.world(sequence=sequence_of('h2-c0'))

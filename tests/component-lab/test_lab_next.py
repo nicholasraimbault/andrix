@@ -483,6 +483,56 @@ class ReceiptTests(NextBase):
                 self.assertEqual((h.entries('notice-issue'), h.sim.rows), ([], []))
                 self.assertNotIn('present', [c[0] for c in h.sim.calls])
 
+    def test_each_receipt_read_is_given_its_tickets_issued_recipients(self):
+        h = self.harness()
+        # Before any notice of the ticket the read is given nobody.
+        self.generation(h)
+        h.observe()
+        self.assertEqual((self.groups(h, 'receipts')[-1]['recipients'], h.broker.reader.recipients_read[-1]),
+                         ([], (TICKET, [])))
+        # Two running secondary users owe the notice; another ticket's notice owes one of them and
+        # a third user, whom this ticket's notice did not reach.
+        h.sim.users += [(10, 5, 'RUNNING_UNLOCKED'), (11, 6, 'RUNNING_LOCKED')]
+        self.assertEqual(self.notice(h)['status'], STATUS['OK'])
+        other = '05' * 16
+        (Path(h.admission['store']) / 'tickets' / (other + '.rec')).write_bytes(b'other ticket record')
+        h.sim.users[-1] = (12, 7, 'RUNNING_UNLOCKED')
+        self.assertEqual(self.notice(h, index=4, ticket=other,
+                                     ticket_digest=hashlib.sha256(b'other ticket record').hexdigest())['status'],
+                         STATUS['OK'])
+        self.assertEqual([e.content['required'] for e in h.entries('notice-issue')],
+                         [[{'user': 10, 'serial': 5, 'type': sim_android.SECONDARY_TYPE},
+                           {'user': 11, 'serial': 6, 'type': sim_android.SECONDARY_TYPE}],
+                          [{'user': 10, 'serial': 5, 'type': sim_android.SECONDARY_TYPE},
+                           {'user': 12, 'serial': 7, 'type': sim_android.SECONDARY_TYPE}]])
+        self.generation(h)
+        h.observe()
+        group = self.groups(h, 'receipts')[-1]
+        manifest = lab_evidence.parse((h.root / group['compound']['path']).read_bytes())
+        self.assertEqual((group['recipients'], manifest['extra']['recipients']), ([[10, 5], [11, 6]],) * 2)
+        self.assertEqual(h.broker.reader.recipients_read[-1], (TICKET, [[10, 5], [11, 6]]))
+        # Rebuilt from the ledger's issue records, the same recipients reopen.
+        self.between(h)
+        h.reopen()
+        self.assertEqual(h.broker._recipients(TICKET), [[10, 5], [11, 6]])
+        # A copy whose read and manifest agree on fewer recipients than the issues required is
+        # refused, though the manifest and its group still summarize each other.
+        h.broker.close()
+        data = (h.root / group['compound']['path']).read_bytes()
+        value = lab_evidence.parse(data)
+        value['extra']['recipients'] = [[10, 5]]
+        changed = lab_evidence.canonical(value)
+        digest = hashlib.sha256(changed).hexdigest()
+        (h.root / 'compound' / digest).write_bytes(changed)
+        record = h.root / 'ledger' / ('%06d-group' % group['number']) / 'record.json'
+        content = json.loads(record.read_text())
+        self.assertEqual(content['observations'], [])
+        content.update(recipients=[[10, 5]], compound={'path': 'compound/' + digest, 'sha256': digest,
+                                                       'bytes': len(changed)})
+        record.write_bytes(capture_ledger.encode_json(content))
+        with self.assertRaisesRegex(lab_broker.BrokerError, 'receipt read %d names other recipients' % group['number']):
+            h.open()
+
     def test_a_reply_lost_after_delivery_is_recovered_by_a_fresh_read(self):
         h = self.harness(cells=[{'cell': 'lose-notice', 'on': 'cross', 'mode': 'loss-after', 'plan': PLAN,
                                  'attempt': 1, 'crossing': 'NOTICE', 'occurrence': 1}])
@@ -603,7 +653,8 @@ class ReceiptTests(NextBase):
         self.delivered(h)
         self.generation(h)
         rows = h.broker.reader.receipt_rows
-        h.broker.reader.receipt_rows = lambda ticket: [dict(rows(ticket)[0], uid=1 << 64, row=b'an app UID out of bounds')]
+        h.broker.reader.receipt_rows = lambda ticket, recipients: [dict(rows(ticket, recipients)[0], uid=1 << 64,
+                                                                        row=b'an app UID out of bounds')]
         self.assertEqual(self.envelopes(h.observe(), RECEIPT), [])
         h.broker.reader.receipt_rows = rows
         unkept = self.groups(h, 'receipts')[-1]
@@ -701,8 +752,8 @@ class ReceiptTests(NextBase):
                 start = h.sim.uptime
                 if case in unkept:
                     rows = h.broker.reader.receipt_rows
-                    h.broker.reader.receipt_rows = lambda ticket: [dict(rows(ticket)[0], uid=1 << 64,
-                                                                        row=b'an app UID out of bounds')]
+                    h.broker.reader.receipt_rows = lambda ticket, recipients: [
+                        dict(rows(ticket, recipients)[0], uid=1 << 64, row=b'an app UID out of bounds')]
                 # The provider read ends a second after every other fact of the round.
                 h.sim.hooks.append(lambda command: command == 'sim:rows' and h.sim.tick(1000))
                 receipts = self.envelopes(h.observe(), RECEIPT)

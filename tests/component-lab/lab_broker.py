@@ -137,9 +137,13 @@ CHECKPOINT_ENV = 'ANDRIX_LAB_CHECKPOINTS'
 # The states in which a ticket waits for a later boot to show what a lost crossing did: a plain
 # kernel confirmation may be issued only for a ticket in one of them.
 CONFIRM_WAITS = ('SESSION_INTENT', 'COMMIT_INTENT', 'ABANDON_INTENT')
-# The boot transitions the broker runs itself: a plain kernel confirmation and a direct negative
-# control's activation with its native recovery, and the most new boot IDs each may show.
-TRANSITIONS = {'CONFIRMATION': 1, 'NEGATIVE_ACTIVATION': 2}
+# The boot transitions the broker records, and the most new boot IDs each may show: a plain kernel
+# confirmation and a direct negative control's activation with its native recovery, which the
+# broker runs and polls itself, and a managed REBOOT crossing's activation, which it records around
+# the reboot service it sends and which the first later clock reading of a new boot settles.
+TRANSITIONS = {'CONFIRMATION': 1, 'NEGATIVE_ACTIVATION': 2, 'MANAGED_ACTIVATION': 1}
+# The transitions the broker polls itself, between generations.
+OWNED_TRANSITIONS = ('CONFIRMATION', 'NEGATIVE_ACTIVATION')
 # The ticket flag the reconciler sets at a ticket's boot limit.
 FLAG_BOOT_LIMIT = 2
 # The next profile's ledger records and their exact keys, by kind and, where a kind has several
@@ -161,12 +165,14 @@ NEXT_RECORDS = {
         'PAYLOAD': ('record', 'control', 'role', 'members', 'wall_ns'),
         'CREATED': ('record', 'control', 'role', 'action', 'capture', 'join_group', 'reference', 'wall_ns'),
         'WRITTEN': ('record', 'control', 'role', 'action', 'members', 'wall_ns'),
-        'COMMITTED': ('record', 'control', 'role', 'action', 'capture', 'classification', 'wall_ns')},
+        'COMMITTED': ('record', 'control', 'role', 'action', 'capture', 'classification', 'wall_ns'),
+        'NONSTAGED': ('record', 'control', 'role', 'action', 'capture', 'classification', 'join_group', 'reference',
+                      'wall_ns')},
     'qualification': {
         'DECISION': ('record', 'branch', 'qualified', 'capabilities_sha256', 'predicate_sha256', 'reason', 'wall_ns'),
         'GATE': ('record', 'plan', 'attempt', 'allowed', 'reason', 'purpose', 'wall_ns')},
 }
-DIRECT_RECORDS = ('PAYLOAD', 'CREATED', 'WRITTEN', 'COMMITTED')
+DIRECT_RECORDS = ('PAYLOAD', 'CREATED', 'WRITTEN', 'COMMITTED', 'NONSTAGED')
 # A read or round loss's decision record: a halt after its child or boundary, or not acted when
 # the observation or boundary it was due at ended first.
 LOSS_RECORD_KEYS = ('cell', 'on', 'decision', 'evidence', 'ticket', 'plan', 'attempt', 'operation', 'milestone',
@@ -240,6 +246,7 @@ def _hex(value, width):
 # Each typed action type's run request: what the controller names beyond the action and its reason.
 REQUESTS = {'NOTICE_VISIBILITY': ('ticket', 'index', 'serial'), 'HEALTH_PREPARATION': (),
             'PLAIN_KERNEL_CONFIRM': ('ticket',), 'DIRECT_STAGE': (), 'DIRECT_COMMIT': (), 'NEGATIVE_ACTIVATION': (),
+            'DIRECT_NONSTAGED': (),
             'USER_CREATE': (), 'USER_START': (), 'USER_SWITCH': (), 'USER_SETUP': (), 'USER_FIXTURE': (),
             'USER_PIN': (), 'CE_SENTINEL': (), 'HELPER_PUSH': ('host',)}
 # The largest helper jar a HELPER_PUSH reads from the host.
@@ -269,6 +276,8 @@ PRIVATE_KEEP = 2048
 WITHHELD = 'withheld with the output of a command given private input'
 # The typed readings of the full user reads: what each group records instead of facts.
 USER_READINGS = ('inventory', 'user-limits', 'systemui-processes')
+# The typed readings a reopening reads again from their captures, when the reader can.
+TYPED_READINGS = USER_READINGS + ('global-sessions',)
 # An identity baseline's children in the order it reads them, each with its reader.
 IDENTITY_CHILDREN = (('begin', 'clock'), ('factory', 'factory'), ('active', 'active'), ('inventory', 'inventory'),
                      ('processes', 'systemui-processes'), ('end', 'clock'))
@@ -780,8 +789,10 @@ class Broker:
             kind = entry.kind
             if kind == 'group' and self.admission['version'] == 3:
                 self._check_unkept_compound(c)
-            if kind == 'group' and self.admission['version'] == 3 and c.get('reader') in USER_READINGS:
+            if kind == 'group' and self.admission['version'] == 3 and c.get('reader') in TYPED_READINGS:
                 self._check_typed(c)
+            if kind == 'group' and self.admission['version'] == 3 and c.get('reader') == 'receipts':
+                self._check_recipients(c)
             if kind in NEXT_RECORDS:
                 self._next_record(kind, c)
                 continue
@@ -880,10 +891,13 @@ class Broker:
                                             'wall_ns': self._wall(), 'monotonic_ns': self._monotonic()})
                 self.host_ended.add(key)
         # A boot transition a lost broker left open: its reboot may have run, and it is never sent
-        # again. A loss that an observation or boundary named due, and that was never decided, is
+        # again. A managed activation is never polled by the broker, so it stays open for the next
+        # clock reading of a new boot to settle, as before the loss: OK only when a capture of its
+        # own service may have launched, an interrupted one included; a BEGIN without one explains
+        # no boot. A loss that an observation or boundary named due, and that was never decided, is
         # recorded as not acted: it never acts later at another address.
         for ident, transition in sorted(self.transitions.items()):
-            if transition['end'] is None:
+            if transition['end'] is None and transition['begin']['transition_kind'] in OWNED_TRANSITIONS:
                 self._end_transition(ident, 'LOST', [], [], None,
                                      'the broker was lost during the transition; whether it rebooted is unknown')
         self._settle_unacted('the broker was lost before the loss acted')
@@ -1104,9 +1118,9 @@ class Broker:
         self.loss_records[c['cell']] = c['number']
 
     def _controls(self):
-        """The admitted direct negative controls: control ID to role."""
+        """The admitted direct negative controls, staged or not: control ID to role."""
         return {s['parameters']['control']: s['parameters']['role'] for s in self.specs.values()
-                if s['type'] in lab_actions.DIRECT_STEPS}
+                if s['type'] in lab_actions.DIRECT_TYPES}
 
     def _users(self, group):
         for item in group.get('observations', ()):
@@ -1602,6 +1616,8 @@ class Broker:
                 result = self._act_direct_commit(context, command, begin, spec)
             elif spec['type'] == 'HELPER_PUSH':
                 result = self._act_helper_push(context, command, begin, spec, request)
+            elif spec['type'] == 'DIRECT_NONSTAGED':
+                result = self._act_direct_nonstaged(context, command, begin, spec)
             else:
                 result = self._act_negative_activation(context, begin, spec)
         except Stopped as error:
@@ -1620,13 +1636,14 @@ class Broker:
         """Why a direct control's step is refused before anything is recorded, from the ledger
         alone, or None: no direct step after F0's decision, a stage only with its payload pinned, a
         commit only after the control's consent and written members, an activation only after its
-        commit. A refused step spends no use."""
-        if spec['type'] not in lab_actions.DIRECT_STEPS:
+        commit, and N1's one install only with its payload pinned, after its consent and while no
+        boot transition is unsettled. A refused step spends no use."""
+        if spec['type'] not in lab_actions.DIRECT_TYPES:
             return None
         control, steps = spec['parameters']['control'], self.direct.get(spec['parameters']['control'], {})
         if self.f0 is not None:
             return 'a direct negative control runs only before F0'
-        if spec['type'] == 'DIRECT_STAGE' and control not in self.payloads:
+        if spec['type'] in ('DIRECT_STAGE', 'DIRECT_NONSTAGED') and control not in self.payloads:
             return 'no payload is pinned for the control'
         if spec['type'] != 'DIRECT_STAGE' and control not in self.consents:
             return 'no consent was given before arming'
@@ -1634,6 +1651,8 @@ class Broker:
             return "the control's stage did not complete"
         if spec['type'] == 'NEGATIVE_ACTIVATION' and 'COMMITTED' not in steps:
             return "the control's commit is not recorded"
+        if spec['type'] == 'DIRECT_NONSTAGED':
+            return self._unsettled_transition()
         return None
 
     def _user_gate(self, spec):
@@ -1717,7 +1736,15 @@ class Broker:
         if spec['type'] == 'DIRECT_COMMIT':
             return bool(re.fullmatch(r'pm install-commit --staged-ready-timeout %d [1-9][0-9]{0,9}'
                                      % crossings.COMMIT_READY_TIMEOUT_MS, text))
+        if spec['type'] == 'DIRECT_NONSTAGED':
+            path = self._nonstaged_path(control)
+            return text in (crossings.digest_command(path),
+                            crossings.control_install_command(self.admission['component'], control, path))
         return False
+
+    def _nonstaged_path(self, control):
+        """The guest path N1's pinned APK is pushed to, under the admitted staging directory."""
+        return crossings.staged_path('%s/control-%s/base.apk' % (self.admission['device_dir'], control))
 
     def _effect_spent(self, effect_class, phase):
         """Why the admitted effect limits refuse one more action effect command of a class in a
@@ -1805,7 +1832,7 @@ class Broker:
         controls = self._controls()
         if control not in controls or control in self.payloads:
             raise BrokerError('a payload of an admitted direct control, pinned once')
-        stage = next(s for s in self.specs.values() if s['type'] == 'DIRECT_STAGE'
+        stage = next(s for s in self.specs.values() if s['type'] in ('DIRECT_STAGE', 'DIRECT_NONSTAGED')
                      and s['parameters']['control'] == control)
         expected = {item['role']: (item['sha256'], item['bytes']) for item in stage['inputs']}
         if not isinstance(members, dict) or set(members) != set(expected):
@@ -2107,6 +2134,112 @@ class Broker:
         outcome = dict(outcome or {}, transition=ident, new_boots=new_boots, polls=len(polls))
         return status, outcome, reason, status in ('OK', 'UNEXPECTED') and settled_poll is not None, postreads
 
+    def _managed_begin(self, m, crossing, reading):
+        """A managed REBOOT crossing's MANAGED_ACTIVATION transition, recorded and synced after its
+        gate and before its reboot service, as a plain confirmation's is: the exact crossing, its
+        ticket, plan, attempt and entry, the gate's clock group as its preflight, the old boot, the
+        ordinal and caps. An earlier managed transition of the same ticket that no new boot has
+        settled ends first, UNKNOWN: the reconciler asked again in the same boot, by its own rule.
+        The broker sends the service and never polls for it: the first later clock reading of a
+        new boot settles it, whichever read makes it. Returns the transition's ID."""
+        # The gate read the clock last, right before this.
+        gate = self.ledger.last
+        for ident, transition in sorted(self.transitions.items()):
+            begin = transition['begin']
+            if (begin['transition_kind'] == 'MANAGED_ACTIVATION' and transition['end'] is None
+                    and begin['subject']['ticket'] == m['ticket']):
+                self._end_transition(ident, 'UNKNOWN', [], self._managed_polls(begin), None,
+                                     'no new boot was observed before the reconciler asked again in boot %s'
+                                     % reading['boot'])
+        policy = self.admission['boot_policy']
+        started = self._monotonic()
+        ident = proto.fresh_id(self._ids)
+        begin = {'record': 'BEGIN', 'transition': ident, 'transition_kind': 'MANAGED_ACTIVATION', 'action': None,
+                 'action_id': None, 'cell': None, 'phase': None,
+                 'preflight': gate.number if gate.kind == 'group' and gate.content.get('reader') == 'clock' else None,
+                 'old': {'boot': reading['boot'], 'instance': reading['instance'], 'elapsed': reading['elapsed']},
+                 'ordinal': self._reboot_services()['total'] + 1,
+                 'caps': {'activation_services': policy['activation_services'],
+                          'confirmation_services': policy['confirmation_services'],
+                          'reboot_services': policy['activation_services'] + policy['confirmation_services'],
+                          'observed_boots': policy['observed_boots']},
+                 'poll': {'interval_ms': None, 'settle_ms': None, 'started_monotonic_ns': started,
+                          'deadline_monotonic_ns': None},
+                 'subject': {'crossing': crossing, 'ticket': m['ticket'], 'plan': m['plan'], 'attempt': m['attempt'],
+                             'index': m['index'], 'occurrence': m['occurrence'], 'grant': m['grant'],
+                             'entry_boot': m['entry_boot']},
+                 'wall_ns': self._wall(), 'monotonic_ns': started}
+        self._fence()
+        number = self.ledger.record('boot-transition', begin)
+        self._transition_record(dict(begin, number=number, kind='boot-transition'))
+        return ident
+
+    def _managed_progress(self, ident, capture, result):
+        """A managed transition's PROGRESS after its reboot service, which proves no boot; a service
+        that was not launched ends it REFUSED."""
+        progress = {'record': 'PROGRESS', 'transition': ident, 'capture': capture, 'launch': result.launch,
+                    'acknowledgement': result.acknowledgement, 'stream_end': result.stream_end,
+                    'wall_ns': self._wall(), 'monotonic_ns': self._monotonic()}
+        number = self.ledger.record('boot-transition', progress)
+        self._transition_record(dict(progress, number=number, kind='boot-transition'))
+        if result.launch == 'not-launched':
+            self._end_transition(ident, 'REFUSED', [], [], None,
+                                 'the reboot service was not launched (%s)' % result.transport)
+
+    def _managed_polls(self, begin):
+        """Every clock reading recorded since a managed transition began, in ledger order, as its
+        polls: the group, the boot it read and why it settles nothing, None for none."""
+        polls = []
+        for entry in self.ledger.entries[begin['number']:]:
+            c = entry.content
+            if entry.kind != 'group' or c.get('reader') != 'clock' or not entry.complete:
+                continue
+            boot = c['reading']['boot'] if c.get('status') == 'facts' else None
+            missing = None
+            if boot is None:
+                missing = 'the clock is unavailable (%s)' % c.get('reason')
+            elif boot == begin['old']['boot']:
+                missing = 'the same boot: no new boot is observed yet'
+            polls.append({'groups': [entry.number], 'boot': boot, 'missing': missing})
+        return polls
+
+    def _observe_managed(self, group, reading):
+        """Settles every open managed transition that a clock reading of a new boot answers: a boot
+        that is not its old one and that no clock reading before it began showed. It ends OK only
+        when a capture of its own reboot service may have launched; a BEGIN alone proves an intent,
+        never a sent service, so the new boot is then unexpected. Its END names the new boot and
+        every clock reading since its BEGIN as its polls, this one last."""
+        for ident, transition in sorted(self.transitions.items()):
+            begin = transition['begin']
+            if begin['transition_kind'] != 'MANAGED_ACTIVATION' or transition['end'] is not None:
+                continue
+            if reading['boot'] == begin['old']['boot']:
+                continue
+            seen = any(e.kind == 'group' and e.complete and e.content.get('reader') == 'clock'
+                       and e.content.get('status') == 'facts' and e.content['reading']['boot'] == reading['boot']
+                       for e in self.ledger.entries[:begin['number'] - 1])
+            polls = self._managed_polls(begin)
+            if seen:
+                self._end_transition(ident, 'UNEXPECTED', [reading['boot']], polls, len(polls),
+                                     'a boot observed before the reboot was asked')
+            elif self._managed_service(begin) is None:
+                self._end_transition(ident, 'UNEXPECTED', [reading['boot']], polls, len(polls),
+                                     'a new boot that no reboot service of this transition may have launched')
+            else:
+                self._end_transition(ident, 'OK', [reading['boot']], polls, len(polls), None)
+
+    def _managed_service(self, begin):
+        """The capture of a managed transition's own reboot service that may have launched, or None:
+        its whole intent names the transition and its crossing, and it has no result, or one that
+        is not a refusal before the launch. An interrupted capture counts, with no PROGRESS record:
+        its service may have run, and it is never sent again to find out."""
+        for entry in self.ledger.entries[begin['number']:]:
+            intent = entry.content.get('intent') if entry.kind == 'capture' else None
+            if (intent and intent.get('operation') == 'reboot' and intent.get('transition') == begin['transition']
+                    and intent.get('crossing') == begin['subject']['crossing'] and self._may_have_launched(entry)):
+                return entry
+        return None
+
     def _end_transition(self, ident, status, new_boots, polls, settled_poll, reason):
         record = {'record': 'END', 'transition': ident, 'status': status, 'new_boots': list(new_boots), 'polls': polls,
                   'settled_poll': settled_poll, 'reason': reason, 'wall_ns': self._wall(),
@@ -2366,6 +2499,136 @@ class Broker:
             return 'OK', outcome, postreads
         return settle
 
+    def _open_tickets(self):
+        """The component's stored tickets that are not terminal, from the admitted store's own
+        records: (their IDs, None), or (None, why) when a stored ticket cannot be read whole."""
+        directory = Path(self.admission['store']) / 'tickets'
+        found = []
+        for path in sorted(directory.glob('*' + STORE_SUFFIX)) if directory.is_dir() else ():
+            if path.name.startswith('.'):
+                continue
+            try:
+                t = records.decode_ticket(_regular_bytes(path) or b'')
+            except records.RecordError as error:
+                return None, 'the stored ticket %s: %s' % (path.name, error)
+            if t['component'] == self.admission['component'] and t['state'] not in proto.TERMINAL_STATES:
+                found.append(t['ticket'])
+        return found, None
+
+    def _identity(self, reads):
+        """What N1 must leave unchanged, from one set of its reads: the boot, the fingerprint, the
+        factory copy's bytes and version, and the active copy with its bytes, version, UID and
+        context. None for a part that was not read."""
+        boot = self._one(reads['boot'], 'BOOT', 'COMPLETED')
+        factory = self._one(reads['factory'], 'FACTORY')
+        active = self._one(reads['active'], 'ACTIVE')
+        return {'boot': reads['clock'].reading['boot'] if reads['clock'].ok else None,
+                'fingerprint': boot['facts']['fingerprint'] if boot else None,
+                'factory': [factory['facts']['apk'], factory['facts']['version']] if factory else None,
+                'active': [active['classification'], active['facts']['apk'], active['facts']['version'],
+                           active['facts']['uid'], active['facts']['context']] if active else None}
+
+    def _act_direct_nonstaged(self, context, command, begin, spec):
+        """DIRECT_NONSTAGED: N1, the one nonstaged direct replacement of the persistent component,
+        after its consent and before F0, with every managed ticket closed, no session live, the
+        factory copy active and the checkpoint COMMITTED. Its pinned APK is pushed and read back by
+        digest; then its one effect, `pm install` under the control's own referrer, not a ticket's.
+        Its reply is kept and classified, and proves nothing alone: whatever the reply, the broker
+        reads the whole global inventory again, until no session is live, and the boot, checkpoint,
+        factory and active copies. N1 settles only on the exact persistent app refusal, joined by
+        its referrer to one failed nonstaged session of the component with the persistent cause,
+        in the same boot with the checkpoint COMMITTED, and the factory copy, its identity and the
+        cohort unchanged. A completed reply with another outcome is unexpected; a reply or a later
+        read that did not complete leaves it uncertain, never repeated."""
+        control, role = spec['parameters']['control'], spec['parameters']['role']
+        deadline, component = begin['deadline_monotonic_ns'], self.admission['component']
+        if self.f0 is not None or control not in self.consents:
+            return 'REFUSED', None, 'the nonstaged control needs its consent, before F0', True, []
+        payload = self.payloads.get(control)
+        if payload is None:
+            return 'REFUSED', None, 'no payload is pinned for the control', True, []
+        pre = dict(context, purpose='direct-precondition')
+        reads = {}
+        for name in ('clock', 'boot', 'checkpoint', 'factory', 'active', 'global-sessions'):
+            boot = reads['clock'].reading['boot'] if name != 'clock' and name != 'global-sessions' \
+                and reads['clock'].ok else None
+            reads[name] = self._read(name, dict(pre, part=name), deadline, boot)
+        groups = [g.number for g in reads.values()]
+        before = self._identity(reads)
+        tickets, why = self._open_tickets()
+        if not reads['clock'].ok or reads['clock'].reading['instance'] < 0:
+            why = 'the clock is unavailable or no framework is running'
+        elif self._one(reads['checkpoint'], 'CHECKPOINT', 'COMMITTED') is None:
+            why = 'the checkpoint is not read COMMITTED'
+        elif None in before.values() or before['active'][:3] != ['FACTORY_COPY'] + before['factory']:
+            why = 'the factory copy is not read active'
+        elif not reads['global-sessions'].ok or not reads['global-sessions'].reading['whole']:
+            why = 'the global session inventory is not read whole'
+        elif lab_actions.live_rows(reads['global-sessions'].reading):
+            why = 'a session is live: the nonstaged control installs alone'
+        elif why is None and tickets:
+            why = 'a managed ticket is open: %s' % ', '.join(tickets)
+        if why is not None:
+            return 'REFUSED', {'groups': groups}, why, True, groups
+        pin = payload['members']['base.apk']
+        data = _regular_bytes(pin['host'], 1 << 30)
+        if data is None or (hashlib.sha256(data).hexdigest(), len(data)) != (pin['sha256'], pin['bytes']):
+            return 'REFUSED', {'groups': groups}, 'the pinned base.apk has other bytes: nothing launched', True, groups
+        pushed, _ = self._capture('lab-action-push', None, dict(context, member='base.apk', path=pin['guest'],
+                                                                 data_sha256=pin['sha256']),
+                                  lambda: self.transport.push(data, pin['guest'], MEMBER_MODE, 0,
+                                                              self.limits['push_timeout_s']),
+                                  self.limits['push_timeout_s'], deadline)
+        check = command('lab-action-read', crossings.digest_command(pin['guest']))
+        if crossings.classify_digest(check, pin['guest']) != pin['sha256']:
+            return 'REFUSED', {'groups': groups, 'push': pushed}, \
+                'the staged base.apk does not read back exactly: nothing installed', True, groups
+        result = command('lab-action-effect', crossings.control_install_command(component, control, pin['guest']))
+        capture = self.ledger.last.number
+        classification = crossings.classify_install(result, component)
+        post = dict(context, purpose='direct-postread')
+        polls = []
+
+        def inventory():
+            group = self._read('global-sessions', dict(post, part='join', poll=len(polls) + 1), deadline)
+            polls.append(group.number)
+            return group
+        join = self._settle(inventory, lambda g: g.ok and g.reading['whole'] and not lab_actions.live_rows(g.reading),
+                            deadline)
+        after = {}
+        for name in ('clock', 'boot', 'checkpoint', 'factory', 'active'):
+            boot = after['clock'].reading['boot'] if name != 'clock' and after['clock'].ok else None
+            after[name] = self._read(name, dict(post, part=name), deadline, boot)
+        postreads = polls + [g.number for g in after.values()]
+        row, reference = None, None
+        if join.ok:
+            found = [r for r in join.reading['sessions'] if r['referrer'] == lab_actions.control_referrer(control)]
+            row = found[0] if len(found) == 1 else None
+            reference = row and {'id': row['id'], 'created': row['created'], 'installer': row['installer'],
+                                 'referrer': row['referrer']}
+        self._direct_record('NONSTAGED', control, role, action=begin['number'], capture=capture,
+                            classification=classification, join_group=join.number, reference=reference)
+        outcome = {'classification': classification, 'capture': capture, 'join_group': join.number,
+                   'reference': reference, 'before': before}
+        if not join.ok or any(not g.ok for g in after.values()):
+            return 'UNKNOWN', outcome, 'a read after the install did not complete: what it did is unknown', False, \
+                postreads
+        outcome['after'] = now = self._identity(after)
+        why = None
+        if classification != 'REFUSED_PERSISTENT':
+            why = 'the install replied %s, not the persistent app refusal' % classification
+        else:
+            why = lab_actions.nonstaged_refusal(join.reading, control, component)
+        if why is None and now['boot'] != before['boot']:
+            why = 'the device rebooted'
+        elif why is None and self._one(after['checkpoint'], 'CHECKPOINT', 'COMMITTED') is None:
+            why = 'the checkpoint is not read COMMITTED'
+        elif why is None and now != before:
+            why = 'the factory copy, its identity or the cohort changed'
+        if why is not None:
+            return 'UNEXPECTED', outcome, 'not the intended refusal: %s' % why, True, postreads
+        return 'OK', outcome, None, True, postreads
+
     def _direct_record(self, record, control, role, **fields):
         value = dict(fields, record=record, control=control, role=role, wall_ns=self._wall())
         number = self.ledger.record('direct-control', value)
@@ -2492,11 +2755,11 @@ class Broker:
         return None
 
     def _check_typed(self, c):
-        """Refuses a reopening whose typed user reading is not the one its own captures give, when
-        the reader can read them again: the same parse over the recorded replies, the processes
-        over the inventory group they name. A changed reading, or captures of other reads, is a
-        changed copy. The two compare as their exact encodings, so a number never passes for a
-        boolean it compares equal to."""
+        """Refuses a reopening whose typed reading, of the full user reads or the global session
+        inventory, is not the one its own captures give, when the reader can read them again: the
+        same parse over the recorded replies, the processes over the inventory group they name. A
+        changed reading, or captures of other reads, is a changed copy. The two compare as their
+        exact encodings, so a number never passes for a boolean it compares equal to."""
         rederive = getattr(self.reader, 'rederive', None)
         if c.get('status') != 'facts' or rederive is None:
             return
@@ -3575,8 +3838,11 @@ class Broker:
         return branch
 
     def _f0_order_problem(self):
-        """Why F0 may not be decided now, or None: every admitted negative activation must have
-        settled its intended rejection, and no boot transition may be unsettled."""
+        """Why F0 may not be decided now, or None: an admitted N1 must have settled its intended
+        refusal and every admitted negative activation its intended rejection, and no boot
+        transition may be unsettled."""
+        if any(s['type'] == 'DIRECT_NONSTAGED' and not self._settled_ok(s['id']) for s in self.specs.values()):
+            return 'N1 settles its intended persistent app refusal before F0'
         pending = [s['id'] for s in self.specs.values() if s['type'] == 'NEGATIVE_ACTIVATION'
                    and not self._settled_ok(s['id'])]
         if pending:
@@ -3624,19 +3890,26 @@ class Broker:
             return problem
         if name == 'COMMIT' and not self._f0_qualified():
             return 'no managed COMMIT launches before F0 qualifies'
-        return self._unsettled_transition()
+        return self._unsettled_transition(crossing=True)
 
     def _settled_ok(self, action_id):
         return any(n in self.action_ends and self.action_ends[n]['settled'] and self.action_ends[n]['status'] == 'OK'
                    for n in self.action_begins.get(action_id, []))
 
-    def _unsettled_transition(self, current=None):
-        """Why no forward effect may follow now, or None: a boot transition, other than the one
-        being run, did not end settled with its intended outcome. Nothing continues while one is
-        uncertain."""
+    def _unsettled_transition(self, current=None, crossing=False):
+        """Why no forward effect may follow now, or None: a boot transition the broker runs, other
+        than the one being run, did not end settled with its intended outcome. Nothing continues
+        while one is uncertain. A managed activation holds the broker's own effects while no new
+        boot has answered it or when its answer was unexpected, since its reboot may still take
+        effect; it never holds a managed `crossing`, whose wait and any request again in the same
+        boot are the reconciler's own rules."""
         for ident, transition in self.transitions.items():
             end = transition['end']
             if ident == current:
+                continue
+            if transition['begin']['transition_kind'] == 'MANAGED_ACTIVATION':
+                if not crossing and (end is None or end['status'] == 'UNEXPECTED'):
+                    return 'managed activation %s is not answered by a new boot: no lab effect follows' % ident
                 continue
             if end is None or end['status'] not in ('OK', 'REFUSED'):
                 return 'boot transition %s is unsettled or unexpected: nothing continues' % ident
@@ -3861,6 +4134,9 @@ class Broker:
                       raw=raw, observations=observations, reading=reading, emitted=emitted and status == 'facts')
         number = self.ledger.record('group', record)
         self._read_record(dict(record, number=number))
+        if name == 'clock' and status == 'facts' and self.admission['version'] == 3:
+            # A clock reading of a new boot settles every managed activation it answers.
+            self._observe_managed(number, reading)
         self._users(record)
         self._listing(record)
         if name == 'inventory' and status == 'facts':
@@ -4308,13 +4584,17 @@ class Broker:
         or one without a qualified visibility yet, is kept and gives nothing. A contrary row
         refuses the whole group, wherever it stands in the read. Every row of a whole read keeps
         its first bytes all the same: one that emits, one that is refused, and one whose bracket
-        did not complete."""
+        did not complete. The reader is given the recipients of every notice issued for the
+        ticket, from the ledger's issue records, and reads their stores; the manifest and the
+        group name them."""
         context = dict(context, purpose='receipt-read')
+        recipients = self._recipients(m['ticket'])
         begin = self._clock_group(dict(context, part='begin'), m['boot'], emitted=False)
         rows, captures, status, reason, end, judged = None, [], 'unavailable', 'the read bracket did not begin', None, []
         if begin.ok:
             rows, captured, status, reason = self._call_reader(
-                'receipts', lambda: self.reader.receipt_rows(m['ticket']), context, None, list)
+                'receipts', lambda: self.reader.receipt_rows(m['ticket'], [tuple(r) for r in recipients]), context,
+                None, list)
             captures = [c[0] for c in captured]
             if status == 'facts':
                 end = self._clock_group(dict(context, part='end'), m['boot'], emitted=False)
@@ -4345,12 +4625,27 @@ class Broker:
                      'delivery_end': proof['delivery_end']}
             facts.append((proto.MODES['RECEIPT_EVENT'], fact, block))
         children = {'begin': begin.number, 'end': end.number if end is not None else None}
+        marker = dict(marker or {}, recipients=recipients)
         number, envelopes = self._compound('receipts', context, captures, children, status, reason, brackets,
                                            {'rows': judged}, facts, emitted=True,
                                            extra=dict({'rows': judged}, **(marker or {})))
         if status == 'stopped':
             raise Stopped(reason)
         return envelopes, number
+
+    def _recipients(self, ticket):
+        """The recipients of every notice the broker issued for a ticket, from the ledger's issue
+        records: each required user and serial once, in order."""
+        return [list(pair) for pair in sorted({(r['user'], r['serial']) for (t, _), issue in self.issues.items()
+                                               if t == ticket for r in issue['required']})]
+
+    def _check_recipients(self, c):
+        """Refuses a reopening whose receipt read names other recipients than the notices issued
+        for its ticket before it required: a changed copy never widens or narrows the stores
+        read."""
+        if 'recipients' in c and c['recipients'] != self._recipients(c.get('ticket')):
+            raise BrokerError('receipt read %d names other recipients than the notices issued before it'
+                              % c['number'])
 
     def _row_problem(self, row):
         """Why a provider row's projection is of no known form, or None."""
@@ -5491,10 +5786,25 @@ class Broker:
             return classification, self._reply_fact(name, m, classification, raw, elapsed, instance), None
         if name == 'REBOOT':
             gate = self._may_send(deadline)
-            number, result = self._capture('reboot', REBOOT_LABEL, context,
-                                           lambda: self.transport.reboot(limits['reboot_timeout_s'], may_send=gate),
-                                           limits['reboot_timeout_s'], deadline)
+            ident = self._managed_begin(m, crossing, reading) if self.admission['version'] == 3 else None
+            if ident is not None:
+                # The capture names its transition; the transition's own records name its kind.
+                context = dict(context, transition=ident)
+            try:
+                number, result = self._capture('reboot', REBOOT_LABEL, context,
+                                               lambda: self.transport.reboot(limits['reboot_timeout_s'], may_send=gate),
+                                               limits['reboot_timeout_s'], deadline)
+            except Stopped as error:
+                if ident is not None:
+                    self._end_transition(ident, 'STOPPED', [], [], None, '%s: nothing launched' % error)
+                raise
+            except _NotLaunched as error:
+                if ident is not None:
+                    self._end_transition(ident, 'REFUSED', [], [], None, '%s: nothing launched' % error)
+                raise
             captures.append(number)
+            if ident is not None:
+                self._managed_progress(ident, number, result)
             return None, None, 'a reboot has no shell reply: a new boot ID resolves it'
         # NOTICE
         if self.notice is None:

@@ -81,6 +81,34 @@ class FormTests(unittest.TestCase):
         self.assertEqual(lc.classify_abandon(done(b'Success\n', 1)), 'UNRECOGNIZED')
         self.assertIsNone(lc.classify_abandon(sim_android.result('x', completion='timeout')))
 
+    def test_n1s_one_install_and_its_reply_forms(self):
+        control, component = 'a1' * 16, 'com.android.systemui'
+        path = '/data/local/tmp/andrix-d5/control-%s/base.apk' % control
+        self.assertEqual(lc.control_install_command(component, control, path),
+                         'pm install --user 0 -r --pkg com.android.systemui --referrer andrix-lab-control:%s %s'
+                         % (control, path))
+        for call in (lambda: lc.control_install_command(component + '; id', control, path),
+                     lambda: lc.control_install_command(component, '0' * 32, path),
+                     lambda: lc.control_install_command(component, control, path + '.idsig'),
+                     lambda: lc.control_install_command(component, control, '/sdcard/base.apk')):
+            with self.assertRaises(ValueError):
+                call()
+        refusal = (lc.PERSISTENT_REFUSAL % component).encode()
+        self.assertEqual(lc.classify_install(done(refusal, 1), component), 'REFUSED_PERSISTENT')
+        self.assertEqual(lc.classify_install(done(b'Success\n'), component), 'SUCCESS')
+        for result in (done(refusal, 0), done(refusal, 1, b'warning\n'),
+                       done(refusal.replace(component.encode(), b'com.example.app'), 1), done(refusal[:-1], 1),
+                       done(b'Failure [INSTALL_FAILED_UPDATE_INCOMPATIBLE: Existing package com.android.systemui '
+                            b'signatures do not match newer version; ignoring!]\n', 1), done(b'Success\n', 1)):
+            self.assertEqual(lc.classify_install(result, component), 'UNRECOGNIZED')
+        self.assertIsNone(lc.classify_install(sim_android.result('x', 1, refusal, completion='eof-before-exit'),
+                                              component))
+        # The reply carries installStatusToString's message, which a lab guest's refused nonstaged
+        # session kept as its error message.
+        from scripts.proof.tests import test_systemui_observer as captured
+        [session] = systemui_sessions.installs_dump(*captured.reply('installs-historical-refused')[:2]).sessions
+        self.assertEqual(refusal, ('Failure [%s]\n' % session.error_message).encode())
+
     def test_a_digest_read_names_its_path(self):
         good = ('ab' * 32 + '  ' + PATH + '\n').encode()
         self.assertEqual(lc.classify_digest(done(good), PATH), 'ab' * 32)

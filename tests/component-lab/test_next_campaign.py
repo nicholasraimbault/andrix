@@ -5,6 +5,7 @@ selection and authorization readers, and the next driver's own rules on fakes of
 ledger: its explicit boot phases, its boot accounting, its scheduled loss control, its synced
 records and immutable baseline cache, its publication pin and its comparison of a cell. The
 driver's end to end histories are test_next_driver.py's. Host evidence only."""
+import contextlib
 import copy
 import hashlib
 import json
@@ -242,6 +243,42 @@ class AdmissionTests(unittest.TestCase):
         quiet = tuple(c for c in next_cells.SEQUENCE if c['kind'] != 'direct')
         self.assertNotIn('DIRECT_STAGE', [s['type'] for s in admission(sequence=quiet)['lab_actions']])
         self.assertEqual(admission(sequence=quiet)['effect_limits']['direct'], 0)
+
+    def test_n1_and_the_notice_captures_are_admitted_only_as_the_campaign_names_them(self):
+        n1 = [{'role': 'base.apk', 'sha256': 'b1' * 32, 'bytes': 100}]
+        value = admission(payloads=dict(PAYLOADS, N1=n1))
+        by_type = {}
+        for s in value['lab_actions']:
+            by_type.setdefault(s['type'], []).append(s)
+        [install] = by_type['DIRECT_NONSTAGED']
+        confirms, stages = by_type['PLAIN_KERNEL_CONFIRM'], by_type['DIRECT_STAGE']
+        self.assertEqual((install['phase'], install['parameters']['role'], install['inputs'], install['max_uses']),
+                         ('N1', 'N1', n1, 1))
+        self.assertEqual((install['predecessor'], stages[0]['predecessor']), (confirms[-1]['id'], install['id']))
+        self.assertIn(install['id'], value['branches']['REFUSED']['actions'])
+        # N1's one install is a direct effect of its own phase; notices owed add each window phase's
+        # captures to the fixture caps.
+        limits = value['effect_limits']
+        self.assertEqual((limits['direct'], limits['phases']['N1']), (10, 1))
+        captures = by_type['NOTICE_VISIBILITY']
+        self.assertEqual([(s['phase'], s['max_uses'], s['user_selector']) for s in captures],
+                         [('A', next_cells.NOTICE_BUDGET, {'kind': 'NOTICE_RECIPIENT'}),
+                          ('R', next_cells.NOTICE_BUDGET, {'kind': 'NOTICE_RECIPIENT'})])
+        self.assertEqual((limits['fixture'], limits['phases']['A'], limits['phases']['R']),
+                         (2 + 2 * lab_driver.PROBES + 2 * next_cells.NOTICE_BUDGET,
+                          lab_driver.PROBES + next_cells.NOTICE_BUDGET, lab_driver.PROBES + next_cells.NOTICE_BUDGET))
+        # Without notices owed, no capture; without N1's payload, no N1 and the old caps.
+        quiet = admission(notice=False)
+        self.assertNotIn('NOTICE_VISIBILITY', [s['type'] for s in quiet['lab_actions']])
+        self.assertEqual((quiet['effect_limits']['fixture'], quiet['effect_limits']['phases']['A']),
+                         (2 + 2 * lab_driver.PROBES, lab_driver.PROBES))
+        plain = admission()
+        self.assertNotIn('DIRECT_NONSTAGED', [s['type'] for s in plain['lab_actions']])
+        self.assertEqual((plain['effect_limits']['direct'], plain['effect_limits']['phases']['N1']), (9, 0))
+        # The nominal counts name N1's one install apart from every session command.
+        n = next_cells.nominal()
+        self.assertEqual((n['direct']['INSTALL'], n['launched']['INSTALL'], n['direct']['CREATE']), (1, 0, 2))
+        self.assertEqual(next_cells.by_cell('n1')['prediction']['calls'], next_cells.calls(install=1))
 
     def test_an_admission_of_no_known_form_is_never_written(self):
         with self.assertRaisesRegex(lab_driver.DriverError, 'predicate for each F0 branch'):
@@ -557,6 +594,7 @@ class FakeBroker:
     def __init__(self, cells=(), observed=13):
         self.ledger = FakeLedger()
         self.transitions = {}
+        self.specs = {}
         self.cells = [dict(c) for c in cells]
         self.admission = {'boot_policy': {'observed_boots': observed}, 'component': 'com.android.systemui',
                           'config': '3c' * 32}
@@ -564,8 +602,16 @@ class FakeBroker:
         self.helper_reads = {}
 
     def clock(self, boot, transition=None, wall=0):
-        return self.ledger.add('group', {'reader': 'clock', 'status': 'facts', 'transition': transition,
-                                         'reading': {'boot': boot, 'instance': 4001, 'elapsed': 1000, 'wall': wall}})
+        number = self.ledger.add('group', {'reader': 'clock', 'status': 'facts', 'transition': transition,
+                                           'reading': {'boot': boot, 'instance': 4001, 'elapsed': 1000, 'wall': wall}})
+        # As the broker does: a clock reading of a new boot settles an open managed activation.
+        for ident, t in sorted(self.transitions.items()):
+            if t['begin']['transition_kind'] == 'MANAGED_ACTIVATION' and t['end'] is None \
+                    and boot != t['begin']['old']['boot']:
+                t['end'] = {'record': 'END', 'transition': ident, 'status': 'OK', 'new_boots': [boot],
+                            'polls': [{'groups': [number], 'boot': boot, 'missing': None}], 'settled_poll': 1}
+                self.ledger.add('boot-transition', t['end'])
+        return number
 
     def transition(self, ident, kind, cell):
         begin = {'record': 'BEGIN', 'transition': ident, 'transition_kind': kind, 'cell': cell}
@@ -574,8 +620,23 @@ class FakeBroker:
 
     def reboot(self, launched=True):
         number = self.ledger.add('crossing', {'crossing': 'REBOOT', 'ticket': '36' * 16})
-        self.ledger.add('capture', {'intent': {'crossing': number, 'command': lab_broker.REBOOT_LABEL},
-                                    'result': {'launch': 'launched' if launched else 'not-launched'}})
+        # As the broker does: the crossing's MANAGED_ACTIVATION transition around its service.
+        clocks = [e.content['reading']['boot'] for e in self.ledger.entries if e.kind == 'group']
+        ident = 'managed-%d' % number
+        begin = {'record': 'BEGIN', 'transition': ident, 'transition_kind': 'MANAGED_ACTIVATION', 'cell': None,
+                 'old': {'boot': clocks[-1] if clocks else None}, 'subject': {'crossing': number}}
+        self.ledger.add('boot-transition', begin)
+        capture = self.ledger.add('capture', {'intent': {'operation': 'reboot', 'crossing': number, 'transition': ident,
+                                                         'command': lab_broker.REBOOT_LABEL},
+                                              'result': {'launch': 'launched' if launched else 'not-launched'}})
+        progress = {'record': 'PROGRESS', 'transition': ident, 'capture': capture,
+                    'launch': 'launched' if launched else 'not-launched'}
+        self.ledger.add('boot-transition', progress)
+        self.transitions[ident] = {'begin': begin, 'progress': [progress], 'end': None}
+        if not launched:
+            self.transitions[ident]['end'] = {'record': 'END', 'transition': ident, 'status': 'REFUSED',
+                                              'new_boots': [], 'polls': [], 'settled_poll': None}
+            self.ledger.add('boot-transition', self.transitions[ident]['end'])
 
     def pin_artifacts(self, plan, members, publication=None):
         self.pins.append((plan, members, publication))
@@ -637,6 +698,165 @@ class DriverRuleTests(unittest.TestCase):
         b.clock(boot(2))
         with self.assertRaisesRegex(lab_driver.DriverError, 'observed boots pass'):
             d.observe_boots()
+
+    def test_a_managed_boot_is_the_one_its_transition_settled_on_that_reading(self):
+        # The honest control: the managed transition the broker settled on the new boot's first
+        # reading names the boot.
+        b = FakeBroker()
+        d = self.driver(b)
+        b.clock(boot(0))
+        b.reboot()
+        b.clock(boot(1))
+        d.observe_boots()
+        [ident] = list(b.transitions)
+        self.assertEqual([(x['kind'], x['transition']) for x in d.boots], [('INITIAL', None),
+                                                                          ('MANAGED_ACTIVATION', ident)])
+
+        def unknown(t, number):
+            t['end'] = {'record': 'END', 'status': 'UNKNOWN', 'new_boots': [], 'polls': [], 'settled_poll': None}
+        changes = {
+            'a transition asked again in the same boot': ('before', unknown),
+            'a settlement on another reading': ('after', lambda t, n: t['end']['polls'][-1].update(groups=[n - 1])),
+            'a settlement of another boot': ('after', lambda t, n: t['end'].update(new_boots=[boot(9)])),
+            'a service its progress shows not launched': ('after', lambda t, n: t['progress'][0].update(
+                launch='not-launched')),
+        }
+        for name, (when, change) in changes.items():
+            with self.subTest(name):
+                b = FakeBroker()
+                d = self.driver(b)
+                b.clock(boot(0))
+                d.observe_boots()
+                b.reboot()
+                [t] = b.transitions.values()
+                if when == 'before':
+                    change(t, None)
+                number = b.clock(boot(1))
+                if when == 'after':
+                    change(t, number)
+                with self.assertRaisesRegex(lab_driver.DriverError, 'boot 1 is unexpected'):
+                    d.observe_boots()
+
+    def test_a_managed_boot_needs_a_capture_of_its_own_service_that_may_have_launched(self):
+        # Each history's transition settled OK on the new boot's first reading: only its own
+        # service's capture decides. A capture a lost broker interrupted may have launched, with
+        # no PROGRESS; a BEGIN with no capture, another transition's capture, or a refused one
+        # sent nothing of it.
+        def service(b):
+            return next(e for e in b.ledger.entries if e.kind == 'capture')
+
+        def interrupted(b, t):
+            capture = service(b)
+            capture.state, capture.content = 'interrupted', {'intent': capture.content['intent']}
+            t['progress'] = []
+
+        def missing(b, t):
+            b.ledger.entries[service(b).number - 1] = capture_ledger.Entry(
+                service(b).number, 'group', 'complete', {'reader': 'checkpoint', 'status': 'facts'}, None)
+            t['progress'] = []
+        histories = {
+            'a launched service': (None, 'MANAGED_ACTIVATION'),
+            'a capture a lost broker interrupted, no PROGRESS': (interrupted, 'MANAGED_ACTIVATION'),
+            'a BEGIN with no capture of its service': (missing, None),
+            'a capture of another transition': (lambda b, t: service(b).content['intent'].update(
+                transition='managed-other'), None),
+            'a capture of another crossing': (lambda b, t: service(b).content['intent'].update(crossing=99), None),
+            'a capture refused before its launch': (lambda b, t: service(b).content['result'].update(
+                launch='not-launched'), None),
+        }
+        for name, (change, kind) in histories.items():
+            with self.subTest(name):
+                b = FakeBroker()
+                d = self.driver(b)
+                b.clock(boot(0))
+                d.observe_boots()
+                b.reboot()
+                [(ident, t)] = b.transitions.items()
+                if change is not None:
+                    change(b, t)
+                b.clock(boot(1))
+                self.assertEqual(t['end']['status'], 'OK')
+                if kind is None:
+                    with self.assertRaisesRegex(lab_driver.DriverError, 'boot 1 is unexpected'):
+                        d.observe_boots()
+                    self.assertEqual((d.boots[-1]['kind'], d.boots[-1]['transition']), ('UNEXPECTED', None))
+                else:
+                    d.observe_boots()
+                    self.assertEqual((d.boots[-1]['kind'], d.boots[-1]['transition']), (kind, ident))
+
+    def test_a_round_that_issued_notices_captures_each_recipients_display_once(self):
+        b = FakeBroker()
+        action = next_cells.action_id('visibility', 'A')
+        b.specs = {action: {}}
+        order = []
+
+        @contextlib.contextmanager
+        def forward(user):
+            order.append(('forward', user))
+            yield
+            order.append(('back', user))
+
+        def run_action(action_id, reason, **request):
+            order.append(('capture', action_id, request))
+            return {'status': 'OK', 'outcome': {'qualified': request['serial'] == 5, 'why_not': None, 'group': 9}}
+        b.run_action = run_action
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        d = lab_driver.NextDriver(temp.name, 'java', 'classes', PLANS, broker=b, sync=False,
+                                  foreground=lambda driver, issue, r: forward(r['user']))
+        ticket = '36' * 16
+        two = [{'user': 10, 'serial': 5, 'type': lab_actions.SECONDARY_TYPE},
+               {'user': 11, 'serial': 6, 'type': lab_actions.SECONDARY_TYPE}]
+        b.ledger.add('notice-issue', {'number': 1, 'ticket': ticket, 'index': 3, 'required': two})
+        mark = len(b.ledger.entries)
+        b.ledger.add('notice-issue', {'number': 2, 'ticket': ticket, 'index': 4, 'required': two})
+        b.ledger.add('notice-issue', {'number': 3, 'ticket': '37' * 16, 'index': 2, 'required': two[:1]})
+        d.notice_visibility(next_cells.by_cell('a'), ticket, mark)
+        self.assertEqual(order, [('forward', 10), ('capture', action, {'ticket': ticket, 'index': 4, 'serial': 5}),
+                                 ('back', 10), ('forward', 11),
+                                 ('capture', action, {'ticket': ticket, 'index': 4, 'serial': 6}), ('back', 11)])
+        records = [json.loads(p.read_text()) for p in sorted((d.dir / lab_driver.RUN_CHECKPOINTS).iterdir())]
+        self.assertEqual([(r['label'], r['facts']['serial'], r['facts']['qualified']) for r in records],
+                         [('notice-visibility', 5, True), ('notice-visibility', 6, False)])
+        # No issue since the mark captures nothing; an issue with no capture admitted stops.
+        order.clear()
+        d.notice_visibility(next_cells.by_cell('a'), ticket, len(b.ledger.entries))
+        self.assertEqual(order, [])
+        b.specs = {}
+        with self.assertRaisesRegex(lab_driver.DriverError, 'no visibility capture is admitted'):
+            d.notice_visibility(next_cells.by_cell('a'), ticket, mark)
+
+    def test_drive_captures_a_rounds_notices_before_the_next_round(self):
+        b = FakeBroker()
+        b.specs = {next_cells.action_id('visibility', 'A'): {}}
+        events = []
+
+        def run_action(action_id, reason, **request):
+            events.append(('capture', request['index'], request['serial']))
+            return {'status': 'OK', 'outcome': {'qualified': True, 'why_not': None, 'group': 1}}
+        b.run_action = run_action
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        d = lab_driver.NextDriver(temp.name, 'java', 'classes', PLANS, broker=b, sync=False)
+        ticket = '36' * 16
+        # The ticket's state before the first round and after each: the first round issues a notice.
+        states = [('PUBLISHED', 'a1'), ('PUBLISHED', 'a2'), ('CLOSED_APPLIED', 'a3')]
+        rounds = []
+
+        def advance(kind, which):
+            rounds.append(kind)
+            events.append(('round', len(rounds)))
+            if len(rounds) == 1:
+                b.ledger.add('notice-issue', {'number': len(b.ledger.entries) + 1, 'ticket': ticket, 'index': 2,
+                                              'required': [{'user': 10, 'serial': 5,
+                                                            'type': lab_actions.SECONDARY_TYPE}]})
+            return {'generation': len(rounds), 'status': 'COMPLETE'}
+        d.advance = advance
+        d.ticket_state = lambda which: {'ticket': ticket, 'state': states[len(rounds)][0], 'ledger': [],
+                                        'boot': BOOT, 'bootCount': 0, 'sha256': states[len(rounds)][1]}
+        end = d.drive({'confirmations': [], 'phase': 'A', 'name': 'A'}, ticket, PLANS['A'], generations=5)
+        self.assertEqual(end['state'], 'CLOSED_APPLIED')
+        self.assertEqual(events, [('round', 1), ('capture', 2, 5), ('round', 2)])
 
     def test_the_boot_accounting_moves_by_one_with_an_observed_boot_only(self):
         b = FakeBroker()

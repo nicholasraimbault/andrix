@@ -16,7 +16,9 @@ preparation, a baseline and a probe read. Its whole global session inventory lis
 every package with its referrer, commitment and end. A kernel boot keeps uncommitted sessions,
 applies a ready managed one, and rejects a ready direct negative control's payload: a wrong signer
 or a missing sidecar fails the session, the factory copy stays active, and a native recovery boot
-follows at once, so a poll may never see the rejecting boot.
+follows at once, so a poll may never see the rejecting boot. N1's one shot nonstaged install of
+the persistent component is refused with Package Manager's exact reply, its session kept as a
+historical record until the next boot ends it.
 
 With `enable_user_forms`, the users are sim_users.py's model instead: the guest then answers the
 user commands of full_users.py in their source derived forms, and the fake reads above see the same
@@ -170,6 +172,9 @@ class Session:
     control: str = None
     package: str = PACKAGE
     cause: str = None
+    # N1's one shot install makes a nonstaged session, which ends at once and is kept only as a
+    # historical record of the boot.
+    staged: bool = True
 
 
 class SimAndroid:
@@ -217,6 +222,10 @@ class SimAndroid:
         self.next_instance = None
         self.wrong_signer = set()
         self.recovery_boots = True
+        # N1: whether the component is a persistent app that refuses a nonstaged update, as the
+        # pinned source's persistent guard does; a test may instead script another reply and cause.
+        self.persistent = True
+        self.nonstaged_reply = None
         # command prefix -> list of scripted outcomes, consumed in order: 'before' (no effect, no reply),
         # 'after' (effect, no reply), or a callable(command) returning a ShellResult.
         self.scripts = {}
@@ -256,6 +265,9 @@ class SimAndroid:
     # ------------------------------------------------ world events
 
     def new_boot(self):
+        # Historical session records live in memory only: a boot ends them.
+        for identity in [i for i, s in getattr(self, 'sessions', {}).items() if not s.staged]:
+            del self.sessions[identity]
         self.boots += 1
         self.boot = hashlib.sha256(b'boot-%d-%d' % (self.seed, self.boots)).hexdigest()[:32]
         self.uptime = 30_000
@@ -466,6 +478,10 @@ class SimAndroid:
                         control=match[3] if control else None)
             self.sessions[s.identity] = s
             return result(command, 0, b'Success: created install session [%d]\n' % s.identity)
+        match = re.fullmatch(r'pm install --user 0 -r --pkg (\S+) --referrer andrix-lab-control:([0-9a-f]{32}) (\S+)',
+                             command)
+        if match:
+            return self._nonstaged(command, match[1], match[2], match[3])
         match = re.fullmatch(r'pm install-write ([0-9]+) (base\.apk|base\.apk\.idsig) (\S+)', command)
         if match:
             self.calls.append(('WRITE', int(match[1]), match[2]))
@@ -493,6 +509,29 @@ class SimAndroid:
             return result(command, 0, b'Success\n')
         return result(command, 127, b'', b'/system/bin/sh: unknown command\n')
 
+    def _nonstaged(self, command, package, control, path):
+        """N1's one shot nonstaged install: one session that ends at once. The persistent component
+        refuses it with Package Manager's exact reply and keeps the factory copy; a guest without
+        that guard installs it; a test may script another reply and its session's cause."""
+        self.calls.append(('INSTALL', control))
+        data = self.files.get(path)
+        if data is None:
+            return result(command, 1, b'', ('Error: Can\'t open file: %s\n' % path).encode())
+        self.next_session += 7
+        s = Session(self.next_session, WALL_BASE + self.uptime, None, state='FAILED', instance=self.instance,
+                    control=control, package=package, staged=False)
+        self.sessions[s.identity] = s
+        if self.nonstaged_reply is not None:
+            (code, stdout), s.cause = self.nonstaged_reply
+            return result(command, code, stdout)
+        if self.persistent and package == PACKAGE:
+            s.cause = 'PERSISTENT'
+            return result(command, 1, (lab_crossings.PERSISTENT_REFUSAL % package).encode())
+        apk = hashlib.sha256(data).hexdigest()
+        s.state = 'APPLIED'
+        self.active = ('DATA_COPY', apk, self.apks.get(apk, 40))
+        return result(command, 0, lab_crossings.INSTALLED)
+
     def _read(self, command):
         if command == 'sim:clock':
             return {'boot': self.boot, 'instance': self.instance if self.framework else -1, 'elapsed': self.uptime}
@@ -507,7 +546,8 @@ class SimAndroid:
             return {'boot': self.boot, 'elapsed': self.uptime, 'kind': self.active[0], 'apk': self.active[1],
                     'version': self.active[2]}
         if command == 'sim:sessions':
-            live = [s for s in self.sessions.values() if s.state not in ('ABANDONED',)]
+            # The SystemUI listing is of staged sessions only, as the observer's join is.
+            live = [s for s in self.sessions.values() if s.state not in ('ABANDONED',) and s.staged]
             return {'boot': self.boot, 'elapsed': self.uptime, 'instance': self.instance,
                     'sessions': [[s.identity, s.created, s.nonce, s.state] for s in sorted(live, key=lambda x: x.identity)
                                  if s.package == PACKAGE]}
@@ -680,9 +720,17 @@ class SimAndroid:
         rows = []
         for s in sorted(self.sessions.values(), key=lambda x: x.identity):
             live = s.state in ('OPEN', 'READY')
+            referrer = ('andrix-lab-control:%s' % s.control) if s.control else 'andrix-ticket:%s' % s.nonce
+            if not s.staged:
+                # A nonstaged session that ended is a historical record of its boot.
+                rows.append({'section': 'HISTORICAL', 'id': s.identity, 'package': s.package, 'referrer': referrer,
+                             'staged': False, 'multi_package': False, 'parent': -1, 'children': [], 'sealed': True,
+                             'committed': True, 'ready': False, 'applied': s.state == 'APPLIED',
+                             'failed': s.state == 'FAILED', 'destroyed': True, 'created': s.created,
+                             'installer': 2000, 'cause': s.cause})
+                continue
             rows.append({'section': 'ACTIVE' if live else 'FINALIZED', 'id': s.identity, 'package': s.package,
-                         'referrer': ('andrix-lab-control:%s' % s.control) if s.control else 'andrix-ticket:%s' % s.nonce,
-                         'staged': True, 'multi_package': False, 'parent': -1, 'children': [],
+                         'referrer': referrer, 'staged': True, 'multi_package': False, 'parent': -1, 'children': [],
                          'sealed': s.state != 'OPEN', 'committed': s.state not in ('OPEN', 'ABANDONED'),
                          'ready': s.state == 'READY', 'applied': s.state == 'APPLIED', 'failed': s.state == 'FAILED',
                          'destroyed': s.state == 'ABANDONED', 'created': s.created, 'installer': 2000,
@@ -915,6 +963,8 @@ class SimReader(lab_readers.ReaderAdapter):
         # The health package's real readers over the simulated guest's forms, when a test gives
         # them.
         self.composer, self.baseline_reader = composer, baseline
+        # Each receipt read's ticket and the recipients the broker passed for it, in order.
+        self.recipients_read = []
 
     def allowed(self, command):
         return (command in SIM_READS or command in NEXT_READS or bool(PER_USER_READ.fullmatch(command))
@@ -1038,6 +1088,11 @@ class SimReader(lab_readers.ReaderAdapter):
             return getattr(self, name)([(command, code, stdout.encode('utf-8', 'surrogateescape'),
                                          stderr.encode('utf-8', 'surrogateescape'))
                                         for command, code, stdout, stderr in captures])
+        if name == 'global-sessions':
+            # The fake global read again, from its one recorded reply.
+            if not self.global_admitted:
+                return NotImplemented
+            return self._again('sim:global-sessions', list(captures))
         if not self.users_admitted:
             return NotImplemented
         return full_users.rederive(name, captures, inventory)
@@ -1045,9 +1100,11 @@ class SimReader(lab_readers.ReaderAdapter):
     def global_sessions(self):
         return self._read('sim:global-sessions')
 
-    def receipt_rows(self, ticket):
+    def receipt_rows(self, ticket, recipients):
         """Every row the provider returns, each with its exact bytes: the canonical form the fake
-        fixture writes."""
+        fixture writes. The fake provider is one store, so it reads every row whatever the
+        recipients; it keeps the recipients the broker passed."""
+        self.recipients_read.append((ticket, [list(pair) for pair in recipients]))
         rows = []
         for row in self._read('sim:rows')['rows']:
             rows.append(dict(row, row=lab_evidence.canonical(row)))

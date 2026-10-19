@@ -137,3 +137,41 @@ def control_create_command(component, control):
     if not re.fullmatch(r'[0-9a-f]{32}', control) or control == '0' * 32:
         raise ValueError('not a control ID')
     return 'pm install-create --user 0 -r --pkg %s --staged --referrer %s%s' % (component, CONTROL_SCHEME, control)
+
+
+# N1's one shot nonstaged install. `pm install` takes every option `install-create` takes but
+# --multi-package, --referrer among them (PackageManagerShellCommand.java:171-173, 3567-3800), and
+# creates, writes, commits and waits for its own session (1582-1680). Its result is `Success` with
+# exit status 0, or `Failure [<status message>]` with exit status 1 (4456-4500), where the message
+# is installStatusToString's `<status name>: <message>` (PackageInstallerSession.java:6884-6885,
+# PackageManager.java:11035-11051). A persistent app's nonstaged update fails with
+# INSTALL_FAILED_INVALID_APK and Package Manager's own sentence
+# (InstallPackageHelper.java:1803-1808); a lab guest's session dump recorded exactly that message
+# for such a refusal. The reply is only classified here: N1 settles on its post reads, never on a
+# reply.
+PERSISTENT_REFUSAL = ('Failure [INSTALL_FAILED_INVALID_APK: Package %s is a persistent app. Persistent apps are '
+                      'not updateable.]\n')
+INSTALLED = b'Success\n'
+
+
+def control_install_command(component, control, path):
+    """The nonstaged control's one install of its pinned APK, referred by its control ID."""
+    if not PACKAGE.fullmatch(component):
+        raise ValueError('not a package')
+    if not re.fullmatch(r'[0-9a-f]{32}', control) or control == '0' * 32:
+        raise ValueError('not a control ID')
+    if not staged_path(path).endswith('/base.apk'):
+        raise ValueError('the nonstaged control installs its base.apk')
+    return 'pm install --user 0 -r --pkg %s --referrer %s%s %s' % (component, CONTROL_SCHEME, control, path)
+
+
+def classify_install(result, component):
+    """REFUSED_PERSISTENT for the exact persistent app refusal of the component, SUCCESS for an
+    install that completed, UNRECOGNIZED for any other completed output, or None."""
+    if not result.completed:
+        return None
+    if _exact(result, 1) and result.stdout == (PERSISTENT_REFUSAL % component).encode('ascii'):
+        return 'REFUSED_PERSISTENT'
+    if _exact(result, 0) and result.stdout == INSTALLED:
+        return 'SUCCESS'
+    return 'UNRECOGNIZED'

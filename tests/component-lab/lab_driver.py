@@ -48,6 +48,7 @@ entry, with explicit boot phases, one round per generation, plain kernel confirm
 framework restarts, the APPLIED boundary's baselines, the scheduled loss control, the immutable
 baseline cache, and the current baseline and repair of R. G1a's driver above is unchanged.
 Host code: it starts no guest itself."""
+import contextlib
 from pathlib import Path
 import hashlib
 import json
@@ -79,6 +80,8 @@ NOT_PUBLISHED = 3
 # The native mutations the guest sees, by the command each crossing sends.
 NATIVE_COMMANDS = (('CREATE', 'pm install-create '), ('WRITE', 'pm install-write '), ('COMMIT', 'pm install-commit '),
                    ('ABANDON', 'pm install-abandon '), ('reboot', 'adb service reboot:'))
+# The next campaign's guest also sees N1's one shot nonstaged install.
+NEXT_NATIVE_COMMANDS = NATIVE_COMMANDS + (('INSTALL', 'pm install '),)
 TERMINAL = ('CLOSED_APPLIED', 'CLOSED_FAILED', 'CANCELLED', 'VOID', 'DIVERGED', 'SUPERSEDED')
 
 
@@ -466,6 +469,13 @@ BASELINE_ATTEMPTS = 4
 # A window's prepared probes per user at most, and the effect commands one preparation may launch.
 PROBES = 16
 PREPARATION_EFFECTS = 1
+# When notices are owed, the captures of their visibility in each of A's and R's phases: at most one
+# for each NOTICE the campaign's budget admits, of its one secondary recipient, each one effect
+# command and within its own bound.
+VISIBILITY_USES = next_cells.NOTICE_BUDGET
+VISIBILITY_EFFECTS = 1
+VISIBILITY_TIMEOUT_MS = 600_000
+NONSTAGED_TIMEOUT_MS = 600_000
 # The design's health window and its largest gap between probes, in seconds.
 WINDOW_S = 900
 WINDOW_GAP_S = 225
@@ -546,12 +556,14 @@ def _spec(ident, kind, phase, cell, runtime, installation, parameters=None, inpu
             'successors': [], 'max_uses': uses, 'timeout_ms': timeout_ms, 'stdout_max': 65536, 'stderr_max': 65536}
 
 
-def next_specs(runtime, installation, helpers, payloads=None, sequence=next_cells.SEQUENCE, probes=PROBES):
+def next_specs(runtime, installation, helpers, payloads=None, sequence=next_cells.SEQUENCE, probes=PROBES,
+               notice=False):
     """The part of the next campaign's typed action specs that exists now, in order: the two
-    helper pushes, each plain confirmation of the campaign chained in its order, the N2 and N3
+    helper pushes, each plain confirmation of the campaign chained in its order, the N1, N2 and N3
     direct controls the campaign names with their pinned payloads, chained after the last
-    confirmation, and one health preparation of the system user for each window. The user setup
-    specs follow with it."""
+    confirmation, one health preparation of the system user for each window and, when notices are
+    owed, one notice visibility capture of each of A's and R's phases. The user setup specs follow
+    with it."""
     specs = []
     for name in next_cells.HELPERS:
         pin = helpers[name]
@@ -563,6 +575,16 @@ def next_specs(runtime, installation, helpers, payloads=None, sequence=next_cell
     for name, _, _ in next_cells.confirmation_cells(sequence):
         specs.append(_spec(next_cells.action_id('confirm', name), 'PLAIN_KERNEL_CONFIRM', 'CELLS', name, runtime,
                            installation, timeout_ms=CONFIRM_TIMEOUT_MS, predecessor=previous))
+        previous = specs[-1]['id']
+    # N1 when the campaign names it with its pinned payload: one nonstaged install of its own
+    # control, before the staged controls.
+    nonstaged = [c['role'] for c in next_cells.cells(sequence, 'direct') if not c['staged']]
+    role = lab_actions.NONSTAGED_ROLE
+    if payloads and role in payloads and role in nonstaged:
+        specs.append(_spec(next_cells.action_id('direct_nonstaged', role), 'DIRECT_NONSTAGED', role,
+                           'n1-direct-nonstaged', runtime, installation,
+                           {'control': next_cells.action_id('control', role), 'role': role},
+                           [dict(m) for m in payloads[role]], timeout_ms=NONSTAGED_TIMEOUT_MS, predecessor=previous))
         previous = specs[-1]['id']
     # Only the staged controls the campaign names, each with its pinned payload.
     named = [c['role'] for c in next_cells.cells(sequence, 'direct') if c['staged']]
@@ -583,6 +605,11 @@ def next_specs(runtime, installation, helpers, payloads=None, sequence=next_cell
                            '%s-window-probe' % phase.lower(), runtime, installation,
                            {'criteria': list(lab_actions.PREPARED_CRITERIA), 'max_probe_ms': 120_000}, uses=probes,
                            timeout_ms=PREPARATION_TIMEOUT_MS))
+    # A notice owed to a running secondary user is captured on that recipient's display.
+    for phase in ('A', 'R') if notice else ():
+        specs.append(_spec(next_cells.action_id('visibility', phase), 'NOTICE_VISIBILITY', phase,
+                           '%s-notice-visibility' % phase.lower(), runtime, installation, uses=VISIBILITY_USES,
+                           timeout_ms=VISIBILITY_TIMEOUT_MS))
     by_id = {s['id']: s for s in specs}
     for s in specs:
         if s['predecessor'] is not None:
@@ -606,19 +633,24 @@ def next_effect_limits(specs, notice, sequence=next_cells.SEQUENCE, probes=PROBE
         else:
             key = 'reboot' if name == 'REBOOT' else name
             crossings[name] = sum(c['prediction']['calls'][key] for c in managed)
-    roles = {s['parameters']['role'] for s in specs if s['type'] == 'DIRECT_STAGE'}
+    roles = {s['parameters']['role'] for s in specs if s['type'] in ('DIRECT_STAGE', 'DIRECT_NONSTAGED')}
     direct = {c['role']: sum(c['prediction']['calls'].values()) for c in next_cells.cells(sequence, 'direct')
               if c['role'] in roles}
     helpers = sum(1 for s in specs if s['type'] == 'HELPER_PUSH')
     windows = sum(1 for s in specs if s['type'] == 'HEALTH_PREPARATION')
     confirms = sum(1 for s in specs if s['type'] == 'PLAIN_KERNEL_CONFIRM')
+    captures = {s['phase']: s['max_uses'] * VISIBILITY_EFFECTS for s in specs if s['type'] == 'NOTICE_VISIBILITY'}
     phases = {phase: 0 for phase in lab_actions.PHASES}
-    phases.update(ENTRY=helpers, CELLS=confirms, N2=direct.get('N2', 0), N3=direct.get('N3', 0))
+    phases.update(ENTRY=helpers, CELLS=confirms, N1=direct.get('N1', 0), N2=direct.get('N2', 0),
+                  N3=direct.get('N3', 0))
     for s in specs:
         if s['type'] == 'HEALTH_PREPARATION':
             phases[s['phase']] += probes * effects
+    for phase, count in captures.items():
+        phases[phase] += count
     return {'crossings': crossings, 'direct': sum(direct.values()), 'admin': 0,
-            'fixture': helpers + windows * probes * effects, 'control': confirms, 'phases': phases}
+            'fixture': helpers + windows * probes * effects + sum(captures.values()), 'control': confirms,
+            'phases': phases}
 
 
 def next_admission(*, installation, coordinator, trust, manifest, config, serial, target_scope, device_dir, fences,
@@ -637,7 +669,7 @@ def next_admission(*, installation, coordinator, trust, manifest, config, serial
     initialized; nothing here launches or decides anything."""
     declared = next_cells.declaration(notice, limited)
     plans = next_cells.plan_ids(plans)
-    specs = next_specs(runtime, installation, helpers, payloads, sequence, probes)
+    specs = next_specs(runtime, installation, helpers, payloads, sequence, probes, notice)
     positive = [c for c in next_cells.cells(sequence, 'managed') if c['plan'] == 'A' and c['phase'] == 'A']
     if len(positive) != 1 or set(predicates) != set(lab_actions.BRANCHES):
         raise DriverError('one positive attempt of A and a predicate for each F0 branch')
@@ -715,11 +747,12 @@ class NextDriver(LabDriver):
     - **Explicit boot phases.** Every kernel boot ID the broker's ledger shows, in ledger order and
       never by wall time, is a boot of the campaign with the transition that made it: the initial
       boot, a plain confirmation, a negative activation and its native recovery, or a managed
-      REBOOT. Any other new boot, or one past the admitted observed boots, stops the driver. After
-      a confirmation or a negative activation the transition's renewed reads must all be facts. In
-      every new boot both helpers must read back their pinned bytes before any read uses them: at
-      once after a confirmation or a negative activation, and at the APPLIED boundary, before its
-      baselines, after a managed activation.
+      REBOOT's activation, which the broker's MANAGED_ACTIVATION transition settled on exactly
+      that boot's first reading. Any other new boot, or one past the admitted observed boots,
+      stops the driver. After a confirmation or a negative activation the transition's renewed
+      reads must all be facts. In every new boot both helpers must read back their pinned bytes
+      before any read uses them: at once after a confirmation or a negative activation, and at the
+      APPLIED boundary, before its baselines, after a managed activation.
     - **One round pacing.** Every ticket generation is one public round, so each round's boundary is
       checkpointed and no settle loop crosses a milestone. A round that leaves the ticket's stored
       bytes unchanged in an intent wait is one of two waits, told apart by the round's own reads, as
@@ -740,6 +773,12 @@ class NextDriver(LabDriver):
     - **The APPLIED boundary.** At APPLIED the driver stops rounding, checks the helpers and takes,
       for each running user, at least two whole health baselines, then lets one round open the
       window. In the window each round follows the probe's preparation hook.
+    - **Notices owed.** After every round that issued notices of the ticket, and before any next
+      round reads receipts, each issue's required recipient is captured once through the cell's
+      admitted NOTICE_VISIBILITY action, between generations, its result in a synced checkpoint.
+    - **The direct controls.** N1's one nonstaged install, with its consent, settles only on the
+      persistent app refusal with no new boot; N2 and N3 stage, commit and activate. A control whose
+      payload is not given is NOT_CAPTURED.
     - **The scheduled loss control.** The campaign's schedule is admitted once. A halted generation
       must have decided exactly one scheduled fault, a complete one none, and no loss is ever left
       not acted; at a cell's end every fault the world reaches has acted once, except one at a
@@ -773,11 +812,15 @@ class NextDriver(LabDriver):
     `pause_s`: `pace_s`, and `window_pace_s` in a health window, a declared probe cadence below the
     window's largest gap that F0 must qualify, each cut to what is left of an ordinary wait);
     `prepare(driver, ticket, plan, users)` is the window probe's preparation, a named hook until
-    its adapter exists. `monotonic` is the host's monotonic clock in nanoseconds, the broker's."""
+    its adapter exists; `foreground(driver, issue, recipient)`, a context, brings a notice's
+    recipient's display forward for its capture and back after it, a named hook until the user
+    setup's switch exists. `monotonic` is the host's monotonic clock in nanoseconds, the
+    broker's."""
 
     def __init__(self, directory, java, classpath, plans, host_config=None, host_sha256=None, broker=None, clock=None,
                  main=MAIN, properties=(), declaration=None, sequence=next_cells.SEQUENCE, between=None,
-                 prepare=None, pace_s=20.0, window_pace_s=120.0, full_probe=False, sync=True, monotonic=None):
+                 prepare=None, pace_s=20.0, window_pace_s=120.0, full_probe=False, sync=True, monotonic=None,
+                 foreground=None):
         self.dir = Path(directory)
         self.java = str(java)
         self.classpath = str(classpath)
@@ -809,6 +852,7 @@ class NextDriver(LabDriver):
         self.sequence = sequence
         self.between_hook = between
         self.prepare_hook = prepare
+        self.foreground_hook = foreground
         self.pace_s = pace_s
         # A window's probes are this far apart at most: within the window's largest gap, and few
         # enough for the admitted preparations of one window.
@@ -966,20 +1010,14 @@ class NextDriver(LabDriver):
         """The explicit boot phases: every boot ID the ledger shows since the last scan, in ledger
         order. Each new one is a boot of the transition that made it, or stops the driver."""
         entries = self.broker.ledger.entries
-        last_reboot = None
-        for entry in entries[:self.scanned]:
-            if entry.kind == 'crossing' and entry.content.get('crossing') == 'REBOOT':
-                last_reboot = entry.number
         for entry in entries[self.scanned:]:
             c = entry.content
-            if entry.kind == 'crossing' and c.get('crossing') == 'REBOOT':
-                last_reboot = entry.number
             if not (entry.kind == 'group' and c.get('reader') == 'clock' and c.get('status') == 'facts'):
                 continue
             boot = c['reading']['boot']
             if any(b['boot'] == boot for b in self.boots):
                 continue
-            kind, cell, transition = self._boot_kind(entry.number, last_reboot)
+            kind, cell, transition = self._boot_kind(entry.number, boot)
             record = {'ordinal': len(self.boots), 'boot': boot, 'kind': kind, 'cell': cell, 'first_entry': entry.number,
                       'transition': transition}
             self.boots.append(record)
@@ -990,11 +1028,14 @@ class NextDriver(LabDriver):
                 raise DriverError('the observed boots pass the admitted allowance')
         self.scanned = len(entries)
 
-    def _boot_kind(self, number, last_reboot):
+    def _boot_kind(self, number, boot):
         """How the boot first read at ledger entry `number` came, with its cell and transition: the
         first boot is the initial one; a later one belongs to the boot transition whose poll read
-        it, a second one of a negative activation being its native recovery, or follows a managed
-        REBOOT whose capture may have launched since the previous boot; any other is unexpected."""
+        it, a second one of a negative activation being its native recovery, or to the managed
+        activation of a REBOOT crossing, which the broker's MANAGED_ACTIVATION transition settled on
+        exactly this reading of this boot, with a capture of the transition's own reboot service
+        that may have launched before it: its BEGIN alone proves an intent, never a sent service.
+        Any other is unexpected."""
         if not self.boots:
             return 'INITIAL', 'entry', None
         c = self.broker.ledger.entries[number - 1].content
@@ -1005,12 +1046,30 @@ class NextDriver(LabDriver):
             if seen and begin['transition_kind'] != 'NEGATIVE_ACTIVATION':
                 return 'UNEXPECTED', begin['cell'], ident
             return (begin['transition_kind'] if not seen else 'NATIVE_RECOVERY'), begin['cell'], ident
-        previous = self.boots[-1]['first_entry']
-        if last_reboot is not None and last_reboot > previous and any(
-                e.kind == 'capture' and (e.content.get('intent') or {}).get('crossing') == last_reboot
-                and lab_broker.Broker._may_have_launched(e) for e in self.broker.ledger.entries[last_reboot:number]):
-            return 'MANAGED_ACTIVATION', self.cell, None
+        for ident, transition in sorted(self.broker.transitions.items()):
+            end = transition['end']
+            if (transition['begin']['transition_kind'] != 'MANAGED_ACTIVATION' or end is None
+                    or end['status'] != 'OK' or end['new_boots'] != [boot] or not end['settled_poll']
+                    or any(p['launch'] == 'not-launched' for p in transition['progress'])):
+                continue
+            if end['polls'][end['settled_poll'] - 1]['groups'][-1:] == [number] and self._managed_service(
+                    transition['begin'], number):
+                return 'MANAGED_ACTIVATION', self.cell, ident
         return 'UNEXPECTED', self.cell, None
+
+    def _managed_service(self, begin, number):
+        """Whether a capture before ledger entry `number` is the transition's own reboot service and
+        may have launched: its whole intent names the transition and its crossing, and it has no
+        result, or one that is not a refusal before the launch. An interrupted capture counts; a
+        PROGRESS record is not needed."""
+        for e in self.broker.ledger.entries[:number - 1]:
+            intent = e.content.get('intent') if e.kind == 'capture' else None
+            if (intent and intent.get('operation') == 'reboot' and intent.get('command') == lab_broker.REBOOT_LABEL
+                    and intent.get('transition') == begin['transition']
+                    and intent.get('crossing') == begin['subject']['crossing']
+                    and lab_broker.Broker._may_have_launched(e)):
+                return True
+        return False
 
     def control_losses(self, summary, mark):
         """The scheduled loss control of one generation's entries: a halted generation decided
@@ -1250,6 +1309,37 @@ class NextDriver(LabDriver):
         self.checkpoint('applied-boundary', ticket=ticket, boot=state['boot'], instance=clock['instance'],
                         baselines=taken, ticket_sha256=state['sha256'])
 
+    def notice_visibility(self, cell, ticket, mark):
+        """After a round that issued notices of the ticket: each required recipient's display
+        captured once for each issue, through the cell's admitted NOTICE_VISIBILITY action, between
+        generations and before any next round reads receipts. The broker resolves the recipient
+        from a whole inventory and judges the capture; the first qualified capture of a recipient
+        in the boot is the delivery a receipt proves, at its completion. The `foreground` hook, a
+        context, brings the recipient's display forward for its capture and back after it, a named
+        hook until the user setup's switch exists. A capture that does not qualify is kept and the
+        reconciler's own notice rules go on; a notice issued where no capture is admitted stops
+        the driver."""
+        issues = [e.content for e in self.broker.ledger.entries[mark:] if e.kind == 'notice-issue'
+                  and e.content['ticket'] == ticket]
+        if not issues:
+            return
+        action = next_cells.action_id('visibility', cell['phase'])
+        if action not in self.broker.specs:
+            raise DriverError('a notice of %s was issued, and no visibility capture is admitted' % cell['name'])
+        for issue in issues:
+            for recipient in issue['required']:
+                forward = (self.foreground_hook(self, issue, recipient) if self.foreground_hook is not None
+                           else contextlib.nullcontext())
+                with forward:
+                    end = self.broker.run_action(action, '%s: notice %d to user %d' % (
+                        cell['name'], issue['index'], recipient['user']), ticket=ticket, index=issue['index'],
+                        serial=recipient['serial'])
+                outcome = end['outcome'] or {}
+                self.checkpoint('notice-visibility', ticket=ticket, index=issue['index'], issue=issue['number'],
+                                user=recipient['user'], serial=recipient['serial'], status=end['status'],
+                                qualified=bool(outcome.get('qualified')), why_not=outcome.get('why_not'),
+                                group=outcome.get('group'))
+
     def prepare_probe(self, ticket, plan):
         """The window probe's preparation for every running user, through the named hook."""
         if self.prepare_hook is not None:
@@ -1327,6 +1417,7 @@ class NextDriver(LabDriver):
                 self.prepare_probe(ticket, plan)
             # A waiting round's reads are cut to the wait's deadline by the broker.
             self.read_deadline_ns = None if self.waiting is None else self.waiting['deadline_ns']
+            mark = len(self.broker.ledger.entries)
             try:
                 summary = self.advance('round', ticket)
             finally:
@@ -1335,6 +1426,8 @@ class NextDriver(LabDriver):
             self.account_boot(state, after)
             if plan not in self.staged and 'PUBLISH' in [e[0] for e in after['ledger']]:
                 self.stage_publication(plan)
+            # The round's notices are captured on each recipient's display before any next round.
+            self.notice_visibility(cell, ticket, mark)
             unchanged = summary['status'] == 'COMPLETE' and after['sha256'] == state['sha256']
             state = after
             if self.waiting is not None:
@@ -1406,7 +1499,7 @@ class NextDriver(LabDriver):
             if not intent or crossings.get(intent.get('crossing'), {}).get('ticket') != ticket \
                     or not lab_broker.Broker._may_have_launched(e) or not isinstance(intent.get('command'), str):
                 continue
-            for name, prefix in NATIVE_COMMANDS:
+            for name, prefix in NEXT_NATIVE_COMMANDS:
                 if intent['command'].startswith(prefix):
                     native[name] += 1
         host = [e.content for e in entries[mark:] if e.kind == 'host' and e.content.get('phase') == 'END'
@@ -1464,13 +1557,15 @@ class NextDriver(LabDriver):
         return end
 
     def run_direct(self, cell, payload):
-        """One direct negative control in its admitted order: its payload pinned, its stage, the
-        explicit consent before arming, its commit and its activation, which settles only on the
-        role's intended rejection with the factory copy active; then the new boot's gates. N1 has
-        no lab action yet: NOT_CAPTURED."""
+        """One direct negative control in its admitted order. N1: its payload pinned, the explicit
+        consent, then its one nonstaged install, which settles only on the persistent app refusal
+        with the factory copy, its identity and the cohort unchanged and no new boot. N2 and N3:
+        the payload pinned, the stage, the explicit consent before arming, the commit and the
+        activation, which settles only on the role's intended rejection with the factory copy
+        active; then the new boot's gates. A control whose payload is not given is NOT_CAPTURED."""
         self.cell = cell['cell']
         role = cell['role']
-        if not cell['staged'] or payload is None:
+        if payload is None:
             self.results[cell['cell']] = {'status': 'NOT_CAPTURED',
                                           'reason': 'no lab action of this control exists or is admitted'}
             self.checkpoint('cell', cell=cell['cell'], result=self.results[cell['cell']])
@@ -1478,6 +1573,8 @@ class NextDriver(LabDriver):
         mark = len(self.broker.ledger.entries)
         control = next_cells.action_id('control', role)
         self.broker.pin_payload(control, payload)
+        if not cell['staged']:
+            return self._run_nonstaged(cell, control, mark)
         self._direct_step(role, 'DIRECT_STAGE')
         self.broker.consent(control, 'the lab may arm and activate %s once' % role)
         self._direct_step(role, 'DIRECT_COMMIT')
@@ -1489,6 +1586,16 @@ class NextDriver(LabDriver):
                 or end['outcome'].get('active') != 'FACTORY_COPY':
             raise DriverError('%s did not settle in its rejection with the factory copy active' % role)
         self.new_boot_gates('after the %s activation and its recovery' % role)
+        native = self._direct_native(cell, mark)
+        result = {'status': 'PASSED', 'calls': native, 'new_boots': transition['new_boots'],
+                  'transition': end['outcome']['transition'], 'cause': cell['prediction']['cause']}
+        self.results[cell['cell']] = result
+        self.checkpoint('cell', cell=cell['cell'], result=result)
+        return result
+
+    def _direct_native(self, cell, mark):
+        """The native commands a direct control's own actions launched since `mark`, which must be
+        the cell's prediction."""
         ends = {e.content['begin'] for e in self.broker.ledger.entries[mark:] if e.kind == 'lab-action'
                 and e.content.get('record') == 'END'}
         native = {name: 0 for name in next_cells.CALLS}
@@ -1496,13 +1603,29 @@ class NextDriver(LabDriver):
             intent = e.content.get('intent') if e.kind == 'capture' else None
             if intent and intent.get('lab_action') in ends and intent.get('operation') == 'lab-action-effect' \
                     and lab_broker.Broker._may_have_launched(e):
-                for name, prefix in NATIVE_COMMANDS:
+                for name, prefix in NEXT_NATIVE_COMMANDS:
                     if intent['command'].startswith(prefix):
                         native[name] += 1
         if native != cell['prediction']['calls']:
-            raise DriverError('%s launched %s, not %s' % (role, native, cell['prediction']['calls']))
-        result = {'status': 'PASSED', 'calls': native, 'new_boots': transition['new_boots'],
-                  'transition': end['outcome']['transition'], 'cause': cell['prediction']['cause']}
+            raise DriverError('%s launched %s, not %s' % (cell['role'], native, cell['prediction']['calls']))
+        return native
+
+    def _run_nonstaged(self, cell, control, mark):
+        """N1 after its payload is pinned: the explicit consent, then its one install, which the
+        broker settles only on its intended refusal. No boot may follow it."""
+        role = cell['role']
+        self.broker.consent(control, 'the lab may attempt the nonstaged replacement %s once' % role)
+        before = len(self.boots)
+        end = self.broker.run_action(next_cells.action_id('direct_nonstaged', role), '%s DIRECT_NONSTAGED' % role)
+        self.observe_boots()
+        if (end['status'], end['settled']) != ('OK', True):
+            raise DriverError('%s ended %s: %s' % (role, end['status'], end['uncertainty']))
+        low, high = cell['prediction']['new_boots']
+        if not low <= len(self.boots) - before <= high:
+            raise DriverError('%s saw %d new boots' % (role, len(self.boots) - before))
+        native = self._direct_native(cell, mark)
+        result = {'status': 'PASSED', 'calls': native, 'new_boots': [b['boot'] for b in self.boots[before:]],
+                  'cause': cell['prediction']['cause'], 'session': end['outcome']['reference']}
         self.results[cell['cell']] = result
         self.checkpoint('cell', cell=cell['cell'], result=result)
         return result

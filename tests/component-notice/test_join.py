@@ -234,11 +234,13 @@ if PROFILE:
 
     class JoinReader(sim_android.SimReader):
         """The simulated guest's readers, with the fixture's provider rows read by the strict
-        receipt reader for the recipients of the ticket's issued notices."""
+        receipt reader for the recipients the broker passes: those of the ticket's issued notices,
+        from its ledger's issue records."""
 
-        def __init__(self, installation, recipients, **options):
+        def __init__(self, installation, **options):
             super().__init__(installation, **options)
-            self.notices = reader.NoticeReader(recipients)
+            self.passed = {}
+            self.notices = reader.NoticeReader(lambda ticket: self.passed.get(ticket, []))
 
         def allowed(self, command):
             return super().allowed(command) or self.notices.allowed(command)
@@ -247,21 +249,15 @@ if PROFILE:
             super().bind(run)
             self.notices.bind(run)
 
-        def receipt_rows(self, ticket):
+        def receipt_rows(self, ticket, recipients):
+            self.passed[ticket] = [tuple(pair) for pair in recipients]
             return self.notices.receipt_rows(ticket)
-
-    def recipients(broker, ticket):
-        """The recipients of every notice the broker issued for a ticket: what the join needs from
-        the broker's issue records."""
-        return sorted({(r['user'], r['serial']) for (t, _), issue in broker.issues.items() if t == ticket
-                       for r in issue['required']})
 
     class JoinHarness(labtest.Harness):
         def open(self):
             self.broker = lab_broker.Broker.open(
                 self.root, self.source_root, sim_android.SimTransport(self.sim),
-                JoinReader(labtest.INSTALLATION, lambda ticket: recipients(self.broker, ticket),
-                           target=self.target_read, **self.reader_options),
+                JoinReader(labtest.INSTALLATION, target=self.target_read, **self.reader_options),
                 notice=self.notice, wall=self.clock.wall_ns, monotonic=self.clock.monotonic_ns, sleep=self.clock.sleep,
                 ids=lambda n: os.urandom(n), processes=self.processes, sync=self.sync, target=self.target,
                 target_read=self.target_read, health=self.health)
@@ -572,8 +568,7 @@ class EndToEndTests(unittest.TestCase):
         lab_broker.Broker.initialize(root / 'broker', admission, manifest)
         self.broker = lab_broker.Broker.open(
             root / 'broker', labtest.REPO, sim_android.SimTransport(self.sim),
-            JoinReader(labtest.INSTALLATION, lambda ticket: recipients(self.broker, ticket), receipts=True,
-                       inventory=True, health=True, witness=True),
+            JoinReader(labtest.INSTALLATION, receipts=True, inventory=True, health=True, witness=True),
             notice=route.NoticeRoute(jar_sha256=hashlib.sha256(JAR).hexdigest()), sync=False,
             health=sim_android.SimHealth())
         self.addCleanup(self.broker.close)

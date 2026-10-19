@@ -20,6 +20,8 @@ from labtest import GRANT, PLAN, TICKET, Harness
 import capture_ledger
 import lab_actions
 import lab_broker
+import lab_crossings
+import lab_driver
 import lab_evidence
 import lab_losses
 import lab_protocol as proto
@@ -1281,6 +1283,413 @@ class FenceTests(LossBase):
         self.assertEqual((end['status'], end['counts']['effects_launched']), ('REFUSED', 0))
         self.assertIn('another live session', end['uncertainty'])
         self.assertEqual([c for c in h.sim.calls if c[0] == 'reboot'], [])
+
+
+class ManagedActivationTests(LossBase):
+    """A managed REBOOT crossing's MANAGED_ACTIVATION transition: recorded around the reboot service
+    the broker sends, settled by the first later clock reading of a new boot, and never a fence of
+    the reconciler's own crossings."""
+
+    def reboot(self, h, index=7, occurrence=1, **changes):
+        store = Path(h.admission['store'])
+        if not (store / 'tickets' / (TICKET + '.rec')).exists():
+            self.put(h, 'READY')
+        digests = {'ticket_digest': hashlib.sha256((store / 'tickets' / (TICKET + '.rec')).read_bytes()).hexdigest(),
+                   'plan_digest': hashlib.sha256((store / 'plans' / (PLAN + '.rec')).read_bytes()).hexdigest()}
+        return h.cross('REBOOT', index, occurrence=occurrence, **dict(digests, **changes))
+
+    def managed(self, h):
+        return [t for t in h.broker.transitions.values() if t['begin']['transition_kind'] == 'MANAGED_ACTIVATION']
+
+    def test_a_managed_reboot_is_recorded_and_the_next_reading_of_a_new_boot_settles_it(self):
+        h = self.harness()
+        self.put(h, 'READY')
+        self.open_round(h)
+        old = h.sim.boot
+        reply = self.reboot(h)
+        self.assertEqual((reply['status'], reply['reason']),
+                         (STATUS['NO_REPLY'], 'a reboot has no shell reply: a new boot ID resolves it'))
+        [transition] = self.managed(h)
+        begin, [progress] = transition['begin'], transition['progress']
+        crossing = h.entries('crossing')[-1]
+        self.assertEqual((begin['old']['boot'], begin['ordinal'], begin['action'], begin['subject']),
+                         (old, 1, None, {'crossing': crossing.number, 'ticket': TICKET, 'plan': PLAN, 'attempt': 1,
+                                         'index': 7, 'occurrence': 1, 'grant': GRANT, 'entry_boot': old}))
+        preflight = self.entry(h, begin['preflight']).content
+        self.assertEqual((preflight['reader'], preflight['purpose'], preflight['reading']['boot']),
+                         ('clock', 'preflight', old))
+        # Its BEGIN is durable before the service's intent, and PROGRESS keeps the acknowledgement.
+        capture = self.entry(h, progress['capture'])
+        self.assertLess(begin['number'], capture.number)
+        self.assertEqual((capture.content['intent']['command'], capture.content['intent']['transition'],
+                          progress['acknowledgement']), (lab_broker.REBOOT_LABEL, begin['transition'], 'accepted'))
+        self.assertIsNone(transition['end'])
+        # Open, it holds the broker's own effects, never the reconciler's crossings.
+        self.assertIn('not answered by a new boot', h.broker._unsettled_transition())
+        self.assertIsNone(h.broker._unsettled_transition(crossing=True))
+        # The next clock reading, of the new boot, settles it.
+        self.assertEqual(h.clock_read()['status'], STATUS['OK'])
+        end = transition['end']
+        clock = [e for e in h.entries('group') if e.content['reader'] == 'clock'][-1]
+        self.assertEqual((end['status'], end['new_boots'], end['settled_poll']), ('OK', [h.sim.boot], 1))
+        self.assertEqual(end['polls'], [{'groups': [clock.number], 'boot': h.sim.boot, 'missing': None}])
+        self.assertGreater(end['number'], clock.number)
+        self.assertIsNone(h.broker._unsettled_transition())
+        # A later boot is no answer of an ended transition, and the records reopen.
+        settled = dict(end)
+        h.sim.new_boot()
+        self.assertEqual(h.clock_read()['status'], STATUS['OK'])
+        self.assertEqual(self.managed(h)[0]['end'], settled)
+        h.end(0)
+        h.reopen()
+        self.assertEqual([(t['end']['status'], t['end']['new_boots']) for t in self.managed(h)],
+                         [('OK', settled['new_boots'])])
+
+    def test_a_request_again_in_the_same_boot_ends_the_earlier_transition_unknown(self):
+        h = self.harness()
+        h.sim.reboot = lambda: None
+        self.put(h, 'READY')
+        self.open_round(h)
+        self.reboot(h)
+        h.sim.tick(300_000)
+        self.assertEqual(h.clock_read()['status'], STATUS['OK'])
+        [first] = self.managed(h)
+        self.assertIsNone(first['end'])
+        # The reconciler's own rule asks again in the same boot; the fence lets it through.
+        self.assertEqual(self.reboot(h, index=8, occurrence=2)['status'], STATUS['NO_REPLY'])
+        self.assertEqual(len([c for c in h.sim.calls if c[0] == 'reboot']), 2)
+        first, second = sorted(self.managed(h), key=lambda t: t['begin']['number'])
+        self.assertEqual((first['end']['status'], first['end']['new_boots']), ('UNKNOWN', []))
+        self.assertIn('asked again', first['end']['reason'])
+        self.assertTrue(first['end']['polls'] and all(p['missing'] == 'the same boot: no new boot is observed yet'
+                                                    for p in first['end']['polls']))
+        self.assertLess(first['end']['number'], second['begin']['number'])
+        self.assertEqual((second['begin']['ordinal'], second['end']), (2, None))
+
+    def test_a_managed_reboot_that_launches_nothing_or_is_stopped_or_lost_before_its_effect(self):
+        # A loss before the effect records no transition at all.
+        before = {'cell': 'reboot-before', 'on': 'cross', 'mode': 'loss-before', 'plan': PLAN, 'attempt': 1,
+                  'crossing': 'REBOOT', 'occurrence': 1}
+        h = self.harness([before])
+        self.put(h, 'READY')
+        self.open_round(h)
+        self.assertEqual(self.reboot(h)['status'], STATUS['HALT'])
+        self.assertEqual((self.managed(h), [c for c in h.sim.calls if c[0] == 'reboot']), ([], []))
+        # A grant that expires between the gate and the send: REFUSED, nothing launched.
+        h = self.harness()
+        self.put(h, 'READY')
+        self.open_round(h)
+        record = h.broker.ledger.record
+
+        def expire(kind, value):
+            number = record(kind, value)
+            if kind == 'boot-transition' and value['record'] == 'BEGIN':
+                h.clock.mono += 5 * 1_000_000_000
+            return number
+        h.broker.ledger.record = expire
+        reply = self.reboot(h, granted_at=sim_android.WALL_BASE, window=h.sim.uptime + 1000)
+        self.assertEqual(reply['status'], STATUS['NO_REPLY'])
+        [transition] = self.managed(h)
+        self.assertEqual(transition['end']['status'], 'REFUSED')
+        self.assertIn('nothing launched', transition['end']['reason'])
+        self.assertEqual([c for c in h.sim.calls if c[0] == 'reboot'], [])
+        # A stop after the durable BEGIN sends nothing and ends the transition STOPPED.
+        h = self.harness()
+        self.put(h, 'READY')
+        self.open_round(h)
+        record = h.broker.ledger.record
+
+        def stop(kind, value):
+            number = record(kind, value)
+            if kind == 'boot-transition' and value['record'] == 'BEGIN':
+                Path(h.admission['fences']['stop_file']).write_text('stop\n')
+            return number
+        h.broker.ledger.record = stop
+        self.assertEqual(self.reboot(h)['status'], STATUS['STOPPED'])
+        self.assertEqual([t['end']['status'] for t in self.managed(h)], ['STOPPED'])
+        self.assertEqual([c for c in h.sim.calls if c[0] == 'reboot'], [])
+        # A broker lost in the service leaves the transition open: no LOST is invented, and the
+        # next reading of a new boot after the reopening settles it.
+        h = self.harness()
+        self.put(h, 'READY')
+        self.open_round(h)
+
+        def lost(command):
+            if command == lab_broker.REBOOT_LABEL:
+                raise KeyboardInterrupt('the broker is lost while the reboot is sent')
+        h.sim.hooks.append(lost)
+        with self.assertRaises(KeyboardInterrupt):
+            self.reboot(h)
+        h.sim.hooks.clear()
+        h.broker.close()
+        h.open()
+        [transition] = self.managed(h)
+        self.assertEqual((transition['progress'], transition['end']), ([], None))
+        self.assertEqual(h.entries('quarantine')[-1].content['launched'], 'unknown')
+        h.sim.reboot()
+        self.open_round(h)
+        self.assertEqual((transition['end']['status'], transition['end']['new_boots']), ('OK', [h.sim.boot]))
+
+    def test_a_new_boot_is_credited_only_to_a_reboot_service_that_may_have_launched(self):
+        # Each history ends with a new boot, then the broker's and the driver's readings of it.
+        # A service sent, or one a lost broker interrupted with no PROGRESS, may have made it. A
+        # broker lost right after BEGIN sent nothing, nor did a service refused before its launch
+        # whose broker was lost before its END: then the boot is unexpected, kept as observed.
+        no_service = 'a new boot that no reboot service of this transition may have launched'
+        histories = {
+            'the service sent': (1, ['complete'], 1, 'OK', None, 'MANAGED_ACTIVATION'),
+            'lost inside the service capture': (1, ['interrupted'], 0, 'OK', None, 'MANAGED_ACTIVATION'),
+            'lost after BEGIN, before the service': (0, [], 0, 'UNEXPECTED', no_service, 'UNEXPECTED'),
+            'refused before its launch, lost before its END': (1, ['complete'], 0, 'UNEXPECTED', no_service,
+                                                               'UNEXPECTED'),
+        }
+        for name, (intents, states, calls, status, reason, kind) in histories.items():
+            with self.subTest(name):
+                h = self.harness()
+                self.put(h, 'READY')
+                self.open_round(h)
+                temp = tempfile.TemporaryDirectory()
+                self.addCleanup(temp.cleanup)
+                plans = {'COHORT': '02' * 16, 'A': PLAN, 'R': '03' * 16}
+                d = lab_driver.NextDriver(temp.name, 'java', 'classes', plans, broker=h.broker, sync=False)
+                d.cell = 'a'
+                d.observe_boots()
+                record, changes = h.broker.ledger.record, {}
+                if name.startswith('lost after BEGIN'):
+                    def cut(kind, value):
+                        number = record(kind, value)
+                        if kind == 'boot-transition' and value['record'] == 'BEGIN':
+                            raise KeyboardInterrupt('the broker is lost after BEGIN, before the service')
+                        return number
+                    h.broker.ledger.record = cut
+                elif name.startswith('lost inside'):
+                    def lost(command):
+                        if command == lab_broker.REBOOT_LABEL:
+                            raise KeyboardInterrupt('the broker is lost while the reboot is sent')
+                    h.sim.hooks.append(lost)
+                elif name.startswith('refused'):
+                    # The grant expires between the gate and the send, so nothing is sent.
+                    def cut(kind, value):
+                        if kind == 'boot-transition' and value['record'] == 'END':
+                            raise KeyboardInterrupt('the broker is lost before the refused service ends')
+                        number = record(kind, value)
+                        if kind == 'boot-transition' and value['record'] == 'BEGIN':
+                            h.clock.mono += 5 * 1_000_000_000
+                        return number
+                    h.broker.ledger.record = cut
+                    changes = {'granted_at': sim_android.WALL_BASE, 'window': h.sim.uptime + 1000}
+                if name == 'the service sent':
+                    self.assertEqual(self.reboot(h, **changes)['status'], STATUS['NO_REPLY'])
+                else:
+                    with self.assertRaises(KeyboardInterrupt):
+                        self.reboot(h, **changes)
+                    h.sim.hooks.clear()
+                    h.broker.close()
+                    h.open()
+                    d.broker = h.broker
+                    [transition] = self.managed(h)
+                    self.assertEqual((transition['progress'], transition['end']), ([], None))
+                    # The model's new boot, which none of these services was seen to send.
+                    h.sim.reboot()
+                self.open_round(h)
+                services = [e for e in h.entries('capture')
+                            if (e.content.get('intent') or {}).get('command') == lab_broker.REBOOT_LABEL]
+                self.assertEqual((len(services), [e.state for e in services],
+                                  len([c for c in h.sim.calls if c[0] == 'reboot'])), (intents, states, calls))
+                [transition] = self.managed(h)
+                end = transition['end']
+                self.assertEqual((end['status'], end['new_boots'], end['reason']), (status, [h.sim.boot], reason))
+                if kind == 'MANAGED_ACTIVATION':
+                    d.observe_boots()
+                else:
+                    with self.assertRaisesRegex(lab_driver.DriverError, 'boot 1 is unexpected'):
+                        d.observe_boots()
+                self.assertEqual((d.boots[-1]['boot'], d.boots[-1]['kind']), (h.sim.boot, kind))
+                self.assertIn(h.sim.boot, h.broker.observed_boots)
+                h.end(0)
+
+
+class NonstagedTests(LossBase):
+    """N1, the one nonstaged direct replacement of the persistent component: its typed action, its
+    refusal joined to its own session, and every other outcome kept and never its pass."""
+
+    def nonstaged(self, roles=('N1', 'N2', 'N3'), consent=True):
+        h = self.harness(specs=labtest.default_specs() + labtest.direct_specs(roles))
+        h.pin_payloads(roles)
+        if consent:
+            h.broker.consent(labtest.N1_CONTROL, 'the lab may attempt N1 once')
+        return h
+
+    def install(self, h):
+        return h.broker.run_action(labtest.DIRECT_IDS[('N1', 'DIRECT_NONSTAGED')], 'N1 DIRECT_NONSTAGED')
+
+    def installs(self, h):
+        return [c for c in h.sim.calls if c[0] == 'INSTALL']
+
+    def test_an_honest_n1_is_refused_as_a_persistent_app_and_settles_before_n2(self):
+        h = self.nonstaged()
+        boot, factory, active = h.sim.boot, h.sim.factory, h.sim.active
+        end = self.install(h)
+        self.assertEqual((end['status'], end['settled'], end['outcome']['classification']),
+                         ('OK', True, 'REFUSED_PERSISTENT'))
+        # One install and nothing else native: no session create, write or commit, and no reboot.
+        self.assertEqual([c[0] for c in h.sim.calls if c[0] in ('INSTALL', 'CREATE', 'WRITE', 'COMMIT', 'reboot')],
+                         ['INSTALL'])
+        self.assertEqual((h.sim.boot, h.sim.factory, h.sim.active), (boot, factory, active))
+        own = [(n, self.entry(h, n).content['intent']) for n in end['captures']]
+        own = [(n, i) for n, i in own if i['operation'] != 'read']
+        path = '%s/control-%s/base.apk' % (labtest.DEVICE_DIR, labtest.N1_CONTROL)
+        self.assertEqual([(i['operation'], i.get('command')) for _, i in own],
+                         [('lab-action-push', None), ('lab-action-read', 'sha256sum ' + path),
+                          ('lab-action-effect', 'pm install --user 0 -r --pkg com.android.systemui --referrer '
+                                                'andrix-lab-control:%s %s' % (labtest.N1_CONTROL, path))])
+        self.assertEqual((end['counts']['effects_launched'], end['counts']['pushes']), (1, 1))
+        # Every precondition read precedes the push, and every read after the install follows it.
+        reads = [n for n in end['captures'] if self.entry(h, n).content['intent']['operation'] == 'read']
+        self.assertTrue(reads and all(n < own[0][0] or n > own[-1][0] for n in reads))
+        # The refused session is joined by its own referrer in a whole inventory, with the
+        # persistent app's cause, and the direct control record names it.
+        [record] = [e.content for e in h.entries('direct-control') if e.content['record'] == 'NONSTAGED']
+        self.assertEqual((record['classification'], record['capture'], record['reference']['referrer']),
+                         ('REFUSED_PERSISTENT', own[-1][0], 'andrix-lab-control:' + labtest.N1_CONTROL))
+        join = self.entry(h, record['join_group']).content
+        self.assertEqual((join['reader'], join['reading']['whole']), ('global-sessions', True))
+        rows = [r for r in join['reading']['sessions'] if r['referrer'] == record['reference']['referrer']]
+        self.assertEqual([(r['id'], r['section'], r['staged'], r['failed'], r['applied'], r['cause']) for r in rows],
+                         [(record['reference']['id'], 'HISTORICAL', False, True, False, 'PERSISTENT')])
+        self.assertEqual(end['outcome']['before'], end['outcome']['after'])
+        self.assertIn(record['join_group'], end['postread_groups'])
+        # Its one use is spent; N2 follows its settled refusal; F0 waits for N1, N2 and N3.
+        with self.assertRaisesRegex(lab_broker.BrokerError, 'uses of the action are spent'):
+            self.install(h)
+        with self.assertRaisesRegex(lab_broker.BrokerError, 'N2 and N3 settle'):
+            h.broker.record_f0(labtest.f0_record('FULL'), 'F0 before N2 and N3')
+        self.assertEqual(h.broker.run_action(labtest.DIRECT_IDS[('N2', 'DIRECT_STAGE')], 'stage')['status'], 'OK')
+        # A reopening keeps the records, and the refused session's historical record ends with its
+        # boot, as Package Manager's historical records do.
+        h.reopen()
+        self.assertIn('NONSTAGED', h.broker.direct[labtest.N1_CONTROL])
+        h.sim.reboot()
+        self.assertFalse([s for s in h.sim.sessions.values() if not s.staged])
+
+    def test_n1_runs_only_with_its_payload_consent_and_a_quiet_guest(self):
+        # Before its payload or its consent nothing is recorded and no use is spent.
+        h = self.harness(specs=labtest.default_specs() + labtest.direct_specs(('N1',)))
+        with self.assertRaisesRegex(lab_broker.BrokerError, 'no payload is pinned'):
+            self.install(h)
+        h.pin_payloads(('N1',))
+        with self.assertRaisesRegex(lab_broker.BrokerError, 'no consent'):
+            self.install(h)
+        self.assertEqual([e for e in h.entries('lab-action')], [])
+        host = Path(h.directory) / ('%s-base.apk' % labtest.N1_CONTROL)
+        path = '%s/control-%s/base.apk' % (labtest.DEVICE_DIR, labtest.N1_CONTROL)
+        cases = {
+            'an open managed ticket': (lambda h: self.put(h, 'WRITTEN'), 'a managed ticket is open'),
+            'a live session': (lambda h: h.sim.sessions.update({5: sim_android.Session(5, sim_android.WALL_BASE,
+                                                                                       labtest.NONCE)}),
+                               'a session is live'),
+            'a pending checkpoint': (lambda h: setattr(h.sim, 'checkpoint', 'PENDING'), 'COMMITTED'),
+            'a data copy active': (lambda h: setattr(h.sim, 'active', ('DATA_COPY', 'ab' * 32, 40)), 'not read active'),
+            'an inventory that is not whole': (lambda h: setattr(h.sim, 'global_whole', False), 'not read whole'),
+            'other host bytes': (lambda h: host.write_bytes(b'other bytes'), 'other bytes: nothing launched'),
+            'a staged copy that reads back otherwise': (
+                lambda h: h.sim.scripts.update({'sha256sum ': [lambda c: sim_android.result(
+                    c, 0, ('ee' * 32 + '  ' + path + '\n').encode())]}), 'does not read back exactly'),
+        }
+        for name, (change, reason) in cases.items():
+            with self.subTest(name):
+                h = self.nonstaged(('N1',))
+                host = Path(h.directory) / ('%s-base.apk' % labtest.N1_CONTROL)
+                change(h)
+                end = self.install(h)
+                self.assertEqual((end['status'], end['settled'], end['counts']['effects_launched']),
+                                 ('REFUSED', True, 0))
+                self.assertIn(reason, end['uncertainty'])
+                self.assertEqual(self.installs(h), [])
+        # Never after F0, and never while a boot transition is unsettled.
+        h = self.nonstaged(('N1',))
+        h.broker.f0 = {'record': 'DECISION', 'qualified': True}
+        with self.assertRaisesRegex(lab_broker.BrokerError, 'only before F0'):
+            self.install(h)
+        h = self.nonstaged(('N1',))
+        h.broker.transitions['ee' * 16] = {'begin': {'transition_kind': 'CONFIRMATION'}, 'progress': [], 'end': None}
+        with self.assertRaisesRegex(lab_broker.BrokerError, 'unsettled'):
+            self.install(h)
+        self.assertEqual(self.installs(h), [])
+
+    def test_any_other_outcome_of_n1_is_never_its_refusal_and_holds_f0(self):
+        refusal = (lab_crossings.PERSISTENT_REFUSAL % sim_android.PACKAGE).encode()
+        signature = (b'Failure [INSTALL_FAILED_UPDATE_INCOMPATIBLE: Existing package com.android.systemui '
+                     b'signatures do not match newer version; ignoring!]\n')
+
+        def historical(h):
+            return [i for i, s in h.sim.sessions.items() if not s.staged]
+
+        def lose_after_install(h, command):
+            if command.startswith('pm install '):
+                h.sim.scripts['sim:global-sessions'] = ['before'] * 20
+        cases = {
+            'an install that succeeds': (lambda h: setattr(h.sim, 'persistent', False), 'UNEXPECTED', True,
+                                         'replied SUCCESS'),
+            'another refusal': (lambda h: setattr(h.sim, 'nonstaged_reply', ((1, signature), 'OTHER')), 'UNEXPECTED',
+                                True, 'replied UNRECOGNIZED'),
+            'the exact reply beside another recorded cause': (
+                lambda h: setattr(h.sim, 'nonstaged_reply', ((1, refusal), 'OTHER')), 'UNEXPECTED', True,
+                'another cause than the persistent app refusal'),
+            'the exact reply and no session': (
+                lambda h: h.sim.hooks.append(lambda c: c == 'sim:global-sessions' and [
+                    h.sim.sessions.pop(i) for i in historical(h)]), 'UNEXPECTED', True, 'no single session'),
+            'the factory copy changed': (
+                lambda h: h.sim.hooks.append(lambda c: c.startswith('pm install ') and setattr(
+                    h.sim, 'factory', ('fe' * 32, 38))), 'UNEXPECTED', True, 'cohort changed'),
+            'a later read that does not complete': (
+                lambda h: h.sim.hooks.append(lambda c: lose_after_install(h, c)), 'UNKNOWN', False, 'did not complete'),
+            'an install whose reply is lost': (lambda h: h.sim.scripts.update({'pm install ': ['after']}), 'UNKNOWN',
+                                               False, 'did not complete'),
+        }
+        for name, (change, status, settled, reason) in cases.items():
+            with self.subTest(name):
+                h = self.nonstaged()
+                change(h)
+                end = self.install(h)
+                self.assertEqual((end['status'], end['settled']), (status, settled))
+                self.assertIn(reason, end['uncertainty'])
+                self.assertEqual(len(self.installs(h)), 1)
+                # Nothing after it: no F0, no N2, and N1 is never run again to find out.
+                with self.assertRaisesRegex(lab_broker.BrokerError, 'N1 settles its intended persistent app refusal'):
+                    h.broker.record_f0(labtest.f0_record('FULL'), 'F0 after N1')
+                with self.assertRaisesRegex(lab_broker.BrokerError, 'predecessor action has no settled use'):
+                    h.broker.run_action(labtest.DIRECT_IDS[('N2', 'DIRECT_STAGE')], 'stage')
+                with self.assertRaises(lab_broker.BrokerError):
+                    self.install(h)
+                self.assertEqual(len(self.installs(h)), 1)
+
+    def test_one_n1_is_admitted_once_before_the_staged_controls(self):
+        good = labtest.direct_specs(('N1', 'N2', 'N3'))
+        n1 = good[0]
+        with tempfile.TemporaryDirectory() as directory:
+            lab_broker.check_admission(labtest.admission3(directory, specs=labtest.default_specs() + good))
+            alone = [dict(n1, successors=[])]
+            second = dict(n1, id='d9' * 16, parameters=dict(n1['parameters'], control='a9' * 16))
+            after = labtest.direct_specs(('N2', 'N3'))
+            after[-1] = dict(after[-1], successors=[n1['id']])
+            late = dict(n1, predecessor=after[-1]['id'], successors=[])
+            unchained = [dict(n1, successors=[])] + [dict(good[1], predecessor=None)] + good[2:]
+            cases = {
+                'used twice': [dict(n1, max_uses=2)] + good[1:],
+                'two nonstaged controls': alone + [second],
+                'N1 after the staged controls': after + [late],
+                'N2 not after N1': unchained,
+                'a sidecar in its payload': [dict(n1, inputs=n1['inputs'] + [
+                    {'role': 'base.apk.idsig', 'sha256': 'ab' * 32, 'bytes': 9}])] + good[1:],
+                'a nonstaged control of a staged role': [
+                    dict(n1, phase='N2', parameters=dict(n1['parameters'], role='N2'))] + good[1:],
+                'one control both nonstaged and staged': [
+                    dict(n1, parameters=dict(n1['parameters'], control=labtest.N2_CONTROL))] + good[1:],
+            }
+            for name, specs in cases.items():
+                with self.subTest(name), self.assertRaises(lab_broker.BrokerError):
+                    lab_broker.check_admission(labtest.admission3(directory, specs=labtest.default_specs() + specs))
 
 
 class WriterLatchTests(LossBase):

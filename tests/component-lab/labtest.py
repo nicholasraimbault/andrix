@@ -197,20 +197,35 @@ def state_code(name):
     return encoder.STATES.index(name) + 1
 
 
-# Two direct negative controls, N2 and N3, each a stage, a commit and an activation, in order.
-N2_CONTROL, N3_CONTROL = 'a2' * 16, 'a3' * 16
+# Two direct negative controls, N2 and N3, each a stage, a commit and an activation, in order, and
+# N1, one nonstaged install before them.
+N1_CONTROL, N2_CONTROL, N3_CONTROL = 'a1' * 16, 'a2' * 16, 'a3' * 16
+N1_PAYLOAD = (('base.apk', b'L' * 2048 + b'correctly signed, a higher version, nonstaged'),)
 N2_PAYLOAD = (('base.apk', b'N' * 2048 + b'signed by another key'), ('base.apk.idsig', b'S' * 256 + b'its sidecar'))
 N3_PAYLOAD = (('base.apk', b'M' * 2048 + b'correctly signed, no sidecar'),)
-DIRECT_IDS = {('N2', 'DIRECT_STAGE'): 'd1' * 16, ('N2', 'DIRECT_COMMIT'): 'd2' * 16,
-              ('N2', 'NEGATIVE_ACTIVATION'): 'd3' * 16, ('N3', 'DIRECT_STAGE'): 'd4' * 16,
-              ('N3', 'DIRECT_COMMIT'): 'd5' * 16, ('N3', 'NEGATIVE_ACTIVATION'): 'd6' * 16}
+DIRECT_IDS = {('N1', 'DIRECT_NONSTAGED'): 'd0' * 16, ('N2', 'DIRECT_STAGE'): 'd1' * 16,
+              ('N2', 'DIRECT_COMMIT'): 'd2' * 16, ('N2', 'NEGATIVE_ACTIVATION'): 'd3' * 16,
+              ('N3', 'DIRECT_STAGE'): 'd4' * 16, ('N3', 'DIRECT_COMMIT'): 'd5' * 16,
+              ('N3', 'NEGATIVE_ACTIVATION'): 'd6' * 16}
+CONTROLS = {'N1': (N1_CONTROL, N1_PAYLOAD), 'N2': (N2_CONTROL, N2_PAYLOAD), 'N3': (N3_CONTROL, N3_PAYLOAD)}
 
 
 def direct_specs(roles=('N2', 'N3')):
-    """The admitted specs of the direct negative controls of these roles, chained in order."""
+    """The admitted specs of the direct negative controls of these roles, chained in order: N1's one
+    nonstaged install, then each staged control's stage, commit and activation."""
     specs, previous = [], None
     for role in roles:
-        control, payload = (N2_CONTROL, N2_PAYLOAD) if role == 'N2' else (N3_CONTROL, N3_PAYLOAD)
+        control, payload = CONTROLS[role]
+        if role == lab_actions.NONSTAGED_ROLE:
+            ident = DIRECT_IDS[(role, 'DIRECT_NONSTAGED')]
+            inputs = [{'role': m, 'sha256': hashlib.sha256(d).hexdigest(), 'bytes': len(d)} for m, d in payload]
+            specs.append(action_spec(ident, 'DIRECT_NONSTAGED', phase=role, cell='n1-direct-nonstaged',
+                                     parameters={'control': control, 'role': role}, inputs=inputs, max_uses=1,
+                                     predecessor=previous))
+            if previous is not None:
+                specs[-2]['successors'] = [ident]
+            previous = ident
+            continue
         for kind in lab_actions.DIRECT_STEPS:
             ident = DIRECT_IDS[(role, kind)]
             inputs = [{'role': m, 'sha256': hashlib.sha256(d).hexdigest(), 'bytes': len(d)} for m, d in payload]
@@ -494,7 +509,7 @@ class Harness:
     def pin_payloads(self, roles=('N2', 'N3')):
         """Pins each direct control's negative payload, and makes N2's APK one of another signer."""
         for role in roles:
-            control, payload = (N2_CONTROL, N2_PAYLOAD) if role == 'N2' else (N3_CONTROL, N3_PAYLOAD)
+            control, payload = CONTROLS[role]
             members = {}
             for member, data in payload:
                 path = self.directory / ('%s-%s' % (control, member))

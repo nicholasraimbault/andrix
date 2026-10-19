@@ -15,7 +15,7 @@ recipient of the stored ticket's issued notice. An inventory that is not whole, 
 being removed, partial or precreated, another type or another serial resolves nothing. Nothing is
 guessed: no current user and no user ID that the inventory did not show.
 
-The registry has fourteen types. NOTICE_VISIBILITY captures and reads the current visibility of an
+The registry has fifteen types. NOTICE_VISIBILITY captures and reads the current visibility of an
 issued notice for one required recipient, through the notice adapter. HEALTH_PREPARATION runs the
 UI, user and work steps that a full health probe of one user needs, through the health adapter,
 under a fresh preparation ID and challenge. PLAIN_KERNEL_CONFIRM is a plain kernel reboot that
@@ -26,6 +26,13 @@ are the steps of one admitted direct negative control, N2 or N3: a staged sessio
 negative payload under its own referrer, its commit after explicit per control consent, and its
 activating reboot, which settles only on the intended rejection and a safe recovery. They are the
 only native commits before F0, and only in their admitted order.
+
+DIRECT_NONSTAGED is N1, the one nonstaged direct replacement of the persistent component: after
+its recorded consent, with every managed ticket closed and no session live, one `pm install` of
+its pinned APK under its own referrer, with no ticket and no managed crossing. It settles only on
+Package Manager's exact persistent app refusal, joined by that referrer to the refused session in a
+whole global session inventory, with the factory copy, its identity and the cohort unchanged in the
+same boot. It precedes N2 and N3.
 
 HELPER_PUSH puts one of the guest's fixed read only helper jars at its fixed path, with the exact
 bytes its spec pins, which must be the bytes the helper's reader pins, and settles only on a
@@ -140,6 +147,13 @@ TYPES = {
                     'inputs': 'helper', 'effect': 'fixture',
                     'preconditions': ['PINNED_BYTES', 'READER_PIN', 'BYTE_READBACK', 'NO_UNSETTLED_TRANSITION'],
                     'after_uncertain': False, 'adapter': None, 'phase': 'ENTRY'},
+    'DIRECT_NONSTAGED': {'authority': 'LAB_CONTROL', 'selectors': ('SYSTEM_USER',),
+                         'parameters': {'control': 'id', 'role': 'nonstaged_role'}, 'inputs': 'payload',
+                         'effect': 'direct',
+                         'preconditions': ['BEFORE_F0', 'PAYLOAD_PINNED', 'CONSENT', 'NO_OPEN_TICKET',
+                                           'NO_LIVE_SESSION', 'FACTORY_ACTIVE', 'CHECKPOINT_COMMITTED',
+                                           'NO_UNSETTLED_TRANSITION'],
+                         'after_uncertain': False, 'adapter': None, 'phase': 'role'},
 }
 # The fixed read only helper jars a HELPER_PUSH may put on the guest, by name. Each one's guest path
 # and pinned bytes are its reader's own (the broker's HELPER_PINS).
@@ -156,8 +170,17 @@ DIRECT_STEPS = ('DIRECT_STAGE', 'DIRECT_COMMIT', 'NEGATIVE_ACTIVATION')
 # The direct negative roles, in their admitted order, each with its payload's members and the
 # rejection cause its activation must end in.
 ROLES = ('N2', 'N3')
-ROLE_MEMBERS = {'N2': ('base.apk', 'base.apk.idsig'), 'N3': ('base.apk',)}
-ROLE_CAUSES = {'N2': 'SIGNATURE', 'N3': 'FS_VERITY'}
+# N1, the nonstaged direct replacement, is its own one step control of its own role. Its one shot
+# install takes APK paths only (the shell parses every path as an APK, PackageManagerShellCommand.
+# java:691-713), so its payload is the APK alone; Package Manager refuses it as a persistent app
+# before any signature or file verification check (InstallPackageHelper.java:1803-1808, 1881-1922,
+# 2141-2161).
+NONSTAGED_ROLE = 'N1'
+NONSTAGED_STEPS = ('DIRECT_NONSTAGED',)
+# Every type of a direct negative control, staged or not.
+DIRECT_TYPES = DIRECT_STEPS + NONSTAGED_STEPS
+ROLE_MEMBERS = {'N1': ('base.apk',), 'N2': ('base.apk', 'base.apk.idsig'), 'N3': ('base.apk',)}
+ROLE_CAUSES = {'N1': 'PERSISTENT', 'N2': 'SIGNATURE', 'N3': 'FS_VERITY'}
 CONTROL_REFERRER = 'andrix-lab-control:'
 # Types whose records name the user they created: the one full secondary user's create.
 CREATING_TYPES = ('USER_CREATE',)
@@ -350,6 +373,16 @@ def _direct_controls(by_id):
             _fail('only N3 follows another direct control')
     if 'N3' in roles and ('N2' not in roles or roles['N3'][0]['predecessor'] != roles['N2'][2]['id']):
         _fail("N3 follows N2's activation")
+    # N1 is one step of its own control, used once, before every staged control: N2 follows it, and
+    # so, as specs follow their predecessors, does every staged step.
+    nonstaged = [s for s in sorted(by_id.values(), key=lambda s: s['order']) if s['type'] in NONSTAGED_STEPS]
+    if len(nonstaged) > 1 or any(s['max_uses'] != 1 for s in nonstaged):
+        _fail('one nonstaged direct control, used once')
+    for spec in nonstaged:
+        if spec['parameters']['control'] in controls:
+            _fail('a nonstaged control is its own control, never a step of a staged one')
+        if 'N2' in roles and roles['N2'][0]['predecessor'] != spec['id']:
+            _fail('N2 follows N1')
 
 
 def _selector(selector, kind, by_id):
@@ -381,6 +414,9 @@ def _parameters(parameters, kind):
         elif form == 'role':
             if value not in ROLES:
                 _fail('a direct control is N2 or N3')
+        elif form == 'nonstaged_role':
+            if value != NONSTAGED_ROLE:
+                _fail('the nonstaged direct control is N1')
         elif form == 'user_type':
             if value != SECONDARY_TYPE:
                 _fail('the one created user is a full secondary user, never a profile or another type')
@@ -599,7 +635,9 @@ SESSION_KEYS = ('section', 'id', 'package', 'referrer', 'staged', 'multi_package
                 'committed', 'ready', 'applied', 'failed', 'destroyed', 'created', 'installer', 'cause')
 SECTIONS = ('ACTIVE', 'FINALIZED', 'HISTORICAL')
 FLAGS = ('staged', 'multi_package', 'sealed', 'committed', 'ready', 'applied', 'failed', 'destroyed')
-CAUSES = ('SIGNATURE', 'FS_VERITY', 'OTHER')
+# The classes of a failed session's recorded cause: N2's signature mismatch, N3's missing file
+# verification, N1's persistent app refusal, or any other.
+CAUSES = ('SIGNATURE', 'FS_VERITY', 'PERSISTENT', 'OTHER')
 PACKAGE = re.compile(r'[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+')
 NO_PARENT = -1
 MAX_SESSIONS = 256
@@ -748,4 +786,27 @@ def rejection(reading, control, component, reference, role):
         return "the control's session did not fail"
     if row['cause'] != ROLE_CAUSES[role]:
         return "the control's session failed for another cause than its role's"
+    return None
+
+
+def nonstaged_refusal(reading, control, component):
+    """Why the nonstaged control's one install did not end in its intended refusal, or None: a
+    whole inventory with no session live, and exactly one session under the control's referrer,
+    one nonstaged session of the component that failed, was not applied, and whose recorded cause
+    is the persistent app refusal. An inventory that is not whole shows nothing."""
+    if not reading['whole']:
+        return 'the global session inventory is not whole'
+    if live_rows(reading):
+        return 'a session is still live'
+    found = [row for row in reading['sessions'] if row['referrer'] == control_referrer(control)]
+    if len(found) != 1:
+        return "no single session of the control in the inventory"
+    row = found[0]
+    if (row['package'], row['staged'], row['multi_package'], row['parent'], row['children']) != (
+            component, False, False, NO_PARENT, []):
+        return "the control's session is not one nonstaged session of the component"
+    if row['failed'] is not True or row['applied'] is not False:
+        return "the control's session did not fail"
+    if row['cause'] != ROLE_CAUSES[NONSTAGED_ROLE]:
+        return "the control's session failed for another cause than the persistent app refusal"
     return None

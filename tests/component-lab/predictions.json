@@ -9,13 +9,14 @@
   "test_health": 53,
   "test_lab_bridge": 28,
   "test_lab_broker": 103,
-  "test_lab_crossings": 12,
+  "test_lab_crossings": 13,
   "test_lab_driver": 35,
-  "test_lab_loss": 54,
-  "test_lab_next": 46,
+  "test_lab_loss": 62,
+  "test_lab_next": 47,
   "test_lab_protocol": 15,
-  "test_next_campaign": 39,
-  "test_next_driver": 17,
+  "test_next_campaign": 44,
+  "test_next_driver": 21,
+  "test_next_readers": 9,
   "test_shell_transport": 25,
   "test_witness": 53
  },
@@ -40,6 +41,12 @@
   ],
   "activation-window-not-sent": [
    "test_lab_bridge.BridgeEndToEnd.test_a_ticket_closes_applied_from_observation_alone"
+  ],
+  "adapter-global-ungated": [
+   "test_next_readers.GlobalInventoryTests.test_the_adapter_admits_the_reader_and_reads_its_recorded_captures_again"
+  ],
+  "adapter-recipients-of-any-ticket": [
+   "test_next_readers.ReceiptRecipientTests.test_the_adapter_reads_exactly_the_recipients_the_broker_passes"
   ],
   "admission-confirmations-unbounded": [
    "test_next_campaign.AdmissionTests.test_the_written_admission_is_a_version_3_admission_of_the_campaign"
@@ -316,8 +323,38 @@
   "driver-later-boot-unread": [
    "test_next_driver.CampaignTests.test_a_wait_the_cell_does_not_predict_stops_the_driver"
   ],
+  "driver-managed-boot-any-reading": [
+   "test_next_campaign.DriverRuleTests.test_a_managed_boot_is_the_one_its_transition_settled_on_that_reading"
+  ],
+  "driver-managed-boot-needs-a-reply": [
+   "test_next_campaign.DriverRuleTests.test_a_managed_boot_needs_a_capture_of_its_own_service_that_may_have_launched"
+  ],
+  "driver-managed-boot-refused-service": [
+   "test_next_campaign.DriverRuleTests.test_a_managed_boot_is_the_one_its_transition_settled_on_that_reading"
+  ],
+  "driver-managed-boot-without-a-service": [
+   "test_next_campaign.DriverRuleTests.test_a_managed_boot_needs_a_capture_of_its_own_service_that_may_have_launched"
+  ],
+  "driver-managed-service-of-another-crossing": [
+   "test_next_campaign.DriverRuleTests.test_a_managed_boot_needs_a_capture_of_its_own_service_that_may_have_launched"
+  ],
+  "driver-managed-service-of-another-transition": [
+   "test_next_campaign.DriverRuleTests.test_a_managed_boot_needs_a_capture_of_its_own_service_that_may_have_launched"
+  ],
   "driver-not-acted-accepted": [
    "test_next_campaign.DriverRuleTests.test_the_loss_control_takes_only_scheduled_halts_one_a_halted_generation"
+  ],
+  "driver-notice-first-recipient-only": [
+   "test_next_campaign.DriverRuleTests.test_a_round_that_issued_notices_captures_each_recipients_display_once"
+  ],
+  "driver-notice-foreground-skipped": [
+   "test_next_campaign.DriverRuleTests.test_a_round_that_issued_notices_captures_each_recipients_display_once"
+  ],
+  "driver-notice-of-another-ticket": [
+   "test_next_campaign.DriverRuleTests.test_a_round_that_issued_notices_captures_each_recipients_display_once"
+  ],
+  "driver-notices-uncaptured": [
+   "test_next_campaign.DriverRuleTests.test_drive_captures_a_rounds_notices_before_the_next_round"
   ],
   "driver-one-baseline-enough": [
    "test_next_driver.CampaignTests.test_the_window_opens_only_after_two_whole_baselines_of_each_user"
@@ -462,6 +499,45 @@
   ],
   "generation-read-deadline-unchecked": [
    "test_next_campaign.AdmissionTests.test_the_wait_policy_is_its_own_admitted_budget"
+  ],
+  "global-bracket-unchecked": [
+   "test_next_readers.GlobalInventoryTests.test_a_read_that_disagrees_or_crosses_a_restart_gives_no_reading"
+  ],
+  "global-component-of-a-skipped-record": [
+   "test_next_readers.GlobalInventoryTests.test_the_families_flags_and_errors_both_parts_print_agree_or_give_no_reading"
+  ],
+  "global-error-message-unchecked": [
+   "test_next_readers.GlobalInventoryTests.test_the_families_flags_and_errors_both_parts_print_agree_or_give_no_reading"
+  ],
+  "global-exact-package-unchecked": [
+   "test_next_readers.GlobalInventoryTests.test_a_package_the_listing_and_the_dump_contradict_gives_no_reading"
+  ],
+  "global-family-unchecked": [
+   "test_next_readers.GlobalInventoryTests.test_the_families_flags_and_errors_both_parts_print_agree_or_give_no_reading"
+  ],
+  "global-foreign-records-dropped": [
+   "test_next_readers.GlobalInventoryTests.test_records_of_other_packages_are_listed_with_every_unknown_field"
+  ],
+  "global-persistent-status-unchecked": [
+   "test_next_readers.GlobalInventoryTests.test_a_cause_is_classified_only_by_its_exact_source_form_joined_to_its_session"
+  ],
+  "global-reads-unjoined": [
+   "test_next_readers.GlobalInventoryTests.test_a_read_that_disagrees_or_crosses_a_restart_gives_no_reading"
+  ],
+  "global-rederive-leftovers-accepted": [
+   "test_next_readers.GlobalInventoryTests.test_the_adapter_admits_the_reader_and_reads_its_recorded_captures_again"
+  ],
+  "global-reopening-unread": [
+   "test_next_readers.GlobalInventoryTests.test_the_broker_records_the_inventory_and_refuses_a_changed_copy_on_reopening"
+  ],
+  "global-revert-unjoined": [
+   "test_next_readers.GlobalInventoryTests.test_a_cause_is_classified_only_by_its_exact_source_form_joined_to_its_session"
+  ],
+  "global-skipped-package-dropped": [
+   "test_next_readers.GlobalInventoryTests.test_a_package_the_listing_and_the_dump_contradict_gives_no_reading"
+  ],
+  "global-staged-unchecked": [
+   "test_next_readers.GlobalInventoryTests.test_the_families_flags_and_errors_both_parts_print_agree_or_give_no_reading"
   ],
   "grant-expiry-unchecked": [
    "test_lab_broker.GateTests.test_an_activation_grant_is_judged_again_at_launch",
@@ -692,6 +768,34 @@
    "test_lab_loss.FenceTests.test_a_managed_commit_launches_nothing_before_a_qualified_f0_whatever_its_fault",
    "test_lab_loss.FenceTests.test_an_honest_n2_n3_direct_sequence_commits_before_f0_and_a_managed_commit_does_not"
   ],
+  "managed-interrupted-service-uncredited": [
+   "test_lab_loss.ManagedActivationTests.test_a_new_boot_is_credited_only_to_a_reboot_service_that_may_have_launched",
+   "test_lab_loss.ManagedActivationTests.test_a_managed_reboot_that_launches_nothing_or_is_stopped_or_lost_before_its_effect",
+   "test_next_driver.CampaignTests.test_a_managed_reboot_lost_before_its_service_never_explains_a_later_boot"
+  ],
+  "managed-ok-without-a-service": [
+   "test_lab_loss.ManagedActivationTests.test_a_new_boot_is_credited_only_to_a_reboot_service_that_may_have_launched",
+   "test_next_driver.CampaignTests.test_a_managed_reboot_lost_before_its_service_never_explains_a_later_boot"
+  ],
+  "managed-transition-fences-crossings": [
+   "test_lab_loss.ManagedActivationTests.test_a_request_again_in_the_same_boot_ends_the_earlier_transition_unknown"
+  ],
+  "managed-transition-holds-nothing": [
+   "test_lab_loss.ManagedActivationTests.test_a_managed_reboot_is_recorded_and_the_next_reading_of_a_new_boot_settles_it"
+  ],
+  "managed-transition-lost-invented": [
+   "test_lab_loss.ManagedActivationTests.test_a_managed_reboot_that_launches_nothing_or_is_stopped_or_lost_before_its_effect"
+  ],
+  "managed-transition-settles-on-the-old-boot": [
+   "test_lab_loss.ManagedActivationTests.test_a_request_again_in_the_same_boot_ends_the_earlier_transition_unknown"
+  ],
+  "managed-transition-superseded-left-open": [
+   "test_lab_loss.ManagedActivationTests.test_a_request_again_in_the_same_boot_ends_the_earlier_transition_unknown"
+  ],
+  "managed-transition-unrecorded": [
+   "test_lab_loss.ManagedActivationTests.test_a_managed_reboot_is_recorded_and_the_next_reading_of_a_new_boot_settles_it",
+   "test_next_driver.CampaignTests.test_the_window_opens_only_after_two_whole_baselines_of_each_user"
+  ],
   "marker-elsewhere-accepted": [
    "test_health.MarkerTests.test_a_marker_elsewhere_or_a_contrary_clock_does_not_qualify"
   ],
@@ -700,6 +804,34 @@
   ],
   "milestone-progress-as-entry": [
    "test_lab_loss.MilestoneTests.test_the_milestone_enum_is_fixed_and_its_rule_one_table"
+  ],
+  "n1-any-failure-is-refusal": [
+   "test_lab_crossings.FormTests.test_n1s_one_install_and_its_reply_forms",
+   "test_lab_loss.NonstagedTests.test_any_other_outcome_of_n1_is_never_its_refusal_and_holds_f0"
+  ],
+  "n1-beside-an-open-ticket": [
+   "test_lab_loss.NonstagedTests.test_n1_runs_only_with_its_payload_consent_and_a_quiet_guest"
+  ],
+  "n1-consent-ungated": [
+   "test_lab_loss.NonstagedTests.test_n1_runs_only_with_its_payload_consent_and_a_quiet_guest"
+  ],
+  "n1-f0-unordered": [
+   "test_lab_loss.NonstagedTests.test_any_other_outcome_of_n1_is_never_its_refusal_and_holds_f0"
+  ],
+  "n1-identity-unchecked": [
+   "test_lab_loss.NonstagedTests.test_any_other_outcome_of_n1_is_never_its_refusal_and_holds_f0"
+  ],
+  "n1-n2-unchained": [
+   "test_lab_loss.NonstagedTests.test_one_n1_is_admitted_once_before_the_staged_controls"
+  ],
+  "n1-reply-trusted": [
+   "test_lab_loss.NonstagedTests.test_any_other_outcome_of_n1_is_never_its_refusal_and_holds_f0"
+  ],
+  "n1-shares-a-staged-control": [
+   "test_lab_loss.NonstagedTests.test_one_n1_is_admitted_once_before_the_staged_controls"
+  ],
+  "n1-used-twice-accepted": [
+   "test_lab_loss.NonstagedTests.test_one_n1_is_admitted_once_before_the_staged_controls"
   ],
   "next-commands-any-configuration": [
    "DriverTest.repair commands / refused before any record for another pair or a version 2 configuration"
@@ -715,6 +847,9 @@
   ],
   "next-notice-faults-kept": [
    "test_next_campaign.CellsTests.test_the_schedule_is_canonical_and_only_what_the_world_can_reach"
+  ],
+  "next-notices-after-commit": [
+   "test_next_driver.CampaignTests.test_notices_owed_to_a_running_secondary_user_are_captured_and_received"
   ],
   "next-record-one-branch": [
    "test_next_campaign.CellsTests.test_the_cells_record_freezes_every_declared_branch"
@@ -904,6 +1039,15 @@
   ],
   "receipt-read-time-substituted": [
    "test_lab_next.ReceiptTests.test_a_delivery_read_after_a_later_clock_keeps_its_event_time"
+  ],
+  "receipt-recipients-of-every-ticket": [
+   "test_lab_next.ReceiptTests.test_each_receipt_read_is_given_its_tickets_issued_recipients"
+  ],
+  "receipt-recipients-unchecked-on-reopening": [
+   "test_lab_next.ReceiptTests.test_each_receipt_read_is_given_its_tickets_issued_recipients"
+  ],
+  "receipt-recipients-unpassed": [
+   "test_lab_next.ReceiptTests.test_each_receipt_read_is_given_its_tickets_issued_recipients"
   ],
   "receipt-refused-rows-forgotten": [
    "test_lab_next.ReceiptTests.test_a_refused_read_keeps_the_first_bytes_of_its_rows"

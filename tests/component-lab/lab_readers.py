@@ -33,8 +33,12 @@ inventory from the whole user forms, and with it the user limits and each user's
 SystemUI process; `ObserverAdapter` admits them when it is given `users=True`. The health package
 reads a user's baseline (health_baseline.BaselineReader) and full composition
 (health_compose.Composer) through the same run function; `ObserverAdapter` admits them when it
-is given both, beside the full user readers. The notice fixture's provider rows and the global
-session inventory are later packages, so `ObserverAdapter` admits neither."""
+is given both, beside the full user readers. With `global_sessions=True` it admits the whole
+global session inventory of global_sessions.py, the observer's own fixed reads parsed whole by its
+strict parsers. With `receipts`, a receipt reader factory, it admits the notice fixture's provider
+rows: for each read the broker passes the recipients of the ticket's issued notices, from its own
+ledger, and the adapter gives exactly those to a reader the factory makes, as the notice fixture's
+`NoticeReader(recipients)` takes them."""
 import hashlib
 
 import lab_target
@@ -66,7 +70,7 @@ class ReaderAdapter:
 
     installation = None
     component = None
-    # Whether a receipt reader is admitted. The full screen notice fixture is a later package.
+    # Whether a receipt reader is admitted: the full screen notice fixture's provider rows.
     receipts_admitted = False
     # Whether the native target scope is read through this reader (lab_target). The broker then
     # reads it as its own recorded group at HELLO and at every crossing's gate.
@@ -124,11 +128,14 @@ class ReaderAdapter:
         it. Called only when `inventory_admitted`."""
         raise NotImplementedError
 
-    def receipt_rows(self, ticket):
-        """Every row the notice fixture's provider returns in one whole read, each the row's
-        exact bytes and its fields: purpose, installation, component, plan, ticket, index or
-        control action, boot token, text digest, event, app UID, user, serial and candidate time.
-        Called only when `receipts_admitted`, under a version 3 admission."""
+    def receipt_rows(self, ticket, recipients):
+        """Every row the notice fixture's provider returns in one whole read of the stores of
+        `recipients`, each the row's exact bytes and its fields: purpose, installation, component,
+        plan, ticket, index or control action, boot token, text digest, event, app UID, user, serial
+        and candidate time. `recipients` are the (user, serial) pairs, in order and each once, that
+        every notice the broker issued for the ticket required, as its ledger's issue records name
+        them: the reader reads those stores and no other user's. Called only when
+        `receipts_admitted`, under a version 3 admission."""
         raise NotImplementedError
 
     def health_baseline(self, context):
@@ -187,11 +194,26 @@ class ObserverAdapter(ReaderAdapter):
     `checkpoint` a callable that reads the checkpoint through the observer, or None."""
 
     def __init__(self, observer, installation, component, checkpoint=None, checkpoint_allowed=None,
-                 new_id=None, wall=None, target=False, users=False, composer=None, baseline=None):
+                 new_id=None, wall=None, target=False, users=False, composer=None, baseline=None,
+                 global_sessions=False, receipts=None):
         self._module = observer
         self.installation, self.component = installation, component
         self._run_now = None
         self._seen = []
+        # The whole global session inventory, admitted only when asked for: the observer's own
+        # fixed reads, which its allowlist already holds, parsed whole by its strict parsers.
+        self._global = None
+        if global_sessions:
+            import global_sessions as global_reader
+            self._global = global_reader
+            self.global_admitted = True
+        # The notice fixture's provider rows: `receipts(recipients)` makes a reader of the given
+        # stores, with `allowed(command)`, `bind(run)` and `receipt_rows(ticket)`, as the fixture's
+        # NoticeReader is made with the recipients function it reads.
+        self._receipts = receipts
+        if receipts is not None:
+            self._receipt_forms = receipts(lambda ticket: [])
+            self.receipts_admitted = True
         # The full user readers, admitted only when asked for, read through the same run function.
         self._users = None
         if users:
@@ -221,7 +243,9 @@ class ObserverAdapter(ReaderAdapter):
                     or (self.target_admitted and command == lab_target.COMMAND)
                     or (self._users is not None and self._users.read_allowed(command))
                     or (self._composer is not None and self._composer.allowed(command))
-                    or (self._baseline is not None and self._baseline.allowed(command)))
+                    or (self._baseline is not None and self._baseline.allowed(command))
+                    or (self._global is not None and self._global.allowed(command))
+                    or (self._receipts is not None and self._receipt_forms.allowed(command)))
 
     def bind(self, run):
         self._run_now = run
@@ -289,7 +313,25 @@ class ObserverAdapter(ReaderAdapter):
     def systemui_processes(self, inventory):
         return self._user_reader().processes(inventory)
 
+    def global_sessions(self):
+        if self._global is None:
+            raise Unavailable('no global session inventory is admitted')
+        return self._global.read(self._run)
+
+    def receipt_rows(self, ticket, recipients):
+        if self._receipts is None:
+            raise Unavailable('no receipt reader is admitted')
+        given = [(int(user), int(serial)) for user, serial in recipients]
+        reader = self._receipts(lambda asked: list(given) if asked == ticket else [])
+        reader.bind(self._run)
+        try:
+            return reader.receipt_rows(ticket)
+        finally:
+            reader.bind(None)
+
     def rederive(self, name, captures, inventory=None):
+        if name == 'global-sessions':
+            return self._global.rederive(captures) if self._global is not None else NotImplemented
         if name in ('factory', 'active'):
             # The public observer reads the recorded replies again, in order: a capture of another
             # command, one that did not complete, or one left over refuses.
