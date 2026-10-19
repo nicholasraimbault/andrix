@@ -58,9 +58,65 @@ closure are later packages.
 ## Process model
 
 One broker serves one admitted guest runtime. It is the parent of each coordinator process, a
-generation, and talks to it over that process's own standard input and output, which the broker
-created as unbuffered pipes. Standard output carries only protocol frames. Diagnostics go to
-standard error, which the broker keeps in a file per generation outside the ledger.
+generation, and talks to it over two unbuffered frame pipes of its own, never over its standard
+streams: the broker names them to it in `ANDRIX_LAB_FRAMES` as `<in>,<out>`, the descriptor the
+broker's replies arrive on and the one its requests go to, each past the three standard streams.
+The bridge opens them through `/proc/self/fd`, and refuses to run without them. Standard input is
+`/dev/null`, and standard output and standard error go to the kept output below, so nothing the
+JVM, its unified logging or a library prints can reach a frame. The pinned JDK writes unified
+logging's warnings and the VM's own output to standard output by default, and a deprecated option
+such as `-XX:+PrintGC` adds a log there whatever the other options say, so no option alone could
+keep standard output for frames. Every coordinator JVM still names its destinations, VM output and
+unified logging on standard error (`lab_broker.JVM_OUTPUT`). A request frame the broker cannot read
+ends the generation, and its end keeps `unreadable`: the first bytes the broker read of it and those
+already waiting, never more than 512, as hex, and whether more were waiting. The framing is never
+relaxed: no preamble is skipped, and nothing before a frame is ever read as one.
+
+The generation's standard output and standard error, its kept output, go to one more pipe that the
+broker reads while the generation writes, in bounded chunks, into `jvm/<generation>.stderr` outside
+the ledger, hashing it on the way. Each write is counted and hashed for exactly the bytes it
+acknowledged, so a write that fails after a short one leaves a kept prefix that the record
+describes. It keeps at most `OUTPUT_ALLOWANCE`, 4 MiB: the larger of 4 MiB and twice the largest
+generation output of G1a's real run, whose two generations kept none. Exactly 4 MiB is within it;
+a byte past it is overflow, counted and never kept, the first 4 MiB kept as they came. What is read
+but not kept, past the allowance or after a failed write, is counted as dropped, so an overflow
+after a failed write is recorded too.
+
+Every failure of the collector, at any stage, is a problem of the output: its file's open or its
+thread's start, a read, a write, the sync, the file's or the pipe's close, and any other exception
+in its thread. Each step of its close is tried whatever came before it. Its thread's last act is
+its own report that it ended, and one that ends without it, by any way at all, leaves an output
+that is not final. Whether that thread is alive is asked before its report is read, so a thread
+that reports and ends while a gate asks is never taken for one that ended without its report. A
+file that cannot be opened, or a collector that cannot start, starts no generation: the stop is
+latched with the reason. A failure beside a refused spawn, or beside a process that cannot be
+reaped, latches it too, though no end is recorded.
+
+A known problem of the output stops forward work at once. Every command's fence, before its
+intent, consults the output, and so does its launch gate once the intent is durable, a host call's
+BEGIN, and the serve loop before each request. The first gate that finds the problem latches the
+broker's stop: no later command is admitted, a command whose intent is already durable ends not
+launched, a host call is refused, and no later request is handled. A command already inside its
+transport call when the problem arrives may finish, and is recorded as it ran; nothing after it
+starts. Each gate asks the collector once and acts on that answer, and a problem the collector has
+named it names from then on, so no later view contradicts a stop. The generation is never
+COMPLETE.
+
+Each generation runs in its own process group. At its end the broker awaits its process's exit
+without reaping it (`waitid` with `WNOWAIT`), and kills it by its process ID once the exit grace
+passes. It then sends the whole group SIGKILL, so a child that inherited the standard streams ends
+there, and only then reaps the process. Until it is reaped the process keeps its ID, and its group,
+which it made, keeps that ID too, so each signal reaches only the generation's own processes. The
+broker then awaits the output's end of file for at most 5 s, and its collector's own end for at most
+1 s more. A writer still holding the output, one that left the group, is an unfinished writer: the
+broker stops reading, and later output never reaches the file. A collector stalled in a write past
+both bounds, or one that ended without its own report, leaves an output that is not final: its
+record claims no size or digest. The end's record, with the kept bytes' size and SHA-256, is
+written only after the writers ended or those bounds passed. Overflow, an unfinished writer or a
+failure of the collector is recorded in its `output` (the reason, naming the stage that failed,
+the allowance, the bytes kept and dropped, whether a writer was unfinished, and any error), the
+generation is FAILED rather than COMPLETE, and the broker latches a stop, so no forward work
+follows.
 
 - **One writer.** An open broker holds an exclusive lock on its directory. A second broker on the
   same directory refuses to open.
@@ -129,8 +185,9 @@ fatal error, never as a lost reply.
 | 14 REPORT reply | `u8 status, u32 record, text reason` | OK with the report's entry |
 
 A CROSS names a device crossing: 3 CREATE, 4 WRITE, 5 COMMIT, 6 ABANDON, 7 REBOOT or 8 NOTICE. The
-index is below 140 and the occurrence, the count of that crossing in the ledger up to the entry,
-is from 1 to the crossing's bound and the index plus one. CREATE, WRITE, COMMIT and ABANDON need an
+index is below 60, the public codec's `MAX_LEDGER`, the sum of the crossings' bounds, and the
+occurrence, the count of that crossing in the ledger up to the entry, is from 1 to the crossing's
+bound and the index plus one. CREATE, WRITE, COMMIT and ABANDON need an
 entry instance of at least 0. The grant is nonzero exactly for CREATE, COMMIT, REBOOT and NOTICE,
 with its actor class, 1 GRANT_HOLDER or 2 LAB_OPERATOR. CREATE carries the ticket's nonce as its
 reference and as the only field of `native`. WRITE, COMMIT and ABANDON carry a `native` reference
@@ -1056,6 +1113,22 @@ partial.
 ## Limits
 
 - The shell v2, reboot and push forms are source derived, and need a guest check before mutation.
+- A generation's frame pipes are opened through `/proc/self/fd`, so the bridge runs on Linux hosts.
+  The warning that ended an early generation of an earlier run on standard output is not known; the
+  mechanism is shown with the pinned JDK, and a recurrence now keeps its first bytes.
+- A generation's end retires only its own process group, which needs Python 3.11 or later for
+  `process_group`. A descendant that left the group is not ended: it is bounded by the 5 s wait and
+  recorded as an unfinished writer. A process the broker cannot see exit without reaping it, being
+  no child of its own, is reaped as before, and then no group is signalled.
+- An output problem first known while a command is inside its transport call lets that call
+  finish; the next gate stops everything after it. The transport's own last question before a
+  deadline's launch asks only the deadline.
+- A collector stalled in a write is left to end when the write returns. Its file may still change
+  after the record, which is why that record claims no size or digest.
+- A broker closed while it serves a generation leaves that generation lost, the broker's own loss
+  case: the reopening ends it as lost, and its record claims no size or digest for its output, and
+  says that the output's fate is unknown, whatever its file holds. A failure of its collector is
+  never recorded.
 - No refusal form of any crossing is qualified, so no reply reads REFUSED.
 - The full user forms are source derived; no guest has shown one. Whether the shell may create,
   start and switch users on the selected image, its effective limits and restrictions, whether a

@@ -285,6 +285,27 @@ class ReceiptTests(NextBase):
         self.assertTrue(end['outcome']['qualified'], end)
         return self.groups(h, 'notice-visibility')[-1]
 
+    def test_a_row_and_a_visibility_request_name_a_notice_index_below_the_codecs_bound(self):
+        # The public codec refuses a receipt of a notice at an entry index from 60 on, so the
+        # broker never reads such a row or asks for such a capture: 59 passes, and 60, 139 and
+        # 140 are refused, the old bound's edges included.
+        h = Harness(next_profile=True)
+        self.addCleanup(h.close)
+        row = {'row': b'row bytes', 'purpose': 'TICKET_NOTICE', 'installation': labtest.INSTALLATION,
+               'component': sim_android.PACKAGE, 'plan': PLAN, 'ticket': TICKET, 'index': 59, 'control': None,
+               'boot': h.sim.boot, 'text_sha256': '5e' * 32, 'event': '6f' * 16, 'uid': 1010123, 'user': 10,
+               'serial': 5, 'candidate_elapsed': None}
+        for index in (59, 60, 139, 140):
+            with self.subTest(index=index):
+                found = h.broker._row_problem(dict(row, index=index))
+                request = lab_broker._request_problem('NOTICE_VISIBILITY', {'ticket': TICKET, 'index': index,
+                                                                            'serial': 5})
+                if index < 60:
+                    self.assertEqual((found, request), (None, None))
+                else:
+                    self.assertEqual(found, 'only a ticket notice row names its notice index')
+                    self.assertIn('notice entry', request)
+
     def test_a_delivery_read_after_a_later_clock_keeps_its_event_time(self):
         # Version 1 cannot carry it: the event is older than the round's clock.
         old = Harness(notice=sim_android.SimNotice(), reader={'receipts': True})

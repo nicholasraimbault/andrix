@@ -68,8 +68,9 @@ import next_cells
 MAIN = 'dev.andrix.lab.component.LabDriverMain'
 # A generation may sign: the host signer holds both 43 MB SystemUI inputs and their signed copies, so
 # the heap is the one the sealed signing comparison needs, not the bridge suites' 256 MB.
+# Every coordinator JVM names its output's destinations: never a frame (lab_broker.JVM_OUTPUT).
 JVM = ('-Xmx768m', '-XX:+UseSerialGC', '-XX:TieredStopAtLevel=1', '-XX:CICompilerCount=1', '-XX:MaxMetaspaceSize=128m',
-       '-XX:ReservedCodeCacheSize=48m', '-ea')
+       '-XX:ReservedCodeCacheSize=48m', '-ea', *lab_broker.JVM_OUTPUT)
 MEMBERS = ('base.apk', 'base.apk.idsig')
 # The reads of the coordinator's cohort check, each a reader group in the broker's ledger, and the
 # fact each must carry: its kind and the classifications that count. A read that returned no such

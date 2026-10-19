@@ -36,7 +36,7 @@ public final class BrokerChannel {
         public ChannelLost(String reason, Throwable cause) { super(reason, cause); }
     }
 
-    /** A transport over a stream pair, such as the standard input and output a broker created. */
+    /** A transport over a stream pair, such as the two frame pipes a broker created. */
     public static Transport streams(InputStream in, OutputStream out) {
         Objects.requireNonNull(in, "in");
         Objects.requireNonNull(out, "out");

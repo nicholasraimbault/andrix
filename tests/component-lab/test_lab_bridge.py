@@ -9,7 +9,9 @@ import hashlib
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
 
 import health_baseline
@@ -20,12 +22,13 @@ from labtest import PLAN, REPO, TICKET
 import lab_broker
 import lab_losses
 import sim_android
+import test_lab_broker
 
 JAVA = os.environ.get('ANDRIX_LAB_JAVA')
 CLASSES = os.environ.get('ANDRIX_LAB_CLASSES')
 MAIN = 'dev.andrix.lab.component.LabBridgeTestMain'
 JVM = ('-Xmx256m', '-XX:+UseSerialGC', '-XX:TieredStopAtLevel=1', '-XX:CICompilerCount=1', '-XX:MaxMetaspaceSize=128m',
-       '-XX:ReservedCodeCacheSize=48m', '-ea')
+       '-XX:ReservedCodeCacheSize=48m', '-ea', *lab_broker.JVM_OUTPUT)
 RESTORATION_APK = 'a2' * 32
 TERMINAL = ('CLOSED_APPLIED', 'CLOSED_FAILED', 'CANCELLED', 'VOID', 'DIVERGED', 'SUPERSEDED')
 TICKET_TWO = '05' * 16
@@ -126,10 +129,11 @@ class World:
             raise AssertionError('java %s failed: %s' % (args[0], done.stderr[-2000:]))
         return done.stdout
 
-    def generation(self, *args):
+    def generation(self, *args, options=(), main=MAIN):
+        """One generation of the bridge's operation `args`, its JVM given `options` more."""
         argv = [JAVA, *JVM, '-Djava.io.tmpdir=%s' % self.dir, '-Dandrix.lab.hostDir=%s' % (self.dir / 'host'),
                 '-Dandrix.lab.bundleApk=%s' % self.bundle_apk, '-Dandrix.lab.restorationApk=%s' % RESTORATION_APK,
-                '-cp', CLASSES, MAIN, str(self.config), *args]
+                *options, '-cp', CLASSES, main, str(self.config), *args]
         summary = self.broker.run_generation(argv)
         self.generations.append(summary)
         return summary
@@ -277,6 +281,54 @@ class BridgeEndToEnd(unittest.TestCase):
         self.assertEqual((state['state'], state['choice'], state['revision']), ('APPLIED_PROVISIONAL', 'PLAN', '1'))
         state = w.until(lambda s: s['state'] in TERMINAL)
         self.assert_applied(w, state)
+
+    def test_vm_output_before_the_first_frame_never_reaches_a_frame(self):
+        # The pinned JDK writes unified logging's warnings and the VM's own output to standard
+        # output. Each option makes the coordinator's JVM print before its first frame: the
+        # deprecated PrintGC's warning and its GC log, a unified logging warning of the class data
+        # archive, and the VM's own flags line. The frames go over the broker's pipes, so every
+        # generation serves normally, and its kept output file holds what was printed.
+        w = self.world()
+        printed = {'-XX:+PrintGC': (b'[warning][gc] -XX:+PrintGC is deprecated', b'[info][gc] Using Serial'),
+                   '-XX:-UseCompressedClassPointers': (b'[warning][cds] Unable to use shared archive file',),
+                   '-XX:+PrintCommandLineFlags': (b'-XX:+PrintCommandLineFlags',)}
+        for option, lines in printed.items():
+            with self.subTest(option):
+                summary = w.generation('check', options=(option,))
+                self.assertEqual((summary['status'], summary['violation']), ('COMPLETE', None))
+                self.assertGreater(summary['served'], 1)
+                self.assertNotIn('unreadable', summary)
+                kept = (w.dir / 'broker' / lab_broker.JVM / ('%06d.stderr' % summary['generation'])).read_bytes()
+                for line in lines:
+                    self.assertIn(line, kept)
+
+    def test_a_library_child_of_the_coordinator_never_changes_its_kept_output(self):
+        # With the real bridge: a ProcessBuilder child that inherits the generation's standard
+        # streams and still holds them at its end is retired with the generation's process group,
+        # so its later output never changes the recorded output. The honest twin's child wrote and
+        # ended before the generation served: its lines are kept.
+        lines = b'child standard output\nchild standard error\n'
+        for mode in ('held', 'early'):
+            with self.subTest(mode):
+                w = self.world()
+                script, release, pid = w.dir / 'child.py', w.dir / 'release', w.dir / 'child-pid'
+                script.write_text(test_lab_broker.CHILD)
+                options = ['-Dandrix.lab.childPython=' + sys.executable, '-Dandrix.lab.childScript=%s' % script,
+                           '-Dandrix.lab.childMode=' + mode, '-Dandrix.lab.childRelease=%s' % release,
+                           '-Dandrix.lab.childPid=%s' % pid]
+                summary = w.generation('check', options=options, main='dev.andrix.lab.component.LabChildTestMain')
+                path = w.dir / 'broker' / lab_broker.JVM / ('%06d.stderr' % summary['generation'])
+                kept = path.read_bytes()
+                self.assertEqual((summary['status'], summary['violation']), ('COMPLETE', None))
+                self.assertNotIn('output', summary)
+                self.assertEqual((summary['stderr_bytes'], summary['stderr_sha256']),
+                                 (len(kept), hashlib.sha256(kept).hexdigest()))
+                self.assertEqual(lines in kept, mode == 'early')
+                child = int(pid.read_text())
+                self.assertTrue(test_lab_broker.gone(child))
+                release.write_text('release\n')
+                time.sleep(0.2)
+                self.assertEqual(path.read_bytes(), kept)
 
     def test_a_stop_fences_every_later_generation(self):
         w = self.world()

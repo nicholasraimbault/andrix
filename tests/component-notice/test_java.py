@@ -136,7 +136,7 @@ class JavaSuites(unittest.TestCase):
         base = {'purpose': 'TICKET_NOTICE', 'installation': '00112233445566778899aabbccddeeff',
                 'component': 'com.android.systemui', 'plan': '01' * 16, 'ticket': '04' * 16, 'index': 0,
                 'boot': '3b' * 16, 'challenge': '8c' * 16, 'text': 'x', 'text_sha256': hashlib.sha256(b'x').hexdigest()}
-        issues = [base, dict(base, index=139, component='a_1.B2.c3_d', text=text[:1024],
+        issues = [base, dict(base, index=59, component='a_1.B2.c3_d', text=text[:1024],
                              text_sha256=hashlib.sha256(text[:1024].encode()).hexdigest()),
                   dict(base, purpose='QUALIFICATION', plan=None, ticket=None, index=None, control='c0' * 16)]
         lines = []

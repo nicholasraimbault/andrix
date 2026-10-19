@@ -656,6 +656,24 @@ class DriverRuleTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         return lab_driver.NextDriver(temp.name, 'java', 'classes', PLANS, broker=broker, sync=sync, sequence=sequence)
 
+    def test_every_coordinator_jvm_names_its_output_destinations(self):
+        # The JVM's own output and its unified logging go to standard error, which the broker keeps,
+        # never a frame pipe: the lab driver's and the next driver's JVMs both name them, before
+        # their class path, as the lab's own bridge suite does.
+        self.assertEqual(lab_broker.JVM_OUTPUT, ('-XX:+DisplayVMOutputToStderr', '-Xlog:disable',
+                                                 '-Xlog:all=warning:stderr:uptime,level,tags'))
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        drivers = {'the lab driver': lab_driver.LabDriver(temp.name, 'java', 'classes', 'host.config', '5e' * 32),
+                   'the next driver': self.driver(FakeBroker())}
+        for name, d in drivers.items():
+            with self.subTest(name):
+                argv = d._argv('check')
+                before = argv[:argv.index('-cp')]
+                self.assertEqual([o for o in before if o in lab_broker.JVM_OUTPUT], list(lab_broker.JVM_OUTPUT))
+        import test_lab_bridge
+        self.assertEqual(test_lab_bridge.JVM[-3:], lab_broker.JVM_OUTPUT)
+
     def test_boot_phases_follow_the_ledger_and_name_their_transitions(self):
         b = FakeBroker()
         d = self.driver(b)

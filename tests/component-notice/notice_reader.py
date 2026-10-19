@@ -28,6 +28,7 @@ LAB = HERE.parent / 'component-lab'
 if str(LAB) not in sys.path:
     sys.path.insert(0, str(LAB))
 
+import lab_protocol  # noqa: E402
 import lab_readers  # noqa: E402
 
 MAGIC = 'andrix-notice-receipt-v1'
@@ -37,7 +38,10 @@ NAMES = ('purpose', 'installation', 'component', 'plan', 'ticket', 'index', 'con
          'uid', 'user', 'serial', 'process_pid', 'process_start_elapsed', 'resumed_elapsed', 'focus_elapsed',
          'candidate_rule', 'candidate_elapsed')
 MAX_ROW = 2048
-MAX_LEDGER = 140
+# The public codec's ledger bound, through the lab protocol: a notice index is below it. The fixture
+# app's own form takes up to 139 (Forms.MAX_LEDGER, in its pinned APK); the host route never asks
+# for such an index, and this reader refuses a row or key that names one.
+MAX_LEDGER = lab_protocol.MAX_LEDGER
 PER_USER_RANGE = 100000
 MAX_USER = (2 ** 31 - 1 - (PER_USER_RANGE - 1)) // PER_USER_RANGE
 MAX_SERIAL = 2 ** 31 - 1

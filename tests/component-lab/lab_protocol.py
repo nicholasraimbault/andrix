@@ -55,7 +55,6 @@ MAX_TEXT = 1024
 MAX_STAGE_DIR = 255
 MAX_RECORD = 65536
 MAX_FRAMES = 256
-MAX_LEDGER = 140
 ZERO_ID = '00' * 16
 ZERO_DIGEST = '00' * 32
 NO_USER = -10000
@@ -69,6 +68,10 @@ STATUS_NAMES = {code: name for name, code in STATUSES.items()}
 # The deployment records' crossing codes and ledger bounds.
 CROSSINGS = {'SIGN': (1, 2), 'PUBLISH': (2, 2), 'CREATE': (3, 1), 'WRITE': (4, 1), 'COMMIT': (5, 1),
              'ABANDON': (6, 16), 'REBOOT': (7, 16), 'NOTICE': (8, 17), 'HANDOVER': (9, 4)}
+# The deployment codec's ledger bound, DeploymentRecords.MAX_LEDGER: the sum of the crossings'
+# bounds, 60. A ticket's ledger holds at most this many entries, so every entry index, a
+# notice's included, is below it, and the lab never takes one the public codec refuses.
+MAX_LEDGER = sum(bound for _, bound in CROSSINGS.values())
 CROSSING_NAMES = {code: name for name, (code, _) in CROSSINGS.items()}
 DEVICE_CROSSINGS = ('CREATE', 'WRITE', 'COMMIT', 'ABANDON', 'REBOOT', 'NOTICE')
 FRAMEWORK_CROSSINGS = ('CREATE', 'WRITE', 'COMMIT', 'ABANDON')

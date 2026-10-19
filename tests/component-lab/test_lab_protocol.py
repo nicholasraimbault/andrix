@@ -6,6 +6,7 @@ import io
 import os
 import struct
 import unittest
+import unittest.mock
 
 import labtest  # noqa: F401  (path setup)
 import lab_protocol as proto
@@ -434,6 +435,42 @@ class ProtocolTests(unittest.TestCase):
         for name, message in bad.items():
             with self.assertRaises(proto.ProtocolError, msg=name):
                 proto.encode(message)
+
+    def test_the_ledger_bound_is_the_public_codecs(self):
+        # The deployment codec refuses a ledger of more than 60 entries and an entry index from 60
+        # on: the lab's bound is the same sum of the crossings' bounds, so the lab never takes an
+        # index the public codec refuses. The edges are 59 and 60, and the old bound's 139 and 140.
+        self.assertEqual((proto.MAX_LEDGER, sum(bound for _, bound in proto.CROSSINGS.values()), encoder.MAX_LEDGER),
+                         (60, 60, 60))
+        cross, reply = golden_messages()['CROSS'], golden_messages_2()['V2_OBSERVE_REPLY_SIMPLE']
+
+        def receipt(index):
+            return dict(receipt_envelope(notice_index=index), observation=observation(
+                observation='6e' * 16, component=SYSTEMUI, user=10, serial=11, kind='RECEIPT', instance=4021,
+                elapsed=500, wall=1791504000500, raw='44' * 32, classification='FULL_SCREEN',
+                facts={'ticket': '04' * 16, 'index': index}))
+        for index in (59, 60, 139, 140):
+            messages = {'a crossing': (dict(cross, index=index), 1, lambda m: m['index']),
+                        'a receipt': (dict(reply, envelopes=[receipt(index)]), 2,
+                                      lambda m: m['envelopes'][0]['block']['notice_index'])}
+            for name, (message, version, found) in messages.items():
+                with self.subTest(name, index=index):
+                    if index < 60:
+                        self.assertEqual(found(proto.decode(proto.encode(message, version), version)), index)
+                        continue
+                    with self.assertRaises(proto.ProtocolError):
+                        proto.encode(message, version)
+                    # A frame another writer made under the old bound is refused when read, too.
+                    with unittest.mock.patch.object(proto, 'MAX_LEDGER', 141):
+                        data = proto.encode(message, version)
+                    with self.assertRaises(proto.ProtocolError):
+                        proto.decode(data, version)
+        # A report carries at most a whole ledger's codes: every crossing to its bound, 60 in all.
+        report = golden_messages()['REPORT']
+        whole = [code for code, bound in proto.CROSSINGS.values() for _ in range(bound)]
+        self.assertEqual(proto.decode(proto.encode(dict(report, ledger=whole)))['ledger'], whole)
+        with self.assertRaises(proto.ProtocolError):
+            proto.encode(dict(report, ledger=whole + [8]))
 
     def test_reply_relations(self):
         g = golden_messages()

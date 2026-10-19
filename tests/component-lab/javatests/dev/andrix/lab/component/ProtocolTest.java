@@ -241,6 +241,9 @@ public final class ProtocolTest {
         return m;
     }
 
+    /** Where a CROSS frame of {@link #cross()} holds its u16 index, low byte first. */
+    static final int CROSS_INDEX = 182;
+
     static LabProtocol.Builder cross() {
         return of(Type.CROSS).id("ticket", "04".repeat(16)).id("ticket_digest", "11".repeat(32)).id("plan", "01".repeat(16))
                 .id("plan_digest", "22".repeat(32)).number("attempt", 2).text("component", "com.android.systemui")
@@ -355,6 +358,37 @@ public final class ProtocolTest {
             Message create = cross().number("crossing", 3).id("reference", NONCE).ref("native", new Ref(16, 0, 0, "", 0, NONCE))
                     .number("granted", 0).number("window", 0).build();
             LabCases.check(problems, LabProtocol.decode(LabProtocol.encode(create)).number("crossing") == 3, "CREATE");
+        });
+
+        cases.run("protocol / the ledger bound is the public codec's, at both edges", problems -> {
+            LabCases.check(problems, LabProtocol.MAX_LEDGER == DeploymentRecords.MAX_LEDGER
+                    && LabProtocol.MAX_LEDGER == 60, "the bound is " + LabProtocol.MAX_LEDGER);
+            byte[] frame = LabProtocol.encode(cross().number("index", 59).build());
+            LabCases.check(problems, LabProtocol.decode(frame).number("index") == 59, "a crossing at index 59");
+            byte[] receipt = receiptRecord(500, Classification.RECEIPT_FULL_SCREEN, 59);
+            Envelope envelope = receipt(with(receiptBlock(), "notice_index", 59L), receipt);
+            Message reply = reply2(Collections.singletonList(envelope)).build();
+            LabCases.check(problems, LabProtocol.decode(LabProtocol.encode(reply), 2).envelopes("envelopes").get(0)
+                    .number("notice_index") == 59, "a receipt of the notice at index 59");
+            for (int index : new int[] {60, 139, 140}) {
+                LabCases.check(problems, refused(() -> cross().number("index", index).build()),
+                        "a crossing at index " + index + " was built");
+                // The index field of the frame, rewritten: a reader refuses it, as the codec would.
+                byte[] read = reframe(frame, body -> {
+                    body[CROSS_INDEX - LabProtocol.HEADER] = (byte) index;
+                    return body;
+                });
+                LabCases.check(problems, refused(() -> LabProtocol.decode(read)),
+                        "a crossing at index " + index + " was read");
+                boolean codec;
+                try {
+                    receiptRecord(500, Classification.RECEIPT_FULL_SCREEN, index);
+                    codec = false;
+                } catch (IllegalArgumentException expected) {
+                    codec = true;
+                }
+                LabCases.check(problems, codec, "the public codec took a receipt of the notice at " + index);
+            }
         });
 
         cases.run("protocol / reply relations", problems -> {

@@ -37,6 +37,7 @@ LAB = HERE.parent / 'component-lab'
 if str(LAB) not in sys.path:
     sys.path.insert(0, str(LAB))
 
+import lab_protocol  # noqa: E402
 import lab_readers  # noqa: E402
 
 PACKAGE = 'dev.andrix.lab.notice'
@@ -113,7 +114,7 @@ def helper_arguments(issue, recipient):
         if not _id(issue.get('plan')) or not _id(issue.get('ticket')):
             refuse('plan or ticket')
         index = issue.get('index')
-        if type(index) is not int or not 0 <= index < 140:
+        if type(index) is not int or not 0 <= index < lab_protocol.MAX_LEDGER:
             refuse('index')
         plan, ticket, index_text, control = issue['plan'], issue['ticket'], str(index), '-'
     else:

@@ -19,7 +19,6 @@ import dev.andrix.server.deployment.DeploymentStore;
 import dev.andrix.server.deployment.DeploymentStore.Found;
 import dev.andrix.server.deployment.DeploymentStore.Read;
 import dev.andrix.server.deployment.Reconciler;
-import java.io.FileDescriptor;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -31,12 +30,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
  * The lab's public entry to one component's coordinator on the shell route. One instance serves one
- * coordinator generation: a process that the broker started, talking to it over the process's own
- * standard input and output.
+ * coordinator generation: a process that the broker started, talking to it over two frame pipes of
+ * its own that the broker names in {@link #FRAMES}, never over its standard streams.
  *
  * <p>Opening sends HELLO with the durable configuration, so the broker checks the installation,
  * coordinator, configuration digest, component and trust policy against its admission, and it
@@ -63,7 +63,15 @@ public final class LabBridge {
     public static final int EXIT_OK = 0, EXIT_FAILED = 2, EXIT_USAGE = 64, EXIT_STOPPED = 125;
     /** Where a version 3 broker tells a generation its recorded boundaries: the environment. */
     public static final String CHECKPOINTS = "ANDRIX_LAB_CHECKPOINTS";
+    /**
+     * Where the broker names a generation's frame pipes, in the environment: {@code <in>,<out>},
+     * the descriptor the broker's replies arrive on and the one requests go to, each past the
+     * three standard streams. Standard output and standard error are the broker's kept output, so
+     * the VM's output, its unified logging and anything printed never reach a frame.
+     */
+    public static final String FRAMES = "ANDRIX_LAB_FRAMES";
     private static final Pattern TOLD = Pattern.compile("[0-9a-f]{32}:[1-9][0-9]{0,9}");
+    private static final Pattern DESCRIPTORS = Pattern.compile("([1-9][0-9]{0,6}),([1-9][0-9]{0,6})");
 
     /** Makes the host signer and publisher that the fault wrapper delegates to. */
     public interface HostFactory {
@@ -320,14 +328,43 @@ public final class LabBridge {
     /**
      * Runs one generation's operation and returns its exit status. Arguments: the configuration file,
      * then `check`, `round TICKET`, `settle TICKET ROUNDS`, `cancel TICKET` or `report TICKET`.
-     * Standard output carries only protocol frames: anything else printed goes to standard error.
+     * The frames go over the pipes {@link #FRAMES} names; without them the generation refuses to
+     * run and sends nothing. Anything printed goes to standard error.
      */
     public static int run(String[] args, HostFactory hosts) {
-        // The frames go straight to file descriptor 1, unbuffered, so a write error is never swallowed.
-        FileOutputStream frames = new FileOutputStream(FileDescriptor.out);
         System.setOut(System.err);
-        return run(args, hosts, BrokerChannel.streams(new FileInputStream(FileDescriptor.in), frames),
-                Halter.runtime(), new SecureRandom(), System.getenv(CHECKPOINTS));
+        BrokerChannel.Transport frames;
+        try {
+            frames = frames(System.getenv(FRAMES));
+        } catch (IllegalArgumentException | IOException error) {
+            return usage(error.getMessage());
+        }
+        return run(args, hosts, frames, Halter.runtime(), new SecureRandom(), System.getenv(CHECKPOINTS));
+    }
+
+    /**
+     * The frame pipes {@link #FRAMES} names, opened through {@code /proc/self/fd}: the replies to
+     * read, and the requests to write unbuffered, so a write error is never swallowed.
+     */
+    static BrokerChannel.Transport frames(String value) throws IOException {
+        int[] descriptors = frameDescriptors(value);
+        return BrokerChannel.streams(new FileInputStream("/proc/self/fd/" + descriptors[0]),
+                new FileOutputStream("/proc/self/fd/" + descriptors[1]));
+    }
+
+    /**
+     * The two frame descriptors of {@link #FRAMES}'s value, {@code <in>,<out>}: decimal, distinct,
+     * and never a standard stream. There is no other channel: a missing or malformed value refuses.
+     */
+    static int[] frameDescriptors(String value) {
+        if (value == null) throw new IllegalArgumentException("the broker named no frame pipes in " + FRAMES);
+        Matcher m = DESCRIPTORS.matcher(value);
+        if (!m.matches()) throw new IllegalArgumentException(FRAMES + " is not <in>,<out>");
+        int in = Integer.parseInt(m.group(1)), out = Integer.parseInt(m.group(2));
+        if (in < 3 || out < 3 || in == out) {
+            throw new IllegalArgumentException(FRAMES + " names a standard stream or one pipe twice");
+        }
+        return new int[] {in, out};
     }
 
     /** As {@link #run(String[], HostFactory)}, over a transport and halter, told no boundary. */

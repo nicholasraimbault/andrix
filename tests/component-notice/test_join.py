@@ -545,8 +545,9 @@ class JoinTests(Base):
 JAVA = os.environ.get('ANDRIX_LAB_JAVA')
 CLASSES = os.environ.get('ANDRIX_LAB_CLASSES')
 MAIN = 'dev.andrix.lab.component.LabBridgeTestMain'
+# The lab's coordinator JVM options, with the output destinations every coordinator JVM names.
 JVM = ('-Xmx256m', '-XX:+UseSerialGC', '-XX:TieredStopAtLevel=1', '-XX:CICompilerCount=1', '-XX:MaxMetaspaceSize=128m',
-       '-XX:ReservedCodeCacheSize=48m', '-ea')
+       '-XX:ReservedCodeCacheSize=48m', '-ea') + (tuple(lab_broker.JVM_OUTPUT) if PROFILE else ())
 
 
 @unittest.skipUnless(PROFILE and JAVA and CLASSES, SKIP + ', ANDRIX_LAB_JAVA and ANDRIX_LAB_CLASSES')

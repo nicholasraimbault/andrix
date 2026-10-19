@@ -92,6 +92,30 @@ class RowTests(unittest.TestCase):
             with self.assertRaises(reader.RowError):
                 reader.parse_row(data)
 
+    def test_the_notice_index_bound_is_the_public_codecs(self):
+        # The deployment codec refuses an entry index from 60 on, so the host reader and route do
+        # too, at 60 as at the old bound's 139 and 140. The fixture app's own form, in its pinned
+        # APK, still takes up to 139, and the host never asks it for such an index.
+        self.assertEqual(reader.MAX_LEDGER, 60)
+        good = golden('row-ticket_notice.row').decode()
+        key = golden('row-ticket_notice.name').decode().strip()
+        for index in (59, 60, 139, 140):
+            with self.subTest(index=index):
+                text = good.replace('\nindex=2\n', '\nindex=%d\n' % index)
+                name = key.replace('.2.10.', '.%d.10.' % index)
+                if index < 60:
+                    fields = reader.parse_row(text.encode())
+                    self.assertEqual((fields['index'], reader.encode_row(fields)), (index, text.encode()))
+                    self.assertTrue(reader.key_name(name))
+                    args = route.helper_arguments(issue(index=index), {'user': 10, 'serial': 5})
+                    self.assertEqual(args[8], str(index))
+                    continue
+                with self.assertRaises(reader.RowError):
+                    reader.parse_row(text.encode())
+                self.assertFalse(reader.key_name(name))
+                with self.assertRaises(lab_readers.Unclassified):
+                    route.helper_arguments(issue(index=index), {'user': 10, 'serial': 5})
+
     def test_key_and_temporary_names(self):
         key = golden('row-ticket_notice.name').decode().strip()
         self.assertTrue(reader.key_name(key))

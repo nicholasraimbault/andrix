@@ -27,6 +27,7 @@ When a generation ends, the broker reaps its process before it serves another. W
 itself is lost, the next broker quarantines the incomplete last entry, waits out the bound of a
 command whose effect is unknown, and ends the lost generation's process before it serves again.
 Host evidence only."""
+import errno
 import fcntl
 import hashlib
 import io
@@ -39,6 +40,7 @@ import signal
 import stat
 import subprocess
 import sys
+import threading
 import time
 
 HERE = Path(__file__).resolve().parent
@@ -134,6 +136,32 @@ UNKEPT = 'the compound manifest could not be kept: '
 # boundaries of each ticket it has recorded, so the bridge can name the next checkpoint ordinal.
 # The broker verifies every ordinal against its own ledger.
 CHECKPOINT_ENV = 'ANDRIX_LAB_CHECKPOINTS'
+# A generation's frame channel: two pipes of its own, apart from its standard streams, named to it
+# as `<in>,<out>`, the descriptor it reads the broker's replies from and the one it writes its
+# requests to. Its standard output and standard error both go to the kept output file, so nothing
+# the JVM, its unified logging or a library prints can reach a frame.
+FRAMES_ENV = 'ANDRIX_LAB_FRAMES'
+# A coordinator JVM's explicit output destinations: its own VM output and its unified logging on
+# standard error, which the broker keeps, never the frame descriptors. The pinned JDK's defaults
+# write unified logging's warnings and the VM's output to standard output.
+JVM_OUTPUT = ('-XX:+DisplayVMOutputToStderr', '-Xlog:disable', '-Xlog:all=warning:stderr:uptime,level,tags')
+# The most bytes of a refused request frame that the generation's end keeps.
+UNREADABLE_HEAD = 512
+# A generation's kept output, its standard output and standard error, reaches the broker through
+# one pipe that it reads as the generation writes, into jvm/<generation>.stderr. The allowance is
+# the larger of 4 MiB and twice the largest generation output of G1a's real run, whose two
+# generations kept none, so 4 MiB. Exactly 4 MiB is within it; a byte past it is overflow: counted,
+# never kept, and the generation is never COMPLETE.
+OUTPUT_ALLOWANCE = 4 << 20
+# At a generation's end its process group is retired; then its output's end of file is awaited
+# for this long. A writer still holding it after that is an unfinished writer.
+OUTPUT_DRAIN_S = 5.0
+# Then the collector is stopped, and its own end awaited for this long at most: a collector
+# stalled past it, inside a write, leaves an output that is not final.
+OUTPUT_STOP_S = 1.0
+OUTPUT_CHUNK = 65536
+# What the end of a generation lost with its broker says of its output, which no record claims.
+LOST_OUTPUT = "the broker was lost while it served the generation: the kept output's fate is unknown"
 # The states in which a ticket waits for a later boot to show what a lost crossing did: a plain
 # kernel confirmation may be issued only for a ticket in one of them.
 CONFIRM_WAITS = ('SESSION_INTENT', 'COMMIT_INTENT', 'ABANDON_INTENT')
@@ -547,6 +575,193 @@ def proc_start_ticks(pid):
     return fields[0], int(fields[19])
 
 
+class _OutputCollector:
+    """One generation's kept output, read from its pipe as the generation writes it, in bounded
+    chunks, into its file, and hashed on the way: the bytes up to the allowance are kept, any past
+    it counted as overflow and dropped, never kept silently. Each write is counted and hashed for
+    exactly the bytes it acknowledged, so a failed write leaves a kept prefix that its count and
+    digest describe. Reading goes on after an overflow or a failed write, so no writer blocks on a
+    full pipe, and what it reads but does not keep, past the allowance or after a failure, is
+    counted as dropped: an overflow after a failed write is still an overflow. It ends at end of
+    file, when every writer has ended, or when the broker stops it, and then syncs and closes its
+    own file and pipe, each step tried whatever came before it.
+
+    It prints nothing. Every failure of its own, at any stage (a read, a write, the sync, either
+    close, or any other exception in its thread), is kept as its problem, with the stage. Its
+    thread's last act is its own report that it ended: one that ended without that report, by any
+    way at all, leaves an output that is not final, and that is its problem too. One that cannot
+    stop within its bound is stalled: its output is never final, and it is left to close its own
+    file and pipe whenever its stalled write returns. A file that cannot be opened, or a thread
+    that cannot start, raises from the constructor, and leaves nothing it opened open.
+
+    Its problem, once named, stays named (`problem`): a gate that found one, and the stop it
+    latched, are never contradicted by a later view of the same output."""
+
+    # What each stage of a failure says the collector could not do.
+    STAGES = {'read': 'the output pipe could not be read', 'write': 'the kept output could not be written',
+              'sync': 'the kept output could not be synced', 'close': 'the kept output could not be closed',
+              'pipe': 'the output pipe could not be closed', 'collector': "the output's collector failed"}
+    # A writer that still holds the output after its end: by itself, all that a process that
+    # could not be reaped is.
+    UNFINISHED = "a writer still held the generation's output %g s after its end" % OUTPUT_DRAIN_S
+
+    def __init__(self, fd, path, allowance, sync):
+        self._fd, self._sync, self.allowance = fd, sync, allowance
+        self._digest = hashlib.sha256()
+        self.kept = self.dropped = 0
+        self.ended = self.stalled = self.reported = self.final = False
+        self.error = self.stage = self._finished = self._known = None
+        self._stop = threading.Event()
+        self._file = self._open(path)
+        try:
+            self._start()
+        except BaseException:
+            self._file.close()
+            raise
+
+    @staticmethod
+    def _open(path):
+        return open(path, 'xb', buffering=0)
+
+    def _start(self):
+        self._thread = threading.Thread(target=self._run, name='generation-output', daemon=True)
+        self._thread.start()
+
+    def _run(self):
+        try:
+            self._collect()
+        except BaseException as error:  # Any other failure in its thread is its problem too.
+            self._failed('collector', error)
+        self._close()
+        self._report()
+
+    def _report(self):
+        """The thread's own report that it ended, its last act."""
+        self.reported = True
+
+    def _collect(self):
+        while not self._stop.is_set():
+            try:
+                data = self._read() if select.select([self._fd], [], [], 0.05)[0] else None
+            except OSError as error:
+                self._failed('read', error)
+                return
+            if data is None:
+                continue
+            if not data:
+                self.ended = True
+                return
+            if self.error is not None:
+                # Nothing more is kept after a failure, but what is read is still counted.
+                self.dropped += len(data)
+                continue
+            room = min(len(data), max(0, self.allowance - self.kept))
+            self.dropped += len(data) - room
+            if room:
+                before = self.kept
+                try:
+                    self._keep(memoryview(data)[:room])
+                finally:
+                    # What a failed write did not keep is dropped, however it failed.
+                    self.dropped += room - (self.kept - before)
+
+    def _read(self):
+        return os.read(self._fd, OUTPUT_CHUNK)
+
+    def _keep(self, view):
+        """Writes bytes to keep, counting and hashing exactly what each write acknowledged. After a
+        failed write nothing more is written, and the error is kept."""
+        try:
+            while view:
+                written = self._file.write(view)
+                if not written:
+                    raise OSError(errno.EIO, 'the kept output took no bytes')
+                self._digest.update(view[:written])
+                self.kept += written
+                view = view[written:]
+        except OSError as error:
+            self._failed('write', error)
+
+    def _close(self):
+        """Syncs and closes the kept file, then closes the pipe. Each step is tried whatever came
+        before it, and a failure of any is kept."""
+        try:
+            self._sync(self._file.fileno())
+        except BaseException as error:
+            self._failed('sync', error)
+        try:
+            self._file.close()
+        except BaseException as error:
+            self._failed('close', error)
+        try:
+            self._close_pipe()
+        except BaseException as error:
+            self._failed('pipe', error)
+
+    def _close_pipe(self):
+        os.close(self._fd)
+
+    def _failed(self, stage, error):
+        """Keeps the collector's first failure and its stage."""
+        if self.error is None:
+            try:
+                text = '%s: %s' % (type(error).__name__, error)
+            except Exception:  # An exception whose text cannot be made is still named.
+                text = type(error).__name__
+            self.error, self.stage = text, stage
+
+    def finish(self, bound_s):
+        """Awaits end of file for at most `bound_s`, then stops reading either way and awaits the
+        reader's own end for at most OUTPUT_STOP_S: every wait is bounded. Returns whether every
+        writer ended and the output is final. Once only."""
+        if self._finished is None:
+            self._thread.join(bound_s)
+            self._stop.set()
+            self._thread.join(OUTPUT_STOP_S)
+            self.stalled = self._thread.is_alive()
+            # Final only once its thread ended and reported it: the kept file can no longer change,
+            # and its count and digest are the collector's own last account.
+            self.final = not self.stalled and not self.unreported()
+            self._finished = self.ended and self.final
+        return self._finished
+
+    def unreported(self):
+        """Whether its thread ended without its own report that it did. Whether it is alive is asked
+        first: the thread reports before it ends, so one seen ended has reported if it ever will,
+        and one that reports and ends between the two reads is never taken for one that did not."""
+        alive = self._thread.is_alive()
+        return not alive and not self.reported
+
+    def sha256(self):
+        return self._digest.hexdigest()
+
+    def problem(self):
+        """None while the output is whole and within its allowance, else what is wrong with it. Once
+        it has named a problem it never names none again: a later view may name a graver one, never
+        none, so a gate that found one, and the stop it latched, are never contradicted."""
+        found = self._problem()
+        if found is not None:
+            self._known = found
+        return self._known
+
+    def _problem(self):
+        """What is wrong with the output as the collector stands now, or None."""
+        if self.stalled:
+            reason = "the output's collector did not stop within %g s: the kept output is not final" % OUTPUT_STOP_S
+        elif self.unreported():
+            reason = "the output's collector ended without reporting its end: the kept output is not final"
+        elif self.kept + self.dropped > self.allowance:
+            reason = "the generation's output passed its allowance of %d bytes" % self.allowance
+        elif self.error is not None:
+            reason = '%s: %s' % (self.STAGES[self.stage], self.error)
+        elif self._finished is False:
+            reason = self.UNFINISHED
+        else:
+            return None
+        return {'reason': reason, 'allowance': self.allowance, 'kept': self.kept, 'dropped': self.dropped,
+                'unfinished_writer': self._finished is False, 'error': self.error}
+
+
 class ProcessControl:
     """How the broker ends the process of a generation that a lost broker left."""
 
@@ -656,9 +871,33 @@ class Broker:
         return self
 
     def close(self):
+        self._close_frames()
+        self._close_output()
         if getattr(self, '_lock', None) is not None:
             os.close(self._lock)
             self._lock = None
+
+    def _close_output(self, record=False):
+        """Stops the output collector of the generation it serves, if any, without recording the
+        output. With `record`, as for a generation whose process could not be reaped, a problem of
+        the output other than that process still holding it, overflow or a failure of the
+        collector, latches the stop all the same."""
+        collector, self._collector = getattr(self, '_collector', None), None
+        if collector is None:
+            return
+        collector.finish(0)
+        problem = collector.problem()
+        if record and problem is not None and problem['reason'] != collector.UNFINISHED:
+            self.stop('generation %d: %s' % (self.generation, problem['reason']))
+
+    def _close_frames(self):
+        """Closes the frame streams of the generation it serves, if any."""
+        for stream in getattr(self, '_frame_streams', ()):
+            try:
+                stream.close()
+            except OSError:
+                pass
+        self._frame_streams = ()
 
     def _sync_fd(self, fd):
         """Syncs one descriptor through the injected sync, or os.fsync as it stands at the call."""
@@ -908,10 +1147,15 @@ class Broker:
             self._end_action(begun, number, 'LOST', None, 'the broker was lost during the action; its effect is unknown',
                              False, [])
         if g is not None:
+            # Its output is never claimed final: no size or digest, and its fate unknown, whatever
+            # its file holds now.
             self.ledger.record('generation-end', {'generation': g['generation'], 'status': 'LOST', 'exit': None,
                                                   'signal': None, 'killed': killed, 'halt_ordered': False,
                                                   'stopped_sent': False, 'violation': 'the broker was lost',
                                                   'stderr_sha256': None, 'stderr_bytes': None,
+                                                  'output': {'reason': LOST_OUTPUT, 'allowance': OUTPUT_ALLOWANCE,
+                                                             'kept': None, 'dropped': None, 'unfinished_writer': None,
+                                                             'error': None},
                                                   'quarantined': quarantined, 'wall_ns': self._wall()})
             self.open_generation = None
 
@@ -3947,7 +4191,19 @@ class Broker:
 
     # ------------------------------------------------ fences and captures
 
+    def _output_stop(self):
+        """A known problem of the served generation's kept output (overflow, or any failure of its
+        collector), or None. Its stop is latched at once, by this broker's own writer, before any
+        later command is admitted."""
+        collector = getattr(self, '_collector', None)
+        problem = collector.problem() if collector is not None else None
+        if problem is not None:
+            self.stop('generation %d: %s' % (self.generation, problem['reason']))
+        return problem
+
     def _fence(self):
+        if self.stopped is None:
+            self._output_stop()
         if self.stopped is not None:
             raise Stopped(self.stopped)
         reason = self.fences.check()
@@ -4007,6 +4263,13 @@ class Broker:
         # the gate's clock reading (an activation grant that may have expired, or a bound) sends nothing.
         if not_after_ns is not None and self._monotonic() >= not_after_ns:
             self._not_sent(entry, command, 'the activation grant may have expired before the launch, or its bound passed')
+        # The output's own launch gate, once the intent is durable: a problem known since the fence
+        # sends nothing either. The capture ends not launched, then the stop is latched and raised,
+        # as a failed writer's is. The output is asked once, and that answer is the one used.
+        collector = getattr(self, '_collector', None)
+        problem = collector.problem() if collector is not None else None
+        if problem is not None:
+            self._not_sent(entry, command, problem['reason'], stop=True)
         try:
             result = call()
         except Exception as error:  # A transport defect still ends the capture with a result.
@@ -4047,12 +4310,17 @@ class Broker:
             raise error
         return entry.number, result
 
-    def _not_sent(self, entry, command, reason):
-        """Ends a capture whose command was never sent, then refuses its launch."""
+    def _not_sent(self, entry, command, reason, stop=False):
+        """Ends a capture whose command was never sent, then refuses its launch. With `stop`, the
+        output's problem, `reason`, then latches the stop, and the Stopped is raised: nothing later
+        starts."""
         self.ledger.finish_capture(entry, b'', b'', {'launch': 'not-launched', 'transport': 'not-sent',
                                                      'completion': 'not-started', 'exit': None, 'error': reason,
                                                      'ended_wall_ns': self._wall(),
                                                      'ended_monotonic_ns': self._monotonic()})
+        if stop:
+            self.stop('generation %d: %s' % (self.generation, reason))
+            raise Stopped(self.stopped)
         error = _NotLaunched(reason)
         error.capture, error.command = entry.number, command
         raise error
@@ -5078,45 +5346,142 @@ class Broker:
         is a round of an ordinary read wait: its record names the deadline, and every read it asks
         is cut to it as an action's reads are. A read command is admitted only with at least
         BOUND_COMMAND_MIN_S left and is given only what is left; none launches past the deadline,
-        and its group is then unavailable. Crossings keep their own bounds."""
+        and its group is then unavailable. Crossings keep their own bounds.
+
+        The generation runs in its own process group, its frames on their own pipes, and its
+        standard streams go to one output pipe that the broker reads as it is written, within
+        OUTPUT_ALLOWANCE. A known problem of that output stops forward work at every gate
+        (_output_stop). One known before the generation starts, a file that cannot be opened or a
+        collector that cannot start, starts none: the stop is latched and Stopped raised. Its end
+        retires the whole group before its process is reaped (_retire), then awaits the output's
+        end of file for OUTPUT_DRAIN_S at most, and the collector's own end for OUTPUT_STOP_S more
+        at most; only then is the end recorded, with any problem of the output, which also latches
+        a stop."""
         if self.open_generation is not None:
             raise BrokerError('a generation is still open')
         if deadline_ns is not None and (self.admission['version'] != 3 or not isinstance(deadline_ns, int)
                                         or isinstance(deadline_ns, bool) or deadline_ns <= 0):
             raise BrokerError('a read deadline is a host monotonic instant under a version 3 admission')
+        env = dict(os.environ if env is None else env)
         if self.admission['version'] == 3:
-            env = dict(os.environ if env is None else env)
             env[CHECKPOINT_ENV] = self.checkpoint_counts()
         stderr_path = self.root / JVM / ('%06d.stderr' % (self.generation + 1))
-        with open(stderr_path, 'xb') as err:
-            # Unbuffered pipes: a frame is never held in a buffer that select cannot see.
-            process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err, env=env,
-                                       cwd=cwd, close_fds=True, bufsize=0)
+        # The frame pipes: the generation's requests to the broker, and the broker's replies.
+        requests, request_end = os.pipe()
+        reply_end, replies = os.pipe()
+        env[FRAMES_ENV] = '%d,%d' % (reply_end, request_end)
+        # The kept output's pipe, both standard streams' destination, read as it is written.
+        output, output_end = os.pipe()
+        try:
+            collector = _OutputCollector(output, stderr_path, OUTPUT_ALLOWANCE, self._sync_fd)
+        except BaseException as error:
+            for fd in (requests, request_end, reply_end, replies, output, output_end):
+                os.close(fd)
+            if not isinstance(error, Exception):
+                raise
+            # A kept output whose file cannot be opened, or whose collector cannot start, is a
+            # problem of the output too: no generation starts, and the stop is latched with it. A
+            # broker stopped already keeps its stop, and the failure is named beside it.
+            reason = ("generation %d: the kept output's collector could not start: %s: %s"
+                      % (self.generation + 1, type(error).__name__, error))
+            self.stop(reason)
+            raise Stopped(self.stopped if self.stopped == reason else '%s; then %s' % (self.stopped, reason)) from error
+        try:
+            # Its own process group, so its end can retire every process the generation started.
+            process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=output_end, stderr=output_end, env=env,
+                                       cwd=cwd, close_fds=True, pass_fds=(reply_end, request_end), process_group=0)
+        except BaseException:
+            for fd in (requests, request_end, reply_end, replies, output_end):
+                os.close(fd)
+            collector.finish(OUTPUT_DRAIN_S)
+            # No generation started, but a failure of its collector is recorded all the same.
+            problem = collector.problem()
+            if problem is not None:
+                self.stop('generation %d: %s' % (self.generation + 1, problem['reason']))
+            raise
+        # Only the generation holds its ends, so its exit ends the request stream, and the end of
+        # its last writer ends its output.
+        for fd in (reply_end, request_end, output_end):
+            os.close(fd)
+        self._collector = collector
+        # Unbuffered: a frame is never held in a buffer that select cannot see. A broker lost while
+        # it serves keeps them until it closes, as its own end would close them.
+        rfile, wfile = os.fdopen(requests, 'rb', buffering=0), os.fdopen(replies, 'wb', buffering=0)
+        self._frame_streams = (wfile, rfile)
         found = proc_start_ticks(process.pid)
         self._read_deadline = deadline_ns
         try:
-            state = self.serve(process.stdout, process.stdin, process.pid, found[1] if found else None)
+            state = self.serve(rfile, wfile, process.pid, found[1] if found else None)
         finally:
             self._read_deadline = None
-        for stream in (process.stdin, process.stdout):
-            try:
-                stream.close()
-            except OSError:
-                pass
+        self._close_frames()
+        code, killed = self._retire(process)
+        # The output is recorded only after its writers ended, or as unfinished after the bound. A
+        # collector that is stalled, or that ended without its own report, leaves an output that is
+        # not final, and no size or digest is claimed for it.
+        collector.finish(OUTPUT_DRAIN_S)
+        self._collector = None
+        final = collector.final
+        return self._end_generation(state, code, killed, collector.sha256() if final else None,
+                                    collector.kept if final else None, collector.problem())
+
+    def _retire(self, process):
+        """Ends a generation: its process's exit is awaited without reaping it, then its whole
+        process group is sent SIGKILL, then the process is reaped. Returns (its status, killed).
+
+        Every signal names an identity the generation still owns. While the process is unreaped,
+        alive or a zombie, its process ID cannot be given to any other process; and a process
+        group's ID is always the ID of the process that made it, here the generation's own process
+        (`process_group=0`), so no other group can have that ID until the process is reaped. The
+        exit is seen with waitid and WNOWAIT, which leaves the process unreaped; a process the
+        broker cannot see so, which is not its own unreaped child, is reaped as before, and then
+        no group is signalled, since its ID is no longer known to be the generation's."""
+        grace = self.limits['exit_grace_s']
         killed = False
-        try:
-            code = process.wait(timeout=self.limits['exit_grace_s'])
-        except subprocess.TimeoutExpired:
-            process.kill()
-            killed = True
+        exited = self._await_exit(process, grace)
+        if exited is None:
             try:
-                code = process.wait(timeout=self.limits['exit_grace_s'])
+                return process.wait(timeout=grace), killed
+            except subprocess.TimeoutExpired:
+                process.kill()
+                killed = True
+            try:
+                return process.wait(timeout=grace), killed
             except subprocess.TimeoutExpired as error:
                 # The generation stays open in the ledger, so no other is served until a reopening
-                # ends its process.
+                # ends its process. Its output is not recorded.
+                self._close_output(record=True)
                 raise BrokerError('the generation process was not reaped after its kill') from error
-        data = stderr_path.read_bytes()
-        return self._end_generation(state, code, killed, hashlib.sha256(data).hexdigest(), len(data))
+        if not exited:
+            # Unreaped, so its process ID is still its own. Popen.kill would poll first, and might
+            # reap it, releasing that ID before the group's signal.
+            os.kill(process.pid, signal.SIGKILL)
+            killed = True
+            if not self._await_exit(process, grace):
+                self._close_output(record=True)
+                raise BrokerError('the generation process was not reaped after its kill')
+        # Exited and still unreaped: its group's ID is still the generation's. A child that kept the
+        # inherited streams ends now.
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+        return process.wait(), killed
+
+    @staticmethod
+    def _await_exit(process, timeout):
+        """Whether a generation's process exited within `timeout`, seen without reaping it. None
+        when it cannot be seen so, being no unreaped child of this broker."""
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                if os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOWAIT | os.WNOHANG) is not None:
+                    return True
+            except ChildProcessError:
+                return None
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.01)
 
     def checkpoint_counts(self):
         """Each ticket's recorded round boundaries as `ticket:count` pairs in ticket order, joined
@@ -5140,10 +5505,12 @@ class Broker:
         """Serves one generation over an unbuffered stream pair until it ends. Returns its state."""
         state = self.begin_generation(pid, start_ticks)
         while state['violation'] is None:
+            head = bytearray()
             try:
-                data = self._read_frame(rfile)
+                data = self._read_frame(rfile, head)
             except proto.ProtocolError as error:
                 state['violation'] = 'unreadable request: %s' % error
+                state['unreadable'] = self._unreadable(rfile, head)
                 break
             if data is None:
                 break
@@ -5151,6 +5518,11 @@ class Broker:
                 request = proto.decode(data, self.protocol)
             except proto.ProtocolError as error:
                 state['violation'] = 'malformed request: %s' % error
+                break
+            # Output past its allowance stops forward work: no later request is handled.
+            problem = self._output_stop()
+            if problem is not None:
+                state['violation'] = problem['reason']
                 break
             try:
                 reply = self.handle(request, state)
@@ -5187,14 +5559,24 @@ class Broker:
             raise BrokerError('a generation stream must be unbuffered')
         return fileno
 
-    def _read_frame(self, rfile):
+    def _read_frame(self, rfile, head=None):
         """One request frame. The generation may be idle for its bound before a request begins. Once
         its first byte arrives, the whole frame must arrive within the same bound, so a stalled peer
-        cannot hold the broker inside a frame."""
+        cannot hold the broker inside a frame. The first bytes it reads, at most UNREADABLE_HEAD,
+        go to `head`, for the record of a frame it refuses; the framing itself never changes."""
         idle = self.limits['generation_idle_s']
         fileno = self._fileno(rfile)
+
+        def kept(data):
+            if head is not None:
+                head.extend(data[:UNREADABLE_HEAD - len(head)])
+            return data
         if fileno is None:
-            return proto.read_frame(rfile)
+            class Kept:
+                @staticmethod
+                def read(count):
+                    return kept(rfile.read(count))
+            return proto.read_frame(Kept)
         ready, _, _ = select.select([fileno], [], [], idle)
         if not ready:
             raise proto.ProtocolError('the generation was idle beyond its bound')
@@ -5207,8 +5589,24 @@ class Broker:
                 ready = select.select([fileno], [], [], left)[0] if left > 0 else []
                 if not ready:
                     raise proto.ProtocolError('the request transfer exceeded its bound')
-                return os.read(fileno, count)
+                return kept(os.read(fileno, count))
         return proto.read_frame(Bounded)
+
+    def _unreadable(self, rfile, head):
+        """What the record of a refused request frame keeps: the bytes the broker read of it, then
+        those already waiting, never waiting for more, at most UNREADABLE_HEAD in all, as hex, and
+        whether more were waiting beyond that bound. Nothing in them is skipped or decoded."""
+        fileno = self._fileno(rfile)
+        more = False
+        while fileno is not None and select.select([fileno], [], [], 0)[0]:
+            if len(head) >= UNREADABLE_HEAD:
+                more = bool(os.read(fileno, 1))
+                break
+            data = os.read(fileno, UNREADABLE_HEAD - len(head))
+            if not data:
+                break
+            head.extend(data)
+        return {'head': bytes(head).hex(), 'bytes': len(head), 'more': more}
 
     def _write_reply(self, wfile, data):
         """Writes one reply frame whole within the generation's bound, or raises _TransferBound."""
@@ -5241,7 +5639,10 @@ class Broker:
         """Ends a generation served over streams, as `run_generation` does for a process."""
         return self._end_generation(state, code if signal_number is None else -signal_number, killed, None, None)
 
-    def _end_generation(self, state, code, killed, stderr_sha, stderr_bytes):
+    def _end_generation(self, state, code, killed, stderr_sha, stderr_bytes, output=None):
+        """Records a generation's end. With `output`, the problem its kept output had (overflow, an
+        unfinished writer or a failure of its collector): the generation is never COMPLETE, the
+        record keeps the problem, and the broker latches a stop, so no forward work follows."""
         open_host = [key for key in self.host_begun if key not in self.host_ended]
         for key in sorted(open_host):
             number, _ = self.host_begun[key]
@@ -5266,8 +5667,19 @@ class Broker:
                    'killed': killed, 'halt_ordered': state['halt_ordered'], 'stopped_sent': state['stopped_sent'],
                    'violation': state['violation'], 'served': state['served'], 'stderr_sha256': stderr_sha,
                    'stderr_bytes': stderr_bytes, 'wall_ns': self._wall()}
+        if state.get('unreadable') is not None:
+            # The first bytes of the frame the broker refused, so a recurrence is diagnosable.
+            summary['unreadable'] = state['unreadable']
+        if output is not None:
+            if summary['status'] == 'COMPLETE':
+                summary['status'] = 'FAILED'
+            if summary['violation'] is None:
+                summary['violation'] = output['reason']
+            summary['output'] = output
         self.ledger.record('generation-end', summary)
         self.open_generation = None
+        if output is not None:
+            self.stop('generation %d: %s' % (state['generation'], output['reason']))
         return summary
 
     # ------------------------------------------------ requests
@@ -5471,6 +5883,13 @@ class Broker:
             problem = self._positive_problem(m['plan'], m['attempt'])
             if problem is not None:
                 return self._reply(m, 'REFUSED', reason=problem)
+            # A host effect is forward work too: none begins after a known output problem. A host
+            # reply has no STOPPED, so the call is refused, which the bridge never runs, and the
+            # generation ends as the serve loop would have ended it.
+            problem = self._output_stop()
+            if problem is not None:
+                state['violation'] = problem['reason']
+                return self._reply(m, 'REFUSED', reason=self.stopped)
             cell = self._match('host', plan=m['plan'], attempt=m['attempt'], crossing=name, occurrence=m['occurrence'])
             if cell is not None:
                 self.consumed.add(cell['cell'])

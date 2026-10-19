@@ -104,7 +104,18 @@ MUTANTS = {
                                              'or a bound) sends nothing.\n'
                                              '        if not_after_ns is not None and self._monotonic() >= not_after_ns:\n'
                                              "            self._not_sent(entry, command, 'the activation grant may have expired "
-                                             "before the launch, or its bound passed')\n        try:\n            result = call()\n",
+                                             "before the launch, or its bound passed')\n"
+                                             "        # The output's own launch gate, once the intent is durable: a problem "
+                                             'known since the fence\n'
+                                             '        # sends nothing either. The capture ends not launched, then the stop is '
+                                             'latched and raised,\n'
+                                             "        # as a failed writer's is. The output is asked once, and that answer "
+                                             'is the one used.\n'
+                                             "        collector = getattr(self, '_collector', None)\n"
+                                             '        problem = collector.problem() if collector is not None else None\n'
+                                             '        if problem is not None:\n'
+                                             "            self._not_sent(entry, command, problem['reason'], stop=True)\n"
+                                             '        try:\n            result = call()\n',
                             '        try:\n            result = call()\n'
                             '            entry = self.ledger.begin_capture(intent)\n', ('test_lab_broker',)),
     'fence-skipped': ('lab_broker.py', '        self._fence()\n        intent = dict(context, operation=operation, command=command, '
@@ -213,9 +224,9 @@ MUTANTS = {
     'buffered-stream-accepted': ('lab_broker.py', "        if isinstance(stream, io.BufferedIOBase):\n"
                                                   "            raise BrokerError('a generation stream must be unbuffered')\n",
                                  '', ('test_lab_broker',)),
-    'reap-unbounded': ('lab_broker.py', '            killed = True\n            try:\n'
-                                        "                code = process.wait(timeout=self.limits['exit_grace_s'])\n",
-                       '            killed = True\n            try:\n                code = process.wait()\n',
+    'reap-unbounded': ('lab_broker.py', '                killed = True\n            try:\n'
+                                        '                return process.wait(timeout=grace), killed\n',
+                       '                killed = True\n            try:\n                return process.wait(), killed\n',
                        ('test_lab_broker',)),
     'target-read-once': ('lab_broker.py', '        if self._target is None:\n            return self.admission[\'target_scope\']\n',
                          '        if True:\n            return self.admission[\'target_scope\']\n', ('test_lab_broker',)),
@@ -1880,6 +1891,161 @@ MUTANTS = {
         "                    and intent.get('transition') == begin['transition']\n", '', ('test_next_campaign',)),
     'driver-managed-service-of-another-crossing': ('lab_driver.py',
         "                    and intent.get('crossing') == begin['subject']['crossing']\n", '', ('test_next_campaign',)),
+    # A generation's frames go over its own pipes, never its standard streams, and a refused
+    # frame keeps its first bytes, bounded.
+    'generation-stdout-on-the-frame-pipe': ('lab_broker.py',
+        '            process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=output_end, stderr=output_end, env=env,\n',
+        '            process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=request_end, stderr=output_end, env=env,\n',
+        ('test_lab_broker', BRIDGE_SUITE)),
+    'unreadable-head-dropped': ('lab_broker.py', "                state['unreadable'] = self._unreadable(rfile, head)\n", '',
+                                ('test_lab_broker',)),
+    'unreadable-head-unbounded': ('lab_broker.py', '            data = os.read(fileno, UNREADABLE_HEAD - len(head))\n',
+                                  '            data = os.read(fileno, 65536)\n', ('test_lab_broker',)),
+    'unreadable-head-of-the-header-only': ('lab_broker.py',
+        '        while fileno is not None and select.select([fileno], [], [], 0)[0]:\n', '        while False:\n',
+        ('test_lab_broker',)),
+    'driver-jvm-output-undestined': ('lab_driver.py',
+        "       '-XX:ReservedCodeCacheSize=48m', '-ea', *lab_broker.JVM_OUTPUT)\n",
+        "       '-XX:ReservedCodeCacheSize=48m', '-ea')\n", ('test_next_campaign',)),
+    # The lab's ledger bound is the public codec's: no index from 60 on passes the lab.
+    'ledger-bound-above-the-codec': ('lab_protocol.py', 'MAX_LEDGER = sum(bound for _, bound in CROSSINGS.values())\n',
+                                     'MAX_LEDGER = 140\n', ('test_lab_protocol',)),
+    'broker-receipt-row-index-unbounded': ('lab_broker.py',
+        "                                                                or not 0 <= row['index'] < proto.MAX_LEDGER)):\n",
+        "                                                                or row['index'] < 0)):\n", ('test_lab_next',)),
+    'broker-visibility-index-unbounded': ('lab_broker.py',
+        "            or not 0 <= request['index'] < proto.MAX_LEDGER or type(request['serial']) is not int or request['serial'] < 0):\n",
+        "            or request['index'] < 0 or type(request['serial']) is not int or request['serial'] < 0):\n",
+        ('test_lab_next',)),
+    # A generation's kept output is collected within its allowance, its whole process group
+    # retired at its end, and recorded only after its writers ended or the bound passed.
+    'output-allowance-unenforced': ('lab_broker.py',
+        '            room = min(len(data), max(0, self.allowance - self.kept))\n', '            room = len(data)\n',
+        ('test_lab_broker',)),
+    'output-overflow-complete': ('lab_broker.py',
+        "            if summary['status'] == 'COMPLETE':\n                summary['status'] = 'FAILED'\n", '',
+        ('test_lab_broker',)),
+    'output-overflow-keeps-going': ('lab_broker.py',
+        "            self.stop('generation %d: %s' % (state['generation'], output['reason']))\n", '            pass\n',
+        ('test_lab_broker',)),
+    'output-overflow-served-on': ('lab_broker.py',
+        '            # Output past its allowance stops forward work: no later request is handled.\n'
+        '            problem = self._output_stop()\n',
+        '            # Output past its allowance stops forward work: no later request is handled.\n'
+        '            problem = None\n',
+        ('test_lab_broker',)),
+    'generation-group-not-retired': ('lab_broker.py', '            os.killpg(process.pid, signal.SIGKILL)\n',
+                                     '            pass\n', ('test_lab_broker', BRIDGE_SUITE)),
+    'unfinished-writer-recorded-whole': ('lab_broker.py', '        elif self._finished is False:\n', '        elif False:\n',
+                                         ('test_lab_broker',)),
+    'output-end-awaited-without-bound': ('lab_broker.py', '            self._thread.join(bound_s)\n',
+                                         '            self._thread.join()\n', ('test_lab_broker',)),
+    # A known output problem stops forward work at every gate: each command's fence, its launch
+    # gate once its intent is durable, and a host call's BEGIN. The group is retired while its
+    # leader is unreaped, each write's acknowledged bytes are counted, every wait of the end is
+    # bounded, and a refused spawn closes every pipe it made.
+    'output-problem-unfenced': ('lab_broker.py', '        if self.stopped is None:\n            self._output_stop()\n', '',
+                                ('test_lab_broker',)),
+    'output-problem-launched-after-intent': ('lab_broker.py',
+        '        problem = collector.problem() if collector is not None else None\n        if problem is not None:\n'
+        "            self._not_sent(entry, command, problem['reason'], stop=True)\n", '', ('test_lab_broker',)),
+    'output-problem-host-ungated': ('lab_broker.py',
+        '            problem = self._output_stop()\n            if problem is not None:\n'
+        "                state['violation'] = problem['reason']\n"
+        "                return self._reply(m, 'REFUSED', reason=self.stopped)\n", '', ('test_lab_broker',)),
+    'generation-group-retired-after-reap': ('lab_broker.py',
+        '        try:\n            os.killpg(process.pid, signal.SIGKILL)\n'
+        '        except (ProcessLookupError, PermissionError):\n            pass\n        return process.wait(), killed\n',
+        '        code = process.wait()\n        try:\n            os.killpg(process.pid, signal.SIGKILL)\n'
+        '        except (ProcessLookupError, PermissionError):\n            pass\n        return code, killed\n',
+        ('test_lab_broker',)),
+    'unseen-generation-group-signalled': ('lab_broker.py',
+        '        if exited is None:\n            try:\n                return process.wait(timeout=grace), killed\n',
+        '        if exited is None:\n            try:\n                code = process.wait(timeout=grace)\n'
+        '                os.killpg(process.pid, signal.SIGKILL)\n                return code, killed\n', ('test_lab_broker',)),
+    'partial-write-uncounted': ('lab_broker.py',
+        '            while view:\n                written = self._file.write(view)\n                if not written:\n'
+        "                    raise OSError(errno.EIO, 'the kept output took no bytes')\n"
+        '                self._digest.update(view[:written])\n                self.kept += written\n'
+        '                view = view[written:]\n',
+        '            whole = bytes(view)\n'
+        '            while view:\n                written = self._file.write(view)\n                if not written:\n'
+        "                    raise OSError(errno.EIO, 'the kept output took no bytes')\n"
+        '                view = view[written:]\n'
+        '            self._digest.update(whole)\n            self.kept += len(whole)\n', ('test_lab_broker',)),
+    'unreaped-kill-unbounded': ('lab_broker.py', '            if not self._await_exit(process, grace):\n',
+                                '            if not self._await_exit(process, 600):\n', ('test_lab_broker',)),
+    'collector-stop-awaited-without-bound': ('lab_broker.py', '            self._thread.join(OUTPUT_STOP_S)\n',
+                                             '            self._thread.join()\n', ('test_lab_broker',)),
+    'spawn-failure-leaks-frame-ends': ('lab_broker.py',
+        '            for fd in (requests, request_end, reply_end, replies, output_end):\n',
+        '            for fd in (requests, replies, output_end):\n', ('test_lab_broker',)),
+    # Every failure of the output's collector, at any stage, is recorded and stops forward work:
+    # its file's open or its thread's start, a read, a write, the sync, either close, any other
+    # exception in its thread, and a thread that ends without its own report. A command already
+    # inside its transport call is recorded as it ran.
+    'collector-close-error-lost': ('lab_broker.py', "            self._failed('close', error)\n", '            pass\n',
+                                   ('test_lab_broker',)),
+    'collector-sync-error-lost': ('lab_broker.py', "            self._failed('sync', error)\n", '            pass\n',
+                                  ('test_lab_broker',)),
+    'collector-pipe-close-error-lost': ('lab_broker.py', "            self._failed('pipe', error)\n", '            pass\n',
+                                        ('test_lab_broker',)),
+    'collector-read-error-lost': ('lab_broker.py', "                self._failed('read', error)\n", '                pass\n',
+                                  ('test_lab_broker',)),
+    'collector-write-error-lost': ('lab_broker.py', "            self._failed('write', error)\n", '            pass\n',
+                                   ('test_lab_broker',)),
+    'collector-failure-uncaught': ('lab_broker.py',
+        '        except BaseException as error:  # Any other failure in its thread is its problem too.\n'
+        "            self._failed('collector', error)\n", '        except Exception:\n            raise\n',
+        ('test_lab_broker',)),
+    'collector-end-report-unchecked': ('lab_broker.py',
+        '        alive = self._thread.is_alive()\n        return not alive and not self.reported\n', '        return False\n',
+        ('test_lab_broker',)),
+    'collector-start-failure-unrecorded': ('lab_broker.py',
+        '            if not isinstance(error, Exception):\n                raise\n', '            raise\n',
+        ('test_lab_broker',)),
+    'collector-start-failure-leaks-its-file': ('lab_broker.py',
+        '        try:\n            self._start()\n        except BaseException:\n            self._file.close()\n'
+        '            raise\n', '        self._start()\n', ('test_lab_broker',)),
+    'spawn-failure-collector-problem-lost': ('lab_broker.py',
+        '            problem = collector.problem()\n            if problem is not None:\n'
+        "                self.stop('generation %d: %s' % (self.generation + 1, problem['reason']))\n"
+        '            raise\n', '            raise\n', ('test_lab_broker',)),
+    'unreaped-leader-collector-problem-lost': ('lab_broker.py',
+        "        if record and problem is not None and problem['reason'] != collector.UNFINISHED:\n", '        if False:\n',
+        ('test_lab_broker',)),
+    'in-flight-call-recorded-unlaunched': ('lab_broker.py', '        stdout, stderr = result.streams()\n',
+        "        if getattr(self, '_collector', None) is not None and self._collector.problem() is not None:\n"
+        "            self._not_sent(entry, command, self._collector.problem()['reason'], stop=True)\n"
+        '        stdout, stderr = result.streams()\n', ('test_lab_broker',)),
+    # A gate's view of the collector never names a problem that did not happen: whether its thread
+    # is alive is asked before its report is read, each gate asks once, and a problem once named
+    # stays named. What is read after a failed write is counted, and a generation lost with its
+    # broker never has its output claimed.
+    'collector-alive-asked-after-its-report': ('lab_broker.py',
+        '        alive = self._thread.is_alive()\n        return not alive and not self.reported\n',
+        '        return not self.reported and not self._thread.is_alive()\n', ('test_lab_broker',)),
+    'launch-gate-reads-the-output-twice': ('lab_broker.py',
+        '        problem = collector.problem() if collector is not None else None\n        if problem is not None:\n'
+        "            self._not_sent(entry, command, problem['reason'], stop=True)\n",
+        '        if collector is not None and collector.problem() is not None:\n'
+        "            self._not_sent(entry, command, collector.problem()['reason'], stop=True)\n", ('test_lab_broker',)),
+    'output-problem-unlatched': ('lab_broker.py', '        return self._known\n', '        return found\n',
+                                 ('test_lab_broker',)),
+    'dropped-uncounted-after-a-failure': ('lab_broker.py',
+        '            if self.error is not None:\n'
+        '                # Nothing more is kept after a failure, but what is read is still counted.\n'
+        '                self.dropped += len(data)\n                continue\n',
+        '            if self.error is not None:\n                continue\n', ('test_lab_broker',)),
+    'lost-output-claimed': ('lab_broker.py',
+        "                                                  'stderr_sha256': None, 'stderr_bytes': None,\n",
+        "                                                  'stderr_sha256': hashlib.sha256((self.root / JVM / ('%06d.stderr' % g['generation'])).read_bytes()).hexdigest(),\n"
+        "                                                  'stderr_bytes': (self.root / JVM / ('%06d.stderr' % g['generation'])).stat().st_size,\n",
+        ('test_lab_broker',)),
+    'lost-output-fate-unstated': ('lab_broker.py',
+        "                                                  'output': {'reason': LOST_OUTPUT, 'allowance': OUTPUT_ALLOWANCE,\n"
+        "                                                             'kept': None, 'dropped': None, 'unfinished_writer': None,\n"
+        "                                                             'error': None},\n", '', ('test_lab_broker',)),
 }
 
 # Each Java defect: the file under this directory, its exact old and new text, and the suites run
@@ -2053,6 +2219,14 @@ JAVA_MUTANTS = {
         '        need(effects.equals(List.of(Effect.STAGE, Effect.ACTIVATE)),\n',
         '        need(true,\n',
         ('RepairTest',)),
+    'bridge-frames-on-a-standard-stream': (JAVA_MAIN + 'LabBridge.java',
+        '        if (in < 3 || out < 3 || in == out) {\n', '        if (in == out) {\n', ('BridgeTest',)),
+    'bridge-frames-without-pipes-fall-back': (JAVA_MAIN + 'LabBridge.java',
+        '        if (value == null) throw new IllegalArgumentException("the broker named no frame pipes in " + FRAMES);\n',
+        '        if (value == null) return new int[] {0, 1};\n', ('BridgeTest',)),
+    'java-ledger-bound-above-the-codec': (JAVA_MAIN + 'LabProtocol.java',
+        '    public static final int MAX_LEDGER = DeploymentRecords.MAX_LEDGER;\n',
+        '    public static final int MAX_LEDGER = 140;\n', ('ProtocolTest',)),
 }
 
 

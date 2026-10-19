@@ -1,13 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
 """The broker on a simulated guest: generations, fences, groups, typed crossings, fault cells,
 escrow, replay refusal and reopening. Host evidence only."""
+import errno
 import hashlib
 import json
 import os
 from pathlib import Path
 import shutil
+import signal
+import sys
 import tempfile
 import threading
+import time
 import unittest
 import unittest.mock
 
@@ -1816,14 +1820,10 @@ class StreamAndReapTests(Base):
         stubborn = []
 
         class Stubborn:
-            """A generation process that sends nothing, ends its stream and never exits."""
+            """A generation process that sends nothing and never exits. It holds none of the pipes
+            the broker made for it, so its frame and output streams end at once."""
 
             def __init__(self, argv, **options):
-                to_broker_r, to_broker_w = os.pipe()
-                self.reader, to_jvm_w = os.pipe()
-                os.close(to_broker_w)
-                self.stdout = os.fdopen(to_broker_r, 'rb', buffering=0)
-                self.stdin = os.fdopen(to_jvm_w, 'wb', buffering=0)
                 self.pid, self.waits, self.kills = 2 ** 22 + 1, [], 0
                 stubborn.append(self)
 
@@ -1836,7 +1836,6 @@ class StreamAndReapTests(Base):
         with unittest.mock.patch.object(lab_broker.subprocess, 'Popen', Stubborn):
             with self.assertRaises(lab_broker.BrokerError):
                 h.broker.run_generation(['stubborn'])
-        os.close(stubborn[0].reader)
         grace = h.broker.limits['exit_grace_s']
         self.assertEqual((stubborn[0].waits, stubborn[0].kills), ([grace, grace], 1))
         # The generation stays open in the ledger: no end is recorded and no other is served.
@@ -1844,6 +1843,1282 @@ class StreamAndReapTests(Base):
         self.assertEqual((len(h.entries('generation')), h.entries('generation-end')), (1, []))
         with self.assertRaises(lab_broker.BrokerError):
             h.broker.begin_generation()
+
+
+# A generation that writes its argument's bytes to the request pipe its environment names, then
+# reads one whole reply when it has a request file. Its standard streams get a VM style warning.
+FAKE = '''
+import os, struct, sys
+replies, requests = (int(n) for n in os.environ[%r].split(','))
+warning = b'[0.000s][warning][gc] -XX:+PrintGC is deprecated. Will use -Xlog:gc instead.\\n'
+os.write(1, warning)
+os.write(2, warning)
+os.write(requests, open(sys.argv[1], 'rb').read())
+if sys.argv[2:] == ['reply']:
+    head = os.read(replies, 12)
+    left = struct.unpack('<I', head[8:12])[0] - len(head)
+    while left > 0:
+        left -= len(os.read(replies, left))
+''' % lab_broker.FRAMES_ENV
+
+
+class FrameChannelTests(Base):
+    def generation(self, h, data, reply=False):
+        request = h.directory / 'request'
+        request.write_bytes(data)
+        summary = h.broker.run_generation([sys.executable, '-c', FAKE, str(request)] + (['reply'] if reply else []))
+        kept = (h.root / lab_broker.JVM / ('%06d.stderr' % summary['generation'])).read_bytes()
+        return summary, kept
+
+    def test_output_on_the_standard_streams_never_reaches_a_frame(self):
+        h = Harness()
+        self.addCleanup(h.close)
+        hello = proto.encode(proto.message(
+            'HELLO', '%032x' % 1, h.manifest, installation=labtest.INSTALLATION, coordinator=labtest.COORDINATOR,
+            config=labtest.CONFIG, component=sim_android.PACKAGE, trust=labtest.TRUST, route=1))
+        summary, kept = self.generation(h, hello, reply=True)
+        self.assertEqual((summary['status'], summary['served'], summary['violation']), ('COMPLETE', 1, None))
+        self.assertNotIn('unreadable', summary)
+        # Both standard streams are the kept output file, and only the frame pipes carry frames.
+        warning = b'[0.000s][warning][gc] -XX:+PrintGC is deprecated. Will use -Xlog:gc instead.\n'
+        self.assertEqual(kept, warning * 2)
+        self.assertEqual((summary['stderr_bytes'], summary['stderr_sha256']),
+                         (len(kept), hashlib.sha256(kept).hexdigest()))
+
+    def test_a_truly_unreadable_frame_is_refused_and_its_first_bytes_are_kept(self):
+        h = Harness(limits=dict(labtest.LIMITS, generation_idle_s=2))
+        self.addCleanup(h.close)
+        warning = b'[0.000s][warning][os,thread] Failed to start thread "Unknown thread" - pthread_create failed\n'
+        frame = proto.encode(proto.message(
+            'HELLO', '%032x' % 1, h.manifest, installation=labtest.INSTALLATION, coordinator=labtest.COORDINATOR,
+            config=labtest.CONFIG, component=sim_android.PACKAGE, trust=labtest.TRUST, route=1))
+        cases = {
+            'a warning on the frame pipe': (warning, 'not a lab bridge frame', warning, False),
+            'more bytes than the bound': (b'x' * 2000, 'not a lab bridge frame', b'x' * lab_broker.UNREADABLE_HEAD,
+                                          True),
+            'a frame cut short': (frame[:40], 'the stream ended inside a frame', frame[:40], False),
+            'a warning before a whole frame': (warning + frame, 'not a lab bridge frame', warning + frame, False),
+        }
+        for name, (data, reason, head, more) in cases.items():
+            with self.subTest(name):
+                summary, kept = self.generation(h, data)
+                self.assertEqual((summary['status'], summary['served'], summary['violation']),
+                                 ('FAILED', 0, 'unreadable request: %s' % reason))
+                self.assertEqual(summary['unreadable'], {'head': head.hex(), 'bytes': len(head), 'more': more})
+                self.assertIn(b'[warning][gc]', kept)
+                self.assertEqual(h.entries('generation-end')[-1].content['unreadable'], summary['unreadable'])
+
+
+# A framed coordinator: it writes `before` bytes of output, sends the HELLO of its request file
+# and reads its reply, then writes `after` bytes, and may first start a child that inherits its
+# standard streams, as a library's helper would, its process ID written to `pid`.
+OUTPUT_FAKE = '''
+import os, struct, subprocess, sys, time
+replies, requests = (int(n) for n in os.environ[%r].split(','))
+args = dict(a.split('=', 1) for a in sys.argv[2:])
+pattern = bytes(range(256)) * 4096
+
+def output(size):
+    while size > 0:
+        size -= os.write(1, pattern[:min(size, len(pattern))])
+
+if 'child' in args:
+    child = subprocess.Popen([sys.executable, '-B', '-c', args['script'], args['child'], args['release']])
+    open(args['pid'], 'w').write(str(child.pid))
+    # The child runs, in its group or out of it, before any request; an early one has ended.
+    end = time.monotonic() + 10
+    while not os.path.exists(args['release'] + '.ready') and time.monotonic() < end:
+        time.sleep(0.01)
+    if args['child'] == 'early':
+        child.wait()
+output(int(args.get('before', 0)))
+os.write(requests, open(sys.argv[1], 'rb').read())
+head = b''
+while len(head) < 12:
+    more = os.read(replies, 12 - len(head))
+    if not more:
+        sys.exit(1)
+    head += more
+left = struct.unpack('<I', head[8:12])[0] - 12
+while left > 0:
+    left -= len(os.read(replies, left))
+output(int(args.get('after', 0)))
+''' % lab_broker.FRAMES_ENV
+# The child: once running, and an escaped one out of its process group, it says so, waits for
+# its release file, at most 10 s, then writes once to each inherited stream. An early child
+# writes at once.
+CHILD = '''
+import os, pathlib, sys, time
+mode, release = sys.argv[1], pathlib.Path(sys.argv[2])
+if mode == 'escaped':
+    os.setsid()
+pathlib.Path(sys.argv[2] + '.ready').write_text('ready')
+end = time.monotonic() + 10
+while mode != 'early' and not release.exists() and time.monotonic() < end:
+    time.sleep(0.01)
+try:
+    os.write(1, b'child standard output\\n')
+    os.write(2, b'child standard error\\n')
+except OSError:
+    pass
+'''
+
+
+def written(size):
+    """The first `size` bytes the framed coordinator writes."""
+    return (bytes(range(256)) * (size // 256 + 1))[:size]
+
+
+def gone(pid, bound_s=3.0):
+    """Whether a process has ended, a zombie included, within a bound."""
+    end = time.monotonic() + bound_s
+    while time.monotonic() < end:
+        found = lab_broker.proc_start_ticks(pid)
+        if found is None or found[0] == 'Z':
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def retire(pid):
+    """Ends a test's own child, if it still runs."""
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
+class GenerationOutputTests(Base):
+    def generation(self, h, **options):
+        request = h.directory / 'request'
+        request.write_bytes(proto.encode(proto.message(
+            'HELLO', '%032x' % 1, h.manifest, installation=labtest.INSTALLATION, coordinator=labtest.COORDINATOR,
+            config=labtest.CONFIG, component=sim_android.PACKAGE, trust=labtest.TRUST, route=1)))
+        argv = [sys.executable, '-B', '-c', OUTPUT_FAKE, str(request)] + ['%s=%s' % kv for kv in options.items()]
+        summary = h.broker.run_generation(argv)
+        kept = (h.root / lab_broker.JVM / ('%06d.stderr' % summary['generation'])).read_bytes()
+        self.assertEqual((summary['stderr_bytes'], summary['stderr_sha256']),
+                         (len(kept), hashlib.sha256(kept).hexdigest()))
+        return summary, kept
+
+    def stopped_after(self, h, reason):
+        """The broker latched a stop for the generation's output, so no forward work follows."""
+        self.assertEqual(([e.content['reason'] for e in h.entries('stop')], h.broker.stopped), ([reason], reason))
+        h.begin()
+        self.assertEqual(h.hello()['status'], STATUS['STOPPED'])
+
+    def test_an_output_within_its_allowance_is_kept_whole_and_one_past_it_stops_forward_work(self):
+        # A 1 MiB and an 8 MiB output, with the allowance's own edges.
+        allowance = lab_broker.OUTPUT_ALLOWANCE
+        self.assertEqual(allowance, 4 << 20)
+        for size in (1 << 20, allowance, allowance + 1, 8 << 20):
+            with self.subTest(size=size):
+                h = Harness()
+                self.addCleanup(h.close)
+                summary, kept = self.generation(h, after=size)
+                if size <= allowance:
+                    self.assertEqual((summary['status'], summary['served'], summary['violation']),
+                                     ('COMPLETE', 1, None))
+                    self.assertNotIn('output', summary)
+                    self.assertEqual(kept, written(size))
+                    self.assertEqual((h.entries('stop'), h.broker.stopped), ([], None))
+                    continue
+                reason = "the generation's output passed its allowance of %d bytes" % allowance
+                self.assertEqual((summary['status'], summary['served'], summary['violation']), ('FAILED', 1, reason))
+                self.assertEqual(summary['output'], {'reason': reason, 'allowance': allowance, 'kept': allowance,
+                                                     'dropped': size - allowance, 'unfinished_writer': False,
+                                                     'error': None})
+                # Nothing is truncated silently: the first bytes are kept, and the record says so.
+                self.assertEqual(kept, written(allowance))
+                self.stopped_after(h, 'generation 1: ' + reason)
+
+    def test_output_past_its_allowance_before_a_request_leaves_it_unserved(self):
+        h = Harness()
+        self.addCleanup(h.close)
+        summary, kept = self.generation(h, before=8 << 20)
+        reason = "the generation's output passed its allowance of %d bytes" % lab_broker.OUTPUT_ALLOWANCE
+        self.assertEqual((summary['status'], summary['served'], summary['violation']), ('FAILED', 0, reason))
+        self.assertEqual((kept, summary['output']['dropped']), (written(lab_broker.OUTPUT_ALLOWANCE), 4 << 20))
+        self.stopped_after(h, 'generation 1: ' + reason)
+        # The serve loop's own gate latched the stop when it found the problem, before the end.
+        self.assertLess(h.entries('stop')[0].number, h.entries('generation-end')[0].number)
+
+    def test_a_child_that_inherits_the_output_is_retired_at_the_generations_end(self):
+        # A library style child of the coordinator, still holding the inherited streams at the
+        # coordinator's end, never changes the kept output once it is recorded. Its honest twin
+        # wrote before the end, and its lines are kept and recorded.
+        lines = b'child standard output\nchild standard error\n'
+        for mode, expected in (('held', b''), ('early', lines)):
+            with self.subTest(mode):
+                h = Harness()
+                self.addCleanup(h.close)
+                release, pid = h.directory / 'release', h.directory / 'child-pid'
+                summary, kept = self.generation(h, child=mode, script=CHILD, release=release, pid=pid)
+                self.assertEqual((summary['status'], summary['served'], summary['violation']), ('COMPLETE', 1, None))
+                self.assertNotIn('output', summary)
+                self.assertEqual(kept, expected)
+                child = int(pid.read_text())
+                self.assertTrue(gone(child))
+                release.write_text('release\n')
+                time.sleep(0.2)
+                self.assertEqual((h.root / lab_broker.JVM / '000001.stderr').read_bytes(), expected)
+
+    def test_a_writer_that_left_the_group_is_an_unfinished_writer_and_stops_forward_work(self):
+        h = Harness()
+        self.addCleanup(h.close)
+        release, pid = h.directory / 'release', h.directory / 'child-pid'
+        started = time.monotonic()
+        summary, kept = self.generation(h, child='escaped', script=CHILD, release=release, pid=pid)
+        child = int(pid.read_text())
+        self.addCleanup(retire, child)
+        self.assertGreaterEqual(time.monotonic() - started, lab_broker.OUTPUT_DRAIN_S)
+        reason = "a writer still held the generation's output 5 s after its end"
+        self.assertEqual((summary['status'], summary['served'], summary['violation']), ('FAILED', 1, reason))
+        self.assertEqual(summary['output'], {'reason': reason, 'allowance': lab_broker.OUTPUT_ALLOWANCE, 'kept': 0,
+                                             'dropped': 0, 'unfinished_writer': True, 'error': None})
+        self.stopped_after(h, 'generation 1: ' + reason)
+        # The escaped writer's later output never reaches the kept output: it ends at its record.
+        release.write_text('release\n')
+        self.assertTrue(gone(child))
+        self.assertEqual((h.root / lab_broker.JVM / '000001.stderr').read_bytes(), kept)
+
+
+# A framed coordinator that sends each frame of its request file and reads each reply, keeping
+# the replies beside that file, while a second thread writes `size` bytes of output once its
+# trigger file appears, or closes both standard streams if the trigger reads `close`; once every
+# frame was answered without the trigger, it writes nothing.
+FLOOD_FAKE = '''
+import os, pathlib, struct, sys, threading, time
+replies, requests = (int(n) for n in os.environ[%r].split(','))
+frames, trigger, size = pathlib.Path(sys.argv[1]).read_bytes(), pathlib.Path(sys.argv[2]), int(sys.argv[3])
+answered, kept = threading.Event(), open(sys.argv[1] + '.replies', 'wb')
+
+def flood():
+    while not trigger.exists() and not answered.wait(0.005):
+        pass
+    if trigger.exists() and trigger.read_text() == 'close':
+        os.close(1)
+        os.close(2)
+        return
+    left = size if trigger.exists() else 0
+    while left > 0:
+        left -= os.write(1, b'x' * min(left, 65536))
+thread = threading.Thread(target=flood)
+thread.start()
+at = 0
+while at < len(frames):
+    length = struct.unpack('<I', frames[at + 8:at + 12])[0]
+    os.write(requests, frames[at:at + length])
+    at += length
+    head = b''
+    while len(head) < 12:
+        more = os.read(replies, 12 - len(head))
+        if not more:
+            break
+        head += more
+    if len(head) < 12:
+        break
+    left, body = struct.unpack('<I', head[8:12])[0] - 12, b''
+    while left > 0:
+        more = os.read(replies, left)
+        if not more:
+            break
+        body, left = body + more, left - len(more)
+    kept.write(head + body)
+kept.close()
+answered.set()
+thread.join(10)
+''' % lab_broker.FRAMES_ENV
+
+
+# A coordinator that closes both standard streams at once, then sends each frame of its request
+# file and reads each reply: its output ends while it is still being served.
+CLOSED_FAKE = '''
+import os, struct, sys, time
+replies, requests = (int(n) for n in os.environ[%r].split(','))
+os.close(1)
+os.close(2)
+time.sleep(0.05)
+frames, at = open(sys.argv[1], 'rb').read(), 0
+while at < len(frames):
+    length = struct.unpack('<I', frames[at + 8:at + 12])[0]
+    os.write(requests, frames[at:at + length])
+    at += length
+    head = b''
+    while len(head) < 12:
+        more = os.read(replies, 12 - len(head))
+        if not more:
+            sys.exit(1)
+        head += more
+    left = struct.unpack('<I', head[8:12])[0] - 12
+    while left > 0:
+        more = os.read(replies, left)
+        if not more:
+            sys.exit(1)
+        left -= len(more)
+''' % lab_broker.FRAMES_ENV
+
+
+class Ending:
+    """A collector's thread as a gate sees it while that thread reports and ends. The first time
+    the broker's own thread asks whether it is alive before it reported, at a gate that `where`
+    accepts, the thread first runs to its end: the switch that lets a gate's two reads straddle
+    its report."""
+
+    def __init__(self, collector, thread, where):
+        self.collector, self.thread, self.where = collector, thread, where
+
+    def is_alive(self):
+        if (threading.current_thread() is threading.main_thread() and not self.collector.reported
+                and self.where()):
+            self.thread.join(5)
+        return self.thread.is_alive()
+
+    def join(self, timeout=None):
+        return self.thread.join(timeout)
+
+
+def ending(switched, where=lambda: True):
+    """A collector whose sync takes 0.5 s, so the generation is still served while it ends; when
+    `switched`, a gate that asks while it ends gets the switch of `Ending`."""
+    class Collector(lab_broker._OutputCollector):
+        def _run(self):
+            sync = self._sync
+
+            def slow(fd):
+                time.sleep(0.5)
+                sync(fd)
+            self._sync = slow
+            super()._run()
+
+        def _start(self):
+            super()._start()
+            if switched:
+                self._thread = Ending(self, self._thread, where)
+    return Collector
+
+
+def asked_at(name):
+    """Whether the broker asks from inside its method `name`."""
+    frame = sys._getframe(2)
+    while frame is not None and frame.f_code.co_name != name:
+        frame = frame.f_back
+    return frame is not None
+
+
+class OutputFenceTests(Base):
+    def common(self, h):
+        return {'installation': labtest.INSTALLATION, 'coordinator': labtest.COORDINATOR, 'config': labtest.CONFIG,
+                'component': sim_android.PACKAGE, 'trust': labtest.TRUST, 'route': 1}
+
+    def create(self, h, request=3):
+        return proto.message('CROSS', '%032x' % request, h.manifest, ticket=TICKET, ticket_digest='11' * 32, plan=PLAN,
+                             plan_digest='22' * 32, attempt=1, component=sim_android.PACKAGE, index=0,
+                             crossing=proto.CROSSINGS['CREATE'][0], occurrence=1, entry_boot=h.sim.boot,
+                             entry_instance=h.sim.instance, entry_elapsed=1000, grant=GRANT, reference=NONCE,
+                             native=(proto.NONCE, 0, 0, '', 0, NONCE), bundle_apk=proto.ZERO_DIGEST, actor=2,
+                             granted=0, window=0)
+
+    def generation(self, h, messages, flood, size=lab_broker.OUTPUT_ALLOWANCE + 1):
+        """A generation of the framed messages. `flood(h, trigger, seen)`, when given, installs what
+        sends its output past the allowance at the chosen moment, keeping in `seen` what the
+        collector had counted by then; `size` is what the trigger makes it write."""
+        frames, trigger = h.directory / 'frames', h.directory / 'trigger'
+        frames.write_bytes(b''.join(proto.encode(m) for m in messages))
+        seen = []
+        if flood is not None:
+            flood(h, trigger, seen)
+        argv = [sys.executable, '-B', '-c', FLOOD_FAKE, str(frames), str(trigger), str(size)]
+        return h.broker.run_generation(argv), seen
+
+    @staticmethod
+    def replies(h):
+        data, found = (h.directory / 'frames.replies').read_bytes(), []
+        while data:
+            length = int.from_bytes(data[8:12], 'little')
+            found.append(proto.decode(data[:length], h.broker.protocol))
+            data = data[length:]
+        return found
+
+    @staticmethod
+    def overflow(h, trigger):
+        """Triggers the output past the allowance and waits until the collector has counted it."""
+        trigger.write_text('overflow now\n')
+        end = time.monotonic() + 10
+        while h.broker._collector.dropped == 0 and time.monotonic() < end:
+            time.sleep(0.005)
+        return h.broker._collector.dropped
+
+    def stopped_before_any_launch(self, h, summary, launched):
+        """Nothing was launched, the generation is not COMPLETE, and the overflow's stop was latched
+        before its end. Returns the stop's entry."""
+        self.assertEqual(launched, [])
+        reason = "the generation's output passed its allowance of %d bytes" % lab_broker.OUTPUT_ALLOWANCE
+        self.assertNotEqual(summary['status'], 'COMPLETE')
+        self.assertEqual((summary['output']['reason'], summary['output']['dropped']), (reason, 1))
+        stop = h.entries('stop')
+        self.assertEqual([e.content['reason'] for e in stop], ['generation 1: ' + reason])
+        self.assertLess(stop[0].number, h.entries('generation-end')[-1].number)
+        return stop[0]
+
+    def test_a_known_overflow_launches_no_later_command_of_the_request_it_arose_in(self):
+        # Output passes the allowance during CREATE's preflight clock read, and the collector has
+        # counted it before that read ends: no later command of the request is admitted, by the
+        # fence before each intent, and the native CREATE never launches. Its twin launches it.
+        for flooded in (True, False):
+            with self.subTest(flooded=flooded):
+                h = Harness()
+                self.addCleanup(h.close)
+                known = []
+
+                def flood(h, trigger, seen):
+                    def hook(command):
+                        if command == 'sim:clock' and h.broker.open_crossings and not trigger.exists():
+                            seen.append(self.overflow(h, trigger))
+                            known.append(len(h.broker.ledger.entries))
+                    h.sim.hooks.append(hook)
+                clock = proto.message('CLOCK', '%032x' % 2, h.manifest)
+                summary, seen = self.generation(
+                    h, [proto.message('HELLO', '%032x' % 1, h.manifest, **self.common(h)), clock, self.create(h)],
+                    flood if flooded else None)
+                launched = [c for c in h.sim.calls if c[0] == 'CREATE']
+                reply = self.replies(h)[-1]
+                if not flooded:
+                    self.assertEqual((summary['status'], len(launched), reply['status']), ('COMPLETE', 1, STATUS['OK']))
+                    continue
+                self.assertEqual(seen, [1])
+                stop = self.stopped_before_any_launch(h, summary, launched)
+                # The read whose output overflowed ends; nothing is begun after it.
+                self.assertEqual([e.number for e in h.entries('capture') if e.number > known[0]], [])
+                self.assertEqual((reply['type'], reply['status'], reply['reason']),
+                                 ('CROSS_REPLY', STATUS['STOPPED'], stop.content['reason']))
+
+    def test_a_problem_known_after_a_commands_intent_sends_nothing(self):
+        # The output passes the allowance once the native CREATE's intent is durable: the launch
+        # gate after the intent ends it not launched, then latches and raises the stop.
+        for flooded in (True, False):
+            with self.subTest(flooded=flooded):
+                h = Harness()
+                self.addCleanup(h.close)
+                begin = h.broker.ledger.begin_capture
+
+                def flood(h, trigger, seen):
+                    def intent(value):
+                        entry = begin(value)
+                        if value['command'].startswith('pm install-create') and flooded:
+                            seen.append(self.overflow(h, trigger))
+                        return entry
+                    h.broker.ledger.begin_capture = intent
+                summary, seen = self.generation(
+                    h, [proto.message('HELLO', '%032x' % 1, h.manifest, **self.common(h)), self.create(h, 2)], flood)
+                launched = [c for c in h.sim.calls if c[0] == 'CREATE']
+                [create] = [e for e in h.entries('capture')
+                            if e.content['intent']['command'].startswith('pm install-create')]
+                reply = self.replies(h)[-1]
+                if not flooded:
+                    self.assertEqual((summary['status'], len(launched), create.content['result']['launch'],
+                                      reply['status']), ('COMPLETE', 1, 'launched', STATUS['OK']))
+                    continue
+                self.assertEqual(seen, [1])
+                stop = self.stopped_before_any_launch(h, summary, launched)
+                self.assertEqual((create.content['result']['launch'], create.content['result']['error']),
+                                 ('not-launched', summary['output']['reason']))
+                self.assertEqual([e.number for e in h.entries('capture') if e.number > create.number], [])
+                self.assertGreater(stop.number, create.number)
+                self.assertEqual((reply['type'], reply['status'], reply['reason']),
+                                 ('CROSS_REPLY', STATUS['STOPPED'], stop.content['reason']))
+
+    def test_a_problem_known_before_a_host_call_begins_no_host_effect(self):
+        for flooded in (True, False):
+            with self.subTest(flooded=flooded):
+                h = Harness()
+                self.addCleanup(h.close)
+                positive = h.broker._positive_problem
+
+                def flood(h, trigger, seen):
+                    def problem(plan, attempt):
+                        seen.append(self.overflow(h, trigger))
+                        return positive(plan, attempt)
+                    h.broker._positive_problem = problem
+                host = proto.message('HOST', '%032x' % 2, h.manifest, phase=1, crossing=proto.HOST_CROSSINGS['SIGN'],
+                                     ticket=TICKET, plan=PLAN, attempt=1, index=0, occurrence=1, reference='9b' * 16,
+                                     outcome=0, reply=proto.ZERO_DIGEST)
+                summary, seen = self.generation(
+                    h, [proto.message('HELLO', '%032x' % 1, h.manifest, **self.common(h)), host],
+                    flood if flooded else None)
+                begun = [e.number for e in h.entries('host') if e.content['phase'] == 'BEGIN']
+                reply = self.replies(h)[-1]
+                if not flooded:
+                    self.assertEqual((summary['status'], len(begun), reply['status']), ('COMPLETE', 1, STATUS['OK']))
+                    continue
+                self.assertEqual(seen, [1])
+                stop = self.stopped_before_any_launch(h, summary, begun)
+                # A host reply has no STOPPED: the call is refused with the stop's reason, so the
+                # bridge never runs it, and the generation ends after that reply.
+                self.assertEqual((reply['type'], reply['status'], reply['reason'], summary['served']),
+                                 ('HOST_REPLY', STATUS['REFUSED'], stop.content['reason'], 2))
+
+    def test_output_during_a_call_lets_that_call_finish_and_starts_nothing_after_it(self):
+        # Output passes the allowance while one command is already inside its transport call: a
+        # preflight read, or the native CREATE itself. That call may finish, and is recorded as it
+        # ran; then no later command, no crossing effect launch and no host call starts, though the
+        # generation asks for a host call next. The twin runs the crossing and its host call.
+        for case in ('a preflight read', 'the effect launch', 'no overflow'):
+            with self.subTest(case):
+                h = Harness()
+                self.addCleanup(h.close)
+                inside = {'a preflight read': 'sim:clock', 'the effect launch': 'pm install-create'}.get(case)
+                current = []
+
+                def flood(h, trigger, seen):
+                    def hook(command):
+                        if command.startswith(inside) and h.broker.open_crossings and not trigger.exists():
+                            seen.append(self.overflow(h, trigger))
+                            current.append(len(h.broker.ledger.entries))
+                    h.sim.hooks.append(hook)
+                host = proto.message('HOST', '%032x' % 3, h.manifest, phase=1, crossing=proto.HOST_CROSSINGS['SIGN'],
+                                     ticket=TICKET, plan=PLAN, attempt=1, index=0, occurrence=1, reference='9b' * 16,
+                                     outcome=0, reply=proto.ZERO_DIGEST)
+                summary, seen = self.generation(
+                    h, [proto.message('HELLO', '%032x' % 1, h.manifest, **self.common(h)), self.create(h, 2), host],
+                    flood if inside else None)
+                launched = [c for c in h.sim.calls if c[0] == 'CREATE']
+                hosts = [e.content['phase'] for e in h.entries('host')]
+                replies = [(r['type'], r['status']) for r in self.replies(h)]
+                if inside is None:
+                    self.assertEqual((summary['status'], len(launched), hosts, replies),
+                                     ('COMPLETE', 1, ['BEGIN', 'END'], [('HELLO_REPLY', STATUS['OK']),
+                                      ('CROSS_REPLY', STATUS['OK']), ('HOST_REPLY', STATUS['OK'])]))
+                    continue
+                self.assertEqual(seen, [1])
+                # The call that was inside its transport call finished, and is recorded as it ran.
+                [call] = [e for e in h.entries('capture') if e.number == current[0]]
+                self.assertTrue(call.content['intent']['command'].startswith(inside))
+                self.assertEqual((call.content['result']['launch'], call.content['result']['completion'],
+                                  call.content['result']['exit']), ('launched', 'exited', 0))
+                self.assertEqual(len(launched), 1 if case == 'the effect launch' else 0)
+                # Then nothing starts: no command, no effect launch and no host call.
+                self.assertEqual([e.number for e in h.entries('capture') if e.number > call.number], [])
+                [stop] = h.entries('stop')
+                self.assertGreater(stop.number, call.number)
+                self.assertEqual((hosts, summary['served'], replies),
+                                 ([], 2, [('HELLO_REPLY', STATUS['OK']), ('CROSS_REPLY', STATUS['STOPPED'])]))
+                self.assertNotEqual(summary['status'], 'COMPLETE')
+
+    def test_a_gate_asking_while_the_collector_reports_and_ends_finds_no_problem(self):
+        # The generation closes its standard streams, then sends HELLO and CLOCK, so its output ends
+        # while it is served; its collector's sync takes 0.5 s. At the first gate that asks while
+        # the collector ends, the switch lets the collector report and end between whatever two
+        # reads the gate makes. The collector did report: no gate may find a problem, no stop is
+        # latched, and the generation completes with its empty output final, as its twin does.
+        for switched in (True, False):
+            with self.subTest(switched=switched):
+                h = Harness()
+                self.addCleanup(h.close)
+                frames, made, collector = h.directory / 'frames', [], ending(switched)
+                frames.write_bytes(proto.encode(proto.message('HELLO', '%032x' % 1, h.manifest, **self.common(h)))
+                                   + proto.encode(proto.message('CLOCK', '%032x' % 2, h.manifest)))
+
+                def make(*args):
+                    made.append(collector(*args))
+                    return made[-1]
+                with unittest.mock.patch.object(lab_broker, '_OutputCollector', make):
+                    summary = h.broker.run_generation([sys.executable, '-B', '-c', CLOSED_FAKE, str(frames)])
+                self.assertEqual((made[0].reported, made[0].final, [e.content['reason'] for e in h.entries('stop')]),
+                                 (True, True, []))
+                self.assertEqual((summary['status'], summary['served'], summary['violation'], summary['stderr_bytes'],
+                                  summary['stderr_sha256']), ('COMPLETE', 2, None, 0, hashlib.sha256(b'').hexdigest()))
+                self.assertNotIn('output', summary)
+
+    def test_a_launch_gate_asking_while_the_collector_reports_and_ends_launches_as_its_twin(self):
+        # The generation closes its standard streams during CREATE's preflight clock read, and
+        # the collector has seen their end of file before that read returns; its sync takes 0.5 s.
+        # The native CREATE's launch gate, once its intent is durable, gets the switch. The
+        # collector reported, so the CREATE launches once, its capture ends, the crossing and the
+        # generation complete, and the ledger is whole, as in the twin.
+        for switched in (True, False):
+            with self.subTest(switched=switched):
+                h = Harness()
+                self.addCleanup(h.close)
+                made = []
+
+                def gate():
+                    last = h.broker.ledger.entries[-1]
+                    return asked_at('_record_command') and last.kind == 'capture' and last.state == 'interrupted'
+                collector = ending(switched, gate)
+
+                def make(*args):
+                    made.append(collector(*args))
+                    return made[-1]
+
+                def close(h, trigger, seen):
+                    def hook(command):
+                        if command == 'sim:clock' and h.broker.open_crossings and not trigger.exists():
+                            staged = trigger.with_name('trigger.staged')
+                            staged.write_text('close')
+                            staged.replace(trigger)
+                            end = time.monotonic() + 10
+                            while not made[0].ended and time.monotonic() < end:
+                                time.sleep(0.005)
+                            seen.append(made[0].ended)
+                    h.sim.hooks.append(hook)
+                with unittest.mock.patch.object(lab_broker, '_OutputCollector', make):
+                    summary, seen = self.generation(
+                        h, [proto.message('HELLO', '%032x' % 1, h.manifest, **self.common(h)), self.create(h, 2)],
+                        close, size=0)
+                self.assertEqual((seen, made[0].reported, [e.content['reason'] for e in h.entries('stop')]),
+                                 ([True], True, []))
+                self.assertEqual([e.number for e in h.broker.ledger.entries if not e.complete], [])
+                [create] = [e for e in h.entries('capture')
+                            if e.content['intent']['command'].startswith('pm install-create')]
+                self.assertEqual((create.content['result']['launch'], len([c for c in h.sim.calls if c[0] == 'CREATE']),
+                                  [e.content['status'] for e in h.entries('outcome')]), ('launched', 1, ['OK']))
+                self.assertEqual((summary['status'], summary['served'], summary['stderr_bytes']), ('COMPLETE', 2, 0))
+
+    def test_a_collector_seen_while_it_ends_is_never_taken_for_one_that_did_not_report(self):
+        # The actual collector on a real pipe and file: its writer end is closed, so its thread
+        # reads end of file, closes and reports, while this thread asks for its problem in a loop,
+        # as a gate would, until the thread has ended. For 2 s of such ends no answer may name a
+        # problem: the output is whole, and its collector reports.
+        directory = Path(tempfile.mkdtemp(dir=os.environ.get('TMPDIR')))
+        self.addCleanup(shutil.rmtree, directory)
+        deadline, ends, named = time.monotonic() + 2.0, 0, []
+        while time.monotonic() < deadline:
+            ours, theirs = os.pipe()
+            os.write(theirs, b'x' * 100)
+            collector = lab_broker._OutputCollector(ours, directory / ('%06d' % ends), lab_broker.OUTPUT_ALLOWANCE,
+                                                    lambda fd: None)
+            os.close(theirs)
+            while collector._thread.is_alive():
+                found = collector.problem()
+                if found is not None:
+                    named.append((ends, found['reason']))
+            collector._thread.join()
+            self.assertEqual((collector.reported, collector.problem()), (True, None))
+            ends += 1
+        self.assertGreater(ends, 10)
+        self.assertEqual(named[:3], [])
+
+    def test_each_gate_asks_the_output_once_and_acts_on_that_answer(self):
+        # Every answer the collector gives is numbered. The output passes the allowance just
+        # before a gate asks: at the native CREATE's launch gate once its intent is durable, at the
+        # fence before a command's intent, at the serve loop before a request, or at a host call's
+        # BEGIN. Each launch gate asks once, and the stop the gate latches, and the refused
+        # capture's error, name the answer that gate was given. The twin asks with no overflow.
+        for case in ('the launch gate', 'the fence', 'the serve loop', 'a host BEGIN', 'no overflow'):
+            with self.subTest(case):
+                h = Harness()
+                self.addCleanup(h.close)
+                answers = []
+
+                class Numbered(lab_broker._OutputCollector):
+                    def problem(self):
+                        found = super().problem()
+                        caller = sys._getframe(1)
+                        gate = caller.f_back.f_code.co_name if caller.f_code.co_name == '_output_stop' else \
+                            caller.f_code.co_name
+                        entry = caller.f_locals.get('entry') if gate == '_record_command' else None
+                        answers.append((gate, entry and entry.number))
+                        if found is not None:
+                            found = dict(found, reason='%s (answer %d)' % (found['reason'], len(answers)))
+                        return found
+                hello = proto.message('HELLO', '%032x' % 1, h.manifest, **self.common(h))
+                begin, positive = h.broker.ledger.begin_capture, h.broker._positive_problem
+
+                def flood(h, trigger, seen):
+                    if case == 'the launch gate':
+                        def intent(value):
+                            entry = begin(value)
+                            if value['command'].startswith('pm install-create'):
+                                seen.append(self.overflow(h, trigger))
+                            return entry
+                        h.broker.ledger.begin_capture = intent
+                    elif case == 'the fence':
+                        def hook(command):
+                            if command == 'sim:clock' and h.broker.open_crossings and not trigger.exists():
+                                seen.append(self.overflow(h, trigger))
+                        h.sim.hooks.append(hook)
+                    elif case == 'a host BEGIN':
+                        def problem(plan, attempt):
+                            seen.append(self.overflow(h, trigger))
+                            return positive(plan, attempt)
+                        h.broker._positive_problem = problem
+                host = proto.message('HOST', '%032x' % 3, h.manifest, phase=1, crossing=proto.HOST_CROSSINGS['SIGN'],
+                                     ticket=TICKET, plan=PLAN, attempt=1, index=0, occurrence=1, reference='9b' * 16,
+                                     outcome=0, reply=proto.ZERO_DIGEST)
+                messages = [hello, host] if case == 'a host BEGIN' else [hello, self.create(h, 2)]
+                with unittest.mock.patch.object(lab_broker, '_OutputCollector', Numbered):
+                    if case == 'the serve loop':
+                        summary, kept = GenerationOutputTests.generation(self, h, before=8 << 20)
+                    else:
+                        summary, seen = self.generation(h, messages, None if case == 'no overflow' else flood)
+                launch = [entry for gate, entry in answers if gate == '_record_command']
+                self.assertEqual(len(launch), len(set(launch)))
+                stops = [e.content['reason'] for e in h.entries('stop')]
+                if case == 'no overflow':
+                    self.assertEqual((stops, summary['status']), ([], 'COMPLETE'))
+                    continue
+                [stop] = stops
+                number = int(stop.rsplit('(answer ', 1)[1].rstrip(')'))
+                gate = {'the launch gate': '_record_command', 'the fence': '_fence', 'the serve loop': 'serve',
+                        'a host BEGIN': '_host'}[case]
+                self.assertEqual(answers[number - 1][0], gate)
+                if case == 'the launch gate':
+                    [create] = [e for e in h.entries('capture')
+                                if e.content['intent']['command'].startswith('pm install-create')]
+                    self.assertEqual((answers[number - 1][1], 'generation 1: ' + create.content['result']['error']),
+                                     (create.number, stop))
+
+    def test_a_problem_once_named_stays_named_and_the_end_agrees_with_the_stop(self):
+        # A view of the collector that names a problem once, at the first ask after the first
+        # CLOCK's read, and none after it. The gate that asked latches the stop, and the collector
+        # goes on naming that problem, so the generation's end records it too: never COMPLETE, and
+        # never a stop that its own end contradicts. The twin's view names none, and it completes.
+        reason = 'a modeled problem, named once'
+        for named in (True, False):
+            with self.subTest(named=named):
+                h = Harness()
+                self.addCleanup(h.close)
+                view = {'armed': False, 'named': False}
+
+                def arm(command):
+                    if command == 'sim:clock' and named and not h.broker.open_crossings:
+                        view['armed'] = True
+                h.sim.hooks.append(arm)
+                made = []
+
+                class Once(lab_broker._OutputCollector):
+                    def _problem(self):
+                        found = super()._problem()
+                        if found is None and view['armed'] and not view['named'] and asked_at('_output_stop'):
+                            view['named'] = True
+                            return {'reason': reason, 'allowance': self.allowance, 'kept': self.kept,
+                                    'dropped': self.dropped, 'unfinished_writer': False, 'error': None}
+                        return found
+
+                def make(*args):
+                    made.append(Once(*args))
+                    return made[-1]
+                clock = [proto.message('CLOCK', '%032x' % n, h.manifest) for n in (2, 3)]
+                with unittest.mock.patch.object(lab_broker, '_OutputCollector', make):
+                    summary, seen = self.generation(
+                        h, [proto.message('HELLO', '%032x' % 1, h.manifest, **self.common(h))] + clock, None)
+                if not named:
+                    self.assertEqual((summary['status'], summary['served'], h.entries('stop')), ('COMPLETE', 3, []))
+                    continue
+                self.assertEqual(([e.content['reason'] for e in h.entries('stop')], view['named']),
+                                 (['generation 1: ' + reason], True))
+                self.assertNotEqual(summary['status'], 'COMPLETE')
+                self.assertEqual((summary['output']['reason'], made[0].problem()['reason']), (reason, reason))
+
+    def test_a_generation_lost_with_its_broker_never_has_its_output_claimed(self):
+        # The generation writes 1000 bytes, then its broker is lost inside a CLOCK read and later
+        # closed; the reopening ends the generation as lost. Whatever its file holds, its record
+        # claims no size or digest, and says that its output's fate is unknown. The twin is served
+        # to its end, and its output is recorded and final.
+        for lost in (True, False):
+            with self.subTest(lost=lost):
+                h = Harness()
+                self.addCleanup(h.close)
+                made, real = [], lab_broker.subprocess.Popen
+
+                def popen(argv, **options):
+                    made.append(real(argv, **options))
+                    return made[-1]
+
+                def flood(h, trigger, seen):
+                    def hook(command):
+                        if command == 'sim:clock' and not h.broker.open_crossings and not trigger.exists():
+                            trigger.write_text('write now\n')
+                            end = time.monotonic() + 10
+                            while h.broker._collector.kept < 1000 and time.monotonic() < end:
+                                time.sleep(0.005)
+                            seen.append(h.broker._collector.kept)
+                            if lost:
+                                raise KeyboardInterrupt('the broker is lost here')
+                    h.sim.hooks.append(hook)
+                messages = [proto.message('HELLO', '%032x' % 1, h.manifest, **self.common(h)),
+                            proto.message('CLOCK', '%032x' % 2, h.manifest)]
+                path = h.root / lab_broker.JVM / '000001.stderr'
+                with unittest.mock.patch.object(lab_broker.subprocess, 'Popen', popen):
+                    if not lost:
+                        summary, seen = self.generation(h, messages, flood, size=1000)
+                        self.assertEqual((seen, summary['status'], summary['stderr_bytes'], summary['stderr_sha256']),
+                                         ([1000], 'COMPLETE', 1000, hashlib.sha256(path.read_bytes()).hexdigest()))
+                        continue
+                    with self.assertRaises(KeyboardInterrupt):
+                        self.generation(h, messages, flood, size=1000)
+                h.sim.hooks.clear()
+                h.broker.close()
+                made[0].wait(10)
+                h.open()
+                end = h.entries('generation-end')[-1].content
+                self.assertEqual((len(path.read_bytes()), end['status'], end['stderr_bytes'], end['stderr_sha256']),
+                                 (1000, 'LOST', None, None))
+                self.assertEqual((end['output']['reason'], end['output']['kept']), (lab_broker.LOST_OUTPUT, None))
+
+    def test_retirement_signals_the_group_while_its_leader_is_unreaped(self):
+        # Each signal names an identity the generation still owns: its exited leader is still a
+        # zombie when its group is signalled. A leader that outlives its grace is killed first, by
+        # its own process ID, still unreaped. A process the broker cannot see without reaping is
+        # reaped as before, and no group is signalled.
+        real = os.killpg
+        for name, linger in (('an exited leader', 0), ('a leader killed after its grace', 30)):
+            with self.subTest(name):
+                h = Harness(limits=dict(labtest.LIMITS, generation_idle_s=0.25, exit_grace_s=0.5))
+                self.addCleanup(h.close)
+                states = []
+
+                def killpg(pgid, signum):
+                    found = lab_broker.proc_start_ticks(pgid)
+                    states.append((found and found[0], signum))
+                    return real(pgid, signum)
+                script = 'import time; time.sleep(%d)' % linger
+                with unittest.mock.patch.object(lab_broker.os, 'killpg', killpg):
+                    summary = h.broker.run_generation([sys.executable, '-B', '-c', script])
+                self.assertEqual(states, [('Z', signal.SIGKILL)])
+                self.assertEqual(summary['killed'], bool(linger))
+        h = Harness()
+        self.addCleanup(h.close)
+        calls = []
+
+        class Unseen:
+            def __init__(self, argv, **options):
+                self.pid = 2 ** 22 + 2
+
+            def wait(self, timeout=None):
+                return 0
+        with unittest.mock.patch.object(lab_broker.subprocess, 'Popen', Unseen), \
+                unittest.mock.patch.object(lab_broker.os, 'killpg', lambda *a: calls.append(a)):
+            summary = h.broker.run_generation(['unseen'])
+        self.assertEqual((calls, summary['killed']), ([], False))
+
+    def test_an_unreaped_leader_whose_kill_does_not_take_stays_open_within_its_bound(self):
+        # The waits for an unreaped leader are bounded as a reaped one's are: a kill that does not
+        # take, here one never delivered, leaves the generation open after its grace, unrecorded.
+        h = Harness(limits=dict(labtest.LIMITS, generation_idle_s=0.25, exit_grace_s=0.5))
+        self.addCleanup(h.close)
+        made, kills, real = [], [], lab_broker.subprocess.Popen
+
+        def popen(argv, **options):
+            made.append(real(argv, **options))
+            return made[-1]
+        started = time.monotonic()
+        with unittest.mock.patch.object(lab_broker.subprocess, 'Popen', popen), \
+                unittest.mock.patch.object(lab_broker.os, 'kill', lambda pid, signum: kills.append((pid, signum))), \
+                self.assertRaises(lab_broker.BrokerError):
+            h.broker.run_generation([sys.executable, '-B', '-c', 'import time; time.sleep(5)'])
+        elapsed = time.monotonic() - started
+        made[0].kill()
+        made[0].wait()
+        self.assertEqual(kills, [(made[0].pid, signal.SIGKILL)])
+        self.assertLess(elapsed, 3.0)
+        self.assertIsNotNone(h.broker.open_generation)
+        self.assertEqual(h.entries('generation-end'), [])
+
+    def test_a_short_write_then_an_error_keeps_exactly_the_acknowledged_prefix(self):
+        # A write that acknowledges 123 bytes, then ENOSPC: the record keeps exactly those bytes'
+        # size and digest, beside the error. Its twin's writer keeps all 1000 bytes.
+        for mode in ('partial then error', 'normal'):
+            with self.subTest(mode):
+                h = Harness()
+                self.addCleanup(h.close)
+
+                class Short:
+                    def __init__(self, file):
+                        self.file, self.first = file, True
+
+                    def __getattr__(self, name):
+                        return getattr(self.file, name)
+
+                    def write(self, data):
+                        if mode == 'normal':
+                            return self.file.write(data)
+                        if self.first:
+                            self.first = False
+                            return self.file.write(data[:123])
+                        raise OSError(errno.ENOSPC, 'no space left for the kept output')
+
+                class Collector(lab_broker._OutputCollector):
+                    def _run(self):
+                        self._file = Short(self._file)
+                        super()._run()
+                with unittest.mock.patch.object(lab_broker, '_OutputCollector', Collector):
+                    summary, kept = GenerationOutputTests.generation(self, h, after=1000)
+                if mode == 'normal':
+                    self.assertEqual((summary['status'], kept), ('COMPLETE', written(1000)))
+                    continue
+                self.assertEqual((summary['status'], kept), ('FAILED', written(123)))
+                self.assertEqual((summary['output']['kept'], summary['output']['error']),
+                                 (123, 'OSError: [Errno 28] no space left for the kept output'))
+                self.assertEqual(h.entries('stop')[-1].content['reason'],
+                                 'generation 1: ' + summary['output']['reason'])
+
+    def test_a_collector_stalled_in_a_write_leaves_its_output_unfinal_within_a_bound(self):
+        # The collector's first write is held, for 8 s or, in the twin, 1 s; the producer writes
+        # before HELLO and fills the pipe, and short bounds end and reap it. Every wait of the end
+        # is bounded: the stalled collector's output is recorded as not final, with no size or
+        # digest, and the stop latched. The twin's write returns within the bound, and its kept
+        # output is final and recorded.
+        for hold in (8.0, 1.0):
+            with self.subTest(hold=hold):
+                h = Harness(limits=dict(labtest.LIMITS, generation_idle_s=0.25, exit_grace_s=0.25))
+                self.addCleanup(h.close)
+                release, holding = threading.Event(), threading.Event()
+                self.addCleanup(release.set)
+                threads = []
+
+                class Held:
+                    def __init__(self, file):
+                        self.file, self.first = file, True
+
+                    def __getattr__(self, name):
+                        return getattr(self.file, name)
+
+                    def write(self, data):
+                        if self.first:
+                            self.first = False
+                            holding.set()
+                            release.wait(hold)
+                        return self.file.write(data)
+
+                class Collector(lab_broker._OutputCollector):
+                    def _run(self):
+                        threads.append(self._thread)
+                        self._file = Held(self._file)
+                        super()._run()
+                started = time.monotonic()
+                with unittest.mock.patch.object(lab_broker, '_OutputCollector', Collector):
+                    request = h.directory / 'request'
+                    request.write_bytes(proto.encode(proto.message('HELLO', '%032x' % 1, h.manifest, **self.common(h))))
+                    summary = h.broker.run_generation([sys.executable, '-B', '-c', OUTPUT_FAKE, str(request),
+                                                       'before=%d' % (1 << 20)])
+                elapsed = time.monotonic() - started
+                path = h.root / lab_broker.JVM / '000001.stderr'
+                if hold < lab_broker.OUTPUT_DRAIN_S:
+                    kept = path.read_bytes()
+                    self.assertEqual((summary['stderr_bytes'], summary['stderr_sha256']),
+                                     (len(kept), hashlib.sha256(kept).hexdigest()))
+                    continue
+                self.assertLess(elapsed, lab_broker.OUTPUT_DRAIN_S + lab_broker.OUTPUT_STOP_S + 1.5)
+                reason = "the output's collector did not stop within 1 s: the kept output is not final"
+                self.assertEqual((summary['status'] == 'COMPLETE', summary['stderr_bytes'], summary['stderr_sha256']),
+                                 (False, None, None))
+                self.assertEqual((summary['output']['reason'], summary['output']['unfinished_writer']), (reason, True))
+                self.assertEqual(h.entries('stop')[-1].content['reason'], 'generation 1: ' + reason)
+                # The broker's close awaits a collector it still holds within the same bound: one
+                # stalled in its write is left so. Each held write's later end closes its file.
+                holding.clear()
+                ours, theirs = os.pipe()
+                self.addCleanup(os.close, theirs)
+                held = Collector(ours, h.directory / 'held.stderr', lab_broker.OUTPUT_ALLOWANCE, os.fsync)
+                os.write(theirs, b'held output\n')
+                self.assertTrue(holding.wait(5))
+                h.broker._collector = held
+                closing = time.monotonic()
+                h.broker.close()
+                self.assertLess(time.monotonic() - closing, lab_broker.OUTPUT_STOP_S + 1.0)
+                self.assertEqual((held.stalled, held.problem()['unfinished_writer']), (True, True))
+                release.set()
+                for thread in threads:
+                    thread.join(5)
+                    self.assertFalse(thread.is_alive())
+
+    def test_a_refused_spawn_leaves_no_pipe_open(self):
+        def pipes():
+            found = set()
+            for name in os.listdir('/proc/self/fd'):
+                try:
+                    if os.readlink('/proc/self/fd/' + name).startswith('pipe:'):
+                        found.add(name)
+                except OSError:
+                    pass
+            return found
+        h = Harness()
+        self.addCleanup(h.close)
+        before = pipes()
+
+        def refuse(argv, **options):
+            raise OSError(errno.EAGAIN, 'modeled spawn refusal')
+        with unittest.mock.patch.object(lab_broker.subprocess, 'Popen', refuse), self.assertRaises(OSError):
+            h.broker.run_generation(['refused'])
+        self.assertEqual(pipes(), before)
+        h.broker.close()
+        self.assertEqual(pipes(), before)
+
+
+# Each failure that `failing` models, and the reason its generation's record gives.
+FAILURES = {
+    'read': "the output pipe could not be read: OSError: [Errno 5] modeled pipe read failure",
+    'write': 'the kept output could not be written: OSError: [Errno 28] modeled full disk',
+    'sync': 'the kept output could not be synced: OSError: [Errno 5] modeled output sync failure',
+    'sync, otherwise': 'the kept output could not be synced: RuntimeError: modeled sync defect',
+    'close': 'the kept output could not be closed: OSError: [Errno 5] modeled final close failure',
+    'pipe': 'the output pipe could not be closed: OSError: [Errno 5] modeled pipe close failure',
+    'thread': "the output's collector failed: RuntimeError: modeled collector defect",
+}
+
+
+def failing(mode):
+    """A collector whose stage fails as `mode` models, without disturbing the host: a read, the
+    first write, the sync, the file's close or the pipe's close, each failing with an I/O error, a
+    sync that fails otherwise, or an exception no stage expects, raised by the first write. Each
+    close closes for real first, then fails, as close(2) may report a delayed I/O error. Any other
+    mode fails nowhere."""
+    class File:
+        def __init__(self, file):
+            self.file = file
+
+        def __getattr__(self, name):
+            return getattr(self.file, name)
+
+        def write(self, data):
+            if mode == 'write':
+                raise OSError(errno.ENOSPC, 'modeled full disk')
+            if mode == 'thread':
+                raise RuntimeError('modeled collector defect')
+            return self.file.write(data)
+
+        def close(self):
+            self.file.close()
+            if mode == 'close':
+                raise OSError(errno.EIO, 'modeled final close failure')
+
+    def sync(fd):
+        if mode == 'sync':
+            raise OSError(errno.EIO, 'modeled output sync failure')
+        raise RuntimeError('modeled sync defect')
+
+    class Collector(lab_broker._OutputCollector):
+        def _run(self):
+            self._file = File(self._file)
+            if mode.startswith('sync'):
+                self._sync = sync
+            super()._run()
+
+        def _read(self):
+            if mode == 'read':
+                raise OSError(errno.EIO, 'modeled pipe read failure')
+            return super()._read()
+
+        def _close_pipe(self):
+            super()._close_pipe()
+            if mode == 'pipe':
+                raise OSError(errno.EIO, 'modeled pipe close failure')
+    return Collector
+
+
+def held(path):
+    """This process's descriptors of pipes and of `path`."""
+    found = {}
+    for name in os.listdir('/proc/self/fd'):
+        try:
+            target = os.readlink('/proc/self/fd/' + name)
+        except OSError:
+            continue
+        if target.startswith('pipe:') or target == str(path):
+            found[name] = target
+    return found
+
+
+class CollectorFailureTests(Base):
+    def generation(self, h, collector, **options):
+        """A generation that sends HELLO, reads its reply and writes `options`' output, its output
+        collected by `collector`. Returns its summary and the bytes its kept file holds."""
+        request = h.directory / 'request'
+        request.write_bytes(proto.encode(proto.message(
+            'HELLO', '%032x' % 1, h.manifest, installation=labtest.INSTALLATION, coordinator=labtest.COORDINATOR,
+            config=labtest.CONFIG, component=sim_android.PACKAGE, trust=labtest.TRUST, route=1)))
+        argv = [sys.executable, '-B', '-c', OUTPUT_FAKE, str(request)] + ['%s=%s' % kv for kv in options.items()]
+        with unittest.mock.patch.object(lab_broker, '_OutputCollector', collector):
+            summary = h.broker.run_generation(argv)
+        return summary, (h.root / lab_broker.JVM / '000001.stderr').read_bytes()
+
+    def failed_and_stopped(self, h, summary, kept, reason):
+        """The generation is not COMPLETE, its record names the failure and claims exactly the
+        bytes its file holds, and the stop is latched, so the next generation is told STOPPED."""
+        self.assertNotEqual(summary['status'], 'COMPLETE')
+        self.assertEqual(summary['output']['reason'], reason)
+        self.assertEqual((summary['stderr_bytes'], summary['stderr_sha256']),
+                         (len(kept), hashlib.sha256(kept).hexdigest()))
+        GenerationOutputTests.stopped_after(self, h, 'generation 1: ' + reason)
+
+    def test_a_close_that_fails_after_closing_is_recorded_and_stops_forward_work(self):
+        # The file's close closes it, then fails with EIO. The failure is the output's problem:
+        # never COMPLETE, and the stop is latched. Its twins: a normal writer, COMPLETE, and a
+        # failing sync, recorded and stopped as before.
+        for mode in ('close', 'normal', 'sync'):
+            with self.subTest(mode):
+                h = Harness()
+                self.addCleanup(h.close)
+                summary, kept = self.generation(h, failing(mode), after=1000)
+                self.assertEqual(kept, written(1000))
+                if mode == 'normal':
+                    self.assertEqual((summary['status'], summary['stderr_bytes'], h.broker.stopped),
+                                     ('COMPLETE', 1000, None))
+                    self.assertNotIn('output', summary)
+                    continue
+                self.failed_and_stopped(h, summary, kept, FAILURES[mode])
+                self.assertEqual(summary['output']['error'], FAILURES[mode].split(': ', 1)[1])
+
+    def test_a_failure_at_any_stage_of_the_collector_is_recorded_and_stops_forward_work(self):
+        # A read, the first write, the sync, either close, or the collector's thread itself fails:
+        # each is recorded with its stage and stops forward work, and the record claims exactly
+        # what the file holds. The honest twin's collector keeps all 1000 bytes, COMPLETE.
+        for mode in ('normal',) + tuple(FAILURES):
+            with self.subTest(mode):
+                h = Harness()
+                self.addCleanup(h.close)
+                summary, kept = self.generation(h, failing(mode), after=1000)
+                if mode == 'normal':
+                    self.assertEqual((summary['status'], kept, h.broker.stopped), ('COMPLETE', written(1000), None))
+                    continue
+                self.failed_and_stopped(h, summary, kept, FAILURES[mode])
+                self.assertEqual(kept, written(1000) if mode in ('sync', 'sync, otherwise', 'close', 'pipe') else b'')
+
+    def test_a_collector_that_ends_without_its_own_report_leaves_an_output_that_is_not_final(self):
+        # Its thread collects and closes, then ends without its report that it ended: quietly, or
+        # dying of an exception. The output is not final, so no size or digest is claimed, and the
+        # stop is latched. The twin reports.
+        for mode in ('ends quietly', 'dies before its report', 'reports'):
+            with self.subTest(mode):
+                h = Harness()
+                self.addCleanup(h.close)
+                died = []
+
+                class Collector(lab_broker._OutputCollector):
+                    def _run(self):
+                        if mode != 'ends quietly':
+                            return super()._run()
+                        self._collect()
+                        self._close()
+
+                    def _report(self):
+                        if mode == 'dies before its report':
+                            raise RuntimeError('modeled death before its report')
+                        super()._report()
+                with unittest.mock.patch.object(threading, 'excepthook', lambda args: died.append(args.exc_type)):
+                    summary, kept = self.generation(h, Collector, after=1000)
+                self.assertEqual((kept, died),
+                                 (written(1000), [RuntimeError] if mode == 'dies before its report' else []))
+                if mode == 'reports':
+                    self.assertEqual((summary['status'], summary['stderr_bytes'], h.broker.stopped),
+                                     ('COMPLETE', 1000, None))
+                    continue
+                reason = "the output's collector ended without reporting its end: the kept output is not final"
+                self.assertNotEqual(summary['status'], 'COMPLETE')
+                self.assertEqual((summary['stderr_bytes'], summary['stderr_sha256']), (None, None))
+                self.assertEqual((summary['output']['reason'], summary['output']['unfinished_writer']), (reason, True))
+                GenerationOutputTests.stopped_after(self, h, 'generation 1: ' + reason)
+
+    def test_a_collector_failure_beside_a_refused_spawn_or_an_unreaped_leader_still_stops_forward_work(self):
+        # No generation record ends either: the spawn is refused, or the leader's kill never takes.
+        # A failure of the collector, its file's close here, is still recorded as the stop. Each
+        # twin's collector does not fail, and the broker does not stop, as before.
+        for case, mode in (('refused spawn', 'close'), ('refused spawn', 'normal'), ('unreaped leader', 'close'),
+                           ('unreaped leader', 'normal')):
+            with self.subTest(case=case, mode=mode):
+                h = Harness(limits=dict(labtest.LIMITS, generation_idle_s=0.25, exit_grace_s=0.5))
+                self.addCleanup(h.close)
+                made, real = [], lab_broker.subprocess.Popen
+
+                def popen(argv, **options):
+                    if case == 'refused spawn':
+                        raise OSError(errno.EAGAIN, 'modeled spawn refusal')
+                    made.append(real(argv, **options))
+                    return made[-1]
+                expected = OSError if case == 'refused spawn' else lab_broker.BrokerError
+                with unittest.mock.patch.object(lab_broker, '_OutputCollector', failing(mode)), \
+                        unittest.mock.patch.object(lab_broker.subprocess, 'Popen', popen), \
+                        unittest.mock.patch.object(lab_broker.os, 'kill', lambda pid, signum: None), \
+                        self.assertRaises(expected):
+                    h.broker.run_generation([sys.executable, '-B', '-c', 'import time; time.sleep(5)'])
+                for process in made:
+                    process.kill()
+                    process.wait()
+                self.assertEqual(h.entries('generation-end'), [])
+                if mode == 'normal':
+                    self.assertEqual((h.entries('stop'), h.broker.stopped), ([], None))
+                    continue
+                reason = 'generation 1: ' + FAILURES['close']
+                if case == 'refused spawn':
+                    GenerationOutputTests.stopped_after(self, h, reason)
+                    continue
+                # The leader's generation stays open, as before, so nothing is served until a
+                # reopening ends it; the stop is latched all the same, and outlives that reopening.
+                self.assertEqual(([e.content['reason'] for e in h.entries('stop')], h.broker.stopped),
+                                 ([reason], reason))
+                self.assertIsNotNone(h.broker.open_generation)
+                h.reopen()
+                self.assertEqual((h.broker.stopped, h.broker.open_generation), (reason, None))
+                GenerationOutputTests.stopped_after(self, h, reason)
+
+    def test_output_after_a_failed_write_is_still_counted_and_its_overflow_recorded(self):
+        # The first write fails, then the generation writes 5 MiB in all: what is read and not kept
+        # is counted as dropped, so the overflow is recorded, beside the write's failure. Its twins:
+        # a normal writer of 5 MiB, whose overflow is recorded as before, and a failed write with
+        # 1000 bytes only, which is no overflow.
+        allowance = lab_broker.OUTPUT_ALLOWANCE
+        overflow = "the generation's output passed its allowance of %d bytes" % allowance
+        for mode, size in (('write', 5 << 20), ('normal', 5 << 20), ('write', 1000)):
+            with self.subTest(mode=mode, size=size):
+                h = Harness()
+                self.addCleanup(h.close)
+                summary, kept = self.generation(h, failing(mode), after=size)
+                output = summary['output']
+                if mode == 'normal':
+                    self.assertEqual((output['reason'], output['kept'], output['dropped'], output['error']),
+                                     (overflow, allowance, size - allowance, None))
+                    self.failed_and_stopped(h, summary, kept, overflow)
+                    continue
+                self.assertEqual((output['kept'], output['dropped'], output['error'], kept),
+                                 (0, size, FAILURES['write'].split(': ', 1)[1], b''))
+                self.failed_and_stopped(h, summary, kept, overflow if size > allowance else FAILURES['write'])
+
+    def test_a_kept_output_that_cannot_be_opened_or_collected_starts_no_generation(self):
+        # Its file exists already, cannot be made for want of space, or the collector's thread
+        # cannot start: no generation starts, nothing it opened stays open, and the stop is latched
+        # with the reason. A broker stopped already keeps its stop, and the failure is named beside
+        # it. The twin opens it and completes.
+        for mode in ('exists', 'no space', 'no thread', 'exists, stopped already', 'normal'):
+            with self.subTest(mode):
+                h = Harness()
+                self.addCleanup(h.close)
+                path, ran = h.root / lab_broker.JVM / '000001.stderr', h.directory / 'ran'
+                if mode.startswith('exists'):
+                    path.write_bytes(b'')
+                if mode.endswith('stopped already'):
+                    h.broker.stop('an earlier stop')
+
+                class Collector(lab_broker._OutputCollector):
+                    def _open(self, path):
+                        if mode == 'no space':
+                            raise OSError(errno.ENOSPC, 'modeled full disk')
+                        return super()._open(path)
+
+                    def _start(self):
+                        if mode == 'no thread':
+                            raise RuntimeError("can't start new thread")
+                        super()._start()
+                if mode == 'normal':
+                    summary, kept = self.generation(h, Collector, after=1000)
+                    self.assertEqual((summary['status'], kept, h.broker.stopped), ('COMPLETE', written(1000), None))
+                    continue
+                before = held(path)
+                with unittest.mock.patch.object(lab_broker, '_OutputCollector', Collector), \
+                        self.assertRaises(lab_broker.Stopped) as raised:
+                    h.broker.run_generation([sys.executable, '-B', '-c', 'open(%r, "w").write("ran")' % str(ran)])
+                error = {'exists': "FileExistsError: [Errno 17] File exists: '%s'" % path,
+                         'no space': 'OSError: [Errno 28] modeled full disk',
+                         'no thread': "RuntimeError: can't start new thread"}[mode.split(',')[0]]
+                reason = "generation 1: the kept output's collector could not start: " + error
+                self.assertEqual((h.entries('generation'), ran.exists(), held(path)), ([], False, before))
+                if mode.endswith('stopped already'):
+                    self.assertEqual(str(raised.exception), 'an earlier stop; then ' + reason)
+                    GenerationOutputTests.stopped_after(self, h, 'an earlier stop')
+                    continue
+                self.assertEqual(str(raised.exception), reason)
+                GenerationOutputTests.stopped_after(self, h, reason)
 
 
 class ServeTests(Base):

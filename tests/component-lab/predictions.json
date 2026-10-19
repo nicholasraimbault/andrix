@@ -1,20 +1,20 @@
 {
  "cases": {
-  "BridgeTest": 22,
+  "BridgeTest": 23,
   "DriverTest": 33,
-  "ProtocolTest": 11,
+  "ProtocolTest": 12,
   "RepairTest": 13,
   "test_capture_ledger": 14,
   "test_full_users": 37,
   "test_health": 53,
-  "test_lab_bridge": 28,
-  "test_lab_broker": 103,
+  "test_lab_bridge": 30,
+  "test_lab_broker": 130,
   "test_lab_crossings": 13,
   "test_lab_driver": 35,
   "test_lab_loss": 62,
-  "test_lab_next": 47,
-  "test_lab_protocol": 15,
-  "test_next_campaign": 44,
+  "test_lab_next": 48,
+  "test_lab_protocol": 16,
+  "test_next_campaign": 45,
   "test_next_driver": 21,
   "test_next_readers": 9,
   "test_shell_transport": 25,
@@ -114,6 +114,12 @@
   "boundary-keep-failure-not-latched": [
    "test_lab_loss.WriterLatchTests.test_a_failed_keep_at_a_boundary_stops_and_records_no_checkpoint_or_loss"
   ],
+  "bridge-frames-on-a-standard-stream": [
+   "BridgeTest.bridge / the frames go only over the two pipes the broker names"
+  ],
+  "bridge-frames-without-pipes-fall-back": [
+   "BridgeTest.bridge / the frames go only over the two pipes the broker names"
+  ],
   "broker-name-unsynced-at-opening": [
    "test_lab_broker.BrokerDirectoryTests.test_the_brokers_name_is_synced_when_made_and_at_every_opening",
    "test_lab_broker.BrokerDirectoryTests.test_a_failed_sync_of_the_brokers_name_refuses_the_opening_until_it_completes"
@@ -121,6 +127,12 @@
   "broker-name-unsynced-when-made": [
    "test_lab_broker.BrokerDirectoryTests.test_the_brokers_name_is_synced_when_made_and_at_every_opening",
    "test_lab_broker.BrokerDirectoryTests.test_a_failed_sync_when_the_broker_is_made_leaves_nothing_to_open"
+  ],
+  "broker-receipt-row-index-unbounded": [
+   "test_lab_next.ReceiptTests.test_a_row_and_a_visibility_request_name_a_notice_index_below_the_codecs_bound"
+  ],
+  "broker-visibility-index-unbounded": [
+   "test_lab_next.ReceiptTests.test_a_row_and_a_visibility_request_name_a_notice_index_below_the_codecs_bound"
   ],
   "buffered-stream-accepted": [
    "test_lab_broker.StreamAndReapTests.test_a_buffered_generation_stream_is_refused_before_any_read"
@@ -162,6 +174,45 @@
   ],
   "cohort-control-not-contradicted": [
    "test_lab_driver.DriverEndToEnd.test_the_loss_cells_run_in_order_to_their_predicted_ends"
+  ],
+  "collector-alive-asked-after-its-report": [
+   "test_lab_broker.OutputFenceTests.test_a_gate_asking_while_the_collector_reports_and_ends_finds_no_problem",
+   "test_lab_broker.OutputFenceTests.test_a_launch_gate_asking_while_the_collector_reports_and_ends_launches_as_its_twin",
+   "test_lab_broker.OutputFenceTests.test_a_collector_seen_while_it_ends_is_never_taken_for_one_that_did_not_report"
+  ],
+  "collector-close-error-lost": [
+   "test_lab_broker.CollectorFailureTests.test_a_close_that_fails_after_closing_is_recorded_and_stops_forward_work",
+   "test_lab_broker.CollectorFailureTests.test_a_failure_at_any_stage_of_the_collector_is_recorded_and_stops_forward_work",
+   "test_lab_broker.CollectorFailureTests.test_a_collector_failure_beside_a_refused_spawn_or_an_unreaped_leader_still_stops_forward_work"
+  ],
+  "collector-end-report-unchecked": [
+   "test_lab_broker.CollectorFailureTests.test_a_collector_that_ends_without_its_own_report_leaves_an_output_that_is_not_final"
+  ],
+  "collector-failure-uncaught": [
+   "test_lab_broker.CollectorFailureTests.test_a_failure_at_any_stage_of_the_collector_is_recorded_and_stops_forward_work"
+  ],
+  "collector-pipe-close-error-lost": [
+   "test_lab_broker.CollectorFailureTests.test_a_failure_at_any_stage_of_the_collector_is_recorded_and_stops_forward_work"
+  ],
+  "collector-read-error-lost": [
+   "test_lab_broker.CollectorFailureTests.test_a_failure_at_any_stage_of_the_collector_is_recorded_and_stops_forward_work"
+  ],
+  "collector-start-failure-leaks-its-file": [
+   "test_lab_broker.CollectorFailureTests.test_a_kept_output_that_cannot_be_opened_or_collected_starts_no_generation"
+  ],
+  "collector-start-failure-unrecorded": [
+   "test_lab_broker.CollectorFailureTests.test_a_kept_output_that_cannot_be_opened_or_collected_starts_no_generation"
+  ],
+  "collector-stop-awaited-without-bound": [
+   "test_lab_broker.OutputFenceTests.test_a_collector_stalled_in_a_write_leaves_its_output_unfinal_within_a_bound"
+  ],
+  "collector-sync-error-lost": [
+   "test_lab_broker.CollectorFailureTests.test_a_close_that_fails_after_closing_is_recorded_and_stops_forward_work",
+   "test_lab_broker.CollectorFailureTests.test_a_failure_at_any_stage_of_the_collector_is_recorded_and_stops_forward_work"
+  ],
+  "collector-write-error-lost": [
+   "test_lab_broker.CollectorFailureTests.test_a_failure_at_any_stage_of_the_collector_is_recorded_and_stops_forward_work",
+   "test_lab_broker.OutputFenceTests.test_a_short_write_then_an_error_keeps_exactly_the_acknowledged_prefix"
   ],
   "composer-hook-assumed-held": [
    "test_health.ComposerTests.test_an_honest_probe_holds_bits_0_2_and_3_and_leaves_the_hooks_unknown",
@@ -317,6 +368,9 @@
    "test_next_campaign.DriverRuleTests.test_a_new_boot_needs_both_helpers_read_back",
    "test_next_driver.CampaignTests.test_a_helper_that_reads_back_other_bytes_after_a_boot_stops_the_driver"
   ],
+  "driver-jvm-output-undestined": [
+   "test_next_campaign.DriverRuleTests.test_every_coordinator_jvm_names_its_output_destinations"
+  ],
   "driver-later-boot-assumed": [
    "test_next_driver.CampaignTests.test_a_commit_still_verifying_is_read_again_without_a_confirmation"
   ],
@@ -408,6 +462,9 @@
   "dropped-reply-delivered": [
    "test_lab_broker.FaultTests.test_a_dropped_reply_runs_once_and_is_escrowed_never_given"
   ],
+  "dropped-uncounted-after-a-failure": [
+   "test_lab_broker.CollectorFailureTests.test_output_after_a_failed_write_is_still_counted_and_its_overflow_recorded"
+  ],
   "earlier-framework-fact-taken": [
    "BridgeTest.device / frames are decoded strictly and checked against the round"
   ],
@@ -494,11 +551,23 @@
   "generation-failure-continued": [
    "test_lab_driver.DriverEndToEnd.test_a_failed_generation_stops_the_driver"
   ],
+  "generation-group-not-retired": [
+   "test_lab_broker.GenerationOutputTests.test_a_child_that_inherits_the_output_is_retired_at_the_generations_end",
+   "test_lab_bridge.BridgeEndToEnd.test_a_library_child_of_the_coordinator_never_changes_its_kept_output",
+   "test_lab_broker.OutputFenceTests.test_retirement_signals_the_group_while_its_leader_is_unreaped"
+  ],
+  "generation-group-retired-after-reap": [
+   "test_lab_broker.OutputFenceTests.test_retirement_signals_the_group_while_its_leader_is_unreaped"
+  ],
   "generation-read-deadline-ignored": [
    "test_next_driver.CampaignTests.test_an_ordinary_wait_stops_at_its_own_budget_on_the_host_clock"
   ],
   "generation-read-deadline-unchecked": [
    "test_next_campaign.AdmissionTests.test_the_wait_policy_is_its_own_admitted_budget"
+  ],
+  "generation-stdout-on-the-frame-pipe": [
+   "test_lab_broker.FrameChannelTests.test_output_on_the_standard_streams_never_reaches_a_frame",
+   "test_lab_bridge.BridgeEndToEnd.test_vm_output_before_the_first_frame_never_reaches_a_frame"
   ],
   "global-bracket-unchecked": [
    "test_next_readers.GlobalInventoryTests.test_a_read_that_disagrees_or_crosses_a_restart_gives_no_reading"
@@ -675,6 +744,9 @@
   "identity-system-process-unchecked": [
    "test_health.IdentityBaselineTests.test_the_system_users_process_must_be_the_one_the_active_read_names"
   ],
+  "in-flight-call-recorded-unlaunched": [
+   "test_lab_broker.OutputFenceTests.test_output_during_a_call_lets_that_call_finish_and_starts_nothing_after_it"
+  ],
   "incomplete-listing-accepted": [
    "test_lab_broker.LabActionTests.test_an_incomplete_listing_never_admits_a_restart"
   ],
@@ -689,6 +761,9 @@
   ],
   "issuing-keep-failure-not-latched": [
    "test_lab_loss.WriterLatchTests.test_a_failed_keep_of_a_confirmations_issuing_records_stops_before_any_reboot"
+  ],
+  "java-ledger-bound-above-the-codec": [
+   "ProtocolTest.protocol / the ledger bound is the public codec's, at both edges"
   ],
   "java-milestone-progress-as-entry": [
    "ProtocolTest.protocol / the milestone codes are fixed"
@@ -727,6 +802,12 @@
   "launch-fence-skipped": [
    "test_lab_broker.GuestAdmissionTests.test_the_admitted_launch_set_is_a_fence_whatever_the_faults"
   ],
+  "launch-gate-reads-the-output-twice": [
+   "test_lab_broker.OutputFenceTests.test_each_gate_asks_the_output_once_and_acts_on_that_answer"
+  ],
+  "ledger-bound-above-the-codec": [
+   "test_lab_protocol.ProtocolTests.test_the_ledger_bound_is_the_public_codecs"
+  ],
   "ledger-entries-unsynced-at-opening": [
    "test_capture_ledger.LedgerTests.test_reopening_syncs_every_file_and_directory_again",
    "test_capture_ledger.LedgerTests.test_a_failed_final_directory_sync_refuses_reopening_until_it_completes",
@@ -757,6 +838,12 @@
   ],
   "lost-generation-left-running": [
    "test_lab_broker.ReopenTests.test_a_lost_generation_process_is_ended_before_another_is_served"
+  ],
+  "lost-output-claimed": [
+   "test_lab_broker.OutputFenceTests.test_a_generation_lost_with_its_broker_never_has_its_output_claimed"
+  ],
+  "lost-output-fate-unstated": [
+   "test_lab_broker.OutputFenceTests.test_a_generation_lost_with_its_broker_never_has_its_output_claimed"
   ],
   "lost-read-as-quiet-1": [
    "test_lab_broker.GroupTests.test_a_lost_read_never_reads_as_no_framework"
@@ -877,12 +964,44 @@
    "DriverTest.baseline / a later incomplete check's facts are refused",
    "test_lab_driver.DriverEndToEnd.test_a_store_with_facts_of_another_boot_gives_no_plan_whatever_the_wall_times"
   ],
+  "output-allowance-unenforced": [
+   "test_lab_broker.GenerationOutputTests.test_an_output_within_its_allowance_is_kept_whole_and_one_past_it_stops_forward_work",
+   "test_lab_broker.GenerationOutputTests.test_output_past_its_allowance_before_a_request_leaves_it_unserved"
+  ],
+  "output-end-awaited-without-bound": [
+   "test_lab_broker.GenerationOutputTests.test_a_writer_that_left_the_group_is_an_unfinished_writer_and_stops_forward_work"
+  ],
+  "output-overflow-complete": [
+   "test_lab_broker.GenerationOutputTests.test_an_output_within_its_allowance_is_kept_whole_and_one_past_it_stops_forward_work"
+  ],
+  "output-overflow-keeps-going": [
+   "test_lab_broker.GenerationOutputTests.test_an_output_within_its_allowance_is_kept_whole_and_one_past_it_stops_forward_work"
+  ],
+  "output-overflow-served-on": [
+   "test_lab_broker.GenerationOutputTests.test_output_past_its_allowance_before_a_request_leaves_it_unserved"
+  ],
+  "output-problem-host-ungated": [
+   "test_lab_broker.OutputFenceTests.test_a_problem_known_before_a_host_call_begins_no_host_effect"
+  ],
+  "output-problem-launched-after-intent": [
+   "test_lab_broker.OutputFenceTests.test_a_problem_known_after_a_commands_intent_sends_nothing"
+  ],
+  "output-problem-unfenced": [
+   "test_lab_broker.OutputFenceTests.test_a_known_overflow_launches_no_later_command_of_the_request_it_arose_in",
+   "test_lab_broker.OutputFenceTests.test_output_during_a_call_lets_that_call_finish_and_starts_nothing_after_it"
+  ],
+  "output-problem-unlatched": [
+   "test_lab_broker.OutputFenceTests.test_a_problem_once_named_stays_named_and_the_end_agrees_with_the_stop"
+  ],
   "own-row-takes-a-partial-inventory": [
    "test_lab_loss.FenceTests.test_a_direct_commit_arms_nothing_on_an_incomplete_inventory"
   ],
   "partial-payload-dropped": [
    "test_shell_transport.DecoderTests.test_received_partial_payload_is_kept_without_completion",
    "test_shell_transport.ShellTests.test_a_timeout_inside_a_packet_keeps_its_received_payload"
+  ],
+  "partial-write-uncounted": [
+   "test_lab_broker.OutputFenceTests.test_a_short_write_then_an_error_keeps_exactly_the_acknowledged_prefix"
   ],
   "pending-checkpoint-accepted": [
    "DriverTest.baseline / a pending checkpoint in T0 is refused"
@@ -1298,6 +1417,12 @@
   "sources-not-reverified": [
    "test_lab_broker.GateTests.test_changed_sources_stop_before_any_crossing"
   ],
+  "spawn-failure-collector-problem-lost": [
+   "test_lab_broker.CollectorFailureTests.test_a_collector_failure_beside_a_refused_spawn_or_an_unreaped_leader_still_stops_forward_work"
+  ],
+  "spawn-failure-leaks-frame-ends": [
+   "test_lab_broker.OutputFenceTests.test_a_refused_spawn_leaves_no_pipe_open"
+  ],
   "spec-write-failure-not-latched": [
    "test_lab_next.HealthTests.test_a_failed_manifest_sync_latches_the_writer_and_no_effect_follows"
   ],
@@ -1394,6 +1519,9 @@
   "ui-state-user-unchecked": [
    "test_health.UiStateFormTests.test_a_contrary_reply_has_no_known_form"
   ],
+  "unfinished-writer-recorded-whole": [
+   "test_lab_broker.GenerationOutputTests.test_a_writer_that_left_the_group_is_an_unfinished_writer_and_stops_forward_work"
+  ],
   "unlock-current-ce-unchecked": [
    "test_health.UnlockTests.test_the_current_ce_state_and_the_nonce_decide_and_an_exception_is_never_false"
   ],
@@ -1412,6 +1540,24 @@
   "unreadable-features-unlisted": [
    "test_lab_broker.FeatureTests.test_unreadable_features_launch_nothing_and_are_asked_again",
    "test_lab_broker.LabActionTests.test_a_fresh_brokers_feature_query_is_refused_by_the_transport_once_the_bound_passes"
+  ],
+  "unreadable-head-dropped": [
+   "test_lab_broker.FrameChannelTests.test_a_truly_unreadable_frame_is_refused_and_its_first_bytes_are_kept"
+  ],
+  "unreadable-head-of-the-header-only": [
+   "test_lab_broker.FrameChannelTests.test_a_truly_unreadable_frame_is_refused_and_its_first_bytes_are_kept"
+  ],
+  "unreadable-head-unbounded": [
+   "test_lab_broker.FrameChannelTests.test_a_truly_unreadable_frame_is_refused_and_its_first_bytes_are_kept"
+  ],
+  "unreaped-kill-unbounded": [
+   "test_lab_broker.OutputFenceTests.test_an_unreaped_leader_whose_kill_does_not_take_stays_open_within_its_bound"
+  ],
+  "unreaped-leader-collector-problem-lost": [
+   "test_lab_broker.CollectorFailureTests.test_a_collector_failure_beside_a_refused_spawn_or_an_unreaped_leader_still_stops_forward_work"
+  ],
+  "unseen-generation-group-signalled": [
+   "test_lab_broker.OutputFenceTests.test_retirement_signals_the_group_while_its_leader_is_unreaped"
   ],
   "unsettled-transition-ignored": [
    "test_lab_loss.ConfirmationTests.test_no_new_boot_within_the_bound_or_a_second_boot_holds_every_crossing"

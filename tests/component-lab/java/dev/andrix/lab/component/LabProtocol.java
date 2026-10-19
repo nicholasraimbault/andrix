@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package dev.andrix.lab.component;
 
+import dev.andrix.server.deployment.DeploymentRecords;
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -65,7 +66,11 @@ public final class LabProtocol {
     public static final int MAX_STAGE_DIR = 255;
     public static final int MAX_RECORD = 65536;
     public static final int MAX_FRAMES = 256;
-    public static final int MAX_LEDGER = 140;
+    /**
+     * The public codec's ledger bound, the sum of the crossings' bounds: every entry index, a
+     * notice's included, is below it, so the lab never takes one the codec refuses.
+     */
+    public static final int MAX_LEDGER = DeploymentRecords.MAX_LEDGER;
     public static final String ZERO_ID = "0".repeat(32);
     public static final String ZERO_DIGEST = "0".repeat(64);
     /** The coordinator's only lab point, {@code Coordinator.BETWEEN_WRITES}. */

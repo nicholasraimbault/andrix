@@ -621,6 +621,21 @@ public final class BridgeTest {
                     "usage");
         });
 
+        cases.run("bridge / the frames go only over the two pipes the broker names", problems -> {
+            int[] good = LabBridge.frameDescriptors("5,6");
+            LabCases.check(problems, good[0] == 5 && good[1] == 6, "the replies' pipe, then the requests'");
+            LabCases.check(problems, LabBridge.frameDescriptors("1234567,3")[0] == 1234567,
+                    "any two descriptors past the standard streams");
+            for (String bad : new String[] {"", "5", "5,", ",6", "5,5", "1,6", "2,6", "5,1", "5,2", "0,6", "05,6",
+                    "a,6", " 5,6", "5,6 ", "5,6,7", "5;6", "12345678,6", "-5,6", "+5,6"}) {
+                LabCases.check(problems, throwsType(IllegalArgumentException.class,
+                        () -> LabBridge.frameDescriptors(bad)), "frame pipes of another form were taken: " + bad);
+            }
+            // Without them there is no channel at all: nothing falls back to the standard streams.
+            LabCases.check(problems, throwsType(IllegalArgumentException.class, () -> LabBridge.frameDescriptors(null)),
+                    "a generation without its frame pipes");
+        });
+
         cases.run("config / version 3 names the profile, and its generation speaks protocol 2", problems -> {
             byte[] good = LabConfig.encode(LabFixtures.INSTALLATION, LabFixtures.COMPONENT, LabFixtures.COORDINATOR,
                     LabFixtures.TRUST, MANIFEST, Paths.get("/lab/store"), LabFixtures.HOST, LabConfig.PROFILE);
