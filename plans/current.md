@@ -187,10 +187,20 @@ closed model of the first step's image pinned as the rollback floor, the common 
 under the production format, and inputs for every planned guest layout with both readers'
 predictions. The image of this step is now built. Its final code differs from the first step's
 image by that one operand, and its partitions only by the predicted build identity outputs. An
-independent assessment found no blocking issue. Its guest stage is designed and being prepared:
-each layout is read on this image, on the first step's image after an offline switch of the same
-guest, and on this image again, and a test package's keys, data and Android settings are carried
-through suspension, rollback, return and lift.
+independent assessment found no blocking issue. Its guest stage is under way: each layout is read
+on this image, on the first step's image after an offline switch of the same guest, and on this
+image again, and a test package's keys, data and Android settings are carried through suspension,
+rollback, return and lift. Two of its three guests have completed their phases. One staged and
+read an empty layout on the first step's image. The other read a missing store and then an empty
+layout it staged itself, six times each, across two offline switches to the first step's image,
+each returning its own original system disk. Both of its layouts are qualified in the coverage
+record. Several paths were first met on real records there, among them an overlay that records no
+backing format and an incomplete reference for a returning boot's key inputs; each refused before
+any effect and was corrected under review. The third guest carries the test package through its
+setup once. A disposable twin runs that setup first, so that its owner reads, settling and timing
+meet real records before the one setup that counts. That rehearsal has already found that the
+setup's later steps did not judge the state they started from before acting, and the correction
+is being made before it runs.
 
 The [installer durability assessment](2026-09-27-package-installer-durability.md) retains an
 unclean stop failure and a separate Android file comparison. The checked writing descriptor sync
@@ -376,9 +386,12 @@ loss cells move to the next guest, which confirms each loss with a plain reboot 
 side is now integrated and independently reviewed: notice receipts read from a full screen notice
 fixture, typed lab actions, losses addressed only from retained history and confirmed by kernel
 reboots, a fence that holds every managed commit until the fixture qualifies, and the setup of a
-second full user with its own SystemUI process found by identity. The health composition, the
-crash witness and the guest's driver come next. The rollback target waits for qualified candidate
-floor images, before the device coordinator.
+second full user with its own SystemUI process found by identity. The health composition's
+process history reader, the guest's driver through its boots and repair, the pieces a real run
+needs and the move of lab frames off standard output are now integrated, after one guarded run of
+every suite and every defect on the combined tree. The broker's fence on the host's monotonic
+clock and boot is reviewed and under its own guarded run, and the guest's closure is reviewed.
+The rollback target waits for qualified candidate floor images, before the device coordinator.
 
 ## Product checkpoint
 
