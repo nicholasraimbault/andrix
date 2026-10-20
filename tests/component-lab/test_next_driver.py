@@ -151,7 +151,7 @@ class World:
             manifest=hashlib.sha256(manifest).hexdigest(), config=config, serial='127.0.0.1:6520',
             target_scope='ESTABLISHED_EMPTY', device_dir=labtest.DEVICE_DIR,
             fences={'stop_file': str(self.dir / 'STOP'), 'lease_file': None, 'lease_token': None,
-                    'deadline_wall_ns': None},
+                    'deadline_monotonic_ns': None, 'host_boot_id': None},
             limits=dict(labtest.LIMITS), store=self.store, plans=PLANS, runtime=RUNTIME, helpers=pins,
             predicates=PREDICATES, payloads=payload_pins, notice=notice, limited=limited, sequence=sequence,
             wait_policy=None if wait_ms is None else {'ordinary_wait_ms': wait_ms})

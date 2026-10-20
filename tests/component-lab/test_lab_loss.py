@@ -1145,6 +1145,42 @@ class FenceTests(LossBase):
         self.assertEqual(self.crossing(h, 'COMMIT', 3, ticket='09' * 16)['status'], STATUS['OK'])
         self.assertEqual(len(self.commits(h)), 3)
 
+    def test_a_member_push_its_transport_refuses_stages_nothing(self):
+        # The run's deadline passes while the transport connects for N2's first member push, after
+        # its session was created: the push's last question refuses it, no member reaches the
+        # guest or is written, and the stop latched with the run's reason ends the stage STOPPED.
+        # The deadline comes before the action's own bound of 600 s, so the refusal is the run's
+        # alone. The twin's deadline lies ahead, and the stage writes both members.
+        for passes in (True, False):
+            with self.subTest(passes=passes):
+                D = labtest.Clock().mono + 300 * 10 ** 9
+                h = self.harness(specs=labtest.default_specs() + labtest.direct_specs(('N2', 'N3')),
+                                 fences={'stop_file': '/nonexistent/STOP', 'lease_file': None, 'lease_token': None,
+                                         'deadline_monotonic_ns': D, 'host_boot_id': labtest.HOST_BOOT})
+                h.pin_payloads(('N2', 'N3'))
+
+                def connect(command):
+                    if passes and command.startswith('push ') and h.clock.mono < D:
+                        h.clock.wall += D - h.clock.mono
+                        h.clock.mono = D
+                h.sim.hooks.append(connect)
+                if not passes:
+                    self.assertEqual(self.step(h, 'N2', 'DIRECT_STAGE')['status'], 'OK')
+                    self.assertEqual(len([c for c in h.sim.calls if c[0] == 'WRITE']), 2)
+                    continue
+                with self.assertRaises(lab_broker.Stopped):
+                    self.step(h, 'N2', 'DIRECT_STAGE')
+                [push] = [e.content for e in h.entries('capture')
+                          if e.content['intent']['operation'] == 'lab-action-push']
+                self.assertEqual((push['result']['launch'], push['result']['transport']),
+                                 ('not-launched', 'launch-deadline'))
+                self.assertEqual(([c for c in h.sim.calls if c[0] in ('push', 'WRITE')], [p for p in h.sim.files
+                                  if p.startswith(labtest.DEVICE_DIR + '/control-')]), ([], []))
+                end = [e.content for e in h.entries('lab-action') if e.content['record'] == 'END'][-1]
+                self.assertEqual((end['status'], end['uncertainty'], end['counts']['effects_launched'],
+                                  end['counts']['pushes']), ('STOPPED', lab_broker.RUN_AT_SERVICE, 1, 1))
+                self.assertEqual([e.content['reason'] for e in h.entries('stop')], [lab_broker.RUN_AT_SERVICE])
+
     def test_the_direct_exception_has_its_own_gates_and_order(self):
         h = self.direct()
         with self.assertRaisesRegex(lab_broker.BrokerError, 'predecessor'):
@@ -1571,6 +1607,43 @@ class NonstagedTests(LossBase):
         self.assertIn('NONSTAGED', h.broker.direct[labtest.N1_CONTROL])
         h.sim.reboot()
         self.assertFalse([s for s in h.sim.sessions.values() if not s.staged])
+
+    def test_a_push_its_transport_refuses_installs_nothing(self):
+        # The run's deadline passes while the transport connects for N1's base.apk push: its last
+        # question refuses the push, the payload never reaches the guest, nothing is installed, and
+        # the stop latched with the run's reason ends the action STOPPED. The deadline comes before
+        # the action's own bound of 600 s, so the refusal is the run's alone. The twin's deadline
+        # lies ahead, and its one install runs.
+        for passes in (True, False):
+            with self.subTest(passes=passes):
+                D = labtest.Clock().mono + 300 * 10 ** 9
+                h = self.harness(specs=labtest.default_specs() + labtest.direct_specs(('N1', 'N2', 'N3')),
+                                 fences={'stop_file': '/nonexistent/STOP', 'lease_file': None, 'lease_token': None,
+                                         'deadline_monotonic_ns': D, 'host_boot_id': labtest.HOST_BOOT})
+                h.pin_payloads(('N1', 'N2', 'N3'))
+                h.broker.consent(labtest.N1_CONTROL, 'the lab may attempt N1 once')
+
+                def connect(command):
+                    if passes and command.startswith('push ') and h.clock.mono < D:
+                        h.clock.wall += D - h.clock.mono
+                        h.clock.mono = D
+                h.sim.hooks.append(connect)
+                if not passes:
+                    self.assertEqual(self.install(h)['status'], 'OK')
+                    self.assertEqual(len(self.installs(h)), 1)
+                    continue
+                with self.assertRaises(lab_broker.Stopped):
+                    self.install(h)
+                [push] = [e.content for e in h.entries('capture')
+                          if e.content['intent']['operation'] == 'lab-action-push']
+                self.assertEqual((push['result']['launch'], push['result']['transport']),
+                                 ('not-launched', 'launch-deadline'))
+                self.assertEqual(([c for c in h.sim.calls if c[0] == 'push'], self.installs(h)), ([], []))
+                self.assertNotIn(push['intent']['path'], h.sim.files)
+                end = [e.content for e in h.entries('lab-action') if e.content['record'] == 'END'][-1]
+                self.assertEqual((end['status'], end['uncertainty'], end['counts']['effects_launched'],
+                                  end['counts']['pushes']), ('STOPPED', lab_broker.RUN_AT_SERVICE, 0, 1))
+                self.assertEqual([e.content['reason'] for e in h.entries('stop')], [lab_broker.RUN_AT_SERVICE])
 
     def test_n1_runs_only_with_its_payload_consent_and_a_quiet_guest(self):
         # Before its payload or its consent nothing is recorded and no use is spent.

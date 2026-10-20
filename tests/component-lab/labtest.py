@@ -29,6 +29,9 @@ INSTALLATION = '00112233445566778899aabbccddeeff'
 COORDINATOR = 'c0' * 16
 TRUST = '7a' * 32
 CONFIG = '3c' * 32
+# The modeled host's boot ID: a harness's brokers open in it, unless a test moves the harness to
+# another host boot.
+HOST_BOOT = '5b0c7e2a-41d3-4c8e-9f6a-0d2b7e4c1a93'
 PLAN = '01' * 16
 TICKET = '04' * 16
 NONCE = '5e1f0c9a7d3b4e2f8a6c1d0b9e7f3a25'
@@ -57,7 +60,7 @@ def admission(directory, **changes):
              'trust': TRUST, 'manifest': source_manifest.digest(manifest), 'config': CONFIG,
              'serial': '127.0.0.1:6520', 'target_scope': 'ESTABLISHED_EMPTY', 'device_dir': DEVICE_DIR,
              'fences': {'stop_file': str(Path(directory) / 'STOP'), 'lease_file': None, 'lease_token': None,
-                        'deadline_wall_ns': None},
+                        'deadline_monotonic_ns': None, 'host_boot_id': None},
              'limits': dict(LIMITS)}
     value.update(changes)
     return value
@@ -445,6 +448,7 @@ class Harness:
         self.root = self.directory / 'broker'
         self.sim = sim or sim_android.SimAndroid()
         self.clock = Clock()
+        self.host_boot = HOST_BOOT
         # The next profile admits its typed actions, and its reader the inventory, receipts, health
         # and the global session inventory. Its faults come only from the schedule it binds.
         self.reader_options = dict(reader or ({'inventory': True, 'receipts': True, 'health': True, 'witness': True,
@@ -494,7 +498,7 @@ class Harness:
                                              sleep=self.clock.sleep, ids=lambda n: os.urandom(n),
                                              processes=self.processes, sync=self.sync, target=self.target,
                                              target_read=self.target_read, health=self.health, fsync=self.fsync,
-                                             work=self.work, private=self.private)
+                                             work=self.work, private=self.private, host_boot=lambda: self.host_boot)
         return self.broker
 
     def open_at(self, root):
@@ -504,7 +508,8 @@ class Harness:
                                       notice=self.notice, wall=self.clock.wall_ns, monotonic=self.clock.monotonic_ns,
                                       sleep=self.clock.sleep, ids=lambda n: os.urandom(n), processes=self.processes,
                                       sync=self.sync, target=self.target, target_read=self.target_read,
-                                      health=self.health, work=self.work, private=self.private)
+                                      health=self.health, work=self.work, private=self.private,
+                                      host_boot=lambda: self.host_boot)
 
     def pin_payloads(self, roles=('N2', 'N3')):
         """Pins each direct control's negative payload, and makes N2's APK one of another signer."""

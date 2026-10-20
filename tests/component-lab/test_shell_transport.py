@@ -340,9 +340,12 @@ class ShellTests(unittest.TestCase):
 
     def test_a_launch_deadline_that_passes_during_setup_sends_nothing(self):
         # The caller's deadline passes while connecting and selecting the device: the service request
-        # is never sent, so the launch is known not to have happened. An open deadline sends it.
+        # is never sent, so the launch is known not to have happened. An open deadline sends it. The
+        # shell, reboot and sync services alike.
         for service, call in ((b'shell,', lambda c, gate: c.shell('id', 5, 100, 100, may_send=gate)),
-                              (b'reboot:', lambda c, gate: c.reboot(5, may_send=gate))):
+                              (b'reboot:', lambda c, gate: c.reboot(5, may_send=gate)),
+                              (b'sync:', lambda c, gate: c.push(b'x', '/data/local/tmp/a/b', 0o644, 0, 5,
+                                                                 may_send=gate))):
             clock = {'now': 0}
             sock = ScriptedSocket(b'OKAY' + bytes(8), on_drained=lambda clock=clock: clock.update(now=2 * 10 ** 9))
             result = call(st.AdbClient('sim', lambda timeout, s=sock: s), lambda clock=clock: clock['now'] < 10 ** 9)

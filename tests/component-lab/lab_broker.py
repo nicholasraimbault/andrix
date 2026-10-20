@@ -13,8 +13,9 @@ A broker directory holds:
 One coordinator JVM at a time, a generation, talks to the broker over its own standard input and
 output, which the broker created. Requests are handled one at a time to the end, so at most one
 guest command is in flight. The broker checks every fence, the stop file, the lease and the runtime
-deadline, before every guest command, reads included. Once a fence trips the stop is latched in
-the ledger, and no guest command follows it in this broker or any later one on the same ledger.
+deadline on the host's monotonic clock, before every guest command, reads included. Once a fence
+trips the stop is latched in the ledger, and no guest command follows it in this broker or any
+later one on the same ledger.
 
 The broker never repeats a crossing: it records each crossing before its first command and refuses
 any later request for the same ticket and ledger index. A reply that an admitted fault cell drops
@@ -73,6 +74,23 @@ LOCK = 'lock'
 JVM = 'jvm'
 HALT_STATUS = 99
 STOPPED_STATUS = 125
+# The host's ID of its current boot, the kernel's random UUID made new at every boot. The host's
+# monotonic clock, CLOCK_MONOTONIC, counts from that boot, so an instant on it means nothing in
+# another boot.
+HOST_BOOT_ID = Path('/proc/sys/kernel/random/boot_id')
+HOST_BOOT_FORM = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
+# Why a runtime deadline counts as passed in a host boot other than its own: the monotonic clock
+# the deadline counts on is gone. And why, when this host's boot ID cannot be read: that clock
+# cannot be placed.
+OTHER_BOOT = ("the runtime deadline passed: this host boot is not the admission's, and the monotonic clock "
+              "its deadline counts on is gone")
+UNREAD_BOOT = ("the runtime deadline passed: this host's boot ID cannot be read, so the monotonic clock its "
+               "deadline counts on cannot be placed")
+# Why a command admitted before the run's deadline is not launched, when the deadline passes after
+# its fence: once its intent is durable, or at the transport's last question before its service
+# request. Each is also the reason of the stop it latches, as the deadline's fence latches it.
+RUN_AT_LAUNCH = 'the runtime deadline passed before the launch'
+RUN_AT_SERVICE = 'the runtime deadline passed before the service request'
 TARGET_SCOPES = ('ESTABLISHED_EMPTY', 'HELD', 'UNKNOWN')
 LIMIT_KEYS = ('read_timeout_s', 'mutation_timeout_s', 'commit_timeout_s', 'push_timeout_s', 'reboot_timeout_s',
               'read_stdout_max', 'read_stderr_max', 'reply_stdout_max', 'reply_stderr_max', 'generation_idle_s',
@@ -162,6 +180,14 @@ OUTPUT_STOP_S = 1.0
 OUTPUT_CHUNK = 65536
 # What the end of a generation lost with its broker says of its output, which no record claims.
 LOST_OUTPUT = "the broker was lost while it served the generation: the kept output's fate is unknown"
+# What it says when the generation ran in another host boot: its process was never signalled.
+LOST_OTHER_BOOT = 'the broker was lost in another host boot, whose processes ended with it: none was signalled'
+# What it says when a boot ID could not be read, so its host boot is unknown: its process was ended
+# as in this boot all the same.
+LOST_UNKNOWN_BOOT = ('the broker was lost in a host boot that cannot be placed, since a boot ID could not be read: '
+                     'its process, if it still ran, was ended as in this boot')
+# Each lost generation's `host_boot`, as far as the two boot IDs tell, and its violation.
+LOST_VIOLATIONS = {'this': 'the broker was lost', 'another': LOST_OTHER_BOOT, 'unknown': LOST_UNKNOWN_BOOT}
 # The states in which a ticket waits for a later boot to show what a lost crossing did: a plain
 # kernel confirmation may be issued only for a ticket in one of them.
 CONFIRM_WAITS = ('SESSION_INTENT', 'COMMIT_INTENT', 'ABANDON_INTENT')
@@ -485,7 +511,8 @@ def _check_admission(value):
         raise BrokerError('admission target scope')
     crossings.staged_path(value['device_dir'] + '/x')
     fences = value['fences']
-    if not isinstance(fences, dict) or set(fences) != {'stop_file', 'lease_file', 'lease_token', 'deadline_wall_ns'}:
+    if not isinstance(fences, dict) or set(fences) != {'stop_file', 'lease_file', 'lease_token',
+                                                       'deadline_monotonic_ns', 'host_boot_id'}:
         raise BrokerError('admission fences')
     if not isinstance(fences['stop_file'], str) or not fences['stop_file'].startswith('/'):
         raise BrokerError('a stop file is required')
@@ -494,9 +521,13 @@ def _check_admission(value):
     if fences['lease_file'] is not None and (not str(fences['lease_file']).startswith('/')
                                              or not isinstance(fences['lease_token'], str) or not fences['lease_token']):
         raise BrokerError('a lease is an absolute file and a nonempty token')
-    deadline = fences['deadline_wall_ns']
+    deadline, boot = fences['deadline_monotonic_ns'], fences['host_boot_id']
+    if (deadline is None) != (boot is None):
+        raise BrokerError('a runtime deadline exactly with the host boot whose monotonic clock it counts on')
     if deadline is not None and (not isinstance(deadline, int) or isinstance(deadline, bool) or deadline <= 0):
-        raise BrokerError('a runtime deadline is a positive wall time')
+        raise BrokerError("a runtime deadline is a positive instant of the host's monotonic clock")
+    if boot is not None and (not isinstance(boot, str) or not HOST_BOOT_FORM.fullmatch(boot)):
+        raise BrokerError("a runtime deadline's host boot is a boot ID")
     limits = value['limits']
     if not isinstance(limits, dict) or set(limits) != set(LIMIT_KEYS):
         raise BrokerError('admission limits')
@@ -530,26 +561,77 @@ def _check_admission_3(value):
     lab_actions.check_wait_policy(value['wait_policy'])
 
 
-class Fences:
-    """The stop file, the lease and the runtime deadline."""
+def host_boot_id():
+    """This host's boot ID, or None when it cannot be read in its form."""
+    try:
+        text = HOST_BOOT_ID.read_text(encoding='ascii').strip()
+    except (OSError, UnicodeError):
+        return None
+    return text if HOST_BOOT_FORM.fullmatch(text) else None
 
-    def __init__(self, spec, wall):
-        self.spec, self._wall = spec, wall
+
+class Fences:
+    """The stop file, the lease and the runtime deadline. The lease is its file's token, with no
+    clock of its own. The deadline is an instant of the host's monotonic clock in the host boot
+    the admission names: the clock the vehicle's closure judges the run's budget with, which no
+    step of the wall clock moves. It has passed once that clock reads it. In another host boot,
+    or one whose ID cannot be read, that clock is gone, and the deadline counts as passed, with
+    its own reason."""
+
+    def __init__(self, spec, monotonic, boot):
+        self.spec, self._monotonic, self._boot = spec, monotonic, boot
 
     def check(self):
+        """(Why the fence trips, or None; the one reading of the host's monotonic clock it judged.)
+        A gate that admits a command takes that reading, and no other, as the moment it did."""
+        now = self._monotonic()
         if os.path.lexists(self.spec['stop_file']):
-            return 'the stop file exists'
+            return 'the stop file exists', now
         if self.spec['lease_file'] is not None:
             try:
                 with open(self.spec['lease_file'], 'rb') as handle:
                     token = handle.read(4096)
             except OSError:
-                return 'the lease is not held'
+                return 'the lease is not held', now
             if token.strip() != self.spec['lease_token'].encode('ascii'):
-                return 'the lease is not held'
-        if self.spec['deadline_wall_ns'] is not None and self._wall() >= self.spec['deadline_wall_ns']:
+                return 'the lease is not held', now
+        return self.deadline_problem(now), now
+
+    def deadline_problem(self, now):
+        """Why the run's deadline has passed at the monotonic reading `now`, or None. The launch
+        gates after a command's fence ask it too, each with its own reading."""
+        deadline = self.spec['deadline_monotonic_ns']
+        if deadline is None:
+            return None
+        if self._boot is None:
+            return UNREAD_BOOT
+        if self._boot != self.spec['host_boot_id']:
+            return OTHER_BOOT
+        if now >= deadline:
             return 'the runtime deadline passed'
         return None
+
+
+class _LaunchGate:
+    """The transport's last question before one command's service request: whether the run's
+    deadline and the command's own launch deadline, when it has one, both lie ahead, judged on one
+    reading of the host's monotonic clock. It keeps that reading, the command's actual launch when
+    it then launched, and which deadline refused it, if one did."""
+
+    def __init__(self, monotonic, fences, not_after_ns):
+        self._monotonic, self._fences, self._not_after = monotonic, fences, not_after_ns
+        self.reading = self.refused = None
+
+    def __call__(self):
+        now = self._monotonic()
+        self.reading = now
+        if self._fences.deadline_problem(now) is not None:
+            self.refused = 'run'
+        elif self._not_after is not None and now >= self._not_after:
+            self.refused = 'launch'
+        else:
+            self.refused = None
+        return self.refused is None
 
 
 def activation_deadline(wall_ms, started_ns, granted, window):
@@ -829,7 +911,7 @@ class Broker:
     @classmethod
     def open(cls, root, source_root, transport, reader, notice=None, wall=time.time_ns, monotonic=time.monotonic_ns,
              sleep=time.sleep, ids=os.urandom, processes=None, sync=True, target=None, target_read=False, health=None,
-             fsync=None, work=None, private=None):
+             fsync=None, work=None, private=None, host_boot=host_boot_id):
         """Opens a broker directory. The native target scope is read at HELLO and at every
         crossing's gate. With `target_read`, the reader's admitted target reader reads it from
         the guest as the broker's own recorded group, and the scope is established empty only
@@ -842,7 +924,10 @@ class Broker:
         broker syncs with os.fsync and the ledger with its own. `work` is the work fixture's
         adapter, whose fixed commands CE_SENTINEL runs. `private` is the private store, a directory
         outside the broker's evidence that only USER_PIN writes: the disposable lab PIN it
-        generates, which never enters the ledger."""
+        generates, which never enters the ledger. `host_boot` reads this host's boot ID, once, at
+        the opening: the runtime deadline and the reopening's wait count on the host's monotonic
+        clock only within the boot they were made in. Wall times are kept in records, for
+        reporting only."""
         if target_read and (target is not None or not getattr(reader, 'target_admitted', False)):
             raise BrokerError("a target read needs the reader's admitted target reader and no host target")
         self = object.__new__(cls)
@@ -855,6 +940,7 @@ class Broker:
         self._target_read = bool(target_read)
         self._source_root = Path(source_root)
         self._wall, self._monotonic, self._sleep, self._ids = wall, monotonic, sleep, ids
+        self._host_boot = host_boot()
         self.processes = processes or ProcessControl()
         self._shell2 = False
         self._lock = os.open(self.root / LOCK, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o600)
@@ -944,7 +1030,7 @@ class Broker:
         self.protocol = proto.VERSION_2 if self.admission['version'] == 3 else proto.VERSION
         self.specs = (lab_actions.check_specs(self.admission['lab_actions'], self.admission['installation'])
                       if self.admission['version'] == 3 else {})
-        self.fences = Fences(self.admission['fences'], self._wall)
+        self.fences = Fences(self.admission['fences'], self._monotonic, self._host_boot)
         try:
             self.ledger = (ledgers.Ledger.open(self.root / LEDGER, sync=sync) if self._fsync is None
                            else ledgers.Ledger.open(self.root / LEDGER, sync=sync, fsync=self._fsync))
@@ -964,25 +1050,51 @@ class Broker:
             quarantined.append(entry.number)
         self._rebuild()
         self._close_lost(quarantined)
-        if drain > self._wall():
+        now = self._monotonic()
+        if drain > now:
             # A command whose effect is unknown may still run on the guest within its bound.
-            self._sleep((drain - self._wall()) / 1e9)
+            self._sleep((drain - now) / 1e9)
+        # The opening names its host boot, so a later reopening knows which captures' monotonic
+        # starts it can count from.
         self.ledger.record('open', {'pid': os.getpid(), 'manifest': self.admission['manifest'],
-                                    'target_read': self._target_read,
-                                    'quarantined': quarantined, 'drained_until_wall_ns': drain,
-                                    'wall_ns': self._wall()})
+                                    'target_read': self._target_read, 'quarantined': quarantined,
+                                    'host_boot_id': self._host_boot, 'drained_until_monotonic_ns': drain,
+                                    'monotonic_ns': self._monotonic(), 'wall_ns': self._wall()})
 
     def _outstanding_drain(self):
-        """The wall time until which a command whose effect is unknown may still run on the guest: the
-        latest bound of every capture with a whole intent and no result. A capture without a whole
-        intent was never launched."""
-        drain = 0
+        """The instant of the host's monotonic clock until which a command whose effect is unknown
+        may still run on the guest, or 0: the latest bound of every capture with a whole intent and
+        no result. A capture without a whole intent was never launched. Each capture belongs to the
+        host boot of the opening before it. A capture of this host boot is bounded by its own start
+        on the monotonic clock plus its timeout and the drain grace; one of another boot, or of a
+        boot unknown, by that whole bound from now, since the clock it started on is gone, unless a
+        later opening in this host boot already waited it out: an opening is recorded only after
+        its wait, and its wait covered every capture then in the ledger. No wall time decides it,
+        so no step of the wall clock shortens the wait."""
+        drain, boot, now, unwaited = 0, None, self._monotonic(), []
         for entry in self.ledger.entries:
+            if entry.kind == 'open' and entry.complete:
+                boot = entry.content.get('host_boot_id')
+                if boot is not None and boot == self._host_boot:
+                    unwaited = []
             if entry.kind == 'capture' and entry.state == 'interrupted':
                 intent = entry.content['intent']
-                drain = max(drain, intent['started_wall_ns'] + int((intent['timeout_s'] + self.limits['drain_grace_s'])
-                                                                   * 1e9))
-        return drain
+                bound = int((intent['timeout_s'] + self.limits['drain_grace_s']) * 1e9)
+                if boot is not None and boot == self._host_boot:
+                    drain = max(drain, intent['started_monotonic_ns'] + bound)
+                else:
+                    unwaited.append(bound)
+        return max([drain] + [now + bound for bound in unwaited])
+
+    def _boot_of(self, number):
+        """The host boot ID that the last opening before entry `number` recorded, or None."""
+        boot = None
+        for entry in self.ledger.entries:
+            if entry.number >= number:
+                break
+            if entry.kind == 'open' and entry.complete:
+                boot = entry.content.get('host_boot_id')
+        return boot
 
     def _rebuild(self):
         """The broker's state from the ledger's complete entries."""
@@ -1084,7 +1196,7 @@ class Broker:
                     self.host_begun[key] = (entry.number, c['cell'])
                     if c['cell'] is not None:
                         self.consumed.add(c['cell'])
-                else:
+                elif c['phase'] == 'END':
                     self.host_ended.add(key)
             elif kind == 'fault':
                 if c.get('on') in losses.OPERATIONS:
@@ -1105,10 +1217,24 @@ class Broker:
     def _close_lost(self, quarantined):
         """Ends what a lost broker left open: first the generation whose process may still run, so
         that no host call it made can still complete, then its crossings without an outcome and its
-        host calls without an end."""
+        host calls without an end. A process ID and its start ticks name a process only within
+        their host boot: a generation of another boot, whose processes ended with it, is recorded
+        lost there, and nothing is signalled. When either boot ID is unknown the broker cannot tell
+        the boots apart, and ends the process as in its own boot, so no host call of a lost
+        generation of this boot can still complete; its record says that the boot is unknown."""
         killed = False
         g = self.open_generation
-        if g is not None and g['pid'] is not None and self.processes.alive(g['pid'], g['start_ticks']):
+        boot = self._boot_of(g['number']) if g is not None else None
+        if g is None:
+            lost_boot = None
+        elif None in (boot, self._host_boot):
+            lost_boot = 'unknown'
+        elif boot == self._host_boot:
+            lost_boot = 'this'
+        else:
+            lost_boot = 'another'
+        if (g is not None and lost_boot != 'another' and g['pid'] is not None
+                and self.processes.alive(g['pid'], g['start_ticks'])):
             self.processes.kill(g['pid'])
             killed = True
             for _ in range(300):
@@ -1151,8 +1277,8 @@ class Broker:
             # its file holds now.
             self.ledger.record('generation-end', {'generation': g['generation'], 'status': 'LOST', 'exit': None,
                                                   'signal': None, 'killed': killed, 'halt_ordered': False,
-                                                  'stopped_sent': False, 'violation': 'the broker was lost',
-                                                  'stderr_sha256': None, 'stderr_bytes': None,
+                                                  'stopped_sent': False, 'violation': LOST_VIOLATIONS[lost_boot],
+                                                  'host_boot': lost_boot, 'stderr_sha256': None, 'stderr_bytes': None,
                                                   'output': {'reason': LOST_OUTPUT, 'allowance': OUTPUT_ALLOWANCE,
                                                              'kept': None, 'dropped': None, 'unfinished_writer': None,
                                                              'error': None},
@@ -2503,10 +2629,9 @@ class Broker:
         if left < BOUND_COMMAND_MIN_S * 1_000_000_000:
             raise _NotLaunched("too little of the action's bound remains for the reboot")
         timeout = min(self.limits['reboot_timeout_s'], left / 1_000_000_000)
-        gate = self._may_send(deadline)
         return self._capture('lab-action-effect', REBOOT_LABEL,
                              dict(context, effect_class=effect_class, phase=spec['phase'], transition_kind=kind),
-                             lambda: self.transport.reboot(timeout, may_send=gate), timeout, deadline)
+                             lambda may_send: self.transport.reboot(timeout, may_send=may_send), timeout, deadline)
 
     def _act_direct_stage(self, context, command, begin, spec):
         """DIRECT_STAGE: one staged session of a direct control's pinned negative payload under its
@@ -2557,8 +2682,8 @@ class Broker:
                 return 'UNEXPECTED', {'reference': reference}, 'the pinned %s has other bytes' % member, True, []
             pushed, _ = self._capture('lab-action-push', None, dict(context, member=member, path=pin['guest'],
                                                                      data_sha256=pin['sha256']),
-                                      lambda d=data, p=pin['guest']: self.transport.push(d, p, MEMBER_MODE, 0,
-                                                                                         self.limits['push_timeout_s']),
+                                      lambda may_send, d=data, p=pin['guest']: self.transport.push(
+                                          d, p, MEMBER_MODE, 0, self.limits['push_timeout_s'], may_send=may_send),
                                       self.limits['push_timeout_s'], deadline)
             check = command('lab-action-read', crossings.digest_command(pin['guest']))
             if crossings.classify_digest(check, pin['guest']) != pin['sha256']:
@@ -2603,8 +2728,8 @@ class Broker:
         pushed, result = self._capture('lab-action-push', None,
                                        dict(context, member='helper', path=guest, data_sha256=digest,
                                             effect_class='fixture', phase=spec['phase']),
-                                       lambda: self.transport.push(data, guest, MEMBER_MODE, 0, timeout), timeout,
-                                       deadline)
+                                       lambda may_send: self.transport.push(data, guest, MEMBER_MODE, 0, timeout,
+                                                                            may_send=may_send), timeout, deadline)
         outcome = {'helper': spec['parameters']['helper'], 'path': guest, 'sha256': digest, 'push': pushed}
         if getattr(result, 'launch', None) == 'not-launched':
             return 'REFUSED', outcome, 'the push was not launched (%s)' % result.transport, True, []
@@ -2820,8 +2945,9 @@ class Broker:
             return 'REFUSED', {'groups': groups}, 'the pinned base.apk has other bytes: nothing launched', True, groups
         pushed, _ = self._capture('lab-action-push', None, dict(context, member='base.apk', path=pin['guest'],
                                                                  data_sha256=pin['sha256']),
-                                  lambda: self.transport.push(data, pin['guest'], MEMBER_MODE, 0,
-                                                              self.limits['push_timeout_s']),
+                                  lambda may_send: self.transport.push(data, pin['guest'], MEMBER_MODE, 0,
+                                                                       self.limits['push_timeout_s'],
+                                                                       may_send=may_send),
                                   self.limits['push_timeout_s'], deadline)
         check = command('lab-action-read', crossings.digest_command(pin['guest']))
         if crossings.classify_digest(check, pin['guest']) != pin['sha256']:
@@ -4183,11 +4309,15 @@ class Broker:
             self.stop('the admitted sources changed: %s' % '; '.join(problems[:3]))
             raise Stopped(self.stopped)
 
-    def stop(self, reason):
-        """The controller's own stop: latched like a fence."""
+    def stop(self, reason, monotonic_ns=None):
+        """The controller's own stop: latched like a fence. A tripped fence's stop keeps the
+        monotonic reading the fence judged."""
         if self.stopped is None:
             self.stopped = reason
-            self.ledger.record('stop', {'reason': reason, 'wall_ns': self._wall()})
+            record = {'reason': reason, 'wall_ns': self._wall()}
+            if monotonic_ns is not None:
+                record['monotonic_ns'] = monotonic_ns
+            self.ledger.record('stop', record)
 
     # ------------------------------------------------ fences and captures
 
@@ -4202,14 +4332,17 @@ class Broker:
         return problem
 
     def _fence(self):
+        """Raises Stopped when the broker is stopped or a fence trips. Otherwise returns the one
+        reading of the host's monotonic clock the fences judged, the moment the gate admits at."""
         if self.stopped is None:
             self._output_stop()
         if self.stopped is not None:
             raise Stopped(self.stopped)
-        reason = self.fences.check()
+        reason, now = self.fences.check()
         if reason is not None:
-            self.stop(reason)
+            self.stop(reason, monotonic_ns=now)
             raise Stopped(reason)
+        return now
 
     def _require_shell2(self, context, bound_ns=None):
         """Once in each broker's lifetime, before its first guest command: the device must offer
@@ -4221,12 +4354,10 @@ class Broker:
             return
         command = 'host-serial:%s:features' % self.admission['serial']
         timeout = self.limits['read_timeout_s']
-        gate = self._may_send(bound_ns)
-        extra = {} if gate is None else {'may_send': gate}
 
-        def call():
+        def call(may_send):
             allowed = timeout if bound_ns is None else min(timeout, max(0.0, (bound_ns - self._monotonic()) / 1_000_000_000))
-            return self.transport.features(allowed, **extra)
+            return self.transport.features(allowed, may_send=may_send)
         number, result = self._record_command('features', command, context, call, timeout, bound_ns)
         if result.status == 'ok' and shell_transport.FEATURE_SHELL2 in result.features:
             self._shell2 = True
@@ -4242,16 +4373,20 @@ class Broker:
         """One guest command: the shell protocol check, then the fences, the intent synced, the call,
         then its streams and result. A launch with a deadline (an activation grant's end, or a bound)
         names the host monotonic instant from which it is refused; the feature query before a broker's
-        first command keeps that deadline too."""
+        first command keeps that deadline too. `call(may_send)` runs the command through the
+        transport, giving it `may_send`, the launch gate, as its last question before the service
+        request."""
         self._require_shell2(context, not_after_ns)
         return self._record_command(operation, command, context, call, timeout, not_after_ns)
 
     def _record_command(self, operation, command, context, call, timeout, not_after_ns=None):
         # Every command, the feature query included, is fenced right before its intent: a fence that
-        # trips while an earlier command runs stops the next one.
-        self._fence()
+        # trips while an earlier command runs stops the next one. Its start is the fence's own
+        # reading of the monotonic clock, so the record says exactly what the runtime deadline was
+        # judged at.
+        now = self._fence()
         intent = dict(context, operation=operation, command=command, timeout_s=timeout,
-                      started_wall_ns=self._wall(), started_monotonic_ns=self._monotonic())
+                      started_wall_ns=self._wall(), started_monotonic_ns=now)
         if not_after_ns is not None:
             intent['not_after_monotonic_ns'] = not_after_ns
         # A command given private input names that it had some, never what it was.
@@ -4259,10 +4394,16 @@ class Broker:
         if private is not None:
             intent['private_input'] = True
         entry = self.ledger.begin_capture(intent)
-        # The final launch gate, once the intent is durable: a launch whose deadline has passed since
-        # the gate's clock reading (an activation grant that may have expired, or a bound) sends nothing.
-        if not_after_ns is not None and self._monotonic() >= not_after_ns:
-            self._not_sent(entry, command, 'the activation grant may have expired before the launch, or its bound passed')
+        # The final launch gate, once the intent is durable, on one reading of the clock: a launch
+        # whose run deadline has passed since its fence sends nothing, and that latches the stop,
+        # nor one whose own deadline has passed since the gate's clock reading (an activation grant
+        # that may have expired, or a bound).
+        now = self._monotonic()
+        if self.fences.deadline_problem(now) is not None:
+            self._not_sent(entry, command, RUN_AT_LAUNCH, judged=now, run=True)
+        if not_after_ns is not None and now >= not_after_ns:
+            self._not_sent(entry, command,
+                           'the activation grant may have expired before the launch, or its bound passed', judged=now)
         # The output's own launch gate, once the intent is durable: a problem known since the fence
         # sends nothing either. The capture ends not launched, then the stop is latched and raised,
         # as a failed writer's is. The output is asked once, and that answer is the one used.
@@ -4270,16 +4411,20 @@ class Broker:
         problem = collector.problem() if collector is not None else None
         if problem is not None:
             self._not_sent(entry, command, problem['reason'], stop=True)
+        # The transport asks the same deadlines once more, right before the service request, and its
+        # reading is kept as the command's actual launch.
+        gate = _LaunchGate(self._monotonic, self.fences, not_after_ns)
         try:
-            result = call()
+            result = call(gate)
         except Exception as error:  # A transport defect still ends the capture with a result.
             self.ledger.finish_capture(entry, b'', b'', {'launch': 'unknown', 'transport': 'broker-error',
                                                          'completion': 'unknown', 'exit': None,
                                                          'error': '%s: %s' % (type(error).__name__, error),
-                                                         'ended_wall_ns': self._wall()})
+                                                         'ended_wall_ns': self._wall(),
+                                                         'launch_monotonic_ns': gate.reading})
             raise
         stdout, stderr = result.streams()
-        summary = dict(result.summary(), ended_monotonic_ns=self._monotonic())
+        summary = dict(result.summary(), ended_monotonic_ns=self._monotonic(), launch_monotonic_ns=gate.reading)
         kept = True
         residual = bytes(getattr(result, 'residual', b'') or b'')
         if private is not None and (stdout or stderr or residual):
@@ -4303,6 +4448,11 @@ class Broker:
         self.ledger.finish_capture(entry, stdout, stderr, summary)
         if not kept:
             raise self._writer_failed('withheld private output could not be kept privately')
+        if gate.refused == 'run' and getattr(result, 'launch', 'not-launched') == 'not-launched':
+            # The run's deadline passed at the transport's last question: its stop is latched as the
+            # fence latches it, with the reading the gate judged.
+            self.stop(RUN_AT_SERVICE, monotonic_ns=gate.reading)
+            raise Stopped(self.stopped)
         if (not_after_ns is not None and getattr(result, 'launch', None) == 'not-launched'
                 and getattr(result, 'transport', None) == 'launch-deadline'):
             error = _NotLaunched('the activation grant may have expired before the service request, or its bound passed')
@@ -4310,27 +4460,26 @@ class Broker:
             raise error
         return entry.number, result
 
-    def _not_sent(self, entry, command, reason, stop=False):
+    def _not_sent(self, entry, command, reason, stop=False, judged=None, run=False):
         """Ends a capture whose command was never sent, then refuses its launch. With `stop`, the
         output's problem, `reason`, then latches the stop, and the Stopped is raised: nothing later
-        starts."""
+        starts. `judged` is the monotonic reading that refused it, when a deadline did. With `run`,
+        the run's deadline refused it: `reason` latches the stop as the deadline's fence latches
+        it, with that reading, and nothing later starts either."""
         self.ledger.finish_capture(entry, b'', b'', {'launch': 'not-launched', 'transport': 'not-sent',
                                                      'completion': 'not-started', 'exit': None, 'error': reason,
                                                      'ended_wall_ns': self._wall(),
-                                                     'ended_monotonic_ns': self._monotonic()})
+                                                     'ended_monotonic_ns': self._monotonic() if judged is None
+                                                     else judged, 'launch_monotonic_ns': None})
+        if run:
+            self.stop(reason, monotonic_ns=judged)
+            raise Stopped(self.stopped)
         if stop:
             self.stop('generation %d: %s' % (self.generation, reason))
             raise Stopped(self.stopped)
         error = _NotLaunched(reason)
         error.capture, error.command = entry.number, command
         raise error
-
-    def _may_send(self, not_after_ns):
-        """The transport's last question before a launch's service request, or None without a deadline:
-        connecting and selecting the device take time too."""
-        if not_after_ns is None:
-            return None
-        return lambda: self._monotonic() < not_after_ns
 
     def _shell(self, operation, command, context, timeout, stdout_max, stderr_max, not_after_ns=None, bound_ns=None,
                private=None):
@@ -4339,14 +4488,11 @@ class Broker:
         'keep'}, the constant command is given its input on private standard input; the capture
         records only that it had private input, and none of its output is written to the ledger:
         any byte of it is withheld and given to `keep` (_record_command)."""
-        gate = self._may_send(not_after_ns)
-        extra = {} if gate is None else {'may_send': gate}
-        if private is not None:
-            extra['private'] = private['input']
+        extra = {} if private is None else {'private': private['input']}
 
-        def call():
+        def call(may_send):
             allowed = timeout if bound_ns is None else min(timeout, max(0.0, (bound_ns - self._monotonic()) / 1_000_000_000))
-            return self.transport.shell(command, allowed, stdout_max, stderr_max, **extra)
+            return self.transport.shell(command, allowed, stdout_max, stderr_max, may_send=may_send, **extra)
         call.private = private
         return self._capture(operation, command, context, call, timeout, not_after_ns)
 
@@ -5878,18 +6024,25 @@ class Broker:
                   'request': m['request'], 'generation': state['generation'], 'wall_ns': self._wall(),
                   'monotonic_ns': self._monotonic()}
         if m['phase'] == proto.HOST_PHASES['BEGIN']:
-            if key in self.host_begun:
-                return self._reply(m, 'REFUSED', reason='a host call of one ledger entry begins once')
-            problem = self._positive_problem(m['plan'], m['attempt'])
-            if problem is not None:
-                return self._reply(m, 'REFUSED', reason=problem)
-            # A host effect is forward work too: none begins after a known output problem. A host
-            # reply has no STOPPED, so the call is refused, which the bridge never runs, and the
-            # generation ends as the serve loop would have ended it.
+            # A host effect is forward work like any guest command: none begins after a latched
+            # stop, of any cause, and its BEGIN is fenced right before it is recorded, as a
+            # command's intent is. A host reply has no STOPPED, so the call is refused, which the
+            # bridge never runs, and the refusal is recorded with the stop's reason. After a known
+            # output problem the generation ends as the serve loop would have ended it.
+            if self.stopped is None:
+                if key in self.host_begun:
+                    return self._reply(m, 'REFUSED', reason='a host call of one ledger entry begins once')
+                problem = self._positive_problem(m['plan'], m['attempt'])
+                if problem is not None:
+                    return self._reply(m, 'REFUSED', reason=problem)
             problem = self._output_stop()
             if problem is not None:
                 state['violation'] = problem['reason']
-                return self._reply(m, 'REFUSED', reason=self.stopped)
+            try:
+                self._fence()
+            except Stopped as error:
+                number = self.ledger.record('host', dict(common, phase='REFUSED', reason=str(error)))
+                return self._reply(m, 'REFUSED', record=number, reason=str(error))
             cell = self._match('host', plan=m['plan'], attempt=m['attempt'], crossing=name, occurrence=m['occurrence'])
             if cell is not None:
                 self.consumed.add(cell['cell'])
@@ -6204,14 +6357,14 @@ class Broker:
             raw = readers.raw_digest([(command, result.exit, result.stdout, result.stderr)])
             return classification, self._reply_fact(name, m, classification, raw, elapsed, instance), None
         if name == 'REBOOT':
-            gate = self._may_send(deadline)
             ident = self._managed_begin(m, crossing, reading) if self.admission['version'] == 3 else None
             if ident is not None:
                 # The capture names its transition; the transition's own records name its kind.
                 context = dict(context, transition=ident)
             try:
                 number, result = self._capture('reboot', REBOOT_LABEL, context,
-                                               lambda: self.transport.reboot(limits['reboot_timeout_s'], may_send=gate),
+                                               lambda may_send: self.transport.reboot(limits['reboot_timeout_s'],
+                                                                                      may_send=may_send),
                                                limits['reboot_timeout_s'], deadline)
             except Stopped as error:
                 if ident is not None:
@@ -6388,8 +6541,9 @@ class Broker:
                 return None, None, 'the pinned %s has other bytes: nothing launched' % member
             number, pushed = self._capture('push', None, dict(context, member=member, path=spec['guest'],
                                                               data_sha256=spec['sha256']),
-                                           lambda d=data, s=spec: self.transport.push(d, s['guest'], MEMBER_MODE, 0,
-                                                                                      self.limits['push_timeout_s']),
+                                           lambda may_send, d=data, s=spec: self.transport.push(
+                                               d, s['guest'], MEMBER_MODE, 0, self.limits['push_timeout_s'],
+                                               may_send=may_send),
                                            self.limits['push_timeout_s'])
             captures.append(number)
             command = crossings.digest_command(spec['guest'])

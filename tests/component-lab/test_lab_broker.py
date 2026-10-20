@@ -311,12 +311,63 @@ class FenceTests(Base):
         self.assertEqual(h.hello()['status'], STATUS['STOPPED'])
         self.assertEqual(len(h.entries('capture')), captured)
 
+    def test_no_host_call_begins_after_a_stop_of_any_cause(self):
+        # A host call is forward work like any guest command. After a stop of any cause, latched by
+        # a fence, by the run's deadline at a launch gate or by the controller, its BEGIN is
+        # refused with the stop's reason and recorded as refused, and no host call begins. So it is
+        # when the stop file appears just before the BEGIN, whose own fence then latches the stop.
+        # A reopening reads the refusal as neither a BEGIN nor an END. The twin, with no stop,
+        # begins its host call.
+        for cause in ('the stop file, latched by a read', 'the run deadline at a launch gate', 'the controller',
+                      'the stop file, at the BEGIN', 'no stop'):
+            with self.subTest(cause):
+                directory = Path(tempfile.mkdtemp(dir=os.environ.get('TMPDIR')))
+                self.addCleanup(shutil.rmtree, directory)
+                D = labtest.Clock().mono + 600 * 10 ** 9
+                h = self.harness(fences=dict(runtime_fences(D), stop_file=str(directory / 'STOP')))
+                if cause == 'the stop file, latched by a read':
+                    (directory / 'STOP').write_text('stop\n')
+                    self.assertEqual(h.clock_read()['status'], STATUS['STOPPED'])
+                elif cause == 'the run deadline at a launch gate':
+                    elapse(h, D - 10 ** 9 - h.clock.mono)
+                    h.sim.hooks.append(lambda command: elapse(h, 2 * 10 ** 9))
+                    self.assertEqual(h.clock_read()['status'], STATUS['STOPPED'])
+                    h.sim.hooks.clear()
+                elif cause == 'the controller':
+                    h.broker.stop('the controller stops the run')
+                elif cause == 'the stop file, at the BEGIN':
+                    (directory / 'STOP').write_text('stop\n')
+                fields = dict(crossing=proto.HOST_CROSSINGS['PUBLISH'], ticket=TICKET, plan=PLAN, attempt=1, index=1,
+                              occurrence=1, reference='9b' * 16, reply=proto.ZERO_DIGEST)
+                reply = h.call('HOST', phase=1, outcome=0, **fields)
+                records = [(e.number, e.content['phase'], e.content.get('reason')) for e in h.entries('host')]
+                if cause == 'no stop':
+                    self.assertEqual((reply['status'], [r[1] for r in records]), (STATUS['OK'], ['BEGIN']))
+                    continue
+                reason = {'the run deadline at a launch gate': lab_broker.RUN_AT_SERVICE,
+                          'the controller': 'the controller stops the run'}.get(cause, 'the stop file exists')
+                self.assertEqual((h.broker.stopped, reply['status'], reply['reason']),
+                                 (reason, STATUS['REFUSED'], reason))
+                self.assertEqual(records, [(reply['record'], 'REFUSED', reason)])
+                self.assertEqual(h.broker.host_begun, {})
+                if cause == 'the stop file, at the BEGIN':
+                    # The BEGIN's own fence latched the stop, with the reading it judged.
+                    [stop] = h.entries('stop')
+                    self.assertEqual((stop.number, stop.content['reason'], stop.content['monotonic_ns']),
+                                     (reply['record'] - 1, reason, h.clock.mono))
+                end = h.call('HOST', phase=2, outcome=2, **fields)
+                self.assertEqual((end['status'], end['reason']),
+                                 (STATUS['REFUSED'], 'a host call ends once, after it began'))
+                h.reopen()
+                self.assertEqual((h.broker.host_begun, h.broker.host_ended), ({}, set()))
+
     def test_the_lease_and_the_deadline_are_fences(self):
         with tempfile.TemporaryDirectory() as directory:
             lease = Path(directory) / 'lease'
             lease.write_text('runtime-7\n')
             fences = {'stop_file': str(Path(directory) / 'STOP'), 'lease_file': str(lease),
-                      'lease_token': 'runtime-7', 'deadline_wall_ns': 1_791_504_000_000_000_000 + 10 ** 12}
+                      'lease_token': 'runtime-7', 'deadline_monotonic_ns': labtest.Clock().mono + 10 ** 12,
+                      'host_boot_id': labtest.HOST_BOOT}
             h = self.harness(fences=fences)
             self.assertEqual(h.clock_read()['status'], STATUS['OK'])
             lease.write_text('runtime-8\n')
@@ -325,10 +376,537 @@ class FenceTests(Base):
             lease.write_text('runtime-7\n')
             self.assertEqual(h.clock_read()['status'], STATUS['STOPPED'])
         h = self.harness(fences={'stop_file': '/nonexistent/STOP', 'lease_file': None, 'lease_token': None,
-                                 'deadline_wall_ns': 1_791_504_000_000_000_000 + 5})
-        h.clock.wall += 10
+                                 'deadline_monotonic_ns': labtest.Clock().mono + 5, 'host_boot_id': labtest.HOST_BOOT})
+        h.clock.mono += 10
         self.assertEqual(h.clock_read()['status'], STATUS['STOPPED'])
         self.assertEqual(h.entries('stop')[0].content['reason'], 'the runtime deadline passed')
+
+
+# Another host boot's ID, for a harness moved to it.
+OTHER_HOST_BOOT = '9e4f1b06-2c7a-4d58-8b13-f6a0c2d9e471'
+
+
+def runtime_fences(deadline, boot=labtest.HOST_BOOT):
+    return {'stop_file': '/nonexistent/STOP', 'lease_file': None, 'lease_token': None,
+            'deadline_monotonic_ns': deadline, 'host_boot_id': boot}
+
+
+def elapse(h, ns):
+    """`ns` nanoseconds pass on both of the harness's host clocks."""
+    h.clock.mono += ns
+    h.clock.wall += ns
+
+
+class MonotonicFenceTests(Base):
+    def started(self, h):
+        return [e.content['intent']['started_monotonic_ns'] for e in h.entries('capture')]
+
+    def test_the_runtime_deadline_counts_on_the_host_monotonic_clock_whatever_the_wall_clock_does(self):
+        # One second before the deadline or one after it on the host's monotonic clock, the wall
+        # clock unchanged, stepped an hour ahead or an hour back. Before the deadline every read is
+        # served, and after it none is: no step of the wall clock moves the deadline, and no command
+        # starts at or after it.
+        for relative in (-1, 1):
+            for step in (0, 3600, -3600):
+                with self.subTest(relative=relative, step=step):
+                    deadline = labtest.Clock().mono + 600 * 10 ** 9
+                    h = self.harness(fences=runtime_fences(deadline))
+                    elapse(h, deadline + relative * 10 ** 9 - h.clock.mono)
+                    h.clock.wall += step * 10 ** 9
+                    status = h.clock_read()['status']
+                    stops = [e.content['reason'] for e in h.entries('stop')]
+                    late = [start for start in self.started(h) if start >= deadline]
+                    self.assertEqual(late, [])
+                    if relative < 0:
+                        self.assertEqual((status, stops), (STATUS['OK'], []))
+                    else:
+                        self.assertEqual((status, stops), (STATUS['STOPPED'], ['the runtime deadline passed']))
+
+    def test_a_broker_reopened_in_the_same_host_boot_keeps_its_runtime_deadline(self):
+        # Reopened in the same host boot, a broker counts toward the same instant on the same clock:
+        # it serves before the deadline, after a wall step back too, and once the deadline has
+        # passed it stops, then and after every later reopening.
+        deadline = labtest.Clock().mono + 600 * 10 ** 9
+        h = self.harness(fences=runtime_fences(deadline))
+        h.end(0)
+        elapse(h, 300 * 10 ** 9)
+        h.clock.wall -= 3600 * 10 ** 9
+        h.reopen()
+        h.begin()
+        self.assertEqual((h.hello()['status'], h.clock_read()['status']), (STATUS['OK'], STATUS['OK']))
+        elapse(h, 300 * 10 ** 9)
+        self.assertEqual(h.clock_read()['status'], STATUS['STOPPED'])
+        self.assertEqual([e.content['reason'] for e in h.entries('stop')], ['the runtime deadline passed'])
+        h.end(125)
+        captured = len(h.entries('capture'))
+        h.reopen()
+        h.begin()
+        self.assertEqual(h.hello()['status'], STATUS['STOPPED'])
+        self.assertEqual(len(h.entries('capture')), captured)
+        self.assertEqual([e.content['host_boot_id'] for e in h.entries('open')], [labtest.HOST_BOOT] * 3)
+
+    def test_a_broker_opened_in_another_host_boot_counts_its_runtime_deadline_as_passed(self):
+        # The host booted again: its monotonic clock began anew, here long before the deadline, and
+        # its boot ID changed. The reopened broker counts the deadline as passed, with its own
+        # reason, and launches nothing; so does one that cannot read its host's boot ID. The twin,
+        # reopened in the same host boot at the same reading of that clock, serves.
+        for case in ('another boot', 'a boot that cannot be read', 'the same boot'):
+            with self.subTest(case):
+                deadline = labtest.Clock().mono + 600 * 10 ** 9
+                h = self.harness(fences=runtime_fences(deadline))
+                self.assertEqual(h.clock_read()['status'], STATUS['OK'])
+                h.end(0)
+                h.broker.close()
+                h.clock.mono = labtest.Clock().mono
+                h.host_boot = {'another boot': OTHER_HOST_BOOT, 'a boot that cannot be read': None}.get(case,
+                                                                                                    labtest.HOST_BOOT)
+                h.open()
+                captured = len(h.entries('capture'))
+                h.begin()
+                h.hello()
+                status = h.clock_read()['status']
+                stops = [e.content['reason'] for e in h.entries('stop')]
+                if case == 'the same boot':
+                    self.assertEqual((status, stops), (STATUS['OK'], []))
+                    continue
+                reason = lab_broker.UNREAD_BOOT if case == 'a boot that cannot be read' else lab_broker.OTHER_BOOT
+                self.assertEqual((status, stops, len(h.entries('capture'))), (STATUS['STOPPED'], [reason], captured))
+                self.assertEqual(h.entries('open')[-1].content['host_boot_id'], h.host_boot)
+
+    def test_the_runtime_deadline_has_passed_at_its_own_instant(self):
+        # One nanosecond before the deadline a read is served; at the deadline it is not.
+        for offset in (-1, 0):
+            with self.subTest(offset=offset):
+                deadline = labtest.Clock().mono + 600 * 10 ** 9
+                h = self.harness(fences=runtime_fences(deadline))
+                elapse(h, deadline + offset - h.clock.mono)
+                status = h.clock_read()['status']
+                self.assertEqual(status, STATUS['OK'] if offset < 0 else STATUS['STOPPED'])
+                self.assertEqual([start for start in self.started(h) if start >= deadline], [])
+
+    def test_a_command_is_admitted_at_the_reading_its_fence_judged(self):
+        # The deadline passes right after the feature query's fence judged it, before its intent is
+        # written. That command is admitted, and its intent names the very reading its fence
+        # judged, before the deadline, so the record agrees with the fence and with a closure that
+        # judges the record by the same clock. Its launch gate, once the intent is durable, then
+        # finds the deadline passed: it is not launched, and the stop is latched with the gate's
+        # reading. The twin passes no deadline.
+        for passes in (True, False):
+            with self.subTest(passes=passes):
+                deadline = labtest.Clock().mono + 600 * 10 ** 9
+                h = self.harness(fences=runtime_fences(deadline))
+                check, judged = h.broker.fences.check, []
+
+                def fence():
+                    reason, now = check()
+                    judged.append(now)
+                    if passes and reason is None and len(judged) == 1:
+                        elapse(h, deadline - h.clock.mono)
+                    return reason, now
+                h.broker.fences.check = fence
+                status = h.clock_read()['status']
+                self.assertEqual(self.started(h)[:1], judged[:1])
+                if not passes:
+                    self.assertEqual((status, len(self.started(h))), (STATUS['OK'], 2))
+                    continue
+                result = h.entries('capture')[0].content['result']
+                self.assertEqual((status, result['launch'], result['error'], result['launch_monotonic_ns']),
+                                 (STATUS['STOPPED'], 'not-launched', lab_broker.RUN_AT_LAUNCH, None))
+                self.assertEqual([(e.content['reason'], e.content['monotonic_ns']) for e in h.entries('stop')],
+                                 [(lab_broker.RUN_AT_LAUNCH, deadline)])
+                self.assertEqual([start for start in self.started(h) if start >= deadline], [])
+                self.assertEqual(len(self.started(h)), 1)
+
+    def test_a_command_whose_run_deadline_passes_after_its_fence_is_not_launched(self):
+        # The fence admits a read one nanosecond before the run's deadline D, and writing its
+        # intent stalls for 2 s of both host clocks: once the intent is durable the deadline has
+        # passed, so nothing is sent, with the run's own reason, which latches the stop at the
+        # gate's reading, and the record keeps the fence's reading as its start. The twins: no
+        # stall, which launches at D - 1 ns; and a launch deadline at D, refused as before, with the
+        # run's reason when D is also the run's deadline and with its own when the run's deadline
+        # is later.
+        for case in ('a stall writing its intent', 'no stall', 'a launch deadline at D',
+                     'a launch deadline at D, the run deadline later'):
+            with self.subTest(case):
+                base = labtest.Clock().mono
+                D = base + 600 * 10 ** 9
+                run = D + 100 * 10 ** 9 if case.endswith('later') else D
+                h = self.harness(fences=runtime_fences(run))
+                self.assertEqual(h.clock_read()['status'], STATUS['OK'])
+                launched, begin = [], h.broker.ledger.begin_capture
+                h.sim.hooks.append(lambda command: launched.append((command, h.clock.mono)))
+
+                def slow(intent):
+                    entry = begin(intent)
+                    if case != 'no stall':
+                        elapse(h, 2 * 10 ** 9)
+                    return entry
+                h.broker.ledger.begin_capture = slow
+                elapse(h, D - 1 - h.clock.mono)
+                bound = D if case.startswith('a launch deadline') else None
+                raised = None
+                try:
+                    h.broker._shell('read', 'sim:clock', {'request': None, 'generation': None, 'purpose': 'probe'},
+                                    30, 65536, 65536, not_after_ns=bound, bound_ns=bound)
+                except (lab_broker._NotLaunched, lab_broker.Stopped) as error:
+                    raised = (type(error).__name__, str(error))
+                capture = h.entries('capture')[-1].content
+                stops = [(e.content['reason'], e.content['monotonic_ns']) for e in h.entries('stop')]
+                self.assertEqual(capture['intent']['started_monotonic_ns'], D - 1)
+                if case == 'no stall':
+                    self.assertEqual((raised, capture['result']['launch'], launched, stops),
+                                     (None, 'launched', [('sim:clock', D - 1)], []))
+                    self.assertEqual(capture['result']['launch_monotonic_ns'], D - 1)
+                    continue
+                if case.endswith('later'):
+                    reason = 'the activation grant may have expired before the launch, or its bound passed'
+                    self.assertEqual((raised, launched, stops), (('_NotLaunched', reason), [], []))
+                else:
+                    reason = lab_broker.RUN_AT_LAUNCH
+                    self.assertEqual((raised, launched, stops),
+                                     (('Stopped', reason), [], [(reason, D + 2 * 10 ** 9 - 1)]))
+                result = capture['result']
+                self.assertEqual((result['launch'], result['transport'], result['error']),
+                                 ('not-launched', 'not-sent', reason))
+                # It keeps the reading its launch gate refused it at, and no launch.
+                self.assertEqual((result['ended_monotonic_ns'], result['launch_monotonic_ns']),
+                                 (D + 2 * 10 ** 9 - 1, None))
+
+    def test_a_crossing_whose_run_deadline_passes_before_its_second_member_is_stopped(self):
+        # The run's deadline passes while the second member's write records its intent, after the
+        # first member was written: that write is not launched, and the stop it latches ends the
+        # crossing STOPPED, its captures named, never as a crossing that launched nothing. The
+        # twin's deadline lies ahead, and both members are written.
+        for passes in (True, False):
+            with self.subTest(passes=passes):
+                D = labtest.Clock().mono + 3600 * 10 ** 9
+                h = self.harness(fences=runtime_fences(D))
+                native = self.created(h)
+                begin, writes = h.broker.ledger.begin_capture, []
+
+                def slow(intent):
+                    entry = begin(intent)
+                    if (intent.get('command') or '').startswith('pm install-write'):
+                        writes.append(intent['command'])
+                        if passes and len(writes) == 2:
+                            elapse(h, D - h.clock.mono)
+                    return entry
+                h.broker.ledger.begin_capture = slow
+                reply = h.cross('WRITE', 3, native=native)
+                written = [c[2] for c in h.sim.calls if c[0] == 'WRITE']
+                if not passes:
+                    self.assertEqual((reply['status'], written), (STATUS['OK'], ['base.apk', 'base.apk.idsig']))
+                    continue
+                self.assertEqual((reply['status'], reply['reason'], written),
+                                 (STATUS['STOPPED'], lab_broker.RUN_AT_LAUNCH, ['base.apk']))
+                # The outcome names the first member's write, which launched; the second's capture,
+                # the crossing's own, ends not launched.
+                outcome = h.entries('outcome')[-1].content
+                first, second = [e for e in h.entries('capture')
+                                 if (e.content['intent'].get('command') or '').startswith('pm install-write')]
+                self.assertEqual((outcome['status'], outcome['reason']), ('STOPPED', lab_broker.RUN_AT_LAUNCH))
+                self.assertIn(first.number, outcome['captures'])
+                self.assertEqual((second.content['intent']['crossing'], second.content['result']['launch'],
+                                  second.content['result']['error']),
+                                 (outcome['crossing'], 'not-launched', lab_broker.RUN_AT_LAUNCH))
+
+    def test_a_command_whose_run_deadline_passes_at_its_transport_is_not_launched(self):
+        # The run's deadline passes while the transport connects and selects the device, after the
+        # launch gate: its last question before the service request refuses a read and a push alike,
+        # and keeps the reading it judged, which the stop latched with the run's reason keeps too.
+        # The twins connect within the deadline and launch, keeping their launch's reading.
+        for kind in ('read', 'push'):
+            for passes in (True, False):
+                with self.subTest(kind=kind, passes=passes):
+                    D = labtest.Clock().mono + 600 * 10 ** 9
+                    h = self.harness(fences=runtime_fences(D))
+                    self.assertEqual(h.clock_read()['status'], STATUS['OK'])
+                    elapse(h, D - 10 ** 9 - h.clock.mono)
+                    connect = (2000 if passes else 500) * 10 ** 6
+                    h.sim.hooks.append(lambda command: elapse(h, connect))
+                    context = {'request': None, 'generation': None, 'purpose': 'probe'}
+                    path = labtest.DEVICE_DIR + '/probe'
+                    raised = None
+                    try:
+                        if kind == 'read':
+                            h.broker._shell('read', 'sim:clock', context, 30, 65536, 65536)
+                        else:
+                            h.broker._capture('push', None, dict(context, path=path),
+                                              lambda may_send: h.broker.transport.push(b'probe', path, 0o644, 0, 30,
+                                                                                       may_send=may_send), 30)
+                    except (lab_broker._NotLaunched, lab_broker.Stopped) as error:
+                        raised = (type(error).__name__, str(error))
+                    result = h.entries('capture')[-1].content['result']
+                    stops = [(e.content['reason'], e.content['monotonic_ns']) for e in h.entries('stop')]
+                    self.assertEqual(result['launch_monotonic_ns'], D - 10 ** 9 + connect)
+                    if not passes:
+                        self.assertEqual((raised, result['launch'], stops), (None, 'launched', []))
+                        continue
+                    self.assertEqual((raised, result['launch'], result['transport']),
+                                     (('Stopped', lab_broker.RUN_AT_SERVICE), 'not-launched', 'launch-deadline'))
+                    self.assertGreaterEqual(result['launch_monotonic_ns'], D)
+                    self.assertEqual(stops, [(lab_broker.RUN_AT_SERVICE, result['launch_monotonic_ns'])])
+                    if kind == 'push':
+                        self.assertNotIn(path, h.sim.files)
+
+    def test_a_crossing_push_whose_run_deadline_passes_at_its_transport_is_not_launched(self):
+        # The run's deadline passes while the transport connects for the WRITE crossing's first
+        # member push: its last question refuses the push, nothing reaches the guest, and the stop
+        # latched with the run's reason ends the crossing STOPPED, before any member is written.
+        # The twin's deadline lies ahead, and both members are pushed and written.
+        for passes in (True, False):
+            with self.subTest(passes=passes):
+                D = labtest.Clock().mono + 3600 * 10 ** 9
+                h = self.harness(fences=runtime_fences(D))
+                native = self.created(h)
+                pushes = []
+
+                def connect(command):
+                    if command.startswith('push '):
+                        pushes.append(command)
+                        if passes and len(pushes) == 1:
+                            elapse(h, D - h.clock.mono)
+                h.sim.hooks.append(connect)
+                reply = h.cross('WRITE', 3, native=native)
+                pushed = [c[1] for c in h.sim.calls if c[0] == 'push']
+                written = [c[2] for c in h.sim.calls if c[0] == 'WRITE']
+                if not passes:
+                    self.assertEqual((reply['status'], len(pushed), written),
+                                     (STATUS['OK'], 2, ['base.apk', 'base.apk.idsig']))
+                    continue
+                self.assertEqual((reply['status'], reply['reason'], pushed, written),
+                                 (STATUS['STOPPED'], lab_broker.RUN_AT_SERVICE, [], []))
+                [push] = [e for e in h.entries('capture') if e.content['intent']['operation'] == 'push']
+                result = push.content['result']
+                self.assertEqual((result['launch'], result['transport'], result['launch_monotonic_ns']),
+                                 ('not-launched', 'launch-deadline', D))
+                [stop] = h.entries('stop')
+                self.assertEqual((stop.number, stop.content['reason'], stop.content['monotonic_ns']),
+                                 (push.number + 1, lab_broker.RUN_AT_SERVICE, D))
+
+    def test_a_feature_query_whose_run_deadline_passes_at_its_transport_stops_the_broker(self):
+        # A fresh broker's feature query is its first command. The run's deadline passes while the
+        # transport connects for it: its last question refuses the query, and the stop latched with
+        # the run's reason, at the reading that question judged, answers the request STOPPED. The
+        # twin connects within the deadline, and the read is served.
+        for passes in (True, False):
+            with self.subTest(passes=passes):
+                D = labtest.Clock().mono + 600 * 10 ** 9
+                h = self.harness(fences=runtime_fences(D))
+                elapse(h, D - 10 ** 9 - h.clock.mono)
+                features = h.broker.transport.features
+
+                def connect(timeout, may_send=None):
+                    elapse(h, (2000 if passes else 500) * 10 ** 6)
+                    return features(timeout, may_send=may_send)
+                h.broker.transport.features = connect
+                status = h.clock_read()['status']
+                [query] = [e for e in h.entries('capture') if e.content['intent']['operation'] == 'features']
+                result = query.content['result']
+                if not passes:
+                    self.assertEqual((status, result['status'], h.entries('stop')), (STATUS['OK'], 'ok', []))
+                    continue
+                self.assertEqual((status, result['status'], result['launch_monotonic_ns']),
+                                 (STATUS['STOPPED'], 'launch-deadline', D + 10 ** 9))
+                [stop] = h.entries('stop')
+                self.assertEqual((stop.number, stop.content['reason'], stop.content['monotonic_ns']),
+                                 (query.number + 1, lab_broker.RUN_AT_SERVICE, D + 10 ** 9))
+                self.assertEqual(len(h.entries('capture')), 1)
+
+    def test_each_command_keeps_its_actual_launch_beside_its_fences_reading(self):
+        # A command's record keeps the fence's reading as its start and the reading at the
+        # transport's last question as its launch: here the connection takes 1 s, so the launch is
+        # 1 s after the start, both before the run's deadline. The twin connects at once, and its
+        # launch is its start.
+        for connect_s in (1, 0):
+            with self.subTest(connect_s=connect_s):
+                D = labtest.Clock().mono + 600 * 10 ** 9
+                h = self.harness(fences=runtime_fences(D))
+                self.assertEqual(h.clock_read()['status'], STATUS['OK'])
+                h.sim.hooks.append(lambda command: elapse(h, connect_s * 10 ** 9))
+                self.assertEqual(h.clock_read()['status'], STATUS['OK'])
+                capture = h.entries('capture')[-1].content
+                start = capture['intent']['started_monotonic_ns']
+                self.assertEqual(capture['result']['launch_monotonic_ns'], start + connect_s * 10 ** 9)
+                self.assertLess(capture['result']['launch_monotonic_ns'], D)
+
+    def test_a_tripped_fence_keeps_the_reading_it_judged(self):
+        # The run's deadline, five nanoseconds past, and the stop file: each trips the fence of the
+        # next command, and the stop records the monotonic reading that fence judged.
+        for trip in ('the runtime deadline', 'the stop file'):
+            with self.subTest(trip):
+                directory = Path(tempfile.mkdtemp(dir=os.environ.get('TMPDIR')))
+                self.addCleanup(shutil.rmtree, directory)
+                D = labtest.Clock().mono + 600 * 10 ** 9
+                h = self.harness(fences=dict(runtime_fences(D), stop_file=str(directory / 'STOP')))
+                if trip == 'the stop file':
+                    (directory / 'STOP').write_text('stop\n')
+                    elapse(h, 7)
+                else:
+                    elapse(h, D + 5 - h.clock.mono)
+                judged = h.clock.mono
+                self.assertEqual(h.clock_read()['status'], STATUS['STOPPED'])
+                [stop] = h.entries('stop')
+                self.assertEqual(stop.content['monotonic_ns'], judged)
+
+    def test_a_lost_generation_of_another_host_boot_is_never_signalled(self):
+        # A broker is lost while it serves a generation; the reopening ends that generation. In
+        # another host boot its process ID and start ticks name nothing of this boot: nothing is
+        # asked or signalled, and the generation is recorded lost in another boot. In the same boot,
+        # the twin, its process is ended as before.
+        for case in ('another boot', 'the same boot'):
+            with self.subTest(case):
+                processes, asked = labtest.Processes(alive=True), []
+                alive = processes.alive
+                processes.alive = lambda pid, start: asked.append(pid) or alive(pid, start)
+                h = Harness(processes=processes)
+                self.addCleanup(h.close)
+                h.begin(pid=4242, start_ticks=99)
+                h.hello()
+                h.broker.close()
+                if case == 'another boot':
+                    h.host_boot, h.clock.mono = OTHER_HOST_BOOT, labtest.Clock().mono // 2
+                h.open()
+                end = h.entries('generation-end')[-1].content
+                if case == 'another boot':
+                    self.assertEqual((processes.killed, asked), ([], []))
+                    self.assertEqual((end['status'], end['killed'], end['violation'], end['host_boot']),
+                                     ('LOST', False, lab_broker.LOST_OTHER_BOOT, 'another'))
+                    continue
+                self.assertEqual(processes.killed, [4242])
+                self.assertEqual((end['status'], end['killed'], end['violation'], end['host_boot']),
+                                 ('LOST', True, 'the broker was lost', 'this'))
+
+    def test_a_lost_generation_of_an_unknown_host_boot_is_recorded_as_unknown(self):
+        # When the lost generation's opening, or this one, could not read its host's boot ID, the
+        # broker cannot tell the two boots apart. It ends a process that still runs as in this
+        # boot, and its record says that the boot is unknown, never what a loss in this boot says;
+        # so it does when the process had already ended. The twin, a loss in this boot, keeps the
+        # plain record. Every one of them has the same keys.
+        keys = set()
+        for case, first, second, alive in (('this boot unread', labtest.HOST_BOOT, None, True),
+                                           ("the generation's boot unread", None, labtest.HOST_BOOT, True),
+                                           ('both unread', None, None, True),
+                                           ('this boot unread, the process gone', labtest.HOST_BOOT, None, False),
+                                           ('this boot', labtest.HOST_BOOT, labtest.HOST_BOOT, True)):
+            with self.subTest(case):
+                processes = labtest.Processes(alive=alive)
+                h = Harness(processes=processes)
+                self.addCleanup(h.close)
+                h.broker.close()
+                h.host_boot = first
+                h.open()
+                h.begin(pid=4242, start_ticks=99)
+                h.hello()
+                h.broker.close()
+                h.host_boot = second
+                h.open()
+                end = h.entries('generation-end')[-1].content
+                keys.add(tuple(sorted(end)))
+                known = (('this', 'the broker was lost') if case == 'this boot'
+                         else ('unknown', lab_broker.LOST_UNKNOWN_BOOT))
+                self.assertEqual((end['status'], end['host_boot'], end['violation']), ('LOST',) + known)
+                self.assertEqual((processes.killed, end['killed']), ([4242], True) if alive else ([], False))
+        self.assertEqual(len(keys), 1)
+
+    def test_a_reopening_does_not_wait_again_a_bound_it_waited_in_this_host_boot(self):
+        # A broker is lost inside the native CREATE, so its effect is unknown, and the host boots
+        # again. The first reopening in the new boot waits the command's whole bound. A second
+        # reopening in that same boot does not wait it again; the twin, a reopening in yet another
+        # boot, whose clock has not waited it, does. When the first reopening is itself lost during
+        # its wait, it recorded no opening, and the next one in that boot waits the whole bound.
+        for case in ('the same new boot', 'yet another boot', 'a reopening lost during its wait'):
+            with self.subTest(case):
+                h = self.harness()
+
+                def lose(command):
+                    if command.startswith('pm install-create'):
+                        raise KeyboardInterrupt('the broker is lost here')
+                h.sim.hooks.append(lose)
+                with self.assertRaises(KeyboardInterrupt):
+                    h.cross('CREATE', 2)
+                h.sim.hooks.clear()
+                intent = h.broker.ledger.last.content['intent']
+                bound = int((intent['timeout_s'] + labtest.LIMITS['drain_grace_s']) * 1e9)
+                h.broker.close()
+                h.host_boot, h.clock.mono = OTHER_HOST_BOOT, labtest.Clock().mono // 2
+                h.clock.slept.clear()
+                if case == 'a reopening lost during its wait':
+                    def lost_in_the_wait(seconds):
+                        elapse(h, int(seconds * 1e9) // 2)
+                        raise KeyboardInterrupt('the reopening broker is lost during its wait')
+                    h.clock.sleep = lost_in_the_wait
+                    with self.assertRaises(KeyboardInterrupt):
+                        h.open()
+                    del h.clock.sleep
+                    self.assertEqual([e.content['host_boot_id'] for e in h.entries('open')], [labtest.HOST_BOOT])
+                else:
+                    h.open()
+                    self.assertLess(abs(sum(h.clock.slept) * 1e9 - bound), 1000)
+                    h.broker.close()
+                if case == 'yet another boot':
+                    h.host_boot, h.clock.mono = '3c8d9a14-5e2f-4b61-a7d0-9f1e6b2c4d58', labtest.Clock().mono // 3
+                h.clock.slept.clear()
+                before = h.clock.mono
+                h.open()
+                opened = h.entries('open')[-1].content
+                if case == 'the same new boot':
+                    self.assertEqual(h.clock.slept, [])
+                    self.assertLessEqual(opened['drained_until_monotonic_ns'], before)
+                    continue
+                self.assertLess(abs(sum(h.clock.slept) * 1e9 - bound), 1000)
+                self.assertEqual(opened['drained_until_monotonic_ns'], before + bound)
+
+    def test_the_reopening_waits_on_the_host_monotonic_clock_whatever_the_wall_clock_does(self):
+        # A broker is lost inside the native CREATE, so its effect is unknown, and 10 s later it is
+        # reopened. The wait is that command's bound, counted on the host's monotonic clock from its
+        # start: with the wall clock unchanged, an hour ahead or an hour back, the same. In another
+        # host boot the clock it started on is gone, and the reopening waits the whole bound.
+        for case, step in (('unchanged', 0), ('the wall clock an hour ahead', 3600),
+                           ('the wall clock an hour back', -3600), ('another boot', 0)):
+            with self.subTest(case):
+                h = self.harness()
+
+                def lose(command):
+                    if command.startswith('pm install-create'):
+                        raise KeyboardInterrupt('the broker is lost here')
+                h.sim.hooks.append(lose)
+                with self.assertRaises(KeyboardInterrupt):
+                    h.cross('CREATE', 2)
+                h.sim.hooks.clear()
+                intent = h.broker.ledger.last.content['intent']
+                bound = int((intent['timeout_s'] + labtest.LIMITS['drain_grace_s']) * 1e9)
+                h.broker.close()
+                elapse(h, 10 * 10 ** 9)
+                h.clock.wall += step * 10 ** 9
+                if case == 'another boot':
+                    h.host_boot, h.clock.mono = OTHER_HOST_BOOT, labtest.Clock().mono // 2
+                before = h.clock.mono
+                h.clock.slept.clear()
+                h.open()
+                drain = before + bound if case == 'another boot' else intent['started_monotonic_ns'] + bound
+                opened = h.entries('open')[-1].content
+                self.assertEqual((opened['drained_until_monotonic_ns'], opened['host_boot_id']), (drain, h.host_boot))
+                self.assertLess(abs(sum(h.clock.slept) * 1e9 - (drain - before)), 1000)
+                self.assertEqual(len(h.clock.slept), 1)
+
+    def test_the_admission_names_its_runtime_deadline_with_its_host_boot_or_neither(self):
+        # The old wall deadline is refused, and so are a deadline without its host boot, a boot
+        # without its deadline, a boot ID of no known form, and a deadline that is no positive
+        # instant. A deadline with its boot, and neither, are admitted.
+        directory = Path(tempfile.mkdtemp(dir=os.environ.get('TMPDIR')))
+        self.addCleanup(shutil.rmtree, directory)
+        good = runtime_fences(10 ** 12)
+        bad = [dict(good, deadline_wall_ns=10 ** 12), {k: v for k, v in good.items() if k != 'host_boot_id'},
+               dict(good, host_boot_id=None), dict(good, deadline_monotonic_ns=None),
+               dict(good, host_boot_id=labtest.HOST_BOOT.upper()), dict(good, host_boot_id='boot'),
+               dict(good, deadline_monotonic_ns=0), dict(good, deadline_monotonic_ns=True),
+               dict(good, deadline_monotonic_ns=1.5)]
+        for fences in bad:
+            with self.subTest(fences=fences), self.assertRaises(lab_broker.BrokerError):
+                lab_broker.check_admission(labtest.admission(directory, fences=fences))
+        for fences in (good, runtime_fences(None, None)):
+            lab_broker.check_admission(labtest.admission(directory, fences=fences))
 
 
 class FenceDuringFeaturesTests(Base):
@@ -339,18 +917,18 @@ class FenceDuringFeaturesTests(Base):
                 lease.write_text('runtime-7\n')
                 stop = Path(directory) / 'STOP'
                 fences = {'stop_file': str(stop), 'lease_file': str(lease), 'lease_token': 'runtime-7',
-                          'deadline_wall_ns': labtest.Clock().wall + 10 ** 12}
+                          'deadline_monotonic_ns': labtest.Clock().mono + 10 ** 12, 'host_boot_id': labtest.HOST_BOOT}
                 h = self.harness(fences=fences)
                 features = h.broker.transport.features
 
-                def trip(timeout, h=h, kind=kind, lease=lease, stop=stop):
-                    value = features(timeout)
+                def trip(timeout, h=h, kind=kind, lease=lease, stop=stop, **extra):
+                    value = features(timeout, **extra)
                     if kind == 'stop':
                         stop.write_text('stop\n')
                     elif kind == 'lease':
                         lease.write_text('runtime-8\n')
                     else:
-                        h.clock.wall += 10 ** 13
+                        h.clock.mono += 10 ** 13
                     return value
                 h.broker.transport.features = trip
                 self.assertEqual(h.clock_read()['status'], STATUS['STOPPED'])
@@ -1680,7 +2258,7 @@ class ReopenTests(Base):
             h.cross('CREATE', 2)
         h.sim.hooks.clear()
         intent = h.broker.ledger.last.content['intent']
-        deadline = intent['started_wall_ns'] + int((intent['timeout_s'] + labtest.LIMITS['drain_grace_s']) * 1e9)
+        deadline = intent['started_monotonic_ns'] + int((intent['timeout_s'] + labtest.LIMITS['drain_grace_s']) * 1e9)
         h.broker.close()
 
         def lost_in_the_wait(seconds):
@@ -1693,11 +2271,11 @@ class ReopenTests(Base):
         self.assertEqual([e.kind for e in lab_broker.ledgers.scan(h.root / 'ledger')].count('quarantine'), 1)
         # The next reopening still owes the whole wait, although the capture is quarantined.
         h.clock.slept.clear()
-        start = h.clock.wall
+        start = h.clock.mono
         h.open()
         self.assertEqual(len(h.clock.slept), 1)
         self.assertEqual(start + int(h.clock.slept[0] * 1e9), deadline)
-        self.assertEqual(h.entries('open')[-1].content['drained_until_wall_ns'], deadline)
+        self.assertEqual(h.entries('open')[-1].content['drained_until_monotonic_ns'], deadline)
         # Once the bound has passed, a reopening waits no more.
         h.broker.close()
         h.clock.slept.clear()
@@ -2354,9 +2932,12 @@ class OutputFenceTests(Base):
                 self.assertEqual(seen, [1])
                 stop = self.stopped_before_any_launch(h, summary, begun)
                 # A host reply has no STOPPED: the call is refused with the stop's reason, so the
-                # bridge never runs it, and the generation ends after that reply.
+                # bridge never runs it, and the generation ends after that reply. The refusal is
+                # recorded, and the reply names its record.
                 self.assertEqual((reply['type'], reply['status'], reply['reason'], summary['served']),
                                  ('HOST_REPLY', STATUS['REFUSED'], stop.content['reason'], 2))
+                self.assertEqual([(e.number, e.content['phase'], e.content['reason']) for e in h.entries('host')],
+                                 [(reply['record'], 'REFUSED', stop.content['reason'])])
 
     def test_output_during_a_call_lets_that_call_finish_and_starts_nothing_after_it(self):
         # Output passes the allowance while one command is already inside its transport call: a

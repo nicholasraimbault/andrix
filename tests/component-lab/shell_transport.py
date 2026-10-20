@@ -545,15 +545,16 @@ class AdbClient:
         return RebootResult(launch, transport, acknowledgement, stream_end, bytes(message), fail, error,
                             started_wall, self._wall(), self._monotonic() - started)
 
-    def push(self, data, path, mode, mtime, timeout):
-        """Sends one file with sync SEND version 1."""
+    def push(self, data, path, mode, mtime, timeout, may_send=None):
+        """Sends one file with sync SEND version 1. may_send, when given, is asked once more right
+        before the sync service request, as for a shell command."""
         spec = '%s,%d' % (path, mode)
         if (not path.startswith('/') or ',' in path or len(spec) > 1024
                 or any(ord(c) < 0x21 or ord(c) > 0x7e for c in path)):
             raise ValueError('a pushed path is absolute printable ASCII without commas or spaces')
         started_wall, started = self._wall(), self._monotonic()
         deadline = started + int(timeout * 1e9)
-        sock, failure, launch, fail, error = self._open(SYNC_SERVICE, deadline)
+        sock, failure, launch, fail, error = self._open(SYNC_SERVICE, deadline, may_send)
         status = 'not-started'
         transport = failure or 'ok'
         if failure is None:

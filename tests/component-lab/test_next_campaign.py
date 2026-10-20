@@ -42,7 +42,8 @@ def admission(**changes):
     value = dict(installation=labtest.INSTALLATION, coordinator=labtest.COORDINATOR, trust=labtest.TRUST,
                  manifest='aa' * 32, config='bb' * 32, serial='127.0.0.1:6520', target_scope='ESTABLISHED_EMPTY',
                  device_dir=labtest.DEVICE_DIR,
-                 fences={'stop_file': '/lab/STOP', 'lease_file': None, 'lease_token': None, 'deadline_wall_ns': None},
+                 fences={'stop_file': '/lab/STOP', 'lease_file': None, 'lease_token': None,
+                         'deadline_monotonic_ns': None, 'host_boot_id': None},
                  limits=dict(labtest.LIMITS), store='/lab/store', plans=PLANS, runtime='e2' * 16, helpers=HELPERS,
                  predicates=PREDICATES, payloads=PAYLOADS)
     value.update(changes)
@@ -405,6 +406,51 @@ class HelperPushTests(unittest.TestCase):
         self.assertEqual(h.broker.ledger.entries[found['capture'] - 1].content['intent']['purpose'], 'helper-check')
         with self.assertRaisesRegex(lab_broker.BrokerError, 'admitted uses of the action are spent'):
             h.broker.run_action('5a' * 16, 'again', host=str(self.path))
+
+    def test_a_push_its_transport_refuses_launches_nothing(self):
+        # The transport's last question before the helper's sync service request refuses it once
+        # a deadline has passed while connecting: the run's, whose stop is latched and ends the
+        # action STOPPED, or the action's own bound, which refuses the action. Either way the push
+        # is not launched, the helper never reaches the guest, and the END counts the push as an
+        # effect not launched. The twin connects within both and pushes the helper. The run's
+        # deadline comes before the action's bound of 600 s in the first case and after it in the
+        # second, so each refusal is that deadline's alone.
+        for case in ('the run deadline', 'the action bound', 'neither'):
+            with self.subTest(case):
+                D = labtest.Clock().mono + (300 if case == 'the run deadline' else 3600) * 10 ** 9
+                h = self.harness(fences={'stop_file': '/nonexistent/STOP', 'lease_file': None, 'lease_token': None,
+                                         'deadline_monotonic_ns': D, 'host_boot_id': labtest.HOST_BOOT})
+
+                def connect(command):
+                    if command != 'push ' + health_compose.UI_STATE_HELPER or case == 'neither':
+                        return
+                    [begin] = [e.content for e in h.entries('lab-action') if e.content['record'] == 'BEGIN']
+                    passed = D if case == 'the run deadline' else begin['deadline_monotonic_ns']
+                    h.clock.wall += passed - h.clock.mono
+                    h.clock.mono = passed
+                h.sim.hooks.append(connect)
+                if case == 'the run deadline':
+                    with self.assertRaises(lab_broker.Stopped):
+                        h.broker.run_action('5a' * 16, 'the helper', host=str(self.path))
+                    end = [e.content for e in h.entries('lab-action') if e.content['record'] == 'END'][-1]
+                else:
+                    end = h.broker.run_action('5a' * 16, 'the helper', host=str(self.path))
+                if case == 'neither':
+                    self.assertEqual((end['status'], end['counts']['effects_launched']), ('OK', 1))
+                    self.assertEqual(h.sim.files[health_compose.UI_STATE_HELPER], self.jar)
+                    continue
+                [push] = [e.content for e in h.entries('capture')
+                          if e.content['intent']['operation'] == 'lab-action-push']
+                self.assertEqual((push['result']['launch'], push['result']['transport']),
+                                 ('not-launched', 'launch-deadline'))
+                self.assertNotIn(health_compose.UI_STATE_HELPER, h.sim.files)
+                self.assertEqual((end['counts']['effects_launched'], end['counts']['effects_not_launched']), (0, 1))
+                stops = [e.content['reason'] for e in h.entries('stop')]
+                if case == 'the run deadline':
+                    self.assertEqual((end['status'], end['uncertainty'], stops),
+                                     ('STOPPED', lab_broker.RUN_AT_SERVICE, [lab_broker.RUN_AT_SERVICE]))
+                else:
+                    self.assertEqual((end['status'], stops), ('REFUSED', []))
 
     def test_other_host_bytes_launch_nothing(self):
         other = Path(self.temp.name) / 'other.jar'

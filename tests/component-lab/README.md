@@ -136,7 +136,11 @@ follows.
   and reaped within its own bound before another generation starts.
 - **A lost broker.** The next broker on the directory quarantines the incomplete last entry, waits
   out the bound of a command whose effect is unknown, ends a lost generation's process if it still
-  runs, and records all of this before it serves again.
+  runs, and records all of this before it serves again. A process ID and its start ticks name a
+  process only within their host boot: a generation lost in another host boot is recorded lost
+  there, and nothing is signalled. When either boot ID is unknown the boots cannot be told apart,
+  and the process is ended as in this boot. The lost generation's end names the boot it was lost
+  in, `host_boot`: `this`, `another` or `unknown`, each with its own violation.
 
 ## Protocol, version 1
 
@@ -180,7 +184,7 @@ fatal error, never as a lost reply.
 | 9 POINT | `text point, id ticket, id plan, i32 attempt` | the point is `selection-written`, the coordinator's BETWEEN_WRITES |
 | 10 POINT reply | `u8 status, u32 record, text reason` | OK or HALT, with the fault entry exactly for HALT |
 | 11 HOST | `u8 phase, u8 crossing, id ticket, id plan, i32 attempt, u16 index, u16 occurrence, id reference, u8 outcome, d32 reply` | phase 1 BEGIN or 2 END, crossing 1 SIGN or 2 PUBLISH. BEGIN has outcome 0. END has outcome 1 REPLY, 2 NULL or 3 THREW, and the SHA-256 of the reply's record exactly with REPLY |
-| 12 HOST reply | `u8 status, u32 record, text reason` | OK, HALT, WITHHELD, with the record |
+| 12 HOST reply | `u8 status, u32 record, text reason` | OK, HALT, WITHHELD, with the record. REFUSED names the record of a BEGIN refused after a stop, and is 0 otherwise |
 | 13 REPORT | `id ticket, u8 state, u8 flags, u8 cause, u16 count, count of u8 crossing, text note` | a ticket's state, flags, cause and ledger, informational |
 | 14 REPORT reply | `u8 status, u32 record, text reason` | OK with the report's entry |
 
@@ -280,9 +284,10 @@ to protocol 1 or a PTY.
   or the transmission failed part way), the transport's status (ok, closed, timeout, I/O error,
   protocol fault, connect, transport or service failure with the server's FAIL message), the
   completion, the EXIT value received and the two streams unchanged. A transport error is never a
-  remote exit status, so an adb error never becomes a quiet remote 1. A launch deadline, when the
+  remote exit status, so an adb error never becomes a quiet remote 1. A launch gate, when the
   caller gives one, is asked once more right before the service request, and before the feature
-  query's request: a deadline passed by then sends nothing, and the command is not launched.
+  query's request: a deadline it finds passed by then sends nothing, and the command is not
+  launched. The broker gives one to every command: the run's deadline and the command's own.
 - **Reboot.** The service `reboot:`. It has no shell protocol and no exit status. Its
   acknowledgement is accepted (OKAY), refused (FAIL) or none, then how the stream ended and any
   message. A new boot ID, read later, resolves the request.
@@ -324,8 +329,15 @@ starts only after its intent is synced, and `launched: "unknown"` for an intent 
 crash during that reopening can leave a run of quarantine entries, which the next reopening
 completes. The wait for a command whose effect is unknown comes from every capture with an intent
 and no result, quarantined or not, so a reopening lost before or during its wait leaves the same
-wait to the next one. Any other incomplete entry, a gap, an unknown name, a link, an extra file or
-other stream bytes refuse the reopening.
+wait to the next one. Each opening records its host's boot ID, and a capture belongs to the boot of
+the opening before it. A capture of this host boot is waited out to its own start on the host's
+monotonic clock plus its timeout and the drain grace; one of another boot, or of a boot unknown, for
+that whole bound from the reopening, since the clock it started on is gone, unless a later opening
+of this host boot already waited it out. An opening is recorded only after its wait, and that wait
+covered every capture then in the ledger, so a second reopening in the same new boot does not wait
+again. No wall time decides the wait, so no step of the wall clock shortens it. Any other
+incomplete entry, a gap, an unknown name, a link, an extra file or other stream bytes refuse the
+reopening.
 
 ## Broker
 
@@ -348,10 +360,32 @@ barrier an interrupted creation or an earlier failed sync never reached is never
   through the server, as a recorded capture. A definite answer without `shell_v2` latches a stop. An
   answer that cannot be read launches nothing, and is asked again before the next command.
 - **Fences.** Before every guest command, reads and the feature query included, right before its
-  intent: the stop latch, the stop file, the lease file's token and the runtime deadline. A tripped
-  fence is latched in the ledger with its reason. From then on every request that needs the guest is
-  answered STOPPED, HELLO included, in this broker and every later one on the same ledger. A command
-  already running finishes within its own bound.
+  intent, and before every host call's BEGIN: the stop latch, the stop file, the lease file's token
+  and the runtime deadline. A tripped fence is latched in the ledger with its reason and the
+  monotonic reading it judged (`monotonic_ns`). From then on every request that needs the guest is
+  answered STOPPED, HELLO included, and every host call's BEGIN is refused, in this broker and
+  every later one on the same ledger. A command already running finishes within its own bound.
+- **The runtime deadline.** The admission's fences name `deadline_monotonic_ns`, an instant of
+  the host's monotonic clock (CLOCK_MONOTONIC, the clock the vehicle's closure judges the run's
+  budget with), and `host_boot_id`, the host's `/proc/sys/kernel/random/boot_id` when the
+  admission was written: both, or neither for no deadline. No step of the wall clock moves the
+  deadline, and it has passed once that clock reads it. A broker opened in another host boot counts
+  it as passed, with its own reason, since the clock it counts on is gone. One that cannot read its
+  boot ID counts it as passed too, and its reason says that the ID could not be read. The fence
+  reads that clock once, and a command it admits starts at that reading, so its record says exactly
+  what the deadline was judged at. The deadline is judged again once the command's intent is
+  durable, and by the transport right before the service request, beside the command's own launch
+  deadline. A command whose run deadline passes between its fence and its launch ends not launched,
+  with the run's own reason, as a passed launch deadline does, and that reason latches the stop as
+  the fence would, with the reading that judged it. Its result keeps the reading at the transport's
+  last question, `launch_monotonic_ns`, beside its start, so every launch can be judged against the
+  deadline. The lease is a token, with no clock of its own.
+- **Wall time.** No bound on forward work or safety is judged by the host's wall clock: its times
+  are kept in records, for reporting only. An ACTIVATE grant alone is judged in the reader's wall
+  domain, by design: the reconciler judges grants there (Crossings, below), and the broker turns
+  the time a grant has left at the gate's clock reading into a host monotonic launch deadline. The
+  driver's own wall time is the coordinator's input, its plans' and tickets' time, never a bound
+  of the broker.
 - **Groups.** Each reader call is one group: its captures, its raw digest and the facts it gave are
   recorded together. A read whose remote completion was not observed whole raises Unavailable, so a
   transport failure never reaches a parser as an exit status. Every fact must be of the reader's
@@ -469,11 +503,13 @@ cell before anything acts, so a cell acts at most once, across reopenings too.
 
 A HOST BEGIN is recorded before the bridge calls the host signer or publisher, and its END after,
 each with the broker's own wall and monotonic times as it handles them: they bracket the host
-effect, and say nothing of when the bridge sent its request. A second BEGIN or END for one ledger
-entry is refused. A generation that ends during a host call has its call recorded as ended with its
-process, so a later generation's query never runs while the old call could still complete. That a
-command was not launched is recorded for the closure only. It never becomes an observation, so it
-can never serve as proof that the guest has no session.
+effect, and say nothing of when the bridge sent its request. A host call is forward work like any
+guest command: its BEGIN is fenced right before it is recorded, and after a stop of any cause it is
+refused with the stop's reason and recorded with the phase REFUSED, which is neither a BEGIN nor an
+END. A second BEGIN or END for one ledger entry is refused. A generation that ends during a host
+call has its call recorded as ended with its process, so a later generation's query never runs while
+the old call could still complete. That a command was not launched is recorded for the closure only.
+It never becomes an observation, so it can never serve as proof that the guest has no session.
 
 A notice route has `allowed(command)` and `notice(run, ticket, index, plan)`. It runs its fixed
 commands through the broker's `run`, which fences, records and returns each whole shell result, and

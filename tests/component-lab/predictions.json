@@ -8,13 +8,13 @@
   "test_full_users": 37,
   "test_health": 53,
   "test_lab_bridge": 30,
-  "test_lab_broker": 130,
+  "test_lab_broker": 148,
   "test_lab_crossings": 13,
   "test_lab_driver": 35,
-  "test_lab_loss": 62,
+  "test_lab_loss": 64,
   "test_lab_next": 48,
   "test_lab_protocol": 16,
-  "test_next_campaign": 45,
+  "test_next_campaign": 46,
   "test_next_driver": 21,
   "test_next_readers": 9,
   "test_shell_transport": 25,
@@ -316,6 +316,9 @@
   "crossing-effects-uncapped": [
    "test_lab_next.ActionTests.test_crossing_effect_limits_launch_nothing_past_their_caps"
   ],
+  "crossing-push-gate-dropped": [
+   "test_lab_broker.MonotonicFenceTests.test_a_crossing_push_whose_run_deadline_passes_at_its_transport_is_not_launched"
+  ],
   "data-copy-accepted": [
    "DriverTest.baseline / a data copy with the factory bytes is refused",
    "test_lab_driver.DriverEndToEnd.test_a_data_copy_with_the_factory_bytes_is_refused_at_the_baseline"
@@ -340,6 +343,9 @@
   ],
   "drain-skipped": [
    "test_lab_broker.ReopenTests.test_an_interrupted_capture_is_quarantined_drained_and_never_repeated"
+  ],
+  "drain-waited-again-in-the-same-boot": [
+   "test_lab_broker.MonotonicFenceTests.test_a_reopening_does_not_wait_again_a_bound_it_waited_in_this_host_boot"
   ],
   "driver-boot-count-jump-accepted": [
    "test_next_campaign.DriverRuleTests.test_the_boot_accounting_moves_by_one_with_an_observed_boot_only"
@@ -505,6 +511,9 @@
   "feature-query-unbounded": [
    "test_lab_broker.LabActionTests.test_a_fresh_brokers_feature_query_keeps_the_bound"
   ],
+  "features-run-refusal-unstopped": [
+   "test_lab_broker.MonotonicFenceTests.test_a_feature_query_whose_run_deadline_passes_at_its_transport_stops_the_broker"
+  ],
   "features-send-ungated": [
    "test_shell_transport.OtherServiceTests.test_a_features_request_is_not_sent_once_its_deadline_passed"
   ],
@@ -514,6 +523,9 @@
   "fence-skipped": [
    "test_lab_broker.FenceTests.test_the_stop_fence_comes_before_every_read_and_latches",
    "test_lab_broker.FenceTests.test_the_lease_and_the_deadline_are_fences"
+  ],
+  "fence-stop-without-its-reading": [
+   "test_lab_broker.MonotonicFenceTests.test_a_tripped_fence_keeps_the_reading_it_judged"
   ],
   "final-active-digest-only": [
    "test_next_driver.CampaignTests.test_the_final_reads_join_every_live_session_against_the_campaign"
@@ -676,6 +688,9 @@
   "helper-push-counted-apart": [
    "test_next_campaign.HelperPushTests.test_pushes_count_against_the_fixture_and_entry_caps"
   ],
+  "helper-push-gate-dropped": [
+   "test_next_campaign.HelperPushTests.test_a_push_its_transport_refuses_launches_nothing"
+  ],
   "helper-push-other-bytes": [
    "test_next_campaign.HelperPushTests.test_other_host_bytes_launch_nothing"
   ],
@@ -685,10 +700,17 @@
   "helper-push-uncapped": [
    "test_next_campaign.HelperPushTests.test_pushes_count_against_the_fixture_and_entry_caps"
   ],
+  "host-begin-after-a-stop-answered": [
+   "test_lab_broker.FenceTests.test_no_host_call_begins_after_a_stop_of_any_cause",
+   "test_lab_broker.OutputFenceTests.test_a_problem_known_before_a_host_call_begins_no_host_effect"
+  ],
   "host-begin-skipped": [
    "BridgeTest.host / BEGIN before the effect, END after, and the broker's cells decide",
    "test_lab_bridge.BridgeEndToEnd.test_a_ticket_closes_applied_from_observation_alone",
    "test_lab_bridge.BridgeEndToEnd.test_host_losses_resolve_by_reading_never_by_signing_again"
+  ],
+  "host-begin-unfenced": [
+   "test_lab_broker.FenceTests.test_no_host_call_begins_after_a_stop_of_any_cause"
   ],
   "host-begin-untimed": [
    "test_lab_broker.FaultTests.test_host_records_carry_the_brokers_times"
@@ -707,6 +729,10 @@
   ],
   "host-query-unfenced": [
    "BridgeTest.host / BEGIN before the effect, END after, and the broker's cells decide"
+  ],
+  "host-refusal-unrecorded": [
+   "test_lab_broker.FenceTests.test_no_host_call_begins_after_a_stop_of_any_cause",
+   "test_lab_broker.OutputFenceTests.test_a_problem_known_before_a_host_call_begins_no_host_effect"
   ],
   "host-withheld-delivered": [
    "BridgeTest.host / BEGIN before the effect, END after, and the broker's cells decide"
@@ -755,6 +781,9 @@
   ],
   "intent-after-launch": [
    "test_lab_broker.IntentTests.test_every_command_finds_its_intent_in_the_ledger_first"
+  ],
+  "intent-start-read-apart-from-the-fence": [
+   "test_lab_broker.MonotonicFenceTests.test_a_command_is_admitted_at_the_reading_its_fence_judged"
   ],
   "interrupted-read-as-not-launched": [
    "test_lab_broker.ReopenTests.test_an_interrupted_capture_is_quarantined_drained_and_never_repeated"
@@ -805,6 +834,14 @@
   "launch-gate-reads-the-output-twice": [
    "test_lab_broker.OutputFenceTests.test_each_gate_asks_the_output_once_and_acts_on_that_answer"
   ],
+  "launch-reading-taken-before-the-transport": [
+   "test_lab_broker.MonotonicFenceTests.test_each_command_keeps_its_actual_launch_beside_its_fences_reading",
+   "test_lab_broker.MonotonicFenceTests.test_a_command_whose_run_deadline_passes_at_its_transport_is_not_launched"
+  ],
+  "launch-reading-unrecorded": [
+   "test_lab_broker.MonotonicFenceTests.test_each_command_keeps_its_actual_launch_beside_its_fences_reading",
+   "test_lab_broker.MonotonicFenceTests.test_a_command_whose_run_deadline_passes_after_its_fence_is_not_launched"
+  ],
   "ledger-bound-above-the-codec": [
    "test_lab_protocol.ProtocolTests.test_the_ledger_bound_is_the_public_codecs"
   ],
@@ -836,8 +873,21 @@
   "loss-stopped-left-due": [
    "test_lab_loss.ReadLossTests.test_a_stop_at_the_selected_reader_records_the_loss_not_acted"
   ],
+  "lost-generation-boot-unrecorded": [
+   "test_lab_broker.MonotonicFenceTests.test_a_lost_generation_of_an_unknown_host_boot_is_recorded_as_unknown",
+   "test_lab_broker.MonotonicFenceTests.test_a_lost_generation_of_another_host_boot_is_never_signalled"
+  ],
   "lost-generation-left-running": [
    "test_lab_broker.ReopenTests.test_a_lost_generation_process_is_ended_before_another_is_served"
+  ],
+  "lost-generation-of-an-unknown-boot-left-running": [
+   "test_lab_broker.MonotonicFenceTests.test_a_lost_generation_of_an_unknown_host_boot_is_recorded_as_unknown"
+  ],
+  "lost-generation-signalled-in-another-boot": [
+   "test_lab_broker.MonotonicFenceTests.test_a_lost_generation_of_another_host_boot_is_never_signalled"
+  ],
+  "lost-in-another-boot-unrecorded": [
+   "test_lab_broker.MonotonicFenceTests.test_a_lost_generation_of_another_host_boot_is_never_signalled"
   ],
   "lost-output-claimed": [
    "test_lab_broker.OutputFenceTests.test_a_generation_lost_with_its_broker_never_has_its_output_claimed"
@@ -847,6 +897,9 @@
   ],
   "lost-read-as-quiet-1": [
    "test_lab_broker.GroupTests.test_a_lost_read_never_reads_as_no_framework"
+  ],
+  "lost-unknown-boot-recorded-as-this": [
+   "test_lab_broker.MonotonicFenceTests.test_a_lost_generation_of_an_unknown_host_boot_is_recorded_as_unknown"
   ],
   "managed-commit-fenced-only-by-its-fault": [
    "test_lab_loss.FenceTests.test_a_managed_commit_launches_nothing_before_a_qualified_f0_whatever_its_fault"
@@ -947,6 +1000,9 @@
   "next-undecided-reaches-a": [
    "test_next_campaign.CellsTests.test_the_cells_record_freezes_every_declared_branch"
   ],
+  "nonstaged-push-gate-dropped": [
+   "test_lab_loss.NonstagedTests.test_a_push_its_transport_refuses_installs_nothing"
+  ],
   "not-published-is-failure": [
    "test_lab_driver.DriverEndToEnd.test_a_publication_lost_before_its_effect_waits_then_stages_the_republication"
   ],
@@ -958,6 +1014,13 @@
   ],
   "observation-cut-to-fit": [
    "test_lab_next.ProtocolVersionTests.test_an_observation_above_its_bounds_is_refused_never_cut"
+  ],
+  "open-record-without-its-host-boot": [
+   "test_lab_broker.MonotonicFenceTests.test_a_broker_reopened_in_the_same_host_boot_keeps_its_runtime_deadline",
+   "test_lab_broker.MonotonicFenceTests.test_the_reopening_waits_on_the_host_monotonic_clock_whatever_the_wall_clock_does"
+  ],
+  "open-recorded-before-its-wait": [
+   "test_lab_broker.MonotonicFenceTests.test_a_reopening_does_not_wait_again_a_bound_it_waited_in_this_host_boot"
   ],
   "other-boots-accepted": [
    "DriverTest.baseline / facts of another boot are refused, whatever the wall times",
@@ -1131,6 +1194,9 @@
   "publication-not-pinned": [
    "test_lab_driver.DriverEndToEnd.test_a_ticket_closes_applied_with_the_real_signer_and_publication"
   ],
+  "push-gate-not-asked": [
+   "test_shell_transport.ShellTests.test_a_launch_deadline_that_passes_during_setup_sends_nothing"
+  ],
   "read-loss-before-its-child": [
    "test_lab_loss.ReadLossTests.test_a_read_loss_at_each_milestone_halts_after_its_selected_child",
    "test_lab_loss.BarrierTests.test_a_read_loss_halts_only_after_its_child_and_decision_are_durable"
@@ -1200,6 +1266,12 @@
   ],
   "removal-from-a-partial-read": [
    "test_full_users.InventoryTests.test_removal_only_from_a_whole_later_inventory"
+  ],
+  "reopen-drain-ignores-the-host-boot": [
+   "test_lab_broker.MonotonicFenceTests.test_the_reopening_waits_on_the_host_monotonic_clock_whatever_the_wall_clock_does"
+  ],
+  "reopen-drain-on-the-wall-clock": [
+   "test_lab_broker.MonotonicFenceTests.test_the_reopening_waits_on_the_host_monotonic_clock_whatever_the_wall_clock_does"
   ],
   "repair-base-not-current": [
    "RepairTest.repair plan / the study's row, A's restoration, signer and cohort, the current base, revision 1"
@@ -1344,6 +1416,40 @@
   "round-start-bytes-not-kept": [
    "test_lab_loss.WriterLatchTests.test_a_failed_keep_at_a_boundary_stops_and_records_no_checkpoint_or_loss"
   ],
+  "run-deadline-not-asked-at-the-transport": [
+   "test_lab_broker.MonotonicFenceTests.test_a_command_whose_run_deadline_passes_at_its_transport_is_not_launched"
+  ],
+  "run-deadline-unchecked-after-the-intent": [
+   "test_lab_broker.MonotonicFenceTests.test_a_command_whose_run_deadline_passes_after_its_fence_is_not_launched",
+   "test_lab_broker.MonotonicFenceTests.test_a_command_is_admitted_at_the_reading_its_fence_judged"
+  ],
+  "run-refusal-at-the-transport-unraised": [
+   "test_lab_broker.MonotonicFenceTests.test_a_command_whose_run_deadline_passes_at_its_transport_is_not_launched"
+  ],
+  "run-refusal-without-its-stop": [
+   "test_lab_broker.MonotonicFenceTests.test_a_command_whose_run_deadline_passes_after_its_fence_is_not_launched",
+   "test_lab_broker.MonotonicFenceTests.test_a_command_is_admitted_at_the_reading_its_fence_judged",
+   "test_lab_broker.MonotonicFenceTests.test_a_crossing_whose_run_deadline_passes_before_its_second_member_is_stopped"
+  ],
+  "run-stop-without-the-gates-reading": [
+   "test_lab_broker.MonotonicFenceTests.test_a_command_whose_run_deadline_passes_after_its_fence_is_not_launched",
+   "test_lab_broker.MonotonicFenceTests.test_a_command_is_admitted_at_the_reading_its_fence_judged"
+  ],
+  "run-stop-without-the-transports-reading": [
+   "test_lab_broker.MonotonicFenceTests.test_a_command_whose_run_deadline_passes_at_its_transport_is_not_launched"
+  ],
+  "runtime-deadline-edge-off-by-one": [
+   "test_lab_broker.MonotonicFenceTests.test_the_runtime_deadline_has_passed_at_its_own_instant"
+  ],
+  "runtime-deadline-without-its-boot": [
+   "test_lab_broker.MonotonicFenceTests.test_the_admission_names_its_runtime_deadline_with_its_host_boot_or_neither"
+  ],
+  "runtime-fence-ignores-the-host-boot": [
+   "test_lab_broker.MonotonicFenceTests.test_a_broker_opened_in_another_host_boot_counts_its_runtime_deadline_as_passed"
+  ],
+  "runtime-fence-on-the-wall-clock": [
+   "test_lab_broker.MonotonicFenceTests.test_the_runtime_deadline_counts_on_the_host_monotonic_clock_whatever_the_wall_clock_does"
+  ],
   "schedule-keep-failure-not-latched": [
    "test_lab_loss.WriterLatchTests.test_a_failed_keep_of_f0_or_the_schedule_stops_and_records_neither"
   ],
@@ -1425,6 +1531,9 @@
   ],
   "spec-write-failure-not-latched": [
    "test_lab_next.HealthTests.test_a_failed_manifest_sync_latches_the_writer_and_no_effect_follows"
+  ],
+  "stage-push-gate-dropped": [
+   "test_lab_loss.FenceTests.test_a_member_push_its_transport_refuses_stages_nothing"
   ],
   "staging-failure-swallowed": [
    "test_lab_driver.DriverEndToEnd.test_a_failed_publication_export_stops_before_any_session"
@@ -1536,6 +1645,9 @@
   ],
   "unlock-without-a-genuine-lock": [
    "test_health.UnlockTests.test_an_insecure_dismissal_or_no_genuine_lock_is_never_a_credential_unlock"
+  ],
+  "unread-boot-told-as-another": [
+   "test_lab_broker.MonotonicFenceTests.test_a_broker_opened_in_another_host_boot_counts_its_runtime_deadline_as_passed"
   ],
   "unreadable-features-unlisted": [
    "test_lab_broker.FeatureTests.test_unreadable_features_launch_nothing_and_are_asked_again",

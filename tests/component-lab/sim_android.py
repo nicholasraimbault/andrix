@@ -393,9 +393,13 @@ class SimAndroid:
             return result(command, completion='timeout', transport='timeout', error='scripted timeout')
         return reply
 
-    def push(self, data, path, mode, mtime, timeout):
+    def push(self, data, path, mode, mtime, timeout, may_send=None):
         for hook in list(self.hooks):
             hook('push ' + path)
+        # As for a shell command: the hooks stand for the connection, then the last question.
+        if may_send is not None and not may_send():
+            return shell_transport.PushResult(path, len(data), 'not-launched', 'launch-deadline', 'not-started', None,
+                                              'the launch deadline passed before the service request', 1, 2, 1)
         self.calls.append(('push', path))
         self.files[path] = bytes(data)
         # A helper's digest read gives what was pushed to its path from then on.
@@ -925,8 +929,8 @@ class SimTransport:
             return self.sim.shell(command, timeout, stdout_max, stderr_max, may_send, private)
         return self.sim.shell(command, timeout, stdout_max, stderr_max, may_send)
 
-    def push(self, data, path, mode, mtime, timeout):
-        return self.sim.push(data, path, mode, mtime, timeout)
+    def push(self, data, path, mode, mtime, timeout, may_send=None):
+        return self.sim.push(data, path, mode, mtime, timeout, may_send)
 
     def features(self, timeout, may_send=None):
         if may_send is not None and not may_send():

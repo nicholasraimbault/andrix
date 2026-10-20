@@ -97,30 +97,36 @@ MUTANTS = {
     'protocol-session-by-id-alone': ('lab_protocol.py',
                                      "    if name in ('WRITE', 'COMMIT', 'ABANDON') and presence & BOUND_REFERENCE != "
                                      "BOUND_REFERENCE:\n", "    if False:\n", ('test_lab_protocol',)),
-    'intent-after-launch': ('lab_broker.py', '        entry = self.ledger.begin_capture(intent)\n'
-                                             '        # The final launch gate, once the intent is durable: a launch whose '
-                                             'deadline has passed since\n'
-                                             "        # the gate's clock reading (an activation grant that may have expired, "
-                                             'or a bound) sends nothing.\n'
-                                             '        if not_after_ns is not None and self._monotonic() >= not_after_ns:\n'
-                                             "            self._not_sent(entry, command, 'the activation grant may have expired "
-                                             "before the launch, or its bound passed')\n"
-                                             "        # The output's own launch gate, once the intent is durable: a problem "
-                                             'known since the fence\n'
-                                             '        # sends nothing either. The capture ends not launched, then the stop is '
-                                             'latched and raised,\n'
-                                             "        # as a failed writer's is. The output is asked once, and that answer "
-                                             'is the one used.\n'
-                                             "        collector = getattr(self, '_collector', None)\n"
-                                             '        problem = collector.problem() if collector is not None else None\n'
-                                             '        if problem is not None:\n'
-                                             "            self._not_sent(entry, command, problem['reason'], stop=True)\n"
-                                             '        try:\n            result = call()\n',
-                            '        try:\n            result = call()\n'
-                            '            entry = self.ledger.begin_capture(intent)\n', ('test_lab_broker',)),
-    'fence-skipped': ('lab_broker.py', '        self._fence()\n        intent = dict(context, operation=operation, command=command, '
-                                       'timeout_s=timeout,\n',
-                      '        intent = dict(context, operation=operation, command=command, timeout_s=timeout,\n',
+    'intent-after-launch': ('lab_broker.py',
+        '        entry = self.ledger.begin_capture(intent)\n'
+        '        # The final launch gate, once the intent is durable, on one reading of the clock: a launch\n'
+        '        # whose run deadline has passed since its fence sends nothing, and that latches the stop,\n'
+        "        # nor one whose own deadline has passed since the gate's clock reading (an activation grant\n"
+        '        # that may have expired, or a bound).\n'
+        '        now = self._monotonic()\n'
+        '        if self.fences.deadline_problem(now) is not None:\n'
+        '            self._not_sent(entry, command, RUN_AT_LAUNCH, judged=now, run=True)\n'
+        '        if not_after_ns is not None and now >= not_after_ns:\n'
+        '            self._not_sent(entry, command,\n'
+        "                           'the activation grant may have expired before the launch, or its bound passed', judged=now)\n"
+        "        # The output's own launch gate, once the intent is durable: a problem known since the fence\n"
+        '        # sends nothing either. The capture ends not launched, then the stop is latched and raised,\n'
+        "        # as a failed writer's is. The output is asked once, and that answer is the one used.\n"
+        "        collector = getattr(self, '_collector', None)\n"
+        '        problem = collector.problem() if collector is not None else None\n'
+        '        if problem is not None:\n'
+        "            self._not_sent(entry, command, problem['reason'], stop=True)\n"
+        '        # The transport asks the same deadlines once more, right before the service request, and its\n'
+        "        # reading is kept as the command's actual launch.\n"
+        '        gate = _LaunchGate(self._monotonic, self.fences, not_after_ns)\n'
+        '        try:\n'
+        '            result = call(gate)\n',
+        '        gate = _LaunchGate(self._monotonic, self.fences, not_after_ns)\n'
+        '        try:\n'
+        '            result = call(gate)\n'
+        '            entry = self.ledger.begin_capture(intent)\n',
+        ('test_lab_broker',)),
+    'fence-skipped': ('lab_broker.py', '        now = self._fence()\n', '        now = self._monotonic()\n',
                       ('test_lab_broker',)),
     'stop-not-latched': ('lab_broker.py', '        if self.stopped is None:\n            self.stopped = reason\n',
                          '        if self.stopped is None:\n', ('test_lab_broker',)),
@@ -149,7 +155,7 @@ MUTANTS = {
     'interrupted-read-as-not-launched': ('lab_broker.py',
                                          "            launched = 'unknown' if entry.state == 'interrupted' else False\n",
                                          '            launched = False\n', ('test_lab_broker',)),
-    'drain-skipped': ('lab_broker.py', '            self._sleep((drain - self._wall()) / 1e9)\n', '            pass\n',
+    'drain-skipped': ('lab_broker.py', '            self._sleep((drain - now) / 1e9)\n', '            pass\n',
                       ('test_lab_broker',)),
     'lost-generation-left-running': ('lab_broker.py', "            self.processes.kill(g['pid'])\n",
                                      '            pass\n', ('test_lab_broker',)),
@@ -169,16 +175,20 @@ MUTANTS = {
         'timeout, not_after_ns)\n\n    def _record_command(self, operation, command, context, call, timeout, '
         'not_after_ns=None):\n'
         '        # Every command, the feature query included, is fenced right before its intent: a fence that\n'
-        '        # trips while an earlier command runs stops the next one.\n        self._fence()\n',
+        "        # trips while an earlier command runs stops the next one. Its start is the fence's own\n"
+        '        # reading of the monotonic clock, so the record says exactly what the runtime deadline was\n'
+        '        # judged at.\n'
+        '        now = self._fence()\n',
         '        self._fence()\n        self._require_shell2(context, not_after_ns)\n        return self._record_command(operation, '
         'command, context, call, timeout, not_after_ns)\n\n    def _record_command(self, operation, command, context, '
-        'call, timeout, not_after_ns=None):\n',
+        'call, timeout, not_after_ns=None):\n        now = self._monotonic()\n',
         ('test_lab_broker',)),
-    'drain-forgets-quarantined-captures': ('lab_broker.py', '        for entry in self.ledger.entries:\n'
-                                           "            if entry.kind == 'capture' and entry.state == 'interrupted':\n",
-                                           '        for entry in self.ledger.unquarantined():\n'
-                                           "            if entry.kind == 'capture' and entry.state == 'interrupted':\n",
-                                           ('test_lab_broker',)),
+    'drain-forgets-quarantined-captures': ('lab_broker.py',
+        '        drain, boot, now, unwaited = 0, None, self._monotonic(), []\n'
+        '        for entry in self.ledger.entries:\n',
+        '        drain, boot, now, unwaited = 0, None, self._monotonic(), []\n'
+        '        for entry in self.ledger.unquarantined():\n',
+        ('test_lab_broker',)),
     'request-transfer-unbounded': ('lab_broker.py', '        return proto.read_frame(Bounded)\n',
                                    '        return proto.read_frame(rfile)\n', ('test_lab_broker',)),
     'reply-transfer-unbounded': ('lab_broker.py', '        if fileno is None:\n            view = memoryview(data)\n',
@@ -202,17 +212,23 @@ MUTANTS = {
         "            if confirmed is not None:\n                return None, None, '%s: %s' % (purpose, confirmed)\n",
         ('test_lab_broker', BRIDGE_SUITE)),
     'launch-deadline-unchecked': ('lab_broker.py',
-                                  '        if not_after_ns is not None and self._monotonic() >= not_after_ns:\n',
-                                  '        if False:\n', ('test_lab_broker',)),
+        '        if not_after_ns is not None and now >= not_after_ns:\n',
+        '        if False:\n',
+        ('test_lab_broker',)),
     'deadline-from-the-gate-end': ('lab_broker.py',
                                    "            deadline = activation_deadline(reading['wall'], started, m['granted'], "
                                    "m['window'])\n",
                                    "            deadline = activation_deadline(reading['wall'], self._monotonic(), "
                                    "m['granted'], m['window'])\n", ('test_lab_broker',)),
-    'launch-deadline-not-given-to-the-transport': ('lab_broker.py', '        gate = self._may_send(not_after_ns)\n',
-                                                   '        gate = None\n', ('test_lab_broker',)),
-    'reboot-deadline-not-given-to-the-transport': ('lab_broker.py', '            gate = self._may_send(deadline)\n',
-                                                   '            gate = None\n', ('test_lab_broker',)),
+    'launch-deadline-not-given-to-the-transport': ('lab_broker.py',
+        '        gate = _LaunchGate(self._monotonic, self.fences, not_after_ns)\n',
+        '        gate = _LaunchGate(self._monotonic, self.fences, None)\n',
+        ('test_lab_broker',)),
+    'reboot-deadline-not-given-to-the-transport': ('lab_broker.py',
+        "                                               lambda may_send: self.transport.reboot(limits['reboot_timeout_s'],\n"
+        '                                                                                      may_send=may_send),\n',
+        "                                               lambda may_send: self.transport.reboot(limits['reboot_timeout_s']),\n",
+        ('test_lab_broker',)),
     'transport-sends-past-the-launch-deadline': ('shell_transport.py',
                                                  '        if may_send is not None and not may_send():\n'
                                                  "            return sock, 'launch-deadline', 'not-launched', None, "
@@ -221,6 +237,10 @@ MUTANTS = {
                                                  "            return sock, 'launch-deadline', 'not-launched', None, "
                                                  "'the launch deadline passed before the service request'\n",
                                                  ('test_shell_transport',)),
+    'push-gate-not-asked': ('shell_transport.py',
+        '        sock, failure, launch, fail, error = self._open(SYNC_SERVICE, deadline, may_send)\n',
+        '        sock, failure, launch, fail, error = self._open(SYNC_SERVICE, deadline)\n',
+        ('test_shell_transport',)),
     'buffered-stream-accepted': ('lab_broker.py', "        if isinstance(stream, io.BufferedIOBase):\n"
                                                   "            raise BrokerError('a generation stream must be unbuffered')\n",
                                  '', ('test_lab_broker',)),
@@ -286,12 +306,12 @@ MUTANTS = {
                                   "                                             int(self.limits['read_stderr_max']),\n", ('test_lab_broker',)),
     'bound-fraction-started': ('lab_broker.py', '                if remaining < BOUND_COMMAND_MIN_S:\n', '                if remaining <= 0:\n',
                                ('test_lab_broker',)),
-    'bound-timeout-fixed-at-intent': ('lab_broker.py', '            allowed = timeout if bound_ns is None else min(timeout, max(0.0, (bound_ns - '
-                                      'self._monotonic()) / 1_000_000_000))\n'
-                                      '            return self.transport.shell(command, allowed, stdout_max, stderr_max, **extra)\n',
-                                      '            allowed = timeout\n'
-                                      '            return self.transport.shell(command, allowed, stdout_max, stderr_max, **extra)\n',
-                                      ('test_lab_broker',)),
+    'bound-timeout-fixed-at-intent': ('lab_broker.py',
+        '            allowed = timeout if bound_ns is None else min(timeout, max(0.0, (bound_ns - self._monotonic()) / 1_000_000_000))\n'
+        '            return self.transport.shell(command, allowed, stdout_max, stderr_max, may_send=may_send, **extra)\n',
+        '            allowed = timeout\n'
+        '            return self.transport.shell(command, allowed, stdout_max, stderr_max, may_send=may_send, **extra)\n',
+        ('test_lab_broker',)),
     'records-root-unsynced': ('lab_broker.py', '        # earlier call could not finish is never skipped.\n        self._sync_dir(self.root)\n',
                               '        # earlier call could not finish is never skipped.\n', ('test_lab_broker',)),
     'existing-record-unsynced': ('lab_broker.py', '            self._sync_dir(directory)\n            return\n', '            return\n',
@@ -300,10 +320,14 @@ MUTANTS = {
     'broker-name-unsynced-at-opening': ('lab_broker.py', '            self._sync_dir(self.root.parent)\n', '', ('test_lab_broker',)),
     'feature-query-unbounded': ('lab_broker.py', '        self._require_shell2(context, not_after_ns)\n',
                                 '        self._require_shell2(context)\n', ('test_lab_broker',)),
-    'feature-query-timeout-uncut': ('lab_broker.py', '            return self.transport.features(allowed, **extra)\n',
-                                    '            return self.transport.features(timeout, **extra)\n', ('test_lab_broker',)),
-    'feature-gate-not-passed': ('lab_broker.py', '            return self.transport.features(allowed, **extra)\n',
-                                '            return self.transport.features(allowed)\n', ('test_lab_broker',)),
+    'feature-query-timeout-uncut': ('lab_broker.py',
+        '            return self.transport.features(allowed, may_send=may_send)\n',
+        '            return self.transport.features(timeout, may_send=may_send)\n',
+        ('test_lab_broker',)),
+    'feature-gate-not-passed': ('lab_broker.py',
+        '            return self.transport.features(allowed, may_send=may_send)\n',
+        '            return self.transport.features(allowed)\n',
+        ('test_lab_broker',)),
     'unreadable-features-unlisted': ('lab_broker.py', "        error = _NotLaunched('the device features could not be read: %s' % result.status)\n"
                                                       '        error.capture, error.command = number, command\n        raise error\n',
                                      "        raise _NotLaunched('the device features could not be read: %s' % result.status)\n",
@@ -1950,9 +1974,19 @@ MUTANTS = {
         '        problem = collector.problem() if collector is not None else None\n        if problem is not None:\n'
         "            self._not_sent(entry, command, problem['reason'], stop=True)\n", '', ('test_lab_broker',)),
     'output-problem-host-ungated': ('lab_broker.py',
-        '            problem = self._output_stop()\n            if problem is not None:\n'
+        '            problem = self._output_stop()\n'
+        '            if problem is not None:\n'
         "                state['violation'] = problem['reason']\n"
-        "                return self._reply(m, 'REFUSED', reason=self.stopped)\n", '', ('test_lab_broker',)),
+        '            try:\n'
+        '                self._fence()\n',
+        '            try:\n'
+        '                if self.stopped is not None:\n'
+        '                    raise Stopped(self.stopped)\n'
+        '                reason, now = self.fences.check()\n'
+        '                if reason is not None:\n'
+        '                    self.stop(reason, monotonic_ns=now)\n'
+        '                    raise Stopped(reason)\n',
+        ('test_lab_broker',)),
     'generation-group-retired-after-reap': ('lab_broker.py',
         '        try:\n            os.killpg(process.pid, signal.SIGKILL)\n'
         '        except (ProcessLookupError, PermissionError):\n            pass\n        return process.wait(), killed\n',
@@ -2038,7 +2072,8 @@ MUTANTS = {
         '                self.dropped += len(data)\n                continue\n',
         '            if self.error is not None:\n                continue\n', ('test_lab_broker',)),
     'lost-output-claimed': ('lab_broker.py',
-        "                                                  'stderr_sha256': None, 'stderr_bytes': None,\n",
+        "                                                  'host_boot': lost_boot, 'stderr_sha256': None, 'stderr_bytes': None,\n",
+        "                                                  'host_boot': lost_boot,\n"
         "                                                  'stderr_sha256': hashlib.sha256((self.root / JVM / ('%06d.stderr' % g['generation'])).read_bytes()).hexdigest(),\n"
         "                                                  'stderr_bytes': (self.root / JVM / ('%06d.stderr' % g['generation'])).stat().st_size,\n",
         ('test_lab_broker',)),
@@ -2046,6 +2081,197 @@ MUTANTS = {
         "                                                  'output': {'reason': LOST_OUTPUT, 'allowance': OUTPUT_ALLOWANCE,\n"
         "                                                             'kept': None, 'dropped': None, 'unfinished_writer': None,\n"
         "                                                             'error': None},\n", '', ('test_lab_broker',)),
+    # The runtime deadline and the reopening's wait count on the host's monotonic clock, within the
+    # host boot they were made in: no wall step moves them, the deadline has passed at its own
+    # instant, in another host boot it has passed, and a command starts at its fence's reading.
+    'runtime-fence-on-the-wall-clock': ('lab_broker.py',
+        "        self.fences = Fences(self.admission['fences'], self._monotonic, self._host_boot)\n",
+        "        self.fences = Fences(self.admission['fences'], lambda base=self._monotonic() - self._wall(): self._wall() + base,\n"
+        "                             self._host_boot)\n", ('test_lab_broker',)),
+    'runtime-fence-ignores-the-host-boot': ('lab_broker.py',
+        '        if self._boot is None:\n'
+        '            return UNREAD_BOOT\n'
+        "        if self._boot != self.spec['host_boot_id']:\n"
+        '            return OTHER_BOOT\n',
+        '',
+        ('test_lab_broker',)),
+    'runtime-deadline-edge-off-by-one': ('lab_broker.py',
+        '        if now >= deadline:\n',
+        '        if now > deadline:\n',
+        ('test_lab_broker',)),
+    'intent-start-read-apart-from-the-fence': ('lab_broker.py',
+        '                      started_wall_ns=self._wall(), started_monotonic_ns=now)\n',
+        '                      started_wall_ns=self._wall(), started_monotonic_ns=self._monotonic())\n',
+        ('test_lab_broker',)),
+    'reopen-drain-on-the-wall-clock': ('lab_broker.py',
+        "                    drain = max(drain, intent['started_monotonic_ns'] + bound)\n",
+        "                    drain = max(drain, now + intent['started_wall_ns'] + bound - self._wall())\n",
+        ('test_lab_broker',)),
+    'reopen-drain-ignores-the-host-boot': ('lab_broker.py',
+        '                if boot is not None and boot == self._host_boot:\n'
+        "                    drain = max(drain, intent['started_monotonic_ns'] + bound)\n",
+        '                if True:\n'
+        "                    drain = max(drain, intent['started_monotonic_ns'] + bound)\n",
+        ('test_lab_broker',)),
+    'runtime-deadline-without-its-boot': ('lab_broker.py',
+        '    if (deadline is None) != (boot is None):\n'
+        "        raise BrokerError('a runtime deadline exactly with the host boot whose monotonic clock it counts on')\n",
+        '', ('test_lab_broker',)),
+    'open-record-without-its-host-boot': ('lab_broker.py',
+        "                                    'host_boot_id': self._host_boot, 'drained_until_monotonic_ns': drain,\n",
+        "                                    'drained_until_monotonic_ns': drain,\n", ('test_lab_broker',)),
+    # The run's deadline is judged again once the intent is durable and at the transport's last
+    # question, and each launch keeps that reading. A tripped fence keeps the reading it judged, an
+    # unread boot says so, a lost generation of another boot is never signalled, and a bound this
+    # boot already waited is not waited again.
+    'run-deadline-unchecked-after-the-intent': ('lab_broker.py',
+        '        if self.fences.deadline_problem(now) is not None:\n'
+        '            self._not_sent(entry, command, RUN_AT_LAUNCH, judged=now, run=True)\n',
+        '',
+        ('test_lab_broker',)),
+    'run-refusal-without-its-stop': ('lab_broker.py',
+        '            self._not_sent(entry, command, RUN_AT_LAUNCH, judged=now, run=True)\n',
+        '            self._not_sent(entry, command, RUN_AT_LAUNCH, judged=now)\n',
+        ('test_lab_broker',)),
+    'run-stop-without-the-gates-reading': ('lab_broker.py',
+        '            self.stop(reason, monotonic_ns=judged)\n',
+        '            self.stop(reason)\n',
+        ('test_lab_broker',)),
+    'run-deadline-not-asked-at-the-transport': ('lab_broker.py',
+        '        if self._fences.deadline_problem(now) is not None:\n'
+        "            self.refused = 'run'\n"
+        '        elif self._not_after is not None and now >= self._not_after:\n',
+        '        if self._not_after is not None and now >= self._not_after:\n',
+        ('test_lab_broker',)),
+    'run-refusal-at-the-transport-unraised': ('lab_broker.py',
+        "        if gate.refused == 'run' and getattr(result, 'launch', 'not-launched') == 'not-launched':\n",
+        '        if False:\n',
+        ('test_lab_broker',)),
+    'run-stop-without-the-transports-reading': ('lab_broker.py',
+        '            self.stop(RUN_AT_SERVICE, monotonic_ns=gate.reading)\n',
+        '            self.stop(RUN_AT_SERVICE)\n',
+        ('test_lab_broker',)),
+    'launch-reading-taken-before-the-transport': ('lab_broker.py',
+        '        summary = dict(result.summary(), ended_monotonic_ns=self._monotonic(), launch_monotonic_ns=gate.reading)\n',
+        '        summary = dict(result.summary(), ended_monotonic_ns=self._monotonic(), launch_monotonic_ns=now)\n',
+        ('test_lab_broker',)),
+    'launch-reading-unrecorded': ('lab_broker.py',
+        '        summary = dict(result.summary(), ended_monotonic_ns=self._monotonic(), launch_monotonic_ns=gate.reading)\n',
+        '        summary = dict(result.summary(), ended_monotonic_ns=self._monotonic())\n',
+        ('test_lab_broker',)),
+    'fence-stop-without-its-reading': ('lab_broker.py',
+        '            self.stop(reason, monotonic_ns=now)\n',
+        '            self.stop(reason)\n',
+        ('test_lab_broker',)),
+    'unread-boot-told-as-another': ('lab_broker.py',
+        '        if self._boot is None:\n'
+        '            return UNREAD_BOOT\n',
+        '',
+        ('test_lab_broker',)),
+    'lost-generation-signalled-in-another-boot': ('lab_broker.py',
+        "        if (g is not None and lost_boot != 'another' and g['pid'] is not None\n",
+        "        if (g is not None and g['pid'] is not None\n",
+        ('test_lab_broker',)),
+    'lost-generation-of-an-unknown-boot-left-running': ('lab_broker.py',
+        "        if (g is not None and lost_boot != 'another' and g['pid'] is not None\n",
+        "        if (g is not None and lost_boot == 'this' and g['pid'] is not None\n",
+        ('test_lab_broker',)),
+    'lost-in-another-boot-unrecorded': ('lab_broker.py',
+        "LOST_VIOLATIONS = {'this': 'the broker was lost', 'another': LOST_OTHER_BOOT, 'unknown': LOST_UNKNOWN_BOOT}\n",
+        "LOST_VIOLATIONS = {'this': 'the broker was lost', 'another': 'the broker was lost', 'unknown': LOST_UNKNOWN_BOOT}\n",
+        ('test_lab_broker',)),
+    'drain-waited-again-in-the-same-boot': ('lab_broker.py',
+        '                if boot is not None and boot == self._host_boot:\n'
+        '                    unwaited = []\n',
+        '                if False:\n'
+        '                    unwaited = []\n',
+        ('test_lab_broker',)),
+    # A lost generation names its host boot, unknown when a boot ID could not be read; no host call
+    # begins after a stop; every push of the broker and the feature query keep their gate at the
+    # transport; and an opening is recorded only once its wait is over.
+    'lost-unknown-boot-recorded-as-this': ('lab_broker.py',
+        '        elif None in (boot, self._host_boot):\n'
+        "            lost_boot = 'unknown'\n",
+        '        elif None in (boot, self._host_boot):\n'
+        "            lost_boot = 'this'\n",
+        ('test_lab_broker',)),
+    'lost-generation-boot-unrecorded': ('lab_broker.py',
+        "                                                  'host_boot': lost_boot, 'stderr_sha256': None, 'stderr_bytes': None,\n",
+        "                                                  'stderr_sha256': None, 'stderr_bytes': None,\n",
+        ('test_lab_broker',)),
+    'host-begin-after-a-stop-answered': ('lab_broker.py',
+        '            try:\n'
+        '                self._fence()\n'
+        '            except Stopped as error:\n'
+        "                number = self.ledger.record('host', dict(common, phase='REFUSED', reason=str(error)))\n"
+        "                return self._reply(m, 'REFUSED', record=number, reason=str(error))\n",
+        '',
+        ('test_lab_broker',)),
+    'host-begin-unfenced': ('lab_broker.py',
+        '            try:\n'
+        '                self._fence()\n'
+        '            except Stopped as error:\n'
+        "                number = self.ledger.record('host', dict(common, phase='REFUSED', reason=str(error)))\n",
+        '            try:\n'
+        '                if self.stopped is not None:\n'
+        '                    raise Stopped(self.stopped)\n'
+        '            except Stopped as error:\n'
+        "                number = self.ledger.record('host', dict(common, phase='REFUSED', reason=str(error)))\n",
+        ('test_lab_broker',)),
+    'host-refusal-unrecorded': ('lab_broker.py',
+        "                number = self.ledger.record('host', dict(common, phase='REFUSED', reason=str(error)))\n",
+        '                number = 0\n',
+        ('test_lab_broker',)),
+    'crossing-push-gate-dropped': ('lab_broker.py',
+        '                                           lambda may_send, d=data, s=spec: self.transport.push(\n'
+        "                                               d, s['guest'], MEMBER_MODE, 0, self.limits['push_timeout_s'],\n"
+        '                                               may_send=may_send),\n',
+        '                                           lambda may_send, d=data, s=spec: self.transport.push(\n'
+        "                                               d, s['guest'], MEMBER_MODE, 0, self.limits['push_timeout_s']),\n",
+        ('test_lab_broker',)),
+    'features-run-refusal-unstopped': ('lab_broker.py',
+        "        if gate.refused == 'run' and getattr(result, 'launch', 'not-launched') == 'not-launched':\n",
+        "        if gate.refused == 'run' and getattr(result, 'launch', None) == 'not-launched':\n",
+        ('test_lab_broker',)),
+    'helper-push-gate-dropped': ('lab_broker.py',
+        '                                       lambda may_send: self.transport.push(data, guest, MEMBER_MODE, 0, timeout,\n'
+        '                                                                            may_send=may_send), timeout, deadline)\n',
+        '                                       lambda may_send: self.transport.push(data, guest, MEMBER_MODE, 0, timeout),\n'
+        '                                       timeout, deadline)\n',
+        ('test_next_campaign',)),
+    'stage-push-gate-dropped': ('lab_broker.py',
+        "                                      lambda may_send, d=data, p=pin['guest']: self.transport.push(\n"
+        "                                          d, p, MEMBER_MODE, 0, self.limits['push_timeout_s'], may_send=may_send),\n",
+        "                                      lambda may_send, d=data, p=pin['guest']: self.transport.push(\n"
+        "                                          d, p, MEMBER_MODE, 0, self.limits['push_timeout_s']),\n",
+        ('test_lab_loss',)),
+    'nonstaged-push-gate-dropped': ('lab_broker.py',
+        "                                                                       self.limits['push_timeout_s'],\n"
+        '                                                                       may_send=may_send),\n',
+        "                                                                       self.limits['push_timeout_s']),\n",
+        ('test_lab_loss',)),
+    'open-recorded-before-its-wait': ('lab_broker.py',
+        '        now = self._monotonic()\n'
+        '        if drain > now:\n'
+        '            # A command whose effect is unknown may still run on the guest within its bound.\n'
+        '            self._sleep((drain - now) / 1e9)\n'
+        "        # The opening names its host boot, so a later reopening knows which captures' monotonic\n"
+        '        # starts it can count from.\n'
+        "        self.ledger.record('open', {'pid': os.getpid(), 'manifest': self.admission['manifest'],\n"
+        "                                    'target_read': self._target_read, 'quarantined': quarantined,\n"
+        "                                    'host_boot_id': self._host_boot, 'drained_until_monotonic_ns': drain,\n"
+        "                                    'monotonic_ns': self._monotonic(), 'wall_ns': self._wall()})\n",
+        '        now = self._monotonic()\n'
+        "        # The opening names its host boot, so a later reopening knows which captures' monotonic\n"
+        '        # starts it can count from.\n'
+        "        self.ledger.record('open', {'pid': os.getpid(), 'manifest': self.admission['manifest'],\n"
+        "                                    'target_read': self._target_read, 'quarantined': quarantined,\n"
+        "                                    'host_boot_id': self._host_boot, 'drained_until_monotonic_ns': drain,\n"
+        "                                    'monotonic_ns': self._monotonic(), 'wall_ns': self._wall()})\n"
+        '        if drain > now:\n'
+        '            # A command whose effect is unknown may still run on the guest within its bound.\n'
+        '            self._sleep((drain - now) / 1e9)\n',
+        ('test_lab_broker',)),
 }
 
 # Each Java defect: the file under this directory, its exact old and new text, and the suites run
