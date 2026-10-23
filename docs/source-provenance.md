@@ -51,9 +51,10 @@ a later documentation checkpoint, not projected backward into earlier source com
 Documentation commits that became empty were omitted.
 
 All other files, including product source, build inputs, licenses, the canonical architecture,
-vision and contributor instructions, retain their path, mode and blob identity at corresponding
-source checkpoints. The current checkout differs only in this provenance explanation and the
-revision map. Complete original history and the full revision correspondence remain private.
+vision and contributor instructions, retained their path, mode and blob identity at corresponding
+source checkpoints. At that provenance checkpoint, the changes were limited to this explanation
+and the revision map. Complete original history and the full revision correspondence remain
+private. Subsequent source changes are separate from those mapped checkpoints.
 
 Original artifact producer identities and frozen artifacts were not rewritten. A mapped source
 snapshot is not a newly qualified build. The public map contains source pins already referenced
@@ -62,3 +63,17 @@ so existing clones must resynchronize or rebase rather than merge the old histor
 
 Removing references from the published branch does not erase copies already held by other
 clones, forks or hosting caches.
+
+## Later source licensing
+
+The [current source licensing map](../LICENSING.md) is a later change. GPL source headers,
+local build license metadata and current helper recipe hashes identify the newly licensed source.
+They do not rewrite the mapped commits, withdraw earlier valid Apache grants or turn frozen
+artifacts into new builds. Preserve inherited notices and each original producer's identity.
+Actual binary notices and source provision must be checked for the artifacts being distributed.
+
+Historical source comparisons can use an explicitly pinned licensing predecessor view. It
+checks both complete file hashes and the one exact SPDX change, rather than ignoring arbitrary
+comments or code differences. Historical generators still read their original pinned Git bytes;
+current recipes and newly licensed source keep their separate identities. This does not rebind
+old predictions or executed results to new source.

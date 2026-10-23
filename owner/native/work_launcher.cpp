@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Fixed trusted coordinator-role staging entry. Never executes caller code
 // here.
 #include <android-base/unique_fd.h>

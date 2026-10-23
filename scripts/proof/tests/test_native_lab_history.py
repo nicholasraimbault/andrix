@@ -721,6 +721,20 @@ class GuestInputTests(unittest.TestCase):
             self.assertIn('the working tree codec differs from the guest generator pin: re-pin GUEST_REVISION and'
                           ' GUEST_CODEC', runner.source_checks())
 
+    def test_only_the_pinned_licensing_overlay_preserves_the_guest_source_check(self):
+        path, digest = runner.GUEST_CODEC
+        current = (ROOT / path).read_bytes()
+        self.assertNotEqual(runner.sha(current), digest)
+        self.assertEqual(runner.sha(runner.source_licensing.predecessor_bytes(path, current)), digest)
+        for changed in (current + b'\n',
+                        current.replace(b'GPL-3.0-or-later', b'GPL-3.0-only', 1),
+                        current.replace(b'package ', b'package  ', 1)):
+            with self.subTest(digest=runner.sha(changed)):
+                with mock.patch.object(Path, 'read_bytes', return_value=changed):
+                    self.assertEqual(runner.codec_pin_problems(), [
+                        'the working tree codec differs from the guest generator pin: '
+                        're-pin GUEST_REVISION and GUEST_CODEC'])
+
     def test_the_oracle_agrees_with_the_independent_decoder(self):
         import native_lifecycle_record as lifecycle
         lineage, app_id, other_app_id, serial = runner.GUEST_VALUES

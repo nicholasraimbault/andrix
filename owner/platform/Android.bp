@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Opt-in system_server adapter; not an APK and not a replacement Android service.
+package {
+    default_applicable_licenses: ["andrix_core_license", "vendor_andrix_license"],
+}
+
 aidl_interface {
     name: "andrix_platform_lifecycle",
+    // Public interface and generated client bindings remain permissively licensed.
+    licenses: ["vendor_andrix_license"],
     unstable: true,
     srcs: ["aidl/dev/andrix/lifecycle/*.aidl"],
     local_include_dir: "aidl",

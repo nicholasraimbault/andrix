@@ -19,6 +19,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / 'scripts/proof'))
 import native_creation_binding as runner  # noqa: E402
+import source_licensing  # noqa: E402
 
 PINNED = os.environ.get('ANDRIX_PINNED_FRAMEWORK')
 
@@ -323,8 +324,13 @@ class CreationBindingSourceTests(unittest.TestCase):
         self.assertEqual(runner.facade_default(facade), runner.PREVIOUS)
         self.assertEqual(code(runner.b2_forward(facade)), code((ROOT / runner.FACADE).read_text()))
         self.assertEqual(runner.facade_default((ROOT / runner.FACADE).read_text()), runner.PRODUCTION)
-        # The profile moves only the patch, the adapted Settings and the store helper rows.
-        floor, profile = json.loads(runner.floor_bytes(runner.NATIVE_PROFILE)), runner.integration.profile()
+        # Compare the historical B2 step before the separately pinned licensing overlay.
+        # The current profile remains validated against the current licensed helpers.
+        runner.integration.profile()
+        profile = source_licensing.predecessor_profile(
+            runner.integration.PROFILE.relative_to(ROOT).as_posix(),
+            runner.integration.PROFILE.read_bytes())
+        floor = json.loads(runner.floor_bytes(runner.NATIVE_PROFILE))
 
         def rows(value):
             """Each scalar by key, and each list row by its key and its name, path or position."""

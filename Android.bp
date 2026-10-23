@@ -7,5 +7,13 @@ license {
     name: "vendor_andrix_license",
     visibility: [":__subpackages__"],
     license_kinds: ["SPDX-license-identifier-Apache-2.0"],
-    license_text: ["LICENSE"],
+    license_text: ["LICENSES/Apache-2.0.txt"],
+}
+
+license {
+    name: "andrix_core_license",
+    // Injected Andrix sources can be compiled by platform modules outside vendor/andrix.
+    visibility: ["//visibility:public"],
+    license_kinds: ["SPDX-license-identifier-GPL-3.0-or-later"],
+    license_text: ["LICENSES/GPL-3.0-or-later.txt"],
 }

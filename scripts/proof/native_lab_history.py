@@ -42,6 +42,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts/proof'))
 import android_lifecycle  # noqa: E402
 import native_creation_binding as b1  # noqa: E402
+import source_licensing  # noqa: E402
 
 LAB_DIR = ROOT / 'tests/native-identity/lab-history'
 NATIVE_IDENTITY = ROOT / 'tests/native-identity'
@@ -53,8 +54,9 @@ FAULTS = ('error', 'exception', 'observation')
 GENERATOR = 'dev.andrix.proof.nativelab.LabHistoryStore'
 # The guest generator's codec: the record codec of the lifecycle record at the revision of B1's host
 # packages, read from its Git object and pinned by SHA-256, so the guest layouts are what B1's own
-# codec encodes. The source checks require the working tree's codec to equal this pin, so a codec
-# change forces a deliberate re-pin. The guest layouts are generated at these fixed values.
+# codec encodes. The working codec must equal this pin or its exact approved SPDX-only
+# licensing successor. Any other change forces a deliberate re-pin. The generator still
+# compiles the original Git bytes below; these values do not identify the licensing overlay.
 GUEST_REVISION = 'e6f8b681021b5c36256a50337803ef8ec4268ab1'
 GUEST_CODEC = ('owner/platform/framework/NativeIdentityRecords.java',
                '4be9c8a0135d3793bb4153e9dc794c2afbf6e4bdbc3466d447b883fe30e0b032')
@@ -463,10 +465,14 @@ def subject_problems(subject, store, observe):
 
 
 def codec_pin_problems():
-    """The working tree's record codec equals the guest generator's pinned codec, so a codec change
-    cannot leave the guest layouts on a stale pin: it forces a deliberate re-pin of both values."""
+    """Keep the historical guest pin, admitting only the exact known licensing overlay."""
     path, digest = GUEST_CODEC
-    if sha((ROOT / path).read_bytes()) != digest:
+    data = (ROOT / path).read_bytes()
+    try:
+        predecessor = source_licensing.predecessor_bytes(path, data)
+    except ValueError:
+        predecessor = None
+    if predecessor is None or sha(predecessor) != digest:
         return ['the working tree codec differs from the guest generator pin: re-pin GUEST_REVISION and GUEST_CODEC']
     return []
 

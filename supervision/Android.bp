@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Internal implementation candidate. Only the selected debug proof installs its helper.
+package {
+    default_applicable_licenses: ["andrix_core_license", "vendor_andrix_license"],
+}
+
 cc_library_headers {
     name: "andrix_delegated_init_headers",
     host_supported: true,

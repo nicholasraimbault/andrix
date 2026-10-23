@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Ordinary principal entry after the protected manager-role exec transition.
 // The only extra descriptors are immutable data and the captured account home.
 #include <fcntl.h>

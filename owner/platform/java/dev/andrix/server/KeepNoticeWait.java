@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: GPL-3.0-or-later
 package dev.andrix.server;
 
 /** Bounded acknowledgement of OUR notification, not polling for OS/key authority. */

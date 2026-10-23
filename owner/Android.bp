@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Experimental primary-user owner session. No Vanadium/framework replacement.
+package {
+    default_applicable_licenses: ["andrix_core_license", "vendor_andrix_license"],
+}
+
 aidl_interface {
     name: "andrix_session",
+    // Public interface and generated client bindings remain permissively licensed.
+    licenses: ["vendor_andrix_license"],
     unstable: true,
     srcs: ["aidl/dev/andrix/session/*.aidl"],
     local_include_dir: "aidl",

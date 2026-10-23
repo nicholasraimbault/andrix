@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Optional integration candidate. Built only for the delegated-service proof.
 #include "delegated_service.h"
 

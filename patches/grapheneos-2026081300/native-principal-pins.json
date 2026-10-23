@@ -59,32 +59,32 @@
     {
       "path": "services/core/java/com/android/server/pm/NativePrincipalPins.java",
       "source": "owner/platform/framework/NativePrincipalPins.java",
-      "sha256": "c8b58f864fedb0fc522bdb622b9dee150a3407d967b2f703011fcb1b2de4401b"
+      "sha256": "d782f3d32831f7025750c534b9d0e2fc57eff97b16f79dcf51145a48411b1dbc"
     },
     {
       "path": "services/core/java/com/android/server/pm/NativePrincipalManager.java",
       "source": "owner/platform/framework/NativePrincipalManager.java",
-      "sha256": "7c76194cc441507f2ffe8224f6e9e4d013b6fabadde56723430fd18d17f6fcee"
+      "sha256": "03663dba3cd66286bfa8454cb89a92cc324b4e620a3dea35fc6b3e0c9a21e4be"
     },
     {
       "path": "services/core/java/com/android/server/pm/NativeIdentityRecords.java",
       "source": "owner/platform/framework/NativeIdentityRecords.java",
-      "sha256": "4be9c8a0135d3793bb4153e9dc794c2afbf6e4bdbc3466d447b883fe30e0b032"
+      "sha256": "50d1ff4869fe670658dd1e750eccd600ac0552ca590498cfc2b9f731e1f7b9a5"
     },
     {
       "path": "services/core/java/com/android/server/pm/NativeIdentityStore.java",
       "source": "owner/platform/framework/NativeIdentityStore.java",
-      "sha256": "ebcbf4a43281bf02b0e367831518778c96ef34f15edee034229aacd437c5247b"
+      "sha256": "386515606f1e5d2c8b94eb7e3b828c480d74a144639c4b4fe565cdd3db2c34c8"
     },
     {
       "path": "services/core/java/com/android/server/pm/NativeIdentityPersistence.java",
       "source": "owner/platform/framework/NativeIdentityPersistence.java",
-      "sha256": "a3d6d23e3378611f6d82df07a4ede7ba7949f1f69cc24873a788a64d24e1604b"
+      "sha256": "f177c04290a20523f49ba00ed2913bee67abcb797791f23b7fb92037b21788a5"
     },
     {
       "path": "services/core/java/com/android/server/pm/NativePrincipalRecovery.java",
       "source": "owner/platform/framework/NativePrincipalRecovery.java",
-      "sha256": "e6370a2bc822c78602c97b3a04803916184095a6dc796d1360a48b47791fbda8"
+      "sha256": "24736c91ebba8587f7db450fefbd834e84c8992837743aaa14d779c3853c9b59"
     }
   ],
   "scope": "Internal PMS native-principal reservation component, not a public designation/launch API or runtime qualification",

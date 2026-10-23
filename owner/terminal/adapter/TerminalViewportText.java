@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: GPL-3.0-or-later
 package com.termux.terminal;
 
 /** Bounded text of the displayed rows, not a complete terminal transcript. */

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Fixed ordinary-principal staging entry. The platform must already have
 // specialized a protected manager at the principal UID. No UID/group mutation,
 // root launch API or caller-selected credentials are exposed here.

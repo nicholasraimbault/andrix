@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "work_launch_protocol.h"
 
 #include <sys/socket.h>

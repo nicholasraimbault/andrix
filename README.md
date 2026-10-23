@@ -1,91 +1,98 @@
 # Andrix
 
-**Andrix is Android you own.** It is an experimental open source OS project for a
-phone its owner can program, compose and administer: one Android/Bionic system,
-with native Unix execution and APKs equally important.
+**Android you own.**
 
-The [accepted vision](docs/vision.md) includes changing Android itself, from a launcher
-or SystemUI to native services and platform components. Good defaults should make it a
-usable phone; those defaults remain replaceable. Daily work uses ordinary accounts,
-with deliberate elevation for system administration.
+Andrix is building an Android operating system for people who want to program, extend and
+administer the computer in their pocket, without giving up what makes it a phone.
 
-## Status: early development
+The goal is one system where Android apps and native Unix programs are equally important.
+Not a separate desktop Linux environment inside an app, but a programmable Android system
+whose owner can change its software, policy and defaults.
 
-Andrix uses a pinned GrapheneOS-derived Android foundation. Its ARM64 emulator
-prototype supports a terminal/editor, native C/C++ compilation, Make, LLDB and tmux
-under a dedicated owner identity. Android's application boundaries and authenticated
-read-only `/usr` remain intact.
+> **Early development.** Andrix is an engineering prototype, not a supported operating
+> system release. This repository provides no phone installation image or supported
+> installer. It is not ready for daily use.
 
-An opt-in **Keep** mode preserves terminal work across Console-process loss and
-screen relock. Return creates a fresh presentation of the same work; explicit Stop
-or End terminates it. The tested lifecycle and notification controls have a bounded
-emulator scope. Keep remains off by default while additional failure cases are
-qualified.
+## What we are building
 
-A first [SystemUI component workflow](plans/2026-09-22-systemui-component-runtime.md)
-passed on Cuttlefish: focused builds, staged APK activation, visible changes and forward
-restoration, with native execution and saved test data checked afterward. It used host
-assistance and development keys, not a finished owner signing or elevation interface.
+- **A programmable phone.** Real native programs, development tools, accounts, homes and
+  work that can continue after a terminal window closes.
+- **Practical ownership.** An understandable path from source or configuration to a
+  working change: edit, build, sign, install and recover from mistakes.
+- **Deliberate administration.** Ordinary authority for everyday programs, with explicit
+  authorization for system administration, including a root shell when the owner needs it.
+- **Replaceable system software.** Changing a launcher, SystemUI, service or platform
+  component should be a supported workflow, not require maintaining a private OS fork
+  for every small change.
+- **Updates that respect local choices.** Compatible, recoverable updates that expose
+  conflicts and security divergence rather than silently replacing owner modifications.
+- **Useful defaults, without permanent vendor control.** A usable phone and Unix
+  environment whose initial choices remain changeable.
 
-A finite [protected APK signing flow](plans/2026-09-23-protected-apk-artifact.md) also passed
-using a disposable identity, exact owner approval and ordinary installed execution.
-General component tooling, Unix environments for multiple Android users, elevation,
-production owner signing, rolling updates and the recommended/custom installer remain
-accepted goals, not completed features.
+Owner control does not mean giving every app root or disabling security by default.
+Application isolation, SELinux enforcement and credential encryption remain part of the
+[design](docs/architecture.md). The owner should have a deliberate path to changing the
+system, not have to weaken every boundary just to do ordinary work.
 
-This repository contains source and verification tooling, **not a supported OS
-release or a phone installation image**. There is no buildable Pixel deployment
-product here. Do not flash a phone or treat the accepted design as proof of complete
-hardware, networking, privacy or power-loss behavior.
+## What works so far
 
-## Development principle
+Development currently targets ARM64 Android with Bionic, using Cuttlefish/QEMU before
+physical phone qualification. Bounded prototype work has exercised:
 
-Tests and prototypes inform the long term design; they do not require preserving
-prototype code. Correctness, coherence and owner control take priority over time,
-effort and ease of implementation. We will replace components or start again when
-that is the sound way to build the system. See the
-[design method](docs/architecture.md#design-method).
+- A terminal and editor, native C/C++ compilation, Make, LLDB and tmux.
+- Detached terminal work, returning to the same work and explicit Stop controls.
+- Native identity and storage preservation tests in development images.
+- Selected signed APK and SystemUI changes, including forward restoration.
 
-## Repository scope
+These are separate prototype results, not one finished product workflow. Some are opt in
+and require lab configuration, host assistance or development keys. Production owner signing,
+everyday elevation, complete Unix environments for multiple Android users, general component
+updates and phone support remain unfinished. The [current work](plans/current.md) and
+[design evidence register](docs/design-evidence.md) describe the results and their limits.
 
-This repository currently holds Andrix components and integration inputs, placed at
-`vendor/andrix` in a separately verified Android checkout. That layout is not the
-product boundary: Andrix owns its full OS design, policy, packages, signing and updates.
-It initially uses a pinned GrapheneOS source release as a useful engineering foundation,
-not a ceiling on owner capabilities or a claim of official GrapheneOS support.
+Do not flash a phone from this repository. Emulator results do not establish complete
+hardware, networking, privacy, security or power loss behavior.
 
-The repository does not contain the full platform tree, private signing keys, build
-images, credentials or raw lab captures. GrapheneOS `2026081300`, based on
-`android-17.0.0_r1`, is a reproducible migration anchor, not a permanent update policy.
-Cuttlefish/QEMU is the first testing environment; a mature Pixel product is later work.
-Earlier direct AOSP experiments and Unix proofs remain distinct preserved results.
+## Development
 
-- [Product vision](docs/vision.md) and [accepted revision](plans/2026-09-21-owner-composable-android.md)
-- [Current product progress and remaining work](plans/current.md)
-- [Prototypes, evidence and long term intent](docs/design-evidence.md)
-- [Accepted architecture](docs/architecture.md)
-- [Source provenance](docs/source-provenance.md)
-- [GrapheneOS migration](plans/2026-09-08-grapheneos-migration.md)
-- [Network policy and verification](docs/proof-network.md)
-- [Development artifact handling](docs/development-artifacts.md)
-- [Contributor/agent guidance](AGENTS.md)
+Andrix uses GrapheneOS and AOSP as an engineering foundation. It is an independent project,
+not an official GrapheneOS distribution. That foundation is not the boundary of Andrix's
+OS design or the limit of what its owner should be able to change.
 
-Host-only regression checks:
+This repository contains Andrix components, platform adaptations and verification tooling.
+It is placed at `vendor/andrix` in a separately verified Android source checkout; it is not
+that complete checkout. Private keys, credentials, build images and operating records are
+not part of the public repository.
+
+Prototypes inform the design. They do not oblige us to preserve an inferior implementation.
+Correctness, coherence, maintainability and owner control guide what we keep or replace.
+
+Host regression checks include:
 
 ```sh
 python3 -B -m unittest discover -s scripts/proof/tests -p 'test_*.py'
 python3 -B -m unittest discover -s scripts/pixel/tests -p 'test_*.py'
-bash -n scripts/gen-apex-keys.sh scripts/proof/*.sh
-sh -n scripts/pixel/readings.sh
 ```
 
-Those checks do not boot Android or establish runtime qualification. Public documents
-record product decisions, reusable procedures and scoped outcomes; operational records
-are kept privately.
+These checks do not boot Android or qualify a device. Start with the architecture and
+current work before choosing a development task.
 
-## License
+## Documentation
 
-Original Andrix code is licensed under [Apache-2.0](LICENSE), unless otherwise noted.
-Android, kernel, firmware, toolchain and other external dependencies retain their own
-licenses. This license does not relicense them or imply permission to redistribute
-every external input. Preserve applicable copyright and license notices.
+- [Product vision](docs/vision.md)
+- [Accepted architecture](docs/architecture.md)
+- [Current work and remaining milestones](plans/current.md)
+- [Design evidence and prototype limits](docs/design-evidence.md)
+- [Source and artifact provenance](docs/source-provenance.md)
+- [Contributor and agent guidance](AGENTS.md)
+
+## Licensing
+
+The original Andrix owner control core is licensed under **GPL-3.0-or-later**. Public AIDL
+interfaces and other original material outside that explicit scope remain Apache-2.0,
+unless noted otherwise. Upstream components retain their own licenses and exceptions.
+
+See the [source licensing map](LICENSING.md), [license texts](LICENSE) and
+[licensing policy](docs/licensing.md). Earlier valid Apache grants remain valid. This is
+not a claim that the whole Android system, kernel, firmware or every dependency has one
+license, or that a phone distribution has completed compliance review.

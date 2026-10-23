@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Fixed lower-role entry. No supervisor channel, gate or resource FD reaches
 // here.
 #include <fcntl.h>

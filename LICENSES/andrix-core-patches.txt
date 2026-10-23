@@ -1,0 +1,14 @@
+# Original Andrix implementation additions: GPL-3.0-or-later.
+# Upstream source context keeps its existing terms. See LICENSING.md.
+patches/grapheneos-2026081300/native-identity-writer.patch
+patches/grapheneos-2026081300/native-principal-pins.patch
+patches/grapheneos-2026081300/owner-lifecycle.patch
+patches/grapheneos-2026081300/package-installer-payload-sync.patch
+patches/grapheneos-2026081300/package-verity.patch
+patches/grapheneos-2026100600/native-identity-writer.patch
+patches/grapheneos-2026100600/native-principal-pins.patch
+patches/grapheneos-2026100600/owner-lifecycle.patch
+patches/grapheneos-2026100600/package-installer-payload-sync.patch
+patches/grapheneos-2026100600/package-verity.patch
+supervision/init/integration.patch
+supervision/lmkd/integration.patch
