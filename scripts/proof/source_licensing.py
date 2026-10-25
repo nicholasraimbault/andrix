@@ -79,11 +79,11 @@ def predecessor_bytes(path, data):
     return original
 
 
-def predecessor_profile(path, data, root=ROOT):
-    """Verify current recipe/helpers, then recover only the exact pre-licensing recipe.
+def predecessor_profile_bytes(path, data, read):
+    """Recover exact historical recipe bytes after validating the current recipe and helpers.
 
-    This view is for historical comparisons. Current builds keep the current profile,
-    and historical predictions and compiled inputs are not rewritten.
+    The caller supplies the actual source reader, not a predecessor view. This comparison
+    view does not change current build inputs or historical predictions.
     """
     if path not in PROFILE_PAIRS:
         raise ValueError('unmapped licensing profile: ' + path)
@@ -99,7 +99,7 @@ def predecessor_profile(path, data, root=ROOT):
         if source not in SOURCE_PAIRS:
             raise ValueError('unmapped licensing helper: ' + source)
         old_digest, new_digest = SOURCE_PAIRS[source]
-        current = (root / source).read_bytes()
+        current = read(source)
         if row['sha256'] != new_digest or sha(current) != new_digest:
             raise ValueError('licensing helper drift: ' + source)
         if sha(predecessor_bytes(source, current)) != old_digest:
@@ -110,4 +110,26 @@ def predecessor_profile(path, data, root=ROOT):
         original = original.replace(token, old_digest.encode('ascii'), 1)
     if sha(original) != before:
         raise ValueError('licensing profile predecessor drift: ' + path)
-    return json.loads(original)
+    return original
+
+
+def predecessor_profile(path, data, root=ROOT):
+    """The parsed exact historical recipe, verified against the current recipe and helpers."""
+    return json.loads(predecessor_profile_bytes(path, data, lambda source: (root / source).read_bytes()))
+
+
+def predecessor_reader(read):
+    """An explicit historical comparison reader over actual source bytes.
+
+    Only the pinned sources and recipes have predecessors. Other paths return the supplied
+    bytes unchanged. There is no filesystem fallback, general header tolerance or cache.
+    This is not a source reader for a new build labelled with a historical identity.
+    """
+    def historical(path):
+        data = read(path)
+        if path in SOURCE_PAIRS:
+            return predecessor_bytes(path, data)
+        if path in PROFILE_PAIRS:
+            return predecessor_profile_bytes(path, data, read)
+        return data
+    return historical

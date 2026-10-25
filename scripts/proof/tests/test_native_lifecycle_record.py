@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / 'scripts/proof'))
 import native_lifecycle_record as runner  # noqa: E402
 import native_lab_history as lab  # noqa: E402
+import source_licensing  # noqa: E402
 
 PINNED = os.environ.get('ANDRIX_PINNED_FRAMEWORK')
 
@@ -43,8 +44,11 @@ def manager_code(texts):
 
 
 class LifecycleRecordSourceTests(unittest.TestCase):
-    def test_source_checks_pass(self):
-        self.assertEqual(runner.source_checks(), [])
+    def test_current_source_checks_refuse_only_the_historical_post_scan_binding(self):
+        # These guards read the actual current sources. The frozen provenance is historical;
+        # every other source guard must still hold, not be mocked or filtered out.
+        self.assertEqual(runner.source_checks(),
+                         ["post scan: the frozen post scan sources differs from the adapter's"])
 
     def test_the_independent_encoder_states_the_plan_sizes(self):
         self.assertEqual(runner.sizes(), runner.PLAN_SIZES)
@@ -1577,13 +1581,13 @@ class LifecycleFloorTests(unittest.TestCase):
         self.assertIn("floor_compile_problems({name: sha(data) for name, data in files.items()})", source)
         self.assertIn("floor_compile_problems(built['inputs'])", source)
 
-    def test_wrong_models_differ_from_the_floor_compile_set(self):
+    def test_historical_wrong_models_differ_from_the_floor_compile_set(self):
         self.assertEqual(runner.compile_differences({'a': b'1', 'b': b'2'}, {'a': b'1', 'b': b'2'}), [])
         self.assertEqual(runner.compile_differences({'a': b'1', 'b': b'2'}, {'a': b'1', 'b': b'3', 'c': b''}),
                          ['b', 'c'])
         predicted = json.loads(runner.PREDICTIONS.read_text())['b2_checkpoint_2b']['floor']
-        # The current sources' reader differs from the floor in the store helper's comments, the
-        # facade's default and the reader check's comments and closing line, nothing else.
+        # At the frozen checkpoint, the reader differed in these three files. This is not a
+        # claim about today's licensed compile set, whose framework bytes have changed too.
         self.assertEqual(predicted['differing_from_previous'], ['framework/NativeIdentityStore.java',
                                                               'stubs/com/android/server/pm/Settings.java',
                                                               'tests/NativeLifecycleReaderCheck.java'])
@@ -2012,8 +2016,10 @@ class LifecycleGuestInputTests(unittest.TestCase):
             with self.subTest(post=post), self.assertRaises(ValueError):
                 runner.guest_readings('GUEST x ' + json.dumps(broken, separators=(',', ':')), 3)
 
-    def test_the_post_scan_predictions_are_the_adapters(self):
-        self.assertEqual(runner.post_scan.prediction_problems(), [])
+    def test_the_historical_post_scan_predictions_are_the_adapters(self):
+        readers = {'B2': source_licensing.predecessor_reader(runner.post_scan.working_tree),
+                   'B1': runner.b1.floor_bytes}
+        self.assertEqual(runner.post_scan.prediction_problems(readers=readers), [])
         # Checkpoint 3a's guest predictions are the base, unchanged.
         self.assertEqual(runner.post_scan.base_section(), runner.guest_section())
 

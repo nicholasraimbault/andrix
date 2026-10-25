@@ -144,6 +144,81 @@ class SourceLicensingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'unmapped licensing profile'):
             source_licensing.predecessor_profile('../unknown.json', b'{}')
 
+    def test_historical_profile_bytes_keep_the_full_raw_identity(self):
+        for name, (before, _) in source_licensing.PROFILE_PAIRS.items():
+            with self.subTest(path=name):
+                data = (ROOT / name).read_bytes()
+                historical = source_licensing.predecessor_profile_bytes(
+                    name, data, lambda path: (ROOT / path).read_bytes())
+                self.assertEqual(source_licensing.sha(historical), before)
+                self.assertEqual(json.loads(historical), source_licensing.predecessor_profile(name, data))
+                # An old recipe is not evidence that the actual current helpers were checked.
+                with self.assertRaisesRegex(ValueError, 'licensing profile drift'):
+                    source_licensing.predecessor_profile_bytes(
+                        name, historical, lambda path: (ROOT / path).read_bytes())
+
+    def test_historical_reader_maps_only_known_inputs_without_a_fallback_or_cache(self):
+        inputs = {name: (ROOT / name).read_bytes() for name in source_licensing.SOURCE_PAIRS}
+        read = source_licensing.predecessor_reader(inputs.__getitem__)
+        for name, (before, _) in source_licensing.SOURCE_PAIRS.items():
+            with self.subTest(path=name):
+                historical = read(name)
+                self.assertEqual(source_licensing.sha(historical), before)
+                inputs[name] = historical
+                self.assertEqual(read(name), historical)
+                inputs[name] += b'\n'
+                with self.assertRaisesRegex(ValueError, 'licensing source drift'):
+                    read(name)
+        # Unmapped bytes are never stripped, including an unknown source with the same header.
+        name = 'unmapped.java'
+        inputs[name] = source_licensing.AFTER_HEADER + b'unknown body\n'
+        self.assertIs(read(name), inputs[name])
+        with self.assertRaises(KeyError):
+            read('not-supplied.java')
+
+    def test_historical_reader_refuses_unknown_source_headers_comments_and_code(self):
+        for name in source_licensing.SOURCE_PAIRS:
+            data = (ROOT / name).read_bytes()
+            for changed in (data + b'\n', b'// extra comment\n' + data,
+                            data.replace(b'GPL-3.0-or-later', b'GPL-3.0-only', 1),
+                            data.replace(b'package ', b'package  ', 1)):
+                with self.subTest(path=name, digest=source_licensing.sha(changed)):
+                    self.assertNotEqual(changed, data)
+                    read = source_licensing.predecessor_reader({name: changed}.__getitem__)
+                    with self.assertRaisesRegex(ValueError, 'licensing source drift'):
+                        read(name)
+
+    def test_historical_reader_requires_exact_current_recipes_and_every_actual_helper(self):
+        for name, (before, _) in source_licensing.PROFILE_PAIRS.items():
+            data = (ROOT / name).read_bytes()
+            recipe = json.loads(data)
+            rows = recipe['added'] if isinstance(recipe['added'], list) else [recipe['added']]
+            inputs = {row['source']: (ROOT / row['source']).read_bytes() for row in rows}
+            inputs[name] = data
+            read = source_licensing.predecessor_reader(inputs.__getitem__)
+            self.assertEqual(source_licensing.sha(read(name)), before)
+            wrong_pin = json.loads(data)
+            added = wrong_pin['added'] if isinstance(wrong_pin['added'], list) else [wrong_pin['added']]
+            added[0]['sha256'] = '0' * 64
+            for changed in (data + b'\n', json.dumps(recipe, sort_keys=True).encode(),
+                            (json.dumps(wrong_pin, indent=2) + '\n').encode()):
+                with self.subTest(profile=name, digest=source_licensing.sha(changed)):
+                    self.assertNotEqual(changed, data)
+                    inputs[name] = changed
+                    with self.assertRaisesRegex(ValueError, 'licensing profile drift'):
+                        read(name)
+            inputs[name] = data
+            for row in rows:
+                helper = row['source']
+                current = inputs[helper]
+                for changed in (current + b'\n', source_licensing.predecessor_bytes(helper, current)):
+                    with self.subTest(profile=name, helper=helper, digest=source_licensing.sha(changed)):
+                        inputs[helper] = changed
+                        with self.assertRaisesRegex(ValueError, 'licensing helper drift'):
+                            read(name)
+                inputs[helper] = current
+            self.assertEqual(source_licensing.sha(read(name)), before)
+
     def test_public_docs_describe_applied_source_terms(self):
         readme = (ROOT / 'README.md').read_text()
         policy = (ROOT / 'docs/licensing.md').read_text()
