@@ -104,6 +104,18 @@ leaves the fixture's stored bytes unchanged. This is host component evidence, no
 Android Package Manager, Binder caller authentication, service replacement or
 SELinux execution.
 
+A second host gate compiled the actual query endpoint and controller with 20
+controlled Android and AIDL shaped facades. Its 46 endpoint cases and 21 controller
+cases passed, then an independent compile reproduced all 37 class digests and the
+same case results. The controller cases cover a queued reply followed by service
+replacement while the old Binder remains alive, stale responses, observation state
+rendering, and one blocked worker across eight controller recreations. The tests
+release their owned blocked call and retire the executor before exit. The manager
+in this gate is a capture facade, not the production projection. Caller IDs, package
+and factory metadata, signer sets, scheduling and service registration are supplied
+host facts. These results exercise real Java branch and queue logic, not kernel
+Binder identity, cryptographic signatures, actual factory provenance or Android UI.
+
 AIDL generation, Android Java compilation, policy compile, DEX examination and an
 Android guest proof remain separate unperformed gates. The current product already
 selects optimized system server compilation and its downstream
