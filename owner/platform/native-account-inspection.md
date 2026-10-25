@@ -39,11 +39,15 @@ that data still exists.
 The read Binder has its own service label and cannot be reached through the UID7500
 lifecycle coordinator. The endpoint requires one exact installed Console package
 without a shared UID, checks that UID's package record, and compares its current APK
-signers *exactly* to the system image factory Console signers. The signer anchor comes
-from the pinned framework `MATCH_FACTORY_ONLY` API, not a hard coded private key or
-platform signing. It also checks the image copy's privileged system ext path. Updates
-that rotate a signer, or an environment where the factory package cannot be resolved,
-fail closed until their own continuity policy is qualified. The Console seapp rule
+signers *exactly* to the system image factory Console signers. The factory record is requested through the pinned framework `MATCH_FACTORY_ONLY`
+API, not a hard coded private key or platform signing. That API can fall back to the
+current system package when no disabled factory record exists. Equality with that
+same record is not independent proof of factory provenance. The endpoint also
+checks the returned record's privileged system ext path and metadata. A data update
+needs a separate factory image record or refusal; an unupdated image copy still
+needs independently verified image origin. These artifact and runtime provenance
+gates remain open. Updates that rotate a signer fail closed until their own
+continuity policy is qualified. The Console seapp rule
 already names this package and its dedicated signer. SELinux find/call rules alone do
 not authenticate Binder callers. This boundary does not resist a malicious platform
 administrator replacing the factory image.
@@ -116,11 +120,96 @@ and factory metadata, signer sets, scheduling and service registration are suppl
 host facts. These results exercise real Java branch and queue logic, not kernel
 Binder identity, cryptographic signatures, actual factory provenance or Android UI.
 
-AIDL generation, Android Java compilation, policy compile, DEX examination and an
-Android guest proof remain separate unperformed gates. The current product already
-selects optimized system server compilation and its downstream
-jar reference tracing. No broad keep rule for NativePrincipalManager is introduced.
-Inspect the exact trace inputs and final DEX in the candidate: retain Inspection and
-its read path, while dormant writers and release stay absent. Validate the factory
-package query on the built Android image. None of these artifact or runtime checks
-has been run for this patch.
+A separate bounded host gate has now generated the three committed AIDL files
+with the actual AIDL compiler, in both Java and NDK modes. It produced three Java
+files and twelve NDK source and header files. Both compiler invocations returned
+zero; the inputs and pinned compiler and library bytes stayed unchanged. The
+compiler SHA256 was
+`5698d499ed01db6db5d74282a56d83b5325d657659eea21249adbf7a0eb3a3fe`.
+This binds the observed tool, not a reproduced compiler build. It is a code
+generation observation, not qualification of the execution supervisor or Android.
+
+The generated interface has the argumentless `inspectCurrentUser` transaction,
+typed snapshot return and declared row and snapshot parcel order. Generation does
+not itself enforce the endpoint's 64 row limit. No generated Java or C++ code was
+compiled or linked in this gate. Actual Binder transport, final DEX, policy, image
+correspondence and Android runtime remain unqualified.
+
+The current product already selects optimized system server compilation and its
+downstream jar reference tracing. No broad keep rule for NativePrincipalManager is
+introduced. Inspect the exact trace inputs and final DEX in the candidate: retain
+Inspection and its read path, while dormant writers and release stay absent.
+Validate the factory package query on the built Android image. These Android
+artifact and runtime checks have not been run for this feature.
+
+## Next Android artifact gate
+
+Use an isolated candidate at the selected upstream revision and the exact feature
+source, without adopting it into the B2 source epoch. Bind the complete selected
+six family patch and profile inventory. The current Settings inspection fragment,
+Manager helper and adapted Settings postimage are one coherent source change, not
+a seventh family or a hash only repair of historical licensing predecessors.
+
+The concrete source module roots are:
+
+- `services`, through `services.impl` and `services.core`, for the adapted PMS and
+  cached inspection API. The core recipe collects its Java sources into
+  `services.core.unboosted`, then the priority boosted and combined outputs.
+- `andrix-owner-lifecycle`, which compiles against `services.impl` and statically
+  links `andrix_platform_lifecycle-java`.
+- `AndrixTerminal`, which compiles the actual Console and controller against the
+  generated Java interface. Its module references the dedicated certificate;
+  naming this target is not permission to use signing material. Compile only or
+  unsigned evidence and any signer consuming step must be scoped separately.
+- `andrix_platform_lifecycle-ndk`, as well as Java AIDL generation. The unstable
+  interface enables Java and NDK. Lifecycle enabled native consumers select the
+  NDK dependency even though this read endpoint uses Java.
+- `AndrixOwnerLifecycleOverlay`, which selects the system server service.
+
+These are module roots, not a claim that their total dependency graph or build
+allocation is small. Establish the actual staged source, generated target graph,
+toolchain identity, output capacity and inode forecast before compiling anything.
+A successful host facade compile does not supply those inputs.
+
+The product selects `PRODUCT_DEVICE := andrix_cf_arm64_only`. Its tracked board
+recipe includes `owner/sepolicy` with `ANDRIX_OWNER_SESSION=true` and also
+`owner/platform/sepolicy` with `ANDRIX_OWNER_LIFECYCLE=true`. Verify those directories
+in the actual staged vendor tree, rather than infer final inclusion from source
+paths. Relevant policy roots include `selinux_policy_system_ext` and its
+`system_ext_sepolicy.cil`, service contexts, seapp contexts and MAC permissions.
+Check the selected product's combined policy and neverallow tests as well. The
+source defines `selinux_policy`, `sepolicy_neverallows` and `sepolicy_test`; actual
+outputs and their transitive scope must be bound to the candidate.
+
+Retain source and output commitments for these artifact checks:
+
+1. Generate the actual Java and NDK AIDL. Check the zero target argument query,
+   Stub and Proxy, transaction and parcel shape, DTO field order and exceptions.
+   Hand translated host interfaces do not establish generated transport behavior.
+2. Inspect final services DEX for the immutable inspection types, `inspectUser`,
+   the selected Settings method and its cached PMS read path. Inspect the owner
+   jar for the service publication, query endpoint and generated Binder Stub.
+3. Inspect the final Console manifest, alias and DEX after shrinking for the
+   Activity, controller, Proxy and DTOs. Preserve the actual downstream system
+   server reference trace. Do not add a broad Manager keep rule or newly retain
+   dormant writer and release paths to make a check pass.
+4. Inspect emitted policy and contexts for the distinct accounts service, system
+   server registration, dedicated Console domain, narrow find and Binder call,
+   and foreign app and native owner denials. Preserve the home and work
+   neverallows. Find permission is not Binder caller authentication.
+5. Bind the factory APK's actual image path, privileged metadata, package, sole
+   UID and current signer set to the built image. A source path predicate or
+   matching signer tokens alone does not prove that origin.
+
+Disposable Android runtime qualification remains separate. It must distinguish
+an unupdated factory copy from a data update with an independent factory record,
+missing record and fallback cases, current signer mismatch and rotation history,
+shared or foreign UID callers, service replacement while the old Binder lives,
+and user removal or serial reuse. Exercise Binder parceling and policy denials,
+secondary user refusal, incomplete versus empty state and absence of write, lease
+or work registration effects. This checklist does not authorize protected key
+access, use of a retained guest, personal account data access or UID release.
+
+A report for one stage must not promote the others: source consistency, module
+compilation, generated artifacts, final image correspondence and Android runtime
+behavior are distinct gates. None is newly qualified by this checklist.
