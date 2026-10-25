@@ -92,10 +92,21 @@ Soong/policy wiring. Separately, a bounded pure unified diff check applied both 
 `bff2de579d206a39be81ef0b798df8f6e845d2f28efbbcd63554ccffbddae5a1`, producing
 Settings candidates `6c0e895d68c222436d1c34d123511875d8ede5f248c931ac843ff9ac2830c908`
 and `eab4ec31c8bad9153065400db9935edb3de499f3ce4169bddd4e9a159625ffaa`. This is a
-source consistency check, not an Android build. A Java host fixture is authored but
-not executed here. Java compilation, AIDL generation, policy compile,
-DEX examination and an Android guest proof require separately admitted work. The
-current product already selects optimized system server compilation and its downstream
+source consistency check, not an Android build.
+
+The Java projection fixture has now compiled with 47 source files under the pinned
+host JDK, `--release 17`, `-Xlint:all` and `-Werror`, and passed with assertions enabled.
+It exercises actual record/store and manager code through declared host Android
+facades. The cases cover immutable empty and BODY views, header reservations with
+unobserved lifecycle and suspension, original lineage and signer mismatch, missing
+and incomplete state, conflict, newer format and changed user serial. The query
+leaves the fixture's stored bytes unchanged. This is host component evidence, not
+Android Package Manager, Binder caller authentication, service replacement or
+SELinux execution.
+
+AIDL generation, Android Java compilation, policy compile, DEX examination and an
+Android guest proof remain separate unperformed gates. The current product already
+selects optimized system server compilation and its downstream
 jar reference tracing. No broad keep rule for NativePrincipalManager is introduced.
 Inspect the exact trace inputs and final DEX in the candidate: retain Inspection and
 its read path, while dormant writers and release stay absent. Validate the factory
